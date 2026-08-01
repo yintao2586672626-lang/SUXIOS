@@ -7,6 +7,16 @@ use PHPUnit\Framework\TestCase;
 
 final class RouteCoverageVerifierTest extends TestCase
 {
+    public function testAutomaticControllerRoutingIsDisabled(): void
+    {
+        $config = require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'route.php';
+
+        self::assertTrue(
+            $config['url_route_must'] ?? false,
+            'Controller/action fallback routing must stay disabled so requests cannot bypass route middleware.'
+        );
+    }
+
     public function testRouteCoverageVerifierResolvesConcernTraitActionsThroughController(): void
     {
         $script = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_route_coverage.php';

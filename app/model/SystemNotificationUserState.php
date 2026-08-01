@@ -80,6 +80,19 @@ class SystemNotificationUserState extends Model
         ]);
     }
 
+    public static function resetForNotificationUser(int $notificationId, int $userId): bool
+    {
+        if ($notificationId <= 0 || $userId <= 0 || !self::tableReady()) {
+            return false;
+        }
+
+        self::where('notification_id', $notificationId)
+            ->where('user_id', $userId)
+            ->delete();
+
+        return true;
+    }
+
     /**
      * @param array<int, int> $notificationIds
      * @param array<string, mixed> $fields

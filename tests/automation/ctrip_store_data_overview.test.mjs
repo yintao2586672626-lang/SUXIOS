@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const readBackendSource = () => {
-  const paths = ['app/controller/OnlineData.php'];
+  const paths = ['app/controller/OnlineData.php', 'app/service/Ota/OtaActionHandler.php'];
   const concernDir = 'app/controller/concern';
   if (existsSync(concernDir)) {
     for (const name of readdirSync(concernDir)) {
@@ -14,11 +15,12 @@ const readBackendSource = () => {
   return paths.map(path => readFileSync(path, 'utf8')).join('\n');
 };
 
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
 const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
+const ctripFragment = readFileSync('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html', 'utf8');
 const ctripProfileFieldConfigPanel = readFileSync('public/components/online-data/ctrip-profile-field-config-panel.js', 'utf8')
   .replace(/\\"/g, '"');
 const dataHealthOverviewSource = `${html}\n${dataHealthStatic}`;
@@ -65,8 +67,8 @@ const onlineDataRecordPanel = sliceBetween(
 test('Ctrip eBooking first tab is a business-first store data overview with diagnostics collapsed', () => {
   assert.ok(ctripPageStart > 0, 'Ctrip eBooking page section must exist');
   assert.match(ctripPage, />\s*门店数据总览\s*<\/button>/);
-  assert.match(ctripPage, /<h4 class="[^"]*">门店数据总览<\/h4>/);
-  assert.match(ctripPage, /携程 eBooking OTA渠道口径 · 快速获取目标门店经营、流量、竞争和广告数据/);
+  assert.match(ctripPage, /<h4 class="[^"]*">数据采集<\/h4>/);
+  assert.doesNotMatch(ctripPage, /选择门店后，使用已保存 Cookie|登录态验证后同步|核心数据：经营 \/ 流量 \/ 竞争 \/ PSI \/ 广告/);
   assert.equal(ctripPage.includes('门店总览'), false);
 
   assert.ok(ctripBusinessBoard.length > 0, 'business board must be rendered');
@@ -199,10 +201,11 @@ test('Ctrip profile field config manages modules from the same panel', () => {
   assert.match(html, /const ctripProfilePrimaryCategoryCards = computed/);
   assert.match(html, /ctripProfileModulePageUrl\(module\)/);
   assert.match(html, /\/online-data\/ctrip-profile-modules/);
-  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/outline\?microJump=true/);
-  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/weekReport\?microJump=true/);
-  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/beneficialdata\?microJump=true/);
-  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/flowdata\?microJump=true/);
+  assert.doesNotMatch(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\//);
+  assert.match(backend, /businessreport\/outline\?microJump=true/);
+  assert.match(backend, /businessreport\/weekReport\?microJump=true/);
+  assert.match(backend, /businessreport\/beneficialdata\?microJump=true/);
+  assert.match(backend, /businessreport\/flowdata\?microJump=true/);
   assert.match(backend, /CTRIP_PROFILE_MODULES_CONFIG_KEY/);
   assert.match(backend, /'page_url' => trim/);
   assert.match(backend, /'primary_category' => trim/);
@@ -243,14 +246,25 @@ test('Online data records tab reads persisted daily data instead of task logs', 
   assert.doesNotMatch(batchDelete, /batch-delete-auto-fetch-records/);
 });
 
-test('Ctrip overview one-click core capture stays on overview and supplemental fetches execute directly', () => {
+test('Ctrip overview batch capture runs competition circle only for every ready hotel', () => {
   const quickActions = sliceBetween(
     ctripPage,
     'data-testid="ctrip-overview-fetch-actions"',
-    '<div v-if="collectionReliabilityLoading"'
+    'data-testid="ctrip-health-refresh-state"'
   );
   assert.ok(quickActions.length > 0, 'overview quick fetch actions must exist');
-  assert.match(quickActions, /一键抓取/);
+  assert.match(quickActions, /一键采集竞争圈/);
+  assert.match(quickActions, /全部门店竞争圈/);
+  assert.doesNotMatch(quickActions, /Profile/);
+  assert.match(quickActions, /data-testid="ctrip-overview-core-fetch-status"/);
+  assert.match(quickActions, /ctripOverviewCoreFetchState\.hotels/);
+  assert.match(quickActions, /已处理 \{\{ ctripOverviewCoreFetchState\.completed_count \}\}\/\{\{ ctripOverviewCoreFetchState\.total_count \}\}/);
+  assert.match(quickActions, /hotel\.hotel_name/);
+  assert.match(quickActions, /hotel\.status_text/);
+  assert.match(ctripFragment, /ctripOverviewCoreFetchState\.message/);
+  assert.match(ctripFragment, /hotel\.message/);
+  assert.match(html, /配置缺口 \$\{state\.configuration_gap_count\} 家/);
+  assert.match(quickActions, /:disabled="ctripOverviewCoreFetchRunning \|\| !!ctripOverviewFetchActionLoading"/);
   assert.match(dataHealthOverviewSource, /抓取竞争/);
   assert.match(dataHealthOverviewSource, /抓取经营/);
   assert.match(dataHealthOverviewSource, /抓取流量/);
@@ -259,6 +273,8 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.match(quickActions, /runCtripOverviewCoreFetchAction/);
   assert.doesNotMatch(quickActions, /runCtripOverviewFetchAllActions/);
   assert.match(quickActions, /runCtripOverviewFetchAction\(item\.tab\)/);
+  assert.doesNotMatch(quickActions, /item\.subtitle/);
+  assert.match(quickActions, /xl:grid-cols-5/);
   assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-ranking'/);
   assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-flow-overview'/);
   assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-traffic'/);
@@ -268,14 +284,15 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.match(html, /const runCtripOverviewFetchAction = async \(tabName\) =>/);
   assert.match(html, /const runCtripOverviewCoreFetchAction = async \(\) =>/);
   assert.doesNotMatch(html, /const runCtripOverviewFetchAllActions = async \(\) =>/);
-  assert.match(html, /const runCtripOverviewCookieApiCapture = async \(sections = \[\], label = '核心数据'\) =>/);
+  assert.match(html, /const runCtripOverviewCookieApiCapture = async \(sections = \[\], label = '核心数据', options = \{\}\) =>/);
   assert.match(html, /const resolveCtripCookieApiRequestHotelId = \(systemHotelId = '', activeConfig = null, \{ allowForm = true \} = \{\}\) =>/);
   assert.match(html, /!isCtripPlaceholderHotelId\(value\)/);
   assert.match(html, /resolveCtripCookieApiRequestHotelId\(systemHotelId, activeConfig, \{ allowForm: false \}\)/);
   assert.doesNotMatch(html, /hotel_id:\s*ctripBrowserCaptureForm\.value\.hotelId[\s\S]*\|\|\s*ctripForm\.value\.nodeId/);
   assert.match(html, /'ctrip-ranking': \(\) => runCtripOverviewCookieApiCapture\(\['competitor_overview', 'competitor_rank'\]/);
   assert.match(html, /'ctrip-flow-overview': \(\) => runCtripOverviewCookieApiCapture\(\['business_overview', 'sales_report'\]/);
-  assert.match(html, /'ctrip-traffic': \(\) => runCtripOverviewCookieApiCapture\(\['traffic_report'\]/);
+  assert.match(html, /const runCtripTrafficManualCapture = async \(\) =>/);
+  assert.match(html, /'ctrip-traffic': \(\) => runCtripTrafficManualCapture\(\)/);
   assert.match(html, /'ctrip-quality': \(\) => runCtripOverviewCookieApiCapture\(\['quality_psi'\]/);
   assert.match(html, /'ctrip-ads': \(\) => runCtripOverviewCookieApiCapture\(\['ads_pyramid'\]/);
   assert.match(ctripStatic, /const optionSections = options\.sections \|\| options\.captureSections \|\| ''/);
@@ -290,6 +307,16 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
     'const runCtripOverviewCoreFetchAction = async () =>',
     'const refreshCtripHotelConfigOptions = () =>'
   );
+  const competitionBatchRunner = sliceBetween(
+    html,
+    'const executeCtripCompetitionBatchTarget = async (target) =>',
+    "const finishCtripCompetitionBatchState = (message = '') =>"
+  );
+  const competitionBatchResponseResolver = sliceBetween(
+    html,
+    'const resolveCtripCompetitionBatchResponse = (response = null) =>',
+    'const executeCtripCompetitionBatchTarget = async (target) =>'
+  );
   assert.match(html, /const prepareCtripOverviewFetchAction = async \(tabName\) =>/);
   assert.match(quickActionRunner, /await prepareCtripOverviewFetchAction\(tabName\)/);
   assert.match(quickActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
@@ -297,21 +324,54 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.doesNotMatch(quickActionRunner, /openCtripOverviewFetchTab/);
   assert.doesNotMatch(quickActionRunner, /onlineDataTab\.value\s*=\s*tabName/);
   assert.doesNotMatch(quickActionRunner, /onlineDataTab\.value\s*=\s*'data-health'/);
-  assert.match(coreActionRunner, /await prepareCtripOverviewFetchAction\('core'\)/);
-  assert.match(coreActionRunner, /const coreFetchTabs = \['ctrip-flow-overview', 'ctrip-traffic', 'ctrip-ranking', 'ctrip-quality', 'ctrip-ads'\]/);
-  assert.match(coreActionRunner, /const action = ctripOverviewFetchActionMap\(\)\[tabName\]/);
-  assert.match(coreActionRunner, /await action\(\)/);
-  assert.match(coreActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
+  assert.match(html, /const ctripOverviewCoreFetchState = ref\(null\)/);
+  assert.match(coreActionRunner, /loadHotels\(\)/);
+  assert.match(coreActionRunner, /loadCtripConfigList\(\{ force: true, applySelectedConfig: false \}\)/);
+  assert.match(coreActionRunner, /hotelListLoadFailed\.value \|\| ctripConfigListLoadFailed\.value/);
+  assert.match(coreActionRunner, /加载失败，未发起任何竞争圈接口请求/);
+  assert.match(coreActionRunner, /const targets = buildCtripCompetitionBatchTargets\(\)/);
+  assert.match(coreActionRunner, /targets\.filter\(target => target\.readiness\.ok\)/);
+  assert.match(coreActionRunner, /Math\.min\(2, readyTargets\.length\)/);
+  assert.match(coreActionRunner, /executeCtripCompetitionBatchTarget\(target\)/);
+  assert.match(coreActionRunner, /finishCtripCompetitionBatchState\(\)/);
+  assert.match(coreActionRunner, /source: '全部门店竞争圈采集'/);
+  assert.match(competitionBatchRunner, /buildCtripCookieApiFetchRequestBody/);
+  assert.match(competitionBatchRunner, /requestSource: 'competition_circle'/);
+  assert.match(competitionBatchRunner, /\/online-data\/fetch-ctrip-cookie-api/);
+  assert.match(competitionBatchRunner, /systemHotelId: target\.hotelId/);
+  assert.match(competitionBatchRunner, /hotelId: target\.readiness\.platformHotelId/);
+  assert.match(competitionBatchResponseResolver, /data\.identity_check\?\.ok === false/);
+  assert.match(competitionBatchResponseResolver, /status: identityBlocked \? 'identity_pending' : 'failed'/);
+  assert.match(competitionBatchResponseResolver, /status: 'identity_pending'/);
+  assert.match(competitionBatchResponseResolver, /data\.request_complete !== true/);
+  assert.doesNotMatch(competitionBatchResponseResolver, /status: data\.identity_check \? 'blocked' : 'failed'/);
+  assert.match(html, /identity_pending: \{ text: '身份待确认'/);
+  assert.match(html, /configuration_gap: \{ text: '待配置'/);
+  assert.match(html, /identity_pending_count/);
+  assert.match(html, /\|\| state\.identity_pending_count > 0/);
+  assert.doesNotMatch(html, /blocked: \{ text: '不可采集'/);
+  assert.match(html, /入库成功 \$\{state\.success_count\} 家，身份待确认 \$\{state\.identity_pending_count\} 家/);
+  assert.match(ctripFragment, /入库成功 \{\{ ctripOverviewCoreFetchState\.success_count \}\}/);
+  assert.match(ctripFragment, /身份待确认 \{\{ ctripOverviewCoreFetchState\.identity_pending_count \}\}/);
+  assert.match(ctripFragment, /配置缺口 \{\{ ctripOverviewCoreFetchState\.configuration_gap_count \}\}/);
+  assert.doesNotMatch(competitionBatchRunner, /\bcookies\s*:/);
+  assert.doesNotMatch(competitionBatchRunner, /\bprofile_id\s*:/);
+  assert.match(coreActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true/);
   assert.doesNotMatch(coreActionRunner, /await loadDataHealthPanel\('light', \{ force: true \}\)/);
+  assert.doesNotMatch(coreActionRunner, /ctripOverviewFetchActionMap/);
+  assert.doesNotMatch(coreActionRunner, /revenue_overview|traffic_report|quality_psi|ads_pyramid/);
   assert.doesNotMatch(coreActionRunner, /runCtripBrowserCapture/);
   assert.doesNotMatch(coreActionRunner, /ctripBrowserCaptureForm\.value\.sections/);
   assert.doesNotMatch(coreActionRunner, /openCtripOverviewFetchTab/);
   assert.doesNotMatch(coreActionRunner, /onlineDataTab\.value\s*=\s*tabName/);
   assert.doesNotMatch(coreActionRunner, /onlineDataTab\.value\s*=\s*'data-health'/);
+  assert.match(html, /identityDiscovery:\s*!platformHotelId/);
+  assert.doesNotMatch(html, /reason: 'missing_platform_hotel_id'/);
+  assert.match(html, /没有可执行门店，请先补齐携程授权配置。/);
 
   const cookieApiRunner = sliceBetween(
     html,
-    'const runCtripCookieApiCapture = async () =>',
+    'const runCtripCookieApiCapture = async (options = {}) =>',
     'const validateCtripEndpointEvidence = async () =>'
   );
   const profileRunner = sliceBetween(
@@ -324,6 +384,20 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.match(ctripStatic, /runPostFetchRefresh\(refreshDataHealthPanel, 'light', \{ force: true \}\)/);
 });
 
+test('Ctrip service and ads tabs read Ctrip-only persisted snapshots without fake zero fallbacks', () => {
+  assert.match(ctripPage, /data-testid="ctrip-quality-tab"/);
+  assert.match(ctripPage, /data-testid="ctrip-quality-panel"/);
+  assert.match(ctripPage, /data-testid="ctrip-ads-persisted-snapshot"/);
+  assert.doesNotMatch(ctripPage, /onlineDataTab === 'ctrip-overview'/);
+  assert.match(html, /collectionHealthCtripSupplementalRows/);
+  assert.match(html, /ctrip_supplemental_history/);
+  assert.match(html, /loadSupplementalSnapshot:\s*\(\) => loadCollectionReliability\('full'\)/);
+  assert.match(dataHealthStatic, /dataTypes:\s*\['quality', 'business'\]/);
+  assert.match(backend, /buildCtripSupplementalHistoryRows/);
+  assert.match(backend, /foreach \(\['quality', 'advertising'\] as \$dataType\)/);
+  assert.match(backend, /\[\$dataType\], \['ctrip'\]/);
+});
+
 test('Ctrip Cookie API save is guarded against cross-store hotel identity conflicts', () => {
   const cookieApiHandler = sliceBetween(
     backend,
@@ -333,10 +407,16 @@ test('Ctrip Cookie API save is guarded against cross-store hotel identity confli
   assert.match(cookieApiHandler, /validateCtripPayloadHotelIdentity\(\$payload, \(int\)\$systemHotelId, \$prepared\['config'\] \?\? \[\]\)/);
   assert.match(cookieApiHandler, /reason'\s*=>\s*'hotel_identity_mismatch'/);
   assert.match(cookieApiHandler, /saved_count'\s*=>\s*0/);
-  assert.match(cookieApiHandler, /expected_platform_hotel_id_missing/);
+  assert.match(cookieApiHandler, /findStoredCtripExecutionConfig\(\$configId, \$systemHotelId\)/);
+  assert.match(cookieApiHandler, /stored_platform_hotel_id_mismatch/);
+  assert.match(cookieApiHandler, /\$requestData\['ctrip_hotel_id'\]\s*=\s*\(string\)/);
+  assert.match(cookieApiHandler, /\$requiresPlatformHotelIdDiscovery\s*=\s*true/);
+  assert.match(cookieApiHandler, /count\(\$capturedHotelIds\)\s*!==\s*1/);
+  assert.match(cookieApiHandler, /persistCtripResolvedPlatformHotelIdForSystemHotel\(/);
+  assert.match(cookieApiHandler, /auto_bound_platform_hotel_id/);
+  assert.match(cookieApiHandler, /platform_hotel_id_auto_bind_failed/);
   assert.match(cookieApiHandler, /\$saveBlockedIdentity\s*=\s*\$identityCheck/);
   assert.doesNotMatch(cookieApiHandler, /cookie_only_without_platform_hotel_id/);
-  assert.doesNotMatch(cookieApiHandler, /expected_platform_hotel_id_missing[\s\S]{0,500}\$identityCheck\['ok'\]\s*=\s*true/);
   assert.match(backend, /private function validateCtripPayloadHotelIdentity\(array \$payload, int \$systemHotelId, array \$config = \[\]\): array/);
   assert.match(backend, /private function findCtripPlatformHotelIdConflicts\(array \$platformHotelIds, int \$systemHotelId\): array/);
   assert.match(backend, /private function filterAmbiguousCtripHotelRows\(array \$rows, \?int \$hotelId\): array/);
@@ -365,6 +445,7 @@ test('Ctrip hotel identity safety ignores competitor rows and whitelists configu
     'private function normalizeCtripCookieApiEndpointsFromRequest'
   );
   assert.doesNotMatch(cookieApiConfigBuilder, /requestData\['node_id'\]|requestData\['nodeId'\]/, 'Cookie API hotel_id must not fall back to nodeId');
+  assert.match(cookieApiConfigBuilder, /isMeaningfulCtripPlatformHotelId\(\$hotelId, \(int\)\(\$systemHotelId \?\? 0\)\)/);
 
   const reportBuilder = sliceBetween(
     backend,
@@ -458,7 +539,11 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   assert.match(profileLoginTrigger, /account_owner_local_computer_only/);
   assert.match(html, /const defaultMeituanLoginUrl = 'https:\/\/me\.meituan\.com\/ebooking\/';/);
   assert.match(html, /宿析不会在服务器或管理员电脑打开平台登录/);
-  assert.doesNotMatch(profileLoginTrigger, /\/online-data\/profile-login-trigger\/\$\{platform\}/);
+  assert.match(html, /const canLaunchLocalPlatformProfileBrowser = \(\) =>/);
+  assert.match(html, /\['127\.0\.0\.1', 'localhost', '::1'\]\.includes\(hostname\)/);
+  assert.match(profileLoginTrigger, /if \(!canLaunchLocalPlatformProfileBrowser\(\)\)/);
+  assert.match(profileLoginTrigger, /\/online-data\/profile-login-trigger\/\$\{platform\}/);
+  assert.match(profileLoginTrigger, /pollPlatformProfileLoginStatus\(platform, task\.task_id\)/);
   assert.doesNotMatch(profileLoginPayload, /form\.profileId \|\| hotelIdValue \|\| hotelId/);
   assert.match(profileCapture, /resolveProfileId:\s*activeConfig => resolveCtripBrowserProfileId\(\{\s*activeConfig\s*\}\)/);
   assert.doesNotMatch(profileCapture, /form\.profileId \|\| hotelId \|\| systemHotelId/);
@@ -494,11 +579,13 @@ test('Platform account badge treats browser profile login timeout as login expir
   assert.match(loginExpiredDetector, /需重新登录/);
   assert.match(loginExpiredDetector, /login\\s\*timeout/);
   assert.match(accountRowBuilder, /const loginExpired = isPlatformSourceLoginExpired\(source, config\)/);
-  assert.match(systemStatic, /data_source_id: profileSource\?\.id \|\| source\?\.id \|\| undefined/);
+  assert.match(systemStatic, /data_source_id: profileSource\?\.id \|\| undefined/);
+  assert.doesNotMatch(systemStatic, /data_source_id: profileSource\?\.id \|\| source\?\.id \|\| undefined/);
   assert.match(autoFetchStatic, /status === 'syncing_after_login' \|\| sync\?\.status === 'running'/);
-  assert.match(autoFetchStatic, /登录后同步完成，目标日已入库/);
-  assert.match(accountRowBuilder, /loginExpired \? 'login_expired'/);
-  assert.match(accountRowBuilder, /effectiveReady \? 'logged_in'/);
+  assert.match(autoFetchStatic, /登录后同步已入库.*数据库回读核验/);
+  assert.match(autoFetchStatic, /尚未确认数据库回读/);
+  assert.match(accountRowBuilder, /loginExpired[\s\S]*\? 'login_expired'/);
+  assert.match(accountRowBuilder, /effectiveReady[\s\S]*renewal_warning[\s\S]*profile_reusable/);
   assert.match(accountRowWrapper, /buildHotelPlatformBindingRowsStatic/);
   assert.match(accountRowWrapper, /platformSourceForHotel\(hotelId, 'ctrip'\)/);
   assert.match(accountRowWrapper, /platformSourceForHotel\(hotelId, 'meituan'\)/);
@@ -691,6 +778,17 @@ test('Ctrip business download canvas is owned by ctrip static helper', () => {
   assert.ok(calls.some(call => call[0] === 'scale' && call[1] === 2));
 });
 
+test('Ctrip image download keeps the Blob URL alive for delayed browser handoff', () => {
+  const downloadBlob = sliceBetween(html, 'const downloadBlob =', 'const ctripDownloadRows =');
+
+  assert.match(downloadBlob, /link\.style\.display = 'none'/);
+  assert.match(downloadBlob, /window\.setTimeout\(\(\) => \{/);
+  assert.match(downloadBlob, /if \(link\.isConnected\) link\.remove\(\)/);
+  assert.match(downloadBlob, /URL\.revokeObjectURL\(url\)/);
+  assert.match(downloadBlob, /\}, 60000\)/);
+  assert.doesNotMatch(downloadBlob, /document\.body\.removeChild\(link\)/);
+});
+
 test('Ctrip authorization maintenance opens metadata-only replacement state with zero plaintext', () => {
   const editorFill = sliceBetween(html, 'const fillCtripCookieEditorForm =', 'const openCtripCookieEditorFromHealth =');
   const editorOpen = sliceBetween(html, 'const openCtripCookieEditorFromHealth =', 'const editCtripCookieFromHealth =');
@@ -736,16 +834,26 @@ test('Ctrip capture coverage panel hides raw diagnostic field names', () => {
   );
 });
 
-test('Ctrip flow overview interface misses show actionable reasons', () => {
-  assert.match(ctripPage, /说明 \/ 未命中原因/);
+test('Ctrip flow overview hides technical interface misses while retaining internal reason classification', () => {
+  const flowOverview = sliceBetween(
+    ctripPage,
+    "<div v-if=\"onlineDataTab === 'ctrip-flow-overview'\">",
+    "<div v-if=\"onlineDataTab === 'ctrip-traffic'\">",
+  );
+
+  assert.ok(flowOverview.length > 0, 'Ctrip flow overview panel must exist');
+  assert.doesNotMatch(
+    flowOverview,
+    /说明 \/ 未命中原因|接口命中明细|复制排障数据|JSON\.stringify\(ctripFlowOverviewResult/,
+  );
   assert.match(ctripStatic, /const buildCtripOverviewMetricCards = /);
   assert.match(ctripStatic, /const buildCtripOverviewTopRankTables = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewMetricCards = /);
   assert.match(ctripStatic, /const buildCtripSortedHotelRows = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewInterfaceRows = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewInterfaceReason = \(context\) =>/);
-  assert.match(ctripStatic, /未在本次 Request URL 列表中配置/);
-  assert.match(ctripStatic, /已配置但未收到接口响应/);
+  assert.match(ctripStatic, /本次未发现该接口请求/);
+  assert.match(ctripStatic, /接口已自动加入请求清单，但未收到接口响应/);
   assert.match(ctripStatic, /接口有响应但未解析到可入库行/);
   assert.match(ctripStatic, /接口请求失败/);
   assert.match(html, /requireCtripStatic\('buildCtripOverviewMetricCards'\)/);
@@ -753,10 +861,30 @@ test('Ctrip flow overview interface misses show actionable reasons', () => {
   assert.match(html, /requireCtripStatic\('buildCtripFlowOverviewMetricCards'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripSortedHotelRows'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripFlowOverviewInterfaceRows'\)/);
-  assert.match(html, /row\.reasonText/);
+  assert.doesNotMatch(flowOverview, /row\.reasonText/);
   assert.doesNotMatch(html, /const normalizeCtripTopRankItems = /);
   assert.doesNotMatch(html, /const field = ctripSortField\.value;/);
   assert.doesNotMatch(html, /本次未从响应 URL 中命中该接口/);
+});
+
+test('Ctrip flow overview distinguishes automatic templates from interfaces not observed this run', () => {
+  const api = loadCtripStaticApi();
+  const knownUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate';
+  const rows = api.buildCtripFlowOverviewInterfaceRows({
+    request_urls: [knownUrl],
+    xhr_urls: [{ url: knownUrl, status: 200, request_type: 'post' }],
+    responses: [{ url: knownUrl, status: 200, request_type: 'post' }],
+  }, [
+    { keyword: 'getDayReportRealTimeDate', scope: 'business', note: 'known endpoint' },
+    { keyword: 'queryScanFlowDetailsV2', scope: 'traffic', note: 'observed endpoint' },
+  ]);
+
+  assert.equal(rows[0].status, 'hit');
+  assert.equal(rows[0].requestHitCount, 1);
+  assert.equal(rows[0].responseHitCount, 1);
+  assert.equal(rows[1].status, 'not_observed');
+  assert.equal(rows[1].statusText, '本次未发现');
+  assert.match(rows[1].reasonText, /系统会通过已知接口模板或 Profile 页面监听自动补齐/);
 });
 
 test('Ctrip learning table records scope, source, conversion, missing status and real-sample requirements', () => {
@@ -784,4 +912,45 @@ test('Ctrip learning table records scope, source, conversion, missing status and
   assert.match(learningDoc, /"parsed_value": "宿析OS解析后的值"/);
   assert.match(learningDoc, /"captured_at": "采集时间"/);
   assert.match(learningDoc, /"store_id": "门店ID"/);
+});
+
+test('Ctrip preferred Cookie preset stays private and expands on the server', () => {
+  const api = loadCtripStaticApi();
+  const endpoints = api.getCtripCookieApiCorePresetEndpoints();
+
+  assert.deepEqual(Array.from(endpoints), []);
+  assert.match(backend, /buildCtripCookieApiPresetEndpoints/);
+  assert.match(backend, /'traffic_report'/);
+  assert.match(backend, /\[\[0, '0'\], \[3, '0'\], \[0, '1'\], \[3, '1'\]\]/);
+  assert.doesNotMatch(ctripStatic, /querySearchFlowDetails/);
+});
+
+test('Ctrip stored-history view keeps the channel boundary and preserves the last matching readback', () => {
+  const openHistory = sliceBetween(
+    html,
+    'const switchToDownloadCenter = () =>',
+    'const switchToMeituanDownloadCenter = () =>'
+  );
+  const historyLoader = sliceBetween(
+    html,
+    'const loadOnlineHistory = async () =>',
+    'const refreshOnlineHistory = async'
+  );
+  const historyPanel = sliceBetween(
+    ctripFragment,
+    '<div v-if="downloadCenterTab === \'overview\'" class="space-y-4">',
+    '<div v-if="downloadCenterTab === \'ai\'">'
+  );
+
+  assert.match(openHistory, /onlineHistoryFilter\.value\.platform = 'ctrip'/);
+  assert.match(historyLoader, /createEmptyOnlineHistorySummary\(\)/);
+  assert.doesNotMatch(historyLoader, /onlineHistoryList\.value = \[\]/);
+  assert.match(historyLoader, /onlineHistorySnapshotKey\.value = onlineHistoryCurrentQueryKey\.value/);
+  assert.match(historyLoader, /onlineHistoryErrorQueryKey\.value = queryKey/);
+  assert.match(historyPanel, /onlineHistoryHasCurrentSnapshot/);
+  assert.match(html, /刷新失败，当前显示上次成功结果；不代表当前最新状态/);
+  assert.match(historyPanel, /formatOptionalNumber\(onlineHistorySummary\.total_records, '未取得'\)/);
+  assert.match(historyPanel, /formatOptionalNumber\(onlineHistorySummary\.failed_records, '未取得'\)/);
+  assert.match(historyPanel, /不以 0 或其他平台记录补齐/);
+  assert.doesNotMatch(historyPanel, /onlineHistorySummary\.(?:total_records|today_records|failed_records) \|\| 0/);
 });

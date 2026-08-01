@@ -20,7 +20,8 @@ function read_file(string $relative): string
 function read_online_data_controller_source(): string
 {
     global $root;
-    $source = read_file('app/controller/OnlineData.php');
+    $source = read_file('app/controller/OnlineData.php')
+        . "\n" . read_file('app/service/Ota/OtaActionHandler.php');
     $concernDir = $root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'controller' . DIRECTORY_SEPARATOR . 'concern';
     foreach (glob($concernDir . DIRECTORY_SEPARATOR . '*.php') ?: [] as $path) {
         $content = file_get_contents($path);
@@ -45,7 +46,7 @@ $route = read_file('route/app.php');
 foreach ([
     "Route::post('/update-data', 'OnlineData/updateData')",
     "Route::delete('/delete-data', 'OnlineData/deleteData')",
-    "Route::get('/cookie-status', 'OnlineData/cookieStatus')",
+    "Route::get('/cookie-status', 'ota.CredentialController/cookieStatus')",
     "Route::get('/cookie-warnings', 'Agent/cookieWarnings')",
     "Route::post('/price-suggestions/generate', 'Agent/generatePriceSuggestions')",
     "Route::post('/price-suggestions/:id/apply', 'Agent/applyPrice')",
@@ -85,9 +86,9 @@ assert_true(str_contains($feasibility, 'LlmClient $client'), 'FeasibilityReportS
 assert_true(!str_contains($feasibility, 'OpenAIClient'), 'FeasibilityReportService must not depend on OpenAIClient');
 $checks[] = 'feasibility_llm';
 
-$ai = read_file('app/controller/Ai.php');
-assert_true(str_contains($ai, 'FeasibilityReportService'), 'Ai feasibility must use FeasibilityReportService');
-$checks[] = 'ai_controller';
+assert_true(!is_file($root . '/app/controller/Ai.php'), 'Legacy simulated AI controller must stay removed');
+assert_true(!str_contains($route, "Route::group('api/ai'"), 'Legacy simulated AI route group must stay removed');
+$checks[] = 'legacy_ai_removed';
 
 $onlineData = read_online_data_controller_source();
 assert_true(str_contains($onlineData, "\$this->request->param('id', 0)"), 'deleteData must accept id from DELETE params/body');

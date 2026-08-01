@@ -5,9 +5,9 @@ description: 用于宿析OS OTA运营、携程/美团数据获取、手动采集
 
 # Suxi OTA Ops
 
-## Plugin Priority
+## Tool Choice
 
-Use `suxi-plugin-priority-router` before manual OTA/browser work. Prefer Browser for local SUXIOS UI checks, Chrome only when the user's logged-in browser state is required, and Computer Use for desktop/XAMPP or non-web operations. Do not use plugins to bypass OTA login, captcha, SMS, authorization, or tenant boundaries.
+Choose the shortest verified path for the specific OTA task. Use Browser for local SUXIOS UI checks, Chrome only when the user's visible logged-in browser state is required, and Computer Use for desktop/XAMPP or non-web operations. Do not run a generic plugin-routing gate first, and never use tools to bypass OTA login, captcha, SMS, authorization, or tenant boundaries.
 
 ## Business Goal
 
@@ -36,9 +36,31 @@ Use `suxi-plugin-priority-router` before manual OTA/browser work. Prefer Browser
 | 自动获取 | 日常稳定采集、日报、巡检、预警、无需每次人工复制上下文 | 平台账号已授权，门店和系统酒店已绑定 | 使用门店独立 Profile，失效时提示人工登录，监听业务 JSON，按模块入库 | 不绕过验证码/短信/权限，不采集非授权门店 |
 | 手动获取 | 临时补数、首次接入、平台改版排障、自动采集失效后补录、用户已导出报表或抓到请求上下文 | 平台、酒店、日期、数据模块、导出文件或 Cookie/Payload/必要 ID | 校验字段，调用现有接口或导入解析，清洗、脱敏、去重、入库 | 不作为日常主线，不自动登录 OTA，不启动 Profile，不要求全量页面自动化 |
 
+## Minimal Endpoint Collection
+
+- 涉及授权浏览器、内部业务接口、CDP、XHR/fetch Hook、浏览器扩展或 DOM 兜底时，先读取 `references/authorized-browser-endpoint-collection.md`。
+- 从“要生成的经营事实或推送内容”反推最少端点；不要为了发现字段遍历所有页面或每次重放全部已知接口。
+- 已确认端点默认在对应隔离 BrowserContext 内直接请求；网络监听只用于首次发现、平台改版和响应合同漂移，DOM 只用于结构化响应确实缺失的可见字段。
+- 一个浏览器进程可以承载多个平台，但每个平台/账号/门店必须有独立 BrowserContext 或 Profile、显式绑定和互斥锁；端口不代表身份隔离。
+
+## Common Collector Adapter Contract
+
+- 携程、美团、订单来了等网站共同遵循 `references/platform-collector-adapter-contract.md`。
+- 公共层统一范围声明、会话隔离、门店身份、最小请求、字段事实、保存回读、时间序列和失败状态。
+- 平台适配层只声明允许域名、身份字段、端点/Payload、JSON source path、指标、单位、日期角色、更新时间窗和对账规则。
+- 不为每个网站复制一套采集流程，也不把不同平台的同名字段强行视为同一口径。
+
+## Daily Operations Ledger
+
+- 涉及昨日数据、Excel 日台账、晨报、流量漏斗、同行/商圈对比或“数据到动作”闭环时，先读取 `references/ota-daily-operations-ledger.md`。
+- 日台账默认主线是：`昨日 OTA 事实 → 本店与商圈/同行对比 → 漏斗瓶颈 → 今日动作 → 次日与 7 日复盘`。
+- 先绑定门店、平台、业务日、采集时间、来源和保存回读，再计算转化率；Excel 公式结果不作为权威数据。
+- 来源表中的备注只作为运营假设或执行记录，经过前后证据复盘后才能晋级为已验证 SOP。
+
 ## Ctrip Rules
 
 - 参考文档：`references/ctrip-browser-capture.md`。
+- 涉及竞对库存、售罄、推算销量、竞对营收或竞争圈需求压力时，先读取 `references/competitor-public-inventory-signal.md`；公开库存净变化只能作为派生 OTA 信号，不得提升为竞对真实销量、订单或营收。
 - 自动使用 `storage/ctrip_profile_{store_id}`，按门店隔离 Profile；失效时打开携程登录页等待人工完成短信、滑块或人机验证。
 - 手动仅处理用户提交的 `Cookie`、`spidertoken`、`node_id` / 平台酒店 ID、Payload、日期范围、渠道 Tab，或携程后台/Trip Connect 可导出的内容、ARI、预订、点评、分析数据；用于临时补数或排障，不作为默认主线。
 - 自动模块优先级：经营概况、流量、订单、房态房价；广告、渠道评分、更多页面只在明确业务需要时加入；点评暂缓，不进入默认自动采集。
@@ -53,6 +75,7 @@ Use `suxi-plugin-priority-router` before manual OTA/browser work. Prefer Browser
 ## Meituan Rules
 
 - 参考文档：`references/meituan-browser-capture.md`。
+- 涉及订单流失/流入、流向酒店、来源酒店、全周期订单流向或竞对转化归因时，先读取 `references/meituan-order-flow-attribution.md`；平台授权归因只证明 OTA 渠道内的路径，不直接证明流失原因，也不得扩大为全酒店流失。
 - 自动优先走页面触发流程：`POST /api/online-data/capture-meituan-browser` starts `scripts/meituan_browser_capture.mjs`，复用 `storage/meituan_profile_{store_id}`。
 - 手动仅处理用户提交的 Cookie/Session、`partner_id`、`poi_id` / `store_id`、Payload、iframe URL、必要动态签名，或直连平台可导出的产品、订单日志、订单监控数据；用于临时补数或排障，不作为默认主线。
 - 自动模块优先级：流量/数据中心、订单/入住管理、价格库存/直连产品；广告只在已有广告账号、成本口径和复盘需求时加入；点评暂缓，不进入默认自动采集。

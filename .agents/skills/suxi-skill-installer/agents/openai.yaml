@@ -3,4 +3,4 @@ interface:
   short_description: "按任务判断、创建或安装宿析OS所需 Skill"
   default_prompt: "使用 $suxi-skill-installer 在开始前判断本次任务需要哪些宿析OS项目 Skill。"
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

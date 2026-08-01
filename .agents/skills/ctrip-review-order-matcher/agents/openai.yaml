@@ -1,0 +1,4 @@
+interface:
+  display_name: "携程点评订单候选匹配"
+  short_description: "按房型、日期、状态、金额和内容证据匹配携程点评与订单候选"
+  default_prompt: "使用 $ctrip-review-order-matcher 在授权携程订单池中生成点评订单候选、评分拆解和复核清单；PMS可选，不做身份反查。"

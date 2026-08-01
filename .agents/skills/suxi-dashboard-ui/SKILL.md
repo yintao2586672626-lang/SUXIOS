@@ -1,24 +1,62 @@
 ---
 name: suxi-dashboard-ui
-description: 用于宿析OS SaaS数据驾驶舱、看板、仪表盘、经营数据、图表、筛选器、表格、卡片、指标趋势、收益分析UI、竞品分析UI、运营诊断UI、Tailwind、Vue 3 CDN、public/index.html 或 hotel-frontend 相关任务。
+description: 用于宿析OS登录、SaaS数据驾驶舱、经营看板、收益分析、竞品分析、运营诊断、图表、筛选器、表格、卡片和交互界面。生产登录页是唯一默认品牌审美锚点；本 Skill 在宿析OS UI 任务中可自动触发，并覆盖通用 UI/taste Skill 的风格预设。
 ---
 
-# Suxi Dashboard UI
+# 宿析OS UI 基线
 
-## Plugin Priority
+## 角色
 
-Use `suxi-plugin-priority-router` when the task can benefit from installed plugins: Figma/Product Design for mockups or design handoff, Browser for local UI verification, Chrome for the user's active browser state, and Data Analytics for report-backed dashboards.
+这是宿析OS唯一允许隐式触发的视觉 Skill。先保持真实数据链路、现有交互和组件契约，再把界面统一到生产登录页的品牌语言。不要自动串联 `gpt-taste`、`minimalist-ui`、`high-end-visual-design`、`impeccable`、`ui-ux-pro-max` 或图像生成类 Skill；只有用户明确点名时才把它们作为局部参考。
 
-## Rules
+涉及 Hoxio / `yunqi52.com` 的界面借鉴时，读取 [Hoxio 优胜板块与宿析OS吸收清单](../suxi-capability-absorption/references/hoxio-better-module-patterns.md)。只吸收信息层级、短操作路径、状态卡和下一步动作，不做像素级复制；生产登录页仍是宿析OS唯一默认品牌锚点。
 
-1. Match the existing宿析OS SaaS/data-dashboard style: professional, restrained, dense, readable.
-2. Reuse current components, utilities, theme variables, and naming conventions.
-3. Do not change navigation, global style, state management, API shape, or data structure unless required.
-4. Keep dashboard changes scoped to the requested view or module.
-5. Ensure mobile and desktop text does not overlap or overflow.
-6. Treat `public/index.html` as protected; confirm necessity before editing it.
+## 用户偏好参考
 
-## UI Preference
+当用户用截图、口语短句或“复杂了、没必要、根据实际情况、继续优化”等表达反馈页面时，可按需读取 [用户页面偏好参考](references/user-page-intent.md) 的相关章节，帮助理解其常见关注点。
 
-- Prioritize tables, compact metrics, filters, segmented controls, and clear hierarchy.
-- Avoid marketing-style hero sections and decorative UI.
+该参考采用高自由度启发式，不是固定工作流、授权规则、页面模板或验收门禁。当前请求、实际页面、代码事实和业务风险始终优先；Codex 可以根据具体问题选择更好的实现、必要的重构和合适的验证方式。
+
+## VibeHub 术语辅助
+
+当用户用口语描述按钮、控件、反馈状态或页面布局，且准确术语能明显减少误解时，可按需读取 [VibeHub UI 术语与控件语义参考](references/vibehub-ui-language.md)。VibeHub 用于把自然表达对应到合适的交互概念，不是宿析OS的视觉主题、组件库或业务规则来源。
+
+先理解用户要完成的业务结果和当前页面事实，再选择真正有帮助的 1–3 个概念；不为展示术语而打断功能实现。需要在线核对时，只向已审查的用户级 `vibehub` 解析器发送脱敏后的通用短术语并保持官方默认站点，不发送项目内容、客户信息、内部地址或凭证。外部查询失败、限流或没有可靠匹配时，继续完成当前任务，不伪造链接，也不把该服务变成宿析OS开发的硬依赖。
+
+当用户询问“还有哪些好用功能没用上”、希望结合宿析现状继续优化，或当前问题涉及详情跳页、门店难找、执行过程不清、加载空白、表单报错不具体时，读取 [宿析OS交互机会映射](references/suxi-ui-opportunity-map.md)。先核对目标页面当前源码和运行行为，区分“已经使用、局部使用、值得候选、不适合当前业务”，再选择最能缩短当前业务路径的一项；机会映射不是自动开发清单。
+
+## 品牌视觉锚点
+
+生产登录页的核心气质是“高端酒店经营系统”，不是通用科技蓝：
+
+- 深墨黑与深绿黑：优先复用 `--sx-luxury-bg: #06110d`、`--sx-luxury-bg-deep: #020706`、`--sx-luxury-green: #143a31`。
+- 克制香槟金：优先复用 `--sx-luxury-gold: #dcc591`；主操作可使用约 `#a88a52 -> #6f572f` 的低饱和金色渐变。金色只标记关键决策、选中状态和主操作。
+- 高对比文字：深色表面用 `#f8fafc`/米白，次级文字用低对比 slate；亮色数据表面用深墨文字。
+- 面板：登录/品牌入口可用近黑半透明表面、约 18px 圆角、细金色边框和克制深阴影；输入与按钮约 11px 圆角。
+- 字体：优先 `Microsoft YaHei`, `PingFang SC`, `Segoe UI`, system-ui；标题有力量，但正文和数据保持紧凑、清楚。
+- 动效：只做 150–220ms 的状态反馈、淡入或轻微位移；不引入滚动表演、霓虹光效、持续漂浮或无业务意义的动画。
+
+## 从登录页到业务界面的转换
+
+登录页可以使用酒店场景大图和深色沉浸背景；驾驶舱、表格和分析页不能整页照搬暗色营销画面：
+
+1. 导航、决策焦点、关键指标或 AI 建议区可以延续深墨黑/香槟金。
+2. 主数据区优先复用 `--sx-dashboard-*` 的亮色高可读表面，保持表格密度、长文本和图表辨识度。
+3. 卡片不层层套卡片；用留白、细边框、标题层级和分区背景建立结构。
+4. 图表颜色首先表达语义和可区分性，品牌金不承担所有数据系列。
+5. 状态必须明确区分真实线上、人工导入、本地模拟、未验证和采集失败；视觉不能掩盖证据缺口。
+
+## 实施规则
+
+1. 复用现有组件、CSS 变量、工具类、函数和命名，不为“高级感”重写框架。
+2. 修改只落在用户要求的页面或模块；除非功能闭环需要，不改导航、全局状态、API 或数据结构。
+3. 优先信息层级、筛选效率、指标可解释性、表格可扫读性和主操作可发现性。
+4. 移动端与桌面端都不得出现文字重叠、截断关键数值或横向失控。
+5. `public/index.html` 是受保护入口；只做关键词/行段级检查，确认必要后才修改。
+6. 前端改动后检查实际页面，并以生产登录页的气质而不是通用模板作为视觉对照。
+
+## 完成标准
+
+- 功能入口可找到、操作可完成、保存/回显和失败状态真实。
+- 颜色、字体、圆角、阴影和主操作层级与登录页同源，但数据页仍然清晰高效。
+- 没有自动混入其他 UI Skill 的强制渐变、巨型留白、过量玻璃拟态、图片生成或全局动效要求。

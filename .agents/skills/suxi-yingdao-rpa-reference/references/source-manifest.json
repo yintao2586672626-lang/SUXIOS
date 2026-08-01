@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "suxi_yingdao_rpa_source_manifest.v1",
+  "generatedAt": "2026-07-23T16:27:04.052Z",
+  "sourceFingerprint": "816f1cdd465c8ea54b2c9ef47113de2494c79527592fc88cbc0640189e2cac9a",
+  "sourceFingerprints": {
+    "helpCenter": "3128492c9a1392862cf03926e27ca2a1567abd5b880032b0a8d483e501b0ad83",
+    "instructionCatalog": "816f1cdd465c8ea54b2c9ef47113de2494c79527592fc88cbc0640189e2cac9a"
+  },
+  "robots": {
+    "url": "https://www.yingdao.com/robots.txt",
+    "checkedAt": "2026-07-23T16:27:04.052Z",
+    "sha256": "f7084d364f832fedd2909491218afba80d2e0e64a3cd7ffec4058fb45b968e54",
+    "yddocAllowed": true,
+    "matchingDisallowRules": []
+  },
+  "license": {
+    "url": "https://www.yingdao.com/html/user_license.html",
+    "checkedAt": "2026-07-23T16:27:04.052Z",
+    "status": "restricted_or_unknown",
+    "policy": "metadata_and_original_summaries_only"
+  },
+  "storage": {
+    "menuMetadata": true,
+    "helpCenterMenuMetadata": true,
+    "fullText": false,
+    "images": false,
+    "html": false,
+    "codeSamples": false
+  },
+  "provenanceNotes": {
+    "customInstructionBranch": "The public menu API does not identify authors or licenses for individual custom instructions."
+  }
+}

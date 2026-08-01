@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 // 中间件配置
 return [
     // 别名或分组

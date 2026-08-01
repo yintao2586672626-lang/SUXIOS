@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-07-25",
+  "status_role": "stable_release_blocker_policy",
+  "overall_status": "not_release_ready",
+  "release_ready": false,
+  "does_not_close_release_readiness": true,
+  "current_state": {
+    "path": "vault/current-state.md",
+    "refresh_command": "npm run state:refresh",
+    "status": "machine_generated_local_snapshot"
+  },
+  "live_release_review": {
+    "command": "npm run review:release-readiness",
+    "status": "live_review_required",
+    "result_source": "controlled external result generated after vault/current-state.md"
+  },
+  "blockers": [
+    {
+      "id": "production-env-missing",
+      "status": "live_review_required",
+      "title": "Production environment evidence requires a final-head rerun",
+      "evidence": "Historical external evidence is retained for audit only and cannot prove the current release head.",
+      "acceptance_command": "npm run review:release-env",
+      "close_condition": "Fresh controlled external production environment evidence passes on the final release head."
+    },
+    {
+      "id": "llm-connectivity-attestation-missing",
+      "status": "live_review_required",
+      "title": "Production LLM connectivity requires a final-head rerun",
+      "evidence": "Historical connectivity evidence is retained for audit only and cannot prove the current release head.",
+      "acceptance_command": "npm run review:release-llm",
+      "close_condition": "Fresh redacted production LLM connectivity evidence passes on the final release head."
+    },
+    {
+      "id": "design-handoff-missing",
+      "status": "live_review_required",
+      "title": "Design handoff must be verified from controlled sources",
+      "evidence": "No historical design result is allowed to close the current release gate.",
+      "acceptance_command": "npm run review:release-design",
+      "close_condition": "Controlled Figma, Canva, Brand Kit, design-token, flow, owner, review-date, and zero-open-issue evidence passes."
+    },
+    {
+      "id": "ota-credential-rotation-attestation-missing",
+      "status": "live_review_required",
+      "title": "OTA credential rotation and backup safety require current evidence",
+      "evidence": "Historical scans and attestations cannot prove the current credential or backup state.",
+      "acceptance_command": "npm run review:release-ota-credentials",
+      "close_condition": "Fresh accountable, redacted, hash-bound Ctrip and Meituan rotation evidence passes."
+    },
+    {
+      "id": "codex-security-scan-missing",
+      "status": "live_review_required",
+      "title": "Formal security scan requires current final-head evidence",
+      "evidence": "A scan bound to another commit or outside the evidence window is historical only.",
+      "acceptance_command": "npm run review:release-security-scan",
+      "close_condition": "A fresh repository-wide formal scan bound to the final release commit passes."
+    },
+    {
+      "id": "local-git-state-open",
+      "status": "live_review_required",
+      "title": "Final PR, worktree, lock, checks, and HEAD alignment require live verification",
+      "evidence": "Transient branch, HEAD, worktree count, index-lock state, and PR identity are intentionally absent from tracked policy.",
+      "acceptance_command": "npm run review:release-pr-candidates; npm run review:release-staged-scope; npm run review:release-external-state",
+      "close_condition": "Fresh evidence proves a clean final checkout, absent .git/index.lock, selected open green PR, and exact local HEAD equals PR head."
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+                                <section v-if="currentPage === 'compass'" class="compass-hero-bezel" data-testid="home-executive-answer">
+                                    <div class="compass-hero-core">
+                                        <div class="compass-hero-grid">
+                                            <div class="compass-hero-copy min-w-0">
+                                                <div class="compass-eyebrow"><span></span> 自家门店经营首页</div>
+                                                <h1>{{ homeBusinessTimeModel.hotelName }} · 昨天经营事实</h1>
+                                                <p>{{ homeBusinessTimeModel.yesterday.summary }}</p>
+                                                <div class="mt-3 flex items-center gap-2 text-[11px] text-blue-100">
+                                                    <span>目标日 {{ homeBusinessTimeModel.yesterday.date }} · OTA渠道事实</span>
+                                                    <span :class="['rounded-full border px-2.5 py-1', homeBusinessTimeModel.yesterday.statusClass]">{{ homeBusinessTimeModel.yesterday.status }}</span>
+                                                </div>
+                                            </div>
+                                            <div class="compass-hero-action w-full lg:w-64">
+                                                <select v-model="filterReportHotel" class="input-field w-full bg-white text-gray-900" aria-label="选择自家门店">
+                                                    <option value="">全部可见门店</option>
+                                                    <option v-for="hotel in compassHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                                <button type="button" @click="refreshCompassDashboard" :disabled="compassLoading" class="compass-primary-cta disabled:opacity-60">
+                                                    {{ compassLoading ? '刷新中' : '刷新事实' }}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="compass-signal-grid" data-testid="home-yesterday-facts">
+                                            <article v-for="fact in homeBusinessTimeModel.yesterday.facts" :key="fact.key" class="compass-signal-card">
+                                                <span class="compass-signal-label">{{ fact.label }}</span>
+                                                <span :class="['rounded-full border px-2 py-0.5 text-[10px]', fact.statusClass]">{{ fact.status }}</span>
+                                                <strong>{{ fact.value }}</strong>
+                                            </article>
+                                        </div>
+                                        <p class="mt-3 text-xs text-amber-100">{{ homeBusinessTimeModel.yesterday.sourceText }}</p>
+
+                                        <div class="mt-3 grid gap-2 md:grid-cols-3" data-testid="home-scope-boundaries">
+                                            <article v-for="scope in homeBusinessTimeModel.scopeRows" :key="scope.key" class="compass-signal-card">
+                                                <span class="compass-signal-label">{{ scope.label }}</span>
+                                                <span :class="['rounded-full border px-2 py-0.5 text-[10px]', scope.statusClass]">{{ scope.status }}</span>
+                                                <p class="col-span-2 text-[11px] leading-5 text-blue-100/75">{{ scope.detail }}</p>
+                                            </article>
+                                        </div>
+
+                                        <details open data-testid="home-temporal-axis" class="compass-temporal-fold mt-3 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/25">
+                                            <summary data-testid="home-temporal-toggle" class="compass-temporal-summary">
+                                                <span class="compass-temporal-summary-title"><span aria-hidden="true">时</span>昨天事实 / 今天状态 / 未来 AI 研判</span>
+                                                <span class="compass-temporal-summary-note">今天不写成日终，预测不写成事实</span>
+                                            </summary>
+                                            <div class="grid md:grid-cols-3">
+                                                <article v-for="stage in homeBusinessTimeModel.timeline" :key="stage.key" :data-testid="stage.testid" class="min-w-0 border-t border-white/10 p-4 md:border-l md:border-t-0 first:md:border-l-0">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-[11px] font-semibold text-blue-200">{{ stage.label }}</span>
+                                                        <span :class="['rounded-full border px-2 py-0.5 text-[10px]', stage.statusClass]">{{ stage.status }}</span>
+                                                    </div>
+                                                    <strong class="mt-2 block text-sm text-white">{{ stage.value }}</strong>
+                                                    <p class="mt-1 text-xs leading-5 text-blue-100/75">{{ stage.detail }}</p>
+                                                    <button v-if="stage.key === 'future'" type="button" @click="generateHomeTemporalForecast" :disabled="homeTemporalGenerating || !homeTemporalSelectedHotelId" class="mt-3 text-xs text-amber-100 disabled:opacity-50">
+                                                        {{ homeTemporalGenerating ? '正在生成研判' : (homeTemporalSelectedHotelId ? '生成未来研判' : '先选择一家门店') }}
+                                                    </button>
+                                                </article>
+                                            </div>
+                                        </details>
+
+                                        <details data-testid="home-competitor-diagnostic-reference" class="mt-3 rounded-xl border border-white/10 bg-white/[0.05]">
+                                            <summary class="cursor-pointer px-4 py-3 text-sm text-white">竞对异常诊断参考（非首页主线） · {{ homeCompetitorReadiness.label || '未取得' }}</summary>
+                                            <p class="border-t border-white/10 px-4 py-3 text-xs text-blue-100/80">仅在本店事实异常且同平台、同日期、同口径可比时参考；不替代本店事实，不自动决定价格。</p>
+                                        </details>
+                                    </div>
+                                </section>

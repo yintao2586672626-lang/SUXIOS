@@ -1,14 +1,15 @@
 import { createHash } from 'node:crypto';
 import { findCtripEndpointByUrl } from './ctrip_capture_catalog.mjs';
+import { otaSessionCookieInjectionDomains, sanitizeOtaObservedUrl } from './ota_session_probe.mjs';
 
 export const PLATFORM_CONFIGS = {
   meituan: {
     label: 'Meituan eBooking',
     profilePrefix: 'meituan_profile',
     defaultSections: ['traffic', 'orders'],
-    fullSections: ['traffic', 'orders', 'ads', 'reviews'],
-    allowedSections: ['traffic', 'ads', 'orders', 'reviews'],
-    cookieDomains: ['me.meituan.com', 'eb.meituan.com', '.meituan.com', '.dianping.com'],
+    fullSections: ['traffic', 'orders', 'ads', 'reviews', 'room_types'],
+    allowedSections: ['traffic', 'order_flow', 'ads', 'orders', 'reviews', 'room_types'],
+    cookieDomains: otaSessionCookieInjectionDomains('meituan'),
     sectionAliases: {
       business: 'traffic',
       businessdata: 'traffic',
@@ -35,6 +36,12 @@ export const PLATFORM_CONFIGS = {
       flow_forecast: 'traffic',
       trafficforecast: 'traffic',
       traffic_forecast: 'traffic',
+      orderflow: 'order_flow',
+      order_flow: 'order_flow',
+      orderloss: 'order_flow',
+      order_loss: 'order_flow',
+      lossorder: 'order_flow',
+      loss_order: 'order_flow',
       realtime: 'traffic',
       realtime_snapshot: 'traffic',
       searchkeyword: 'traffic',
@@ -43,12 +50,12 @@ export const PLATFORM_CONFIGS = {
       search_keywords: 'traffic',
       keyword: 'traffic',
       keywords: 'traffic',
-      roomtype: 'traffic',
-      roomtypes: 'traffic',
-      room_type: 'traffic',
-      room_types: 'traffic',
-      product: 'traffic',
-      products: 'traffic',
+      roomtype: 'room_types',
+      roomtypes: 'room_types',
+      room_type: 'room_types',
+      room_types: 'room_types',
+      product: 'room_types',
+      products: 'room_types',
       ads: 'ads',
       ad: 'ads',
       advertising: 'ads',
@@ -63,9 +70,11 @@ export const PLATFORM_CONFIGS = {
     },
     blockedResponseRules: [],
     responseRules: [
-      { section: 'traffic', keywords: ['businessdata', 'weighttraffic', 'traffic', 'peertrends', 'peer/rank', 'flowconversion', 'flowtrend', 'flowtrenddetail', 'flowforecast', 'searchkeyword', 'search-keyword', 'roomtype', 'room-type'] },
+      { section: 'order_flow', keywords: ['/peerrank/order/loss/query'] },
+      { section: 'traffic', keywords: ['businessdata', 'weighttraffic', 'traffic', 'peertrends', 'peer/rank', 'flowconversion', 'flowtrend', 'flowtrenddetail', 'flowforecast', 'searchkeyword', 'search-keyword'] },
+      { section: 'room_types', keywords: ['roomtype', 'room-type'] },
       { section: 'ads', keywords: ['cureshops'] },
-      { section: 'orders', keywords: ['/orders/list', '/order/unhandled/count', '/order-eb/'] },
+      { section: 'orders', keywords: ['/api/v1/ebooking/orders', '/order/unhandled/count', '/order-eb/'] },
       { section: 'reviews', keywords: ['querygeneralcommentinfo', 'commentsinfo', 'comments/statistics', 'comment-manage'] },
     ],
   },
@@ -74,7 +83,7 @@ export const PLATFORM_CONFIGS = {
     profilePrefix: 'ctrip_profile',
     defaultSections: ['business', 'traffic'],
     allowedSections: ['business', 'traffic', 'ads', 'orders', 'quality', 'search_keyword', 'reviews'],
-    cookieDomains: ['ebooking.ctrip.com', '.ctrip.com'],
+    cookieDomains: otaSessionCookieInjectionDomains('ctrip'),
     sectionAliases: {
       business: 'business',
       overview: 'business',
@@ -339,6 +348,17 @@ export function classifyOtaResponse(platform, url, meta = {}) {
     return { capture: false, platform: platformKey, section: '', reason: 'non_business_resource' };
   }
 
+  if (platformKey === 'meituan' && isMeituanOrderResponseUrl(value)) {
+    if (!['xhr', 'fetch'].includes(resourceType) || !contentType.includes('json')) {
+      return {
+        capture: false,
+        platform: platformKey,
+        section: 'orders',
+        reason: 'order_json_xhr_required',
+      };
+    }
+  }
+
   const rules = PLATFORM_CONFIGS[platformKey].responseRules;
   for (const rule of PLATFORM_CONFIGS[platformKey].blockedResponseRules || []) {
     if (rule.keywords.some((keyword) => value.includes(keyword))) {
@@ -372,6 +392,11 @@ export function classifyOtaResponse(platform, url, meta = {}) {
   return { capture: false, platform: platformKey, section: '', reason: 'unmatched_url' };
 }
 
+function isMeituanOrderResponseUrl(value) {
+  return ['/api/v1/ebooking/orders', '/order/unhandled/count', '/order-eb/']
+    .some(keyword => String(value || '').includes(keyword));
+}
+
 function standardSectionName(dataType) {
   const value = String(dataType || '').trim().toLowerCase();
   if (value === 'advertising') {
@@ -385,7 +410,8 @@ function standardSectionName(dataType) {
 
 export function sanitizeOtaPayloadForStorage(value, section = '') {
   if (!value || typeof value !== 'object') {
-    return value;
+    const urlValue = sanitizeOtaUrlValueForStorage(value);
+    return urlValue ? urlValue.value : value;
   }
   const normalizedSection = normalizeCaptureSectionName(section);
   if (normalizedSection === 'reviews') {
@@ -393,6 +419,40 @@ export function sanitizeOtaPayloadForStorage(value, section = '') {
   }
   const orderContext = normalizedSection === 'orders';
   return sanitizePayloadNode(value, orderContext);
+}
+
+export function sanitizeOtaUrlValueForStorage(value, existingHash = '') {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const raw = value.trim();
+  if (!raw) {
+    return null;
+  }
+
+  let safeValue = '';
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+    safeValue = sanitizeOtaObservedUrl(raw);
+  } else if (/^(?:\/(?!\/)|\.\.?\/)/.test(raw)) {
+    const boundary = [raw.indexOf('?'), raw.indexOf('#')]
+      .filter((index) => index >= 0)
+      .sort((left, right) => left - right)[0] ?? raw.length;
+    safeValue = raw.slice(0, boundary) || '/';
+  } else {
+    return null;
+  }
+
+  if (!safeValue) {
+    return null;
+  }
+  const suppliedHash = String(existingHash || '').trim().toLowerCase();
+  const valueUrlHash = raw === safeValue && /^[a-f0-9]{64}$/.test(suppliedHash)
+    ? suppliedHash
+    : sha256Hex(raw);
+  return {
+    value: safeValue,
+    value_url_hash: valueUrlHash,
+  };
 }
 
 export function extractOtaRequestDateEvidence({ url = '', payload = '' } = {}) {
@@ -410,11 +470,130 @@ export function extractOtaRequestDateEvidence({ url = '', payload = '' } = {}) {
   };
 }
 
-export function buildOtaCaptureEvidence(platform, options = {}) {
-  const platformKey = String(platform || '').trim().toLowerCase() || 'ota';
+export const WEB_CAPTURE_STRATEGIES = Object.freeze({
+  verifiedEndpointRecipe: 'verified_endpoint_recipe',
+  browserResponse: 'browser_response',
+  domFallback: 'dom_fallback',
+});
+
+export const OTA_STRUCTURED_RESPONSE_EVIDENCE = Object.freeze({
+  captureStrategy: WEB_CAPTURE_STRATEGIES.browserResponse,
+  responseEvidenceType: 'structured_json',
+});
+
+export const OTA_DOM_FALLBACK_EVIDENCE = Object.freeze({
+  captureStrategy: WEB_CAPTURE_STRATEGIES.domFallback,
+  responseEvidenceType: 'dom_fields',
+  fallbackFrom: WEB_CAPTURE_STRATEGIES.browserResponse,
+  fallbackReason: 'structured_response_unavailable',
+});
+
+const WEB_CAPTURE_RESPONSE_EVIDENCE_TYPES = new Set([
+  'structured_json',
+  'dom_fields',
+]);
+
+export function buildCollectionStrategyEvidence(options = {}) {
+  const selected = String(
+    options.captureStrategy || options.capture_strategy || '',
+  ).trim().toLowerCase();
+  if (!selected) {
+    return {};
+  }
+  if (!Object.values(WEB_CAPTURE_STRATEGIES).includes(selected)) {
+    throw new TypeError('web_capture_strategy_invalid');
+  }
+
+  const fallbackFromRaw = options.fallbackFrom ?? options.fallback_from ?? null;
+  const fallbackFrom = fallbackFromRaw === null || fallbackFromRaw === ''
+    ? null
+    : String(fallbackFromRaw).trim().toLowerCase();
+  const fallbackReasonRaw = options.fallbackReason ?? options.fallback_reason ?? null;
+  const fallbackReason = fallbackReasonRaw === null || fallbackReasonRaw === ''
+    ? null
+    : safeEvidenceStatusCode(fallbackReasonRaw);
+  if ((fallbackReasonRaw !== null && fallbackReasonRaw !== '' && !fallbackReason)
+    || (fallbackFrom === null) !== (fallbackReason === null)
+  ) {
+    throw new TypeError('web_capture_strategy_fallback_invalid');
+  }
+
+  const allowedFallbacks = {
+    [WEB_CAPTURE_STRATEGIES.verifiedEndpointRecipe]: [],
+    [WEB_CAPTURE_STRATEGIES.browserResponse]: [
+      WEB_CAPTURE_STRATEGIES.verifiedEndpointRecipe,
+    ],
+    [WEB_CAPTURE_STRATEGIES.domFallback]: [
+      WEB_CAPTURE_STRATEGIES.verifiedEndpointRecipe,
+      WEB_CAPTURE_STRATEGIES.browserResponse,
+    ],
+  };
+  if (fallbackFrom !== null && !allowedFallbacks[selected].includes(fallbackFrom)) {
+    throw new TypeError('web_capture_strategy_fallback_invalid');
+  }
+  if (selected === WEB_CAPTURE_STRATEGIES.domFallback && fallbackFrom === null) {
+    throw new TypeError('web_capture_strategy_fallback_invalid');
+  }
+
+  const responseEvidenceType = String(
+    options.responseEvidenceType
+      || options.response_evidence_type
+      || (selected === WEB_CAPTURE_STRATEGIES.domFallback
+        ? 'dom_fields'
+        : 'structured_json'),
+  ).trim().toLowerCase();
+  if (!WEB_CAPTURE_RESPONSE_EVIDENCE_TYPES.has(responseEvidenceType)
+    || (selected === WEB_CAPTURE_STRATEGIES.domFallback
+      && responseEvidenceType !== 'dom_fields')
+    || (selected !== WEB_CAPTURE_STRATEGIES.domFallback
+      && responseEvidenceType !== 'structured_json')
+  ) {
+    throw new TypeError('web_capture_strategy_response_evidence_invalid');
+  }
+
+  const rawRecipeIds = options.recipeIds || options.recipe_ids || [];
+  if (!Array.isArray(rawRecipeIds) || rawRecipeIds.length > 200) {
+    throw new TypeError('web_capture_strategy_recipe_plan_invalid');
+  }
+  const recipeIds = rawRecipeIds.map((value) => {
+    const recipeId = safeEvidenceIdentifier(value);
+    if (!recipeId) {
+      throw new TypeError('web_capture_strategy_recipe_plan_invalid');
+    }
+    return recipeId;
+  });
+  if (new Set(recipeIds).size !== recipeIds.length
+    || (selected === WEB_CAPTURE_STRATEGIES.verifiedEndpointRecipe
+      && recipeIds.length === 0)
+  ) {
+    throw new TypeError('web_capture_strategy_recipe_plan_invalid');
+  }
+
+  return {
+    capture_strategy: selected,
+    fallback_from: fallbackFrom,
+    fallback_reason: fallbackReason,
+    response_evidence_type: responseEvidenceType,
+    ...(recipeIds.length > 0
+      ? {
+          recipe_plan_hash: sha256Hex(JSON.stringify(recipeIds)),
+          recipe_count: recipeIds.length,
+        }
+      : {}),
+  };
+}
+
+export function buildWebPlatformCaptureEvidence(platform, options = {}) {
+  const platformKey = safeEvidenceIdentifier(platform) || 'web_platform';
   const section = safeEvidenceText(options.section || '');
   const sourcePath = safeEvidenceText(options.sourcePath || '');
   const captureSource = safeEvidenceText(options.captureSource || '');
+  const sourceKind = safeEvidenceIdentifier(options.sourceKind || '');
+  const businessModule = safeEvidenceIdentifier(options.businessModule || '');
+  const sourceMethod = safeEvidenceIdentifier(options.sourceMethod || '');
+  const collectionMode = safeEvidenceIdentifier(options.collectionMode || '');
+  const dataDate = isoEvidenceDate(options.dataDate || '');
+  const providerHotelId = safeEvidenceText(options.providerHotelId || '');
   const url = String(options.url || '').trim();
   const evidence = {};
 
@@ -427,9 +606,29 @@ export function buildOtaCaptureEvidence(platform, options = {}) {
   if (section) {
     evidence.section = section;
   }
+  if (sourceKind) {
+    evidence.source_kind = sourceKind;
+  }
+  if (businessModule) {
+    evidence.business_module = businessModule;
+  }
+  if (sourceMethod) {
+    evidence.source_method = sourceMethod;
+  }
+  if (collectionMode) {
+    evidence.collection_mode = collectionMode;
+  }
+  if (dataDate) {
+    evidence.data_date = dataDate;
+  }
+  if (providerHotelId) {
+    evidence.provider_hotel_id_hash = sha256Hex(providerHotelId);
+  }
   if (url) {
     evidence.source_url_hash = sha256Hex(url);
   }
+  const strategyEvidence = buildCollectionStrategyEvidence(options);
+  Object.assign(evidence, strategyEvidence);
 
   const traceBasis = {
     platform: platformKey,
@@ -438,6 +637,24 @@ export function buildOtaCaptureEvidence(platform, options = {}) {
     capture_source: captureSource,
     source_url_hash: evidence.source_url_hash || '',
   };
+  if (sourceKind) traceBasis.source_kind = sourceKind;
+  if (businessModule) traceBasis.business_module = businessModule;
+  if (sourceMethod) traceBasis.source_method = sourceMethod;
+  if (collectionMode) traceBasis.collection_mode = collectionMode;
+  if (dataDate) traceBasis.data_date = dataDate;
+  if (evidence.provider_hotel_id_hash) {
+    traceBasis.provider_hotel_id_hash = evidence.provider_hotel_id_hash;
+  }
+  if (evidence.capture_strategy) {
+    traceBasis.capture_strategy = evidence.capture_strategy;
+    traceBasis.fallback_from = evidence.fallback_from;
+    traceBasis.fallback_reason = evidence.fallback_reason;
+    traceBasis.response_evidence_type = evidence.response_evidence_type;
+    if (evidence.recipe_plan_hash) {
+      traceBasis.recipe_plan_hash = evidence.recipe_plan_hash;
+      traceBasis.recipe_count = evidence.recipe_count;
+    }
+  }
   if (Object.values(traceBasis).some(Boolean)) {
     evidence.source_trace_id = `${platformKey}:${sha256Hex(JSON.stringify(traceBasis))}`;
   }
@@ -445,7 +662,11 @@ export function buildOtaCaptureEvidence(platform, options = {}) {
   return evidence;
 }
 
-export function attachOtaCaptureEvidence(row, platform, options = {}) {
+export function buildOtaCaptureEvidence(platform, options = {}) {
+  return buildWebPlatformCaptureEvidence(platform, options);
+}
+
+export function attachWebPlatformCaptureEvidence(row, platform, options = {}) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) {
     return row;
   }
@@ -464,7 +685,7 @@ export function attachOtaCaptureEvidence(row, platform, options = {}) {
     || '';
   const evidence = {
     ...existingEvidence,
-    ...buildOtaCaptureEvidence(platform, {
+    ...buildWebPlatformCaptureEvidence(platform, {
       ...options,
       url: sourceUrl,
       sourcePath,
@@ -488,6 +709,10 @@ export function attachOtaCaptureEvidence(row, platform, options = {}) {
   delete next.source_url;
   delete next.url;
   return next;
+}
+
+export function attachOtaCaptureEvidence(row, platform, options = {}) {
+  return attachWebPlatformCaptureEvidence(row, platform, options);
 }
 
 function sha256Hex(value) {
@@ -594,6 +819,8 @@ function isRequestDateKey(key) {
     'begindate',
     'fromdate',
     'todate',
+    'starttime',
+    'endtime',
   ].includes(normalized);
 }
 
@@ -608,6 +835,21 @@ function normalizeRequestEvidenceDate(value) {
   }
   if (!match) {
     match = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  }
+  if (!match && /^\d{10,13}$/.test(text)) {
+    const epoch = Number(text) * (text.length === 10 ? 1000 : 1);
+    if (Number.isFinite(epoch)) {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(new Date(epoch));
+      const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+      if (values.year && values.month && values.day) {
+        return `${values.year}-${values.month}-${values.day}`;
+      }
+    }
   }
   if (!match) {
     return '';
@@ -627,9 +869,32 @@ function safeEvidenceText(value) {
   return text.slice(0, 300);
 }
 
+function safeEvidenceIdentifier(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return /^[a-z][a-z0-9_-]{0,63}$/.test(text) ? text : '';
+}
+
+function safeEvidenceStatusCode(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9_:-]{0,119}$/.test(text)
+    || /(?:^|[_:-])(cookie|authorization|bearer|token|password|secret)(?:$|[_:-])/i.test(text)
+  ) {
+    return '';
+  }
+  return text;
+}
+
+function isoEvidenceDate(value) {
+  const text = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+}
+
 function sanitizePayloadNode(value, orderContext) {
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizePayloadNode(item, orderContext));
+    return value.map((item) => {
+      const urlValue = sanitizeOtaUrlValueForStorage(item);
+      return urlValue ? urlValue.value : sanitizePayloadNode(item, orderContext);
+    });
   }
   if (!value || typeof value !== 'object') {
     return value;
@@ -641,9 +906,23 @@ function sanitizePayloadNode(value, orderContext) {
       continue;
     }
 
+    if (key.endsWith('_url_hash')) {
+      const sourceKey = key.slice(0, -'_url_hash'.length);
+      if (sanitizeOtaUrlValueForStorage(value[sourceKey])) {
+        continue;
+      }
+    }
+
     const childOrderContext = orderContext || isOrderContainerKey(key);
     if (item && typeof item === 'object') {
       result[key] = sanitizePayloadNode(item, childOrderContext);
+      continue;
+    }
+
+    const urlValue = sanitizeOtaUrlValueForStorage(item, value[`${key}_url_hash`]);
+    if (urlValue) {
+      result[key] = urlValue.value;
+      result[`${key}_url_hash`] = urlValue.value_url_hash;
       continue;
     }
 
@@ -888,7 +1167,7 @@ function normalizeCaptureSectionName(section) {
 }
 
 function isSensitiveKey(key) {
-  return /cookie|authorization|token|api[-_]?key|secret|password|spidertoken|mtgsig/i.test(String(key || ''));
+  return /cookie|authorization|token|api[-_]?key|secret|password|spider(?:token|key|_key)|fingerprint|mtgsig/i.test(String(key || ''));
 }
 
 function isOrderContainerKey(key) {

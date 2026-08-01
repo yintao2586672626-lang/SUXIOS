@@ -38,16 +38,19 @@ trait MeituanConfigConcern
         try {
             $this->checkPermission();
             $hotelId = $this->resolveMeituanConfigHotelIdFromRequest();
-            foreach ($this->meituanConfigList() as $item) {
-                if (!is_array($item)
-                    || $this->isMeituanCommentConfigMetadata($item)
-                    || !$this->isOtaConfigVisibleToCurrentUser($item)) {
-                    continue;
-                }
+            $list = array_filter(
+                $this->meituanConfigList(),
+                fn($item): bool => is_array($item)
+                    && !$this->isMeituanCommentConfigMetadata($item)
+                    && $this->isOtaConfigVisibleToCurrentUser($item)
+            );
+            $list = $this->sanitizeStoredOtaConfigListForRuntime($list);
+            $list = $this->collapseMeituanConfigListByHotel(array_values($list));
+            foreach ($list as $item) {
                 if ($hotelId > 0 && $this->strictOtaConfigBoundHotelId($item, 'Meituan') !== $hotelId) {
                     continue;
                 }
-                return $this->success($this->sanitizeSecretConfig($item));
+                return $this->success($item);
             }
 
             return $this->success([]);
@@ -92,9 +95,6 @@ trait MeituanConfigConcern
         if ($id !== '' && !$isUpdate && !$allowCreateWithProvidedId) {
             throw new \InvalidArgumentException('美团配置不存在');
         }
-        if ($id === '') {
-            $id = 'meituan_' . date('YmdHis') . '_' . substr(hash('sha256', random_bytes(16)), 0, 8);
-        }
 
         $requestedHotelId = $this->meituanRequestedHotelId($requestData);
         if ($isUpdate) {
@@ -112,6 +112,21 @@ trait MeituanConfigConcern
                 throw new \InvalidArgumentException('请选择系统酒店');
             }
             $this->checkOtaConfigMaintenancePermission($systemHotelId);
+            if ($id === '') {
+                $primaryConfig = $this->selectExistingMeituanConfigForHotel($list, $systemHotelId);
+                $primaryConfigId = trim((string)($primaryConfig['config_id'] ?? $primaryConfig['id'] ?? ''));
+                if ($primaryConfigId !== ''
+                    && isset($list[$primaryConfigId])
+                    && is_array($list[$primaryConfigId])
+                    && $this->isOtaConfigVisibleToCurrentUser($list[$primaryConfigId])
+                    && $this->currentUserCanMaintainOtaConfigItem($list[$primaryConfigId], $systemHotelId)) {
+                    $id = $primaryConfigId;
+                    $isUpdate = true;
+                    $originalConfig = $list[$primaryConfigId];
+                } else {
+                    $id = 'meituan_' . date('YmdHis') . '_' . substr(hash('sha256', random_bytes(16)), 0, 8);
+                }
+            }
         }
 
         $safeOriginal = $this->sanitizeSecretConfig($originalConfig);
@@ -136,10 +151,32 @@ trait MeituanConfigConcern
             throw new \InvalidArgumentException('Meituan config scope is not allowed.');
         }
         unset($requestMetadata['scope']);
-        $name = trim((string)($requestMetadata['name'] ?? $safeOriginal['name'] ?? ''));
+        $name = trim((string)($requestMetadata['name'] ?? ''));
         if ($name === '') {
-            $poi = trim((string)($requestMetadata['poi_id'] ?? $requestMetadata['poiId'] ?? $safeOriginal['poi_id'] ?? $safeOriginal['poiId'] ?? ''));
-            $name = $poi === '' ? '美团配置 ' . date('Y-m-d') : '美团' . $poi . '配置';
+            $name = trim((string)($safeOriginal['name'] ?? ''));
+        }
+        $partnerId = trim((string)$this->resolveMeituanStableConfigInput(
+            $requestMetadata,
+            $safeOriginal,
+            ['partner_id', 'partnerId']
+        ));
+        $poiId = trim((string)$this->resolveMeituanStableConfigInput(
+            $requestMetadata,
+            $safeOriginal,
+            ['poi_id', 'poiId', 'store_id', 'storeId']
+        ));
+        $hotelRoomCount = $this->resolveMeituanStableConfigInput(
+            $requestMetadata,
+            $safeOriginal,
+            ['hotel_room_count', 'hotelRoomCount']
+        );
+        $competitorRoomCount = $this->resolveMeituanStableConfigInput(
+            $requestMetadata,
+            $safeOriginal,
+            ['competitor_room_count', 'competitorRoomCount']
+        );
+        if ($name === '') {
+            $name = $poiId === '' ? '美团配置 ' . date('Y-m-d') : '美团' . $poiId . '配置';
         }
 
         $config = array_merge($safeOriginal, $requestMetadata, [
@@ -148,8 +185,10 @@ trait MeituanConfigConcern
             'name' => $name,
             'hotel_id' => (string)$systemHotelId,
             'system_hotel_id' => $systemHotelId,
-            'partner_id' => trim((string)($requestMetadata['partner_id'] ?? $requestMetadata['partnerId'] ?? $safeOriginal['partner_id'] ?? $safeOriginal['partnerId'] ?? '')),
-            'poi_id' => trim((string)($requestMetadata['poi_id'] ?? $requestMetadata['poiId'] ?? $safeOriginal['poi_id'] ?? $safeOriginal['poiId'] ?? '')),
+            'partner_id' => $partnerId,
+            'poi_id' => $poiId,
+            'hotel_room_count' => $hotelRoomCount ?? '',
+            'competitor_room_count' => $competitorRoomCount ?? '',
             'scope' => $scope,
             'update_time' => date('Y-m-d H:i:s'),
             'created_at' => $safeOriginal['created_at'] ?? date('Y-m-d H:i:s'),
@@ -164,9 +203,80 @@ trait MeituanConfigConcern
             $isUpdate,
             $scope
         );
-        OperationLog::record('online_data', 'save_meituan_config', '保存美团配置元数据', (int)($this->currentUser->id ?? 0));
+        $actorId = (int)($this->currentUser->id ?? 0);
+        $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
+        OperationLog::record('online_data', 'save_meituan_config', 'OTA credential metadata saved', $actorId, $systemHotelId, null, [
+            'audit_type' => 'security',
+            'lifecycle_action' => 'save',
+            'actor_id' => $actorId,
+            'tenant_id' => $tenantId,
+            'system_hotel_id' => $systemHotelId,
+            'platform' => 'meituan',
+            'config_id' => (string)($saved['config_id'] ?? $saved['id'] ?? $id),
+            'credential_ref' => (int)($saved['credential_ref'] ?? 0),
+            'status' => (string)($saved['credential_status'] ?? ''),
+            'outcome' => 'success',
+        ]);
 
         return $saved;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $list
+     * @return array<string, mixed>
+     */
+    private function selectExistingMeituanConfigForHotel(array $list, int $hotelId): array
+    {
+        $matches = [];
+        foreach ($list as $config) {
+            if (!is_array($config)
+                || $this->isMeituanCommentConfigMetadata($config)
+                || !$this->isCurrentOtaConfig($config)
+                || $this->otaConfigHasHotelBindingConflict($config)
+                || $this->otaConfigBoundSystemHotelId($config) !== $hotelId) {
+                continue;
+            }
+            $matches[] = $config;
+        }
+        if ($matches === []) {
+            return [];
+        }
+
+        $primary = $this->selectLatestSuccessfulMeituanConfig($matches);
+        if ($primary !== []) {
+            return $primary;
+        }
+        $this->sortOtaConfigsNewestFirst($matches);
+        return $matches[0] ?? [];
+    }
+
+    /**
+     * Reuse stable hotel metadata when an authorization refresh omits it.
+     * Explicit non-empty request values always win.
+     *
+     * @param array<string, mixed> $requestData
+     * @param array<string, mixed> $originalConfig
+     * @param array<int, string> $aliases
+     */
+    private function resolveMeituanStableConfigInput(
+        array $requestData,
+        array $originalConfig,
+        array $aliases
+    ): mixed {
+        foreach ([$requestData, $originalConfig] as $source) {
+            foreach ($aliases as $field) {
+                if (!array_key_exists($field, $source)) {
+                    continue;
+                }
+                $value = $source[$field];
+                if ($value === null || (is_string($value) && trim($value) === '')) {
+                    continue;
+                }
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     public function getMeituanConfigList(): Response
@@ -182,8 +292,10 @@ trait MeituanConfigConcern
             );
             $list = $this->filterOtaConfigListForCurrentUser($list);
             $list = $this->sanitizeStoredOtaConfigListForRuntime($list);
-            usort($list, static fn(array $left, array $right): int => strcmp((string)($right['update_time'] ?? ''), (string)($left['update_time'] ?? '')));
-            return $this->success(array_values($list));
+            $list = $this->collapseMeituanConfigListByHotel(array_values($list));
+            $list = $this->appendOtaConfigCollectionEvidence(array_values($list), 'meituan');
+            $list = $this->appendOtaConfigActionPermissions($list);
+            return $this->success($list);
         } catch (\Throwable) {
             return $this->error('获取美团配置列表失败', 500);
         }
@@ -238,14 +350,25 @@ trait MeituanConfigConcern
             }
 
             $systemHotelId = $this->strictOtaConfigBoundHotelId($list[$id], 'Meituan');
-            if (!$this->currentUserCanMaintainOtaConfigItem($list[$id], $systemHotelId)) {
-                $this->checkActionPermission('can_delete_online_data');
-            }
+            $this->checkHotelActionPermission($systemHotelId, 'can_delete_online_data');
 
             $expectedScope = trim((string)($list[$id]['scope'] ?? ''));
             $deleted = $this->deleteMeituanConfigMetadata($id, $systemHotelId, $expectedScope);
             $this->clearAutoFetchLightConfigListCache('meituan');
-            OperationLog::record('online_data', 'delete_meituan_config', '删除美团配置元数据', (int)($this->currentUser->id ?? 0));
+            $actorId = (int)($this->currentUser->id ?? 0);
+            $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
+            OperationLog::record('online_data', 'delete_meituan_config', 'OTA credential revoked', $actorId, $systemHotelId, null, [
+                'audit_type' => 'security',
+                'lifecycle_action' => 'revoke',
+                'actor_id' => $actorId,
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $systemHotelId,
+                'platform' => 'meituan',
+                'config_id' => (string)($deleted['config_id'] ?? $deleted['id'] ?? $id),
+                'credential_ref' => (int)($deleted['credential_ref'] ?? 0),
+                'status' => (string)($deleted['credential_status'] ?? ''),
+                'outcome' => 'success',
+            ]);
             return $this->success($deleted, '删除成功');
         } catch (HttpException $e) {
             return $this->error($e->getMessage(), $e->getStatusCode());

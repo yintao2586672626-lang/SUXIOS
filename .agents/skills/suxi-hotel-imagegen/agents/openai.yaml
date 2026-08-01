@@ -1,0 +1,4 @@
+interface:
+  display_name: "宿析酒店修图"
+  short_description: "宿析酒店实拍修图、品牌创意图、视频分镜与OTA真实性守卫"
+  default_prompt: "Use $suxi-hotel-imagegen to edit this hotel image while preserving room facts."

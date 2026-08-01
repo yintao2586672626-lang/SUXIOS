@@ -1,0 +1,7 @@
+# 来源指纹
+
+- 用户提供归档：`ctrip-review-order-matcher(1).rar`
+- 归档 SHA256：`63951A0038FE41D4301E33F437BE242437DB2E4A029DCDF880063A4C18A299A6`
+- 上游 `score_candidates.py` SHA256：`B7EF52131CB5B243C79B193F0F2295C0763F141A14DC5244DAE0802A8240AC16`
+- 吸收日期：`2026-07-18`
+- 适配：PMS改为可选证据；禁止身份反查；补齐14天、30天、入住月份的真实候选窗口过滤；线上入口改为宿析OS PHP服务。

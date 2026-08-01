@@ -149,6 +149,7 @@ test('does not fail the capture gate for missing supporting Ctrip endpoints', ()
     'traffic_order_overview',
     'traffic_order_trend',
     'traffic_flow_source',
+    'traffic_realtime_visitor_trend',
     'traffic_city_keywords',
     'traffic_search_details',
     'traffic_hotel_min_price',
@@ -524,16 +525,52 @@ test('Ctrip browser capture payload keeps the structured capture gap report', ()
   assert.match(script, /capture_gap_report:\s*audit\.capture_gap_report\s*\|\|\s*null/);
 });
 
+test('Ctrip capture audit scopes endpoint and field expectations to a lightweight plan', () => {
+  const audit = buildCtripCaptureAudit([{
+    path: 'lightweight.json',
+    payload: {
+      requested_sections: ['business_overview', 'traffic_report'],
+      responses: [
+        { section: 'business_overview', endpoint_id: 'business_realtime' },
+        { section: 'traffic_report', endpoint_id: 'traffic_scan_flow' },
+      ],
+      catalog_facts: [
+        { section: 'business_overview', endpoint_id: 'business_realtime', metric_key: 'order_count' },
+        { section: 'traffic_report', endpoint_id: 'traffic_scan_flow', metric_key: 'visitor_count' },
+      ],
+      standard_rows: [
+        { dimension: 'catalog:business_overview:business_realtime:order_count:root' },
+        { dimension: 'catalog:traffic_report:traffic_scan_flow:visitor_count:root' },
+      ],
+      pages: [
+        { name: 'business_overview', url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline' },
+        { name: 'traffic_report', url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata' },
+      ],
+    },
+  }], {
+    generatedAt: '2026-07-30T01:00:00.000Z',
+    expectedEndpointIds: ['business_realtime', 'traffic_scan_flow'],
+    allowedFieldKeys: ['order_count', 'visitor_count'],
+  });
+
+  assert.equal(audit.summary.expected_endpoint_count, 2);
+  assert.equal(audit.summary.captured_catalog_endpoint_count, 2);
+  assert.equal(audit.summary.missing_catalog_endpoint_count, 0);
+  assert.deepEqual(audit.endpoint_coverage.sections.business_overview.missing_endpoint_ids, []);
+  assert.deepEqual(audit.endpoint_coverage.sections.traffic_report.missing_endpoint_ids, []);
+  assert.deepEqual(audit.capture_gap_report.p3_evidence_sections, {});
+});
+
 test('Ctrip browser capture supports a login-only profile preparation mode', () => {
   const script = readFileSync('scripts/ctrip_browser_capture.mjs', 'utf8');
 
   assert.match(script, /loginOnly/);
   assert.match(script, /args\.loginOnly/);
   assert.match(script, /args\.authOnly/);
-  assert.match(script, /mode:\s*loginOnly\s*\?\s*'login_only'\s*:\s*'capture'/);
+  assert.match(script, /mode:\s*sessionProbeOnly\s*\?\s*'session_probe_only'\s*:\s*\(loginOnly\s*\?\s*'login_only'\s*:\s*'capture'\)/);
   assert.match(script, /finalizeLoginOnlyPayload/);
-  assert.match(script, /status:\s*'login_prepared'/);
-  assert.match(script, /reason:\s*'login_only'/);
+  assert.match(script, /status:\s*probePassed\s*\?\s*'pass'\s*:\s*'fail'/);
+  assert.match(script, /reason:\s*'session_probe_only'/);
 });
 
 test('Ctrip browser capture creates the requested output directory', () => {

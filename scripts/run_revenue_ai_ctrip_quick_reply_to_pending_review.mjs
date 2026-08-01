@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 function parseArgs(argv) {
   const options = {
@@ -59,7 +60,7 @@ function parseJsonFromOutput(text) {
 }
 
 function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
+  return parseJsonTextSafely(fs.readFileSync(file, 'utf8'), 'revenue_ai_operator_json');
 }
 
 function runProcess(root, script, command, args) {

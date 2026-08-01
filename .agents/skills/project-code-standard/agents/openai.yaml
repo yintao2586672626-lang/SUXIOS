@@ -1,0 +1,5 @@
+interface:
+  display_name: "项目代码规范（手动）"
+  short_description: "建立、检查或修复完整代码规范；不自动介入普通功能开发"
+policy:
+  allow_implicit_invocation: false

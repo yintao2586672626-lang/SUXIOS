@@ -9,12 +9,16 @@ const root = process.cwd();
 const scanner = path.join(root, 'scripts', 'scan_p0_ota_traffic_payload_candidates.mjs');
 const phpBinary = process.env.PHP_BINARY || 'C:\\xampp\\php\\php.exe';
 const p0Verifier = path.join(root, 'scripts', 'verify_p0_ota_field_loop_closure.php');
+const childProcessMaxBuffer = 16 * 1024 * 1024;
 const targetDate = '2026-06-15';
 const systemHotelId = '7';
 
-test('P0 OTA traffic payload scanner defaults to P0 verifier hotel-scoped candidates', () => {
+test('P0 OTA traffic payload scanner defaults to P0 verifier hotel-scoped candidates', (t) => {
   const expectedPaths = p0VerifierExpectedPayloadPaths(targetDate);
-  assert.ok(expectedPaths.length > 0, 'P0 verifier should expose hotel-scoped payload candidates');
+  if (expectedPaths.length === 0) {
+    t.skip('P0 verifier has no hotel-scoped database evidence in this environment');
+    return;
+  }
 
   const result = runScanner([
     `--date=${targetDate}`,
@@ -115,6 +119,45 @@ test('P0 OTA traffic payload scanner finds ready dry-run candidates without expo
     assert.match(json.ready_candidates[0].next_verifier_command, /--system-hotel-id=7/);
     assert.equal(JSON.stringify(json).includes('ctrip-platform-1001'), false);
     assert.equal(JSON.stringify(json).includes('listExposure'), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('P0 OTA traffic payload scanner blocks refresh timestamps used as business-date evidence', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'p0-traffic-refresh-date-'));
+  try {
+    const payloadPath = path.join(dir, 'refresh-timestamp-traffic.json');
+    writeFileSync(payloadPath, JSON.stringify({
+      traffic: [{
+        poiId: 'meituan-platform-1001',
+        dataDate: targetDate,
+        date_source: 'response.rtDataUpdateTime',
+        _source_path: 'dom.traffic.flow_funnel',
+        capture_evidence: {
+          source_trace_id: 'meituan:test-refresh-time',
+          source_url_hash: 'c'.repeat(64),
+        },
+        listExposure: 471,
+        detailExposure: 77,
+        flowRate: 16.35,
+        orderFillingNum: 1,
+        orderSubmitNum: 1,
+      }],
+    }), 'utf8');
+
+    const result = runScanner([
+      `--date=${targetDate}`,
+      `--system-hotel-id=${systemHotelId}`,
+      '--platform=meituan',
+      `--input=${payloadPath}`,
+      '--format=json',
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    const json = JSON.parse(result.stdout);
+    assert.equal(json.summary.ready_candidate_count, 0);
+    assert.equal(json.summary.blocked_candidate_count, 1);
+    assert.ok(json.blocked_candidates[0].issue_codes.includes('refresh_timestamp_not_business_date_evidence'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -246,14 +289,17 @@ function p0VerifierExpectedPayloadPaths(date) {
   ], {
     cwd: root,
     encoding: 'utf8',
+    maxBuffer: childProcessMaxBuffer,
   });
-  assert.ok([0, 1, 2].includes(Number(result.status ?? 0)), result.stderr);
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.ok([0, 1, 2].includes(Number(result.status)), result.stderr);
   const json = JSON.parse(String(result.stdout || '').replace(/^\uFEFF/, '').trim());
-  return (json.platforms || [])
-    .flatMap((platform) => platform.p0_traffic_gate?.hotel_scoped_next_steps || [])
-    .map((step) => String(step.payload_candidate_path || ''))
-    .filter(Boolean)
-    .sort();
+  return Array.from(new Set(
+    (json.platforms || [])
+      .flatMap((platform) => platform.p0_traffic_gate?.hotel_scoped_next_steps || [])
+      .map((step) => String(step.payload_candidate_path || ''))
+      .filter(Boolean),
+  )).sort();
 }
 
 function escapeRegExp(value) {

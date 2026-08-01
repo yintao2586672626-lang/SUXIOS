@@ -9,6 +9,14 @@
     <testsuites>
         <testsuite name="Backend">
             <directory suffix="Test.php">tests</directory>
+            <directory suffix="Test.php">evals/ai-operation-strict-contract</directory>
+        </testsuite>
+        <testsuite name="SecurityRecoveryEvals">
+            <file>evals/Tc269PromptInjectionResistanceL8Test.php</file>
+            <file>evals/Tc407AsyncTaskRecoveryL8Test.php</file>
+            <file>evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php</file>
+            <file>evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php</file>
+            <file>evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php</file>
         </testsuite>
     </testsuites>
     <source>

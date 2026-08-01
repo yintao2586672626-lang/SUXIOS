@@ -38,7 +38,8 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         Db::connect(null, true);
 
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(100))');
-        Db::execute('CREATE TABLE ota_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id VARCHAR(100) NOT NULL, encrypted_payload TEXT NOT NULL, payload_version INTEGER NOT NULL, key_id VARCHAR(100) NOT NULL, secret_mask VARCHAR(255) NOT NULL, credential_status VARCHAR(20) NOT NULL, created_by INTEGER NOT NULL, rotated_at DATETIME, create_time DATETIME, update_time DATETIME, UNIQUE(tenant_id,system_hotel_id,platform,config_id))');
+        Db::execute('CREATE TABLE ota_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id VARCHAR(100) NOT NULL, encrypted_payload TEXT NOT NULL, payload_version INTEGER NOT NULL, key_id VARCHAR(100) NOT NULL, secret_mask VARCHAR(255) NOT NULL, credential_status VARCHAR(20) NOT NULL, created_by INTEGER NOT NULL, rotated_at DATETIME, last_used_at DATETIME, revoked_at DATETIME, create_time DATETIME, update_time DATETIME, UNIQUE(tenant_id,system_hotel_id,platform,config_id))');
+        Db::execute('CREATE TABLE ota_credential_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, credential_id INTEGER NOT NULL DEFAULT 0, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id_hash VARCHAR(64) NOT NULL, event_sequence INTEGER NOT NULL, credential_version INTEGER NOT NULL DEFAULT 0, event_type VARCHAR(40) NOT NULL, outcome VARCHAR(20) NOT NULL, failure_code VARCHAR(80) NOT NULL DEFAULT \'\', actor_id INTEGER NOT NULL DEFAULT 0, payload_digest VARCHAR(64) NOT NULL DEFAULT \'\', previous_entry_hash VARCHAR(64) NOT NULL DEFAULT \'\', entry_hash VARCHAR(64) NOT NULL, occurred_at DATETIME NOT NULL, UNIQUE(tenant_id,system_hotel_id,platform,config_id_hash,event_sequence), UNIQUE(entry_hash))');
         Db::execute('CREATE TABLE ota_profile_bindings (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, profile_key_hash VARCHAR(64) NOT NULL, binding_status VARCHAR(20) NOT NULL, bound_by INTEGER, revoked_by INTEGER, create_time DATETIME, update_time DATETIME, UNIQUE(platform,profile_key_hash))');
         Db::execute('CREATE TABLE platform_data_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, system_hotel_id INTEGER, user_id INTEGER, name VARCHAR(120) NOT NULL, platform VARCHAR(50) NOT NULL, data_type VARCHAR(50) NOT NULL, ingestion_method VARCHAR(30) NOT NULL, status VARCHAR(30) NOT NULL, enabled INTEGER NOT NULL, config_json TEXT, secret_json TEXT, last_sync_time DATETIME, last_sync_status VARCHAR(30), last_error TEXT, created_by INTEGER, updated_by INTEGER, create_time DATETIME, update_time DATETIME)');
         Db::execute('CREATE TABLE platform_data_sync_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, data_source_id INTEGER, system_hotel_id INTEGER, platform VARCHAR(50) NOT NULL, data_type VARCHAR(50) NOT NULL, ingestion_method VARCHAR(30) NOT NULL, trigger_type VARCHAR(30) NOT NULL, status VARCHAR(30) NOT NULL, attempt_count INTEGER NOT NULL, max_attempts INTEGER NOT NULL, started_at DATETIME, finished_at DATETIME, next_retry_at DATETIME, requested_by INTEGER, message TEXT, stats_json TEXT, create_time DATETIME, update_time DATETIME)');
@@ -65,6 +66,7 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         Db::name('platform_data_sync_tasks')->delete(true);
         Db::name('platform_data_sources')->delete(true);
         Db::name('ota_credentials')->delete(true);
+        Db::name('ota_credential_audit_logs')->delete(true);
         Db::name('ota_profile_bindings')->delete(true);
     }
 
@@ -203,6 +205,175 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         self::assertSame('not_required', $saved['credential_status']);
         self::assertSame('not_required_for_browser_profile', $saved['config']['credential_usage']);
         self::assertSame(0, Db::name('ota_credentials')->count());
+    }
+
+    public function testBrowserAssistSourceIsCredentiallessAndCannotStoreCookieMaterial(): void
+    {
+        $saved = $this->service()->saveDataSource($this->user(), [
+            'name' => 'Ctrip authorized page observation',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_assist_dom',
+        ]);
+
+        self::assertSame('browser_assist_dom', $saved['ingestion_method']);
+        self::assertFalse($saved['has_secret']);
+        self::assertFalse($saved['has_cookies']);
+        self::assertSame('not_required', $saved['credential_status']);
+        self::assertSame(
+            'not_required_for_browser_assist',
+            $saved['config']['credential_usage']
+        );
+        self::assertSame(
+            'authorized_page_observation_only',
+            $saved['config']['profile_execution_policy']
+        );
+        self::assertSame(0, Db::name('ota_credentials')->count());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage(
+            'Browser assist data source must not store reusable OTA credentials.'
+        );
+        $this->service()->saveDataSource($this->user(), [
+            'name' => 'Forbidden browser assist cookie',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_assist_dom',
+            'secret' => ['cookies' => 'must-not-persist'],
+        ]);
+    }
+
+    public function testBrowserAssistBindingRequiresExactOperatorConfirmedHotelAndDate(): void
+    {
+        $service = $this->service();
+        $method = new \ReflectionMethod($service, 'assertGenericOtaPayloadBinding');
+        $method->setAccessible(true);
+        $source = [
+            'tenant_id' => 7,
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_assist_dom',
+        ];
+        $identity = [
+            'status' => 'operator_confirmed',
+            'evidence_type' => 'authenticated_page_header',
+            'system_hotel_id' => 101,
+            'expected_hotel_name' => 'Hotel A',
+            'observed_hotel_name' => 'Ctrip Hotel A page header',
+            'confirmed_at' => '2026-07-28 21:38:00',
+            'source_contract' => 'ota_browser_assist_collection_contract.v1',
+        ];
+        $payload = ['rows' => [[
+            'system_hotel_id' => 101,
+            'data_date' => '2026-07-28',
+            'browser_assist_identity' => $identity,
+        ]]];
+
+        self::assertSame(
+            [
+                'status' => 'operator_confirmed',
+                'proof' => 'authenticated_page_header',
+            ],
+            $method->invoke($service, $source, $payload)
+        );
+
+        $payload['rows'][0]['browser_assist_identity']['expected_hotel_name'] = 'Other Hotel';
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('binding_unverified');
+        $method->invoke($service, $source, $payload);
+    }
+
+    public function testLocalCollectorSourceStoresOnlyAccountDeviceAndProfileProofHashes(): void
+    {
+        $saved = $this->service()->saveDataSource($this->user(), [
+            'name' => 'Account-owned Ctrip collector',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'local_collector',
+            'config' => [
+                'local_collector_account_id' => 31,
+                'collector_device_id_hash' => str_repeat('a', 64),
+                'profile_key_hash' => str_repeat('b', 64),
+                'platform_hotel_id' => 'CTRIP-101',
+                'ctrip_hotel_id' => 'CTRIP-101',
+                'current_session_verified' => true,
+                'source_method' => 'local_account_profile',
+            ],
+        ]);
+
+        self::assertSame('local_collector', $saved['ingestion_method']);
+        self::assertFalse($saved['has_secret']);
+        self::assertFalse($saved['has_cookies']);
+        self::assertSame('not_required', $saved['credential_status']);
+        self::assertSame('not_required_for_local_collector', $saved['config']['credential_usage']);
+        self::assertSame('account_owner_device_only', $saved['config']['profile_execution_policy']);
+        self::assertSame(str_repeat('a', 64), $saved['config']['collector_device_id_hash']);
+        self::assertArrayNotHasKey('profile_key_hash', $saved['config']);
+        self::assertSame(0, Db::name('ota_credentials')->count());
+        $stored = Db::name('platform_data_sources')->where('id', $saved['id'])->find();
+        $storedConfig = json_decode((string)$stored['config_json'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(str_repeat('a', 64), $storedConfig['collector_device_id_hash']);
+        self::assertSame(str_repeat('b', 64), $storedConfig['profile_key_hash']);
+        self::assertSame('{}', (string)$stored['secret_json']);
+    }
+
+    public function testLocalCollectorSourceRejectsCookieCustody(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Local collector data source must not store reusable OTA credentials');
+
+        $this->service()->saveDataSource($this->user(), [
+            'name' => 'Forbidden local collector',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'local_collector',
+            'config' => [
+                'local_collector_account_id' => 31,
+                'collector_device_id_hash' => str_repeat('a', 64),
+                'profile_key_hash' => str_repeat('b', 64),
+                'platform_hotel_id' => 'CTRIP-101',
+            ],
+            'secret' => ['cookies' => 'must-stay-local'],
+        ]);
+    }
+
+    public function testSavingSameBrowserProfileReusesExistingDataSource(): void
+    {
+        $service = $this->service();
+        $first = $service->saveDataSource($this->user(), [
+            'name' => 'Ctrip browser profile first save',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'config' => [
+                'profile_id' => 'profile-101',
+                'last_login_verified_at' => '2026-07-10 10:00:00',
+            ],
+        ]);
+        $firstConfigId = (string)($first['config']['config_id'] ?? '');
+
+        $second = $service->saveDataSource($this->user(), [
+            'name' => 'Ctrip browser profile refreshed',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'config' => [
+                'profile_id' => 'profile-101',
+                'last_login_verified_at' => '2026-07-11 10:00:00',
+            ],
+        ]);
+
+        self::assertSame((int)$first['id'], (int)$second['id']);
+        self::assertSame(1, (int)Db::name('platform_data_sources')->count());
+        self::assertSame($firstConfigId, (string)($second['config']['config_id'] ?? ''));
+        self::assertSame('Ctrip browser profile refreshed', $second['name']);
+        self::assertSame('2026-07-11 10:00:00', $second['config']['last_login_verified_at']);
     }
 
     public function testBrowserProfileSourceRejectsReusableCredentialCustody(): void
@@ -434,13 +605,14 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
             'update_time' => '2026-07-10 10:00:00',
         ]);
         $this->bindProfile(7, 101, 'ctrip', 'profile-101');
-        (new OtaProfileSessionProofService())->recordVerified(
+        (new OtaProfileSessionProofService())->recordCollectionPreflightVerified(
             $sourceId,
             101,
             'ctrip',
             'profile-101',
             true,
-            ['ok' => true, 'status' => 'logged_in']
+            ['ok' => true, 'status' => 'logged_in'],
+            ['status' => 'matched', 'validated_identifier' => 'profile-101']
         );
 
         $result = $service->syncDataSource($this->user(), $sourceId, [
@@ -509,13 +681,14 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
             'update_time' => '2026-07-10 10:00:00',
         ]);
         $this->bindProfile(7, 101, 'ctrip', 'profile-101');
-        (new OtaProfileSessionProofService())->recordVerified(
+        (new OtaProfileSessionProofService())->recordCollectionPreflightVerified(
             $sourceId,
             101,
             'ctrip',
             'profile-101',
             true,
-            ['ok' => true, 'status' => 'logged_in']
+            ['ok' => true, 'status' => 'logged_in'],
+            ['status' => 'matched', 'validated_identifier' => 'profile-101']
         );
 
         $service->syncDataSource($this->user(), $sourceId, [
@@ -527,6 +700,82 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         self::assertStringNotContainsString($marker, $adapter->seenSource);
         self::assertStringNotContainsString('"secret"', $adapter->seenSource);
         self::assertStringNotContainsString('secret_json', $adapter->seenSource);
+    }
+
+    public function testProfileProofBranchesDoNotLockOrWriteMirrorPollutedSources(): void
+    {
+        $service = new OtaProfileSessionProofService();
+        $branches = ['verified', 'failed', 'blocked'];
+        foreach ($branches as $offset => $branch) {
+            $profileKey = 'profile-102-' . $branch;
+            $configJson = json_encode(['profile_id' => $profileKey], JSON_THROW_ON_ERROR);
+            $secretJson = json_encode(['sentinel' => 'secret-' . $branch], JSON_THROW_ON_ERROR);
+            $sourceId = (int)Db::name('platform_data_sources')->insertGetId([
+                'tenant_id' => 7,
+                'system_hotel_id' => 102,
+                'user_id' => 9,
+                'name' => 'Mirror polluted profile ' . $branch,
+                'platform' => 'ctrip',
+                'data_type' => 'traffic',
+                'ingestion_method' => 'browser_profile',
+                'status' => 'ready',
+                'enabled' => 1,
+                'config_json' => $configJson,
+                'secret_json' => $secretJson,
+                'create_time' => '2026-07-10 10:00:0' . $offset,
+                'update_time' => '2026-07-10 10:00:0' . $offset,
+            ]);
+            $this->bindProfile(8, 102, 'ctrip', $profileKey);
+
+            try {
+                if ($branch === 'verified') {
+                    $service->recordCollectionPreflightVerified(
+                        $sourceId,
+                        102,
+                        'ctrip',
+                        $profileKey,
+                        true,
+                        ['ok' => true, 'status' => 'logged_in'],
+                        ['status' => 'matched', 'validated_identifier' => $profileKey]
+                    );
+                } elseif ($branch === 'failed') {
+                    $service->recordCollectionPreflightFailed(
+                        $sourceId,
+                        102,
+                        'ctrip',
+                        $profileKey,
+                        ['ok' => false, 'status' => 'login_required']
+                    );
+                } else {
+                    $service->recordProfileSessionBlocked(
+                        $sourceId,
+                        102,
+                        'ctrip',
+                        $profileKey,
+                        'identity_mismatch'
+                    );
+                }
+                self::fail($branch . ' must not lock or mutate a source outside the binding tenant.');
+            } catch (\RuntimeException $exception) {
+                self::assertStringContainsString('not found', strtolower($exception->getMessage()), $branch);
+            }
+
+            $stored = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+            self::assertSame($configJson, $stored['config_json'], $branch);
+            self::assertSame($secretJson, $stored['secret_json'], $branch);
+            self::assertSame('2026-07-10 10:00:0' . $offset, $stored['update_time'], $branch);
+        }
+
+        $sourceCode = (string)file_get_contents(dirname(__DIR__) . '/app/service/OtaProfileSessionProofService.php');
+        preg_match_all(
+            '~->field\(\'([^\']+)\'\)\s*->where\(\'id\', \$dataSourceId\)~',
+            $sourceCode,
+            $matches
+        );
+        self::assertCount(3, $matches[1]);
+        foreach ($matches[1] as $selectedFields) {
+            self::assertStringNotContainsString('secret_json', $selectedFields);
+        }
     }
 
     public function testLegacyOtaSourceCannotExecuteEvilUrlOrInlineAuthorizationFromConfig(): void
@@ -738,6 +987,351 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         self::assertSame('revoked', $this->vault()->metadata(7, 101, 'ctrip', 'shared-101')['credential_status']);
     }
 
+    public function testNormalTenantCannotListUpdateDisableOrSyncPollutedSourceForItsHotel(): void
+    {
+        $now = '2026-07-22 10:00:00';
+        $validId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 7,
+            'system_hotel_id' => 101,
+            'user_id' => 9,
+            'name' => 'Tenant A valid source',
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'status' => 'ready',
+            'enabled' => 1,
+            'config_json' => '{}',
+            'secret_json' => '{}',
+            'create_time' => $now,
+            'update_time' => $now,
+        ]);
+        $pollutedId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 8,
+            'system_hotel_id' => 101,
+            'user_id' => 10,
+            'name' => 'Wrong tenant same hotel source',
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'status' => 'ready',
+            'enabled' => 1,
+            'config_json' => '{}',
+            'secret_json' => '{}',
+            'create_time' => $now,
+            'update_time' => $now,
+        ]);
+
+        $service = $this->service();
+        $actor = $this->tenantUser();
+        $listed = $service->listDataSources($actor);
+        self::assertSame([$validId], array_map(static fn(array $row): int => (int)$row['id'], $listed));
+
+        foreach (['save', 'delete', 'sync'] as $operation) {
+            try {
+                if ($operation === 'save') {
+                    $service->saveDataSource($actor, ['id' => $pollutedId]);
+                } elseif ($operation === 'delete') {
+                    $service->deleteDataSource($actor, $pollutedId);
+                } else {
+                    $service->syncDataSource($actor, $pollutedId);
+                }
+                self::fail($operation . ' must reject a source whose tenant does not match the actor scope');
+            } catch (\RuntimeException $exception) {
+                self::assertSame(404, $exception->getCode(), $operation);
+            }
+        }
+
+        $polluted = Db::name('platform_data_sources')->where('id', $pollutedId)->find();
+        self::assertSame(1, (int)$polluted['enabled']);
+        self::assertSame('ready', $polluted['status']);
+        self::assertSame(0, Db::name('platform_data_sync_tasks')->where('data_source_id', $pollutedId)->count());
+    }
+
+    public function testSameTenantSourceWithoutHotelPermissionReturnsForbiddenForEveryMutation(): void
+    {
+        $sourceId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 7,
+            'system_hotel_id' => 101,
+            'name' => 'Valid but unauthorized source',
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'status' => 'ready',
+            'enabled' => 1,
+            'config_json' => '{}',
+            'secret_json' => '{}',
+        ]);
+        $service = $this->service();
+        $actor = $this->restrictedTenantUser();
+
+        foreach (['save', 'delete', 'sync'] as $operation) {
+            try {
+                if ($operation === 'save') {
+                    $service->saveDataSource($actor, ['id' => $sourceId]);
+                } elseif ($operation === 'delete') {
+                    $service->deleteDataSource($actor, $sourceId);
+                } else {
+                    $service->syncDataSource($actor, $sourceId);
+                }
+                self::fail($operation . ' must preserve the existing forbidden response.');
+            } catch (\RuntimeException $exception) {
+                self::assertSame(403, $exception->getCode(), $operation);
+            }
+        }
+        self::assertSame(1, (int)Db::name('platform_data_sources')->where('id', $sourceId)->value('enabled'));
+        self::assertSame(0, Db::name('platform_data_sync_tasks')->where('data_source_id', $sourceId)->count());
+    }
+
+    public function testSyncChecksHotelPermissionBeforeReadingCustomSourceSecret(): void
+    {
+        $sourceId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 7,
+            'system_hotel_id' => 101,
+            'name' => 'Custom source with protected secret',
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'status' => 'ready',
+            'enabled' => 1,
+            'config_json' => '{}',
+            'secret_json' => '{"sentinel":"must-not-be-read"}',
+        ]);
+        $queries = [];
+        Db::listen(static function ($sql) use (&$queries): void {
+            $queries[] = strtolower((string)$sql);
+        });
+
+        try {
+            $this->service()->syncDataSource($this->restrictedTenantUser(), $sourceId);
+            self::fail('Hotel permission must be checked before loading a custom source secret.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(403, $exception->getCode());
+        }
+
+        self::assertStringNotContainsString('secret_json', implode("\n", $queries));
+        self::assertSame(0, Db::name('platform_data_sync_tasks')->where('data_source_id', $sourceId)->count());
+    }
+
+    public function testPollutedActiveTasksCannotBlockOrBeFinishedByValidSourceSync(): void
+    {
+        $sourceId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 7,
+            'system_hotel_id' => 101,
+            'name' => 'Tenant A task identity source',
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'status' => 'ready',
+            'enabled' => 1,
+            'config_json' => '{}',
+            'secret_json' => '{}',
+        ]);
+        $now = date('Y-m-d H:i:s');
+        $taskBase = [
+            'data_source_id' => $sourceId,
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'trigger_type' => 'manual',
+            'status' => 'running',
+            'attempt_count' => 1,
+            'max_attempts' => 3,
+            'started_at' => $now,
+            'message' => 'polluted-active-sentinel',
+            'stats_json' => '{"sentinel":"must-remain"}',
+            'create_time' => $now,
+            'update_time' => $now,
+        ];
+        $wrongTenantTaskId = (int)Db::name('platform_data_sync_tasks')->insertGetId(array_merge($taskBase, [
+            'tenant_id' => 8,
+            'system_hotel_id' => 101,
+        ]));
+        $wrongHotelTaskId = (int)Db::name('platform_data_sync_tasks')->insertGetId(array_merge($taskBase, [
+            'tenant_id' => 7,
+            'system_hotel_id' => 102,
+        ]));
+
+        $service = $this->service();
+        $result = $service->syncDataSource($this->tenantUser(), $sourceId);
+        self::assertSame('failed', $result['status']);
+        self::assertNotContains((int)$result['task_id'], [$wrongTenantTaskId, $wrongHotelTaskId]);
+
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        $finishTask = new \ReflectionMethod($service, 'finishTask');
+        $finishTask->setAccessible(true);
+        foreach ([$wrongTenantTaskId, $wrongHotelTaskId] as $pollutedTaskId) {
+            $finishTask->invoke($service, $pollutedTaskId, $source, 'failed', 'must-not-write', 0, 0, []);
+            $pollutedTask = Db::name('platform_data_sync_tasks')->where('id', $pollutedTaskId)->find();
+            self::assertSame('running', $pollutedTask['status']);
+            self::assertSame('polluted-active-sentinel', $pollutedTask['message']);
+            self::assertSame('{"sentinel":"must-remain"}', $pollutedTask['stats_json']);
+        }
+
+        $validTask = Db::name('platform_data_sync_tasks')->where('id', (int)$result['task_id'])->find();
+        self::assertSame(7, (int)$validTask['tenant_id']);
+        self::assertSame(101, (int)$validTask['system_hotel_id']);
+        self::assertSame('failed', $validTask['status']);
+    }
+
+    public function testSourceIdentityChangeBeforeTaskTransactionCannotCreateOrBeBlockedByTask(): void
+    {
+        $sourceId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 7,
+            'system_hotel_id' => 101,
+            'name' => 'Source changed before task transaction',
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'status' => 'ready',
+            'enabled' => 1,
+            'config_json' => '{}',
+            'secret_json' => '{}',
+        ]);
+        $loadedSource = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        Db::name('platform_data_sources')->where('id', $sourceId)->update(['tenant_id' => 8]);
+        $now = date('Y-m-d H:i:s');
+        $blockingTaskId = (int)Db::name('platform_data_sync_tasks')->insertGetId([
+            'tenant_id' => 7,
+            'data_source_id' => $sourceId,
+            'system_hotel_id' => 101,
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'trigger_type' => 'manual',
+            'status' => 'running',
+            'attempt_count' => 1,
+            'max_attempts' => 3,
+            'started_at' => $now,
+            'message' => 'must-not-be-observed-as-blocker',
+            'stats_json' => '{}',
+            'create_time' => $now,
+            'update_time' => $now,
+        ]);
+
+        $createTask = new \ReflectionMethod($this->service(), 'createTask');
+        $createTask->setAccessible(true);
+        try {
+            $createTask->invoke($this->service(), $loadedSource, $this->tenantUser(), 'manual');
+            self::fail('A source whose identity changed before the task transaction must not create a task.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(404, $exception->getCode());
+            self::assertStringNotContainsString('already active', $exception->getMessage());
+        }
+
+        self::assertSame(1, Db::name('platform_data_sync_tasks')->where('data_source_id', $sourceId)->count());
+        $blockingTask = Db::name('platform_data_sync_tasks')->where('id', $blockingTaskId)->find();
+        self::assertSame('running', $blockingTask['status']);
+        self::assertSame('must-not-be-observed-as-blocker', $blockingTask['message']);
+    }
+
+    public function testNormalCreateHidesMissingAndCrossTenantHotelExistenceBehindForbidden(): void
+    {
+        $service = $this->service();
+        foreach ([999, 102] as $hotelId) {
+            try {
+                $service->saveDataSource($this->tenantUser(), [
+                    'name' => 'Forbidden hotel source',
+                    'system_hotel_id' => $hotelId,
+                    'platform' => 'custom',
+                    'data_type' => 'business',
+                    'ingestion_method' => 'api',
+                    'config' => ['url' => 'https://example.com/source'],
+                    'secret' => [],
+                ]);
+                self::fail('Normal actor must not distinguish missing and cross-tenant hotels.');
+            } catch (\RuntimeException $exception) {
+                self::assertSame(403, $exception->getCode(), 'hotel=' . $hotelId);
+            }
+        }
+        self::assertSame(0, Db::name('platform_data_sources')->count());
+    }
+
+    public function testHistoricalTaskAndLogListsUseBothTenantAndPermittedHotelScope(): void
+    {
+        $taskRows = [];
+        foreach ([[7, 101], [8, 101], [7, 102], [8, 102]] as $index => [$tenantId, $hotelId]) {
+            $taskRows[] = [
+                'id' => $index + 1,
+                'tenant_id' => $tenantId,
+                'data_source_id' => $index + 10,
+                'system_hotel_id' => $hotelId,
+                'platform' => 'custom',
+                'data_type' => 'business',
+                'ingestion_method' => 'api',
+                'trigger_type' => 'manual',
+                'status' => 'success',
+                'attempt_count' => 1,
+                'max_attempts' => 1,
+                'message' => 'ok',
+                'stats_json' => '{}',
+            ];
+        }
+        Db::name('platform_data_sync_tasks')->insertAll($taskRows);
+        Db::name('platform_data_sync_logs')->insertAll(array_map(
+            static fn(array $task): array => [
+                'id' => $task['id'],
+                'tenant_id' => $task['tenant_id'],
+                'sync_task_id' => $task['id'],
+                'data_source_id' => $task['data_source_id'],
+                'system_hotel_id' => $task['system_hotel_id'],
+                'level' => 'info',
+                'event' => 'completed',
+                'message' => 'ok',
+                'context_json' => '{}',
+            ],
+            $taskRows
+        ));
+
+        $service = $this->service();
+        self::assertSame([1], array_map('intval', array_column($service->listSyncTasks($this->tenantUser()), 'id')));
+        self::assertSame([1], array_map('intval', array_column($service->listSyncLogs($this->tenantUser()), 'id')));
+        self::assertSame([4, 3, 2, 1], array_map('intval', array_column($service->listSyncTasks($this->user()), 'id')));
+        self::assertSame([4, 3, 2, 1], array_map('intval', array_column($service->listSyncLogs($this->user()), 'id')));
+    }
+
+    public function testReversePollutionIsHiddenAsNotFoundForTenantActorButVisibleAsConflictToAdmin(): void
+    {
+        $sourceId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 7,
+            'system_hotel_id' => 102,
+            'name' => 'Stored tenant A but authoritative tenant B',
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'status' => 'ready',
+            'enabled' => 1,
+            'config_json' => '{}',
+            'secret_json' => '{"sentinel":"must-remain"}',
+        ]);
+        $service = $this->service();
+        $actor = $this->crossHotelClaimTenantUser();
+        self::assertSame([], $service->listDataSources($actor));
+
+        foreach (['save', 'delete', 'sync'] as $operation) {
+            try {
+                if ($operation === 'save') {
+                    $service->saveDataSource($actor, ['id' => $sourceId]);
+                } elseif ($operation === 'delete') {
+                    $service->deleteDataSource($actor, $sourceId);
+                } else {
+                    $service->syncDataSource($actor, $sourceId);
+                }
+                self::fail($operation . ' must hide a mirrored tenant mismatch.');
+            } catch (\RuntimeException $exception) {
+                self::assertSame(404, $exception->getCode(), $operation);
+            }
+        }
+
+        try {
+            $service->syncDataSource($this->user(), $sourceId);
+            self::fail('Super admin integrity diagnostics must retain the tenant mismatch conflict.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(409, $exception->getCode());
+        }
+        self::assertSame('{"sentinel":"must-remain"}', Db::name('platform_data_sources')->where('id', $sourceId)->value('secret_json'));
+        self::assertSame(1, (int)Db::name('platform_data_sources')->where('id', $sourceId)->value('enabled'));
+    }
+
     public function testAdapterResultSanitizerDropsCredentialValuesUsedAsKeys(): void
     {
         $service = $this->service();
@@ -827,6 +1421,75 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
             public function isSuperAdmin(): bool
             {
                 return true;
+            }
+        };
+    }
+
+    private function tenantUser(): object
+    {
+        return new class {
+            public int $id = 9;
+            public int $tenant_id = 7;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function hasHotelPermission(int $hotelId, string $permission): bool
+            {
+                return $hotelId === 101 && in_array($permission, ['can_fetch_online_data', 'can_delete_online_data'], true);
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [101];
+            }
+        };
+    }
+
+    private function restrictedTenantUser(): object
+    {
+        return new class {
+            public int $id = 10;
+            public int $tenant_id = 7;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function hasHotelPermission(int $hotelId, string $permission): bool
+            {
+                return false;
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [101];
+            }
+        };
+    }
+
+    private function crossHotelClaimTenantUser(): object
+    {
+        return new class {
+            public int $id = 11;
+            public int $tenant_id = 7;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function hasHotelPermission(int $hotelId, string $permission): bool
+            {
+                return $hotelId === 102;
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [102];
             }
         };
     }

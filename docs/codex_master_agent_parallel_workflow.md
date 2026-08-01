@@ -52,7 +52,8 @@ public/index.html
 database/
 database/migrations/
 scripts/verify_release_*.mjs
-docs/release_readiness_status.json
+docs/release_blocker_policy.json
+docs/release_readiness_status.json  # historical snapshot only
 ```
 
 如必须修改，主控 Agent 先声明：

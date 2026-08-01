@@ -57,23 +57,35 @@ assert_field_fact_check(
     ['status' => $notLoaded['status'] ?? null]
 );
 
+$explicitEvidence = [
+    'source_trace_id' => 'meituan:explicit-fields',
+    'source_url_hash' => str_repeat('c', 64),
+];
 $explicit = field_fact_status(
-    ['source' => 'meituan', 'data_type' => 'traffic'],
     [
+        'source' => 'meituan',
+        'data_type' => 'traffic',
+        'list_exposure' => 123,
+        'flow_rate' => 36.5,
+        'source_trace_id' => $explicitEvidence['source_trace_id'],
+        'source_url_hash' => $explicitEvidence['source_url_hash'],
+    ],
+    [
+        'capture_evidence' => $explicitEvidence,
         'field_facts' => [
             [
                 'metric_key' => 'list_exposure',
                 'source_path' => 'data.flowData.0.listExposure',
-                'storage_field' => 'list_exposure',
+                'storage_field' => 'online_daily_data.list_exposure',
                 'status' => 'captured',
-                'capture_evidence' => ['source_path' => 'data.flowData.0'],
+                'capture_evidence' => $explicitEvidence,
             ],
             [
                 'metric_key' => 'flow_rate',
                 'source_path' => 'data.flowData.0.flowRate',
-                'storage_field' => 'flow_rate',
+                'storage_field' => 'online_daily_data.flow_rate',
                 'status' => 'captured',
-                'capture_evidence' => ['source_path' => 'data.flowData.0'],
+                'capture_evidence' => $explicitEvidence,
             ],
         ],
     ]
@@ -84,10 +96,12 @@ assert_field_fact_check(
     ($explicit['status'] ?? '') === 'ready'
         && ($explicit['captured_count'] ?? 0) === 2
         && ($explicit['capture_evidence_count'] ?? 0) === 2
-        && ($explicit['desensitized_capture_evidence_count'] ?? -1) === 0
+        && ($explicit['desensitized_capture_evidence_count'] ?? 0) === 2
+        && ($explicit['matching_desensitized_capture_evidence_count'] ?? 0) === 2
         && ($explicit['storage_field_count'] ?? 0) === 2
+        && ($explicit['stored_value_present_count'] ?? 0) === 2
         && ($explicit['inferred_storage_field_count'] ?? -1) === 0,
-    'Explicit platform field_facts with source_path and storage_field are ready.',
+    'Explicit platform field_facts are ready only when source path, storage value, and desensitized capture evidence match the row.',
     ['result' => $explicit]
 );
 
@@ -107,8 +121,9 @@ $captureEvidenceMissing = field_fact_status(
 assert_field_fact_check(
     $checks,
     'capture_evidence_required_for_closure',
-    ($captureEvidenceMissing['status'] ?? '') === 'missing'
+    ($captureEvidenceMissing['status'] ?? '') === 'partial'
         && ($captureEvidenceMissing['capture_evidence_count'] ?? -1) === 0
+        && ($captureEvidenceMissing['desensitized_capture_evidence_count'] ?? -1) === 0
         && in_array('list_exposure', $captureEvidenceMissing['missing_metric_keys'] ?? [], true),
     'A field fact without capture_evidence is not treated as closed even when source_path and storage_field exist.',
     ['result' => $captureEvidenceMissing]
@@ -152,9 +167,19 @@ assert_field_fact_check(
     ['result' => $legacy]
 );
 
+$rawMetricEvidence = [
+    'source_trace_id' => 'ctrip:raw-metrics',
+    'source_url_hash' => str_repeat('d', 64),
+];
 $rawMetric = field_fact_status(
-    ['source' => 'ctrip', 'data_type' => 'business', 'source_trace_id' => 'ctrip:raw-metrics'],
     [
+        'source' => 'ctrip',
+        'data_type' => 'business',
+        'source_trace_id' => $rawMetricEvidence['source_trace_id'],
+        'source_url_hash' => $rawMetricEvidence['source_url_hash'],
+    ],
+    [
+        'capture_evidence' => $rawMetricEvidence,
         'metrics' => [
             'hot_spot_name' => '附近热区',
         ],
@@ -162,7 +187,7 @@ $rawMetric = field_fact_status(
             [
                 'metric_key' => 'hot_spot_name',
                 'source_path' => 'otherDataList.0.hotSpotName',
-                'capture_evidence' => ['source_path' => 'otherDataList.0'],
+                'capture_evidence' => $rawMetricEvidence,
             ],
         ],
     ]
@@ -172,6 +197,8 @@ assert_field_fact_check(
     $checks,
     'raw_metrics_storage_value_present',
     ($rawMetric['status'] ?? '') === 'ready'
+        && ($rawMetric['desensitized_capture_evidence_count'] ?? 0) === 1
+        && ($rawMetric['matching_desensitized_capture_evidence_count'] ?? 0) === 1
         && ($rawMetric['stored_value_present_count'] ?? 0) === 1
         && ($rawMetric['stored_value_missing_count'] ?? -1) === 0
         && (($rawMetricSamples[0]['storage_field'] ?? '') === 'online_daily_data.raw_data.metrics.hot_spot_name')
@@ -180,13 +207,25 @@ assert_field_fact_check(
     ['result' => $rawMetric]
 );
 
+$sourcePathEvidence = [
+    'source_trace_id' => 'ctrip:source-path-missing',
+    'source_url_hash' => str_repeat('e', 64),
+];
 $sourcePathMissing = field_fact_status(
-    ['source' => 'ctrip', 'data_type' => 'business'],
     [
+        'source' => 'ctrip',
+        'data_type' => 'business',
+        'amount' => 123.45,
+        'source_trace_id' => $sourcePathEvidence['source_trace_id'],
+        'source_url_hash' => $sourcePathEvidence['source_url_hash'],
+    ],
+    [
+        'capture_evidence' => $sourcePathEvidence,
         'facts' => [
             [
                 'metric_key' => 'order_amount',
                 'value' => 123.45,
+                'capture_evidence' => $sourcePathEvidence,
             ],
         ],
     ]
@@ -194,22 +233,34 @@ $sourcePathMissing = field_fact_status(
 assert_field_fact_check(
     $checks,
     'source_path_required_for_closure',
-    ($sourcePathMissing['status'] ?? '') === 'missing'
+    ($sourcePathMissing['status'] ?? '') === 'partial'
         && in_array('order_amount', $sourcePathMissing['missing_metric_keys'] ?? [], true)
+        && ($sourcePathMissing['desensitized_capture_evidence_count'] ?? 0) === 1
         && ($sourcePathMissing['source_path_count'] ?? -1) === 0,
     'A metric_key/value without source_path is not treated as a closed field fact.',
     ['result' => $sourcePathMissing]
 );
 
+$weakSourcePathEvidence = [
+    'source_trace_id' => 'meituan:weak-source-path',
+    'source_url_hash' => str_repeat('f', 64),
+];
 $weakSourcePath = field_fact_status(
-    ['source' => 'meituan', 'data_type' => 'traffic', 'list_exposure' => 10],
     [
+        'source' => 'meituan',
+        'data_type' => 'traffic',
+        'list_exposure' => 10,
+        'source_trace_id' => $weakSourcePathEvidence['source_trace_id'],
+        'source_url_hash' => $weakSourcePathEvidence['source_url_hash'],
+    ],
+    [
+        'capture_evidence' => $weakSourcePathEvidence,
         'field_facts' => [
             [
                 'metric_key' => 'list_exposure',
                 'source_path' => 'listExposure',
                 'storage_field' => 'online_daily_data.list_exposure',
-                'capture_evidence' => ['source_trace_id' => 'meituan:weak-source-path'],
+                'capture_evidence' => $weakSourcePathEvidence,
                 'stored_value_present' => true,
             ],
         ],
@@ -218,7 +269,8 @@ $weakSourcePath = field_fact_status(
 assert_field_fact_check(
     $checks,
     'structured_source_path_required_for_ready_status',
-    ($weakSourcePath['status'] ?? '') === 'missing'
+    ($weakSourcePath['status'] ?? '') === 'partial'
+        && ($weakSourcePath['desensitized_capture_evidence_count'] ?? 0) === 1
         && ($weakSourcePath['source_path_count'] ?? -1) === 1
         && ($weakSourcePath['structured_source_path_count'] ?? -1) === 0
         && (($weakSourcePath['sample_facts'][0]['source_path_structured'] ?? null) === false)
@@ -318,23 +370,58 @@ $meituanRankExtraction = MeituanRankDataExtractionService::extractForPersistence
     ],
 ]);
 $meituanRankSource = $meituanRankExtraction['rows'][0] ?? [];
+$meituanRankRawBase = [
+    'percent' => 18.2,
+    'rankType' => 'P_RZ',
+    'rank' => 3,
+    'dimension' => '入住间夜榜',
+    '_source_path' => $meituanRankSource['_source_path'] ?? '',
+    '_capture_source' => $meituanRankExtraction['source'] ?? '',
+];
+$meituanRankBaseRow = [
+    'source' => 'meituan',
+    'data_type' => 'peer_rank',
+    'data_date' => '2026-06-14',
+    'hotel_id' => 'demo',
+    'hotel_name' => 'demo hotel',
+    'dimension' => '入住间夜榜',
+    'data_value' => 18.2,
+];
+$meituanRankWithoutEvidenceRow = OnlineDataFieldFactService::attachToOnlineDailyRow(
+    $meituanRankBaseRow + [
+        'raw_data' => json_encode($meituanRankRawBase, JSON_UNESCAPED_UNICODE),
+    ],
+    is_array($meituanRankSource) ? $meituanRankSource : []
+);
+$meituanRankWithoutEvidenceRaw = json_decode((string)($meituanRankWithoutEvidenceRow['raw_data'] ?? '{}'), true);
+$meituanRankWithoutEvidenceStatus = field_fact_status(
+    $meituanRankWithoutEvidenceRow,
+    is_array($meituanRankWithoutEvidenceRaw) ? $meituanRankWithoutEvidenceRaw : []
+);
+assert_field_fact_check(
+    $checks,
+    'meituan_rank_without_desensitized_evidence_stays_partial',
+    ($meituanRankWithoutEvidenceStatus['status'] ?? '') === 'partial'
+        && ($meituanRankWithoutEvidenceStatus['captured_count'] ?? -1) === 0
+        && ($meituanRankWithoutEvidenceStatus['desensitized_capture_evidence_count'] ?? -1) === 0
+        && ($meituanRankWithoutEvidenceStatus['source_path_count'] ?? 0) >= 4
+        && in_array('meituan_rank_value', $meituanRankWithoutEvidenceStatus['missing_metric_keys'] ?? [], true),
+    'Meituan peer-rank source paths alone do not promote a row to ready without matching desensitized capture evidence.',
+    ['result' => $meituanRankWithoutEvidenceStatus]
+);
+
+$meituanRankEvidence = [
+    'source_trace_id' => 'meituan:rank-demo',
+    'source_url_hash' => str_repeat('9', 64),
+];
+if (is_array($meituanRankSource)) {
+    $meituanRankSource['capture_evidence'] = $meituanRankEvidence;
+}
+$meituanRankRawWithEvidence = $meituanRankRawBase;
+$meituanRankRawWithEvidence['capture_evidence'] = $meituanRankEvidence;
 $meituanRankRow = OnlineDataFieldFactService::attachToOnlineDailyRow(
-    [
-        'source' => 'meituan',
-        'data_type' => 'peer_rank',
-        'data_date' => '2026-06-14',
-        'hotel_id' => 'demo',
-        'hotel_name' => 'demo hotel',
-        'dimension' => '入住间夜榜',
-        'data_value' => 18.2,
-        'raw_data' => json_encode([
-            'percent' => 18.2,
-            'rankType' => 'P_RZ',
-            'rank' => 3,
-            'dimension' => '入住间夜榜',
-            '_source_path' => $meituanRankSource['_source_path'] ?? '',
-            '_capture_source' => $meituanRankExtraction['source'] ?? '',
-        ], JSON_UNESCAPED_UNICODE),
+    $meituanRankBaseRow + [
+        'raw_data' => json_encode($meituanRankRawWithEvidence, JSON_UNESCAPED_UNICODE),
     ],
     is_array($meituanRankSource) ? $meituanRankSource : []
 );
@@ -346,9 +433,11 @@ assert_field_fact_check(
     ($meituanRankStatus['status'] ?? '') === 'ready'
         && ($meituanRankStatus['captured_count'] ?? 0) >= 4
         && ($meituanRankStatus['capture_evidence_count'] ?? 0) >= 4
+        && ($meituanRankStatus['desensitized_capture_evidence_count'] ?? 0) >= 4
+        && ($meituanRankStatus['matching_desensitized_capture_evidence_count'] ?? 0) >= 4
         && ($meituanRankStatus['source_path_count'] ?? 0) >= 4
         && str_starts_with((string)($meituanRankStatus['sample_facts'][0]['source_path'] ?? ''), 'data.peerRankData.0.roundRanks.0.'),
-    'Meituan peer-rank extraction preserves row source_path and attaches closed field facts.',
+    'Meituan peer-rank extraction can attach closed field facts when source paths and matching desensitized evidence are both present.',
     ['result' => $meituanRankStatus]
 );
 
@@ -392,10 +481,10 @@ $genericTrafficRow = OnlineDataFieldFactService::attachToOnlineDailyRow(
 
 $persistenceRef = new ReflectionClass(OnlineDailyDataPersistenceService::class);
 $persistence = $persistenceRef->newInstanceWithoutConstructor();
-$metricMethod = $persistenceRef->getMethod('extractGenericTrafficMetrics');
+$metricMethod = $persistenceRef->getMethod('extractObservedTrafficMetrics');
 $metricMethod->setAccessible(true);
 /** @var array<string, mixed> $genericTrafficMetrics */
-$genericTrafficMetrics = $metricMethod->invoke($persistence, $genericTrafficSource);
+$genericTrafficMetrics = $metricMethod->invoke($persistence, $genericTrafficSource, true);
 assert_field_fact_check(
     $checks,
     'generic_traffic_persistence_structured_fields_ready',

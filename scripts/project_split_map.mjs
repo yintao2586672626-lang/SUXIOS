@@ -9,18 +9,23 @@ import { parseArgs } from './lib/shared_helpers.mjs';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = parseArgs(process.argv.slice(2));
 const outputJson = args.json === 'true';
-const topLimit = Math.max(1, Number(args.top || 12));
+const topLimit = positiveIntegerArg(args.top, 12, 1);
+const minLines = positiveIntegerArg(args.minLines, 2_500, 100);
 const changedPathSet = new Set(gitChangedFiles());
 
-const targets = [
-  analyzePublicIndex('public/index.html'),
-  analyzePhpController('app/controller/OnlineData.php'),
-];
+const targetPaths = discoverHotspotPaths();
+const targets = targetPaths.map(analyzeTarget);
 
 const report = {
-  schema_version: 1,
+  schema_version: 2,
   generated_at: new Date().toISOString(),
   repo_root: repoRoot,
+  selection: {
+    mode: 'dynamic_actionable_hotspots',
+    min_lines: minLines,
+    target_limit: topLimit,
+    generated_and_vendored_assets_excluded: true,
+  },
   targets,
 };
 
@@ -30,7 +35,18 @@ if (outputJson) {
   renderText(report);
 }
 
-function analyzePublicIndex(relativePath) {
+function analyzeTarget(relativePath) {
+  const extension = path.extname(relativePath).toLowerCase();
+  if (extension === '.php') {
+    return analyzePhpSource(relativePath);
+  }
+  if (extension === '.js' || extension === '.mjs' || extension === '.html') {
+    return analyzeFrontendSource(relativePath);
+  }
+  return analyzeGenericSource(relativePath);
+}
+
+function analyzeFrontendSource(relativePath) {
   const lines = readLines(relativePath);
   const functionSpans = spansFromMatches(lines, [
     /^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/,
@@ -53,8 +69,9 @@ function analyzePublicIndex(relativePath) {
   const vIfRefs = countMatches(lines, /currentPage\s*===\s*['"]([A-Za-z0-9_-]+)['"]/g);
   return {
     path: relativePath,
-    type: 'public_spa',
+    type: sourceType(relativePath),
     lines: lines.length,
+    mb: fileMb(relativePath),
     worktree_changed: changedPathSet.has(relativePath),
     page_ref_count: pageRefs.reduce((sum, row) => sum + row.count, 0),
     current_page_refs: pageRefs,
@@ -65,7 +82,7 @@ function analyzePublicIndex(relativePath) {
   };
 }
 
-function analyzePhpController(relativePath) {
+function analyzePhpSource(relativePath) {
   const lines = readLines(relativePath);
   const methods = spansFromMatches(lines, [
     /^\s*(public|protected|private)\s+function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/,
@@ -75,13 +92,98 @@ function analyzePhpController(relativePath) {
   }));
   return {
     path: relativePath,
-    type: 'php_controller',
+    type: sourceType(relativePath),
     lines: lines.length,
+    mb: fileMb(relativePath),
     worktree_changed: changedPathSet.has(relativePath),
     method_count: methods.length,
     domain_summary: summarizeByDomain(methods),
     largest_blocks: methods.sort(bySpanDesc).slice(0, topLimit),
   };
+}
+
+function analyzeGenericSource(relativePath) {
+  const lines = readLines(relativePath);
+  return {
+    path: relativePath,
+    type: sourceType(relativePath),
+    lines: lines.length,
+    mb: fileMb(relativePath),
+    worktree_changed: changedPathSet.has(relativePath),
+    domain_summary: [],
+    largest_blocks: [],
+  };
+}
+
+function discoverHotspotPaths() {
+  const roots = ['app', 'public', 'resources/frontend/templates/fragments', 'tests'];
+  const result = spawnSync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard', '--', ...roots],
+    {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      shell: false,
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(`Unable to discover architecture hotspots: ${String(result.stderr || '').trim()}`);
+  }
+
+  const eligibleExtensions = new Set(['.php', '.js', '.mjs', '.html', '.css']);
+  return result.stdout
+    .split(/\r?\n/)
+    .map(normalizePath)
+    .filter(Boolean)
+    .filter((relativePath) => eligibleExtensions.has(path.extname(relativePath).toLowerCase()))
+    .filter((relativePath) => !isGeneratedOrVendoredAsset(relativePath))
+    .filter((relativePath) => fs.existsSync(path.join(repoRoot, relativePath)))
+    .map((relativePath) => ({
+      path: relativePath,
+      lines: readLines(relativePath).length,
+      mb: fileMb(relativePath),
+    }))
+    .filter((row) => row.lines >= minLines)
+    .sort((left, right) => right.lines - left.lines || right.mb - left.mb || left.path.localeCompare(right.path))
+    .slice(0, topLimit)
+    .map((row) => row.path);
+}
+
+function isGeneratedOrVendoredAsset(relativePath) {
+  const normalized = normalizePath(relativePath);
+  return normalized.endsWith('.min.js')
+    || normalized.endsWith('.min.css')
+    || normalized === 'public/tailwind.full.css'
+    || normalized === 'resources/frontend/app-template.html'
+    || /^public\/(?:vue|font-awesome|alpine)(?:[.-]|$)/i.test(normalized);
+}
+
+function sourceType(relativePath) {
+  const normalized = normalizePath(relativePath);
+  const extension = path.extname(normalized).toLowerCase();
+  if (extension === '.php') {
+    if (normalized.startsWith('app/controller/')) return 'php_controller';
+    if (normalized.startsWith('app/service/')) return 'php_service';
+    if (normalized.startsWith('tests/')) return 'php_test';
+    return 'php_source';
+  }
+  if (extension === '.css') return 'stylesheet_source';
+  if (extension === '.html') return 'template_source';
+  if (normalized.startsWith('public/')) return 'frontend_script';
+  if (normalized.startsWith('tests/')) return 'node_test';
+  return 'javascript_source';
+}
+
+function fileMb(relativePath) {
+  const bytes = fs.statSync(path.join(repoRoot, relativePath)).size;
+  return Number((bytes / (1024 * 1024)).toFixed(2));
+}
+
+function positiveIntegerArg(value, fallback, minimum) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.max(minimum, Math.floor(parsed))
+    : fallback;
 }
 
 function readLines(relativePath) {
@@ -233,11 +335,13 @@ function renderText(data) {
   console.log('Project split map');
   console.log(`Repo: ${data.repo_root}`);
   console.log(`Generated: ${data.generated_at}`);
+  console.log(`Selection: ${data.selection.mode}, lines>=${data.selection.min_lines}, top=${data.selection.target_limit}`);
   console.log('');
   for (const target of data.targets) {
     console.log(`${target.path}`);
     console.log(`- type: ${target.type}`);
     console.log(`- lines: ${target.lines}`);
+    console.log(`- size: ${target.mb} MB`);
     console.log(`- worktree changed: ${target.worktree_changed ? 'yes' : 'no'}`);
     if (target.method_count !== undefined) {
       console.log(`- methods: ${target.method_count}`);

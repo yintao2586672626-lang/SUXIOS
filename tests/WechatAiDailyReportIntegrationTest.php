@@ -1,0 +1,136 @@
+<?php
+declare(strict_types=1);
+
+namespace Tests;
+
+use app\controller\admin\CompetitorWechatRobotController;
+use PHPUnit\Framework\TestCase;
+use ReflectionClass;
+use ReflectionMethod;
+
+final class WechatAiDailyReportIntegrationTest extends TestCase
+{
+    public function testAiDailyReportPayloadKeepsMissingDataAndScopeVisible(): void
+    {
+        $controller = (new ReflectionClass(CompetitorWechatRobotController::class))
+            ->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(CompetitorWechatRobotController::class, 'buildAiDailyReportPayload');
+
+        $payload = $method->invoke($controller, [
+            'report_date' => '2026-07-21',
+            'summary' => '昨日 OTA 订单已回读，整店总营收证据仍不完整。',
+            'result_readiness' => [
+                'status' => 'partial',
+                'status_label' => '结果部分可用',
+                'scope_note' => 'OTA 渠道事实与全酒店经营日报必须分开解读。',
+            ],
+            'yesterday_result' => [
+                'metrics' => [
+                    ['key' => 'revenue', 'label' => '营收', 'value' => null, 'unit' => '元'],
+                    ['key' => 'orders', 'label' => '订单', 'value' => 12, 'unit' => '单'],
+                ],
+            ],
+            'data_gaps' => [
+                ['code' => 'whole_hotel_revenue_missing', 'message' => '全酒店总营收尚未回读。'],
+            ],
+            'recommended_actions' => [
+                ['action' => '先补齐同酒店同日期经营日报。', 'blocked_reason' => '来源回读不足'],
+            ],
+        ], '测试门店');
+
+        $content = (string)($payload['markdown']['content'] ?? '');
+        self::assertSame('markdown', $payload['msgtype'] ?? null);
+        self::assertStringContainsString('测试门店', $content);
+        self::assertStringContainsString('结果部分可用', $content);
+        self::assertStringContainsString('订单：12单', $content);
+        self::assertStringNotContainsString('营收：0', $content);
+        self::assertStringContainsString('全酒店总营收尚未回读', $content);
+        self::assertStringContainsString('来源回读不足', $content);
+        self::assertStringContainsString('OTA 渠道事实与全酒店经营日报必须分开解读', $content);
+        self::assertStringContainsString('不触发 OTA 采集', $content);
+        self::assertLessThanOrEqual(3800, strlen($content));
+    }
+
+    public function testWechatConfigurationAndDailyReportSendHaveRealUserEntries(): void
+    {
+        $root = dirname(__DIR__);
+        $route = (string)file_get_contents($root . '/route/app.php');
+        $dataConfig = (string)file_get_contents(
+            $root . '/resources/frontend/templates/fragments/34-page-data-config.html'
+        );
+        $hotelsPage = (string)file_get_contents(
+            $root . '/resources/frontend/templates/fragments/18-page-hotels.html'
+        );
+        $wechatNotificationPage = (string)file_get_contents(
+            $root . '/resources/frontend/templates/fragments/15ab-page-manual-notifications.html'
+        );
+        $wechatNotificationPanel = (string)file_get_contents(
+            $root . '/public/wechat-notification-static.js'
+        );
+        $dailyReport = (string)file_get_contents(
+            $root . '/resources/frontend/templates/fragments/16-page-ai-daily-report.html'
+        );
+        $frontend = (string)file_get_contents($root . '/public/app-main.js');
+
+        self::assertStringContainsString("Route::post('/:id/send-wecom'", $route);
+        self::assertStringNotContainsString('wecom-robot-management', $dataConfig);
+        self::assertStringNotContainsString('wecom-robot-management', $hotelsPage);
+        self::assertStringNotContainsString('wecom-robot-management', $wechatNotificationPage);
+        self::assertStringNotContainsString('管理员配置', $wechatNotificationPage);
+        self::assertStringContainsString('1　推送通道', $wechatNotificationPage);
+        self::assertStringContainsString('2　自动推送', $wechatNotificationPage);
+        self::assertStringContainsString('企业微信群机器人', $wechatNotificationPanel);
+        self::assertStringContainsString('加密保存，不回显完整地址', $wechatNotificationPanel);
+        self::assertStringNotContainsString('当前酒店只绑定一个企业微信群机器人 Webhook', $wechatNotificationPanel);
+        self::assertStringNotContainsString('我的通知群', $wechatNotificationPanel);
+        self::assertStringNotContainsString('通知群名称', $wechatNotificationPanel);
+        self::assertStringContainsString('ai-daily-report-send-wecom', $dailyReport);
+        self::assertStringContainsString('ai-daily-report-wecom-edition', $dailyReport);
+        self::assertStringContainsString('企业微信简版', $dailyReport);
+        self::assertStringContainsString('企业微信旗舰版', $dailyReport);
+        self::assertStringContainsString('v-if="aiDailyReport"', $dailyReport);
+        self::assertStringContainsString('/send-wecom', $frontend);
+        self::assertStringContainsString('JSON.stringify({ edition: requestedEdition })', $frontend);
+
+        $method = new ReflectionMethod(CompetitorWechatRobotController::class, 'apiSendAiDailyReport');
+        $source = (string)file_get_contents($method->getFileName());
+        $lines = explode("\n", $source);
+        $body = implode("\n", array_slice(
+            $lines,
+            max(0, $method->getStartLine() - 1),
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+        self::assertStringContainsString('deliverSavedDailyReport', $body);
+        self::assertStringContainsString('WechatCompetitionReportDeliveryService', $body);
+        self::assertStringContainsString('企业微信文字与图卡均已发送', $body);
+        self::assertStringContainsString('getPermittedHotelIds', $body);
+        self::assertStringContainsString('旗舰版企业微信汇报仅允许管理员生成和发送', $body);
+        self::assertStringContainsString("'report_edition'", $body);
+        self::assertStringContainsString("'source_fingerprint'", $body);
+        self::assertStringNotContainsString('$this->checkSuperAdmin();', $body);
+        self::assertStringNotContainsString('sendPayloadToStore', $body);
+    }
+
+    public function testAccountBindingsCannotEnterAdminSharedRobotManagement(): void
+    {
+        $root = dirname(__DIR__);
+        $controller = (string)file_get_contents(
+            $root . '/app/controller/admin/CompetitorWechatRobotController.php'
+        );
+        $delivery = (string)file_get_contents(
+            $root . '/app/service/WechatRobotDeliveryService.php'
+        );
+
+        self::assertStringContainsString("private const ADMIN_NOTIFICATION_SCOPE = 'admin_shared';", $controller);
+        self::assertStringContainsString("'notification_scope' => self::ADMIN_NOTIFICATION_SCOPE", $controller);
+        self::assertStringContainsString('adminManagedRobotQuery()', $controller);
+        self::assertStringContainsString("->whereNull('owner_user_id')", $controller);
+        self::assertStringContainsString("->whereOr('notification_scope', self::ADMIN_NOTIFICATION_SCOPE)", $controller);
+        self::assertStringContainsString('$this->adminManagedRobotQuery()', $controller);
+
+        self::assertStringContainsString("private const ADMIN_NOTIFICATION_SCOPE = 'admin_shared';", $delivery);
+        self::assertStringContainsString('if ($onlyRobotIds !== [])', $delivery);
+        self::assertStringContainsString("->whereNull('owner_user_id')", $delivery);
+        self::assertStringContainsString("->whereOr('notification_scope', self::ADMIN_NOTIFICATION_SCOPE)", $delivery);
+    }
+}

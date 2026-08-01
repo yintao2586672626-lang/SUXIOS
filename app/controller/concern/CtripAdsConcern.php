@@ -1,8 +1,10 @@
 <?php
+declare(strict_types=1);
 
 namespace app\controller\concern;
 
 use app\service\CtripTrafficDisplayService;
+use app\service\OnlineDailyDataPersistenceService;
 use think\facade\Db;
 
 trait CtripAdsConcern
@@ -219,19 +221,35 @@ trait CtripAdsConcern
         return $rows;
     }
 
+    private function nullableCtripAdNumber(array $item, array $keys): ?float
+    {
+        $value = $this->firstMeituanValue($item, $keys, null);
+        if (is_string($value)) {
+            $value = str_replace([',', '%', '￥', '¥', '元', '楼', ' '], '', trim($value));
+        }
+        return is_numeric($value) ? (float)$value : null;
+    }
+
     private function normalizeCtripCapturedAdRow(array $item, array $context): ?array
     {
-        $exposure = (int)$this->meituanNumber($item, ['exposure_count', 'exposureCount', 'exposure', 'impression', 'impressions', 'showNum', 'showCount', 'displayCount', 'pv', '曝光', '曝光量', '展现量', '展示量'], 0);
-        $clicks = (int)$this->meituanNumber($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click', '点击', '点击量'], 0);
-        $orders = (int)$this->meituanNumber($item, ['booking_count', 'bookingCount', 'bookingNum', 'bookings', 'orderNum', 'order_count', 'orderCount', 'dealNum', 'transactionNum', 'conversionNum', '预订量', '预订数', '成交数', '成交量', '成交订单数'], 0);
-        $nights = (int)$this->meituanNumber($item, ['nights', 'nightNum', 'roomNights', 'room_nights', 'quantity', '间夜', '成交间夜'], 0);
-        $cost = $this->meituanNumber($item, ['cost_amount', 'costAmount', 'cost', 'todayCost', 'cashCost', 'consume', 'consumption', 'spend', 'fee', 'expense', 'amount', 'totalCost', '消耗', '费用', '花费', '广告费', '消耗金额', '消费金额'], 0.0);
-        if ($exposure <= 0 && $clicks <= 0 && $orders <= 0 && $cost <= 0 && empty($item['_dom_text'])) {
+        $exposureValue = $this->nullableCtripAdNumber($item, ['exposure_count', 'exposureCount', 'exposure', 'impression', 'impressions', 'showNum', 'showCount', 'displayCount', 'pv', '曝光', '曝光量', '展现量', '展示量']);
+        $clickValue = $this->nullableCtripAdNumber($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click', '点击', '点击量']);
+        $orderValue = $this->nullableCtripAdNumber($item, ['booking_count', 'bookingCount', 'bookingNum', 'bookings', 'orderNum', 'order_count', 'orderCount', 'dealNum', 'transactionNum', 'conversionNum', '预订量', '预订数', '成交数', '成交量', '成交订单数']);
+        $nightValue = $this->nullableCtripAdNumber($item, ['nights', 'nightNum', 'roomNights', 'room_nights', 'quantity', '间夜', '成交间夜']);
+        $cost = $this->nullableCtripAdNumber($item, ['cost_amount', 'costAmount', 'cost', 'todayCost', 'cashCost', 'consume', 'consumption', 'spend', 'fee', 'expense', 'amount', 'totalCost', '消耗', '费用', '花费', '广告费', '消耗金额', '消费金额']);
+        if ($exposureValue === null && $clickValue === null && $orderValue === null && $nightValue === null && $cost === null && empty($item['_dom_text'])) {
             return null;
         }
+        $exposure = $exposureValue === null ? null : (int)$exposureValue;
+        $clicks = $clickValue === null ? null : (int)$clickValue;
+        $orders = $orderValue === null ? null : (int)$orderValue;
+        $nights = $nightValue === null ? null : (int)$nightValue;
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['effectTime', 'effect_time', 'stat_date', 'statDate', 'data_date', 'dataDate', 'date', 'reportDate', 'day', '日期', '统计日期'], ''))
-            ?: ($this->normalizeOnlineDataDate($context['request_end_date'] ?? '') ?: date('Y-m-d'));
+            ?: $this->normalizeOnlineDataDate($context['request_end_date'] ?? '');
+        if ($dataDate === '') {
+            return null;
+        }
         $identity = (string)$this->firstMeituanValue($item, ['campaignId', 'campaign_id', 'planId', 'plan_id', 'adId', 'id', 'campaign_name', 'campaignName', 'promotionName', 'planName', 'adName', 'name', '推广名称', '计划名称', '广告名称', '广告计划'], '');
         if ($identity === '') {
             $identity = substr(md5(json_encode($item, JSON_UNESCAPED_UNICODE)), 0, 12);
@@ -250,11 +268,11 @@ trait CtripAdsConcern
             'hotel_name' => (string)$this->firstMeituanValue($item, ['hotel_name', 'hotelName'], $context['hotel_name'] ?? ''),
             'system_hotel_id' => $context['system_hotel_id'] ?? null,
             'data_date' => $dataDate,
-            'amount' => round($cost, 2),
+            'amount' => $cost === null ? null : round($cost, 2),
             'quantity' => $nights,
             'book_order_num' => $orders,
-            'comment_score' => 0,
-            'qunar_comment_score' => 0,
+            'comment_score' => null,
+            'qunar_comment_score' => null,
             'data_value' => $exposure,
             'source' => 'ctrip',
             'data_type' => 'advertising',
@@ -263,7 +281,9 @@ trait CtripAdsConcern
             'compare_type' => 'self',
             'list_exposure' => $exposure,
             'detail_exposure' => $clicks,
-            'flow_rate' => round(CtripTrafficDisplayService::trafficRate((float)$clicks, (float)$exposure), 2),
+            'flow_rate' => $exposure !== null && $exposure > 0 && $clicks !== null
+                ? round(CtripTrafficDisplayService::trafficRate((float)$clicks, (float)$exposure), 2)
+                : null,
             'order_filling_num' => $clicks,
             'order_submit_num' => $orders,
             'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
@@ -273,27 +293,43 @@ trait CtripAdsConcern
     private function summarizeCtripAdRows(array $rows): array
     {
         $summary = [
-            'exposure' => 0,
-            'clicks' => 0,
-            'orders' => 0,
-            'cost' => 0.0,
-            'click_rate' => 0.0,
-            'cost_per_click' => 0.0,
-            'cost_per_order' => 0.0,
+            'exposure' => null,
+            'clicks' => null,
+            'orders' => null,
+            'cost' => null,
+            'click_rate' => null,
+            'cost_per_click' => null,
+            'cost_per_order' => null,
         ];
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
-            $summary['exposure'] += (int)($row['list_exposure'] ?? 0);
-            $summary['clicks'] += (int)($row['detail_exposure'] ?? 0);
-            $summary['orders'] += (int)($row['book_order_num'] ?? $row['order_submit_num'] ?? 0);
-            $summary['cost'] += (float)($row['amount'] ?? 0);
+            foreach ([
+                'exposure' => ['list_exposure', 'int'],
+                'clicks' => ['detail_exposure', 'int'],
+                'orders' => ['book_order_num', 'int'],
+                'cost' => ['amount', 'float'],
+            ] as $summaryKey => [$rowKey, $valueType]) {
+                if (!array_key_exists($rowKey, $row) || $row[$rowKey] === null || $row[$rowKey] === '') {
+                    continue;
+                }
+                $value = $valueType === 'int' ? (int)$row[$rowKey] : (float)$row[$rowKey];
+                $summary[$summaryKey] = ($summary[$summaryKey] ?? 0) + $value;
+            }
         }
-        $summary['cost'] = round($summary['cost'], 2);
-        $summary['click_rate'] = round(CtripTrafficDisplayService::trafficRate((float)$summary['clicks'], (float)$summary['exposure']), 2);
-        $summary['cost_per_click'] = $summary['clicks'] > 0 ? round($summary['cost'] / $summary['clicks'], 2) : 0.0;
-        $summary['cost_per_order'] = $summary['orders'] > 0 ? round($summary['cost'] / $summary['orders'], 2) : 0.0;
+        if ($summary['cost'] !== null) {
+            $summary['cost'] = round((float)$summary['cost'], 2);
+        }
+        if ($summary['exposure'] !== null && $summary['exposure'] > 0 && $summary['clicks'] !== null) {
+            $summary['click_rate'] = round(CtripTrafficDisplayService::trafficRate((float)$summary['clicks'], (float)$summary['exposure']), 2);
+        }
+        if ($summary['cost'] !== null && $summary['clicks'] !== null && $summary['clicks'] > 0) {
+            $summary['cost_per_click'] = round($summary['cost'] / $summary['clicks'], 2);
+        }
+        if ($summary['cost'] !== null && $summary['orders'] !== null && $summary['orders'] > 0) {
+            $summary['cost_per_order'] = round($summary['cost'] / $summary['orders'], 2);
+        }
         return $summary;
     }
 
@@ -329,13 +365,82 @@ trait CtripAdsConcern
                 $row['create_time'] = $now;
             }
             $data = array_intersect_key($this->applyOnlineDailyDataValidationFields($row, $columns), $columns);
+            $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
             if ($exists) {
-                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+                $rowId = (int)$exists['id'];
+                Db::name('online_daily_data')->where('id', $rowId)->update($data);
             } else {
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            $persisted = $rowId > 0
+                ? Db::name('online_daily_data')->where('id', $rowId)->find()
+                : null;
+            if (is_array($persisted)
+                && OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $data)
+                && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$persisted], $columns)) {
+                $savedCount++;
+            }
         }
         return $savedCount;
+    }
+
+    /**
+     * Read back the exact normalized ad identities written for this request.
+     * A write counter alone is not evidence that the rows are queryable.
+     */
+    private function countCtripCapturedAdRowsReadback(array $rows): int
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        if (!isset($columns['readback_verified'])) {
+            return 0;
+        }
+        $matched = [];
+        foreach ($rows as $row) {
+            if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
+                continue;
+            }
+            $identity = implode('|', [
+                (string)($row['source'] ?? 'ctrip'),
+                (string)$row['data_date'],
+                (string)($row['dimension'] ?? ''),
+                (string)($row['hotel_id'] ?? ''),
+                (string)($row['hotel_name'] ?? ''),
+                (string)($row['system_hotel_id'] ?? ''),
+            ]);
+            if (isset($matched[$identity])) {
+                continue;
+            }
+
+            $query = Db::name('online_daily_data')
+                ->where('source', (string)($row['source'] ?? 'ctrip'))
+                ->where('data_type', 'advertising')
+                ->where('data_date', (string)$row['data_date'])
+                ->where('dimension', (string)($row['dimension'] ?? ''));
+            if (!empty($row['hotel_id'])) {
+                $query->where('hotel_id', (string)$row['hotel_id']);
+            } else {
+                $query->where('hotel_name', (string)($row['hotel_name'] ?? ''));
+            }
+            if (array_key_exists('system_hotel_id', $row) && $row['system_hotel_id'] !== null) {
+                $query->where('system_hotel_id', (int)$row['system_hotel_id']);
+            } else {
+                $query->whereNull('system_hotel_id');
+            }
+
+            $stored = $query->field('id,raw_data,readback_verified')->find();
+            if (!is_array($stored) || empty($stored['id'])) {
+                continue;
+            }
+            if ((int)($stored['readback_verified'] ?? 0) !== 1) {
+                continue;
+            }
+            $expectedRaw = (string)($row['raw_data'] ?? '');
+            if ($expectedRaw !== '' && (string)($stored['raw_data'] ?? '') !== $expectedRaw) {
+                continue;
+            }
+            $matched[$identity] = true;
+        }
+
+        return count($matched);
     }
 }

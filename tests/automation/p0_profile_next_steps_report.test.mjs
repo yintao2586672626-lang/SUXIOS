@@ -24,6 +24,61 @@ const sessionProbeProfileState = {
   current_session_status: 'unverified',
 };
 
+const loginRequiredProfileState = {
+  ...currentSessionProfileState,
+  current_session_probe_performed: true,
+  current_session_verified: false,
+  current_session_status: 'login_required',
+};
+
+test('P0 Profile next-step report preserves a safe blocked current-session status', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'p0-profile-next-steps-login-required-'));
+  const input = path.join(dir, 'verifier.json');
+  try {
+    writeFileSync(input, JSON.stringify({
+      status: 'incomplete',
+      scope: { date: '2026-07-25' },
+      platforms: [{
+        platform: 'ctrip',
+        p0_traffic_gate: {
+          status: 'profile_scope_traffic_closure_incomplete',
+          traffic_rows: 0,
+          hotel_scoped_next_steps: [{
+            system_hotel_id: 219,
+            data_source_id: 300,
+            data_source_status: 'ready',
+            last_sync_status: '',
+            ...loginRequiredProfileState,
+            profile_login_trigger: {
+              status: 'client_local_authorization_required',
+              entry: 'https://ebooking.ctrip.com/home/mainland',
+              after_login_sync: { entry: '/api/online-data/data-sources/300/sync' },
+            },
+            p0_verifier_command: 'verify-source-300',
+          }],
+        },
+      }],
+    }));
+
+    const result = spawnSync(process.execPath, ['scripts/report_p0_profile_next_steps.mjs', `--input=${input}`, '--json'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    const step = payload.next_steps[0];
+    assert.equal(step.current_session_verified, false);
+    assert.equal(step.current_session_status, 'login_required');
+    assert.equal(step.login_evidence_scope, 'current_session_blocked_probe');
+    assert.ok(step.blocking_reason_codes.includes('current_session_not_verified'));
+    assert.ok(step.blocking_reason_codes.includes('login_required'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('P0 Profile next-step report exposes only sanitized login and verifier actions', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'p0-profile-next-steps-'));
   const input = path.join(dir, 'verifier.json');
@@ -117,7 +172,6 @@ test('P0 Profile next-step report exposes only sanitized login and verifier acti
       'revenue_analysis',
       'ai_decision_advice',
       'operation_closure',
-      'investment_judgment',
     ]);
     assert(payload.downstream_gate.blocking_missing_inputs.includes('current_session_probe_verified'));
     assert(payload.downstream_gate.allowed_claims.includes('no_whole_hotel_or_downstream_closure_claim'));

@@ -126,8 +126,11 @@ function sourceSection(source, startNeedle, endNeedle) {
 
 const requiredArtifacts = [
   'database/migrations/20260710_create_ota_credentials.sql',
+  'database/migrations/20260722_add_ota_credential_audit_chain.sql',
   'app/model/OtaCredential.php',
   'app/service/OtaCredentialEnvelope.php',
+  'app/exception/OtaCredentialAuditException.php',
+  'app/service/OtaCredentialAuditTrail.php',
   'app/service/OtaCredentialVault.php',
   'app/service/OtaCredentialMigrationService.php',
   'app/command/MigrateOtaCredentials.php',
@@ -141,13 +144,23 @@ for (const artifact of requiredArtifacts) checkFile(artifact);
 
 if (requiredArtifacts.every(exists)) {
   const schema = read('database/migrations/20260710_create_ota_credentials.sql');
+  const auditSchema = read('database/migrations/20260722_add_ota_credential_audit_chain.sql');
   const model = read('app/model/OtaCredential.php');
   const envelope = read('app/service/OtaCredentialEnvelope.php');
+  const auditTrail = read('app/service/OtaCredentialAuditTrail.php');
   const vault = read('app/service/OtaCredentialVault.php');
+  const requireHotelScope = extractPhpMethod(vault, 'requireHotelScope');
+  const locateCredential = extractPhpMethod(vault, 'locate');
+  const storeCredential = extractPhpMethod(vault, 'store');
+  const deleteCredential = extractPhpMethod(vault, 'delete');
+  const executionAccess = extractPhpMethod(vault, 'withPayloadForExecution');
+  const metadataVerification = extractPhpMethod(vault, 'verifiedMetadataForExecution');
+  const transactionBoundary = extractPhpMethod(vault, 'transactionalCredentialOperation');
+  const failureAfterRollback = extractPhpMethod(vault, 'recordFailureAfterRollback');
 
   check(
     'credential schema has a tenant/hotel/platform/config unique scope',
-    /UNIQUE\s+KEY\s+\w+\s*\(\s*tenant_id\s*,\s*system_hotel_id\s*,\s*platform\s*,\s*config_id\s*\)/i.test(schema),
+    /UNIQUE\s+KEY\s+`?\w+`?\s*\(\s*`?tenant_id`?\s*,\s*`?system_hotel_id`?\s*,\s*`?platform`?\s*,\s*`?config_id`?\s*\)/i.test(schema),
     'expected a four-part unique key'
   );
   for (const column of ['encrypted_payload', 'payload_version', 'key_id', 'credential_status', 'created_by']) {
@@ -171,16 +184,87 @@ if (requiredArtifacts.every(exists)) {
     'credential vault binds every lookup to tenant and hotel',
     vault.includes("where('tenant_id', $t)")
       && vault.includes("where('system_hotel_id', $h)")
-      && vault.includes("Hotel::where('id', $h)->where('tenant_id', $t)"),
+      && requireHotelScope.includes('Hotel::runInTenantScope(')
+      && requireHotelScope.includes("Hotel::where('id', $hotelId)")
+      && requireHotelScope.includes("->where('tenant_id', $tenantId)")
+      && locateCredential.includes('$this->requireHotelScope($t, $h)')
+      && storeCredential.includes('$this->requireHotelScope($tenantId, $hotelId)')
+      && deleteCredential.includes('$this->requireHotelScope($t, $h)'),
     'tenant_id/system_hotel_id/hotel tenant validation'
   );
   check(
     'credential vault decrypts only inside an execution callback',
-    extractPhpMethod(vault, 'withPayloadForExecution').includes('$consumer($this->payloadForExecution(')
+    executionAccess.includes('$this->payloadForExecution(')
+      && executionAccess.includes('$consumer($payload)')
+      && executionAccess.includes('last_used_at')
       && extractPhpMethod(vault, 'payloadForExecution').includes('$this->envelope->decrypt(')
-      && extractPhpMethod(vault, 'verifiedMetadataForExecution').includes('withPayloadForExecution(')
-      && !extractPhpMethod(vault, 'verifiedMetadataForExecution').includes('->decrypt('),
+      && metadataVerification.includes('payloadForExecution(')
+      && !metadataVerification.includes('last_used_at')
+      && !metadataVerification.includes('->decrypt('),
     'withPayloadForExecution callback boundary'
+  );
+  check(
+    'credential audit schema is append-only scoped and tamper-evident',
+    auditSchema.includes('`ota_credential_audit_logs`')
+      && auditSchema.includes('`event_sequence`')
+      && auditSchema.includes('`credential_version`')
+      && auditSchema.includes('`previous_entry_hash`')
+      && auditSchema.includes('`entry_hash`')
+      && auditSchema.includes('`uq_ota_credential_audit_scope_sequence`')
+      && auditSchema.includes('`uq_ota_credential_audit_entry_hash`')
+      && auditSchema.includes('`trg_ota_credential_audit_no_update`')
+      && auditSchema.includes('`trg_ota_credential_audit_no_delete`')
+      && (auditSchema.match(/SIGNAL SQLSTATE '45000'/g) || []).length === 2,
+    'scoped sequence + immutable credential version + chained entry hash + append-only triggers'
+  );
+  check(
+    'credential audit rows never store raw locators or credential material',
+    !auditSchema.includes('`config_id`')
+      && !/(?:`encrypted_payload`|`secret_mask`|`token`|`cookie`|`header`)/i.test(auditSchema)
+      && auditSchema.includes('`config_id_hash`')
+      && auditSchema.includes('`payload_digest`'),
+    'hash-only locator and payload identity'
+  );
+  check(
+    'credential audit trail records immutable versions and verifies the full hash chain',
+    auditTrail.includes("'credential_baseline_imported'")
+      && auditTrail.includes("'credential_created'")
+      && auditTrail.includes("'credential_rotated'")
+      && extractPhpMethod(auditTrail, 'recordCredentialVersion').includes('$currentVersion + 1')
+      && extractPhpMethod(auditTrail, 'verifyScopeChain').includes('$rowVersion !== $credentialVersion + 1')
+      && extractPhpMethod(auditTrail, 'verifyScopeChain').includes('hash_equals($expectedHash'),
+    'monotonic version events + previous hash + recomputed entry hash'
+  );
+  check(
+    'credential decryption is fail-closed behind a committed pre-access audit',
+    executionAccess.indexOf('prepareCredentialAccess(') !== -1
+      && executionAccess.indexOf('prepareCredentialAccess(') < executionAccess.indexOf('payloadForExecution(')
+      && metadataVerification.indexOf('prepareCredentialAccess(') !== -1
+      && metadataVerification.indexOf('prepareCredentialAccess(') < metadataVerification.indexOf('payloadForExecution(')
+      && extractPhpMethod(vault, 'prepareCredentialAccess').includes("$eventType . '_started'")
+      && extractPhpMethod(vault, 'prepareCredentialAccess').includes('credential access was blocked before decryption'),
+    'pre-access audit precedes both execution and metadata verification decrypts'
+  );
+  check(
+    'credential business writes roll back before an independent sanitized failure audit',
+    transactionBoundary.includes('return Db::transaction($operation)')
+      && transactionBoundary.includes('catch (Throwable $error)')
+      && transactionBoundary.includes('$this->recordFailureAfterRollback(')
+      && transactionBoundary.includes('throw $error;')
+      && failureAfterRollback.includes('Db::transaction(function ()')
+      && failureAfterRollback.includes("'failed'")
+      && failureAfterRollback.includes('$this->auditFailureCode(')
+      && failureAfterRollback.includes('catch (Throwable)')
+      && !failureAfterRollback.includes('getMessage('),
+    'rollback -> independent audit transaction -> original error remains authoritative'
+  );
+  check(
+    'credential audit tests inject a rotation-audit failure and prove atomic rollback',
+    read('tests/OtaCredentialVaultTest.php').includes('fail_credential_rotation_audit')
+      && read('tests/OtaCredentialVaultTest.php').includes('Rotation must fail closed when its version audit cannot append.')
+      && read('tests/OtaCredentialVaultTest.php').includes("where('failure_code', 'audit_write_failed')")
+      && read('tests/OtaCredentialVaultTest.php').includes('verifyScopeChain('),
+    'credential/version rollback + durable sanitized failure audit + chain verification'
   );
 }
 
@@ -663,10 +747,14 @@ for (const relativePath of strictRuntimeFiles) {
   );
 }
 if (exists('app/command/AutoFetchOnlineData.php')) {
+  const scheduledAutoFetch = read('app/command/AutoFetchOnlineData.php');
   check(
-    'scheduled auto-fetch decrypts through the vault callback',
-    read('app/command/AutoFetchOnlineData.php').includes('withPayloadForExecution('),
-    'OtaCredentialVault::withPayloadForExecution'
+    'scheduled auto-fetch is Profile-only and has no reusable Cookie fallback',
+    scheduledAutoFetch.includes('scheduled_browser_profile_source_required')
+      && scheduledAutoFetch.includes('Scheduled collection is Profile-only.')
+      && !scheduledAutoFetch.includes('withPayloadForExecution(')
+      && !scheduledAutoFetch.includes('sendHttpRequest('),
+    'Profile-only scheduled collection boundary'
   );
 }
 if (exists('app/controller/concern/AutoFetchConcern.php')) {
@@ -700,7 +788,7 @@ if (exists('app/controller/concern/AutoFetchConcern.php')) {
   );
   check(
     'browser Profile source query selects only safe fields before writing the shared cache',
-    listProfileSources.includes("field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')")
+    listProfileSources.includes("field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status,last_sync_status,last_error')")
       && listProfileSources.includes('sanitizeBrowserProfileSourcesForSharedCache($rows)')
       && listProfileSources.includes('writeAutoFetchLightReadCache($cacheKey, $safeRows)')
       && !listProfileSources.includes("secret_json"),
@@ -733,6 +821,7 @@ if (exists('app/command/PlatformProfileLogin.php')) {
   const assertSafeProfileConfig = extractPhpMethod(profileLogin, 'assertProfileSourceMetadataIsSafe');
   const commandCacheSanitizer = extractPhpMethod(profileLogin, 'sanitizeProfileLoginCachePayload');
   const profileSourceReads = [
+    extractPhpMethod(profileLogin, 'profileLoginDataSourceCurrentSessionVerified'),
     extractPhpMethod(profileLogin, 'loadProfileLoginDataSourceForSync'),
     extractPhpMethod(profileLogin, 'markDataSourceProfileLoginVerified'),
     extractPhpMethod(profileLogin, 'findBrowserProfileDataSourceId'),
@@ -747,7 +836,7 @@ if (exists('app/command/PlatformProfileLogin.php')) {
   );
   check(
     'Profile login database reads use explicit field lists and never select secret_json',
-    profileLogin.includes("field('id,system_hotel_id,platform,ingestion_method,enabled,status')")
+    profileLogin.includes("field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json,last_sync_status,last_error')")
       && profileLogin.includes("field('id,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status,last_error,last_sync_status')")
       && profileLogin.includes("field('id,config_json')")
       && !profileSourceReads.includes("->field('*')")
@@ -881,6 +970,8 @@ if (exists('app/service/PlatformDataSyncService.php')) {
 
 const frontendFiles = [
   'public/index.html',
+  'public/app-main.js',
+  'resources/frontend/app-template.html',
   'public/auto-fetch-static.js',
   'public/ctrip-static.js',
   'public/meituan-static.js',
@@ -904,8 +995,8 @@ check(
   !/(?:cookies?|auth_data|authorization|spidertoken|mtgsig)\s*=\s*(?:config|detail)(?:\?|\.)/i.test(frontendSource),
   'secret field assignment from config/detail'
 );
-if (exists('public/index.html')) {
-  const index = read('public/index.html');
+if (frontendFiles.some(exists)) {
+  const index = frontendSource;
   const parseSaved = sourceSection(
     index,
     'const parseSavedOtaDataConfigResponse =',

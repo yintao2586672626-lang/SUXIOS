@@ -3,6 +3,7 @@ import { dirname, basename } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { summarizeCapture } from './summarize_ctrip_capture_result.mjs';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 function parseSnapshotArgs(argv) {
   const result = {
@@ -38,7 +39,10 @@ export function loadCtripDiagnosisSummary(input) {
   if (!existsSync(input)) {
     throw new Error(`input file not found: ${input}`);
   }
-  const payload = JSON.parse(readFileSync(input, 'utf8').replace(/^\uFEFF/, ''));
+  const payload = parseJsonTextSafely(
+    readFileSync(input, 'utf8').replace(/^\uFEFF/, ''),
+    'ctrip_diagnosis_json',
+  );
   if (Array.isArray(payload.diagnosis_groups) && payload.counts && payload.sections) {
     return { ...payload, source: payload.source || input, input_path: input };
   }

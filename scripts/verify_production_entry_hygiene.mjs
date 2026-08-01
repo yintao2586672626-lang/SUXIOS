@@ -64,8 +64,11 @@ for (const routeCheck of requiredActiveRoutes) {
   }
 }
 
-if (!/<link\s+rel=["']stylesheet["']\s+href=["']style\.css(?:\?[^"']*)?["']/.test(publicIndex)) {
-  failures.push('public/index.html must load public/style.css as the local application stylesheet.');
+if (!/<link\s+rel=["']stylesheet["']\s+href=["']login-critical\.css(?:\?[^"']*)?["']/.test(publicIndex)) {
+  failures.push('public/index.html must load public/login-critical.css for the public shell.');
+}
+if (!/"src"\s*:\s*"style\.css\?[^"]+"\s*,\s*"type"\s*:\s*"style"/.test(publicIndex)) {
+  failures.push('public/index.html must defer public/style.css through the authenticated asset manifest.');
 }
 
 const inlineStyleBlocks = [...publicIndex.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)];

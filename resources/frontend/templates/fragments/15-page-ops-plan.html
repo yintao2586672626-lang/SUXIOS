@@ -1,0 +1,81 @@
+                    <div v-if="currentPage === 'ops-plan'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                            <h2 class="text-2xl font-bold text-gray-900">策案·策略模拟</h2>
+                            <p class="text-sm text-gray-500 mt-1">P0主闭环：规则模拟结果用于生成运营动作参考，不代表真实预测。</p>
+                        </div>
+                        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                            <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm xl:col-span-1">
+                                <h3 class="font-bold text-gray-900 mb-4">策略表单</h3>
+                                <div class="space-y-3">
+                                    <label class="block">
+                                        <span class="text-xs text-gray-500 mb-1 block">目标酒店</span>
+                                        <select v-model="strategyForm.hotel_id" data-testid="ops-plan-hotel" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                            <option value="">默认：首个可见酒店</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="block">
+                                        <span class="text-xs text-gray-500 mb-1 block">策略类型 <b class="text-red-500">*</b></span>
+                                        <select v-model="strategyForm.strategy_type" data-testid="ops-plan-strategy-type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                            <option v-for="item in operationStrategyTypes" :key="item.key" :value="item.key">{{ item.label }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="block">
+                                        <span class="text-xs text-gray-500 mb-1 block">调价金额 <b v-if="operationStrategyAmountRequired" class="text-red-500">*</b></span>
+                                        <input v-model.number="strategyForm.adjust_amount" :disabled="!operationStrategyAmountRequired" type="number" data-testid="ops-plan-adjust-amount" placeholder="正数涨价，负数降价" :class="['w-full px-3 py-2 border border-gray-200 rounded-lg text-sm', !operationStrategyAmountRequired ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : '']">
+                                    </label>
+                                    <label class="block">
+                                        <span class="text-xs text-gray-500 mb-1 block">折扣比例 <b v-if="operationStrategyDiscountRequired" class="text-red-500">*</b></span>
+                                        <input v-model="strategyForm.discount_rate" :disabled="!operationStrategyDiscountRequired" type="number" data-testid="ops-plan-discount-rate" placeholder="仅促销策略使用" :class="['w-full px-3 py-2 border border-gray-200 rounded-lg text-sm', !operationStrategyDiscountRequired ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : '']">
+                                    </label>
+                                    <label class="block">
+                                        <span class="text-xs text-gray-500 mb-1 block">开始日期 <b class="text-red-500">*</b></span>
+                                        <input v-model="strategyForm.start_date" type="date" data-testid="ops-plan-start-date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                    </label>
+                                    <label class="block">
+                                        <span class="text-xs text-gray-500 mb-1 block">结束日期 <b class="text-red-500">*</b></span>
+                                        <input v-model="strategyForm.end_date" type="date" data-testid="ops-plan-end-date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                    </label>
+                                    <div class="rounded-lg bg-blue-50 border border-blue-100 text-blue-700 px-3 py-2 text-xs leading-relaxed">{{ operationStrategyRequirementText }}</div>
+                                    <button @click="simulateOperationStrategy" :disabled="operationLoading.strategy" class="w-full px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-60">
+                                        <i class="fas fa-calculator mr-2" :class="{ 'fa-spin': operationLoading.strategy }"></i>模拟
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm xl:col-span-2">
+                                <h3 class="font-bold text-gray-900 mb-4">规则情景结果</h3>
+                                <div v-if="operationLoading.strategy" class="p-8 text-center text-gray-500">正在模拟策略...</div>
+                                <div v-if="operationError.strategy" class="bg-red-50 border border-red-100 text-red-600 rounded-xl p-4 text-sm mb-4">{{ operationError.strategy }}</div>
+                                <template v-if="operationStrategyResult">
+                                    <div class="mb-4 rounded-lg bg-amber-50 text-amber-700 p-3 text-sm">固定规则系数生成的情景结果，仅供运营排查，不是经营预测；风险未命中明确规则时显示“待评估”。</div>
+                                    <div class="flex items-center justify-between mb-4">
+                                        <div class="text-xl font-bold text-gray-900">{{ operationStrategyResult.strategy_name || '策略模拟' }}</div>
+                                        <span class="px-2 py-1 rounded-full bg-amber-50 text-amber-700 text-xs">规则情景</span>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                        <div class="rounded-lg bg-gray-50 p-3">
+                                            <div class="text-xs text-gray-500 mb-2">基线</div>
+                                            <div v-for="row in operationMetricRows(operationStrategyResult.baseline)" :key="row.label" class="flex justify-between text-sm py-1"><span>{{ row.label }}</span><b>{{ row.value }}</b></div>
+                                        </div>
+                                        <div class="rounded-lg bg-gray-50 p-3">
+                                            <div class="text-xs text-gray-500 mb-2">规则情景（非预测）</div>
+                                            <div v-for="row in operationMetricRows(operationStrategyResult.rule_scenario || operationStrategyResult.forecast)" :key="row.label" class="flex justify-between text-sm py-1"><span>{{ row.label }}</span><b>{{ row.value }}</b></div>
+                                        </div>
+                                        <div class="rounded-lg bg-gray-50 p-3">
+                                            <div class="text-xs text-gray-500 mb-2">影响</div>
+                                            <div v-for="row in operationMetricRows(operationStrategyResult.impact)" :key="row.label" class="flex justify-between text-sm py-1"><span>{{ row.label }}</span><b>{{ row.value }}</b></div>
+                                        </div>
+                                    </div>
+                                    <div class="rounded-lg border border-gray-100 p-4">
+                                        <div class="font-semibold text-gray-900 mb-2">风险：{{ operationRiskLevelLabel(operationStrategyResult.risk?.level) }}</div>
+                                        <div class="text-sm text-gray-600">{{ operationStrategyResult.risk?.message || '风险证据未返回，待人工评估' }}</div>
+                                        <div class="text-sm text-blue-600 mt-3">建议：{{ operationStrategyResult.recommendation || '暂无建议' }}</div>
+                                        <div class="text-xs text-gray-400 mt-3">{{ operationStrategyResult.disclaimer || '该结果基于历史数据和规则估算，仅用于运营参考。' }}</div>
+                                    </div>
+                                </template>
+                                <div v-else-if="!operationLoading.strategy" class="p-8 text-center text-gray-400">请填写策略参数后开始模拟</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 运营管理：AI经营日报 -->

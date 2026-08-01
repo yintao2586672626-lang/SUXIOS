@@ -1,0 +1,5 @@
+interface:
+  display_name: "Clean Code 审查（手动）"
+  short_description: "可维护性与代码洁净度审查；不自动扩大功能修改或拆分代码范围"
+policy:
+  allow_implicit_invocation: false

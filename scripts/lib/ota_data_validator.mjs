@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { safeJsonParseErrorCode } from './safe_json_parse_error.mjs';
 
 export const SOURCE_FIELD_MAPPINGS = {
   ctrip_business: {
@@ -109,7 +110,7 @@ function decodeRawData(rawData) {
     const parsed = JSON.parse(rawData);
     return { value: isObject(parsed) ? parsed : {}, error: isObject(parsed) ? null : 'raw_data JSON is not an object' };
   } catch (error) {
-    return { value: {}, error: error.message };
+    return { value: {}, error: safeJsonParseErrorCode(error) };
   }
 }
 
@@ -570,10 +571,13 @@ export function validateSourceParserContracts(paths) {
   const errors = [];
   const warnings = [];
   const details = {};
-  const controllerPath = paths.controllerPath;
+  const controllerPaths = Array.isArray(paths.controllerPaths)
+    ? paths.controllerPaths
+    : [paths.controllerPath].filter(Boolean);
   const commandPath = paths.commandPath;
 
   const requiredControllerTokens = [
+    'use BusinessDisplayConcern;',
     'extractCtripBusinessDataList',
     'parseAndSaveData',
     'parseAndSaveMeituanData',
@@ -591,24 +595,53 @@ export function validateSourceParserContracts(paths) {
   ];
 
   try {
-    const controller = readFileSync(controllerPath, 'utf8');
+    if (controllerPaths.length === 0) {
+      throw new Error('no OTA parser source paths configured');
+    }
+
+    const controller = controllerPaths
+      .map((controllerPath) => readFileSync(controllerPath, 'utf8'))
+      .join('\n');
     const missing = requiredControllerTokens.filter((token) => !controller.includes(token));
-    details.controller = { path: controllerPath, missing_tokens: missing };
+    details.controller = {
+      path: controllerPaths[0],
+      paths: controllerPaths,
+      missing_tokens: missing,
+    };
     for (const token of missing) {
-      errors.push(makeIssue('error', 'parser_contract', `OnlineData parser token missing: ${token}`, { file: controllerPath, token }));
+      errors.push(makeIssue('error', 'parser_contract', `OTA parser token missing: ${token}`, {
+        file: controllerPaths[0],
+        files: controllerPaths,
+        token,
+      }));
     }
   } catch (error) {
-    errors.push(makeIssue('error', 'parser_contract', `cannot read ${controllerPath}: ${error.message}`, { file: controllerPath }));
+    errors.push(makeIssue(
+      'error',
+      'parser_contract',
+      `cannot read OTA parser sources: ${error.message}`,
+      { file: controllerPaths[0], files: controllerPaths }
+    ));
   }
 
   if (commandPath) {
-    const recommendedCommandTokens = ['parseAndSaveData', 'hotelId', 'totalAmount', 'roomNights', 'bookOrderNum', 'raw_data'];
+    const recommendedCommandTokens = [
+      'PlatformDataSyncService',
+      'syncBrowserProfileSources',
+      'syncDataSource',
+      "'trigger_type' => 'cron'",
+      "'data_date' => $dataDate",
+      "'data_period' => $dataPeriod",
+    ];
     try {
       const command = readFileSync(commandPath, 'utf8');
       const missing = recommendedCommandTokens.filter((token) => !command.includes(token));
       details.command = { path: commandPath, missing_tokens: missing };
       for (const token of missing) {
-        warnings.push(makeIssue('warning', 'parser_contract', `AutoFetch parser token missing: ${token}`, { file: commandPath, token }));
+        warnings.push(makeIssue('warning', 'parser_contract', `AutoFetch orchestration token missing: ${token}`, {
+          file: commandPath,
+          token,
+        }));
       }
     } catch (error) {
       warnings.push(makeIssue('warning', 'parser_contract', `cannot read ${commandPath}: ${error.message}`, { file: commandPath }));
@@ -662,35 +695,6 @@ function issueTable(title, issues) {
   });
   const suffix = issues.length > 20 ? `\n\n> 仅展示前 20 条，共 ${issues.length} 条。` : '';
   return `## ${title}\n\n| 级别 | 行/对象 | 指标/字段 | 问题 |\n|---|---:|---|---|\n${rows.join('\n')}${suffix}`;
-}
-
-function legacyFormatValidationReport(result, options = {}) {
-  const title = options.title ?? 'OTA data validation';
-  const lines = [
-    `# ${title}`,
-    '',
-    `- checked_rows: ${result.checkedRows ?? 0}`,
-    `- errors: ${result.errors?.length ?? 0}`,
-    `- warnings: ${result.warnings?.length ?? 0}`,
-  ];
-
-  if (result.details?.metric_summary?.metric_counts) {
-    const counts = result.details.metric_summary.metric_counts;
-    lines.push(`- metric_checks: ADR=${counts.ADR ?? 0}, ARI=${counts.ARI ?? 0}, SCI=${counts.SCI ?? 0}, MPI=${counts.MPI ?? 0}`);
-  }
-
-  lines.push('', issueTable('Errors', result.errors ?? []));
-  lines.push('', issueTable('Warnings', result.warnings ?? []));
-
-  if (result.details?.parser_contracts) {
-    lines.push('', '## Source Parser Contracts', '');
-    const controllerMissing = result.details.parser_contracts.controller?.missing_tokens ?? [];
-    const commandMissing = result.details.parser_contracts.command?.missing_tokens ?? [];
-    lines.push(`- OnlineData.php missing_tokens: ${controllerMissing.length ? controllerMissing.join(', ') : '无'}`);
-    lines.push(`- AutoFetchOnlineData.php missing_tokens: ${commandMissing.length ? commandMissing.join(', ') : '无'}`);
-  }
-
-  return lines.join('\n');
 }
 
 function validationIssueTable(title, issues, emptyText = '无') {
@@ -752,7 +756,7 @@ export function formatValidationReport(result, options = {}) {
     lines.push('', '## Source Parser Contracts', '');
     const controllerMissing = result.details.parser_contracts.controller?.missing_tokens ?? [];
     const commandMissing = result.details.parser_contracts.command?.missing_tokens ?? [];
-    lines.push(`- OnlineData.php missing_tokens: ${controllerMissing.length ? controllerMissing.join(', ') : '无'}`);
+    lines.push(`- OTA handler sources missing_tokens: ${controllerMissing.length ? controllerMissing.join(', ') : '无'}`);
     lines.push(`- AutoFetchOnlineData.php missing_tokens: ${commandMissing.length ? commandMissing.join(', ') : '无'}`);
   }
 

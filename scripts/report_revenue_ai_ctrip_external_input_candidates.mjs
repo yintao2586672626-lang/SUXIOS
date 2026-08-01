@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
+import { formatDateInTimeZone } from './lib/shared_helpers.mjs';
 
 const defaultRoot = process.env.SUXIOS_CTRIP_EXTERNAL_INPUT_ROOT || 'E:\\杂项\\重庆香格里拉项目';
 const allowlistedFiles = [
@@ -53,7 +55,10 @@ function parseArgs(argv) {
     if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
       throw new Error('Missing operator bundle manifest.json under --dir.');
     }
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const manifest = parseJsonTextSafely(
+      fs.readFileSync(manifestPath, 'utf8'),
+      'revenue_ai_operator_manifest_json',
+    );
     const scope = manifest && typeof manifest === 'object' ? manifest.scope || {} : {};
     options.bundleDir = bundleDir;
     options.bundleManifestPath = manifestPath;
@@ -70,7 +75,7 @@ function parseArgs(argv) {
   }
 
   if (options.date === '') {
-    options.date = new Date().toISOString().slice(0, 10);
+    options.date = formatDateInTimeZone(new Date(), 'Asia/Shanghai');
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date)) {

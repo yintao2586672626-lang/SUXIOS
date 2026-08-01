@@ -60,6 +60,14 @@ function call_service_private(string $className, string $method, array $args)
 $hotel = (object)['name' => '测试酒店'];
 $reportData = [
     'salable_rooms' => 100,
+    'revenue' => 1800,
+    'room_revenue' => 1800,
+    'other_revenue_total' => 0,
+    'online_revenue' => 1500,
+    'offline_revenue' => 300,
+    'total_rooms' => 10,
+    'online_rooms' => 7,
+    'offline_rooms' => 3,
     'xb_revenue' => 1000,
     'xb_rooms' => 5,
     'booking_revenue' => 500,
@@ -69,6 +77,15 @@ $reportData = [
     'overnight_rooms' => 7,
 ];
 $monthSum = [
+    'revenue' => 2300,
+    'room_revenue' => 2300,
+    'other_revenue_total' => 0,
+    'online_revenue' => 2000,
+    'offline_revenue' => 300,
+    'total_rooms' => 12,
+    'online_rooms' => 9,
+    'offline_rooms' => 3,
+    'salable_rooms' => 1000,
     'xb_revenue' => 1000,
     'xb_rooms' => 5,
     'booking_revenue' => 500,
@@ -92,13 +109,15 @@ $detail = call_daily_private('calculateReportDetail', [
 ]);
 
 assert_contract_same(100.0, $detail['total_rooms'], 'missing monthly salable_rooms_total must not fall back to 59');
-assert_contract_same(10, $detail['day_total_rooms'], 'daily total rooms must include Booking and hourly rooms');
-assert_contract_float(180.0, $detail['day_adr'], 'daily ADR must use revenue and room count with the same channel scope');
+assert_contract_same(10, $detail['day_total_rooms'], 'daily sold room nights must use the submitted whole-hotel total');
+assert_contract_float(180.0, $detail['day_adr'], 'daily ADR must use whole-hotel room revenue and sold room nights with matching scope');
 assert_contract_float(10.0, $detail['day_occ_rate'], 'daily OCC must use the real salable room denominator');
 assert_contract_float(18.0, $detail['day_revpar'], 'daily RevPAR must use the real salable room denominator');
-assert_contract_float(191.67, $detail['month_adr'], 'monthly ADR must include Booking/Agoda/Expedia/hourly room nights');
-assert_contract_float(1.2, $detail['month_occ_rate'], 'monthly OCC must include all room nights in numerator');
-assert_contract_float(2.3, $detail['month_revpar'], 'monthly RevPAR must use the real salable room denominator');
+assert_contract_float(191.67, $detail['month_adr'], 'monthly ADR must use evidenced whole-hotel room revenue and sold room nights');
+assert_contract_float(1.2, $detail['month_occ_rate'], 'monthly OCC must use evidenced cumulative sold and salable room nights');
+assert_contract_float(2.3, $detail['month_revpar'], 'monthly RevPAR must use evidenced cumulative salable room nights');
+assert_contract_same('whole_hotel_daily_report', $detail['metric_scope'], 'daily operating metrics must declare whole-hotel daily-report scope');
+assert_contract_same(true, $detail['core_metrics_ready'], 'complete whole-hotel evidence must make core daily metrics ready');
 
 $missingRoomsDetail = call_daily_private('calculateReportDetail', [
     $hotel,
@@ -109,7 +128,21 @@ $missingRoomsDetail = call_daily_private('calculateReportDetail', [
     10,
     31,
 ]);
-assert_contract_same(0.0, $missingRoomsDetail['total_rooms'], 'unknown salable rooms must stay unknown instead of using 59');
+assert_contract_same(null, $missingRoomsDetail['total_rooms'], 'unknown salable rooms must stay null instead of using 59 or zero');
+assert_contract_same(null, $missingRoomsDetail['day_revenue'], 'one OTA channel must not be expanded into whole-hotel revenue');
+assert_contract_same(null, $missingRoomsDetail['day_room_revenue'], 'one OTA channel must not be expanded into whole-hotel room revenue');
+assert_contract_same(null, $missingRoomsDetail['day_total_rooms'], 'one OTA channel must not be expanded into whole-hotel sold room nights');
+assert_contract_same(null, $missingRoomsDetail['day_occ_rate'], 'OCC must stay null when whole-hotel room nights and salable rooms are missing');
+assert_contract_same(null, $missingRoomsDetail['day_adr'], 'ADR must stay null when whole-hotel room revenue and room nights are missing');
+assert_contract_same(null, $missingRoomsDetail['day_revpar'], 'RevPAR must stay null when whole-hotel room revenue and salable rooms are missing');
+assert_contract_same(null, $missingRoomsDetail['ota_total_rooms'], 'incomplete OTA channel room nights must not be presented as an OTA total');
+assert_contract_same(1, $missingRoomsDetail['xb_rooms'], 'the evidenced OTA channel value must remain visible at channel scope');
+assert_contract_same(false, $missingRoomsDetail['core_metrics_ready'], 'partial OTA evidence must not mark whole-hotel core metrics ready');
+assert_contract_same('partial', $missingRoomsDetail['data_status'], 'partial OTA evidence must be labeled partial rather than ready');
+$missingRoomGapCodes = array_column($missingRoomsDetail['data_gaps'], 'code');
+assert_contract(in_array('daily_total_revenue_missing', $missingRoomGapCodes, true), 'missing whole-hotel revenue must emit a data-gap code');
+assert_contract(in_array('daily_sold_room_nights_missing', $missingRoomGapCodes, true), 'missing whole-hotel sold room nights must emit a data-gap code');
+assert_contract(in_array('daily_salable_rooms_missing', $missingRoomGapCodes, true), 'missing salable rooms must emit a data-gap code');
 
 $macroData = [
     'booking_revenue' => 500,
@@ -190,7 +223,14 @@ $monthlySource = file_get_contents(__DIR__ . '/../app/controller/MonthlyTask.php
 $authSource = file_get_contents(__DIR__ . '/../app/controller/Auth.php');
 $operationSource = file_get_contents(__DIR__ . '/../app/service/OperationManagementService.php');
 $onlineDataSource = file_get_contents(__DIR__ . '/../app/controller/OnlineData.php');
-$publicSource = file_get_contents(__DIR__ . '/../public/index.html');
+foreach (glob(__DIR__ . '/../app/controller/concern/*.php') ?: [] as $concernFile) {
+    $onlineDataSource .= "\n" . file_get_contents($concernFile);
+}
+$publicSource = file_get_contents(__DIR__ . '/../public/index.html')
+    . "\n"
+    . file_get_contents(__DIR__ . '/../public/app-main.js')
+    . "\n"
+    . file_get_contents(__DIR__ . '/../resources/frontend/app-template.html');
 
 assert_contract(!str_contains($dailySource, 'array_merge($existingData, $reportData)'), 'daily report update must replace submitted JSON fields so cleared values do not survive');
 assert_contract(!str_contains($monthlySource, 'array_merge($existingData, $taskData)'), 'monthly task update must replace submitted JSON fields so cleared values do not survive');

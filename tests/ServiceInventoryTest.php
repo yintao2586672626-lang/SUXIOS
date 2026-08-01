@@ -52,6 +52,10 @@ final class ServiceInventoryTest extends TestCase
             if (!$file instanceof SplFileInfo || !$file->isFile() || $file->getExtension() !== 'php') {
                 continue;
             }
+            $source = (string)file_get_contents($file->getPathname());
+            if (preg_match('/\btrait\s+[A-Za-z_][A-Za-z0-9_]*/', $source) === 1) {
+                continue;
+            }
 
             $relative = substr($file->getPathname(), strlen($root) + 1, -4);
             $classes[] = 'app\\service\\' . str_replace(DIRECTORY_SEPARATOR, '\\', $relative);

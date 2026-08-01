@@ -16,6 +16,7 @@ class UserHotelPermission extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'user_id' => 'integer',
         'hotel_id' => 'integer',
         'can_view' => 'integer',

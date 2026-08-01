@@ -1,13 +1,217 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
+  normalizeMeituanBusinessRows,
   normalizeMeituanFlowAnalysisRows,
+  normalizeMeituanOrderRows,
+  normalizeMeituanOrderFlowRows,
   normalizeMeituanPeerRankRows,
   normalizeMeituanSearchKeywordRows,
   normalizeMeituanTrafficCardRows,
+  normalizeMeituanTrafficDomText,
   normalizeMeituanTrafficForecastRows,
 } from '../../scripts/lib/meituan_browser_capture_normalize.mjs';
+
+test('Meituan business data is normalized independently and preserves zero versus missing', () => {
+  const rows = normalizeMeituanBusinessRows({
+    data: {
+      businessData: {
+        cards: [
+          { id: 'LEAD_PRICE', title: '\u5f15\u6d41\u4ef7', value: '868.00' },
+          { id: 'PAY_ROOMNIGHT', title: '\u9500\u552e\u95f4\u591c', value: '0' },
+          { id: 'PAY_AMT', title: '\u9500\u552e\u989d', value: '0.00' },
+          { id: 'EXPOSE_PV_CNT', title: '\u66dd\u5149\u4eba\u6570', value: '750' },
+          { id: 'INTENTION_UV', title: '\u6d4f\u89c8\u4eba\u6570', value: '117' },
+          { id: 'PAY_ORDER_CNT', title: '\u652f\u4ed8\u8ba2\u5355\u6570', value: '0' },
+          { id: 'PAY_ORDER_CNT_UV', title: '\u6d4f\u89c8-\u652f\u4ed8\u8f6c\u5316\u7387', value: '0%' },
+        ],
+      },
+    },
+  }, {
+    requestDateEvidence: { date: '2026-07-29', date_source: 'request.query.date' },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'business');
+  assert.equal(rows[0].lead_price, 868);
+  assert.equal(rows[0].sales_room_nights, 0);
+  assert.equal(rows[0].sales_amount, 0);
+  assert.equal(rows[0].sales_avg_price, null);
+  assert.equal(rows[0].exposure_users, 750);
+  assert.equal(rows[0].detail_visitors, 117);
+  assert.equal(rows[0].paid_order_count, 0);
+  assert.equal(rows[0].browse_to_pay_rate, 0);
+  assert.equal(rows[0]._meituan_business_metric_missing.includes('sales_avg_price'), true);
+  assert.equal(rows[0].dataDate, '2026-07-29');
+});
+
+test('Meituan business field aliases keep explicit platform values', () => {
+  const rows = normalizeMeituanBusinessRows({
+    data: {
+      businessData: {
+        startingPrice: 542.24,
+        salesRoomNights: 2,
+        salesAmount: 2026.78,
+        salesAvgPrice: 1013.39,
+        exposureUV: 81,
+        intentionUV: 66,
+        payOrderCnt: 1,
+        payOrderPerIntention: 1.52,
+        dataDate: '2026-07-29',
+      },
+    },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.deepEqual({
+    lead_price: rows[0].lead_price,
+    sales_room_nights: rows[0].sales_room_nights,
+    sales_amount: rows[0].sales_amount,
+    sales_avg_price: rows[0].sales_avg_price,
+    exposure_users: rows[0].exposure_users,
+    detail_visitors: rows[0].detail_visitors,
+    paid_order_count: rows[0].paid_order_count,
+    browse_to_pay_rate: rows[0].browse_to_pay_rate,
+  }, {
+    lead_price: 542.24,
+    sales_room_nights: 2,
+    sales_amount: 2026.78,
+    sales_avg_price: 1013.39,
+    exposure_users: 81,
+    detail_visitors: 66,
+    paid_order_count: 1,
+    browse_to_pay_rate: 1.52,
+  });
+});
+
+test('Meituan current home cards map the platform-native lead price and ADR ids', () => {
+  const rows = normalizeMeituanBusinessRows({
+    data: {
+      data: {
+        rtDataUpdateTime: '数据更新时间：2026/07/30 01:59',
+        cards: [
+          { id: 'DAY_ROOM_LOWEST_PRICE_AVG', value: '1158.00' },
+          { id: 'EXPOSE_PV_CNT', value: '-' },
+          { id: 'INTENTION_UV', value: '8' },
+          { id: 'PAY_ORDER_CNT_UV', value: '12.50' },
+          { id: 'PAY_ORDER_CNT', value: '1' },
+          { id: 'PAY_ROOMNIGHT', value: '1' },
+          { id: 'PAY_ADR', value: '1032.39' },
+          { id: 'PAY_AMT', value: '1032.39' },
+        ],
+      },
+    },
+  }, {
+    requestDateEvidence: { date: '2026-07-30', date_source: 'request.bound_business_period' },
+    businessCaptureEpoch: 7,
+    businessRelativeRange: '今日实时',
+    businessEvidenceSource: 'page.business_period_selection.readback',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].lead_price, 1158);
+  assert.equal(rows[0].sales_room_nights, 1);
+  assert.equal(rows[0].sales_amount, 1032.39);
+  assert.equal(rows[0].sales_avg_price, 1032.39);
+  assert.equal(rows[0].exposure_users, null);
+  assert.equal(rows[0].detail_visitors, 8);
+  assert.equal(rows[0].paid_order_count, 1);
+  assert.equal(rows[0].browse_to_pay_rate, 12.5);
+  assert.equal(rows[0].business_capture_epoch, 7);
+  assert.equal(rows[0].business_relative_range, '今日实时');
+  assert.equal(rows[0]._meituan_business_metric_missing.includes('exposure_users'), true);
+});
+
+test('Meituan order API aggregates sale price and room nights without promoting floor or guarantee money', () => {
+  const rows = normalizeMeituanOrderRows({
+    data: {
+      total: 3,
+      results: [
+        {
+          price: 81563,
+          floorPrice: 65359,
+          totalFee: 74605,
+          roomCount: 1,
+          checkInDateString: '2026-07-20',
+          checkOutDateString: '2026-07-21',
+          partRefundInfo: { totalRoomNightCount: 1 },
+          orderBasePriceModel: { salePrice: { price: 81563 }, floorPrice: { price: 65359 } },
+        },
+        {
+          price: 86395,
+          floorPrice: 69231,
+          totalFee: 75225,
+          roomCount: 1,
+          checkInDateString: '2026-07-21',
+          checkOutDateString: '2026-07-22',
+          partRefundInfo: { totalRoomNightCount: 1 },
+          orderBasePriceModel: { salePrice: { price: 86395 }, floorPrice: { price: 69231 } },
+        },
+        {
+          price: 86395,
+          floorPrice: 69231,
+          totalFee: 75225,
+          roomCount: 1,
+          checkInDateString: '2026-07-22',
+          checkOutDateString: '2026-07-23',
+          partRefundInfo: { totalRoomNightCount: 1 },
+          orderBasePriceModel: { salePrice: { price: 86395 }, floorPrice: { price: 69231 } },
+        },
+      ],
+    },
+  }, {
+    endpointPath: '/api/v1/ebooking/orders',
+    requestDateEvidence: { date: '2026-07-19', date_source: 'request.query.startTime' },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].amount, 2543.53);
+  assert.equal(rows[0].quantity, 3);
+  assert.equal(rows[0].book_order_num, 3);
+  assert.equal(rows[0].amount_scope, 'meituan_sale_price_total');
+  assert.equal(rows[0].amount_source_unit, 'cent');
+  assert.equal(rows[0].floor_price_used_as_revenue, false);
+  assert.equal(rows[0].guarantee_amount_used_as_revenue, false);
+  assert.equal(rows[0].dataDate, '2026-07-19');
+});
+
+test('Meituan order API refuses to promote an incomplete page into a daily total', () => {
+  const rows = normalizeMeituanOrderRows({
+    data: {
+      total: 2,
+      results: [{
+        price: 10000,
+        roomCount: 1,
+        checkInDateString: '2026-07-20',
+        checkOutDateString: '2026-07-21',
+      }],
+    },
+  }, {
+    endpointPath: '/api/v1/ebooking/orders',
+    requestDateEvidence: { date: '2026-07-19', date_source: 'request.query.startTime' },
+  });
+
+  assert.deepEqual(rows, []);
+});
+
+test('Meituan order flow replay keeps the verified period and requests both directions', () => {
+  const urls = buildMeituanOrderFlowReplayUrls(
+    'https://eb.meituan.com/api/v1/ebooking/peerRank/order/loss/query?partnerId=42&lossType=0&startDate=20260707&endDate=20260713',
+  );
+  assert.equal(urls.length, 2);
+  assert.deepEqual(urls.map(value => new URL(value).searchParams.get('lossType')), ['0', '1']);
+  urls.forEach(value => {
+    const url = new URL(value);
+    assert.equal(url.hostname, 'eb.meituan.com');
+    assert.equal(url.pathname, '/api/v1/ebooking/peerRank/order/loss/query');
+    assert.equal(url.searchParams.get('partnerId'), '42');
+    assert.equal(url.searchParams.get('startDate'), '20260707');
+    assert.equal(url.searchParams.get('endDate'), '20260713');
+  });
+  assert.deepEqual(buildMeituanOrderFlowReplayUrls('https://example.com/api/v1/ebooking/peerRank/order/loss/query?startDate=20260707&endDate=20260713'), []);
+});
 
 test('Meituan traffic card response maps to P0 traffic fields', () => {
   const rows = normalizeMeituanTrafficCardRows({
@@ -171,7 +375,32 @@ test('Meituan search keyword cards expand to search_keyword rows', () => {
   assert.equal(rows[0].data_value, 320);
 });
 
-test('Meituan flow forecast keeps forecast rows separate from actual traffic', () => {
+test('Meituan flow forecast keeps semantically verified rows separate from actual traffic', () => {
+  const rows = normalizeMeituanTrafficForecastRows({
+    data: {
+      detail: [
+        { dateTime: '20260701', current: 88, peerAvg: 120 },
+      ],
+    },
+  }, {
+    forecastType: 'pv',
+    forecastCaptureEpoch: 3,
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'traffic_forecast');
+  assert.equal(rows[0].data_period, 'next_30_days');
+  assert.equal(rows[0].forecast_type, 'pv');
+  assert.equal(rows[0].dimension, 'flow_forecast_pv');
+  assert.equal(rows[0].forecast_capture_epoch, 3);
+  assert.equal(rows[0].dataDate, '2026-07-01');
+  assert.equal(rows[0].date_source, 'row.dateTime');
+  assert.equal(rows[0].data_value, 88);
+  assert.equal(rows[0].peer_avg, 120);
+  assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
+});
+
+test('Meituan flow forecast refuses opaque numeric metric enums', () => {
   const rows = normalizeMeituanTrafficForecastRows({
     data: {
       detail: [
@@ -182,13 +411,60 @@ test('Meituan flow forecast keeps forecast rows separate from actual traffic', (
     forecastType: '2',
   });
 
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].data_type, 'traffic_forecast');
-  assert.equal(rows[0].forecast_type, '2');
-  assert.equal(rows[0].dataDate, '2026-07-01');
-  assert.equal(rows[0].data_value, 88);
-  assert.equal(rows[0].peer_avg, 120);
-  assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
+  assert.equal(rows[0].forecast_type, '');
+  assert.equal(rows[0].dimension, 'flow_forecast');
+});
+
+test('Meituan flow forecast keeps an explicit empty detail list as missing, not a placeholder row', () => {
+  assert.deepEqual(normalizeMeituanTrafficForecastRows({
+    data: {
+      titleRemark: '未来30天流量',
+      detail: [],
+    },
+  }, {
+    forecastType: 'uv',
+    forecastCaptureEpoch: 4,
+  }), []);
+});
+
+test('Meituan traffic DOM keeps funnel and direct source exposure facts separate', () => {
+  const rows = normalizeMeituanTrafficDomText([
+    '数据更新时间：2026/07/29 18:08',
+    '我的酒店 同行均值 曝光人数 浏览人数 支付订单数',
+    '720 500 121 100 3 2',
+    '曝光-浏览 转化率 16.81% 20.00%',
+    '浏览-支付 转化率 2.48%',
+    '流量来源 整体曝光 = 非广告曝光 + 广告曝光',
+    '流量类型 曝光量 占比 操作',
+    '整体曝光 1187',
+    '非广告曝光 103 9%',
+    '广告曝光 1084 91%',
+  ].join(' '));
+
+  const funnel = rows.find(row => row._capture_source === 'dom:traffic:flow_funnel');
+  assert.equal(funnel.listExposure, 720);
+  assert.equal(funnel.detailExposure, 121);
+  assert.equal(funnel.orderSubmitNum, 3);
+  assert.equal(funnel.flowRate, 2.48);
+  assert.equal(funnel.dataDate, '2026-07-29');
+
+  const sourceRows = rows.filter(row => row._capture_source === 'dom:traffic:source_breakdown');
+  assert.deepEqual(
+    Object.fromEntries(sourceRows.map(row => [row.dimension, row.data_value])),
+    {
+      total_exposure: 1187,
+      organic_exposure: 103,
+      ad_exposure: 1084,
+    },
+  );
+  assert.equal(sourceRows.every(row => row.dataDate === undefined), true);
+});
+
+test('Meituan traffic DOM never treats a conversion percentage as exposure', () => {
+  const rows = normalizeMeituanTrafficDomText(
+    '曝光-浏览 转化率 16.81% 浏览-支付 转化率 2.48% 支付订单数 3 单',
+  );
+  assert.equal(rows.some(row => row._capture_source === 'dom:traffic:home_summary'), false);
 });
 
 test('Meituan flow conversion becomes traffic_analysis supplemental data', () => {
@@ -213,4 +489,109 @@ test('Meituan flow conversion becomes traffic_analysis supplemental data', () =>
   assert.equal(rows[0].orderSubmitNum, 20);
   assert.equal(rows[0].flowRate, 10);
   assert.notEqual(rows[0].data_type, 'traffic');
+});
+
+test('Meituan myHotel funnel response becomes a truthful core traffic row', () => {
+  const rows = normalizeMeituanFlowAnalysisRows({
+    data: {
+      indexName: {
+        exposureUV: '曝光人数',
+        intentionUV: '浏览人数',
+        payOrderCnt: '支付订单数',
+      },
+      myHotel: {
+        exposureUV: 81,
+        intentionUV: 14,
+        payOrderCnt: 2,
+        intentionPerExposure: '17.28%',
+        payOrderPerIntention: '14.29%',
+      },
+    },
+  }, {
+    dateRange: '0',
+    defaultDataDate: '2026-07-18',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'traffic');
+  assert.equal(rows[0]._source_path, 'data.myHotel');
+  assert.equal(rows[0].exposureUV, 81);
+  assert.equal(rows[0].intentionUV, 14);
+  assert.equal(rows[0].payOrderCnt, 2);
+  assert.equal(rows[0].intentionPerExposure, '17.28%');
+  assert.equal(rows[0].exposure_to_browse_rate, 17.28);
+  assert.equal(rows[0].browse_pay_rate, 14.29);
+  assert.equal(rows[0].order_filling_num, undefined);
+});
+
+test('Meituan order flow response expands verified summary and hotel detail rows', () => {
+  const rows = normalizeMeituanOrderFlowRows({
+    status: 0,
+    data: {
+      lossTotalCnt: 83,
+      lossTotalPayRoomNight: 111,
+      lossTotalPayAmount: '42047.7400',
+      poiStar: '经济型',
+      orderLossPeerDetails: [{
+        poiId: 9001,
+        poiName: '同行酒店',
+        frontImg: 'https://example.test/hotel.jpg',
+        lossPoiStar: '高档型',
+        distance: 3560,
+        score: 4.9,
+        lowestPrice: 571,
+        circleName: '商圈',
+        vipTag: true,
+        lossOrderCount: 7,
+        lossOrderRatio: '0.0686',
+        lossSinglePayAmount: '5234.0000',
+        lossRoomList: [{ lossRoomName: '大床房', lossRoomCnt: 4 }],
+      }],
+    },
+  }, {
+    orderFlowDirection: 'loss',
+    periodStart: '20260707',
+    periodEnd: '20260713',
+  });
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].data_type, 'order_flow');
+  assert.equal(rows[0].order_flow_row_type, 'summary');
+  assert.equal(rows[0].order_flow_period, 'last_7_days');
+  assert.equal(rows[0].dataDate, '2026-07-13');
+  assert.equal(rows[0].date_source, 'request.query.endDate');
+  assert.equal(rows[0].order_count, 83);
+  assert.equal(rows[0].room_nights, 111);
+  assert.equal(rows[0].amount, 42047.74);
+  assert.equal(rows[1].order_flow_row_type, 'hotel_detail');
+  assert.equal(rows[1].order_count, 7);
+  assert.equal(rows[1].order_ratio, 0.0686);
+  assert.equal(rows[1].amount, 5234);
+  assert.deepEqual(rows[1].lossRoomList, [{ lossRoomName: '大床房', lossRoomCnt: 4 }]);
+});
+
+test('Meituan order flow preserves authoritative zero values and rejects incomplete envelopes', () => {
+  const zeroRows = normalizeMeituanOrderFlowRows({
+    data: {
+      lossTotalCnt: 0,
+      lossTotalPayRoomNight: 0,
+      lossTotalPayAmount: '0.0000',
+      orderLossPeerDetails: [],
+    },
+  }, {
+    orderFlowDirection: 'inflow',
+    periodStart: '2026-07-13',
+    periodEnd: '2026-07-13',
+  });
+  assert.equal(zeroRows.length, 1);
+  assert.equal(zeroRows[0].order_flow_period, 'yesterday');
+  assert.equal(zeroRows[0].order_count, 0);
+  assert.equal(zeroRows[0].room_nights, 0);
+  assert.equal(zeroRows[0].amount, 0);
+
+  assert.deepEqual(normalizeMeituanOrderFlowRows({ data: { lossTotalCnt: 2 } }, {
+    orderFlowDirection: 'loss',
+    periodStart: '2026-07-13',
+    periodEnd: '2026-07-13',
+  }), []);
 });

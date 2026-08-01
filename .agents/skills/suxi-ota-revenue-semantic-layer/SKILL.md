@@ -18,13 +18,15 @@ Use `suxi-plugin-priority-router` when analytics outputs should become dashboard
 ## Start Here
 
 1. Read `references/semantic-layer.md`.
-2. Use the listed canonical metrics, tables, grains, filters, and caveats.
-3. Treat the layer as source-selection guidance, not as a substitute for live reads from the database, API, dashboards, or provided exports.
-4. When source coverage is weak, stale, or conflicts with live data, say so and verify against the cited source.
+2. For intraday operating-target gaps, adjacent-snapshot deltas, pickup pace, target-consumption speed or full-house quality, also read `references/operating-target-delta-detection.md`.
+3. Use the listed canonical metrics, tables, grains, filters, and caveats.
+4. Treat the layer as source-selection guidance, not as a substitute for live reads from the database, API, dashboards, or provided exports.
+5. When source coverage is weak, stale, or conflicts with live data, say so and verify against the cited source.
 
 ## References
 
 - `references/semantic-layer.md`: metric definitions, tables, query patterns, gotchas, and open questions.
+- `references/operating-target-delta-detection.md`: same-day target gap plus adjacent-snapshot delta logic, small-hotel tolerances, anomaly priority, full-house quality, and current Dingdandao boundaries.
 - `references/source-inventory.md`: sources checked, coverage level, gaps, and update boundaries.
 - `references/evidence.md`: provenance for the key claims this layer preserves.
 

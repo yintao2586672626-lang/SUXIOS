@@ -318,6 +318,9 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
 
         self::assertStringContainsString('function p0_traffic_current_session_verified', $verifier);
+        self::assertStringContainsString('function p0_traffic_current_session_status', $verifier);
+        self::assertStringContainsString("'current_session_blocked_probe'", $verifier);
+        self::assertStringContainsString("'login_required'", $verifier);
         self::assertStringContainsString("'current_session_probe_performed'", $verifier);
         self::assertStringContainsString("'current_session_verified'", $verifier);
         self::assertStringContainsString("'historical_login_metadata_present'", $verifier);
@@ -469,10 +472,73 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertStringContainsString("isset(\$columns['data_period'])", $verifier);
         self::assertStringContainsString("->whereOr('data_period', 'not in', ['next_7_days', 'next_30_days', 'forecast', 'future_forecast'])", $verifier);
         self::assertStringContainsString("(int)\$base['ui_status_incomplete_rows'] === 0", $verifier);
+        self::assertStringContainsString("'auxiliary_traffic_row_count' => 0", $verifier);
+        self::assertStringContainsString('every authoritative target-date traffic snapshot row', $verifier);
         self::assertStringContainsString("'hotel_scoped_field_fact_closures' => []", $verifier);
         self::assertStringContainsString("'hotel_scoped_closure_status'", $verifier);
         self::assertStringContainsString("p0_traffic_field_fact_closure(\$platform, \$targetDate, \$hotelId)", $verifier);
         self::assertStringContainsString("\$base['status'] = 'hotel_scoped_incomplete';", $verifier);
+    }
+
+    public function testCtripTrafficClosureSeparatesCanonicalSnapshotsFromAuxiliaryEndpoints(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach ([
+            'p0_traffic_row_endpoint_id',
+            'p0_traffic_row_date_scope_is_authoritative',
+            'p0_traffic_row_scope',
+        ] as $functionName) {
+            if (function_exists(__NAMESPACE__ . '\\' . $functionName) || function_exists($functionName)) {
+                continue;
+            }
+            $definition = $this->extractFunctionDefinition($verifier, $functionName);
+            self::assertNotSame('', $definition, 'Missing pure verifier helper: ' . $functionName);
+            eval($definition);
+        }
+
+        $canonical = p0_traffic_row_scope([
+            'dimension' => 'catalog:business_overview:business_flow_transform:list_exposure+detail_exposure:0',
+        ], 'ctrip');
+        self::assertTrue($canonical['authoritative']);
+        self::assertSame('business_flow_transform', $canonical['endpoint_id']);
+
+        $futureSearch = p0_traffic_row_scope([
+            'dimension' => 'catalog:traffic_report:traffic_search_details:future_search:2026-07-25',
+        ], 'ctrip');
+        self::assertFalse($futureSearch['authoritative']);
+        self::assertSame('traffic_search_details', $futureSearch['endpoint_id']);
+
+        $weekly = p0_traffic_row_scope([
+            'raw_data' => json_encode(['endpoint_id' => 'weekly_report'], JSON_UNESCAPED_SLASHES),
+        ], 'ctrip');
+        self::assertFalse($weekly['authoritative']);
+        self::assertSame('weekly_report', $weekly['endpoint_id']);
+
+        $legacy = p0_traffic_row_scope(['dimension' => ''], 'ctrip');
+        self::assertTrue($legacy['authoritative']);
+        self::assertSame('legacy_dimensionless_core_snapshot', $legacy['reason']);
+
+        $unclassifiedDimensioned = p0_traffic_row_scope([
+            'dimension' => 'realtime:ctrip',
+        ], 'ctrip');
+        self::assertFalse($unclassifiedDimensioned['authoritative']);
+        self::assertSame(
+            'ctrip_unclassified_dimensioned_traffic_row',
+            $unclassifiedDimensioned['reason']
+        );
+
+        $meituan = p0_traffic_row_scope(['dimension' => 'flow_conversion'], 'meituan');
+        self::assertTrue($meituan['authoritative']);
+
+        $meituanRefreshTimestamp = p0_traffic_row_scope([
+            'dimension' => 'flow_conversion',
+            'raw_data' => json_encode(['date_source' => 'response.rtDataUpdateTime']),
+        ], 'meituan');
+        self::assertFalse($meituanRefreshTimestamp['authoritative']);
+        self::assertSame(
+            'meituan_refresh_timestamp_not_business_date_evidence',
+            $meituanRefreshTimestamp['reason']
+        );
     }
 
     public function testStoredTrafficIdentifierMatchesTheAuthoritativeProfileSourceWithoutRawOutput(): void
@@ -646,6 +712,163 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertStringContainsString('p0_profile_binding_scope_status', $resolver);
         self::assertStringNotContainsString('secret_json', $resolver);
         self::assertStringNotContainsString('ota_credentials', $resolver);
+    }
+
+    public function testRequiredTrafficMetricsRespectPlatformSemantics(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach (['p0_required_traffic_metric_keys', 'p0_required_traffic_storage_field_map'] as $functionName) {
+            if (!function_exists(__NAMESPACE__ . '\\' . $functionName)) {
+                $definition = $this->extractFunctionDefinition($verifier, $functionName);
+                self::assertNotSame('', $definition, 'Missing pure verifier helper: ' . $functionName);
+                eval($definition);
+            }
+        }
+
+        self::assertSame(
+            ['list_exposure', 'detail_exposure', 'flow_rate'],
+            p0_required_traffic_metric_keys('meituan')
+        );
+        self::assertSame(
+            ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'],
+            p0_required_traffic_metric_keys('ctrip')
+        );
+        self::assertSame(
+            [
+                'list_exposure' => 'online_daily_data.list_exposure',
+                'detail_exposure' => 'online_daily_data.detail_exposure',
+                'flow_rate' => 'online_daily_data.flow_rate',
+            ],
+            p0_required_traffic_storage_field_map('meituan')
+        );
+        self::assertStringContainsString('p0_required_traffic_metric_keys($platform)', $verifier);
+        self::assertStringContainsString('p0_required_traffic_storage_field_map($platform)', $verifier);
+    }
+
+    public function testFailedSyncTasksPreserveActionableSafeMessageCodes(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach ([
+            'p0_normalize_task_date',
+            'p0_sync_task_target_date',
+            'p0_sync_task_is_stale_running',
+            'p0_sync_task_message_looks_like_login_blocker',
+            'p0_sync_task_message_code',
+            'p0_sync_task_diagnosis',
+        ] as $functionName) {
+            if (function_exists(__NAMESPACE__ . '\\' . $functionName) || function_exists($functionName)) {
+                continue;
+            }
+            $definition = $this->extractFunctionDefinition($verifier, $functionName);
+            self::assertNotSame('', $definition, 'Missing pure verifier helper: ' . $functionName);
+            eval($definition);
+        }
+
+        $profileCode = p0_sync_task_message_code([
+            'status' => 'failed',
+            'message' => 'profile_session_unverified',
+        ], [], '2026-07-21');
+        self::assertSame('profile_session_unverified', $profileCode);
+        self::assertSame('current_profile_session_not_verified', p0_sync_task_diagnosis($profileCode));
+
+        $executionCode = p0_sync_task_message_code([
+            'status' => 'failed',
+            'message' => 'credential_execution_failed',
+        ], [], '2026-07-21');
+        self::assertSame('credential_execution_failed', $executionCode);
+        self::assertSame('capture_execution_failed', p0_sync_task_diagnosis($executionCode));
+    }
+
+    public function testLiveClosureInspectorRequiresDesensitizedEvidenceForCompleteFacts(): void
+    {
+        $inspector = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'inspect_phase1_ota_live_closure.php');
+        $definition = $this->extractFunctionDefinition($inspector, 'field_fact_closure_summary');
+
+        self::assertNotSame('', $definition);
+        self::assertStringContainsString(
+            '$complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $hasDesensitizedCaptureEvidence',
+            $definition
+        );
+        self::assertStringNotContainsString(
+            '$complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $metricKey',
+            $definition
+        );
+    }
+
+    public function testLiveClosureInspectorAcceptsExactRootJsonPropertyPaths(): void
+    {
+        $inspector = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'inspect_phase1_ota_live_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\field_fact_source_path_structured')
+            && !function_exists('field_fact_source_path_structured')) {
+            $definition = $this->extractFunctionDefinition($inspector, 'field_fact_source_path_structured');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        self::assertTrue(field_fact_source_path_structured('visitorTotal'));
+        self::assertTrue(field_fact_source_path_structured('data.visitorTotal'));
+        self::assertTrue(field_fact_source_path_structured('$[0].visitorTotal'));
+        self::assertFalse(field_fact_source_path_structured('visitor total'));
+        self::assertFalse(field_fact_source_path_structured(''));
+    }
+
+    public function testLiveClosureInspectorKeepsOptionalReferenceGapsOutOfP0CoreEtlGate(): void
+    {
+        $inspector = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'inspect_phase1_ota_live_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\inspection_p0_core_etl_readiness')
+            && !function_exists('inspection_p0_core_etl_readiness')) {
+            $definition = $this->extractFunctionDefinition($inspector, 'inspection_p0_core_etl_readiness');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        $trusted = ['source_trace' => ['saved_success' => true]];
+        $untrusted = ['source_trace' => ['saved_success' => false]];
+
+        self::assertSame(
+            [
+                'status' => 'ready',
+                'fact_count' => 2,
+                'trusted_fact_count' => 2,
+                'untrusted_fact_count' => 0,
+            ],
+            inspection_p0_core_etl_readiness([$trusted], [$trusted])
+        );
+        self::assertSame('blocked', inspection_p0_core_etl_readiness([$trusted], [$untrusted])['status']);
+        self::assertSame('empty', inspection_p0_core_etl_readiness([], [])['status']);
+    }
+
+    public function testAlreadyIngestedTrafficDoesNotRequireTemporaryPayloadFile(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\p0_payload_candidate_scan_for_next_step')) {
+            $definition = $this->extractFunctionDefinition($verifier, 'p0_payload_candidate_scan_for_next_step');
+            self::assertNotSame('', $definition, 'Missing pure verifier helper: p0_payload_candidate_scan_for_next_step');
+            eval($definition);
+        }
+
+        $ready = p0_payload_candidate_scan_for_next_step([
+            'action_mode' => 'already_ingested',
+            'target_date' => ['traffic_rows' => 1],
+            'traffic_field_fact_closure' => ['status' => 'ready'],
+        ], [
+            'status' => 'missing_expected_payload',
+            'ready_to_execute' => false,
+            'issue_codes' => ['expected_payload_file_missing'],
+        ]);
+        self::assertSame('not_required_already_ingested', $ready['status']);
+        self::assertSame([], $ready['issue_codes']);
+
+        $incomplete = p0_payload_candidate_scan_for_next_step([
+            'action_mode' => 'already_ingested',
+            'target_date' => ['traffic_rows' => 1],
+            'traffic_field_fact_closure' => ['status' => 'partial'],
+        ], [
+            'status' => 'missing_expected_payload',
+            'issue_codes' => ['expected_payload_file_missing'],
+        ]);
+        self::assertSame('missing_expected_payload', $incomplete['status']);
+        self::assertSame(['expected_payload_file_missing'], $incomplete['issue_codes']);
     }
 
     private function loadPlatformIdentifierHelpers(): void

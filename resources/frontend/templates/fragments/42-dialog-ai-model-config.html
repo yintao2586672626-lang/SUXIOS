@@ -1,0 +1,70 @@
+        <!-- AI模型配置模态框 -->
+        <div v-if="showAiModelConfigModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                    <h3 class="text-lg font-semibold">{{ aiModelConfigText(aiModelConfigForm.id ? 'aiModelConfig.modalEditTitle' : 'aiModelConfig.modalCreateTitle') }}</h3>
+                    <button @click="showAiModelConfigModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form @submit.prevent="saveAiModelConfig" class="p-5 space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelConfig.nameLabel') }}</label>
+                            <input v-model="aiModelConfigForm.name" required="" class="input-field w-full" placeholder="DeepSeek Chat">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelConfig.modelKeyLabel') }}</label>
+                            <input v-model="aiModelConfigForm.model_key" required="" class="input-field w-full" placeholder="deepseek_v4_flash">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelConfig.providerLabel') }}</label>
+                            <input v-model="aiModelConfigForm.provider" required="" class="input-field w-full" placeholder="deepseek">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelConfig.modelNameLabel') }}</label>
+                            <input v-model="aiModelConfigForm.model_name" required="" class="input-field w-full" placeholder="deepseek-v4-flash">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelConfig.baseUrlLabel') }}</label>
+                        <input v-model="aiModelConfigForm.base_url" required="" class="input-field w-full" placeholder="https://api.deepseek.com/v1">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelConfig.apiKeyLabel') }}</label>
+                        <input v-model="aiModelConfigForm.api_key" type="password" autocomplete="new-password" class="input-field w-full" :placeholder="aiModelConfigText(aiModelConfigForm.id ? 'aiModelConfig.apiKeyEditPlaceholder' : 'aiModelConfig.apiKeyCreatePlaceholder')">
+                        <p class="text-xs text-gray-500 mt-1">
+                            {{ aiModelConfigText('aiModelConfig.apiKeyHelp') }}
+                            <span v-if="aiModelConfigForm.masked_api_key">{{ aiModelConfigText('aiModelConfig.currentKeyPrefix') }}{{ aiModelConfigForm.masked_api_key }}</span>
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelConfig.usageSceneLabel') }}</label>
+                        <input v-model="aiModelConfigForm.usage_scene" class="input-field w-full" :placeholder="aiModelConfigText('aiModelConfig.usageScenePlaceholder')">
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label class="flex items-center justify-between p-4 bg-gray-50 rounded-lg cursor-pointer">
+                            <div>
+                                <div class="font-medium text-gray-800">{{ aiModelConfigText('aiModelConfig.setDefaultTitle') }}</div>
+                                <div class="text-sm text-gray-500">{{ aiModelConfigText('aiModelConfig.setDefaultDescription') }}</div>
+                            </div>
+                            <input type="checkbox" v-model="aiModelConfigForm.is_default" class="w-4 h-4 rounded border-gray-300 text-blue-600">
+                        </label>
+                        <label class="flex items-center justify-between p-4 bg-gray-50 rounded-lg cursor-pointer">
+                            <div>
+                                <div class="font-medium text-gray-800">{{ aiModelConfigText('aiModelConfig.enableModelTitle') }}</div>
+                                <div class="text-sm text-gray-500">{{ aiModelConfigText('aiModelConfig.enableModelDescription') }}</div>
+                            </div>
+                            <input type="checkbox" v-model="aiModelConfigForm.is_enabled" class="w-4 h-4 rounded border-gray-300 text-blue-600">
+                        </label>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                        <button type="button" @click="showAiModelConfigModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">{{ aiModelConfigText('aiModelConfig.cancelButton') }}</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                            <i class="fas fa-save mr-2"></i>{{ aiModelConfigText('aiModelConfig.saveButton') }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+

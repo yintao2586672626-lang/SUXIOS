@@ -34,28 +34,52 @@ final class OnlineDataFieldFactService
         ],
         'business' => [
             [
-                'metric_key' => 'meituan_rank_value',
+                'metric_key' => 'sales_amount',
+                'normalized_field' => 'amount',
+                'storage_field' => 'amount',
+                'source_keys' => ['sales_amount', 'salesAmount', 'amount', 'sales', 'PAY_AMT'],
+            ],
+            [
+                'metric_key' => 'sales_room_nights',
+                'normalized_field' => 'quantity',
+                'storage_field' => 'quantity',
+                'source_keys' => ['sales_room_nights', 'salesRoomNights', 'quantity', 'room_nights', 'roomNights', 'PAY_ROOMNIGHT'],
+            ],
+            [
+                'metric_key' => 'paid_order_count',
+                'normalized_field' => 'book_order_num',
+                'storage_field' => 'book_order_num',
+                'source_keys' => ['paid_order_count', 'paidOrderCount', 'book_order_num', 'payOrderCnt', 'orderSubmitNum', 'PAY_ORDER_CNT'],
+            ],
+            [
+                'metric_key' => 'lead_price',
+                'normalized_field' => 'raw_data.lead_price',
+                'storage_field' => 'raw_data.lead_price',
+                'source_keys' => ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice', 'DAY_ROOM_LOWEST_PRICE_AVG'],
+            ],
+            [
+                'metric_key' => 'sales_avg_price',
                 'normalized_field' => 'data_value',
                 'storage_field' => 'data_value',
-                'source_keys' => ['dataValue', 'data_value', 'percent', 'rankPercent', 'rank_percent'],
+                'source_keys' => ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice', 'PAY_ADR', 'data_value'],
             ],
             [
-                'metric_key' => 'meituan_rank_position',
-                'normalized_field' => 'raw_data.rank',
-                'storage_field' => 'raw_data.rank',
-                'source_keys' => ['rank', 'ranking'],
+                'metric_key' => 'exposure_users',
+                'normalized_field' => 'list_exposure',
+                'storage_field' => 'list_exposure',
+                'source_keys' => ['exposure_users', 'exposureUsers', 'listExposure', 'list_exposure', 'exposureUV', 'EXPOSE_PV_CNT'],
             ],
             [
-                'metric_key' => 'meituan_rank_type',
-                'normalized_field' => 'raw_data.rankType',
-                'storage_field' => 'raw_data.rankType',
-                'source_keys' => ['rankType', 'rank_type'],
+                'metric_key' => 'detail_visitors',
+                'normalized_field' => 'detail_exposure',
+                'storage_field' => 'detail_exposure',
+                'source_keys' => ['detail_visitors', 'detailVisitors', 'detailExposure', 'detail_exposure', 'intentionUV', 'INTENTION_UV'],
             ],
             [
-                'metric_key' => 'meituan_rank_dimension',
-                'normalized_field' => 'dimension',
-                'storage_field' => 'dimension',
-                'source_keys' => ['_dimName', 'dimName', 'dimension'],
+                'metric_key' => 'browse_to_pay_rate',
+                'normalized_field' => 'flow_rate',
+                'storage_field' => 'flow_rate',
+                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flowRate', 'flow_rate', 'PAY_ORDER_CNT_UV'],
             ],
         ],
         'traffic' => [
@@ -87,7 +111,13 @@ final class OnlineDataFieldFactService
                 'metric_key' => 'flow_rate',
                 'normalized_field' => 'flow_rate',
                 'storage_field' => 'flow_rate',
-                'source_keys' => ['flow_rate', 'flowRate', 'conversion_rate', 'conversionRate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr', 'listTransforDetailRate', 'orderRate'],
+                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flow_rate', 'flowRate', 'conversion_rate', 'conversionRate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr', 'listTransforDetailRate', 'orderRate'],
+            ],
+            [
+                'metric_key' => 'exposure_to_browse_rate',
+                'normalized_field' => 'raw_data.exposure_to_browse_rate',
+                'storage_field' => 'raw_data.exposure_to_browse_rate',
+                'source_keys' => ['intentionPerExposure', 'intention_per_exposure', 'exposure_to_browse_rate', 'exposureToBrowseRate', 'expose_visit_rate'],
             ],
             [
                 'metric_key' => 'order_filling_num',
@@ -112,6 +142,26 @@ final class OnlineDataFieldFactService
                 'normalized_field' => 'quantity',
                 'storage_field' => 'quantity',
                 'source_keys' => ['mt_pay_rooms', 'pay_rooms', 'payRooms', 'payRoomNum', 'pay_room_num', 'roomNights', 'room_nights', 'quantity'],
+            ],
+        ],
+        'traffic_forecast' => [
+            [
+                'metric_key' => 'forecast_type',
+                'normalized_field' => 'dimension',
+                'storage_field' => 'dimension',
+                'source_keys' => ['forecast_type', 'forecastType'],
+            ],
+            [
+                'metric_key' => 'forecast_current',
+                'normalized_field' => 'data_value',
+                'storage_field' => 'data_value',
+                'source_keys' => ['current', 'data_value', 'dataValue', 'value'],
+            ],
+            [
+                'metric_key' => 'forecast_peer_average',
+                'normalized_field' => 'raw_data.peer_avg',
+                'storage_field' => 'raw_data.peer_avg',
+                'source_keys' => ['peer_avg', 'peerAvg', 'competitor_avg', 'competitorAvg'],
             ],
         ],
         'advertising' => [
@@ -163,13 +213,13 @@ final class OnlineDataFieldFactService
                 'metric_key' => 'room_nights',
                 'normalized_field' => 'quantity',
                 'storage_field' => 'quantity',
-                'source_keys' => ['nights', 'night_count', 'nightCount', 'room_count', 'roomCount', 'rooms'],
+                'source_keys' => ['room_nights', 'roomNights', 'quantity'],
             ],
             [
                 'metric_key' => 'order_count',
                 'normalized_field' => 'book_order_num',
                 'storage_field' => 'book_order_num',
-                'source_keys' => ['order_id', 'orderId', 'id', 'order_count', 'orderCount'],
+                'source_keys' => ['order_count', 'orderCount', 'book_order_num', 'bookOrderNum'],
             ],
             [
                 'metric_key' => 'average_price',
@@ -222,6 +272,62 @@ final class OnlineDataFieldFactService
     }
 
     /**
+     * Evaluate only the field facts that support the requested metrics.
+     *
+     * A persisted endpoint row may truthfully remain `partial` because other,
+     * unrelated fields were absent. Downstream consumers can use a metric from
+     * that row only when every requested metric has its own captured source
+     * path, storage target, desensitized evidence and stored-value readback.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @param array<int, string> $metricKeys
+     * @return array<string, mixed>
+     */
+    public static function buildMetricStatus(array $row, array $raw, array $metricKeys): array
+    {
+        $requested = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            $metricKeys
+        ), static fn(string $value): bool => $value !== '')));
+        sort($requested, SORT_STRING);
+
+        $facts = self::extractFieldFacts($raw);
+        $matchingFacts = array_values(array_filter(
+            $facts,
+            static fn(mixed $fact): bool => is_array($fact)
+                && in_array(
+                    strtolower(trim((string)($fact['metric_key'] ?? $fact['field_key'] ?? $fact['field'] ?? ''))),
+                    $requested,
+                    true
+                )
+        ));
+        $metricRaw = array_replace($raw, [
+            'field_facts' => $matchingFacts,
+            'field_fact_summary' => self::summarizeFacts($matchingFacts),
+        ]);
+        $status = self::buildStatus($row, $metricRaw);
+        $captured = array_values(array_unique(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            is_array($status['captured_metric_keys'] ?? null)
+                ? $status['captured_metric_keys']
+                : []
+        )));
+        sort($captured, SORT_STRING);
+        $missing = array_values(array_diff($requested, $captured));
+        sort($missing, SORT_STRING);
+
+        if ($requested === [] || $missing !== [] || (string)($status['status'] ?? '') !== 'ready') {
+            $status['status'] = $matchingFacts === [] ? 'not_loaded' : 'partial';
+            $status['label'] = $matchingFacts === [] ? '字段事实未写入' : '指标字段事实不完整';
+        }
+        $status['requested_metric_keys'] = $requested;
+        $status['missing_requested_metric_keys'] = $missing;
+        $status['metric_scoped'] = true;
+        return $status;
+    }
+
+    /**
      * @param array<string, mixed> $row
      * @param array<string, mixed> $raw
      * @return array<string, mixed>
@@ -238,6 +344,7 @@ final class OnlineDataFieldFactService
                 'missing_count' => 0,
                 'capture_evidence_count' => 0,
                 'desensitized_capture_evidence_count' => 0,
+                'matching_desensitized_capture_evidence_count' => 0,
                 'source_path_count' => 0,
                 'structured_source_path_count' => 0,
                 'metric_key_count' => 0,
@@ -256,6 +363,7 @@ final class OnlineDataFieldFactService
         $missing = [];
         $captureEvidenceCount = 0;
         $desensitizedCaptureEvidenceCount = 0;
+        $matchingDesensitizedCaptureEvidenceCount = 0;
         $sourcePathCount = 0;
         $structuredSourcePathCount = 0;
         $metricKeyCount = 0;
@@ -263,6 +371,8 @@ final class OnlineDataFieldFactService
         $inferredStorageFieldCount = 0;
         $storedValuePresentCount = 0;
         $storedValueMissingCount = 0;
+        $capturedFactCount = 0;
+        $declaredCapturedFactCount = 0;
         $sampleFacts = [];
 
         foreach ($facts as $fact) {
@@ -277,12 +387,16 @@ final class OnlineDataFieldFactService
             $storageFieldInferred = false;
             $hasCaptureEvidence = self::fieldFactHasCaptureEvidence($fact, $row, $raw);
             $hasDesensitizedCaptureEvidence = self::fieldFactHasDesensitizedCaptureEvidence($fact);
+            $captureEvidenceMatchesRow = self::fieldFactDesensitizedCaptureEvidenceMatchesRow($fact, $row, $raw);
             if ($storageField === '') {
                 $storageField = self::inferFieldFactStorageField($metricKey, $row, $raw, $fact);
                 $storageFieldInferred = $storageField !== '';
                 $storageFieldSource = $storageFieldInferred ? self::fieldFactStorageFieldSource($storageField) : $storageFieldSource;
             }
             $status = trim((string)($fact['status'] ?? ''));
+            if ($metricKey !== '' && $status !== 'missing') {
+                $declaredCapturedFactCount++;
+            }
             $storedValueState = self::fieldFactStoredValueState($fact, $row, $raw, $storageField, $metricKey);
             $storedValueMissing = $storedValueState === false;
             if ($storedValueState === true) {
@@ -291,8 +405,17 @@ final class OnlineDataFieldFactService
                 $storedValueMissingCount++;
             }
             $isMissing = $status === 'missing'
-                || ($metricKey !== '' && (!$hasCaptureEvidence || !$sourcePathStructured || $storageField === ''))
+                || ($metricKey !== '' && (
+                    !$hasCaptureEvidence
+                    || !$hasDesensitizedCaptureEvidence
+                    || !$captureEvidenceMatchesRow
+                    || !$sourcePathStructured
+                    || $storageField === ''
+                ))
                 || $storedValueMissing;
+            if (!$isMissing && $captureEvidenceMatchesRow) {
+                $matchingDesensitizedCaptureEvidenceCount++;
+            }
 
             if ($metricKey !== '') {
                 $metricKeyCount++;
@@ -318,6 +441,7 @@ final class OnlineDataFieldFactService
             if ($isMissing) {
                 $missing[] = $metricKey !== '' ? $metricKey : 'unknown_metric';
             } else {
+                $capturedFactCount++;
                 $captured[] = $metricKey !== '' ? $metricKey : 'unknown_metric';
             }
             if (count($sampleFacts) < 4) {
@@ -330,6 +454,7 @@ final class OnlineDataFieldFactService
                     'storage_field_source' => $storageFieldSource,
                     'capture_evidence_present' => $hasCaptureEvidence,
                     'desensitized_capture_evidence_present' => $hasDesensitizedCaptureEvidence,
+                    'capture_evidence_matches_row' => $captureEvidenceMatchesRow,
                     'stored_value_present' => $storedValueState,
                     'status' => $isMissing ? 'missing' : ($status !== '' ? $status : 'captured'),
                     'missing_state' => trim((string)($fact['missing_state'] ?? '')),
@@ -343,11 +468,18 @@ final class OnlineDataFieldFactService
         $capturedCount = count($captured);
         $missingCount = count($missing);
         $status = 'ready';
-        $label = '字段闭环';
+        $label = '字段链路齐全（业务值仍需来源校验）';
         if ($capturedCount === 0) {
-            $status = 'missing';
-            $label = '字段缺失';
-        } elseif ($missingCount > 0 || $captureEvidenceCount < $capturedCount || $structuredSourcePathCount < $capturedCount || $storageFieldCount < $capturedCount || $storedValueMissingCount > 0) {
+            $status = $declaredCapturedFactCount > 0 ? 'partial' : 'missing';
+            $label = $declaredCapturedFactCount > 0 ? '字段待复核' : '字段缺失';
+        } elseif ($missingCount > 0
+            || $captureEvidenceCount < $capturedFactCount
+            || $desensitizedCaptureEvidenceCount < $capturedFactCount
+            || $matchingDesensitizedCaptureEvidenceCount < $capturedFactCount
+            || $structuredSourcePathCount < $capturedFactCount
+            || $storageFieldCount < $capturedFactCount
+            || $storedValueMissingCount > 0
+        ) {
             $status = 'partial';
             $label = '字段待复核';
         }
@@ -377,6 +509,7 @@ final class OnlineDataFieldFactService
             'missing_count' => $missingCount,
             'capture_evidence_count' => $captureEvidenceCount,
             'desensitized_capture_evidence_count' => $desensitizedCaptureEvidenceCount,
+            'matching_desensitized_capture_evidence_count' => $matchingDesensitizedCaptureEvidenceCount,
             'source_path_count' => $sourcePathCount,
             'structured_source_path_count' => $structuredSourcePathCount,
             'metric_key_count' => $metricKeyCount,
@@ -403,9 +536,33 @@ final class OnlineDataFieldFactService
         if ($definitions === []) {
             return [];
         }
+        $platform = strtolower(trim((string)(
+            $row['platform']
+                ?? $row['source']
+                ?? $raw['platform']
+                ?? $raw['source']
+                ?? $source['platform']
+                ?? $source['source']
+                ?? ''
+        )));
+        if (str_starts_with($platform, 'ctrip')) {
+            $platform = 'ctrip';
+        } elseif (str_starts_with($platform, 'meituan')) {
+            $platform = 'meituan';
+        }
 
         $facts = [];
         foreach ($definitions as $definition) {
+            $metricKey = strtolower(trim((string)($definition['metric_key'] ?? '')));
+            if ($platform !== ''
+                && $platform !== 'meituan'
+                && (
+                    str_starts_with($metricKey, 'mt_')
+                    || str_starts_with($metricKey, 'meituan_')
+                )
+            ) {
+                continue;
+            }
             $sourceKey = self::firstPresentKey($source, (array)($definition['source_keys'] ?? []));
             if ($sourceKey === '' && $raw !== $source) {
                 $sourceKey = self::firstPresentKey($raw, (array)($definition['source_keys'] ?? []));
@@ -480,11 +637,13 @@ final class OnlineDataFieldFactService
         if ($raw !== $source) {
             self::appendSafeCaptureEvidence($evidence, $raw);
         }
-        foreach (['_source_url', 'source_url', 'url'] as $key) {
-            $value = $source[$key] ?? $raw[$key] ?? null;
-            if (is_scalar($value) && trim((string)$value) !== '') {
-                $evidence['source_url_hash'] = hash('sha256', (string)$value);
-                break;
+        if (!self::validSourceUrlHash((string)($evidence['source_url_hash'] ?? ''))) {
+            foreach (['_source_url', 'source_url', 'url'] as $key) {
+                $value = $source[$key] ?? $raw[$key] ?? null;
+                if (is_scalar($value) && trim((string)$value) !== '') {
+                    $evidence['source_url_hash'] = hash('sha256', (string)$value);
+                    break;
+                }
             }
         }
         return $evidence;
@@ -583,6 +742,36 @@ final class OnlineDataFieldFactService
     {
         $evidence = $fact['capture_evidence'] ?? null;
         return is_array($evidence) && self::hasDesensitizedCaptureEvidence($evidence);
+    }
+
+    /**
+     * @param array<string, mixed> $fact
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private static function fieldFactDesensitizedCaptureEvidenceMatchesRow(array $fact, array $row, array $raw): bool
+    {
+        $factEvidence = $fact['capture_evidence'] ?? null;
+        if (!is_array($factEvidence) || !self::hasDesensitizedCaptureEvidence($factEvidence)) {
+            return false;
+        }
+
+        $rowEvidence = self::captureEvidence($row, $raw);
+        if (!self::hasDesensitizedCaptureEvidence($rowEvidence)) {
+            return false;
+        }
+        $factTraceId = trim((string)($factEvidence['source_trace_id'] ?? $factEvidence['_source_trace_id'] ?? ''));
+        $factSourceUrlHash = trim((string)($factEvidence['source_url_hash'] ?? $factEvidence['_source_url_hash'] ?? $factEvidence['url_hash'] ?? $factEvidence['_url_hash'] ?? ''));
+        $rowTraceId = trim((string)($rowEvidence['source_trace_id'] ?? ''));
+        $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
+
+        if ($factTraceId !== $rowTraceId) {
+            return false;
+        }
+        if ($factSourceUrlHash !== $rowSourceUrlHash) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -880,7 +1069,12 @@ final class OnlineDataFieldFactService
         $traceId = trim((string)($captureEvidence['source_trace_id'] ?? $captureEvidence['_source_trace_id'] ?? ''));
         $sourceUrlHash = trim((string)($captureEvidence['source_url_hash'] ?? $captureEvidence['_source_url_hash'] ?? $captureEvidence['url_hash'] ?? $captureEvidence['_url_hash'] ?? ''));
 
-        return $traceId !== '' && $sourceUrlHash !== '';
+        return $traceId !== '' && self::validSourceUrlHash($sourceUrlHash);
+    }
+
+    private static function validSourceUrlHash(string $sourceUrlHash): bool
+    {
+        return preg_match('/^[a-f0-9]{64}$/iD', trim($sourceUrlHash)) === 1;
     }
 
     /**

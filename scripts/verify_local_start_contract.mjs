@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageJsonPath = path.join(repoRoot, 'package.json');
 const startupScriptPath = path.join(repoRoot, 'scripts', 'start_local_stack.ps1');
+const localOriginServerPath = path.join(repoRoot, 'scripts', 'local_origin_server.mjs');
 const agentInstructionPath = path.join(repoRoot, 'AGENTS.md');
 const codexHandoffPath = path.join(repoRoot, 'CODEX_HANDOFF.md');
 const codexStartPromptPath = path.join(repoRoot, 'CODEX_START_PROMPT.md');
@@ -29,10 +30,20 @@ if (!fs.existsSync(startupScriptPath)) {
     'Start-LocalMySql',
     'Wait-MySql',
     'Assert-DatabaseReady',
+    'Assert-DatabaseVersion',
+    '@("think", "db:check")',
     'Start-ThinkPhp',
     'Test-StaticAsset',
     '/api/health',
     'public/router.php',
+    'local_origin_server.mjs',
+    'BackendPort',
+    'PhpWorkerCount',
+    'BackendPorts',
+    '--backends=',
+    '-WindowStyle Hidden',
+    'X-SUXIOS-Backend-Pool-Size',
+    'SetEnvironmentVariable("PATH", $null, "Process")',
     'information_schema.SCHEMATA',
     'information_schema.TABLES',
   ];
@@ -43,12 +54,41 @@ if (!fs.existsSync(startupScriptPath)) {
     }
   }
 
-  if (!/Start-LocalMySql[\s\S]*Assert-DatabaseReady[\s\S]*Start-ThinkPhp/.test(script)) {
-    failures.push('startup script must start/verify MySQL before starting ThinkPHP');
+  if (!/Start-LocalMySql[\s\S]*Assert-DatabaseReady[\s\S]*Assert-DatabaseVersion[\s\S]*Start-ThinkPhp/.test(script)) {
+    failures.push('startup script must verify MySQL and database schema version before starting ThinkPHP');
   }
 
   if (/"think",\s*"run"|public\/index\.php|public\\index\.php/.test(script)) {
     failures.push('startup script must serve PHP through public/router.php so static CSS/JS files are not routed as ThinkPHP controllers');
+  }
+
+  if (!/ValidateRange\(3,\s*16\)[\s\S]*\$PhpWorkerCount\s*=\s*3/.test(script)) {
+    failures.push('startup script must default to at least three configurable PHP workers');
+  }
+
+  if (!/foreach \(\$workerPort in \$BackendPorts\)[\s\S]*Test-BackendHttpHealth -TargetPort \$workerPort/.test(script)) {
+    failures.push('startup script must health-check every configured PHP worker');
+  }
+}
+
+if (!fs.existsSync(localOriginServerPath)) {
+  failures.push('scripts/local_origin_server.mjs is missing');
+} else {
+  const originServer = fs.readFileSync(localOriginServerPath, 'utf8');
+  for (const token of [
+    'createLocalOriginServer',
+    'fs.createReadStream',
+    'proxyToBackend',
+    'createBackendPool',
+    'nextHealthy',
+    'markUnhealthy',
+    '没有可用的本机 PHP worker',
+    'X-SUXIOS-Backend-Pool-Size',
+    '127.0.0.1',
+  ]) {
+    if (!originServer.includes(token)) {
+      failures.push(`local origin server must include ${token}`);
+    }
   }
 }
 

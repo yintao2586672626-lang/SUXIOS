@@ -16,13 +16,19 @@ Do not point `RELEASE_ENV_FILE` at `.example.production.env`, a sample/template 
 
 `review:release-env` validates only the production env file. `review:release-readiness` uses the same env rules and then continues into LLM, design, backup, security-scan, staged-scope, and external-state release blockers.
 
+`RELEASE_ENV_FILE` is release evidence, not automatic runtime injection. The current single-host deployment stores runtime configuration in `/etc/suxios/suxios.env`; every release's `.env` must link to that file so PHP-FPM, CLI jobs, and timers load the same four `SUXIOS_*` values.
+
 ## Required Values
 
 | Key | Production requirement | Notes |
 |---|---|---|
 | `APP_DEBUG` | `false` | Debug output must be disabled. |
 | `APP_TRACE` | `false` | Trace output must be disabled. |
-| `DB_HOST` | Production database host | Do not use `localhost`, `127.0.0.1`, `0.0.0.0`, or `::1`. |
+| `SUXIOS_DEPLOYMENT_MODE` | `single_instance` | Multi-instance mode is blocked until shared state and distributed locks are implemented. |
+| `SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE` | `true` | Production must fail closed when the external state paths are absent. |
+| `SUXIOS_CACHE_PATH` | Absolute path outside the release | Stores login and competitor task cache across release switches. |
+| `SUXIOS_LOCAL_LOCK_PATH` | Absolute path outside the release | Stores same-host process locks across release switches. |
+| `DB_HOST` | `127.0.0.1` for the current single-host deployment | Loopback is valid only with `SUXIOS_DEPLOYMENT_MODE=single_instance`; never use `0.0.0.0`. |
 | `DB_NAME` | Production database name | Must match the release database. |
 | `DB_USER` | Least-privilege database user | Do not use `root`. |
 | `DB_PASS` | Non-empty strong password | Empty database passwords are blocked. |
@@ -33,6 +39,10 @@ Do not point `RELEASE_ENV_FILE` at `.example.production.env`, a sample/template 
 The production AI path is `LlmClient` with model, base URL, and encrypted API key stored in database `ai_model_configs`. Provider API keys are not read from an env-based `OpenAIClient`.
 
 Before release, confirm:
+
+- `php scripts/verify_single_instance_state_paths.php` passes under the PHP-FPM/CLI service user.
+- `php scripts/check_database_version.php` reports the migration catalog current.
+- `php scripts/verify_competitor_report_idempotency_schema.php` confirms the durable unique report fingerprint.
 
 - At least one production model config is enabled.
 - `base_url` points to the authorized provider endpoint.

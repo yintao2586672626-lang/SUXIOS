@@ -11,15 +11,20 @@ INSERT INTO `system_config` (`config_key`, `config_value`, `description`, `creat
 SELECT 'menu_users_name', '用户管理', '用户管理菜单名称', NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM `system_config` WHERE `config_key` = 'menu_users_name');
 
--- 检查并添加注册与密码策略配置
+-- 自助注册已永久关闭，删除历史开关以免后台产生误导
+DELETE FROM `system_config` WHERE `config_key` = 'enable_registration';
+
+-- 登录页只公开此单一联系方式字段
 INSERT INTO `system_config` (`config_key`, `config_value`, `description`, `create_time`, `update_time`)
-SELECT 'enable_registration', '1', '启用用户注册', NOW(), NOW()
-WHERE NOT EXISTS (SELECT 1 FROM `system_config` WHERE `config_key` = 'enable_registration');
+SELECT 'login_support_contact', '请联系贵司宿析OS系统管理员', '登录页管理员联系方式', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM `system_config` WHERE `config_key` = 'login_support_contact');
 
 UPDATE `system_config`
-SET `config_value` = '1', `update_time` = NOW()
-WHERE `config_key` = 'enable_registration'
-  AND LOWER(TRIM(COALESCE(`config_value`, ''))) IN ('', '0', 'false', 'off', 'no');
+SET `config_value` = '请联系贵司宿析OS系统管理员', `update_time` = NOW()
+WHERE `config_key` = 'login_support_contact'
+  AND `config_value` = '微信：殷涛 | 归鹿🦌宿里';
+
+-- 检查并添加密码策略配置
 
 INSERT INTO `system_config` (`config_key`, `config_value`, `description`, `create_time`, `update_time`)
 SELECT 'password_min_length', '6', '密码最小长度', NOW(), NOW()

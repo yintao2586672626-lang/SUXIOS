@@ -3,13 +3,13 @@ declare(strict_types=1);
 
 namespace app\model;
 
-use think\Model;
+use app\model\base\BaseTenantModel;
 
 /**
  * 需求预测模型
  * 用于收益管理Agent的需求预测和RevPAR优化
  */
-class DemandForecast extends Model
+class DemandForecast extends BaseTenantModel
 {
     protected $name = 'demand_forecasts';
     
@@ -20,6 +20,7 @@ class DemandForecast extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'hotel_id' => 'integer',
         'room_type_id' => 'integer',
         'forecast_method' => 'integer',

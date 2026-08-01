@@ -726,6 +726,8 @@ try {
         'business_date' => $options['date'],
         'platform' => 'ctrip',
         'enabled_channels' => ['ctrip'],
+        'is_super_admin' => true,
+        'portfolio' => $options['hotel_id'] === null,
     ];
     if ($options['hotel_id'] !== null) {
         $overviewFilters['hotel_id'] = $options['hotel_id'];

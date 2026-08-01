@@ -19,6 +19,60 @@ function includesAll(file, label, needles) {
   check(file, label, missing.length === 0, missing.join(', '));
 }
 
+function matchingLinesExclude(file, label, marker, forbidden) {
+  const lines = read(file).split(/\r?\n/).filter((line) => line.includes(marker));
+  const violating = lines.filter((line) => line.includes(forbidden));
+  check(
+    file,
+    label,
+    lines.length > 0 && violating.length === 0,
+    lines.length === 0 ? `missing marker: ${marker}` : violating.join(' | '),
+  );
+}
+
+function appearsBefore(file, label, first, second) {
+  const source = read(file);
+  const firstIndex = source.indexOf(first);
+  const secondIndex = source.indexOf(second);
+  check(
+    file,
+    label,
+    firstIndex >= 0 && secondIndex >= 0 && firstIndex < secondIndex,
+    firstIndex < 0 ? `missing first: ${first}` : (secondIndex < 0 ? `missing second: ${second}` : 'wrong order'),
+  );
+}
+
+function rangeExcludes(file, label, start, end, forbidden) {
+  const source = read(file);
+  const startIndex = source.indexOf(start);
+  const endIndex = startIndex >= 0 ? source.indexOf(end, startIndex + start.length) : -1;
+  const range = startIndex >= 0 && endIndex >= 0 ? source.slice(startIndex, endIndex + end.length) : '';
+  const violating = forbidden.filter((needle) => range.includes(needle));
+  check(
+    file,
+    label,
+    range !== '' && violating.length === 0,
+    range === '' ? `missing range: ${start} ... ${end}` : violating.join(', '),
+  );
+}
+
+function rangeContract(file, label, start, end, required, forbidden = []) {
+  const source = read(file);
+  const startIndex = source.indexOf(start);
+  const endIndex = startIndex >= 0 ? source.indexOf(end, startIndex + start.length) : -1;
+  const range = startIndex >= 0 && endIndex >= 0 ? source.slice(startIndex, endIndex) : '';
+  const missing = required.filter((needle) => !range.includes(needle));
+  const violating = forbidden.filter((needle) => range.includes(needle));
+  check(
+    file,
+    label,
+    range !== '' && missing.length === 0 && violating.length === 0,
+    range === ''
+      ? `missing range: ${start} ... ${end}`
+      : [...missing.map((needle) => `missing ${needle}`), ...violating.map((needle) => `forbidden ${needle}`)].join(', '),
+  );
+}
+
 function packageScript(name, command) {
   let actual = '';
   try {
@@ -104,6 +158,16 @@ includesAll('scripts/inspect_phase1_ota_live_closure.php', 'inspector reads live
   'source_rows_present',
   'OtaStandardEtlService',
   'OtaRevenueMetricService',
+  'OtaDataCredibilityGateService',
+  'evaluateRevenueAiReadiness',
+  'Revenue metrics are trusted for revenue analysis.',
+  'Revenue metrics are not trusted for revenue analysis.',
+  'ai_metric_input_ready',
+  'revenue_ready',
+  'ai_ready',
+  'ai_input_not_ready',
+  "$revenueReady = ($revenueAiReadiness['revenue_ready'] ?? false) === true",
+  "$aiInputReady = ($revenueAiReadiness['ai_ready'] ?? false) === true",
   'metric_trust',
   'data_gaps',
   'field_facts_visible',
@@ -125,6 +189,12 @@ includesAll('scripts/inspect_phase1_ota_live_closure.php', 'inspector reads live
   'Field facts are not closed; metric_trust remains reference-only for this platform.',
   'metric_trust is present with target-date source rows and ready revenue metrics.',
   'ai_diagnosis_evidence',
+  'ai_diagnosis_persistence',
+  'ai_diagnosis_persistence_unverified',
+  'strict_system_hotel_scope_required',
+  'evidence_scope_system_hotel_mismatch',
+  'saved_record',
+  'readback_verified',
   'operation_execution_sample',
   'missing_requirements',
   'missing_requirement_employee_explanation',
@@ -223,6 +293,11 @@ includesAll('scripts/inspect_phase1_ota_live_closure.php', 'inspector reads live
   'operationQuestionStatus',
   'approval.status=approved',
   'metric_domain_readiness',
+  'calculation_status',
+  'revenue_status',
+  'ai_status',
+  'downstream_readiness',
+  'ai_input_not_ready',
   'traffic_source_readiness',
   'required_next_inputs',
   'recommended_collection_mode',
@@ -395,6 +470,9 @@ includesAll('scripts/verify_phase1_live_action_queue_runtime.mjs', 'runtime acti
 ]);
 
 includesAll('scripts/build_phase1_ota_live_closure_evidence.php', 'evidence builder summarizes employee questions and closure status', [
+  "$revenueStatus = ($revenueAiReadiness['revenue_ready'] ?? false) === true",
+  "$aiStatus = ($revenueAiReadiness['ai_ready'] ?? false) === true",
+  "'status' => $revenueStatus",
   'employee_questions',
   'next_actions',
   'live_closure_gap_codes',
@@ -518,6 +596,277 @@ includesAll('scripts/build_phase1_ota_live_closure_evidence.php', 'evidence buil
   'AI 建议依据是什么',
   '下一步该执行什么动作',
   '不改变携程/美团手动或自动获取逻辑',
+]);
+
+includesAll('app/service/OtaDataCredibilityGateService.php', 'revenue and AI readiness require exact OTA scope and readback proof', [
+  'public function evaluateRevenueAiReadiness(array $metrics, array $options = []): array',
+  '$scope = $this->revenueAiReadinessScope($options);',
+  'readiness_scope_system_hotel_id_missing',
+  'readiness_scope_target_date_missing',
+  'readiness_scope_platform_missing',
+  'readiness_scope_metric_scope_missing',
+  "$metricScopeValid = $metricScope === 'ota_channel';",
+  "$gateMetricScope !== 'ota_channel'",
+  'critical_metrics_evidence_missing',
+  'failed_critical_metrics_evidence_missing',
+  'foreach (self::DEFAULT_CRITICAL_METRICS as $metricKey)',
+  '$metricValue = $this->nestedMetricValue($metrics, $metricKey);',
+  'if (!$this->isFiniteMetricNumber($metricValue)) {',
+  "'critical_metric_value_missing_or_invalid:' . $metricKey",
+  "'critical_metric_value_keys' => $criticalMetricValueKeys",
+  '$this->criticalMetricSourceMatchesHotel($source, $scope[\'system_hotel_id\'])',
+  '$this->criticalMetricSourceMatchesDate($source, $scope[\'target_date\'])',
+  '$this->criticalMetricSourceMatchesPlatform($source, $scope[\'platform\'])',
+  '$this->criticalMetricSourceHasReadbackProof($source)',
+  "foreach (['row_count', 'stored_count', 'readback_verified_count'] as $key)",
+  "$counts['stored_count'] === $rowCount",
+  "$counts['readback_verified_count'] === $rowCount",
+  'private function nestedMetricValue(array $metrics, string $metricKey): mixed',
+  'if (!is_array($cursor) || !array_key_exists($segment, $cursor)) {',
+  'private function isFiniteMetricNumber(mixed $value): bool',
+  'return (is_int($value) || is_float($value)) && is_finite((float)$value);',
+]);
+
+includesAll('app/service/OtaDiagnosisPersistenceProofService.php', 'diagnosis persistence proves normalized external content against database snapshot', [
+  'final class OtaDiagnosisPersistenceProofService',
+  "Db::name('agent_logs')",
+  "->where('id', $recordId)",
+  "->where('hotel_id', $systemHotelId)",
+  "$externalContent = $this->diagnosisContent($diagnosis, 'external');",
+  "$snapshotContent = $this->diagnosisContent($snapshot, 'snapshot');",
+  "'summary' => [",
+  "'evidence_sources' => [",
+  "'data_gaps' => [",
+  "'action_items' => [",
+  "'decision_status' => [",
+  "$reasonCodes[] = 'diagnosis_' . $side . '_' . $field . '_missing_or_invalid';",
+  "$checks[$side . '_content_fields_present'] = count($values) === count($paths);",
+  '$this->canonicalize($externalContent[\'values\'][$field])',
+  '=== $this->canonicalize($snapshotContent[\'values\'][$field]);',
+  "$reasonCodes[] = 'diagnosis_' . $field . '_mismatch';",
+  'if (array_is_list($value)) {',
+  'ksort($value, SORT_STRING);',
+  "$contentChecks['diagnosis_content_matched'] = $this->allContentChecksMatched($contentChecks);",
+  "if (($checks[$key] ?? false) !== true) {",
+  'if ($reasonCodes !== []) {',
+  'return $this->unverified(',
+  'external_content_fields_present',
+  'snapshot_content_fields_present',
+  'summary_matched',
+  'evidence_sources_matched',
+  'data_gaps_matched',
+  'action_items_matched',
+  'decision_status_matched',
+  'diagnosis_snapshot_saved_record_missing',
+  'diagnosis_snapshot_readback_unverified',
+]);
+
+for (const file of [
+  'scripts/build_phase1_ota_live_closure_evidence.php',
+  'scripts/inspect_phase1_ota_live_closure.php',
+]) {
+  includesAll(file, 'revenue and AI gate consumer passes explicit OTA scope', [
+    'evaluateRevenueAiReadiness($metrics, [',
+    "'system_hotel_id' => (int)($options['system_hotel_id'] ?? 0)",
+    "'target_date' => (string)($options['date'] ?? '')",
+    "'platform' => $platform",
+    "'metric_scope' => 'ota_channel'",
+  ]);
+  includesAll(file, 'diagnosis persistence uses exact database proof service', [
+    'use app\\service\\OtaDiagnosisPersistenceProofService;',
+    '(new OtaDiagnosisPersistenceProofService())->verify(',
+    "'system_hotel_id' => (int)($options['system_hotel_id'] ?? 0)",
+    "'target_date' => (string)($options['date'] ?? '')",
+    "'platform' => (string)($options['platform'] ?? '')",
+    "'metric_scope' => 'ota_channel'",
+  ]);
+}
+
+const otaDiagnosisLinkRequired = [
+  "$sourceRecordId = (int)",
+  "$diagnosisLogId = (int)($evidence['diagnosis_log_id'] ?? 0);",
+  '$typedEvidenceLink = $sourceRecordId > 0',
+  '&& $diagnosisLogId === $sourceRecordId',
+  "&& trim((string)($evidence['action_item_id'] ?? '')) !== ''",
+  "&& strtolower(trim((string)($evidence['metric_scope'] ?? ''))) === 'ota_channel';",
+  "$typedSource = str_starts_with($sourceModule, 'ota_diagnosis')",
+  "|| str_contains($source, 'ota_diagnosis')",
+  'return $typedSource && $typedEvidenceLink;',
+];
+const otaDiagnosisLinkForbidden = [
+  "evidence['evidence_refs']",
+  "evidence['data_gaps']",
+  "evidence['action_item_status']",
+  "evidence['diagnosis_summary']",
+];
+for (const contract of [
+  {
+    file: 'scripts/build_phase1_ota_live_closure_evidence.php',
+    item: 'function operation_item_has_ota_diagnosis_link(array $item): bool',
+    intent: 'function operation_intent_has_ota_diagnosis_link(array $intent): bool',
+    afterIntent: 'function operation_completion_signal_count(array $operation): int',
+  },
+  {
+    file: 'scripts/inspect_phase1_ota_live_closure.php',
+    item: 'function inspection_operation_item_has_ota_diagnosis_link(array $item): bool',
+    intent: 'function inspection_operation_intent_has_ota_diagnosis_link(array $intent): bool',
+    afterIntent: 'function inspection_operation_payload_signal_count(array $operation): int',
+  },
+]) {
+  rangeContract(
+    contract.file,
+    'operation item OTA diagnosis link requires typed identity or explicit OTA diagnosis source',
+    contract.item,
+    contract.intent,
+    otaDiagnosisLinkRequired,
+    otaDiagnosisLinkForbidden,
+  );
+  rangeContract(
+    contract.file,
+    'operation intent OTA diagnosis link requires typed identity or explicit OTA diagnosis source',
+    contract.intent,
+    contract.afterIntent,
+    otaDiagnosisLinkRequired,
+    otaDiagnosisLinkForbidden,
+  );
+}
+
+includesAll('scripts/build_phase1_ota_live_closure_evidence.php', 'builder completion requires linked evidence plus a landing signal', [
+  "'approved_count' => $approvedItems",
+  '$verifiedCompletionItems = count_operation_items($linkedItems, static function (array $item): bool {',
+  "if ((int)($item['evidence']['count'] ?? 0) <= 0) {",
+  "return (string)($item['execution']['status'] ?? '') === 'executed'",
+  "|| (string)($item['stage'] ?? '') === 'reviewed'",
+  "|| in_array((string)($item['review']['status'] ?? ''), ['success', 'near_success', 'failed'], true)",
+  "|| (string)($item['roi']['status'] ?? '') === 'ready';",
+  "'completion_signal_count' => $verifiedCompletionItems",
+  "return (int)$counts['completion_signal_count'];",
+  '仅审批或仅声明已执行都不算完成',
+]);
+matchingLinesExclude(
+  'scripts/build_phase1_ota_live_closure_evidence.php',
+  'builder approved count is not a completion signal',
+  "'completion_signal_count' =>",
+  '$approved',
+);
+rangeExcludes(
+  'scripts/build_phase1_ota_live_closure_evidence.php',
+  'builder verified completion predicate cannot use approval',
+  '$verifiedCompletionItems = count_operation_items($linkedItems, static function (array $item): bool {',
+  '});',
+  ['approval', '$approved'],
+);
+appearsBefore(
+  'scripts/build_phase1_ota_live_closure_evidence.php',
+  'builder requires AI action link before proved operation status',
+  'if (operation_linked_payload_signal_count($operation) <= 0) {',
+  'if (operation_completion_signal_count($operation) > 0) {',
+);
+
+includesAll('scripts/inspect_phase1_ota_live_closure.php', 'inspector completion requires linked evidence plus a landing signal', [
+  "'approved_count' => $approvedCount",
+  '$verifiedCompletionCount = $countItems(static function (array $item): bool {',
+  "if ((int)($item['evidence']['count'] ?? 0) <= 0) {",
+  "return (string)($item['execution']['status'] ?? '') === 'executed'",
+  "|| (string)($item['stage'] ?? '') === 'reviewed'",
+  "|| in_array((string)($item['review']['status'] ?? ''), ['success', 'near_success', 'failed'], true)",
+  "|| (string)($item['roi']['status'] ?? '') === 'ready';",
+  "'completion_signal_count' => $verifiedCompletionCount",
+  "$completionSignalCount = (int)$counts['completion_signal_count'];",
+  'approval or executed status alone is insufficient',
+]);
+matchingLinesExclude(
+  'scripts/inspect_phase1_ota_live_closure.php',
+  'inspector approved count is not a completion signal',
+  "'completion_signal_count' =>",
+  '$approved',
+);
+rangeExcludes(
+  'scripts/inspect_phase1_ota_live_closure.php',
+  'inspector verified completion predicate cannot use approval',
+  '$verifiedCompletionCount = $countItems(static function (array $item): bool {',
+  '});',
+  ['approval', '$approved'],
+);
+appearsBefore(
+  'scripts/inspect_phase1_ota_live_closure.php',
+  'inspector requires AI action link before proved operation status',
+  'if (inspection_operation_linked_payload_signal_count($operation) <= 0) {',
+  "$completionSignalCount = (int)$counts['completion_signal_count'];",
+);
+
+includesAll('scripts/build_phase1_ota_live_closure_evidence.php', 'builder rejects conflicting repeated section identity values', [
+  '$collectCandidates = static function (array $paths, callable $normalize) use ($data): array {',
+  '$dateCandidates = $collectCandidates([',
+  '$systemHotelCandidates = [];',
+  '$systemHotelInvalid = false;',
+  '$normalized = strict_positive_integer($value);',
+  '$systemHotelInvalid = true;',
+  '$platformCandidates = $collectCandidates([',
+  "count($dateCandidates) > 1 ? 'conflict'",
+  "count($systemHotelCandidates) > 1 ? 'conflict'",
+  "count($platformCandidates) > 1 ? 'conflict'",
+  "'scope_date_candidates' => $dateCandidates",
+  "'scope_system_hotel_candidates' => $systemHotelCandidates",
+  "'scope_system_hotel_invalid' => $systemHotelInvalid",
+  "'scope_platform_candidates' => $platformCandidates",
+  "$scopeDateStatus === 'matched'",
+  "$scopeSystemHotelStatus === 'matched'",
+  "$scopePlatformStatus === 'matched'",
+]);
+
+for (const file of [
+  'scripts/build_phase1_ota_live_closure_evidence.php',
+  'scripts/inspect_phase1_ota_live_closure.php',
+]) {
+  includesAll(file, 'system hotel CLI scope uses strict positive integer parsing', [
+    'function strict_positive_integer(mixed $value): ?int',
+    'if (is_int($value)) {',
+    "preg_match('/^[1-9][0-9]*$/D', $value) !== 1",
+    '$normalized = (int)$value;',
+    'return $normalized > 0 && (string)$normalized === $value ? $normalized : null;',
+    "strict_positive_integer($options['system_hotel_id']) === null",
+    'Invalid --system_hotel_id, expected a positive integer.',
+  ]);
+}
+
+includesAll('scripts/build_phase1_ota_live_closure_evidence.php', 'builder preserves invalid hotel scope for downstream fail-closed inspection', [
+  "$expectedSystemHotelId = strict_positive_integer($options['system_hotel_id'] ?? null) ?? 0;",
+  '$scopeSystemHotelStatus = $systemHotelInvalid',
+  "? ($systemHotelCandidates === [] ? 'mismatch' : 'conflict')",
+  "'scope_system_hotel_invalid' => $systemHotelInvalid",
+]);
+
+includesAll('scripts/inspect_phase1_ota_live_closure.php', 'external evidence sections validate their own hotel date and platform', [
+  'function external_section_scope_identity(array $section, array $options): array',
+  'never a fallback because that would allow evidence from another hotel or',
+  '$dateCandidates = [];',
+  '$systemHotelCandidates = [];',
+  '$platformCandidates = [];',
+  "$dateMatched = $expectedDate !== '' && count($dateCandidates) === 1 && $sectionDate === $expectedDate;",
+  '$systemHotelInvalid = ($section[\'scope_system_hotel_invalid\'] ?? false) === true;',
+  '$normalized = strict_positive_integer($value);',
+  "$expectedSystemHotelId = strict_positive_integer($options['system_hotel_id'] ?? null) ?? 0;",
+  '$systemHotelMatched = !$systemHotelInvalid',
+  '&& $expectedSystemHotelId > 0',
+  '&& count($systemHotelCandidates) === 1',
+  '&& $sectionSystemHotelId === $expectedSystemHotelId;',
+  "$platformMatched = $expectedPlatform !== '' && count($platformCandidates) === 1 && $sectionPlatform === $expectedPlatform;",
+  "count($dateCandidates) > 1 ? 'conflict'",
+  "count($systemHotelCandidates) > 1 ? 'conflict'",
+  "count($platformCandidates) > 1 ? 'conflict'",
+  "'date_candidates' => $dateCandidates",
+  "'system_hotel_candidates' => $systemHotelCandidates",
+  "'system_hotel_invalid' => $systemHotelInvalid",
+  "'platform_candidates' => $platformCandidates",
+  "'matched' => $dateMatched && $systemHotelMatched && $platformMatched",
+  '$diagnosisScopeIdentity = external_section_scope_identity($diagnosis, $options);',
+  '$operationScopeIdentity = external_section_scope_identity($operation, $options);',
+  'external_section_scope_missing_codes($diagnosisScopeIdentity)',
+  'external_section_scope_missing_codes($operationScopeIdentity)',
+  'evidence_scope_date_mismatch',
+  'evidence_scope_system_hotel_mismatch',
+  'evidence_scope_platform_mismatch',
 ]);
 
 packageScript('inspect:phase1-live-closure', 'C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php');

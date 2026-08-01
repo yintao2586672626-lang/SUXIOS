@@ -3,13 +3,13 @@ declare(strict_types=1);
 
 namespace app\model;
 
-use think\Model;
+use app\model\base\BaseTenantModel;
 
 /**
  * Agent日志模型
  * 记录Agent的运行日志和操作记录
  */
-class AgentLog extends Model
+class AgentLog extends BaseTenantModel
 {
     protected $name = 'agent_logs';
     
@@ -20,6 +20,7 @@ class AgentLog extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'hotel_id' => 'integer',
         'agent_type' => 'integer',
         'log_level' => 'integer',

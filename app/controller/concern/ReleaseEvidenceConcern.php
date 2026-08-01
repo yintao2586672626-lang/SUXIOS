@@ -15,33 +15,34 @@ trait ReleaseEvidenceConcern
         }
         $this->checkActionPermission('can_view_online_data');
 
-        $statusPath = $this->releaseEvidenceRepoPath('docs/release_readiness_status.json');
+        $statusPath = $this->releaseEvidenceRepoPath('docs/release_blocker_policy.json');
         $issueRegisterPath = $this->releaseEvidenceRepoPath('docs/release_issue_register.md');
         if (!is_file($statusPath)) {
-            return $this->error('release readiness status file missing', 500, [
-                'path' => 'docs/release_readiness_status.json',
+            return $this->error('release blocker policy file missing', 500, [
+                'path' => 'docs/release_blocker_policy.json',
             ]);
         }
 
         $status = json_decode((string)file_get_contents($statusPath), true);
         if (!is_array($status)) {
-            return $this->error('release readiness status file is invalid JSON', 500, [
-                'path' => 'docs/release_readiness_status.json',
+            return $this->error('release blocker policy file is invalid JSON', 500, [
+                'path' => 'docs/release_blocker_policy.json',
             ]);
         }
 
         $blockers = array_values(array_filter(
             is_array($status['blockers'] ?? null) ? $status['blockers'] : [],
-            static fn($row): bool => is_array($row) && strtolower((string)($row['status'] ?? '')) !== 'closed'
+            static fn($row): bool => is_array($row)
         ));
 
         return $this->success([
             'scope' => 'release evidence blockers only; no secrets; does not close release readiness',
             'source_files' => [
                 [
-                    'path' => 'docs/release_readiness_status.json',
+                    'path' => 'docs/release_blocker_policy.json',
                     'exists' => true,
                     'updated_at' => (string)($status['updated_at'] ?? ''),
+                    'status_role' => (string)($status['status_role'] ?? ''),
                 ],
                 array_merge([
                     'path' => 'docs/release_issue_register.md',
@@ -49,7 +50,7 @@ trait ReleaseEvidenceConcern
                 ], $this->releaseEvidenceIssueRegisterMeta($issueRegisterPath)),
             ],
             'overall_status' => (string)($status['overall_status'] ?? 'unknown'),
-            'release_ready' => ($status['release_readiness_check']['final_release_ready'] ?? false) === true,
+            'release_ready' => false,
             'does_not_close_release_readiness' => true,
             'blocking_requirements' => array_map(
                 fn(array $row): array => $this->releaseEvidenceBlockerRow($row),
@@ -60,11 +61,17 @@ trait ReleaseEvidenceConcern
                 'required_external_inputs' => $this->releaseEvidenceRequiredInputs($status),
             ],
             'source_status' => [
-                'release_readiness_check' => $status['release_readiness_check'] ?? [],
-                'external_state_check' => $status['external_state_check'] ?? [],
+                'current_project_state' => $status['current_state'] ?? [],
+                'release_readiness_check' => $status['live_release_review'] ?? [],
+                'external_state_check' => [
+                    'command' => 'npm run review:release-external-state',
+                    'status' => 'live_review_required',
+                    'result_source' => 'controlled external result generated for the selected final PR',
+                ],
                 'local_worktree_close_plan' => [
-                    'status' => $this->releaseEvidenceWorktreeStatus($status),
-                    'open_failures' => $status['external_state_check']['open_failures'] ?? [],
+                    'status' => 'live_review_required',
+                    'current_state_path' => 'vault/current-state.md',
+                    'refresh_command' => 'npm run state:refresh',
                 ],
             ],
         ]);
@@ -101,7 +108,7 @@ trait ReleaseEvidenceConcern
             'title' => (string)($row['title'] ?? $id),
             'evidence' => (string)($row['evidence'] ?? ''),
             'next_action' => (string)($row['close_condition'] ?? ''),
-            'acceptance_command' => $this->releaseEvidenceAcceptanceCommand($id),
+            'acceptance_command' => (string)($row['acceptance_command'] ?? $this->releaseEvidenceAcceptanceCommand($id)),
         ];
     }
 
@@ -116,8 +123,6 @@ trait ReleaseEvidenceConcern
 
     private function releaseEvidenceRequiredInputs(array $status): array
     {
-        $externalStateStatus = (string)($status['external_state_check']['status'] ?? '');
-        $finalPrInputReady = $externalStateStatus === 'passing_from_clean_verification_worktree';
         $designInputState = $this->releaseEvidenceInputStateFromBlocker($status, 'design-handoff-missing');
         $otaInputState = $this->releaseEvidenceInputStateFromBlocker($status, 'ota-credential-rotation-attestation-missing');
 
@@ -144,17 +149,13 @@ trait ReleaseEvidenceConcern
             ],
             [
                 'id' => 'final_release_pr_and_local_state',
-                'status' => $finalPrInputReady ? 'passed' : 'missing',
+                'status' => 'live_review_required',
                 'required_result_file' => '../release-evidence-temp/release-external-state-result.json',
                 'selection_command' => 'npm run review:release-pr-candidates',
                 'isolated_review_command' => 'npm run review:release-external-state',
                 'success_condition' => 'selected open final PR, clean or intentionally isolated worktree, and matching local HEAD evidence',
-                'success_evidence' => $finalPrInputReady
-                    ? 'review:release-external-state passed from a clean checkout matching the selected release PR head'
-                    : '',
-                'next_action' => $finalPrInputReady
-                    ? 'rerun review:release-pr-candidates, review:release-staged-scope, and review:release-external-state after every PR update'
-                    : '',
+                'success_evidence' => '',
+                'next_action' => 'rerun review:release-pr-candidates, review:release-staged-scope, and review:release-external-state after every PR update',
             ],
         ];
     }
@@ -166,36 +167,17 @@ trait ReleaseEvidenceConcern
                 continue;
             }
 
-            if (strtolower((string)($blocker['status'] ?? '')) === 'closed') {
-                return [
-                    'status' => 'passed',
-                    'success_evidence' => (string)($blocker['evidence'] ?? ''),
-                    'next_action' => (string)($blocker['close_condition'] ?? ''),
-                ];
-            }
-
             return [
-                'status' => 'missing',
+                'status' => (string)($blocker['status'] ?? 'live_review_required'),
                 'success_evidence' => '',
                 'next_action' => (string)($blocker['close_condition'] ?? ''),
             ];
         }
 
         return [
-            'status' => 'missing',
+            'status' => 'live_review_required',
             'success_evidence' => '',
             'next_action' => '',
         ];
-    }
-
-    private function releaseEvidenceWorktreeStatus(array $status): string
-    {
-        $failures = $status['external_state_check']['open_failures'] ?? [];
-        $text = is_array($failures) ? implode("\n", array_map('strval', $failures)) : '';
-        if (stripos($text, 'worktree') !== false || stripos($text, 'RELEASE_PR_NUMBER') !== false) {
-            return 'blocked_until_clean_or_isolated';
-        }
-
-        return (string)($status['external_state_check']['status'] ?? 'unknown');
     }
 }

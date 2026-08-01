@@ -56,4 +56,51 @@ final class AiConfigTest extends TestCase
         self::assertSame('meta_llama', $definitions[0]['provider']);
         self::assertSame('https://gateway.example.com/v1', $definitions[0]['base_url']);
     }
+
+    public function testProviderModelDefinitionsExposeKeylessLocalOllamaModel(): void
+    {
+        $definitions = $this->invokeNonPublic(
+            $this->controller(),
+            'providerModelDefinitions',
+            ['ollama']
+        );
+
+        self::assertSame('ollama_qwen3_8b', $definitions[0]['model_key']);
+        self::assertSame('ollama', $definitions[0]['provider']);
+        self::assertSame('http://127.0.0.1:11434/v1', $definitions[0]['base_url']);
+        self::assertSame('qwen3:8b', $definitions[0]['model_name']);
+        self::assertFalse($this->invokeNonPublic($this->controller(), 'providerRequiresApiKey', ['ollama']));
+    }
+
+    public function testModelPayloadAllowsOnlyOllamaToUsePinnedLocalBaseUrl(): void
+    {
+        $controller = $this->controller();
+        $payload = [
+            'name' => 'Local Qwen',
+            'model_key' => 'ollama_qwen3_8b',
+            'provider' => 'ollama',
+            'base_url' => 'http://127.0.0.1:11434/v1',
+            'model_name' => 'qwen3:8b',
+        ];
+
+        self::assertNull($this->invokeNonPublic($controller, 'validateModelPayload', [$payload, true]));
+
+        $payload['provider'] = 'openai';
+        self::assertIsString($this->invokeNonPublic($controller, 'validateModelPayload', [$payload, true]));
+    }
+
+    public function testModelPayloadRejectsLocalAiBaseUrlBeforeSavingApiKey(): void
+    {
+        $error = $this->invokeNonPublic($this->controller(), 'validateModelPayload', [[
+            'name' => 'Unsafe model',
+            'model_key' => 'unsafe_model',
+            'provider' => 'openai',
+            'base_url' => 'https://127.0.0.1/v1',
+            'model_name' => 'unsafe',
+        ], true]);
+
+        self::assertIsString($error);
+        self::assertStringContainsString('Base URL', $error);
+        self::assertStringNotContainsString('127.0.0.1', $error);
+    }
 }

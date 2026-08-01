@@ -42,6 +42,11 @@ class OtaDataCredibilityGateService
         $metricStatus = trim((string)($metrics['status'] ?? ''));
         $collectionQuality = $this->collectionQuality($dataset);
         $collectionQualityState = (string)($collectionQuality['primary_quality_state'] ?? '');
+        $fieldFactContract = $this->criticalFieldFactContract(
+            $dataset,
+            $criticalMetrics,
+            $options
+        );
         $reasonCodes = [];
         $warnings = [];
 
@@ -92,6 +97,9 @@ class OtaDataCredibilityGateService
                 $reasonCodes[] = $code;
                 $failedCriticalMetrics[] = $code;
             }
+        }
+        foreach ($this->stringList($fieldFactContract['failure_reasons'] ?? []) as $failureReason) {
+            $reasonCodes[] = $failureReason;
         }
 
         $dataGapCodes = array_values(array_filter(array_map(
@@ -179,9 +187,303 @@ class OtaDataCredibilityGateService
                 'critical_metrics' => $criticalMetrics,
                 'failed_critical_metrics' => $failedCriticalMetrics,
                 'collection_quality' => $collectionQuality,
+                'critical_field_fact_contract' => $fieldFactContract,
                 'p0_downstream_gate' => $p0DownstreamGate,
             ],
         ];
+    }
+
+    /**
+     * The phase-one closure gate must not treat a syntactically ready metric
+     * payload as usable when its critical OTA metrics are not trusted.
+     *
+     * @param array<string, mixed> $metrics
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function evaluateRevenueAiReadiness(array $metrics, array $options = []): array
+    {
+        $scope = $this->revenueAiReadinessScope($options);
+        $metricStatus = trim((string)($metrics['status'] ?? ''));
+        $gate = is_array($metrics['credibility_gate'] ?? null) ? $metrics['credibility_gate'] : [];
+        $gateStatus = trim((string)($gate['status'] ?? ''));
+        $revenueUse = is_array($gate['decision_use']['revenue_analysis'] ?? null)
+            ? $gate['decision_use']['revenue_analysis']
+            : [];
+        $aiUse = is_array($gate['decision_use']['ai_decision_support'] ?? null)
+            ? $gate['decision_use']['ai_decision_support']
+            : [];
+        $evidence = is_array($gate['evidence'] ?? null) ? $gate['evidence'] : [];
+        $criticalMetricsEvidencePresent = array_key_exists('critical_metrics', $evidence)
+            && is_array($evidence['critical_metrics']);
+        $failedCriticalMetricsEvidencePresent = array_key_exists('failed_critical_metrics', $evidence)
+            && is_array($evidence['failed_critical_metrics']);
+        $criticalMetrics = $criticalMetricsEvidencePresent
+            ? $this->stringList($evidence['critical_metrics'])
+            : [];
+        $failedCriticalMetrics = $failedCriticalMetricsEvidencePresent
+            ? $this->stringList($evidence['failed_critical_metrics'])
+            : [];
+        $revenueAllowed = ($revenueUse['allowed'] ?? false) === true;
+        $aiAllowed = ($aiUse['allowed'] ?? false) === true;
+        $commonReasonCodes = $scope['reason_codes'];
+
+        if ($metricStatus !== 'ready') {
+            $commonReasonCodes[] = 'revenue_metric_status_not_ready';
+        }
+        if ($gateStatus === '') {
+            $commonReasonCodes[] = 'credibility_gate_missing';
+        } elseif (!in_array($gateStatus, ['ready', 'warning'], true)) {
+            $commonReasonCodes[] = $gateStatus === 'blocked'
+                ? 'credibility_gate_blocked'
+                : 'credibility_gate_not_ready';
+        }
+        $gateMetricScope = strtolower(trim((string)($gate['metric_scope'] ?? '')));
+        if ($gateMetricScope !== 'ota_channel'
+            || (($scope['metric_scope_valid'] ?? false) === true && $gateMetricScope !== $scope['metric_scope'])
+        ) {
+            $commonReasonCodes[] = 'credibility_gate_scope_invalid';
+        }
+        if (!$criticalMetricsEvidencePresent) {
+            $commonReasonCodes[] = 'critical_metrics_evidence_missing';
+        } else {
+            foreach (self::DEFAULT_CRITICAL_METRICS as $metricKey) {
+                if (!in_array($metricKey, $criticalMetrics, true)) {
+                    $commonReasonCodes[] = 'critical_metrics_evidence_incomplete:' . $metricKey;
+                }
+            }
+        }
+        if (!$failedCriticalMetricsEvidencePresent) {
+            $commonReasonCodes[] = 'failed_critical_metrics_evidence_missing';
+        }
+        if ($failedCriticalMetrics !== []) {
+            $commonReasonCodes[] = 'critical_metrics_untrusted';
+        }
+
+        $metricTrust = is_array($metrics['metric_trust'] ?? null) ? $metrics['metric_trust'] : [];
+        $criticalMetricValueKeys = [];
+        foreach (self::DEFAULT_CRITICAL_METRICS as $metricKey) {
+            $metricValue = $this->nestedMetricValue($metrics, $metricKey);
+            if (!$this->isFiniteMetricNumber($metricValue)) {
+                $commonReasonCodes[] = 'critical_metric_value_missing_or_invalid:' . $metricKey;
+            } else {
+                $criticalMetricValueKeys[] = $metricKey;
+            }
+            $trust = is_array($metricTrust[$metricKey] ?? null) ? $metricTrust[$metricKey] : null;
+            if ($trust === null) {
+                $commonReasonCodes[] = 'critical_metric_trust_missing:' . $metricKey;
+                continue;
+            }
+            if (($trust['saved_success'] ?? false) !== true || $this->stringList($trust['failure_reasons'] ?? []) !== []) {
+                $commonReasonCodes[] = 'critical_metric_untrusted:' . $metricKey;
+            }
+
+            $source = is_array($trust['source'] ?? null) ? $trust['source'] : null;
+            if ($source === null) {
+                $commonReasonCodes[] = 'critical_metric_source_missing:' . $metricKey;
+                continue;
+            }
+            if (($scope['system_hotel_id_valid'] ?? false) === true
+                && !$this->criticalMetricSourceMatchesHotel($source, $scope['system_hotel_id'])
+            ) {
+                $commonReasonCodes[] = 'critical_metric_hotel_scope_mismatch:' . $metricKey;
+            }
+            if (($scope['target_date_valid'] ?? false) === true
+                && !$this->criticalMetricSourceMatchesDate($source, $scope['target_date'])
+            ) {
+                $commonReasonCodes[] = 'critical_metric_date_scope_mismatch:' . $metricKey;
+            }
+            if (($scope['platform_valid'] ?? false) === true
+                && !$this->criticalMetricSourceMatchesPlatform($source, $scope['platform'])
+            ) {
+                $commonReasonCodes[] = 'critical_metric_platform_scope_mismatch:' . $metricKey;
+            }
+            if (!$this->criticalMetricSourceHasReadbackProof($source)) {
+                $commonReasonCodes[] = 'critical_metric_storage_readback_unverified:' . $metricKey;
+            }
+        }
+
+        $revenueReasonCodes = $commonReasonCodes;
+        if (!$revenueAllowed) {
+            $revenueReasonCodes[] = 'revenue_analysis_not_allowed';
+        }
+        $aiReasonCodes = $commonReasonCodes;
+        if (!$aiAllowed) {
+            $aiReasonCodes[] = 'ai_decision_support_not_allowed';
+        }
+        $revenueReasonCodes = array_values(array_unique($revenueReasonCodes));
+        $aiReasonCodes = array_values(array_unique($aiReasonCodes));
+        $revenueReady = $revenueReasonCodes === [];
+        $aiReady = $aiReasonCodes === [];
+        $reasonCodes = array_values(array_unique(array_merge($revenueReasonCodes, $aiReasonCodes)));
+
+        return [
+            'ready' => $revenueReady && $aiReady,
+            'revenue_ready' => $revenueReady,
+            'ai_ready' => $aiReady,
+            'metric_status' => $metricStatus !== '' ? $metricStatus : 'unknown',
+            'credibility_gate_status' => $gateStatus !== '' ? $gateStatus : 'missing',
+            'revenue_analysis_allowed' => $revenueAllowed,
+            'revenue_analysis_status' => trim((string)($revenueUse['status'] ?? '')),
+            'ai_decision_support_allowed' => $aiAllowed,
+            'ai_decision_support_status' => trim((string)($aiUse['status'] ?? '')),
+            'scope' => [
+                'system_hotel_id' => $scope['system_hotel_id'],
+                'target_date' => $scope['target_date'],
+                'platform' => $scope['platform'],
+                'metric_scope' => $scope['metric_scope'],
+            ],
+            'critical_metrics' => $criticalMetrics,
+            'critical_metric_value_keys' => $criticalMetricValueKeys,
+            'failed_critical_metrics' => $failedCriticalMetrics,
+            'common_reason_codes' => array_values(array_unique($commonReasonCodes)),
+            'revenue_reason_codes' => $revenueReasonCodes,
+            'ai_reason_codes' => $aiReasonCodes,
+            'reason_codes' => $reasonCodes,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function revenueAiReadinessScope(array $options): array
+    {
+        $reasonCodes = [];
+        $rawSystemHotelId = $options['system_hotel_id'] ?? null;
+        $systemHotelId = $this->strictInteger($rawSystemHotelId);
+        $systemHotelIdValid = $systemHotelId !== null && $systemHotelId > 0;
+        if (!$systemHotelIdValid) {
+            $reasonCodes[] = array_key_exists('system_hotel_id', $options)
+                ? 'readiness_scope_system_hotel_id_invalid'
+                : 'readiness_scope_system_hotel_id_missing';
+        }
+
+        $targetDate = trim((string)($options['target_date'] ?? ''));
+        $targetDateValid = preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $targetDate, $dateParts) === 1
+            && checkdate((int)$dateParts[2], (int)$dateParts[3], (int)$dateParts[1]);
+        if (!$targetDateValid) {
+            $reasonCodes[] = array_key_exists('target_date', $options)
+                ? 'readiness_scope_target_date_invalid'
+                : 'readiness_scope_target_date_missing';
+        }
+
+        $platform = strtolower(trim((string)($options['platform'] ?? '')));
+        $platformValid = $platform !== '' && preg_match('/^[a-z0-9_-]+$/D', $platform) === 1;
+        if (!$platformValid) {
+            $reasonCodes[] = array_key_exists('platform', $options)
+                ? 'readiness_scope_platform_invalid'
+                : 'readiness_scope_platform_missing';
+        }
+
+        $metricScope = strtolower(trim((string)($options['metric_scope'] ?? '')));
+        $metricScopeValid = $metricScope === 'ota_channel';
+        if (!$metricScopeValid) {
+            $reasonCodes[] = array_key_exists('metric_scope', $options)
+                ? 'readiness_scope_metric_scope_invalid'
+                : 'readiness_scope_metric_scope_missing';
+        }
+
+        return [
+            'system_hotel_id' => $systemHotelIdValid ? $systemHotelId : null,
+            'system_hotel_id_valid' => $systemHotelIdValid,
+            'target_date' => $targetDateValid ? $targetDate : null,
+            'target_date_valid' => $targetDateValid,
+            'platform' => $platformValid ? $platform : null,
+            'platform_valid' => $platformValid,
+            'metric_scope' => $metricScopeValid ? $metricScope : null,
+            'metric_scope_valid' => $metricScopeValid,
+            'reason_codes' => $reasonCodes,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function criticalMetricSourceMatchesHotel(array $source, int $systemHotelId): bool
+    {
+        $hotels = $this->list($source['hotels'] ?? []);
+        if ($hotels === []) {
+            return false;
+        }
+        foreach ($hotels as $hotel) {
+            if (!is_array($hotel) || $this->strictInteger($hotel['system_hotel_id'] ?? null) !== $systemHotelId) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function criticalMetricSourceMatchesDate(array $source, string $targetDate): bool
+    {
+        $dateRange = is_array($source['date_range'] ?? null) ? $source['date_range'] : [];
+        return trim((string)($dateRange['start'] ?? '')) === $targetDate
+            && trim((string)($dateRange['end'] ?? '')) === $targetDate;
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function criticalMetricSourceMatchesPlatform(array $source, string $platform): bool
+    {
+        $platforms = array_values(array_unique(array_map(
+            static fn(string $value): string => strtolower($value),
+            $this->stringList($source['platforms'] ?? [])
+        )));
+        return $platforms === [$platform];
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function criticalMetricSourceHasReadbackProof(array $source): bool
+    {
+        $counts = [];
+        foreach (['row_count', 'stored_count', 'readback_verified_count'] as $key) {
+            if (!array_key_exists($key, $source)) {
+                return false;
+            }
+            $counts[$key] = $this->strictInteger($source[$key]);
+            if ($counts[$key] === null || $counts[$key] < 0) {
+                return false;
+            }
+        }
+        $rowCount = $counts['row_count'];
+        return $rowCount > 0
+            && $counts['stored_count'] === $rowCount
+            && $counts['readback_verified_count'] === $rowCount;
+    }
+
+    private function strictInteger(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+        if (is_string($value) && preg_match('/^\d+$/D', $value) === 1) {
+            return (int)$value;
+        }
+        return null;
+    }
+
+    /** @param array<string, mixed> $metrics */
+    private function nestedMetricValue(array $metrics, string $metricKey): mixed
+    {
+        $cursor = $metrics;
+        foreach (explode('.', $metricKey) as $segment) {
+            if (!is_array($cursor) || !array_key_exists($segment, $cursor)) {
+                return null;
+            }
+            $cursor = $cursor[$segment];
+        }
+        return $cursor;
+    }
+
+    private function isFiniteMetricNumber(mixed $value): bool
+    {
+        return (is_int($value) || is_float($value)) && is_finite((float)$value);
     }
 
     /**
@@ -284,12 +586,246 @@ class OtaDataCredibilityGateService
     }
 
     /**
+     * Formal ETL rows carry source_input_rows/canonical_rows. For that path a
+     * database-default zero is not decision evidence unless the same metric has
+     * field-level source path, storage target and desensitized capture proof
+     * plus a precise collection timestamp. Non-zero legacy facts retain their
+     * existing source-trace contract in this compatibility guard.
+     *
+     * @param array<string, mixed> $dataset
+     * @param array<int, string> $criticalMetrics
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function criticalFieldFactContract(
+        array $dataset,
+        array $criticalMetrics,
+        array $options
+    ): array {
+        $quality = is_array($dataset['data_quality'] ?? null) ? $dataset['data_quality'] : [];
+        $explicitRequirement = array_key_exists('require_field_fact_contract', $options)
+            ? $this->boolValue($options['require_field_fact_contract'])
+            : null;
+        $required = $explicitRequirement ?? (
+            array_key_exists('source_input_rows', $quality)
+            && array_key_exists('canonical_rows', $quality)
+        );
+        if (!$required) {
+            return [
+                'required' => false,
+                'status' => 'not_required_for_legacy_in_memory_payload',
+                'checked_rows' => 0,
+                'verified_rows' => 0,
+                'missing_collection_time_rows' => 0,
+                'failed_metrics' => [],
+                'failure_reasons' => [],
+            ];
+        }
+
+        $requirements = [
+            'totals.revenue' => [
+                [
+                    'value_field' => 'revenue',
+                    'metric_keys' => ['sales_amount', 'order_amount', 'business_amount'],
+                ],
+            ],
+            'totals.room_nights' => [
+                [
+                    'value_field' => 'room_nights',
+                    'metric_keys' => ['sales_room_nights', 'room_nights', 'business_room_nights'],
+                ],
+            ],
+            'totals.adr' => [
+                [
+                    'value_field' => 'room_revenue',
+                    'metric_keys' => ['room_revenue', 'room_sales_amount', 'hotel_room_revenue'],
+                ],
+                [
+                    'value_field' => 'room_nights',
+                    'metric_keys' => ['sales_room_nights', 'room_nights', 'business_room_nights'],
+                ],
+            ],
+        ];
+        $rows = $this->list($dataset['fact_ota_daily'] ?? []);
+        $failedMetrics = [];
+        $checkedRowKeys = [];
+        $failedRowKeys = [];
+        $missingCollectionTimeRows = [];
+
+        foreach ($criticalMetrics as $metricKey) {
+            $metricRequirements = $requirements[$metricKey] ?? [];
+            if ($metricRequirements === []) {
+                continue;
+            }
+            $metricFailed = false;
+            foreach ($rows as $index => $row) {
+                if (!is_array($row) || !$this->rowContributesToRequirements($row, $metricRequirements)) {
+                    continue;
+                }
+                $rowFailed = false;
+                $rowKey = (string)($row['source_trace']['row_id'] ?? $index);
+                $checkedRowKeys[$rowKey] = true;
+                $collectedAt = trim((string)($row['source_trace']['collected_at'] ?? ''));
+                if (!$this->preciseCollectionTime($collectedAt)) {
+                    $missingCollectionTimeRows[$rowKey] = true;
+                    $rowFailed = true;
+                }
+                foreach ($metricRequirements as $requirement) {
+                    $valueField = (string)($requirement['value_field'] ?? '');
+                    if (!$this->isZeroMetric($row[$valueField] ?? null)) {
+                        continue;
+                    }
+                    if (!$this->rowHasVerifiedFieldFact(
+                        $row,
+                        (array)$requirement['metric_keys']
+                    )) {
+                        $rowFailed = true;
+                    }
+                }
+                if ($rowFailed) {
+                    $metricFailed = true;
+                    $failedRowKeys[$rowKey] = true;
+                }
+            }
+            if ($metricFailed) {
+                $failedMetrics[] = $metricKey;
+            }
+        }
+
+        $failedMetrics = array_values(array_unique($failedMetrics));
+        $verifiedRowKeys = array_diff_key($checkedRowKeys, $failedRowKeys);
+        $failureReasons = [];
+        if ($checkedRowKeys !== [] && count($verifiedRowKeys) < count($checkedRowKeys)) {
+            $failureReasons[] = 'ota_critical_field_facts_unverified';
+        }
+        foreach ($failedMetrics as $metricKey) {
+            $failureReasons[] = 'critical_metric_field_fact_untrusted:' . $metricKey;
+        }
+        if ($missingCollectionTimeRows !== []) {
+            $failureReasons[] = 'ota_critical_collection_time_missing_or_imprecise';
+        }
+
+        return [
+            'required' => true,
+            'status' => $failureReasons === [] ? 'verified' : 'blocked',
+            'checked_rows' => count($checkedRowKeys),
+            'verified_rows' => count($verifiedRowKeys),
+            'missing_collection_time_rows' => count($missingCollectionTimeRows),
+            'failed_metrics' => $failedMetrics,
+            'failure_reasons' => $failureReasons,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, array<string, mixed>> $requirements
+     */
+    private function rowContributesToRequirements(array $row, array $requirements): bool
+    {
+        $hasZero = false;
+        foreach ($requirements as $requirement) {
+            $field = (string)($requirement['value_field'] ?? '');
+            if ($field === '' || !$this->isFiniteMetricNumber($row[$field] ?? null)) {
+                return false;
+            }
+            if ($this->isZeroMetric($row[$field])) {
+                $hasZero = true;
+            }
+        }
+        return $hasZero;
+    }
+
+    private function isZeroMetric(mixed $value): bool
+    {
+        return $this->isFiniteMetricNumber($value) && (float)$value === 0.0;
+    }
+
+    /** @param array<string, mixed> $row @param array<int, string> $metricKeys */
+    private function rowHasVerifiedFieldFact(array $row, array $metricKeys): bool
+    {
+        $raw = $row['raw_data'] ?? [];
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : [];
+        }
+        $raw = is_array($raw) ? $raw : [];
+        $facts = $this->fieldFacts($raw);
+        $metricKeys = array_values(array_unique(array_map(
+            static fn(string $value): string => strtolower(trim($value)),
+            $metricKeys
+        )));
+        $matchingFacts = array_values(array_filter(
+            $facts,
+            static fn(array $fact): bool => in_array(
+                strtolower(trim((string)($fact['metric_key'] ?? ''))),
+                $metricKeys,
+                true
+            )
+        ));
+        if ($matchingFacts === []) {
+            return false;
+        }
+
+        $trace = is_array($row['source_trace'] ?? null) ? $row['source_trace'] : [];
+        $status = OnlineDataFieldFactService::buildStatus(
+            array_replace($trace, [
+                'data_type' => (string)($row['data_type'] ?? ''),
+            ]),
+            array_replace($raw, ['field_facts' => $matchingFacts])
+        );
+        return ($status['status'] ?? '') === 'ready'
+            && array_intersect($metricKeys, $this->stringList($status['captured_metric_keys'] ?? [])) !== [];
+    }
+
+    /** @param array<string, mixed> $raw @return array<int, array<string, mixed>> */
+    private function fieldFacts(array $raw): array
+    {
+        foreach ([
+            $raw['field_facts'] ?? null,
+            $raw['row']['field_facts'] ?? null,
+            $raw['raw_data']['field_facts'] ?? null,
+            $raw['row']['raw_data']['field_facts'] ?? null,
+            $raw['facts'] ?? null,
+        ] as $candidate) {
+            if (is_array($candidate)) {
+                $facts = array_values(array_filter($candidate, 'is_array'));
+                if ($facts !== []) {
+                    return $facts;
+                }
+            }
+        }
+        return [];
+    }
+
+    private function preciseCollectionTime(string $value): bool
+    {
+        return preg_match(
+            '/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/D',
+            trim($value)
+        ) === 1 && strtotime($value) !== false;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function p0DownstreamGate(mixed $value): array
     {
         if (!is_array($value)) {
             return [];
+        }
+
+        $verificationSource = strtolower(trim((string)($value['verification_source'] ?? '')));
+        if ($verificationSource !== 'external_p0_verifier') {
+            $verificationSource = '';
+        }
+        $targetDate = substr(trim((string)($value['target_date'] ?? '')), 0, 10);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $targetDate) !== 1) {
+            $targetDate = '';
+        }
+        $hotelId = (int)($value['hotel_id'] ?? 0);
+        $reportHash = strtolower(trim((string)($value['verifier_report_hash'] ?? '')));
+        if (preg_match('/^[a-f0-9]{64}$/D', $reportHash) !== 1) {
+            $reportHash = '';
         }
 
         return [
@@ -301,6 +837,19 @@ class OtaDataCredibilityGateService
             'blocking_missing_inputs' => $this->stringList($value['blocking_missing_inputs'] ?? []),
             'blocked_stage_keys' => $this->stringList($value['blocked_stage_keys'] ?? []),
             'allowed_claims' => $this->stringList($value['allowed_claims'] ?? []),
+            'verification_source' => $verificationSource,
+            'target_date' => $targetDate,
+            'hotel_id' => $hotelId > 0 ? $hotelId : null,
+            'verified_platforms' => array_values(array_filter(
+                $this->stringList($value['verified_platforms'] ?? []),
+                static fn(string $platform): bool => in_array($platform, ['ctrip', 'meituan'], true)
+            )),
+            'source_scope' => strtolower(trim((string)($value['source_scope'] ?? ''))) === 'ota_channel'
+                ? 'ota_channel'
+                : '',
+            'verifier_report_hash' => $reportHash,
+            'verifier_checked_at' => trim((string)($value['verifier_checked_at'] ?? '')),
+            'sensitive_values_exposed' => false,
         ];
     }
 }

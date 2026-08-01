@@ -6,6 +6,7 @@ namespace app\controller;
 use app\model\SystemConfig;
 use app\model\OperationLog;
 use think\Response;
+use think\facade\Db;
 
 class SystemConfigController extends Base
 {
@@ -26,8 +27,9 @@ class SystemConfigController extends Base
                 abort(403, 'Forbidden');
             }
             $defaults = SystemConfig::getDefaultConfigs();
+            $value = SystemConfig::getValue($requestedKey, $defaults[$requestedKey] ?? null);
             return $this->success([
-                $requestedKey => SystemConfig::getValue($requestedKey, $defaults[$requestedKey] ?? null),
+                $requestedKey => SystemConfig::valueForResponse($requestedKey, $value),
             ]);
         }
 
@@ -66,6 +68,12 @@ class SystemConfigController extends Base
         $this->checkSuperAdmin();
 
         $data = $this->requestData();
+        $customConfigKey = trim((string)($data['config_key'] ?? ''));
+        if ($customConfigKey === SystemConfig::KEY_SESSION_TIMEOUT
+            || array_key_exists(SystemConfig::KEY_SESSION_TIMEOUT, $data)
+        ) {
+            return $this->error('会话有效期固定为72小时，不支持在线修改', 422);
+        }
 
         // 支持自定义配置项（如数据配置）
         if (isset($data['config_key']) && isset($data['config_value'])) {
@@ -74,7 +82,9 @@ class SystemConfigController extends Base
             $value = $data['config_value'];
             $description = $data['description'] ?? '自定义配置';
 
-            SystemConfig::setValue($key, $value, $description);
+            if (!SystemConfig::shouldPreserveSensitiveInput($key, $value)) {
+                SystemConfig::setValue($key, $value, $description);
+            }
 
             OperationLog::record('system_config', 'update', '更新配置: ' . $description, $this->currentUser->id);
 
@@ -86,11 +96,17 @@ class SystemConfigController extends Base
         // 获取所有配置项描述
         $descriptions = SystemConfig::getConfigDescriptions();
 
-        // 遍历并保存所有提交的配置
-        foreach ($data as $key => $value) {
-            if (isset($descriptions[$key])) {
-                SystemConfig::setValue($key, $value, $descriptions[$key]);
-            }
+        try {
+            Db::transaction(function () use ($data, $descriptions): void {
+                foreach ($data as $key => $value) {
+                    if (isset($descriptions[$key]) && !SystemConfig::shouldPreserveSensitiveInput((string)$key, $value)) {
+                        SystemConfig::setValue($key, $value, $descriptions[$key]);
+                    }
+                }
+            });
+        } catch (\Throwable $e) {
+            SystemConfig::clearValueCaches(array_keys($data));
+            throw $e;
         }
 
         OperationLog::record('system_config', 'update', '更新系统配置', $this->currentUser->id);
@@ -154,18 +170,13 @@ class SystemConfigController extends Base
             foreach ($rows as $row) {
                 $key = (string)$row->config_key;
                 if (!SystemConfig::isProtectedOtaKey($key)) {
-                    $configs[$key] = $row->config_value;
+                    $configs[$key] = SystemConfig::valueForResponse($key, $row->config_value);
                 }
             }
             return $configs;
         } finally {
             SystemConfig::clearProtectedOtaCaches();
         }
-    }
-
-    private function filterPublicConfigs(array $configs): array
-    {
-        return array_intersect_key($configs, array_fill_keys($this->publicConfigKeys(), true));
     }
 
     private function publicConfigKeys(): array
@@ -186,7 +197,6 @@ class SystemConfigController extends Base
             SystemConfig::KEY_TIME_FORMAT,
             SystemConfig::KEY_PAGE_SIZE_OPTIONS,
             SystemConfig::KEY_DEFAULT_PAGE_SIZE,
-            SystemConfig::KEY_ENABLE_REGISTRATION,
             SystemConfig::KEY_ENABLE_LOGIN_LOG,
             SystemConfig::KEY_ENABLE_OPERATION_LOG,
             SystemConfig::KEY_ENABLE_DATA_BACKUP,
@@ -224,7 +234,7 @@ class SystemConfigController extends Base
         if ($requestId === '') {
             $requestId = 'missing_request_id';
         }
-        $tenantId = (int)($this->currentUser->tenant_id ?? $this->currentUser->hotel_id ?? 0);
+        $tenantId = (int)($this->currentUser->tenant_id ?? 0);
         $exportData = [
             'export_time' => $generatedAt,
             'version' => 'v2.0.0',
@@ -400,16 +410,30 @@ class SystemConfigController extends Base
         $imported = 0;
         $skippedRedactedValues = 0;
 
-        foreach ($data['configs'] as $key => $value) {
-            if (isset($descriptions[$key])) {
-                if ($this->containsRedactedExportSecretPlaceholder($value)) {
-                    $skippedRedactedValues++;
-                    continue;
-                }
+        try {
+            Db::transaction(function () use (
+                $data,
+                $descriptions,
+                &$imported,
+                &$skippedRedactedValues
+            ): void {
+                foreach ($data['configs'] as $key => $value) {
+                    if (isset($descriptions[$key])) {
+                        if ($this->containsRedactedExportSecretPlaceholder($value)
+                            || SystemConfig::shouldPreserveSensitiveInput((string)$key, $value)
+                        ) {
+                            $skippedRedactedValues++;
+                            continue;
+                        }
 
-                SystemConfig::setValue($key, $value, $descriptions[$key]);
-                $imported++;
-            }
+                        SystemConfig::setValue($key, $value, $descriptions[$key]);
+                        $imported++;
+                    }
+                }
+            });
+        } catch (\Throwable $e) {
+            SystemConfig::clearValueCaches(array_keys($data['configs']));
+            throw $e;
         }
 
         OperationLog::record(
@@ -541,20 +565,34 @@ class SystemConfigController extends Base
 
         $resetCount = 0;
 
-        if ($group === 'all') {
-            // 重置所有配置
-            foreach ($defaults as $key => $value) {
-                SystemConfig::setValue($key, $value, $descriptions[$key] ?? '');
-                $resetCount++;
-            }
-        } elseif (isset($groups[$group])) {
-            // 重置指定分组
-            foreach ($groups[$group]['keys'] as $key) {
-                if (isset($defaults[$key])) {
-                    SystemConfig::setValue($key, $defaults[$key], $descriptions[$key] ?? '');
-                    $resetCount++;
+        $resetKeys = $group === 'all'
+            ? array_keys($defaults)
+            : (isset($groups[$group]) ? (array)$groups[$group]['keys'] : []);
+        try {
+            Db::transaction(function () use (
+                $group,
+                $defaults,
+                $descriptions,
+                $groups,
+                &$resetCount
+            ): void {
+                if ($group === 'all') {
+                    foreach ($defaults as $key => $value) {
+                        SystemConfig::setValue($key, $value, $descriptions[$key] ?? '');
+                        $resetCount++;
+                    }
+                } elseif (isset($groups[$group])) {
+                    foreach ($groups[$group]['keys'] as $key) {
+                        if (isset($defaults[$key])) {
+                            SystemConfig::setValue($key, $defaults[$key], $descriptions[$key] ?? '');
+                            $resetCount++;
+                        }
+                    }
                 }
-            }
+            });
+        } catch (\Throwable $e) {
+            SystemConfig::clearValueCaches($resetKeys);
+            throw $e;
         }
 
         OperationLog::record('system_config', 'reset', '重置系统配置: ' . $group, $this->currentUser->id);

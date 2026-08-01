@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const evidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
@@ -104,10 +105,18 @@ function assertCurrentPrCandidateReview(review, label, connectorDiagnosticKey = 
       addFailure(`${label}.selected_release_pr_head_sha must be non-empty when present.`);
     }
   }
-  if (!String(review.gh_pr_list_checked_at || '').trim()) {
+  if (review.is_fresh_for_current_project_state === false) {
+    if (status !== 'failed') {
+      addFailure(`${label}.status must be failed when current project-state freshness is false.`);
+    }
+    if (review.selected_release_pr_number != null || review.selected_release_pr_head_sha != null) {
+      addFailure(`${label} must clear stale selected PR number and head.`);
+    }
+  }
+  if (review.is_fresh_for_current_project_state !== false && !String(review.gh_pr_list_checked_at || '').trim()) {
     addFailure(`${label}.gh_pr_list_checked_at is required.`);
   }
-  if (!Number.isFinite(Number(review.gh_pr_list_open_pr_count))) {
+  if (review.is_fresh_for_current_project_state !== false && !Number.isFinite(Number(review.gh_pr_list_open_pr_count))) {
     addFailure(`${label}.gh_pr_list_open_pr_count must be numeric.`);
   }
   const diagnostic = review[connectorDiagnosticKey] || null;
@@ -142,7 +151,7 @@ try {
   gapPack = readJson(gapPackPath);
   addPass(`Release evidence gap pack is readable JSON: ${gapPackPath}`);
 } catch (error) {
-  addFailure(`Release evidence gap pack is not readable JSON: ${error.message}`);
+  addFailure(`Release evidence gap pack is not readable JSON (${safeJsonParseErrorCode(error)}).`);
 }
 
 try {
@@ -168,6 +177,9 @@ if (gapPack) {
     const status = sourceStatus.release_readiness_status || {};
     if (status.overall_status !== 'not_release_ready') {
       addFailure('source_status.release_readiness_status.overall_status must remain not_release_ready while blockers are open.');
+    }
+    if (status.status_role !== 'historical_snapshot' || status.current_use_forbidden !== true) {
+      addFailure('source_status.release_readiness_status must identify the tracked status as a forbidden historical snapshot.');
     }
     const currentPr = status.current_pr || null;
     if (!currentPr || typeof currentPr !== 'object') {
@@ -224,22 +236,29 @@ if (gapPack) {
     if (!worktreePlan || typeof worktreePlan !== 'object') {
       addFailure('source_status.local_worktree_close_plan is required.');
     } else {
-      const changedEntries = Number(worktreePlan.changed_entries || 0);
-      if (!['clean', 'blocked_until_clean_or_isolated'].includes(String(worktreePlan.status || ''))) {
+      const gitStatusUnverified = worktreePlan.status === 'blocked_git_status_unverified';
+      const changedEntries = gitStatusUnverified ? null : Number(worktreePlan.changed_entries || 0);
+      if (!['clean', 'blocked_until_clean_or_isolated', 'blocked_git_status_unverified'].includes(String(worktreePlan.status || ''))) {
         addFailure(`local_worktree_close_plan has unexpected status: ${worktreePlan.status}`);
       }
-      if (changedEntries > 0 && worktreePlan.status !== 'blocked_until_clean_or_isolated') {
+      if (!gitStatusUnverified && changedEntries > 0 && worktreePlan.status !== 'blocked_until_clean_or_isolated') {
         addFailure('local_worktree_close_plan must be blocked_until_clean_or_isolated when changed entries exist.');
       }
-      if (changedEntries === 0 && worktreePlan.status !== 'clean') {
+      if (!gitStatusUnverified && changedEntries === 0 && worktreePlan.status !== 'clean') {
         addFailure('local_worktree_close_plan must be clean when there are no changed entries.');
+      }
+      if (gitStatusUnverified && worktreePlan.changed_entries !== null) {
+        addFailure('local_worktree_close_plan.changed_entries must be null when git status is unverified.');
       }
       const isolationEvidence = requireObject(worktreePlan.isolation_evidence, 'local_worktree_close_plan.isolation_evidence');
       if (isolationEvidence) {
-        if (changedEntries > 0 && isolationEvidence.still_blocks_release !== true) {
+        if (gitStatusUnverified && isolationEvidence.still_blocks_release !== true) {
+          addFailure('local_worktree_close_plan.isolation_evidence must block release when git status is unverified.');
+        }
+        if (!gitStatusUnverified && changedEntries > 0 && isolationEvidence.still_blocks_release !== true) {
           addFailure('local_worktree_close_plan.isolation_evidence must keep dirty worktree as release-blocking.');
         }
-        if (changedEntries === 0 && isolationEvidence.still_blocks_release !== false) {
+        if (!gitStatusUnverified && changedEntries === 0 && isolationEvidence.still_blocks_release !== false) {
           addFailure('local_worktree_close_plan.isolation_evidence must not block release when the worktree is clean.');
         }
       }

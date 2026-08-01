@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 
 const readBackendSource = () => {
-  const paths = ['app/controller/OnlineData.php'];
+  const paths = ['app/controller/OnlineData.php', 'app/service/Ota/OtaActionHandler.php'];
   const concernDir = 'app/controller/concern';
   if (existsSync(concernDir)) {
     for (const name of readdirSync(concernDir)) {
@@ -12,13 +12,31 @@ const readBackendSource = () => {
 };
 
 const indexSource = readFileSync('public/index.html', 'utf8');
+const appTemplateSource = existsSync('resources/frontend/app-template.html')
+  ? readFileSync('resources/frontend/app-template.html', 'utf8')
+  : '';
+const appMainSource = existsSync('public/app-main.js') ? readFileSync('public/app-main.js', 'utf8') : '';
 const otaDiagnosisStaticSource = existsSync('public/ota-diagnosis-static.js') ? readFileSync('public/ota-diagnosis-static.js', 'utf8') : '';
 const autoFetchStaticSource = existsSync('public/auto-fetch-static.js') ? readFileSync('public/auto-fetch-static.js', 'utf8') : '';
 const platformAutoSettingsSource = existsSync('public/components/online-data/platform-auto-settings-panels.js') ? readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8') : '';
+const dataConfigDialogsSource = existsSync('resources/frontend/templates/components/data-config-dialogs.html')
+  ? readFileSync('resources/frontend/templates/components/data-config-dialogs.html', 'utf8')
+  : '';
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 const systemStaticSource = readFileSync('public/system-static.js', 'utf8');
 const meituanStaticSource = existsSync('public/meituan-static.js') ? readFileSync('public/meituan-static.js', 'utf8') : '';
-const source = [indexSource, otaDiagnosisStaticSource, autoFetchStaticSource, platformAutoSettingsSource, ctripStaticSource, systemStaticSource, meituanStaticSource].join('\n');
+const source = [
+  indexSource,
+  appTemplateSource,
+  appMainSource,
+  otaDiagnosisStaticSource,
+  autoFetchStaticSource,
+  platformAutoSettingsSource,
+  dataConfigDialogsSource,
+  ctripStaticSource,
+  systemStaticSource,
+  meituanStaticSource,
+].join('\n');
 const controllerSource = readBackendSource();
 const requestConcernSource = readFileSync('app/controller/concern/OnlineDataRequestConcern.php', 'utf8');
 const cookieEndpointSource = readFileSync('app/controller/concern/CookieEndpointConcern.php', 'utf8');
@@ -222,7 +240,13 @@ const checks = [
       && ctripCatalogSource.includes('sales_report')
       && ctripCatalogSource.includes('room_type')
       && ctripCatalogSource.includes('competitor_overview')
-      && ctripBrowserScript.includes("args.sections || args.captureSections || args.only || 'default'")
+      && (
+        ctripBrowserScript.includes("args.sections || args.captureSections || args.only || 'default'")
+        || (
+          ctripBrowserScript.includes("const capturePlan = getCtripCapturePlan(args.capturePlan || args.capture_plan || 'full')")
+          && ctripBrowserScript.includes("|| capturePlan.default_sections.join(',')")
+        )
+      )
       && ctripBrowserScript.includes('requestedSections.includes(section)')
       && ctripBrowserScript.includes('target.business.push')
       && ctripBrowserScript.includes('target.traffic.push')
@@ -242,7 +266,7 @@ const checks = [
   },
   {
     name: 'Ctrip diagnosis snapshot is available in app without rerunning browser',
-    pass: routeSource.includes("Route::get('/ctrip-diagnosis-snapshot', 'OnlineData/ctripDiagnosisSnapshot')")
+    pass: routeSource.includes("Route::get('/ctrip-diagnosis-snapshot', 'ota.CtripController/ctripDiagnosisSnapshot')")
       && controllerSource.includes('public function ctripDiagnosisSnapshot')
       && controllerSource.includes('buildLatestCtripDiagnosisSnapshot')
       && controllerSource.includes('aggregateCtripDiagnosisSnapshot')
@@ -260,7 +284,7 @@ const checks = [
   },
   {
     name: 'Ctrip Cookie API capture uses the vault locator and redacted catalog pipeline',
-    pass: routeSource.includes("Route::post('/fetch-ctrip-cookie-api', 'OnlineData/fetchCtripCookieApiData')")
+    pass: routeSource.includes("Route::post('/fetch-ctrip-cookie-api', 'ota.CtripController/fetchCtripCookieApiData')")
       && cookieApiEndpointBody.includes('sanitizeCtripCookieApiExecutionRequestData($rawRequestData)')
       && cookieApiEndpointBody.includes('$this->withOtaCredentialForExecution(')
       && requestConcernSource.includes('ctrip_cookie_api_capture.mjs')
@@ -278,41 +302,21 @@ const checks = [
       && !reusableOtaSecretTaskField.test(runFetchBody),
   },
   {
-    name: 'Ctrip Cookie API exposes a core diagnosis endpoint preset',
+    name: 'Ctrip collection presets remain server-private and the browser selects an opaque task',
     pass: source.includes('getCtripCookieApiCorePresetEndpoints')
       && source.includes("requireCtripStatic('getCtripCookieApiCorePresetEndpoints')")
-      && source.includes('getCtripCookieApiCorePresetJson')
       && source.includes('fillCtripCookieApiCorePreset')
-      && source.includes('填入核心诊断接口')
       && ctripStaticSource.includes('getCtripCookieApiCorePresetEndpoints')
-      && ctripStaticSource.includes('queryHotCalendarInfo')
-      && ctripStaticSource.includes('queryHomePageRealTimeData')
-      && ctripStaticSource.includes('queryCampaignSummaryReport')
-      && ctripStaticSource.includes('getHotelPsiV2')
-      && ctripStaticSource.includes('getBbkComprehensiveTable')
-      && ctripStaticSource.includes('dataCenterBusinessReportDetail')
-      && ctripStaticSource.includes('queryScanFlowDetailsV2')
-      && ctripStaticSource.includes('market_calendar')
-      && ctripStaticSource.includes('homepage')
-      && ctripStaticSource.includes('traffic_report')
-      && ctripStaticSource.includes('ads_pyramid')
-      && ctripStaticSource.includes('quality_psi')
-      && ctripStaticSource.includes('biztravel_bpi')
-      && ctripStaticSource.includes('biztravel_business_report')
-      && ctripStaticSource.includes('biztravel_competitor')
-      && ctripStaticSource.includes('user_profile')
-      && ctripStaticSource.includes('im_board')
-      && ctripStaticSource.includes('competitor_overview')
-      && ctripStaticSource.includes('loss_analysis')
-      && ctripStaticSource.includes('competitor_rank')
-      && ctripStaticSource.includes('queryUserSex')
-      && ctripStaticSource.includes('getImIndex')
-      && ctripStaticSource.includes('getManagementData')
-      && ctripStaticSource.includes('getTripartiteOrderLoss')
-      && ctripStaticSource.includes('getCompetingRank')
-      && !indexSource.includes("request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo'")
-      && source.includes('fillCtripCookieApiCorePreset')
-      && source.includes('填入核心诊断接口'),
+      && ctripStaticSource.includes('const getCtripCookieApiCorePresetEndpoints = () => ([])')
+      && ctripStaticSource.includes('normalizedRequestSource')
+      && dataConfigDialogsSource.includes('真实采集步骤仅在服务端展开')
+      && dataConfigDialogsSource.includes('v-model="dataConfigForm.request_source"')
+      && controllerSource.includes("'competition_circle' =>")
+      && controllerSource.includes("'traffic_report'")
+      && controllerSource.includes('getManagementData')
+      && controllerSource.includes('getCompetingRank')
+      && !ctripStaticSource.includes('getManagementData')
+      && !ctripStaticSource.includes('getCompetingRank'),
   },
   {
     name: 'Ctrip Cookie API request metadata can be tested only with a ready platform credential locator',
@@ -324,7 +328,7 @@ const checks = [
       && autoFetchStaticSource.includes('const buildDataConfigTestRequest = ({')
       && autoFetchStaticSource.includes("status: 'credential_not_ready'")
       && autoFetchStaticSource.includes("!String(body.config_id || '').trim() || !String(body.system_hotel_id || '').trim()")
-      && indexSource.includes('const buildDataConfigForSave = () => stripDataConfigCredentialFields('),
+      && source.includes('const buildDataConfigForSave = () => stripDataConfigCredentialFields('),
   },
   {
     name: 'Ctrip Cookie API execution does not extract browser Profile secrets or accept profile-derived Cookie payloads',
@@ -336,19 +340,18 @@ const checks = [
       && !runFetchBody.includes('cookie_extractable'),
   },
   {
-    name: 'Ctrip overview manual fetch uses vault locator plus API URLs without browser capture',
-    pass: requestConcernSource.includes('fetchCtripOverviewData')
-      && requestConcernSource.includes('sanitizeCtripOverviewExecutionRequestData')
+    name: 'Ctrip overview core actions use credential-vault Cookie task codes without Profile capture',
+    pass: requestConcernSource.includes('fetchCtripCookieApiData')
+      && requestConcernSource.includes('isTaskScopedCtripCookieApiRequest')
       && requestConcernSource.includes('$this->withOtaCredentialForExecution(')
-      && requestConcernSource.includes('sendCtripOverviewRequest')
-      && ctripOverviewRequestBody.includes("config_id: String(configId || '').trim()")
-      && ctripOverviewRequestBody.includes('system_hotel_id: systemHotelId')
-      && ctripOverviewRequestBody.includes('request_urls: normalizeCtripExecutionRequestUrls(requestUrls)')
-      && !reusableOtaSecretTaskField.test(ctripOverviewRequestBody)
-      && (source + ctripStaticSource).includes('queryFlowTransforNewV1')
-      && (source + ctripStaticSource).includes('getTrafficReportV1')
-      && !source.includes("request('/online-data/capture-ctrip-overview-browser'")
-      && !requestConcernSource.includes('captureCtripOverviewBrowserData'),
+      && source.includes("'ctrip-ranking': () => runCtripOverviewCookieApiCapture(['competitor_overview', 'competitor_rank']")
+      && source.includes("requestSource: 'competition_circle'")
+      && source.includes("requestSource: 'revenue_overview'")
+      && source.includes("requestSource: 'traffic_report'")
+      && source.includes("requestSource: 'quality_psi'")
+      && source.includes("requestSource: 'ads_pyramid'")
+      && !ctripStaticSource.includes('queryFlowTransforNewV1')
+      && !ctripStaticSource.includes('getTrafficReportV1'),
   },
   {
     name: 'manual auto-fetch shows persistent in-panel progress and result',

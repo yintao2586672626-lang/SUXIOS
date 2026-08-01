@@ -1,7 +1,6 @@
 <?php
 declare(strict_types=1);
 
-use app\service\OperationManagementService;
 use think\App;
 use think\facade\Db;
 
@@ -21,16 +20,22 @@ function phase1_operation_parse_args(array $argv): array
         'system_hotel_id' => '',
         'hotel-id' => '',
         'hotel_id' => '',
+        'diagnosis-id' => '',
+        'diagnosis_id' => '',
+        'action-index' => '',
+        'action_index' => '',
         'action-item-id' => '',
-        'action-item-status' => 'ready_for_execution',
-        'action-text' => '',
-        'diagnosis-summary' => '',
         'output' => '',
         'diagnosis-output' => '',
         'format' => 'json',
+        'execute' => false,
     ];
 
     foreach (array_slice($argv, 1) as $arg) {
+        if ($arg === '--execute') {
+            $options['execute'] = true;
+            continue;
+        }
         if (!str_starts_with($arg, '--') || !str_contains($arg, '=')) {
             continue;
         }
@@ -40,6 +45,8 @@ function phase1_operation_parse_args(array $argv): array
         }
         $options[$key] = trim($value);
     }
+    $options['execute'] = $options['execute'] === true
+        || in_array(strtolower(trim((string)$options['execute'])), ['1', 'true', 'yes', 'on'], true);
 
     if ((string)$options['system-hotel-id'] === '' && (string)$options['system_hotel_id'] !== '') {
         $options['system-hotel-id'] = (string)$options['system_hotel_id'];
@@ -47,7 +54,13 @@ function phase1_operation_parse_args(array $argv): array
     if ((string)$options['hotel-id'] === '' && (string)$options['hotel_id'] !== '') {
         $options['hotel-id'] = (string)$options['hotel_id'];
     }
-    unset($options['system_hotel_id'], $options['hotel_id']);
+    if ((string)$options['diagnosis-id'] === '' && (string)$options['diagnosis_id'] !== '') {
+        $options['diagnosis-id'] = (string)$options['diagnosis_id'];
+    }
+    if ((string)$options['action-index'] === '' && (string)$options['action_index'] !== '') {
+        $options['action-index'] = (string)$options['action_index'];
+    }
+    unset($options['system_hotel_id'], $options['hotel_id'], $options['diagnosis_id'], $options['action_index']);
 
     $platform = strtolower((string)$options['platform']);
     if (!in_array($platform, ['ctrip', 'meituan'], true)) {
@@ -69,44 +82,26 @@ function phase1_operation_parse_args(array $argv): array
         throw new InvalidArgumentException('Invalid --format, expected json.');
     }
 
-    if ((string)$options['action-item-id'] === '') {
-        $options['action-item-id'] = sprintf(
-            '%s_p0_traffic_review_%s_%d',
-            $platform,
-            str_replace('-', '', (string)$options['date']),
-            (int)$options['system-hotel-id']
-        );
+    $hasDiagnosisId = (string)$options['diagnosis-id'] !== '';
+    $hasActionIndex = (string)$options['action-index'] !== '';
+    if ($hasDiagnosisId !== $hasActionIndex) {
+        throw new InvalidArgumentException('--diagnosis-id and --action-index must be provided together.');
     }
-
-    if ((string)$options['action-text'] === '') {
-        $options['action-text'] = sprintf(
-            'Review %s %s OTA traffic and conversion facts, confirm field evidence is ready, then hand the action to manual operation approval.',
-            (string)$options['date'],
-            $platform
-        );
-    }
-
-    if ((string)$options['diagnosis-summary'] === '') {
-        $options['diagnosis-summary'] = sprintf(
-            '%s %s OTA traffic and conversion facts have target-date source rows and are ready for manual operation handoff in OTA-channel scope only.',
-            (string)$options['date'],
-            $platform
-        );
+    if ($hasDiagnosisId) {
+        if (!is_numeric($options['diagnosis-id']) || (int)$options['diagnosis-id'] <= 0) {
+            throw new InvalidArgumentException('Invalid --diagnosis-id, expected a positive integer.');
+        }
+        if (!is_numeric($options['action-index']) || (int)$options['action-index'] < 0) {
+            throw new InvalidArgumentException('Invalid --action-index, expected a non-negative integer.');
+        }
+        $options['diagnosis-id'] = (int)$options['diagnosis-id'];
+        $options['action-index'] = (int)$options['action-index'];
+    } else {
+        $options['diagnosis-id'] = null;
+        $options['action-index'] = null;
     }
 
     return $options;
-}
-
-function phase1_operation_resolve_path(string $path): string
-{
-    global $root;
-    if ($path === '') {
-        return '';
-    }
-    if (preg_match('/^[A-Za-z]:[\\\\\/]/', $path) || str_starts_with($path, DIRECTORY_SEPARATOR)) {
-        return $path;
-    }
-    return $root . DIRECTORY_SEPARATOR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path);
 }
 
 /**
@@ -226,158 +221,43 @@ function phase1_operation_field_fact_summary(array $facts): array
     ];
 }
 
+function phase1_operation_execution_entry(): string
+{
+    return '/api/agent/ota-diagnoses/:id/actions/:actionIndex/execution-intent';
+}
+
+function phase1_operation_table_exists(string $table): bool
+{
+    return Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'") !== [];
+}
+
 /**
- * @param array<string, mixed> $options
  * @param array<string, mixed> $row
- * @param array<string, mixed> $factSummary
- * @return array<string, mixed>
  */
-function phase1_operation_build_diagnosis(array $options, array $row, int $targetRows, array $factSummary): array
+function phase1_operation_intent_matches_action(array $row, int $actionIndex, string $actionItemId): bool
 {
-    $date = (string)$options['date'];
-    $platform = (string)$options['platform'];
-    $systemHotelId = (int)$options['system-hotel-id'];
-    $hotelId = (string)$options['hotel-id'];
-    $actionItemId = (string)$options['action-item-id'];
-    $fieldFactReady = (string)($factSummary['status'] ?? '') === 'ready';
-    $dataGaps = [];
-    if (!$fieldFactReady) {
-        $dataGaps[] = [
-            'code' => $platform . '_p0_traffic_field_fact_not_ready',
-            'message' => 'Target-date traffic row exists, but required desensitized field facts are not fully ready.',
-            'missing_metric_keys' => $factSummary['missing_metric_keys'] ?? [],
-            'scope' => 'ota_channel',
-        ];
+    $evidence = json_decode((string)($row['evidence_json'] ?? ''), true);
+    $evidence = is_array($evidence) ? $evidence : [];
+    if ((int)($evidence['action_index'] ?? -1) !== $actionIndex) {
+        return false;
     }
-
-    return [
-        'source' => '/api/agent/ota-diagnosis',
-        'status' => $fieldFactReady ? 'actionable_from_verified_p0_traffic_evidence' : 'blocked_by_verified_ota_gaps',
-        'source_policy' => $fieldFactReady
-            ? 'read_existing_verified_p0_traffic_evidence_only'
-            : 'read_existing_ota_gap_evidence_only',
-        'scope' => [
-            'date' => $date,
-            'platform' => $platform,
-            'system_hotel_id' => $systemHotelId,
-            'hotel_id' => $hotelId,
-            'metric_scope' => 'ota_channel',
-        ],
-        'summary' => (string)$options['diagnosis-summary'],
-        'evidence_sources' => [
-            [
-                'ref' => 'online_daily_data#' . (int)($row['id'] ?? 0),
-                'source_policy' => 'read_existing_imported_p0_traffic_row_metadata_only',
-                'metric_scope' => 'ota_channel',
-                'date' => $date,
-                'platform' => $platform,
-                'system_hotel_id' => $systemHotelId,
-                'target_date_traffic_rows' => $targetRows,
-                'field_fact_status' => (string)($factSummary['status'] ?? 'unknown'),
-                'raw_data_exposed' => false,
-            ],
-            [
-                'ref' => sprintf('reports/p0_traffic_%s_%d_%s.json', $platform, $systemHotelId, str_replace('-', '', $date)),
-                'source_policy' => 'desensitized_capture_payload_reference',
-                'metric_scope' => 'ota_channel',
-            ],
-        ],
-        'data_gaps' => $dataGaps,
-        'action_items' => [
-            [
-                'id' => $actionItemId,
-                'action' => (string)$options['action-text'],
-                'status' => $fieldFactReady ? (string)$options['action-item-status'] : 'blocked_by_verified_ota_gaps',
-                'evidence_refs' => [
-                    'online_daily_data#' . (int)($row['id'] ?? 0),
-                    sprintf('p0_traffic_%s_%d_%s', $platform, $systemHotelId, str_replace('-', '', $date)),
-                ],
-                'source_policy' => 'ota_channel_operation_handoff_only',
-            ],
-        ],
-    ];
-}
-
-/**
- * @param array<string, mixed> $options
- * @return array<string, mixed>
- */
-function phase1_operation_intent_input(array $options, array $row, int $targetRows, array $factSummary): array
-{
-    $date = (string)$options['date'];
-    $platform = (string)$options['platform'];
-    $systemHotelId = (int)$options['system-hotel-id'];
-    $actionItemId = (string)$options['action-item-id'];
-
-    return [
-        'source_module' => 'ota_diagnosis',
-        'source_record_id' => (int)sprintf('%u', crc32($platform . '_p0_traffic_review_' . $date . '_' . $systemHotelId)),
-        'hotel_id' => $systemHotelId,
-        'platform' => $platform,
-        'object_type' => 'data_collection',
-        'action_type' => 'diagnosis_action_review',
-        'date_start' => $date,
-        'date_end' => $date,
-        'current_value' => [
-            'action_item_status' => (string)$options['action-item-status'],
-            'target_date_rows' => $targetRows,
-            'traffic_field_fact_status' => (string)($factSummary['status'] ?? 'unknown'),
-            'source_row_id' => (int)($row['id'] ?? 0),
-            'metric_scope' => 'ota_channel',
-        ],
-        'target_value' => [
-            'collection_scope' => $platform . '_target_date_traffic_review',
-            'target_date' => $date,
-            'action_text' => (string)$options['action-text'],
-            'action_item_id' => $actionItemId,
-        ],
-        'evidence' => [
-            'evidence_refs' => [
-                'online_daily_data#' . (int)($row['id'] ?? 0),
-                sprintf('reports/p0_traffic_%s_%d_%s.json', $platform, $systemHotelId, str_replace('-', '', $date)),
-            ],
-            'data_gaps' => (string)($factSummary['status'] ?? '') === 'ready' ? [] : [
-                [
-                    'code' => $platform . '_p0_traffic_field_fact_not_ready',
-                    'missing_metric_keys' => $factSummary['missing_metric_keys'] ?? [],
-                    'scope' => 'ota_channel',
-                ],
-            ],
-            'source_policy' => $platform . '_p0_traffic_import_to_operation_execution_loop_no_ota_acquisition_change',
-            'protected_boundary' => 'This execution record proves operation handoff only; it does not change OTA acquisition, field mapping, or whole-hotel operating truth.',
-            'action_item_id' => $actionItemId,
-            'action_item_status' => (string)$options['action-item-status'],
-            'diagnosis_summary' => (string)$options['diagnosis-summary'],
-            'metric_scope' => 'ota_channel',
-            'scope' => [
-                'date' => $date,
-                'platform' => $platform,
-                'system_hotel_id' => $systemHotelId,
-            ],
-        ],
-        'expected_metric' => 'ota_p0_traffic_closure',
-        'expected_delta' => 0,
-        'risk_level' => 'medium',
-        'status' => 'pending_approval',
-    ];
-}
-
-function phase1_operation_write_json(string $path, array $payload): void
-{
-    $resolved = phase1_operation_resolve_path($path);
-    $dir = dirname($resolved);
-    if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-        throw new RuntimeException('Failed to create output directory: ' . $dir);
+    if ($actionItemId === '') {
+        return true;
     }
-    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    if ($json === false) {
-        throw new RuntimeException('Failed to encode JSON.');
-    }
-    file_put_contents($resolved, $json . PHP_EOL);
+    $storedActionItemId = trim((string)($evidence['action_item_id'] ?? ''));
+    return $storedActionItemId !== ''
+        && hash_equals($actionItemId, $storedActionItemId);
 }
 
 try {
     $options = phase1_operation_parse_args($argv);
+    if (($options['execute'] ?? false) === true) {
+        throw new RuntimeException(
+            'direct_operation_write_disabled: use authenticated POST '
+            . phase1_operation_execution_entry()
+            . ' with a saved OTA diagnosis action, assignee, due_at, and review_at'
+        );
+    }
     $app = new App();
     $app->initialize();
 
@@ -398,120 +278,70 @@ try {
     }
 
     $factSummary = phase1_operation_field_fact_summary(phase1_operation_field_facts($row));
-    $input = phase1_operation_intent_input($options, $row, $targetRows, $factSummary);
-    $hotelIds = [(int)$options['system-hotel-id']];
-    $service = new OperationManagementService();
-
-    $intentRow = Db::name('operation_execution_intents')
-        ->where('source_module', 'ota_diagnosis')
-        ->where('source_record_id', (int)$input['source_record_id'])
-        ->where('hotel_id', (int)$input['hotel_id'])
-        ->where('platform', (string)$input['platform'])
-        ->where('object_type', 'data_collection')
-        ->where('action_type', 'diagnosis_action_review')
-        ->where('date_start', (string)$options['date'])
-        ->where('date_end', (string)$options['date'])
-        ->whereNull('deleted_at')
-        ->order('id', 'desc')
-        ->find();
-    $intentId = is_array($intentRow) ? (int)($intentRow['id'] ?? 0) : 0;
-    $created = false;
-    if ($intentId <= 0) {
-        $createdIntent = $service->createExecutionIntent($hotelIds, (int)$options['system-hotel-id'], $input, 1);
-        $intentId = (int)($createdIntent['id'] ?? 0);
-        $created = true;
-    }
-    if ($intentId <= 0) {
-        throw new RuntimeException('operation_execution_intent_create_failed');
-    }
-
-    $intentDetail = $service->executionIntents($hotelIds, (int)$options['system-hotel-id'], [
-        'platform' => (string)$options['platform'],
-        'object_type' => 'data_collection',
-    ]);
-    $currentIntent = null;
-    foreach ((array)($intentDetail['list'] ?? []) as $candidate) {
-        if ((int)($candidate['id'] ?? 0) === $intentId) {
-            $currentIntent = $candidate;
-            break;
+    $diagnosisId = is_int($options['diagnosis-id']) ? $options['diagnosis-id'] : 0;
+    $actionIndex = is_int($options['action-index']) ? $options['action-index'] : -1;
+    $lookupRequested = $diagnosisId > 0 && $actionIndex >= 0;
+    $operationTables = [
+        'operation_execution_intents' => phase1_operation_table_exists('operation_execution_intents'),
+        'operation_execution_tasks' => phase1_operation_table_exists('operation_execution_tasks'),
+        'operation_execution_evidence' => phase1_operation_table_exists('operation_execution_evidence'),
+    ];
+    $lookupStatus = $lookupRequested ? 'not_found' : 'identity_required';
+    $intentRow = null;
+    if ($lookupRequested && !$operationTables['operation_execution_intents']) {
+        $lookupStatus = 'intent_table_missing';
+    } elseif ($lookupRequested) {
+        $candidates = Db::name('operation_execution_intents')
+            ->where('source_module', 'ota_diagnosis_saved')
+            ->where('source_record_id', $diagnosisId)
+            ->where('hotel_id', (int)$options['system-hotel-id'])
+            ->where('platform', (string)$options['platform'])
+            ->where('date_start', (string)$options['date'])
+            ->where('date_end', (string)$options['date'])
+            ->whereNull('deleted_at')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+        foreach ($candidates as $candidate) {
+            if (is_array($candidate) && phase1_operation_intent_matches_action(
+                $candidate,
+                $actionIndex,
+                trim((string)$options['action-item-id'])
+            )) {
+                $intentRow = $candidate;
+                $lookupStatus = 'exact_match';
+                break;
+            }
         }
     }
-    if (!is_array($currentIntent)) {
-        throw new RuntimeException('operation_execution_intent_not_readable');
-    }
-    if ((string)($currentIntent['status'] ?? '') === 'blocked') {
-        throw new RuntimeException('operation_execution_intent_blocked: ' . (string)($currentIntent['blocked_reason'] ?? ''));
-    }
-    if ((string)($currentIntent['status'] ?? '') !== 'approved') {
-        $service->approveExecutionIntent(
-            $intentId,
-            true,
-            'Phase1 OTA diagnosis action approved for P0 traffic handoff verification.',
-            1,
-            $hotelIds
-        );
-    }
-
-    $taskRow = Db::name('operation_execution_tasks')
-        ->where('intent_id', $intentId)
-        ->whereNull('deleted_at')
-        ->order('id', 'desc')
-        ->find();
-    $taskId = is_array($taskRow) ? (int)($taskRow['id'] ?? 0) : 0;
-    if ($taskId <= 0) {
-        throw new RuntimeException('operation_execution_task_missing_after_approval');
-    }
-    $evidenceCount = (int)Db::name('operation_execution_evidence')->where('task_id', $taskId)->whereNull('deleted_at')->count();
-    $taskStatus = is_array($taskRow) ? (string)($taskRow['status'] ?? '') : '';
-    if ($taskStatus !== 'executed' || $evidenceCount <= 0) {
-        $service->executeExecutionTask($taskId, $hotelIds, [
-            'status' => 'executed',
-            'current_value' => [
-                'traffic_field_fact_status' => (string)($factSummary['status'] ?? 'unknown'),
-                'source_row_id' => (int)($row['id'] ?? 0),
-                'target_date_rows' => $targetRows,
-                'metric_scope' => 'ota_channel',
-            ],
-            'evidence_type' => 'manual',
-            'evidence' => [
-                'before' => [
-                    'action_item_status' => (string)$options['action-item-status'],
-                    'target_date_rows' => $targetRows,
-                ],
-                'after' => [
-                    'operation_handoff_status' => 'executed',
-                    'p0_traffic_gate' => (string)($factSummary['status'] ?? '') === 'ready' ? 'ready' : 'incomplete',
-                    'source_row_id' => (int)($row['id'] ?? 0),
-                ],
-                'platform_response' => [
-                    'field_fact_status' => (string)($factSummary['status'] ?? 'unknown'),
-                    'raw_data_exposed' => false,
-                ],
-                'remark' => 'P0 traffic closure was handed to the operation execution loop in OTA-channel scope.',
-            ],
-        ], 1);
+    $intentId = is_array($intentRow) ? (int)($intentRow['id'] ?? 0) : 0;
+    $taskCount = $intentId > 0 && $operationTables['operation_execution_tasks']
+        ? (int)Db::name('operation_execution_tasks')->where('intent_id', $intentId)->whereNull('deleted_at')->count()
+        : ($operationTables['operation_execution_tasks'] ? 0 : null);
+    $evidenceCount = $operationTables['operation_execution_tasks']
+        && $operationTables['operation_execution_evidence']
+        ? 0
+        : null;
+    if ($intentId > 0
+        && is_int($taskCount)
+        && $taskCount > 0
+        && $operationTables['operation_execution_evidence']
+    ) {
+        $taskIds = Db::name('operation_execution_tasks')
+            ->where('intent_id', $intentId)
+            ->whereNull('deleted_at')
+            ->column('id');
+        if ($taskIds !== []) {
+            $evidenceCount = (int)Db::name('operation_execution_evidence')
+                ->whereIn('task_id', array_map('intval', $taskIds))
+                ->whereNull('deleted_at')
+                ->count();
+        }
     }
 
-    $service->reviewExecutionTask($taskId, $hotelIds, [
-        'result_status' => 'success',
-        'result_summary' => 'Phase1 P0 traffic and conversion facts were imported and verified; operation handoff evidence recorded for OTA-channel scope.',
-    ]);
-
-    $flow = $service->executionFlow($hotelIds, (int)$options['system-hotel-id'], [
-        'platform' => (string)$options['platform'],
-        'object_type' => 'data_collection',
-        'action_type' => 'diagnosis_action_review',
-    ]);
-    $intents = $service->executionIntents($hotelIds, (int)$options['system-hotel-id'], [
-        'platform' => (string)$options['platform'],
-        'object_type' => 'data_collection',
-    ]);
-    $intentList = array_values(array_filter(
-        (array)($intents['list'] ?? []),
-        static fn($item): bool => is_array($item) && (int)($item['id'] ?? 0) === $intentId
-    ));
-
-    $operationEvidence = [
+    $preview = [
+        'status' => 'preview',
+        'mode' => 'read_only',
         'scope' => [
             'date' => (string)$options['date'],
             'platform' => (string)$options['platform'],
@@ -519,56 +349,62 @@ try {
             'hotel_id' => (string)$options['hotel-id'],
             'metric_scope' => 'ota_channel',
         ],
-        'source' => 'OperationManagementService::executionFlow',
-        'status' => 'from_service_layer_same_business_tables',
-        'created_or_reused_intent_id' => $intentId,
-        'created_or_reused_task_id' => $taskId,
-        'created_in_this_run' => $created,
-        'execution_intents' => $intentList,
-        'execution_flow' => $flow,
-    ];
-
-    $operationOutput = (string)$options['output'];
-    if ($operationOutput === '') {
-        $operationOutput = sprintf(
-            'reports/phase1_operation_execution_%s_%d_%s.service.json',
-            (string)$options['platform'],
-            (int)$options['system-hotel-id'],
-            str_replace('-', '', (string)$options['date'])
-        );
-    }
-    phase1_operation_write_json($operationOutput, $operationEvidence);
-
-    $diagnosisOutput = (string)$options['diagnosis-output'];
-    if ($diagnosisOutput === '') {
-        $diagnosisOutput = sprintf(
-            'reports/phase1_ota_diagnosis_%s_%d_%s.evidence.json',
-            (string)$options['platform'],
-            (int)$options['system-hotel-id'],
-            str_replace('-', '', (string)$options['date'])
-        );
-    }
-    $diagnosisEvidence = phase1_operation_build_diagnosis($options, $row, $targetRows, $factSummary);
-    phase1_operation_write_json($diagnosisOutput, $diagnosisEvidence);
-
-    echo json_encode([
-        'status' => 'recorded',
-        'scope' => $operationEvidence['scope'],
         'target_date_traffic_rows' => $targetRows,
         'source_row_id' => (int)($row['id'] ?? 0),
         'traffic_field_fact_status' => (string)($factSummary['status'] ?? 'unknown'),
-        'intent_id' => $intentId,
-        'task_id' => $taskId,
-        'created_in_this_run' => $created,
-        'operation_output' => $operationOutput,
-        'diagnosis_output' => $diagnosisOutput,
-    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . PHP_EOL;
+        'writes_database' => false,
+        'writes_files' => false,
+        'creates_execution_intent' => false,
+        'approves_execution_intent' => false,
+        'executes_operation_task' => false,
+        'records_execution_evidence' => false,
+        'records_review_or_roi' => false,
+        'closure_claim_allowed' => false,
+        'proof_status' => 'not_execution_proof',
+        'existing_flow_metadata' => [
+            'lookup_status' => $lookupStatus,
+            'exact_identity_verified' => $lookupStatus === 'exact_match',
+            'identity' => [
+                'source_module' => 'ota_diagnosis_saved',
+                'source_record_id' => $diagnosisId > 0 ? $diagnosisId : null,
+                'action_index' => $actionIndex >= 0 ? $actionIndex : null,
+                'action_item_id' => trim((string)$options['action-item-id']) !== ''
+                    ? trim((string)$options['action-item-id'])
+                    : null,
+            ],
+            'table_availability' => $operationTables,
+            'intent_id' => $intentId > 0 ? $intentId : null,
+            'intent_status' => is_array($intentRow) ? (string)($intentRow['status'] ?? 'unknown') : null,
+            'task_count' => $taskCount,
+            'evidence_count' => $evidenceCount,
+        ],
+        'pending_approval_request_status' => $intentId > 0
+            ? 'existing_intent_requires_human_status_review'
+            : ($lookupRequested ? 'requires_authenticated_api_validation' : 'requires_saved_diagnosis_identity'),
+        'execution_entry' => phase1_operation_execution_entry(),
+        'required_execution_inputs' => [
+            'saved OTA diagnosis record id',
+            'execution-ready action index with non-derived OTA evidence refs',
+            'authenticated administrator session',
+            'authorized assignee_id with operation.execute permission',
+            'due_at',
+            'review_at',
+        ],
+        'next_action' => 'Open the saved OTA diagnosis in Agent Center and submit its execution-ready action for human approval.',
+        'legacy_output_requested' => (string)$options['output'] !== '' || (string)$options['diagnosis-output'] !== '',
+        'legacy_output_written' => false,
+    ];
+
+    echo json_encode($preview, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . PHP_EOL;
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . PHP_EOL);
+    $issueCode = str_starts_with($e->getMessage(), 'direct_operation_write_disabled')
+        ? 'direct_operation_write_disabled'
+        : 'phase1_operation_execution_record_failed';
     echo json_encode([
         'status' => 'failed',
         'issue' => [
-            'code' => 'phase1_operation_execution_record_failed',
+            'code' => $issueCode,
             'message' => $e->getMessage(),
         ],
     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . PHP_EOL;

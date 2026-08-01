@@ -43,18 +43,18 @@ final class OtaBrowserAssistImportService
                 'data_type' => (string)$package['data_type'],
                 'row_count' => count($package['rows']),
                 'status' => (string)($result['status'] ?? 'unknown'),
+                'message' => (string)($result['message'] ?? ''),
                 'normalized_count' => (int)($result['normalized_count'] ?? 0),
                 'saved_count' => (int)($result['saved_count'] ?? 0),
+                'readback_verified' => ($result['readback_verified'] ?? false) === true,
                 'sync_task_id' => (int)($result['task_id'] ?? 0),
             ];
         }
 
-        $failed = array_values(array_filter($results, static function (array $item): bool {
-            return !in_array((string)$item['status'], ['success', 'partial_success'], true);
-        }));
+        $status = $this->aggregateImportStatus($results);
 
         return [
-            'status' => $failed === [] ? 'success' : 'partial_success',
+            'status' => $status,
             'source_contract' => self::CONTRACT_VERSION,
             'collection_mode' => self::COLLECTION_MODE,
             'package_count' => count($packages),
@@ -64,6 +64,29 @@ final class OtaBrowserAssistImportService
             'warnings' => $normalized['warnings'],
             'packages' => $results,
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $results
+     */
+    private function aggregateImportStatus(array $results): string
+    {
+        if ($results === []) {
+            return 'failed';
+        }
+
+        $statuses = array_map(
+            static fn(array $item): string => strtolower(trim((string)($item['status'] ?? 'unknown'))),
+            $results
+        );
+        if (count(array_filter($statuses, static fn(string $status): bool => $status === 'success')) === count($statuses)) {
+            return 'success';
+        }
+        if (array_filter($statuses, static fn(string $status): bool => in_array($status, ['success', 'partial_success'], true))) {
+            return 'partial_success';
+        }
+
+        return 'failed';
     }
 
     /**
@@ -149,6 +172,7 @@ final class OtaBrowserAssistImportService
                 'platform' => (string)$group['platform'],
                 'data_type' => (string)$group['data_type'],
                 'system_hotel_id' => $systemHotelId,
+                'ingestion_method' => self::COLLECTION_MODE,
                 'source_contract' => self::CONTRACT_VERSION,
                 'collection_mode' => self::COLLECTION_MODE,
                 'rows' => $group['rows'],
@@ -304,10 +328,29 @@ final class OtaBrowserAssistImportService
             }
 
             $visitors = $this->metricNumber($metrics, ['realtimeVisitors', 'visitorTotal', 'visitors', 'uv']);
+            $lastWeekVisitors = $this->metricNumber($metrics, ['lastWeekVisitors', 'lastVisitorTotal', 'last_week_visitors']);
             $peerAvg = $this->metricNumber($metrics, ['visitorPeerAvg', 'peerAvgVisitors', 'peer_avg_visitors']);
             $conversion = $this->metricNumber($metrics, ['orderConversionRate', 'conversionRate', 'flowRate']);
+            $conversionPeerAvg = $this->metricNumber($metrics, ['conversionPeerAvg', 'peerAvgConversion', 'peer_avg_conversion']);
+            $bookingOrders = $this->metricNumber($metrics, ['bookingOrderCount', 'preorderOrders', 'bookOrderNum', 'orders']);
+            $inHouseRoomNights = $this->metricNumber($metrics, ['inHouseRoomNights', 'inhouseRoomNights', 'stayRoomNights']);
+            $startingPrice = $this->metricNumber($metrics, ['startingPrice', 'realtimeStartingPrice', 'minPrice']);
+            $visitorLagging = $this->metricBoolean($metrics, ['visitorLagging', 'lagging']);
+            $conversionLagging = $this->metricBoolean($metrics, ['conversionLagging']);
             $sourcePath = 'ctrip_stats.metrics.' . $channel;
-            if ($this->hasAny([$visitors, $peerAvg, $conversion])) {
+            $identityEvidence = $this->browserAssistIdentityEvidence($section, $context);
+            if ($this->hasAny([
+                $visitors,
+                $lastWeekVisitors,
+                $peerAvg,
+                $conversion,
+                $conversionPeerAvg,
+                $bookingOrders,
+                $inHouseRoomNights,
+                $startingPrice,
+                $visitorLagging,
+                $conversionLagging,
+            ])) {
                 $rows[] = $this->attachEvidence($this->compact([
                     'source' => 'ctrip',
                     'platform' => 'ctrip',
@@ -319,8 +362,11 @@ final class OtaBrowserAssistImportService
                     'system_hotel_id' => (int)($section['system_hotel_id'] ?? $section['systemHotelId'] ?? $context['system_hotel_id'] ?? 0),
                     'hotel_id' => $this->cleanText($section['hotel_id'] ?? $section['hotelId'] ?? $context['hotel_id'] ?? ''),
                     'hotel_name' => $this->cleanText($section['hotelName'] ?? $section['hotel_name'] ?? $context['hotel_name'] ?? ''),
+                    'browser_assist_identity' => $identityEvidence,
                     'dimension' => 'realtime:' . $channel,
                     'detail_exposure' => $visitors,
+                    'book_order_num' => $bookingOrders,
+                    'quantity' => $inHouseRoomNights,
                     'flow_rate' => $conversion,
                     'data_value' => $visitors,
                     'acquisition_method' => self::COLLECTION_MODE,
@@ -331,21 +377,39 @@ final class OtaBrowserAssistImportService
                         'module' => 'ctrip_stats',
                         'channel' => $channel,
                         'snapshot_time_source' => $snapshot['source'],
+                        'browser_assist_identity' => $identityEvidence,
+                        'source_surfaces' => $this->sourceSurfaceEvidence($section),
                         'metrics' => [
                             'realtime_visitors' => $this->metricRawValue($metrics, ['realtimeVisitors', 'visitorTotal', 'visitors', 'uv']),
+                            'last_week_visitors' => $this->metricRawValue($metrics, ['lastWeekVisitors', 'lastVisitorTotal', 'last_week_visitors']),
                             'visitor_peer_avg' => $this->metricRawValue($metrics, ['visitorPeerAvg', 'peerAvgVisitors', 'peer_avg_visitors']),
+                            'visitor_lagging' => $visitorLagging,
+                            'booking_order_count' => $this->metricRawValue($metrics, ['bookingOrderCount', 'preorderOrders', 'bookOrderNum', 'orders']),
+                            'in_house_room_nights' => $this->metricRawValue($metrics, ['inHouseRoomNights', 'inhouseRoomNights', 'stayRoomNights']),
+                            'starting_price' => $this->metricRawValue($metrics, ['startingPrice', 'realtimeStartingPrice', 'minPrice']),
                             'order_conversion_rate' => $this->metricRawValue($metrics, ['orderConversionRate', 'conversionRate', 'flowRate']),
+                            'conversion_peer_avg' => $this->metricRawValue($metrics, ['conversionPeerAvg', 'peerAvgConversion', 'peer_avg_conversion']),
+                            'conversion_lagging' => $conversionLagging,
                         ],
                         'field_facts' => [
                             $this->fieldFact('realtime_visitors', 'traffic', $sourcePath . '.realtimeVisitors', 'online_daily_data.detail_exposure', $visitors),
+                            $this->fieldFact('last_week_visitors', 'traffic', $sourcePath . '.lastWeekVisitors', 'online_daily_data.raw_data.metrics.last_week_visitors', $lastWeekVisitors, 'optional_missing'),
                             $this->fieldFact('visitor_peer_avg', 'traffic', $sourcePath . '.visitorPeerAvg', 'online_daily_data.raw_data.metrics.visitor_peer_avg', $peerAvg, 'optional_missing'),
+                            $this->fieldFact('visitor_lagging', 'traffic', $sourcePath . '.visitorLagging', 'online_daily_data.raw_data.metrics.visitor_lagging', $visitorLagging, 'optional_missing'),
+                            $this->fieldFact('booking_order_count', 'traffic', $sourcePath . '.bookingOrderCount', 'online_daily_data.book_order_num', $bookingOrders, 'optional_missing'),
+                            $this->fieldFact('in_house_room_nights', 'traffic', $sourcePath . '.inHouseRoomNights', 'online_daily_data.quantity', $inHouseRoomNights, 'optional_missing'),
+                            $this->fieldFact('starting_price', 'traffic', $sourcePath . '.startingPrice', 'online_daily_data.raw_data.metrics.starting_price', $startingPrice, 'optional_missing'),
                             $this->fieldFact('order_conversion_rate', 'traffic', $sourcePath . '.orderConversionRate', 'online_daily_data.flow_rate', $conversion),
+                            $this->fieldFact('conversion_peer_avg', 'traffic', $sourcePath . '.conversionPeerAvg', 'online_daily_data.raw_data.metrics.conversion_peer_avg', $conversionPeerAvg, 'optional_missing'),
+                            $this->fieldFact('conversion_lagging', 'traffic', $sourcePath . '.conversionLagging', 'online_daily_data.raw_data.metrics.conversion_lagging', $conversionLagging, 'optional_missing'),
                         ],
                     ],
                 ]), 'ctrip', 'traffic', $sourcePath, 'ctrip_stats', $section);
             }
 
             $rank = $this->metricNumber($metrics, ['realtimeRank', 'rank', 'ranking']);
+            $competitorRank = $this->metricNumber($metrics, ['competitorRank', 'peerRank', 'circleRank']);
+            $competitorTotal = $this->metricNumber($metrics, ['competitorTotal', 'peerTotal', 'circleTotal']);
             if ($rank !== null) {
                 $rankPath = $sourcePath . '.realtimeRank';
                 $rows[] = $this->attachEvidence($this->compact([
@@ -359,6 +423,7 @@ final class OtaBrowserAssistImportService
                     'system_hotel_id' => (int)($section['system_hotel_id'] ?? $section['systemHotelId'] ?? $context['system_hotel_id'] ?? 0),
                     'hotel_id' => $this->cleanText($section['hotel_id'] ?? $section['hotelId'] ?? $context['hotel_id'] ?? ''),
                     'hotel_name' => $this->cleanText($section['hotelName'] ?? $section['hotel_name'] ?? $context['hotel_name'] ?? ''),
+                    'browser_assist_identity' => $identityEvidence,
                     'dimension' => 'realtime:' . $channel . ':rank',
                     'compare_type' => 'channel_realtime_rank',
                     'rank_type' => 'realtime_rank',
@@ -372,11 +437,17 @@ final class OtaBrowserAssistImportService
                         'module' => 'ctrip_stats',
                         'channel' => $channel,
                         'snapshot_time_source' => $snapshot['source'],
+                        'browser_assist_identity' => $identityEvidence,
+                        'source_surfaces' => $this->sourceSurfaceEvidence($section),
                         'rank_metrics' => [
                             'realtime_rank' => $this->metricRawValue($metrics, ['realtimeRank', 'rank', 'ranking']),
+                            'competitor_rank' => $this->metricRawValue($metrics, ['competitorRank', 'peerRank', 'circleRank']),
+                            'competitor_total' => $this->metricRawValue($metrics, ['competitorTotal', 'peerTotal', 'circleTotal']),
                         ],
                         'field_facts' => [
                             $this->fieldFact('realtime_rank', 'peer_rank', $rankPath, 'online_daily_data.data_value/raw_data.rank_metrics.realtime_rank', $rank),
+                            $this->fieldFact('competitor_rank', 'peer_rank', $sourcePath . '.competitorRank', 'online_daily_data.raw_data.rank_metrics.competitor_rank', $competitorRank, 'optional_missing'),
+                            $this->fieldFact('competitor_total', 'peer_rank', $sourcePath . '.competitorTotal', 'online_daily_data.raw_data.rank_metrics.competitor_total', $competitorTotal, 'optional_missing'),
                         ],
                     ],
                 ]), 'ctrip', 'peer_rank', $rankPath, 'ctrip_stats', $section);
@@ -1267,6 +1338,125 @@ final class OtaBrowserAssistImportService
     private function metricNumber(array $metrics, array $keys): ?float
     {
         return $this->toNumber($this->metricRawValue($metrics, $keys));
+    }
+
+    private function metricBoolean(array $metrics, array $keys): ?bool
+    {
+        $value = $this->metricRawValue($metrics, $keys);
+        if ($value === null) {
+            return null;
+        }
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return (float)$value !== 0.0;
+        }
+        $normalized = strtolower(trim((string)$value));
+        if (in_array($normalized, ['true', 'yes', 'y', '1', 'lagging', '落后'], true)) {
+            return true;
+        }
+        if (in_array($normalized, ['false', 'no', 'n', '0', 'leading', '领先'], true)) {
+            return false;
+        }
+        return null;
+    }
+
+    /**
+     * Persist only bounded, non-secret source labels and observation times.
+     *
+     * @param array<string, mixed> $section
+     * @return list<array<string, mixed>>
+     */
+    private function sourceSurfaceEvidence(array $section): array
+    {
+        $items = $section['sourceSurfaces'] ?? $section['source_surfaces'] ?? [];
+        if (!is_array($items)) {
+            return [];
+        }
+        $result = [];
+        foreach (array_slice($items, 0, 12) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $surface = $this->cleanText($item['surface'] ?? '');
+            $channel = strtolower($this->cleanText($item['channel'] ?? ''));
+            $observedAt = $this->normalizeDateTime($item['observedAt'] ?? $item['observed_at'] ?? '');
+            $fields = [];
+            foreach (array_slice((array)($item['fields'] ?? []), 0, 24) as $field) {
+                $field = preg_replace('/[^a-zA-Z0-9_.:-]+/', '', (string)$field) ?? '';
+                if ($field !== '') {
+                    $fields[] = substr($field, 0, 80);
+                }
+            }
+            $entry = $this->compact([
+                'surface' => $surface !== '' ? mb_substr($surface, 0, 80, 'UTF-8') : null,
+                'channel' => in_array($channel, ['ctrip', 'qunar'], true) ? $channel : null,
+                'observed_at' => $observedAt,
+                'fields' => array_values(array_unique($fields)),
+            ]);
+            if ($entry !== []) {
+                $result[] = $entry;
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Store an explicit operator-confirmed mapping for an authenticated page.
+     * This is manual identity evidence and must never be represented as an API
+     * or response-derived platform identifier.
+     *
+     * @param array<string, mixed> $section
+     * @param array<string, mixed> $context
+     * @return array<string, mixed>
+     */
+    private function browserAssistIdentityEvidence(array $section, array $context): array
+    {
+        $identity = $section['identityEvidence'] ?? $section['identity_evidence'] ?? [];
+        if (!is_array($identity)) {
+            return [];
+        }
+        $status = strtolower($this->cleanText($identity['status'] ?? ''));
+        $evidenceType = strtolower($this->cleanText(
+            $identity['evidenceType'] ?? $identity['evidence_type'] ?? ''
+        ));
+        if ($status !== 'operator_confirmed'
+            || $evidenceType !== 'authenticated_page_header'
+        ) {
+            return [];
+        }
+        $systemHotelId = (int)($identity['systemHotelId']
+            ?? $identity['system_hotel_id']
+            ?? $section['system_hotel_id']
+            ?? $section['systemHotelId']
+            ?? $context['system_hotel_id']
+            ?? 0);
+        $expectedHotelName = $this->cleanText(
+            $identity['expectedHotelName'] ?? $identity['expected_hotel_name'] ?? ''
+        );
+        $observedHotelName = $this->cleanText(
+            $identity['observedHotelName'] ?? $identity['observed_hotel_name'] ?? ''
+        );
+        $confirmedAt = $this->normalizeDateTime(
+            $identity['confirmedAt'] ?? $identity['confirmed_at'] ?? ''
+        );
+        if ($systemHotelId <= 0
+            || $expectedHotelName === ''
+            || $observedHotelName === ''
+            || $confirmedAt === ''
+        ) {
+            return [];
+        }
+        return [
+            'status' => 'operator_confirmed',
+            'evidence_type' => 'authenticated_page_header',
+            'system_hotel_id' => $systemHotelId,
+            'expected_hotel_name' => mb_substr($expectedHotelName, 0, 120, 'UTF-8'),
+            'observed_hotel_name' => mb_substr($observedHotelName, 0, 160, 'UTF-8'),
+            'confirmed_at' => $confirmedAt,
+            'source_contract' => self::CONTRACT_VERSION,
+        ];
     }
 
     /**

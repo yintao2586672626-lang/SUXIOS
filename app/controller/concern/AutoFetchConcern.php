@@ -6,15 +6,23 @@ namespace app\controller\concern;
 use app\model\OperationLog;
 use app\model\SystemNotification;
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\CtripCollectorWorkflowService;
 use app\service\OtaProfileBindingService;
 use app\service\OtaProfileSessionProofService;
+use app\service\OtaFailureNotificationService;
+use app\service\OnlineDailyDataPersistenceService;
 use app\service\PlatformProfileBindingReadinessService;
 use app\service\PlatformDataSyncService;
+use app\service\ScheduledAutoFetchPolicy;
 use think\Response;
 use think\facade\Db;
 
 trait AutoFetchConcern
 {
+    use AutoFetchProfileSyncConcern;
+    use CtripAutoFetchExecutionConcern;
+    use MeituanAutoFetchExecutionConcern;
+
     public function autoFetch(): Response
     {
         $this->checkPermission();
@@ -54,11 +62,37 @@ trait AutoFetchConcern
         }
 
         $requestData = $this->requestData();
+        $backgroundTaskId = trim((string)($requestData['task_id'] ?? $requestData['taskId'] ?? ''));
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($requestData['data_period'] ?? $requestData['dataPeriod'] ?? 'realtime_snapshot');
         if ($dataPeriod === '') {
             $dataPeriod = 'realtime_snapshot';
         }
         $targetDataDate = $dataPeriod === 'realtime_snapshot' ? date('Y-m-d') : date('Y-m-d', strtotime('-1 day'));
+        $ctripCollectorFlowInput = trim((string)(
+            $requestData['ctrip_collector_flow']
+            ?? $requestData['ctripCollectorFlow']
+            ?? $requestData['collector_flow']
+            ?? $requestData['collectorFlow']
+            ?? ''
+        ));
+        $ctripFlowOptions = [];
+        if ($ctripCollectorFlowInput !== '') {
+            $ctripWorkflow = new CtripCollectorWorkflowService();
+            $ctripCollectorFlow = $ctripWorkflow->normalizeFlow($ctripCollectorFlowInput);
+            if ($ctripCollectorFlow === '') {
+                return $this->error('Invalid Ctrip collector flow.', 422);
+            }
+            $ctripFlowOptions = $ctripWorkflow->applyFlowOptions([
+                'collector_flow' => $ctripCollectorFlow,
+            ]);
+            $dataPeriod = (string)$ctripFlowOptions['data_period'];
+            $targetDataDate = (string)(
+                $ctripFlowOptions['data_date']
+                ?? ($dataPeriod === 'historical_daily'
+                    ? date('Y-m-d', strtotime('-1 day'))
+                    : date('Y-m-d'))
+            );
+        }
         $interactiveBrowser = filter_var(
             $this->request->post('interactive_browser', $this->request->post('interactiveBrowser', false)),
             FILTER_VALIDATE_BOOLEAN
@@ -74,6 +108,12 @@ trait AutoFetchConcern
             'snapshot_time' => date('Y-m-d H:i:s'),
             'ctrip_section_concurrency' => $this->ctripSectionConcurrencyFromRequest($requestData, 3),
         ];
+        if ($ctripFlowOptions !== []) {
+            $fetchOptions['ctrip_collector_flow'] = (string)$ctripFlowOptions['collector_flow'];
+            $fetchOptions['ctrip_capture_plan'] = (string)$ctripFlowOptions['capture_plan'];
+            $fetchOptions['ctrip_capture_sections'] = (string)$ctripFlowOptions['capture_sections'];
+            $fetchOptions['target_platforms'] = ['ctrip'];
+        }
         if ($autoFetchModeRaw !== null && trim((string)$autoFetchModeRaw) !== '') {
             $fetchOptions['auto_fetch_mode'] = $autoFetchModeRaw;
         }
@@ -115,6 +155,7 @@ trait AutoFetchConcern
         try {
             $result = $this->executeAutoFetch((int)$systemHotelId, $targetDataDate, $fetchOptions);
             $this->updateFetchStatus((int)$systemHotelId, (bool)$result['success'], (string)$result['message'], $targetDataDate, [
+                'task_id' => $backgroundTaskId,
                 'saved_count' => (int)($result['saved_count'] ?? 0),
                 'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
                 'platform_results' => $result['platform_results'] ?? [],
@@ -164,6 +205,7 @@ trait AutoFetchConcern
             ]);
 
             $this->updateFetchStatus((int)$systemHotelId, false, 'auto_fetch_execution_failed', $targetDataDate, [
+                'task_id' => $backgroundTaskId,
                 'data_period' => $dataPeriod,
                 'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
             ]);
@@ -220,9 +262,13 @@ trait AutoFetchConcern
             'meituan_auto_fetch_mode' => $fetchOptions['meituan_auto_fetch_mode'] ?? $mode,
             'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
         ];
+        if (trim((string)($fetchOptions['ctrip_collector_flow'] ?? '')) !== '') {
+            $body['ctrip_collector_flow'] = (string)$fetchOptions['ctrip_collector_flow'];
+        }
         $body = array_merge($body, $bodyOverrides);
         $apiPath = '/' . ltrim($apiPath, '/');
         $inputPath = $dir . DIRECTORY_SEPARATOR . 'input.json';
+        $authorizationEnv = $this->autoFetchAuthorizationEnvName($taskId);
         $task = [
             'task_id' => $taskId,
             'hotel_id' => $hotelId,
@@ -230,12 +276,18 @@ trait AutoFetchConcern
             'data_period' => $dataPeriod,
             'api_url' => rtrim($this->request->domain(), '/') . $apiPath,
             'authorization' => $authorization,
+            'authorization_env' => $authorizationEnv,
             'body' => $body,
             'input' => $inputPath,
             'log' => $dir . DIRECTORY_SEPARATOR . 'launcher.log',
             'created_at' => date('Y-m-d H:i:s'),
         ];
-        if (file_put_contents($inputPath, json_encode($task, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) === false) {
+        $persistedTask = $task;
+        unset($persistedTask['authorization']);
+        $encodedTask = json_encode($persistedTask, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        if (!is_string($encodedTask) || file_put_contents($inputPath, $encodedTask) === false) {
+            @unlink($inputPath);
+            @rmdir($dir);
             return [];
         }
 
@@ -248,55 +300,91 @@ trait AutoFetchConcern
         $phpBinary = $this->resolvePhpCliBinary();
         $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
         $inputPath = (string)($task['input'] ?? '');
-        if ($phpBinary === '' || !is_file($thinkPath) || !is_file($inputPath)) {
+        $taskId = trim((string)($task['task_id'] ?? ''));
+        $authorization = trim((string)($task['authorization'] ?? ''));
+        $authorizationEnv = trim((string)($task['authorization_env'] ?? ''));
+        if ($phpBinary === ''
+            || !is_file($thinkPath)
+            || !is_file($inputPath)
+            || !$this->isValidAutoFetchTaskId($taskId)
+            || $authorization === ''
+            || preg_match('/^SUXI_AUTO_FETCH_AUTH_[A-F0-9]{24}$/D', $authorizationEnv) !== 1
+        ) {
             return false;
         }
 
         $dir = dirname($inputPath);
-        $taskId = (string)$task['task_id'];
+        $previousAuthorization = getenv($authorizationEnv);
+        if (!putenv($authorizationEnv . '=' . $authorization)) {
+            return false;
+        }
 
-        if (DIRECTORY_SEPARATOR === '\\') {
-            $batPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.bat';
-            $inputFile = basename($inputPath);
-            $lines = [
-                '@echo off',
-                'setlocal',
-                'set "TASK_DIR=%~dp0"',
-                'pushd "%TASK_DIR%..\..\.." || exit /b 1',
-                $this->quoteWindowsBatchArg($phpBinary)
-                    . ' "%CD%\think"'
-                    . ' "online-data:auto-fetch-once"'
-                    . ' "--task-id=' . $taskId . '"'
-                    . ' "--input=%TASK_DIR%' . $inputFile . '"'
-                    . ' >> "%TASK_DIR%launcher.log" 2>&1',
-                'set "EXIT_CODE=%ERRORLEVEL%"',
-                'popd',
-                'exit /b %EXIT_CODE%',
-            ];
-            if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
+        try {
+            if (DIRECTORY_SEPARATOR === '\\') {
+                $batPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.bat';
+                $inputFile = basename($inputPath);
+                $lines = [
+                    '@echo off',
+                    'setlocal',
+                    'set "TASK_DIR=%~dp0"',
+                    'pushd "%TASK_DIR%..\..\.." || exit /b 1',
+                    $this->quoteWindowsBatchArg($phpBinary)
+                        . ' "%CD%\think"'
+                        . ' "online-data:auto-fetch-once"'
+                        . ' "--task-id=' . $taskId . '"'
+                        . ' "--input=%TASK_DIR%' . $inputFile . '"'
+                        . ' >> "%TASK_DIR%launcher.log" 2>&1',
+                    'set "EXIT_CODE=%ERRORLEVEL%"',
+                    'if exist "%TASK_DIR%' . $inputFile . '" del /f /q "%TASK_DIR%' . $inputFile . '"',
+                    'popd',
+                    'exit /b %EXIT_CODE%',
+                ];
+                if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
+                    return false;
+                }
+                return $this->launchWindowsBatchFile($batPath);
+            }
+
+            $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
+            $command = 'cd ' . escapeshellarg($projectRoot)
+                . ' && ' . escapeshellarg($phpBinary)
+                . ' ' . escapeshellarg($thinkPath)
+                . ' online-data:auto-fetch-once'
+                . ' --task-id=' . escapeshellarg($taskId)
+                . ' --input=' . escapeshellarg($inputPath)
+                . ' >> ' . escapeshellarg((string)$task['log']) . ' 2>&1';
+            $shellScript = "#!/bin/sh\n"
+                . $command . "\n"
+                . 'exit_code=$?' . "\n"
+                . 'rm -f -- ' . escapeshellarg($inputPath) . "\n"
+                . 'exit $exit_code' . "\n";
+            if (file_put_contents($shellPath, $shellScript) === false) {
                 return false;
             }
-            return $this->launchWindowsBatchFile($batPath);
+            @chmod($shellPath, 0755);
+            $handle = @popen('sh ' . escapeshellarg($shellPath) . ' >/dev/null 2>&1 &', 'r');
+            if (!is_resource($handle)) {
+                return false;
+            }
+            pclose($handle);
+            return true;
+        } finally {
+            if ($previousAuthorization === false) {
+                putenv($authorizationEnv);
+            } else {
+                putenv($authorizationEnv . '=' . $previousAuthorization);
+            }
         }
+    }
 
-        $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
-        $command = 'cd ' . escapeshellarg($projectRoot)
-            . ' && ' . escapeshellarg($phpBinary)
-            . ' ' . escapeshellarg($thinkPath)
-            . ' online-data:auto-fetch-once'
-            . ' --task-id=' . escapeshellarg($taskId)
-            . ' --input=' . escapeshellarg($inputPath)
-            . ' >> ' . escapeshellarg((string)$task['log']) . ' 2>&1';
-        if (file_put_contents($shellPath, "#!/bin/sh\n" . $command . "\n") === false) {
-            return false;
-        }
-        @chmod($shellPath, 0755);
-        $handle = @popen('sh ' . escapeshellarg($shellPath) . ' >/dev/null 2>&1 &', 'r');
-        if (!is_resource($handle)) {
-            return false;
-        }
-        pclose($handle);
-        return true;
+    private function autoFetchAuthorizationEnvName(string $taskId): string
+    {
+        return 'SUXI_AUTO_FETCH_AUTH_' . strtoupper(substr(hash('sha256', $taskId), 0, 24));
+    }
+
+    private function isValidAutoFetchTaskId(string $taskId): bool
+    {
+        return preg_match('/^auto_fetch_\d+_\d{14}_[a-f0-9]{8}$/D', $taskId) === 1;
     }
 
     private function markAutoFetchRunningStatus(int $hotelId, string $dataDate, string $dataPeriod, array $task, array $fetchOptions): void
@@ -306,6 +394,8 @@ trait AutoFetchConcern
         $status = is_array($status) ? $status : [];
         $runAt = date('Y-m-d H:i:s');
         $mode = $this->normalizeAutoFetchMode($fetchOptions['auto_fetch_mode'] ?? 'hybrid_auto');
+        $ctripConfigured = $this->hasCtripFetchConfigForHotel($hotelId);
+        $meituanConfigured = $this->hasMeituanFetchConfigForHotel($hotelId);
         $status['last_run_time'] = $runAt;
         $status['last_data_date'] = $dataDate;
         $status['auto_fetch_mode'] = $mode;
@@ -315,8 +405,23 @@ trait AutoFetchConcern
         $status['running_task'] = [
             'task_id' => (string)$task['task_id'],
             'started_at' => $runAt,
+            'updated_at' => $runAt,
             'data_date' => $dataDate,
             'data_period' => $dataPeriod,
+            'platforms' => [
+                'ctrip' => [
+                    'platform' => 'ctrip',
+                    'status' => $ctripConfigured ? 'queued' : 'skipped',
+                    'message' => $ctripConfigured ? '等待开始携程采集' : '未配置携程采集路径',
+                    'saved_count' => 0,
+                ],
+                'meituan' => [
+                    'platform' => 'meituan',
+                    'status' => $meituanConfigured ? 'queued' : 'skipped',
+                    'message' => $meituanConfigured ? '等待开始美团采集' : '未配置美团采集路径',
+                    'saved_count' => 0,
+                ],
+            ],
         ];
         $status['last_result'] = [
             'success' => null,
@@ -332,6 +437,54 @@ trait AutoFetchConcern
         cache($statusKey, $status, 86400 * 30);
     }
 
+    private function updateAutoFetchRunningPlatformProgress(
+        int $hotelId,
+        string $platform,
+        string $progressStatus,
+        array $details = []
+    ): void {
+        $platform = strtolower(trim($platform));
+        $progressStatus = strtolower(trim($progressStatus));
+        if ($hotelId <= 0
+            || !in_array($platform, ['ctrip', 'meituan'], true)
+            || !in_array($progressStatus, ['queued', 'running', 'success', 'failed', 'skipped'], true)
+        ) {
+            return;
+        }
+
+        $statusKey = $this->autoFetchStatusKey($hotelId);
+        $status = cache($statusKey) ?: [];
+        if (!is_array($status) || !is_array($status['running_task'] ?? null)) {
+            return;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $platforms = is_array($status['running_task']['platforms'] ?? null)
+            ? $status['running_task']['platforms']
+            : [];
+        $row = is_array($platforms[$platform] ?? null) ? $platforms[$platform] : [];
+        $row['platform'] = $platform;
+        $row['status'] = $progressStatus;
+        $row['updated_at'] = $now;
+        if ($progressStatus === 'running' && empty($row['started_at'])) {
+            $row['started_at'] = $now;
+        }
+        if (in_array($progressStatus, ['success', 'failed', 'skipped'], true)) {
+            $row['finished_at'] = $now;
+        }
+        if (array_key_exists('saved_count', $details)) {
+            $row['saved_count'] = max(0, (int)$details['saved_count']);
+        }
+        if (array_key_exists('message', $details)) {
+            $row['message'] = trim((string)$details['message']);
+        }
+
+        $platforms[$platform] = $row;
+        $status['running_task']['platforms'] = $platforms;
+        $status['running_task']['updated_at'] = $now;
+        cache($statusKey, $status, 86400 * 30);
+    }
+
     private function updateFetchStatus(?int $hotelId, bool $success, string $message, ?string $dataDate = null, array $details = []): void
     {
         $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
@@ -342,13 +495,29 @@ trait AutoFetchConcern
 
         $runAt = date('Y-m-d H:i:s');
         $dataDate = $dataDate ?: date('Y-m-d', strtotime('-1 day'));
+        $taskId = trim((string)($details['task_id'] ?? $details['taskId'] ?? $status['running_task']['task_id'] ?? ''));
         $runRecord = [
             'run_at' => $runAt,
             'data_date' => $dataDate,
             'success' => $success,
             'message' => $message,
         ];
+        if ($taskId !== '') {
+            $runRecord['task_id'] = $taskId;
+        }
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($details['data_period'] ?? $details['dataPeriod'] ?? '');
+        $slotId = trim((string)($details['slot_id'] ?? ''));
+        $normalizePlatforms = static function (mixed $platforms): array {
+            if (!is_array($platforms)) {
+                return [];
+            }
+            return array_values(array_unique(array_filter(array_map(
+                static fn(mixed $platform): string => strtolower(trim((string)$platform)),
+                $platforms
+            ), static fn(string $platform): bool => in_array($platform, ['ctrip', 'meituan'], true))));
+        };
+        $failedPlatforms = $normalizePlatforms($details['failed_platforms'] ?? []);
+        $successfulPlatforms = $normalizePlatforms($details['successful_platforms'] ?? []);
         $statusCode = trim((string)($details['status'] ?? ($success ? 'success' : 'failed')));
         if ($statusCode !== '') {
             $runRecord['status'] = $statusCode;
@@ -356,6 +525,11 @@ trait AutoFetchConcern
         if ($dataPeriod !== '') {
             $runRecord['data_period'] = $dataPeriod;
         }
+        if ($slotId !== '') {
+            $runRecord['slot_id'] = $slotId;
+        }
+        $runRecord['failed_platforms'] = $failedPlatforms;
+        $runRecord['successful_platforms'] = $successfulPlatforms;
         if (array_key_exists('saved_count', $details)) {
             $runRecord['saved_count'] = (int)$details['saved_count'];
         }
@@ -366,12 +540,22 @@ trait AutoFetchConcern
         if (!empty($details['platform_results']) && is_array($details['platform_results'])) {
             $runRecord['platform_results'] = $details['platform_results'];
         }
+        foreach (['authority_verifier', 'trust_receipt', 'gap_report'] as $evidenceField) {
+            if (is_array($details[$evidenceField] ?? null)) {
+                $runRecord[$evidenceField] = $details[$evidenceField];
+            }
+        }
         if (!empty($details['timing']) && is_array($details['timing'])) {
             $runRecord['timing'] = $this->normalizeAutoFetchTiming($details['timing']);
         }
         if (array_key_exists('ctrip_section_concurrency', $details)) {
             $runRecord['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
             $status['ctrip_section_concurrency'] = $runRecord['ctrip_section_concurrency'];
+        }
+        foreach (['attempts', 'max_attempts', 'next_retry_at', 'retry_exhausted'] as $retryField) {
+            if (array_key_exists($retryField, $details)) {
+                $runRecord[$retryField] = $details[$retryField];
+            }
         }
 
         $status['last_run_time'] = $runAt;
@@ -382,9 +566,17 @@ trait AutoFetchConcern
             'message' => $message,
             'status' => $statusCode,
         ];
+        if ($taskId !== '') {
+            $status['last_result']['task_id'] = $taskId;
+        }
         if ($dataPeriod !== '') {
             $status['last_result']['data_period'] = $dataPeriod;
         }
+        if ($slotId !== '') {
+            $status['last_result']['slot_id'] = $slotId;
+        }
+        $status['last_result']['failed_platforms'] = $failedPlatforms;
+        $status['last_result']['successful_platforms'] = $successfulPlatforms;
         if (array_key_exists('saved_count', $details)) {
             $status['last_result']['saved_count'] = (int)$details['saved_count'];
         }
@@ -396,11 +588,21 @@ trait AutoFetchConcern
         if (!empty($details['platform_results']) && is_array($details['platform_results'])) {
             $status['last_result']['platform_results'] = $details['platform_results'];
         }
+        foreach (['authority_verifier', 'trust_receipt', 'gap_report'] as $evidenceField) {
+            if (is_array($details[$evidenceField] ?? null)) {
+                $status['last_result'][$evidenceField] = $details[$evidenceField];
+            }
+        }
         if (!empty($details['timing']) && is_array($details['timing'])) {
             $status['last_result']['timing'] = $this->normalizeAutoFetchTiming($details['timing']);
         }
         if (array_key_exists('ctrip_section_concurrency', $details)) {
             $status['last_result']['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
+        }
+        foreach (['attempts', 'max_attempts', 'next_retry_at', 'retry_exhausted'] as $retryField) {
+            if (array_key_exists($retryField, $details)) {
+                $status['last_result'][$retryField] = $details[$retryField];
+            }
         }
 
         $recentRuns = $status['recent_runs'] ?? [];
@@ -410,15 +612,36 @@ trait AutoFetchConcern
 
         $failedRecords = $status['failed_records'] ?? [];
         $failedRecords = is_array($failedRecords) ? $failedRecords : [];
-        $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate) {
-            return (string)($item['data_date'] ?? '') !== $dataDate;
+        $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate, $dataPeriod, $slotId) {
+            if ($slotId !== '' && trim((string)($item['slot_id'] ?? '')) !== '') {
+                return trim((string)$item['slot_id']) !== $slotId;
+            }
+            if ((string)($item['data_date'] ?? '') !== $dataDate) {
+                return true;
+            }
+            $itemPeriod = $this->normalizeOnlineDailyDataPeriod($item['data_period'] ?? '');
+            return $dataPeriod !== '' && $itemPeriod !== '' && $itemPeriod !== $dataPeriod;
         }));
         if (!$success && !in_array($statusCode, ['running', 'queued'], true)) {
-            array_unshift($failedRecords, [
+            $failedRecord = [
                 'data_date' => $dataDate,
                 'last_failed_at' => $runAt,
                 'message' => $message,
-            ]);
+            ];
+            if ($dataPeriod !== '') {
+                $failedRecord['data_period'] = $dataPeriod;
+            }
+            if ($slotId !== '') {
+                $failedRecord['slot_id'] = $slotId;
+            }
+            $failedRecord['failed_platforms'] = $failedPlatforms;
+            $failedRecord['successful_platforms'] = $successfulPlatforms;
+            foreach (['attempts', 'max_attempts', 'next_retry_at', 'retry_exhausted'] as $retryField) {
+                if (array_key_exists($retryField, $details)) {
+                    $failedRecord[$retryField] = $details[$retryField];
+                }
+            }
+            array_unshift($failedRecords, $failedRecord);
         }
         $status['failed_records'] = array_slice($failedRecords, 0, 30);
 
@@ -433,6 +656,30 @@ trait AutoFetchConcern
 
         $dataDate = $dataDate ?: date('Y-m-d');
         $savedCount = (int)($details['saved_count'] ?? 0);
+        try {
+            (new OtaFailureNotificationService())->recordCollectionOutcome([
+                'hotel_id' => $hotelId,
+                'platform' => $this->notificationPlatformFromResults($details['platform_results'] ?? []),
+                'platform_results' => $details['platform_results'] ?? [],
+                'success' => $success,
+                'saved_count' => $savedCount,
+                'message' => $message,
+                'data_date' => $dataDate,
+                'actor_user_id' => (int)($this->currentUser->id ?? 0),
+            ]);
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('OTA failure notifier execution failed', [
+                'hotel_id' => $hotelId,
+                'action' => $action,
+                'exception_type' => get_debug_type($e),
+            ]);
+        }
+
+        // Failed outcomes are delivered only to the resolved submitter by the service above.
+        if (!$success) {
+            return;
+        }
+
         $isRetry = $action === 'retry_auto_fetch';
         $isManualFetch = $action === 'manual_fetch';
         $title = $success
@@ -556,7 +803,10 @@ trait AutoFetchConcern
 
     private function normalizeAutoFetchScheduleStatus(array $status): array
     {
-        $historicalTime = $this->normalizeFetchScheduleTime((string)($status['historical_schedule_time'] ?? $status['schedule_time'] ?? '10:00')) ?? '10:00';
+        $historicalTime = $this->normalizeFetchScheduleTime((string)($status['historical_schedule_time'] ?? $status['schedule_time'] ?? '08:30')) ?? '08:30';
+        if ($historicalTime > '08:30') {
+            $historicalTime = '08:30';
+        }
         $realtimeMinute = $this->normalizeAutoFetchScheduleMinute($status['realtime_schedule_minute'] ?? $status['schedule_minute'] ?? 5);
         if ($realtimeMinute === null) {
             $realtimeMinute = 5;
@@ -795,6 +1045,10 @@ trait AutoFetchConcern
 
     private function hasMeituanFetchConfigForHotel(int $hotelId): bool
     {
+        if ($this->hasEnabledMeituanBrowserProfileDataSources($hotelId)) {
+            return true;
+        }
+
         $fetchConfig = $this->resolveMeituanFetchConfigForHotel($hotelId);
         $apiStatus = $this->meituanAutoFetchConfigStatus($fetchConfig, $hotelId);
         if (!empty($apiStatus['api_configured']) || $this->meituanProfileExistsForConfig($fetchConfig)) {
@@ -849,6 +1103,11 @@ trait AutoFetchConcern
     private function hasEnabledCtripBrowserProfileDataSources(int $hotelId): bool
     {
         return $this->listEnabledCtripBrowserProfileDataSources($hotelId) !== [];
+    }
+
+    private function hasEnabledMeituanBrowserProfileDataSources(int $hotelId): bool
+    {
+        return $this->listEnabledBrowserProfileDataSources($hotelId, 'meituan') !== [];
     }
 
     private function autoFetchLightConfigListCacheKey(string $platform): string
@@ -964,7 +1223,7 @@ trait AutoFetchConcern
 
         try {
             $query = Db::name('platform_data_sources')
-                ->field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')
+                ->field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status,last_sync_status,last_error')
                 ->where('enabled', 1)
                 ->where('status', '<>', 'disabled')
                 ->where('system_hotel_id', $hotelId)
@@ -1001,8 +1260,8 @@ trait AutoFetchConcern
     private function filterCollectableBrowserProfileDataSources(array $sources, string $platform = ''): array
     {
         $platform = strtolower(trim($platform));
-        $verified = [];
         $proofService = new OtaProfileSessionProofService();
+        $verified = [];
         foreach ($sources as $source) {
             if (!is_array($source)) {
                 continue;
@@ -1020,7 +1279,7 @@ trait AutoFetchConcern
             if (!in_array($status, ['ready', 'success', 'partial_success'], true)) {
                 continue;
             }
-            if (!$proofService->isCurrentVerified($source)) {
+            if (empty($proofService->profileReuseState($source)['is_reusable'])) {
                 continue;
             }
             $verified[] = $source;
@@ -1253,9 +1512,12 @@ trait AutoFetchConcern
             ),
             'timeout_seconds' => max(60, min(900, (int)($requestData['timeout_seconds'] ?? 600))),
             'login_timeout_ms' => max(30000, min(600000, (int)($requestData['login_timeout_ms'] ?? 300000))),
-            'post_login_wait_ms' => max(0, min(600000, (int)($requestData['post_login_wait_ms'] ?? $requestData['postLoginWaitMs'] ?? 120000))),
+            'post_login_wait_ms' => max(0, min(600000, (int)($requestData['post_login_wait_ms'] ?? $requestData['postLoginWaitMs'] ?? 5000))),
             'capture_sections' => $this->platformProfileLoginSourceCaptureSections($platform, $requestData, [], ''),
         ];
+        if ($this->platformProfileLoginRequestFlag($requestData['allow_existing_local_profile_rebind'] ?? false)) {
+            $prepared['allow_existing_local_profile_rebind'] = true;
+        }
         $sourceId = (int)($requestData['data_source_id'] ?? $requestData['source_id'] ?? 0);
         if ($sourceId > 0) {
             $prepared['data_source_id'] = $sourceId;
@@ -1322,6 +1584,7 @@ trait AutoFetchConcern
 
     private function createPlatformProfileLoginTask(string $platform, int $hotelId, string $profileKey, array $requestData): array
     {
+        $this->assertPlatformProfileLoginBackoffClear($platform, $hotelId, $profileKey);
         $requestData = $this->preparePlatformProfileLoginRequest($platform, $requestData, $hotelId, $profileKey);
         $projectRoot = dirname(__DIR__, 3);
         $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'platform_profile_login';
@@ -1379,6 +1642,43 @@ trait AutoFetchConcern
         return $task;
     }
 
+    private function assertPlatformProfileLoginBackoffClear(string $platform, int $hotelId, string $profileKey): void
+    {
+        $cached = $this->readPlatformProfileStatusCache($platform, $hotelId, $profileKey);
+        $nextRetryTimestamp = $this->platformProfileLoginBackoffUntil($cached, time());
+        if ($nextRetryTimestamp <= 0) {
+            return;
+        }
+
+        throw new \RuntimeException(
+            '平台风控退避中，已停止自动重试；请在 ' . date('Y-m-d H:i:s', $nextRetryTimestamp) . ' 后由账号使用者人工复核'
+        );
+    }
+
+    private function platformProfileLoginBackoffUntil(array $cached, ?int $nowTimestamp = null): int
+    {
+        if (strtolower(trim((string)($cached['status_code'] ?? ''))) !== 'anti_bot') {
+            return 0;
+        }
+
+        $nowTimestamp ??= time();
+        $sessionProbe = is_array($cached['session_probe'] ?? null) ? $cached['session_probe'] : [];
+        $captureGate = is_array($cached['capture_gate'] ?? null) ? $cached['capture_gate'] : [];
+        $nextRetryAt = trim((string)($sessionProbe['next_retry_at'] ?? $captureGate['next_retry_at'] ?? ''));
+        $nextRetryTimestamp = $nextRetryAt !== '' ? strtotime($nextRetryAt) : false;
+        if ($nextRetryTimestamp === false) {
+            $checkedAt = trim((string)($cached['checked_at'] ?? ''));
+            $checkedTimestamp = $checkedAt !== '' ? strtotime($checkedAt) : false;
+            if ($checkedTimestamp === false) {
+                return 0;
+            }
+            $retryAfterSeconds = max(60, (int)($sessionProbe['retry_after_seconds'] ?? $captureGate['retry_after_seconds'] ?? 900));
+            $nextRetryTimestamp = $checkedTimestamp + $retryAfterSeconds;
+        }
+
+        return $nextRetryTimestamp > $nowTimestamp ? (int)$nextRetryTimestamp : 0;
+    }
+
     private function launchPlatformProfileLoginTask(array $task): bool
     {
         $projectRoot = dirname(__DIR__, 3);
@@ -1414,7 +1714,14 @@ trait AutoFetchConcern
             if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
                 return false;
             }
-            return $this->launchWindowsBatchFile($batPath);
+            if (!$this->launchWindowsBatchFile($batPath)) {
+                return false;
+            }
+            if (!$this->waitForPlatformProfileLoginTaskStart($taskId)) {
+                $this->appendWindowsLauncherDiagnostic($batPath, 'Profile login process did not leave queued state after launch.');
+                return false;
+            }
+            return true;
         }
 
         $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
@@ -1463,6 +1770,11 @@ trait AutoFetchConcern
 
     private function launchWindowsBatchFile(string $batPath): bool
     {
+        if ($this->launchWindowsBatchFileWithPowerShell($batPath)) {
+            return true;
+        }
+        $this->appendWindowsLauncherDiagnostic($batPath, 'PowerShell launcher failed; falling back to wscript.');
+
         $launcherPath = $this->createWindowsBatchLauncher($batPath);
         if ($launcherPath !== '' && $this->launchWindowsScriptHost($launcherPath)) {
             return true;
@@ -1474,6 +1786,71 @@ trait AutoFetchConcern
         $this->appendWindowsLauncherDiagnostic($batPath, 'wscript launcher did not confirm execution; falling back to cmd start.');
 
         return $this->launchWindowsBatchFileWithStart($batPath);
+    }
+
+    private function launchWindowsBatchFileWithPowerShell(string $batPath): bool
+    {
+        $powershell = $this->resolveWindowsPowerShellBinary();
+        if ($powershell === '') {
+            return false;
+        }
+
+        $cmd = (string)(getenv('COMSPEC') ?: 'cmd.exe');
+        $arguments = "@('/d', '/c', 'call', " . $this->quotePowerShellSingleQuotedString($batPath) . ')';
+        $script = '$process = Start-Process -FilePath '
+            . $this->quotePowerShellSingleQuotedString($cmd)
+            . ' -ArgumentList '
+            . $arguments
+            . ' -WorkingDirectory '
+            . $this->quotePowerShellSingleQuotedString(dirname($batPath))
+            . ' -WindowStyle Hidden -PassThru; if ($null -eq $process) { exit 1 }; exit 0';
+        $encoded = $this->encodeWindowsPowerShellCommand($script);
+        if ($encoded === '') {
+            return false;
+        }
+
+        $command = $this->quoteWindowsBatchArg($powershell)
+            . ' -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand '
+            . $encoded
+            . ' 2>&1';
+        $handle = @popen($command, 'r');
+        if (!is_resource($handle)) {
+            return false;
+        }
+        stream_get_contents($handle);
+        return pclose($handle) === 0;
+    }
+
+    private function resolveWindowsPowerShellBinary(): string
+    {
+        $systemRoot = rtrim((string)(getenv('SystemRoot') ?: 'C:\\Windows'), "\\/");
+        $candidates = array_filter([
+            $systemRoot !== '' ? $systemRoot . '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' : '',
+            'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+            'powershell.exe',
+        ]);
+
+        foreach ($candidates as $candidate) {
+            if ($candidate === 'powershell.exe' || is_file($candidate)) {
+                return $candidate;
+            }
+        }
+        return '';
+    }
+
+    private function waitForPlatformProfileLoginTaskStart(string $taskId, int $timeoutMs = 5000): bool
+    {
+        $deadline = microtime(true) + max(500, $timeoutMs) / 1000;
+        do {
+            $task = $this->readPlatformProfileLoginTask($taskId);
+            $status = strtolower(trim((string)($task['status'] ?? '')));
+            if ($status !== '' && $status !== 'queued') {
+                return true;
+            }
+            usleep(100000);
+        } while (microtime(true) < $deadline);
+
+        return false;
     }
 
     private function launchWindowsScriptHost(string $launcherPath): bool
@@ -1622,6 +1999,12 @@ trait AutoFetchConcern
         if ($currentKey !== '') {
             cache($currentKey, $task, 86400);
         }
+
+        $platform = strtolower(trim((string)($task['platform'] ?? '')));
+        $hotelId = (int)($task['system_hotel_id'] ?? 0);
+        if (in_array($platform, ['ctrip', 'meituan'], true) && $hotelId > 0) {
+            cache($this->platformProfileLoginHotelCurrentCacheKey($platform, $hotelId), $task, 86400);
+        }
     }
 
     private function readPlatformProfileLoginTask(string $taskId): array
@@ -1636,6 +2019,12 @@ trait AutoFetchConcern
         return is_array($task) ? $this->sanitizePlatformProfileLoginCachePayload($task) : [];
     }
 
+    private function readPlatformProfileLoginHotelCurrentTask(string $platform, int $hotelId): array
+    {
+        $task = cache($this->platformProfileLoginHotelCurrentCacheKey($platform, $hotelId));
+        return is_array($task) ? $this->sanitizePlatformProfileLoginCachePayload($task) : [];
+    }
+
     private function platformProfileLoginTaskCacheKey(string $taskId): string
     {
         $safeTaskId = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $taskId) ?: 'default';
@@ -1645,6 +2034,11 @@ trait AutoFetchConcern
     private function platformProfileLoginCurrentCacheKey(string $platform, int $hotelId, string $profileKey): string
     {
         return 'platform_profile_login_current_' . $platform . '_' . $hotelId . '_' . BrowserProfileCaptureRequestService::safeFilePart($profileKey);
+    }
+
+    private function platformProfileLoginHotelCurrentCacheKey(string $platform, int $hotelId): string
+    {
+        return 'platform_profile_login_hotel_current_' . $platform . '_' . $hotelId;
     }
 
     private function platformProfileLoginProfileDir(string $platform, string $profileKey): string
@@ -1664,13 +2058,14 @@ trait AutoFetchConcern
             $task['message'] = '登录任务未真正启动浏览器，请重新触发登录；若仍无窗口，请检查 PHP/Apache 是否运行在可见桌面会话。';
             $task['finished_at'] = $task['finished_at'] ?? date('Y-m-d H:i:s');
         }
-        $task['done'] = in_array($status, ['logged_in', 'failed'], true);
+        $task['done'] = in_array($status, ['logged_in', 'session_ready_identity_unverified', 'failed'], true);
         $task['status_text'] = match ($status) {
             'queued' => '登录任务已提交',
-            'browser_opened' => '浏览器已打开，等待人工登录',
+            'browser_opened' => '浏览器已打开，自动检测登录中',
             'running' => '正在检测登录状态',
             'syncing_after_login' => '登录已完成，正在同步目标日数据',
             'logged_in' => '登录态已验证',
+            'session_ready_identity_unverified' => 'Session 可用，门店身份待核验',
             'failed' => '登录失败',
             default => '等待处理',
         };
@@ -1705,13 +2100,23 @@ trait AutoFetchConcern
             return false;
         }));
         $identityBlocked = count(array_filter($items, static fn(array $item): bool => ($item['p0_readiness']['status'] ?? '') === 'blocked'));
+        $loginTasks = [];
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $task = $this->readPlatformProfileLoginHotelCurrentTask($platform, $hotelId);
+            if ($task !== []) {
+                $loginTasks[$platform] = $this->normalizePlatformProfileLoginTask($task);
+            }
+        }
 
         return [
             'system_hotel_id' => $hotelId,
             'items' => $items,
+            'login_tasks' => $loginTasks,
             'summary' => [
                 'configured' => count(array_filter($items, static fn(array $item): bool => $item['status_code'] !== 'unconfigured')),
                 'logged_in' => count(array_filter($items, static fn(array $item): bool => $item['status_code'] === 'logged_in')),
+                'reusable' => count(array_filter($items, static fn(array $item): bool => in_array($item['status_code'], ['logged_in', 'profile_reusable', 'renewal_warning'], true))),
+                'renewal_warning' => count(array_filter($items, static fn(array $item): bool => $item['status_code'] === 'renewal_warning')),
                 'needs_login' => count(array_filter($items, static fn(array $item): bool => in_array($item['status_code'], ['waiting_login', 'login_expired'], true))),
                 'ready_to_collect' => $readyToCollect,
                 'needs_identity_check' => $needsIdentityCheck,
@@ -1801,6 +2206,8 @@ trait AutoFetchConcern
             'current_status' => $this->platformProfileStatusText($statusCode),
             'status_code' => $statusCode,
             'auth_status' => $cache['auth_status'] ?? null,
+            'session_probe' => $cache['session_probe'] ?? null,
+            'capture_gate' => $cache['capture_gate'] ?? null,
             'primary_action' => $primaryAction,
             'next_action' => (string)($primaryAction['next_action'] ?? '') ?: $this->platformProfileNextAction($statusCode, $platform),
         ];
@@ -1903,6 +2310,16 @@ trait AutoFetchConcern
         if (!$profileExists) {
             return 'waiting_login';
         }
+        $proofService = is_array($source) ? new OtaProfileSessionProofService() : null;
+        $persistedBlockingStatus = $proofService?->currentSessionBlockingStatus($source) ?? '';
+        if ($persistedBlockingStatus !== '') {
+            return match ($persistedBlockingStatus) {
+                'identity_mismatch' => 'hotel_mismatch',
+                'identity_unverified' => 'hotel_identity_unverified',
+                'login_required' => 'login_expired',
+                default => $persistedBlockingStatus,
+            };
+        }
         if ($this->platformProfileSourceHasHotelMismatchError($source)) {
             return 'hotel_mismatch';
         }
@@ -1918,16 +2335,56 @@ trait AutoFetchConcern
         if ($this->platformProfileSourceHasLoginExpiredError($source)) {
             return 'login_expired';
         }
-        if (in_array((string)($cache['status_code'] ?? ''), ['session_expired', 'login_expired', 'login_required'], true)) {
-            return (string)($cache['status_code'] ?? '') === 'session_expired' ? 'session_expired' : 'login_expired';
+        $cachedStatusCode = strtolower(trim((string)($cache['status_code'] ?? '')));
+        $cachedBlockingStatusCode = in_array($cachedStatusCode, [
+            'anti_bot', 'cookies_incomplete', 'hotel_mismatch', 'hotel_identity_unverified',
+            'capture_failed', 'session_expired', 'login_expired', 'login_required', 'platform_contract_drift',
+            'permission_denied',
+        ], true) ? $cachedStatusCode : '';
+        if ($cachedBlockingStatusCode !== ''
+            && $this->platformProfileBlockingCacheIsAtLeastAsFreshAsProof($cache, $source)
+        ) {
+            return $cachedBlockingStatusCode === 'login_required' ? 'login_expired' : $cachedBlockingStatusCode;
         }
-        if (is_array($source) && (new OtaProfileSessionProofService())->isCurrentVerified($source)) {
+        if ($proofService !== null && $proofService->isCurrentVerified($source)) {
             return 'logged_in';
+        }
+        if ($cachedBlockingStatusCode !== '') {
+            return $cachedBlockingStatusCode === 'login_required' ? 'login_expired' : $cachedBlockingStatusCode;
         }
         if (in_array((string)($source['last_sync_status'] ?? ''), ['failed', 'partial_success'], true)) {
             return 'capture_failed';
         }
+        if (is_array($source)) {
+            $proofService ??= new OtaProfileSessionProofService();
+            $reuseState = $proofService->profileReuseState($source);
+            if (($reuseState['status'] ?? '') === 'renewal_warning') {
+                return 'renewal_warning';
+            }
+            if (($reuseState['status'] ?? '') === 'reusable') {
+                return 'profile_reusable';
+            }
+            if (($reuseState['status'] ?? '') === 'expired') {
+                return 'login_expired';
+            }
+            return 'waiting_login';
+        }
         return 'waiting_login';
+    }
+
+    private function platformProfileBlockingCacheIsAtLeastAsFreshAsProof(array $cache, ?array $source): bool
+    {
+        $cacheCheckedAt = trim((string)($cache['checked_at'] ?? ''));
+        $cacheTimestamp = $cacheCheckedAt !== '' ? strtotime($cacheCheckedAt) : false;
+        if ($cacheTimestamp === false || !is_array($source)) {
+            return true;
+        }
+
+        $sourceConfig = json_decode((string)($source['config_json'] ?? ''), true);
+        $sourceConfig = is_array($sourceConfig) ? $sourceConfig : [];
+        $proofAt = trim((string)($sourceConfig['current_session_probe_at'] ?? ''));
+        $proofTimestamp = $proofAt !== '' ? strtotime($proofAt) : false;
+        return $proofTimestamp === false || $cacheTimestamp >= $proofTimestamp;
     }
 
     private function platformProfileSourceHasLoginExpiredError(?array $source): bool
@@ -2007,9 +2464,16 @@ trait AutoFetchConcern
     {
         return match ($statusCode) {
             'logged_in' => '登录态已验证',
+            'profile_reusable' => 'Profile 可尝试采集',
+            'renewal_warning' => 'Profile 登录态可用，建议续登',
             'session_expired' => 'session_expired',
             'login_expired' => '登录失效',
-            'anti_bot' => 'anti_bot',
+            'anti_bot' => '平台风控退避中',
+            'platform_contract_drift' => '平台规则疑似变化',
+            'permission_denied' => '平台权限不足',
+            'cookies_incomplete' => '授权信息不完整',
+            'hotel_mismatch' => '门店不匹配',
+            'hotel_identity_unverified' => '门店身份待核验',
             'capture_failed' => '采集失败',
             'waiting_login' => '登录待验证',
             default => '未配置',
@@ -2021,9 +2485,16 @@ trait AutoFetchConcern
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => '登录态已验证；执行目标日同步并检查入库结果',
+            'profile_reusable' => '直接执行采集；仅在平台实际返回登录失效时重新登录',
+            'renewal_warning' => '直接执行采集；建议有空时续登，但不阻塞采集',
             'session_expired' => 'session_expired',
             'login_expired' => '重新登录' . $name . '平台账号',
-            'anti_bot' => 'anti_bot',
+            'anti_bot' => '停止自动重试；等待退避窗口结束后由账号使用者人工复核平台风控',
+            'platform_contract_drift' => '平台返回与当前识别规则不一致；先校准接口规则，不要反复登录',
+            'permission_denied' => '核对平台账号的门店与业务模块权限；不要通过反复登录替代权限处理',
+            'cookies_incomplete' => '由账号使用者在本机刷新平台授权，再重新检测 Session',
+            'hotel_mismatch' => '核对 Profile 与当前门店绑定后重新检测',
+            'hotel_identity_unverified' => '完成一次带平台门店身份校验的最小采集；未核验前不写入门店级登录证明',
             'capture_failed' => '查看最近同步日志后重新检测登录状态',
             'waiting_login' => '点击“登录' . $name . '”完成平台验证',
             default => '先配置酒店与平台账号/Profile 绑定',
@@ -2035,9 +2506,15 @@ trait AutoFetchConcern
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => ['run_profile_capture', '同步并检查入库', 'platform-auto'],
+            'profile_reusable', 'renewal_warning' => ['run_profile_capture', '立即采集', 'platform-auto'],
             'session_expired' => ['login_platform_profile', 'session_expired', 'profile-login'],
             'login_expired' => ['login_platform_profile', '重新登录' . $name, 'profile-login'],
-            'anti_bot' => ['login_platform_profile', 'anti_bot', 'profile-login'],
+            'anti_bot' => ['wait_platform_risk_control', '查看风控与退避状态', 'sync-logs'],
+            'platform_contract_drift' => ['open_sync_logs', '查看规则漂移证据', 'sync-logs'],
+            'permission_denied' => ['open_sync_logs', '查看权限诊断', 'sync-logs'],
+            'cookies_incomplete' => ['login_platform_profile', '刷新' . $name . '授权', 'profile-login'],
+            'hotel_mismatch' => ['configure_platform_profile', '核对门店绑定', 'platform-sources'],
+            'hotel_identity_unverified' => ['run_profile_capture', '采集并核验门店身份', 'platform-auto'],
             'capture_failed' => ['open_sync_logs', '查看日志并检测登录', 'sync-logs'],
             'waiting_login' => ['login_platform_profile', '登录' . $name, 'profile-login'],
             default => ['configure_platform_profile', '配置账号/Profile', 'platform-sources'],
@@ -2794,7 +3271,7 @@ trait AutoFetchConcern
                     'last_run_time' => null,
                     'next_run_time' => '-',
                     'last_result' => null,
-                    'schedule_time' => '10:00',
+                    'schedule_time' => '08:30',
                     'schedule_minute' => 5,
                     'schedule_interval_hours' => 2,
                     'realtime_schedule_interval_hours' => 2,
@@ -2824,7 +3301,7 @@ trait AutoFetchConcern
             'last_run_time' => null,
             'next_run_time' => null,
             'last_result' => null,
-            'schedule_time' => '10:00',
+            'schedule_time' => '08:30',
             'schedule_minute' => 5,
             'schedule_interval_hours' => 2,
             'realtime_schedule_interval_hours' => 2,
@@ -2847,9 +3324,9 @@ trait AutoFetchConcern
             $status['enabled'] = false;
         }
         if (!isset($status['schedule_time'])) {
-            $status['schedule_time'] = '10:00';
+            $status['schedule_time'] = '08:30';
         }
-        $status['schedule_time'] = $this->normalizeFetchScheduleTime((string)$status['schedule_time']) ?? '10:00';
+        $status['schedule_time'] = $this->normalizeFetchScheduleTime((string)$status['schedule_time']) ?? '08:30';
         $status['schedule_minute'] = $this->normalizeAutoFetchScheduleMinute($status['schedule_minute'] ?? null);
         if ($status['schedule_minute'] === null) {
             $status['schedule_minute'] = 5;
@@ -3092,7 +3569,7 @@ trait AutoFetchConcern
             return $status;
         }
         if ($status === 'partial_success') {
-            return $savedCount > 0 ? 'success' : 'failed';
+            return $savedCount > 0 ? 'partial_success' : 'failed';
         }
         return in_array($status, ['failed', 'waiting_config'], true) ? 'failed' : ($savedCount > 0 ? 'success' : 'failed');
     }
@@ -3101,6 +3578,7 @@ trait AutoFetchConcern
     {
         return [
             'success' => '成功',
+            'partial_success' => '部分成功',
             'failed' => '失败',
             'skipped' => '跳过',
             'pending' => '待执行',
@@ -3359,8 +3837,11 @@ trait AutoFetchConcern
         $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
         $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode'] ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
+        if ($enabled && $this->hasMeituanFetchConfigForHotel((int)$hotelId)) {
+            $status['meituan_auto_fetch_mode'] = 'profile_browser';
+        }
         if (!isset($status['schedule_time'])) {
-            $status['schedule_time'] = '10:00';
+            $status['schedule_time'] = '08:30';
         }
         if (!isset($status['schedule_minute'])) {
             $status['schedule_minute'] = 5;
@@ -3412,7 +3893,7 @@ trait AutoFetchConcern
 
         $hotelId = $this->resolveAutoFetchHotelId($this->request->post('hotel_id', null));
         $requestData = $this->requestData();
-        $scheduleTime = $this->normalizeFetchScheduleTime((string)($requestData['historical_schedule_time'] ?? $requestData['historicalScheduleTime'] ?? $this->request->post('schedule_time', '10:00')));
+        $scheduleTime = $this->normalizeFetchScheduleTime((string)($requestData['historical_schedule_time'] ?? $requestData['historicalScheduleTime'] ?? $this->request->post('schedule_time', '08:30')));
         $scheduleMinuteRaw = $requestData['realtime_schedule_minute'] ?? $requestData['realtimeScheduleMinute'] ?? $requestData['schedule_minute'] ?? $requestData['scheduleMinute'] ?? null;
         $scheduleMinute = $this->normalizeAutoFetchScheduleMinute($scheduleMinuteRaw);
         $scheduleIntervalRaw = $requestData['realtime_schedule_interval_hours'] ?? $requestData['realtimeScheduleIntervalHours'] ?? $requestData['schedule_interval_hours'] ?? $requestData['scheduleIntervalHours'] ?? null;
@@ -3471,6 +3952,10 @@ trait AutoFetchConcern
         $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
         $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode'] ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
+        if ($this->hasMeituanFetchConfigForHotel((int)$hotelId)) {
+            // 手动“立即采集”仍由请求显式选择凭据库直连；只有保存到定时状态的美团任务固定复用 Profile。
+            $status['meituan_auto_fetch_mode'] = 'profile_browser';
+        }
         $status['ctrip_section_concurrency'] = $this->ctripSectionConcurrencyFromRequest(
             $requestData,
             (int)($status['ctrip_section_concurrency'] ?? 3)
@@ -3655,7 +4140,11 @@ trait AutoFetchConcern
 
     public function cronTrigger(): Response
     {
-        $rateLimited = $this->checkPublicEndpointRateLimit('cron_trigger', 20, 60);
+        try {
+            $rateLimited = $this->checkPublicEndpointRateLimit('cron_trigger', 20, 60);
+        } catch (\Throwable $exception) {
+            return $this->publicEndpointRateLimiterUnavailableResponse('cron_trigger', $exception);
+        }
         if ($rateLimited !== null) {
             $this->recordPublicEndpointFailure('cron_trigger', 'rate_limited', 429, $rateLimited);
             return json(['code' => 429, 'message' => 'Too Many Requests'], 429);
@@ -3674,24 +4163,46 @@ trait AutoFetchConcern
             return json(['code' => 401, 'message' => 'Unauthorized'], 401);
         }
 
-        $currentTime = date('H:i');
-        $currentMinute = (int)date('i');
-        $currentHour = date('H');
-        $today = date('Y-m-d');
-        $yesterday = date('Y-m-d', strtotime('-1 day'));
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $schedulePolicy = new ScheduledAutoFetchPolicy();
         $results = [];
+        $hasIncompleteDueRun = false;
 
         // 获取所有酒店
-        $hotels = Db::name('hotels')->where('status', 1)->select()->toArray();
+        $hotels = Db::name('hotels')
+            ->field('id,tenant_id,name,status')
+            ->where('status', 1)
+            ->select()
+            ->toArray();
 
         foreach ($hotels as $hotel) {
-            $hotelId = $hotel['id'];
+            $hotelId = (int)($hotel['id'] ?? 0);
+            $tenantId = (int)($hotel['tenant_id'] ?? 0);
+            if ($hotelId <= 0 || $tenantId <= 0) {
+                $hasIncompleteDueRun = true;
+                $results[] = [
+                    'hotel_id' => $hotelId,
+                    'hotel_name' => (string)($hotel['name'] ?? ''),
+                    'status' => 'tenant_scope_invalid',
+                    'message' => 'scheduled_collection_tenant_scope_invalid',
+                ];
+                continue;
+            }
+
+            \app\model\Hotel::runInTenantScope($tenantId, function () use (
+                $hotel,
+                $hotelId,
+                $now,
+                $schedulePolicy,
+                &$results,
+                &$hasIncompleteDueRun
+            ): void {
             $statusKey = "online_data_auto_fetch_status_{$hotelId}";
             $status = cache($statusKey) ?: [];
 
             // 检查是否开启
             if (empty($status['enabled'])) {
-                continue;
+                return;
             }
 
             $status = $this->normalizeAutoFetchScheduleStatus($status);
@@ -3705,85 +4216,290 @@ trait AutoFetchConcern
                 'ctrip_section_concurrency' => $status['ctrip_section_concurrency'] ?? 3,
             ];
 
-            $dueRuns = [];
-            if (!empty($status['historical_enabled']) && $currentTime === (string)$status['historical_schedule_time']) {
-                $dueRuns[] = [
-                    'period' => 'historical_daily',
-                    'data_date' => $yesterday,
-                    'executed_key' => "online_data_historical_executed_{$hotelId}_{$yesterday}",
-                    'executed_message' => '历史固定数据今天已执行',
-                ];
-            }
             $realtimeIntervalHours = (int)($status['realtime_schedule_interval_hours'] ?? $status['schedule_interval_hours'] ?? 2);
-            if (!empty($status['realtime_enabled'])
-                && $currentMinute === (int)$status['realtime_schedule_minute']
-                && $this->isRealtimeAutoFetchHourDue((int)$currentHour, $realtimeIntervalHours)
-            ) {
-                $dueRuns[] = [
-                    'period' => 'realtime_snapshot',
-                    'data_date' => $today,
-                    'executed_key' => "online_data_realtime_executed_{$hotelId}_{$today}_{$currentHour}",
-                    'executed_message' => "实时快照本 {$realtimeIntervalHours} 小时窗口已执行",
-                ];
-            }
+            $retryMaxAttempts = $schedulePolicy->normalizeMaxAttempts($status['retry_max_attempts'] ?? 3);
+            $retryDelayMinutes = $schedulePolicy->normalizeDelayMinutes($status['retry_delay_minutes'] ?? 5);
+            $dueRuns = $schedulePolicy->dueRuns((int)$hotelId, $status, $now);
             if (empty($dueRuns)) {
-                continue;
+                return;
             }
 
             $lockKey = "online_data_profile_lock_{$hotelId}";
-            $ranLockedTask = false;
             foreach ($dueRuns as $run) {
-                if (cache($run['executed_key'])) {
-                    $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'status' => 'skipped', 'message' => $run['executed_message']];
-                    continue;
+                $executedReceipt = cache($run['executed_key']);
+                if ($executedReceipt) {
+                    if ($this->autoFetchExecutedReceiptReady($executedReceipt, $run, $hotelId)) {
+                        $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'slot_id' => $run['slot_id'], 'status' => 'skipped', 'message' => $run['executed_message']];
+                        continue;
+                    }
+                    \think\facade\Cache::delete($run['executed_key']);
                 }
-                if ($ranLockedTask || cache($lockKey)) {
-                    $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'status' => 'skipped_locked', 'message' => '同一 Profile 已有采集任务运行，本次跳过'];
-                    continue;
-                }
-
-                cache($lockKey, true, 7200);
-                $ranLockedTask = true;
-                try {
-                    $result = $this->executeAutoFetch($hotelId, $run['data_date'], array_merge($baseOptions, [
-                        'data_period' => $run['period'],
-                        'snapshot_time' => date('Y-m-d H:i:s'),
-                    ]));
+                $retryState = cache($run['retry_key']) ?: [];
+                $retryState = is_array($retryState) ? $retryState : [];
+                if (!$schedulePolicy->retryDue($retryState, $retryMaxAttempts, $now)) {
+                    $hasIncompleteDueRun = true;
+                    $retryExhausted = (int)($retryState['attempts'] ?? 0) >= $retryMaxAttempts;
                     $results[] = [
                         'hotel_id' => $hotelId,
                         'hotel_name' => $hotel['name'],
                         'data_period' => $run['period'],
-                        'status' => $result['success'] ? 'success' : 'failed',
-                        'message' => $result['message']
+                        'slot_id' => $run['slot_id'],
+                        'status' => $retryExhausted ? 'retry_exhausted' : 'retry_cooldown',
+                        'message' => $retryExhausted ? '自动重试次数已用尽，需人工检查配置' : '等待下一次自动重试',
+                        'next_retry_at' => $retryState['next_retry_at'] ?? null,
+                    ];
+                    if ((string)($run['period'] ?? '') === 'historical_daily') {
+                        $lastReceipt = is_array($retryState['last_receipt'] ?? null)
+                            ? $retryState['last_receipt']
+                            : $schedulePolicy->buildDailyTrustReceipt(
+                                $hotelId,
+                                (string)$run['data_date'],
+                                [],
+                                [
+                                    'complete' => false,
+                                    'status' => 'failed',
+                                    'required_platforms' => ['ctrip', 'meituan'],
+                                ],
+                                ['platform_results' => []],
+                                'historical_daily'
+                            );
+                        $gapReport = $schedulePolicy->buildYesterdayGapReport(
+                            $lastReceipt,
+                            $retryState,
+                            $now
+                        );
+                        $results[count($results) - 1]['gap_report'] = $gapReport;
+                        if (($gapReport['status'] ?? '') === 'gap'
+                            && empty($retryState['gap_report_emitted'])
+                        ) {
+                            $retryState['gap_report'] = $gapReport;
+                            $retryState['gap_report_emitted'] = true;
+                            cache($run['retry_key'], $retryState, 86400 * 2);
+                            $this->updateFetchStatus(
+                                $hotelId,
+                                false,
+                                'yesterday_dual_ota_gap_at_cutoff',
+                                (string)$run['data_date'],
+                                [
+                                    'status' => 'gap',
+                                    'data_period' => 'historical_daily',
+                                    'slot_id' => (string)$run['slot_id'],
+                                    'failed_platforms' => $gapReport['recollection_platforms'] ?? [],
+                                    'gap_report' => $gapReport,
+                                    'attempts' => (int)($retryState['attempts'] ?? 0),
+                                    'max_attempts' => $retryMaxAttempts,
+                                    'next_retry_at' => $retryState['next_retry_at'] ?? null,
+                                    'retry_exhausted' => !empty($retryState['retry_exhausted']),
+                                ]
+                            );
+                        }
+                    }
+                    continue;
+                }
+                if (cache($lockKey)) {
+                    $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'slot_id' => $run['slot_id'], 'status' => 'skipped_locked', 'message' => '同一 Profile 已有采集任务运行，本次跳过'];
+                    $hasIncompleteDueRun = true;
+                    continue;
+                }
+
+                cache($lockKey, true, 7200);
+                try {
+                    try {
+                        $result = $this->executeAutoFetch($hotelId, $run['data_date'], array_merge($baseOptions, [
+                            'data_period' => $run['period'],
+                            'snapshot_time' => date('Y-m-d H:i:s'),
+                            'target_platforms' => $schedulePolicy->normalizePlatforms($run['target_platforms'] ?? []),
+                        ]));
+                    } catch (\Throwable $e) {
+                        \think\facade\Log::error('Cron OTA collection execution failed', [
+                            'hotel_id' => $hotelId,
+                            'data_period' => $run['period'],
+                            'exception_type' => get_debug_type($e),
+                        ]);
+                        $result = [
+                            'success' => false,
+                            'message' => 'scheduled_fetch_exception:' . get_debug_type($e),
+                            'saved_count' => 0,
+                            'platform_results' => [],
+                            'failed_platforms' => $schedulePolicy->normalizePlatforms($run['target_platforms'] ?? []) ?: ['ctrip', 'meituan'],
+                        ];
+                    }
+                    $outcome = $schedulePolicy->classifyOutcome($result);
+                    $executionReceipt = $schedulePolicy->buildDailyTrustReceipt(
+                        $hotelId,
+                        (string)$run['data_date'],
+                        [],
+                        $outcome,
+                        $result,
+                        (string)$run['period']
+                    );
+                    if ((string)$run['period'] === 'historical_daily') {
+                        $authorityReceipt = cache(
+                            "online_data_p0_authority_receipt_{$hotelId}_{$run['data_date']}"
+                        );
+                        if (is_array($authorityReceipt) && $authorityReceipt !== []) {
+                            $executionReceipt = $schedulePolicy->attachAuthorityVerifier(
+                                $executionReceipt,
+                                $authorityReceipt
+                            );
+                        }
+                    }
+                    $trustedReady = $schedulePolicy->dailyTrustReceiptReady(
+                        $executionReceipt,
+                        (string)$run['data_date'],
+                        $hotelId
+                    );
+                    if (!$trustedReady && $outcome['complete']) {
+                        $receiptReadyPlatforms = array_values(array_unique(array_filter(array_map(
+                            static fn($task): string => is_array($task)
+                                && strtolower(trim((string)($task['collection_status'] ?? ''))) === 'success'
+                                ? strtolower(trim((string)($task['platform'] ?? '')))
+                                : '',
+                            is_array($executionReceipt['source_tasks'] ?? null) ? $executionReceipt['source_tasks'] : []
+                        ))));
+                        $authorityVerifier = is_array($executionReceipt['authority_verifier'] ?? null)
+                            ? $executionReceipt['authority_verifier']
+                            : [];
+                        if (($executionReceipt['authority_verifier_required'] ?? true) === true) {
+                            $receiptReadyPlatforms = array_values(array_intersect(
+                                $receiptReadyPlatforms,
+                                $schedulePolicy->normalizePlatforms(
+                                    $authorityVerifier['verified_platforms'] ?? []
+                                )
+                            ));
+                        }
+                        $outcome['complete'] = false;
+                        $outcome['status'] = 'partial_success';
+                        $outcome['successful_platforms'] = array_values(array_intersect(
+                            $outcome['required_platforms'],
+                            $receiptReadyPlatforms
+                        ));
+                        $outcome['failed_platforms'] = array_values(array_diff(
+                            $outcome['required_platforms'],
+                            $receiptReadyPlatforms
+                        ));
+                        if ((string)$run['period'] === 'historical_daily') {
+                            $recollection = $schedulePolicy->buildYesterdayGapReport(
+                                $executionReceipt,
+                                $retryState,
+                                $now
+                            );
+                            $outcome['failed_platforms'] = $schedulePolicy->normalizePlatforms(
+                                $recollection['recollection_platforms'] ?? []
+                            );
+                            $outcome['successful_platforms'] = array_values(array_diff(
+                                $outcome['required_platforms'],
+                                $outcome['failed_platforms']
+                            ));
+                        }
+                        $result['message'] = trim((string)($result['message'] ?? '') . '; dual_ota_p0_receipt_incomplete', '; ');
+                    }
+                    $retryDetails = $outcome['complete']
+                        ? [
+                            'attempts' => (int)($retryState['attempts'] ?? 0) + 1,
+                            'max_attempts' => $retryMaxAttempts,
+                            'next_retry_at' => null,
+                            'retry_exhausted' => false,
+                        ]
+                        : $schedulePolicy->nextRetryState(
+                            $retryState,
+                            $retryMaxAttempts,
+                            $retryDelayMinutes,
+                            $now,
+                            $outcome['status'],
+                            (string)($result['message'] ?? '')
+                        );
+                    $results[] = [
+                        'hotel_id' => $hotelId,
+                        'hotel_name' => $hotel['name'],
+                        'data_period' => $run['period'],
+                        'slot_id' => $run['slot_id'],
+                        'status' => $outcome['status'],
+                        'message' => $result['message'],
+                        'saved_count' => $outcome['saved_count'],
+                        'next_retry_at' => $retryDetails['next_retry_at'],
                     ];
 
-                    $this->updateFetchStatus($hotelId, (bool)$result['success'], (string)$result['message'], $run['data_date'], [
-                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                    $this->updateFetchStatus($hotelId, $outcome['complete'], (string)$result['message'], $run['data_date'], [
+                        'status' => $outcome['status'],
+                        'saved_count' => $outcome['saved_count'],
                         'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
                         'platform_results' => $result['platform_results'] ?? [],
                         'data_period' => $run['period'],
+                        'slot_id' => $run['slot_id'],
+                        'failed_platforms' => $outcome['failed_platforms'],
+                        'successful_platforms' => $outcome['successful_platforms'],
                         'timing' => $result['timing'] ?? [],
                         'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $baseOptions['ctrip_section_concurrency'] ?? 3,
+                        'authority_verifier' => $executionReceipt['authority_verifier'] ?? [],
+                        'trust_receipt' => $executionReceipt,
+                        ...$retryDetails,
                     ]);
-                    cache($run['executed_key'], true, 86400);
+                    $this->recordAutoFetchNotification($hotelId, $outcome['complete'], (string)$result['message'], $run['data_date'], [
+                        'saved_count' => $outcome['saved_count'],
+                        'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
+                        'platform_results' => $result['platform_results'] ?? [],
+                        'data_period' => $run['period'],
+                    ], 'scheduled_auto_fetch');
+                    if ($trustedReady) {
+                        cache($run['executed_key'], $executionReceipt, 86400);
+                        if ((string)$run['period'] === 'historical_daily') {
+                            cache(
+                                'online_data_historical_executed_' . $hotelId . '_' . (string)$run['data_date'],
+                                $executionReceipt,
+                                86400
+                            );
+                        }
+                        \think\facade\Cache::delete($run['retry_key']);
+                    } else {
+                        $retryDetails['last_receipt'] = $executionReceipt;
+                        if ((string)$run['period'] === 'historical_daily') {
+                            $gapReport = $schedulePolicy->buildYesterdayGapReport(
+                                $executionReceipt,
+                                $retryDetails,
+                                $now
+                            );
+                            $retryDetails['gap_report'] = $gapReport;
+                            if (($gapReport['status'] ?? '') === 'gap') {
+                                $retryDetails['gap_report_emitted'] = true;
+                                $results[count($results) - 1]['gap_report'] = $gapReport;
+                            }
+                        }
+                        cache($run['retry_key'], $retryDetails, 86400 * 2);
+                        $hasIncompleteDueRun = true;
+                    }
                 } finally {
                     \think\facade\Cache::delete($lockKey);
                 }
             }
+            });
         }
 
+        $responseCode = $hasIncompleteDueRun ? 503 : 200;
         return json([
-            'code' => 200,
-            'message' => 'ok',
+            'code' => $responseCode,
+            'message' => $hasIncompleteDueRun ? 'scheduled_collection_incomplete' : 'ok',
             'time' => date('Y-m-d H:i:s'),
             'executed' => count($results),
             'results' => $results
-        ]);
+        ], $responseCode);
     }
 
     /**
      * 执行自动获取
      */
+    /** @param array<string, mixed> $run */
+    private function autoFetchExecutedReceiptReady(mixed $receipt, array $run, int $hotelId): bool
+    {
+        return is_array($receipt)
+            && (new ScheduledAutoFetchPolicy())->dailyTrustReceiptReady(
+                $receipt,
+                (string)($run['data_date'] ?? ''),
+                $hotelId
+            );
+    }
+
+    /** Execute automatic OTA fetch. */
     private function executeAutoFetch(int $hotelId, string $dataDate, array $options = []): array
     {
         $options['data_period'] = $this->normalizeOnlineDailyDataPeriod($options['data_period'] ?? $options['dataPeriod'] ?? '') ?: 'historical_daily';
@@ -3802,21 +4518,39 @@ trait AutoFetchConcern
         $totalSaved = 0;
         $attempted = 0;
         $successCount = 0;
+        $targetPlatforms = (new ScheduledAutoFetchPolicy())->normalizePlatforms($options['target_platforms'] ?? []);
+        $fetchCtrip = $targetPlatforms === [] || in_array('ctrip', $targetPlatforms, true);
+        $fetchMeituan = $targetPlatforms === [] || in_array('meituan', $targetPlatforms, true);
 
-        if ($this->hasCtripFetchConfigForHotel($hotelId)) {
+        if ($fetchCtrip && $this->hasCtripFetchConfigForHotel($hotelId)) {
             $attempted++;
+            $this->updateAutoFetchRunningPlatformProgress($hotelId, 'ctrip', 'running', [
+                'message' => '正在采集携程 Profile 与业务接口',
+            ]);
             try {
                 $result = $this->executeCtripAutoFetch($hotelId, $dataDate, $options);
             } catch (\Throwable $e) {
                 \think\facade\Log::warning('Ctrip auto-fetch failed', ['hotel_id' => $hotelId, 'exception_type' => get_debug_type($e)]);
                 $result = ['platform' => 'ctrip', 'success' => false, 'message' => 'ctrip_auto_fetch_failed', 'saved_count' => 0];
             }
+            $this->updateAutoFetchRunningPlatformProgress(
+                $hotelId,
+                'ctrip',
+                !empty($result['success']) ? 'success' : 'failed',
+                [
+                    'saved_count' => (int)($result['saved_count'] ?? 0),
+                    'message' => (string)($result['message'] ?? ''),
+                ]
+            );
             $platformResults[] = $result;
             $totalSaved += (int)($result['saved_count'] ?? 0);
             if (!empty($result['success'])) {
                 $successCount++;
             }
-        } else {
+        } elseif ($fetchCtrip) {
+            $this->updateAutoFetchRunningPlatformProgress($hotelId, 'ctrip', 'skipped', [
+                'message' => '未配置携程凭证',
+            ]);
             $platformResults[] = [
                 'platform' => 'ctrip',
                 'success' => false,
@@ -3828,21 +4562,36 @@ trait AutoFetchConcern
             ];
         }
 
-        if ($this->hasMeituanFetchConfigForHotel($hotelId)) {
+        if ($fetchMeituan && $this->hasMeituanFetchConfigForHotel($hotelId)) {
             $attempted++;
+            $this->updateAutoFetchRunningPlatformProgress($hotelId, 'meituan', 'running', [
+                'message' => '正在采集美团 Profile 与业务接口',
+            ]);
             try {
                 $result = $this->executeMeituanAutoFetch($hotelId, $dataDate, $options);
             } catch (\Throwable $e) {
                 \think\facade\Log::warning('Meituan auto-fetch failed', ['hotel_id' => $hotelId, 'exception_type' => get_debug_type($e)]);
                 $result = ['platform' => 'meituan', 'success' => false, 'message' => 'meituan_auto_fetch_failed', 'saved_count' => 0];
             }
+            $this->updateAutoFetchRunningPlatformProgress(
+                $hotelId,
+                'meituan',
+                !empty($result['success']) ? 'success' : 'failed',
+                [
+                    'saved_count' => (int)($result['saved_count'] ?? 0),
+                    'message' => (string)($result['message'] ?? ''),
+                ]
+            );
             $platformResults[] = $result;
             $totalSaved += (int)($result['saved_count'] ?? 0);
             if (!empty($result['success'])) {
                 $successCount++;
             }
-        } else {
+        } elseif ($fetchMeituan) {
             $message = '未配置美团 Partner ID / POI ID / Cookies';
+            $this->updateAutoFetchRunningPlatformProgress($hotelId, 'meituan', 'skipped', [
+                'message' => $message,
+            ]);
             $platformResults[] = [
                 'platform' => 'meituan',
                 'success' => false,
@@ -3873,11 +4622,19 @@ trait AutoFetchConcern
                 'platform_results' => $platformResults,
                 'timing' => $this->mergeAutoFetchPlatformTiming($platformResults),
                 'ctrip_section_concurrency' => $options['ctrip_section_concurrency'],
+                'target_platforms' => $targetPlatforms,
             ];
         }
 
+        $requestedPlatformCount = count($platformResults);
+        $allRequestedPlatformsSucceeded = $requestedPlatformCount > 0
+            && $successCount === $requestedPlatformCount;
+
         return [
-            'success' => $successCount > 0,
+            'success' => $allRequestedPlatformsSucceeded,
+            'partial_success' => $successCount > 0 && !$allRequestedPlatformsSucceeded,
+            'success_count' => $successCount,
+            'requested_platform_count' => $requestedPlatformCount,
             'message' => implode('；', $messages),
             'saved_count' => $totalSaved,
             'data_period' => $options['data_period'],
@@ -3886,6 +4643,7 @@ trait AutoFetchConcern
             'platform_results' => $platformResults,
             'timing' => $this->mergeAutoFetchPlatformTiming($platformResults),
             'ctrip_section_concurrency' => $options['ctrip_section_concurrency'],
+            'target_platforms' => $targetPlatforms,
         ];
     }
 
@@ -4185,19 +4943,6 @@ trait AutoFetchConcern
         return $result;
     }
 
-    private function isAutoFetchDataConfigUsable(array $config, int $hotelId): bool
-    {
-        if (empty($config)) {
-            return false;
-        }
-        $enabled = $config['enabled'] ?? true;
-        if ($enabled === false || $enabled === 0 || strtolower(trim((string)$enabled)) === 'false') {
-            return false;
-        }
-        $configHotelId = trim((string)$this->firstAutoFetchConfigValue($config, ['system_hotel_id', 'hotelId', 'hotel_id'], ''));
-        return $configHotelId === '' || $configHotelId === (string)$hotelId;
-    }
-
     private function compactAutoFetchTaskBody(array $body): array
     {
         $compacted = [];
@@ -4283,1724 +5028,5 @@ trait AutoFetchConcern
 
         return $tasks;
     }
-
-    private function syncCtripBrowserProfileDataSourcesForAutoFetch(int $hotelId, string $dataDate, bool $interactiveBrowser, ?array $sources = null, array $periodOptions = []): array
-    {
-        $sources = $sources ?? $this->listEnabledCtripBrowserProfileDataSources($hotelId);
-        $sources = $this->filterCollectableBrowserProfileDataSources($sources, 'ctrip');
-        $sources = $this->selectCurrentBrowserProfileDataSources($sources);
-        if (empty($sources)) {
-            return [
-                'attempted' => false,
-                'success' => false,
-                'saved_count' => 0,
-                'message' => '',
-            ];
-        }
-
-        $service = new PlatformDataSyncService();
-        $savedCount = 0;
-        $messages = [];
-        $timing = [];
-        foreach ($sources as $source) {
-            $result = $service->syncDataSource($this->currentUser, (int)$source['id'], [
-                'trigger_type' => 'auto_fetch',
-                'data_date' => $dataDate,
-                'interactive_browser' => $interactiveBrowser,
-                'data_period' => $periodOptions['data_period'] ?? 'historical_daily',
-                'snapshot_time' => $periodOptions['snapshot_time'] ?? date('Y-m-d H:i:s'),
-                'ctrip_section_concurrency' => $periodOptions['ctrip_section_concurrency'] ?? 3,
-            ]);
-            $savedCount += (int)($result['saved_count'] ?? 0);
-            $timing = $this->sumAutoFetchTiming($timing, is_array($result['timing'] ?? null) ? $result['timing'] : []);
-            $messages[] = '数据源' . (int)$source['id'] . ': ' . (string)($result['message'] ?? $result['status'] ?? '-');
-            $this->markCtripProfileStatusFromDataSourceSync($hotelId, $source, $result);
-        }
-
-        return [
-            'attempted' => true,
-            'success' => $savedCount > 0,
-            'saved_count' => $savedCount,
-            'data_period' => $periodOptions['data_period'] ?? 'historical_daily',
-            'timing' => $timing,
-            'message' => $savedCount > 0
-                ? "携程 Profile 数据源同步成功 {$savedCount} 条"
-                : '携程 Profile 数据源同步失败：' . implode('；', array_slice($messages, 0, 3)),
-        ];
-    }
-
-    private function selectCurrentBrowserProfileDataSources(array $sources): array
-    {
-        $sources = array_values(array_filter($sources, static fn($source): bool => is_array($source)));
-        return $sources === [] ? [] : [$sources[0]];
-    }
-
-    private function markCtripProfileStatusFromDataSourceSync(int $hotelId, array $source, array $result): void
-    {
-        if (($result['status'] ?? '') !== 'success' || (int)($result['saved_count'] ?? 0) <= 0) {
-            return;
-        }
-
-        $config = $this->decodeBrowserProfileSourceConfig($source);
-        $profileId = $this->ctripProfileStoreIdFromConfig($config, $hotelId);
-        if ($profileId === '') {
-            return;
-        }
-
-        $now = date('Y-m-d H:i:s');
-        $this->cachePlatformProfileStatus('ctrip', $hotelId, $profileId, [
-            'checked_at' => $now,
-            'last_captured_at' => $now,
-            'auth_status' => [
-                'ok' => true,
-                'status' => 'logged_in',
-                'message' => 'Ctrip browser Profile data-source sync succeeded.',
-            ],
-            'capture_gate' => null,
-            'status_code' => 'logged_in',
-            'data_source_id' => (int)($source['id'] ?? 0),
-            'sync_task_id' => (int)($result['task_id'] ?? 0),
-        ]);
-    }
-
-    private function executeCtripAutoFetch(int $hotelId, string $dataDate, array $options = []): array
-    {
-        $fetchConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
-        $mode = $this->resolvePlatformAutoFetchMode($fetchConfig, $options, 'ctrip');
-        $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
-        $browserProfileSources = $this->listCollectableCtripBrowserProfileDataSources($hotelId);
-        $runProfileBrowser = $this->shouldRunCtripProfileBrowser($mode, $browserProfileSources);
-        $taskPlanForConfig = $this->buildAutoFetchConfigTaskPlan($hotelId, $dataDate, $fetchConfig, []);
-        $hasConfiguredTask = (bool)array_filter($taskPlanForConfig, static fn(array $task): bool => ($task['platform'] ?? '') === 'ctrip');
-        $hasProfile = $this->ctripProfileExistsForConfig($fetchConfig, $hotelId);
-        $hasProfileSeed = !empty($fetchConfig) && $this->ctripProfileStoreIdFromConfig($fetchConfig, $hotelId) !== '';
-
-        $hasDirectConfig = $hasConfiguredTask;
-        $hasProfileConfig = $runProfileBrowser && ($hasProfile || $hasProfileSeed || $browserProfileSources !== []);
-        if (!$hasDirectConfig && !$hasProfileConfig) {
-            $message = $runProfileBrowser
-                ? '未配置携程浏览器 Profile'
-                : '未配置携程 Cookie/接口配置';
-            return [
-                'platform' => 'ctrip',
-                'success' => false,
-                'message' => $message,
-                'saved_count' => 0,
-                'auto_fetch_mode' => $mode,
-                'mode_label' => $this->autoFetchModeLabel($mode),
-                'modules' => [
-                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], $runProfileBrowser ? 'profile_browser' : 'cookie_config'),
-                ],
-            ];
-        }
-
-        $savedCount = 0;
-        $errors = [];
-        $modules = [];
-        $browserResult = [];
-
-        if (!$runCookieConfig) {
-            $modules[] = $this->withAutoFetchResultMeta(['module' => 'cookie_config_tasks', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '当前策略仅使用浏览器 Profile'], 'cookie_config');
-        }
-
-        if ($runCookieConfig) {
-            foreach ($taskPlanForConfig as $task) {
-                if (($task['platform'] ?? '') !== 'ctrip') {
-                    continue;
-                }
-                $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate);
-                $savedCount += (int)($taskResult['saved_count'] ?? 0);
-                $modules[] = $taskResult;
-                if (empty($taskResult['success']) && empty($taskResult['skipped'])) {
-                    $errors[] = (string)($taskResult['message'] ?? (($task['label'] ?? 'task') . ' failed'));
-                }
-            }
-        }
-
-        if ($runProfileBrowser) {
-            $runProfileByCost = $this->shouldRunCtripProfileBrowserForCost($mode, $savedCount, $browserProfileSources);
-            if ($runProfileByCost) {
-                $browserResult = $this->syncCtripBrowserProfileDataSourcesForAutoFetch(
-                    $hotelId,
-                    $dataDate,
-                    !empty($options['interactive_browser']),
-                    $browserProfileSources,
-                    $options
-                );
-                if (empty($browserResult['attempted'])) {
-                    $browserResult = $this->executeCtripBrowserProfileAutoFetch($fetchConfig, $hotelId, $dataDate, !empty($options['interactive_browser']), $options);
-                }
-            } else {
-                $browserResult = [
-                    'success' => false,
-                    'skipped' => true,
-                    'message' => '当前策略未启动 Profile',
-                    'saved_count' => 0,
-                ];
-            }
-            if (empty($browserResult['skipped'])) {
-                $savedCount += (int)($browserResult['saved_count'] ?? 0);
-            }
-            $browserModule = $this->withAutoFetchResultMeta([
-                'module' => 'browser_profile',
-                'saved_count' => (int)($browserResult['saved_count'] ?? 0),
-                'success' => (bool)($browserResult['success'] ?? false),
-                'message' => (string)($browserResult['message'] ?? ''),
-                'skipped' => (bool)($browserResult['skipped'] ?? false),
-            ], 'profile_browser');
-            $modules[] = $browserModule;
-
-            if (!empty($browserResult['message']) && empty($browserResult['success']) && empty($browserResult['skipped'])) {
-                $prefix = ($browserModule['status_code'] ?? '') === 'needs_profile'
-                    ? 'browser_profile 需重新登录'
-                    : 'browser';
-                $errors[] = $prefix . ' ' . $browserResult['message'];
-            } elseif (!empty($browserResult['skipped'])) {
-                $errors[] = (string)$browserResult['message'];
-            }
-        }
-
-        if ($savedCount > 0) {
-            \think\facade\Log::info("携程自动获取成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
-            $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
-
-            return ['platform' => 'ctrip', 'success' => true, 'message' => "已入库 {$savedCount} 条；字段覆盖按配置表显示，未返回字段保留为缺口", 'saved_count' => $savedCount, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
-        }
-
-        $message = empty($errors)
-            ? '未获取到有效数据'
-            : '未获取到有效数据：' . implode('；', array_slice($errors, 0, 3));
-        return ['platform' => 'ctrip', 'success' => false, 'message' => $message, 'saved_count' => 0, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
-    }
-
-    private function executeAutoFetchTask(array $task, int $hotelId, string $dataDate): array
-    {
-        $body = is_array($task['body'] ?? null) ? $task['body'] : [];
-        $module = (string)($task['module'] ?? '');
-        $label = (string)($task['label'] ?? $module);
-        $strategy = (string)($task['strategy'] ?? 'cookie_config');
-
-        try {
-            $result = match (($task['platform'] ?? '') . ':' . $module) {
-                'ctrip:business' => $this->executeCtripBusinessAutoFetchTask($label, $body, $hotelId),
-                'ctrip:cookie_api' => $this->executeCtripCookieApiAutoFetchTask($label, $body, $hotelId, $dataDate),
-                'ctrip:traffic' => $this->executeCtripTrafficAutoFetchTask($label, $body, $hotelId),
-                'ctrip:comments' => $this->executeCtripBrowserProfileAutoFetch(
-                    array_merge($body, ['capture_sections' => 'comment_review']),
-                    $hotelId,
-                    $dataDate,
-                    false,
-                    ['capture_sections' => 'comment_review']
-                ),
-                'meituan:comments' => $this->executeMeituanBrowserProfileAutoFetch(
-                    array_merge($body, ['capture_sections' => 'reviews']),
-                    $hotelId,
-                    $dataDate,
-                    false,
-                    ['capture_sections' => 'reviews']
-                ),
-                'meituan:ranking' => $this->executeMeituanRankingAutoFetchTask($label, $body, $hotelId),
-                'meituan:traffic' => $this->executeMeituanTrafficAutoFetchTask($label, $body, $hotelId),
-                default => ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'unsupported task'],
-            };
-            return $this->withAutoFetchResultMeta($result, $strategy, $label);
-        } catch (\Throwable $e) {
-            try {
-                \think\facade\Log::warning('OTA auto-fetch task failed', [
-                    'hotel_id' => $hotelId,
-                    'module' => $module,
-                    'exception_type' => get_debug_type($e),
-                ]);
-            } catch (\Throwable) {
-                // Logging failure must not replace the explicit credential execution failure.
-            }
-            return $this->withAutoFetchResultMeta(['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'credential_execution_failed'], $strategy, $label);
-        }
-    }
-
-    private function withAutoFetchCredential(
-        string $platform,
-        array $body,
-        int $hotelId,
-        callable $consumer
-    ): mixed {
-        $configId = trim((string)($body['config_id'] ?? ''));
-        $boundHotelId = (int)($body['system_hotel_id'] ?? 0);
-        if ($configId === '' || $boundHotelId !== $hotelId) {
-            throw new \RuntimeException('auto_fetch_credential_locator_invalid');
-        }
-
-        return $this->withOtaCredentialForExecution(
-            $platform,
-            $configId,
-            $hotelId,
-            $consumer,
-            true
-        );
-    }
-
-    private function autoFetchCredentialCookieHeader(array $credentialPayload): string
-    {
-        $value = $credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? null;
-        return is_scalar($value) ? trim((string)$value) : '';
-    }
-
-    private function autoFetchCredentialAuthData(array $credentialPayload): array
-    {
-        return $this->configValueToArray($credentialPayload['auth_data'] ?? []);
-    }
-
-    private function executeCtripBusinessAutoFetchTask(string $label, array $body, int $hotelId): array
-    {
-        return $this->withAutoFetchCredential('ctrip', $body, $hotelId, function (array $credentialPayload) use ($label, $body, $hotelId): array {
-            $cookieHeader = $this->autoFetchCredentialCookieHeader($credentialPayload);
-            if ($cookieHeader === '') {
-                return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'credential_payload_missing_cookie'];
-            }
-
-            $startDate = (string)($body['start_date'] ?? '');
-            $endDate = (string)($body['end_date'] ?? $startDate);
-            $result = $this->sendHttpRequest(
-                (string)($body['url'] ?? 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport'),
-                ['nodeId' => (string)($body['node_id'] ?? '24588'), 'startDate' => $startDate, 'endDate' => $endDate],
-                $cookieHeader
-            );
-            if (empty($result['success']) || !is_array($result['data'] ?? null)) {
-                return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'ctrip_request_failed'];
-            }
-
-            $responseData = $result['data'];
-            $responseStatus = $responseData['responseStatus'] ?? $responseData['status'] ?? $responseData['code'] ?? null;
-            if ($responseStatus !== null && !in_array($responseStatus, [0, '0', 200, '200'], true)) {
-                return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'ctrip_api_rejected'];
-            }
-
-            $savedCount = $this->parseAndSaveData($responseData, $startDate, $endDate, $hotelId);
-            return [
-                'module' => $label,
-                'saved_count' => $savedCount,
-                'success' => $savedCount > 0,
-                'message' => $savedCount > 0 ? 'ok' : 'no_rows',
-                'credential_source' => 'vault',
-            ];
-        });
-    }
-
-    private function executeCtripCookieApiAutoFetchTask(string $label, array $body, int $hotelId, string $dataDate): array
-    {
-        return $this->withAutoFetchCredential('ctrip', $body, $hotelId, function (array $credentialPayload) use ($label, $body, $hotelId, $dataDate): array {
-            return $this->executeCtripCookieApiAutoFetchWithCredential($label, $body, $hotelId, $dataDate, $credentialPayload);
-        });
-    }
-
-    private function executeCtripCookieApiAutoFetchWithCredential(
-        string $label,
-        array $body,
-        int $hotelId,
-        string $dataDate,
-        array $credentialPayload
-    ): array
-    {
-        $requestData = $body;
-        foreach (['headers', 'headers_json', 'spidertoken', 'auth_data'] as $credentialField) {
-            if (array_key_exists($credentialField, $credentialPayload)) {
-                $requestData[$credentialField] = $credentialPayload[$credentialField];
-            }
-        }
-        $requestData['system_hotel_id'] = $requestData['system_hotel_id'] ?? $hotelId;
-        $requestData['data_date'] = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? $dataDate);
-        if ((string)$requestData['data_date'] === '') {
-            $requestData['data_date'] = $dataDate;
-        }
-
-        $hasRequestList = false;
-        foreach (['endpoints', 'requests', 'request_urls', 'requestUrls', 'endpoints_json', 'endpointsJson', 'request_url', 'requestUrl', 'url'] as $key) {
-            if (!array_key_exists($key, $requestData)) {
-                continue;
-            }
-            $value = $requestData[$key];
-            if (is_array($value) ? !empty($value) : trim((string)$value) !== '') {
-                $hasRequestList = true;
-                break;
-            }
-        }
-        if (!$hasRequestList) {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'missing Ctrip request_url list config'];
-        }
-
-        $autoSave = !array_key_exists('auto_save', $requestData) && !array_key_exists('autoSave', $requestData)
-            ? true
-            : $this->isTruthyRequestValue($requestData['auto_save'] ?? $requestData['autoSave'] ?? false);
-        $cookieHeader = $this->autoFetchCredentialCookieHeader($credentialPayload);
-        if ($cookieHeader === '') {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'credential_payload_missing_cookie'];
-        }
-        $projectRoot = dirname(__DIR__, 3);
-        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_cookie_api_capture.mjs';
-        if (!is_file($scriptPath)) {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'missing Ctrip API capture script'];
-        }
-
-        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
-        if ($nodeBinary === '') {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'missing Node.js'];
-        }
-
-        $cookieFile = '';
-        $inputPath = '';
-        try {
-            $prepared = $this->prepareCtripCookieApiCaptureFiles($requestData, $projectRoot, $hotelId);
-            $inputPath = (string)($prepared['input_path'] ?? '');
-            $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip_api', $hotelId, $cookieHeader);
-            if ($cookieFile === '') {
-                return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'failed to create Ctrip Cookie temp file'];
-            }
-
-            $runResult = $this->runMeituanCaptureProcess([
-                $nodeBinary,
-                $scriptPath,
-                '--input=' . $prepared['input_path'],
-                '--cookies-file=' . $cookieFile,
-                '--output=' . $prepared['output_path'],
-            ], $projectRoot, 90);
-            if (!$runResult['success']) {
-                return [
-                    'module' => $label,
-                    'saved_count' => 0,
-                    'success' => false,
-                    'message' => 'ctrip_cookie_api_capture_failed',
-                ];
-            }
-
-            $payload = $this->readLocalJsonFile((string)$prepared['output_path']);
-            $capturedCounts = $this->buildCtripCaptureCounts($payload);
-            $saveResult = [
-                'saved_count' => 0,
-                'business_saved' => 0,
-                'traffic_saved' => 0,
-                'standard_saved' => 0,
-                'modules' => [],
-            ];
-            if ($autoSave) {
-                $requestHotelId = trim((string)($payload['hotel_id'] ?? $prepared['config']['hotel_id'] ?? $requestData['hotel_id'] ?? $requestData['ctrip_hotel_id'] ?? $hotelId));
-                $saveResult = $this->saveCtripBrowserProfilePayload($payload, $hotelId, (string)$requestData['data_date'], $requestHotelId);
-            }
-
-            $savedCount = (int)($saveResult['saved_count'] ?? 0);
-            $standardRows = (int)($capturedCounts['standard_rows'] ?? 0);
-            $success = $autoSave ? $savedCount > 0 : $standardRows > 0;
-            $payloadErrors = is_array($payload['errors'] ?? null) ? $payload['errors'] : [];
-            $message = $success
-                ? 'ok'
-                : ($standardRows > 0 ? 'captured rows but not saved' : 'no standard diagnosis rows');
-            $readiness = $this->buildCtripCookieApiReadiness($payload, $capturedCounts, $saveResult, $autoSave);
-
-            return [
-                'module' => $label,
-                'saved_count' => $savedCount,
-                'success' => $success,
-                'message' => $message,
-                'status' => $readiness['status'],
-                'is_ready' => $readiness['is_ready'],
-                'next_action' => $readiness['is_ready'] ? '' : $readiness['next_action'],
-                'warning' => $readiness['warning'],
-                'row_count' => $standardRows,
-                'counts' => [
-                    'business' => (int)($saveResult['business_saved'] ?? 0),
-                    'traffic' => (int)($saveResult['traffic_saved'] ?? 0),
-                    'standard_rows' => (int)($saveResult['standard_saved'] ?? 0),
-                ],
-                'captured_counts' => $capturedCounts,
-                'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
-                'request_count' => count($prepared['config']['endpoints'] ?? []),
-                'cookie_source' => 'credential_vault',
-                'error_count' => count($payloadErrors),
-            ];
-        } catch (\InvalidArgumentException $e) {
-            return [
-                'module' => $label,
-                'saved_count' => 0,
-                'success' => false,
-                'message' => 'ctrip_cookie_api_request_invalid',
-            ];
-        } catch (\Throwable $e) {
-            \think\facade\Log::warning('Ctrip Cookie API auto-fetch failed', [
-                'hotel_id' => $hotelId,
-                'exception_type' => get_debug_type($e),
-            ]);
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'ctrip_cookie_api_failed'];
-        } finally {
-            $this->removeAutoFetchCookieFile($cookieFile);
-            if ($inputPath !== '' && is_file($inputPath)) {
-                @unlink($inputPath);
-            }
-        }
-    }
-
-    private function executeCtripTrafficAutoFetchTask(string $label, array $body, int $hotelId): array
-    {
-        return $this->withAutoFetchCredential('ctrip', $body, $hotelId, function (array $credentialPayload) use ($label, $body, $hotelId): array {
-            return $this->executeCtripTrafficAutoFetchWithCredential($label, $body, $hotelId, $credentialPayload);
-        });
-    }
-
-    private function executeCtripTrafficAutoFetchWithCredential(string $label, array $body, int $hotelId, array $credentialPayload): array
-    {
-        $cookieHeader = $this->autoFetchCredentialCookieHeader($credentialPayload);
-        if ($cookieHeader === '') {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'credential_payload_missing_cookie'];
-        }
-
-        [$startDate, $endDate] = $this->buildCtripTrafficDateRange('custom', (string)($body['start_date'] ?? ''), (string)($body['end_date'] ?? ''));
-        $extraParams = $this->configValueToArray($credentialPayload['extra_params'] ?? []);
-        $spiderkeyValue = $credentialPayload['spiderkey'] ?? $credentialPayload['spider_key'] ?? ($extraParams['spiderkey'] ?? '');
-        $spiderkey = is_scalar($spiderkeyValue) ? trim((string)$spiderkeyValue) : '';
-        $platform = ucfirst(strtolower((string)($body['platform'] ?? 'Ctrip')));
-        if (!in_array($platform, ['Ctrip', 'Qunar'], true)) {
-            $platform = 'Ctrip';
-        }
-
-        $postData = $extraParams;
-        $postData['platform'] = $platform;
-        $postData['startDate'] = $startDate;
-        $postData['endDate'] = $endDate;
-        $postData['fingerPrintKeys'] = $postData['fingerPrintKeys'] ?? '';
-        $postData['spiderkey'] = $spiderkey;
-        $postData['spiderVersion'] = $postData['spiderVersion'] ?? '2.0';
-
-        $result = $this->sendCtripJsonRequest($this->normalizeCtripTrafficUrl((string)($body['url'] ?? '')), $postData, $cookieHeader);
-        if (!empty($result['error'])) {
-            $this->recordCookieAlert(strtolower($platform), 'auto-fetch-ctrip-traffic', 'ctrip_traffic_request_failed', $hotelId);
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'ctrip_traffic_request_failed'];
-        }
-
-        $responseData = $result['decoded_data'];
-        $apiError = $this->getCtripTrafficApiError($responseData);
-        if ($apiError !== '') {
-            $this->recordCookieAlert(strtolower($platform), 'auto-fetch-ctrip-traffic', 'ctrip_traffic_api_rejected', $hotelId);
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'ctrip_traffic_api_rejected'];
-        }
-
-        $savedCount = is_array($responseData)
-            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, strtolower($platform), $hotelId, $platform)
-            : 0;
-        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
-    }
-
-    private function buildCtripCookieApiReadiness(array $payload, array $capturedCounts, array $saveResult, bool $autoSave): array
-    {
-        $standardRows = (int)($capturedCounts['standard_rows'] ?? 0);
-        $savedCount = (int)($saveResult['saved_count'] ?? 0);
-        $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
-        $authOk = (bool)($authStatus['ok'] ?? false);
-        $errors = is_array($payload['errors'] ?? null) ? $payload['errors'] : [];
-        $ready = $autoSave ? $savedCount > 0 : $standardRows > 0;
-        if ($ready) {
-            return [
-                'status' => 'ready',
-                'is_ready' => true,
-                'next_action' => '可直接生成携程诊断',
-                'warning' => '',
-            ];
-        }
-
-        if (!$authOk) {
-            $nextAction = '更新 Cookie 或重新登录携程 Profile 后重试';
-        } elseif ($standardRows === 0 && $errors !== []) {
-            $nextAction = '检查携程 Cookie、Request URL、Payload 和账号权限';
-        } elseif ($standardRows === 0) {
-            $nextAction = '补充可返回业务 JSON 的携程诊断接口';
-        } else {
-            $nextAction = '已抓到标准诊断行但未入库，请检查 system_hotel_id、携程酒店 ID 和入库日志';
-        }
-
-        return [
-            'status' => 'not_ready',
-            'is_ready' => false,
-            'next_action' => $nextAction,
-            'warning' => $nextAction,
-        ];
-    }
-
-    private function executeCtripBrowserProfileAutoFetch(array $config, int $hotelId, string $dataDate, bool $interactiveBrowser = false, array $periodOptions = []): array
-    {
-        $profileId = $this->ctripProfileStoreIdFromConfig($config, $hotelId);
-        if ($profileId === '') {
-            return ['success' => false, 'skipped' => true, 'message' => '未配置携程 Profile ID', 'saved_count' => 0];
-        }
-        $profileSource = $this->loadProfileSessionSource('ctrip', $hotelId, $profileId);
-        if (!(new OtaProfileSessionProofService())->isCurrentVerified($profileSource ?? [])) {
-            return ['success' => false, 'message' => 'current_session_not_verified', 'saved_count' => 0];
-        }
-        if (!$this->ctripProfileExistsForConfig($config, $hotelId) && !$interactiveBrowser) {
-            return ['success' => false, 'skipped' => true, 'message' => "未找到 storage/ctrip_profile_{$profileId}", 'saved_count' => 0];
-        }
-
-        $projectRoot = dirname(__DIR__, 3);
-        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs';
-        if (!is_file($scriptPath)) {
-            return ['success' => false, 'skipped' => true, 'message' => '未找到携程浏览器采集脚本', 'saved_count' => 0];
-        }
-
-        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
-        if ($nodeBinary === '') {
-            return ['success' => false, 'skipped' => true, 'message' => '未找到 Node.js', 'saved_count' => 0];
-        }
-
-        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
-        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
-            return ['success' => false, 'message' => '无法创建携程采集输出目录', 'saved_count' => 0];
-        }
-
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_auto_' . BrowserProfileCaptureRequestService::safeFilePart($profileId) . '_' . date('YmdHis') . '.json';
-        $fieldConfigPayload = $this->buildCtripProfileFieldConfigPayload($this->readCtripProfileCaptureFields(true));
-        $sectionRequest = [
-            'sections' => $periodOptions['capture_sections']
-                ?? $periodOptions['captureSections']
-                ?? $config['capture_sections']
-                ?? $config['captureSections']
-                ?? $config['profile_sections']
-                ?? $config['profileSections']
-                ?? 'default',
-        ];
-        $sectionsList = $this->resolveCtripProfileCaptureSectionsForRun($sectionRequest, $fieldConfigPayload, false);
-        if (empty($sectionsList)) {
-            return ['success' => false, 'skipped' => true, 'message' => '获取字段配置中没有启用的可抓取字段，请先在“获取字段配置”启用字段或模块', 'saved_count' => 0];
-        }
-        $args = BrowserProfileCaptureRequestService::buildCtripAutoArgs(
-            $nodeBinary,
-            $scriptPath,
-            $profileId,
-            $hotelId,
-            $dataDate,
-            $outputPath,
-            $sectionsList,
-            $this->normalizeCtripSectionConcurrency($periodOptions['ctrip_section_concurrency'] ?? 3),
-            $interactiveBrowser
-        );
-        $args = $this->appendCtripCaptureGateArgs($args, $config);
-        $mappingArgs = $this->appendCtripApprovedMappingsArg($args, $config, $projectRoot);
-        if ($mappingArgs['error'] !== '') {
-            return [
-                'success' => false,
-                'message' => (string)$mappingArgs['error'],
-                'saved_count' => 0,
-                'modules' => [
-                    ['module' => 'browser_profile', 'saved_count' => 0, 'success' => false, 'message' => (string)$mappingArgs['error']],
-                ],
-            ];
-        }
-        $args = $mappingArgs['args'];
-
-        $ctripHotelId = trim((string)($config['ota_hotel_id'] ?? $config['ctrip_hotel_id'] ?? $config['ctripHotelId'] ?? $config['platform_hotel_id'] ?? $config['platformHotelId'] ?? ''));
-        if ($ctripHotelId === '') {
-            $legacyHotelId = trim((string)($config['hotelId'] ?? ''));
-            if ($this->isMeaningfulCtripPlatformHotelId($legacyHotelId, $hotelId)) {
-                $ctripHotelId = $legacyHotelId;
-            }
-        }
-        if ($ctripHotelId !== '') {
-            $args[] = '--hotel-id=' . $ctripHotelId;
-        }
-        $hotelName = trim((string)($config['hotel_name'] ?? $config['name'] ?? ''));
-        if ($hotelName !== '') {
-            $args[] = '--hotel-name=' . $hotelName;
-        }
-        $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
-        if ($chromePath !== '') {
-            $args[] = '--chrome-path=' . $chromePath;
-        }
-
-        $fieldConfigPath = $this->createCtripProfileFieldConfigFile($projectRoot, $fieldConfigPayload);
-        if ($fieldConfigPath === '') {
-            return ['success' => false, 'message' => '无法创建携程 Profile 字段配置快照', 'saved_count' => 0];
-        }
-        $args[] = '--field-config=' . $fieldConfigPath;
-
-        try {
-            $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 120);
-        } finally {
-            $this->removeAutoFetchCookieFile($fieldConfigPath);
-        }
-        if (!$runResult['success']) {
-            return [
-                'success' => false,
-                'message' => str_replace('美团', '携程', (string)$runResult['message']),
-                'saved_count' => 0,
-                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
-                'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
-                'partial_capture' => $this->buildCtripPartialCaptureErrorPayload($outputPath),
-            ];
-        }
-        if (!is_file($outputPath)) {
-            return ['success' => false, 'message' => '携程浏览器采集未生成结果文件', 'saved_count' => 0];
-        }
-
-        $payload = json_decode((string)file_get_contents($outputPath), true);
-        if (!is_array($payload)) {
-            return ['success' => false, 'message' => '携程浏览器采集结果 JSON 无法解析', 'saved_count' => 0];
-        }
-
-        if (empty($payload['system_hotel_id'])) {
-            $payload['system_hotel_id'] = $hotelId;
-        }
-        $payload = $this->applyAutoFetchPeriodOptionsToPayload($payload, $periodOptions);
-        $captureGateDecision = $this->buildCtripCaptureGateDecision($payload);
-        $captureGateWarning = null;
-        if (!$captureGateDecision['accepted']) {
-            if ($this->canContinueCtripCaptureWithSoftGateWarning($payload, $captureGateDecision)) {
-                $captureGateWarning = $this->buildCtripCaptureGateWarning($captureGateDecision);
-            } else {
-                $capturedCounts = $this->buildCtripCaptureCounts($payload);
-                $rowCount = (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'] + (int)$capturedCounts['catalog_facts'];
-                return array_merge([
-                    'success' => false,
-                    'message' => 'Profile 真实采集门禁未通过，未入库且未更新最新采集状态',
-                    'saved_count' => 0,
-                    'row_count' => $rowCount,
-                ], $this->buildCtripCaptureFactRowCountPayload($capturedCounts, 0, $rowCount), [
-                    'captured_counts' => $capturedCounts,
-                    'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
-                    'auth_status' => $payload['auth_status'] ?? null,
-                    'capture_gate' => $captureGateDecision['gate'],
-                    'capture_gate_status' => $captureGateDecision['status'],
-                    'capture_gate_failed_check_ids' => $captureGateDecision['failed_check_ids'],
-                    'capture_gate_blocking_failed_check_ids' => $this->getCtripCaptureBlockingFailedCheckIds($captureGateDecision['failed_check_ids']),
-                    'capture_audit' => $payload['capture_audit'] ?? null,
-                    'output' => $outputPath,
-                    'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
-                    'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
-                    'modules' => [
-                        [
-                            'module' => 'browser_profile_gate',
-                            'saved_count' => 0,
-                            'success' => false,
-                            'message' => 'Profile capture gate failed: ' . implode(',', $captureGateDecision['failed_check_ids']),
-                        ],
-                    ],
-                ]);
-            }
-        }
-        $requestHotelId = $ctripHotelId !== '' ? $ctripHotelId : (string)($payload['hotel_id'] ?? '');
-        $saveResult = $this->saveCtripBrowserProfilePayload($payload, $hotelId, $dataDate, $requestHotelId, null, $periodOptions);
-        $savedCount = (int)$saveResult['saved_count'];
-        $capturedCounts = $this->buildCtripCaptureCounts($payload);
-        if ($savedCount > 0) {
-            $authStatus = is_array($payload['auth_status'] ?? null)
-                ? $payload['auth_status']
-                : ['ok' => true, 'status' => 'logged_in'];
-            $this->cachePlatformProfileStatus('ctrip', $hotelId, $profileId, [
-                'checked_at' => date('Y-m-d H:i:s'),
-                'last_captured_at' => date('Y-m-d H:i:s'),
-                'auth_status' => $authStatus,
-                'capture_gate' => $payload['capture_gate'] ?? null,
-                'capture_gate_warning' => $captureGateWarning,
-                'status_code' => 'logged_in',
-                'output' => $outputPath,
-            ]);
-        }
-        $detailParts = [
-            "概况 {$saveResult['business_saved']}",
-            "流量 {$saveResult['traffic_saved']}",
-        ];
-        if ((int)($saveResult['review_saved'] ?? 0) > 0) {
-            $detailParts[] = "点评 {$saveResult['review_saved']}";
-        }
-        if ((int)($saveResult['standard_saved'] ?? 0) > 0) {
-            $detailParts[] = "标准字段 {$saveResult['standard_saved']}";
-        }
-
-        $rowCount = (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'] + (int)$capturedCounts['catalog_facts'];
-        return array_merge([
-            'success' => $savedCount > 0,
-            'message' => $savedCount > 0
-                ? "Profile 真实采集入库 {$savedCount} 条（" . implode('，', $detailParts) . "）" . ($captureGateWarning !== null ? '；字段覆盖率未达阈值，已保留诊断告警' : '')
-                : 'Profile 真实采集未解析到可入库数据',
-            'saved_count' => $savedCount,
-            'row_count' => $rowCount,
-        ], $this->buildCtripCaptureFactRowCountPayload($capturedCounts, $savedCount, $rowCount), [
-            'captured_counts' => $capturedCounts,
-            'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
-            'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
-            'standard_section_counts' => $capturedCounts['standard_by_section'],
-            'endpoint_candidate_counts' => $capturedCounts['candidate_by_section'],
-            'endpoint_candidates' => array_slice(is_array($payload['endpoint_candidates'] ?? null) ? $payload['endpoint_candidates'] : [], 0, 20),
-            'p3_evidence_counts' => $capturedCounts['p3_evidence_by_section'],
-            'p3_evidence_status_counts' => $capturedCounts['p3_evidence_by_status'],
-            'p3_evidence_ready_count' => $capturedCounts['p3_evidence_ready'],
-            'p3_evidence_drafts' => array_slice(is_array($payload['p3_evidence_drafts'] ?? null) ? $payload['p3_evidence_drafts'] : [], 0, 20),
-            'p3_evidence_matrix' => is_array($payload['p3_evidence_matrix'] ?? null) ? $payload['p3_evidence_matrix'] : null,
-            'capture_gate' => $payload['capture_gate'] ?? null,
-            'capture_gate_warning' => $captureGateWarning,
-            'modules' => $saveResult['modules'],
-            'output' => $outputPath,
-        ]);
-    }
-
-    private function saveCtripBrowserProfilePayload(array $payload, int $hotelId, string $dataDate, string $requestHotelId, ?int $dataSourceId = null, array $periodOptions = []): array
-    {
-        $payload = $this->applyAutoFetchPeriodOptionsToPayload($payload, $periodOptions);
-        $modules = [];
-
-        $businessRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripCapturedSection($payload, 'business'), $periodOptions);
-        $businessSaved = 0;
-        if (!empty($businessRows)) {
-            $businessSaved = $this->parseAndSaveData(['data' => $businessRows], $dataDate, $dataDate, $hotelId);
-        }
-        if ($businessSaved === 0) {
-            foreach ($this->extractCtripCapturedResponseData($payload, 'business') as $responseData) {
-                $businessSaved += $this->parseAndSaveData($responseData, $dataDate, $dataDate, $hotelId);
-            }
-        }
-        $modules[] = ['module' => 'browser_business', 'saved_count' => $businessSaved, 'success' => $businessSaved > 0];
-
-        $trafficRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripCapturedSection($payload, 'traffic'), $periodOptions);
-        $trafficSaved = 0;
-        if (!empty($trafficRows)) {
-            $trafficSaved = $this->parseAndSaveTrafficData(['data' => ['list' => $trafficRows]], $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip');
-        }
-        if ($trafficSaved === 0) {
-            foreach ($this->extractCtripCapturedResponseData($payload, 'traffic') as $responseData) {
-                $trafficSaved += $this->parseAndSaveTrafficData($responseData, $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip');
-            }
-        }
-        $modules[] = ['module' => 'browser_traffic', 'saved_count' => $trafficSaved, 'success' => $trafficSaved > 0];
-
-        $standardRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripStandardRows($payload, $hotelId, $dataDate, $requestHotelId, $dataSourceId), $periodOptions);
-        $reviewRows = array_values(array_filter($standardRows, static fn(array $row): bool => ($row['data_type'] ?? '') === 'review'));
-        $reviewSaved = 0;
-        $standardSaved = 0;
-        if (!empty($standardRows)) {
-            $standardSaved = $this->saveCtripStandardRows($standardRows);
-        }
-        $reviewSaved = count($reviewRows);
-        $modules[] = ['module' => 'browser_reviews', 'saved_count' => $reviewSaved, 'success' => $reviewSaved > 0, 'aggregate_only' => true];
-        $modules[] = ['module' => 'browser_catalog_standard', 'saved_count' => $standardSaved, 'success' => $standardSaved > 0];
-
-        return [
-            'saved_count' => $businessSaved + $trafficSaved + $standardSaved,
-            'business_saved' => $businessSaved,
-            'traffic_saved' => $trafficSaved,
-            'review_saved' => $reviewSaved,
-            'standard_saved' => $standardSaved,
-            'modules' => $modules,
-        ];
-    }
-
-    private function validateCtripPayloadHotelIdentity(array $payload, int $systemHotelId, array $config = []): array
-    {
-        $capturedIds = $this->extractCtripPayloadSelfHotelIds($payload);
-        $nodeIds = array_fill_keys($this->extractCtripNodeResourceIds($config), true);
-        $capturedIds = array_values(array_filter($capturedIds, fn(string $id): bool => $this->isMeaningfulCtripPlatformHotelId($id, $systemHotelId) && !isset($nodeIds[$id])));
-        $expectedIds = $this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId);
-        $conflicts = $this->findCtripPlatformHotelIdConflicts($capturedIds, $systemHotelId);
-        $blockingConflicts = array_values(array_filter($conflicts, function (array $conflict) use ($expectedIds): bool {
-            return $this->shouldBlockCtripCurrentHotelIdConflict((string)($conflict['hotel_id'] ?? ''), $expectedIds);
-        }));
-        $targetHotelName = $this->getSystemHotelName($systemHotelId);
-
-        if ($blockingConflicts !== []) {
-            $conflictNames = [];
-            foreach ($blockingConflicts as $conflict) {
-                $name = trim((string)($conflict['system_hotel_name'] ?? ''));
-                $conflictNames[] = $name !== '' ? $name : ('门店ID ' . (string)($conflict['system_hotel_id'] ?? ''));
-            }
-            $conflictNames = array_values(array_unique(array_filter($conflictNames)));
-            return [
-                'ok' => false,
-                'status' => 'platform_hotel_conflict',
-                'message' => '携程返回的酒店标识已绑定到其他门店，已取消入库，避免错店数据覆盖。当前选择：' . ($targetHotelName !== '' ? $targetHotelName : ('门店ID ' . $systemHotelId)) . '；已存在门店：' . implode('、', $conflictNames),
-                'target_system_hotel_id' => $systemHotelId,
-                'target_hotel_name' => $targetHotelName,
-                'captured_hotel_ids' => $capturedIds,
-                'expected_hotel_ids' => $expectedIds,
-                'conflicts' => $blockingConflicts,
-            ];
-        }
-
-        if ($expectedIds !== [] && $capturedIds !== [] && array_intersect($expectedIds, $capturedIds) === []) {
-            return [
-                'ok' => false,
-                'status' => 'expected_hotel_id_mismatch',
-                'message' => '携程返回的酒店标识与当前门店配置不一致，已取消入库。当前选择：' . ($targetHotelName !== '' ? $targetHotelName : ('门店ID ' . $systemHotelId)) . '；配置 hotelId：' . implode('、', $expectedIds) . '；接口返回 hotelId：' . implode('、', $capturedIds),
-                'target_system_hotel_id' => $systemHotelId,
-                'target_hotel_name' => $targetHotelName,
-                'captured_hotel_ids' => $capturedIds,
-                'expected_hotel_ids' => $expectedIds,
-                'conflicts' => [],
-            ];
-        }
-
-        return [
-            'ok' => true,
-            'status' => $capturedIds === [] ? 'no_platform_hotel_id' : 'matched',
-            'target_system_hotel_id' => $systemHotelId,
-            'target_hotel_name' => $targetHotelName,
-            'captured_hotel_ids' => $capturedIds,
-            'expected_hotel_ids' => $expectedIds,
-            'conflicts' => [],
-        ];
-    }
-
-    private function extractExpectedCtripPlatformHotelIds(array $config, int $systemHotelId): array
-    {
-        $ids = [];
-        foreach (['masterHotelId', 'master_hotel_id', 'ota_hotel_id', 'ctrip_hotel_id', 'ctripHotelId', 'platform_hotel_id', 'platformHotelId'] as $key) {
-            $value = trim((string)($config[$key] ?? ''));
-            if ($this->isMeaningfulCtripPlatformHotelId($value, $systemHotelId)) {
-                $ids[$value] = true;
-            }
-        }
-        return array_keys($ids);
-    }
-
-    private function extractCtripNodeResourceIds(array $config): array
-    {
-        $ids = [];
-        foreach (['node_id', 'nodeId'] as $key) {
-            $value = trim((string)($config[$key] ?? ''));
-            if ($value !== '' && $value !== '-1') {
-                $ids[$value] = true;
-            }
-        }
-        return array_keys($ids);
-    }
-
-    private function getCtripNodeResourceIdsForSystemHotel(int $systemHotelId): array
-    {
-        if ($systemHotelId <= 0) {
-            return [];
-        }
-
-        $ids = [];
-        foreach ($this->getStoredCtripConfigList() as $config) {
-            if (!is_array($config)) {
-                continue;
-            }
-            $configHotelId = trim((string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? ''));
-            if ($configHotelId === '' || $configHotelId !== (string)$systemHotelId) {
-                continue;
-            }
-            foreach ($this->extractCtripNodeResourceIds($config) as $id) {
-                $ids[$id] = true;
-            }
-        }
-        if ($ids === []) {
-            $ids['24588'] = true;
-        }
-        return array_keys($ids);
-    }
-
-    private function getCtripExpectedPlatformHotelIdsForSystemHotel(int $systemHotelId): array
-    {
-        if ($systemHotelId <= 0) {
-            return [];
-        }
-
-        $ids = [];
-        foreach ($this->getStoredCtripConfigList() as $config) {
-            if (!is_array($config)) {
-                continue;
-            }
-            $configHotelId = trim((string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? ''));
-            if ($configHotelId === '' || $configHotelId !== (string)$systemHotelId) {
-                continue;
-            }
-            foreach ($this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId) as $id) {
-                $ids[$id] = true;
-            }
-        }
-
-        return array_keys($ids);
-    }
-
-    private function extractCtripPayloadSelfHotelIds(array $payload): array
-    {
-        $ids = [];
-        foreach (is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : [] as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            if (!$this->isCtripCompetitorLikeValue($row)) {
-                $this->addCtripPayloadHotelId($ids, $row['hotel_id'] ?? null);
-            }
-        }
-        if ($ids !== []) {
-            return array_keys($ids);
-        }
-
-        foreach (is_array($payload['responses'] ?? null) ? $payload['responses'] : [] as $response) {
-            if (!is_array($response)) {
-                continue;
-            }
-            foreach (['data', 'body', 'json'] as $key) {
-                if (is_array($response[$key] ?? null)) {
-                    $this->collectCtripPayloadSelfHotelIds($response[$key], $ids);
-                }
-            }
-        }
-
-        foreach (['business', 'traffic', 'catalog_facts'] as $section) {
-            if (is_array($payload[$section] ?? null)) {
-                $this->collectCtripPayloadSelfHotelIds($payload[$section], $ids);
-            }
-        }
-
-        return array_keys($ids);
-    }
-
-    private function collectCtripPayloadSelfHotelIds(mixed $value, array &$ids, int $depth = 0): void
-    {
-        if ($depth > 8 || !is_array($value)) {
-            return;
-        }
-
-        if ($this->isSequentialArray($value)) {
-            foreach ($value as $item) {
-                $this->collectCtripPayloadSelfHotelIds($item, $ids, $depth + 1);
-            }
-            return;
-        }
-
-        if (!$this->isCtripCompetitorLikeValue($value)) {
-            foreach (['masterhotelid', 'masterHotelId', 'master_hotel_id', '_overview_source_hotel_id', 'hotelId', 'hotel_id', 'HotelId', 'hotelID'] as $key) {
-                if (array_key_exists($key, $value)) {
-                    $this->addCtripPayloadHotelId($ids, $value[$key]);
-                }
-            }
-        }
-
-        foreach ($value as $child) {
-            if (is_array($child)) {
-                $this->collectCtripPayloadSelfHotelIds($child, $ids, $depth + 1);
-            }
-        }
-    }
-
-    private function addCtripPayloadHotelId(array &$ids, mixed $value): void
-    {
-        if (is_array($value) || is_object($value)) {
-            return;
-        }
-        $id = trim((string)$value);
-        if ($id === '' || $id === '-1') {
-            return;
-        }
-        $ids[$id] = true;
-    }
-
-    private function resolveCtripPlatformHotelId(array $row, mixed $fallback = ''): string
-    {
-        foreach (['masterHotelId', 'masterhotelid', 'master_hotel_id', 'hotelId', 'hotel_id', 'HotelId', 'hotelID', 'ota_hotel_id', 'ctrip_hotel_id'] as $key) {
-            if (!array_key_exists($key, $row)) {
-                continue;
-            }
-            $value = $row[$key];
-            if (is_array($value) || is_object($value)) {
-                continue;
-            }
-            $id = trim((string)$value);
-            if ($id !== '') {
-                return $id;
-            }
-        }
-
-        if (is_array($fallback) || is_object($fallback)) {
-            return '';
-        }
-        return trim((string)$fallback);
-    }
-
-    private function isCtripCompetitorLikeValue(array $value): bool
-    {
-        $hotelId = trim((string)($value['hotel_id'] ?? $value['hotelId'] ?? $value['HotelId'] ?? $value['_overview_source_hotel_id'] ?? ''));
-        if ($hotelId === '-1') {
-            return true;
-        }
-
-        $parts = [
-            $value['compare_type'] ?? '',
-            $value['compareType'] ?? '',
-            $value['_overview_compare_type'] ?? '',
-            $value['rankType'] ?? '',
-            $value['type'] ?? '',
-            $value['name'] ?? '',
-            $value['hotelName'] ?? '',
-            $value['hotel_name'] ?? '',
-            $value['dimension'] ?? '',
-        ];
-        $text = mb_strtolower(implode(' ', array_map(static fn($part): string => (string)$part, $parts)), 'UTF-8');
-        return str_contains($text, 'competitor')
-            || str_contains($text, 'compete')
-            || str_contains($text, 'peer')
-            || str_contains($text, 'avg')
-            || str_contains($text, 'average')
-            || str_contains($text, '竞争圈')
-            || str_contains($text, '竞品')
-            || str_contains($text, '平均');
-    }
-
-    private function isMeaningfulCtripPlatformHotelId(string $value, int $systemHotelId = 0): bool
-    {
-        $value = trim($value);
-        if ($value === '' || $value === '-1') {
-            return false;
-        }
-        if ($systemHotelId > 0 && $value === (string)$systemHotelId) {
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * @param array<int, string> $platformHotelIds
-     * @return array<int, array<string, mixed>>
-     */
-    private function findCtripPlatformHotelIdConflicts(array $platformHotelIds, int $systemHotelId): array
-    {
-        $ids = array_values(array_unique(array_filter(array_map(
-            static fn($value): string => trim((string)$value),
-            $platformHotelIds
-        ), static fn(string $value): bool => $value !== '' && $value !== '-1')));
-        if ($ids === [] || $systemHotelId <= 0) {
-            return [];
-        }
-
-        return Db::name('online_daily_data')
-            ->alias('d')
-            ->leftJoin('hotels h', 'h.id = d.system_hotel_id')
-            ->field('d.hotel_id,d.system_hotel_id,MAX(h.name) AS system_hotel_name,MAX(d.hotel_name) AS captured_hotel_name,COUNT(*) AS record_count')
-            ->where('d.source', 'ctrip')
-            ->whereIn('d.hotel_id', $ids)
-            ->whereNotNull('d.system_hotel_id')
-            ->where('d.system_hotel_id', '<>', $systemHotelId)
-            ->group('d.hotel_id,d.system_hotel_id')
-            ->select()
-            ->toArray();
-    }
-
-    private function getSystemHotelName(int $systemHotelId): string
-    {
-        if ($systemHotelId <= 0) {
-            return '';
-        }
-        return trim((string)Db::name('hotels')->where('id', $systemHotelId)->value('name'));
-    }
-
-    private function extractCtripStandardRows(array $payload, int $systemHotelId, string $dataDate, string $requestHotelId, ?int $dataSourceId = null, ?array $enabledFieldKeys = null): array
-    {
-        $rows = [];
-        $enabledFieldKeys = $enabledFieldKeys === null
-            ? $this->ctripProfileEnabledFieldKeyMap()
-            : $this->normalizeCtripProfileEnabledFieldKeyMap($enabledFieldKeys);
-        foreach (($payload['standard_rows'] ?? []) as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $captureSection = strtolower(trim((string)($row['capture_section'] ?? '')));
-            $dataType = $this->normalizeCtripStandardDataType((string)($row['data_type'] ?? 'business'));
-            $metricKey = $this->ctripStandardRowMetricKey($row);
-            $metricKeys = $this->ctripStandardRowMetricKeys($row);
-            $matchedMetricKeys = array_intersect_key(array_fill_keys($metricKeys, true), $enabledFieldKeys);
-            if (empty($matchedMetricKeys)) {
-                continue;
-            }
-            if ($this->shouldSkipCtripLegacyStandardRow($captureSection, $dataType, $row)) {
-                continue;
-            }
-
-            $rowDataDate = $this->normalizeOnlineDataDate($row['data_date'] ?? '') ?: $dataDate;
-            $dimension = trim((string)($row['dimension'] ?? '')) ?: 'catalog:' . ($captureSection ?: 'unknown');
-            $rawData = $row['raw_data'] ?? $row;
-            $rawDataForTrace = is_array($rawData) ? $rawData : [];
-            if (is_array($rawData)) {
-                $rawData['capture_section'] = $captureSection;
-                $rawData['endpoint_id'] = (string)($row['endpoint_id'] ?? ($rawData['endpoint_id'] ?? ''));
-                $sourceUrl = trim((string)($row['source_url'] ?? ($rawData['source_url'] ?? '')));
-                if ($sourceUrl !== '') {
-                    $rawData['source_url'] = $sourceUrl;
-                }
-                $rawData = $dataType === 'review'
-                    ? $this->sanitizeOnlineReviewRawData($rawData)
-                    : $this->sanitizeOnlineOrderRawData($rawData, $dataType === 'order');
-                $rawDataForTrace = $rawData;
-                $rawData = json_encode($rawData, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
-            } else {
-                $rawData = (string)$rawData;
-            }
-            $platform = $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? ''));
-            $source = $this->sourceForCtripProfileTrafficPlatform((string)($row['source'] ?? ''), $platform);
-
-            $standardRow = [
-                'hotel_id' => $this->resolveCtripPlatformHotelId($row, $requestHotelId),
-                'hotel_name' => trim((string)($row['hotel_name'] ?? '')),
-                'system_hotel_id' => $systemHotelId,
-                'source' => $source,
-                'platform' => $platform,
-                'data_date' => $rowDataDate,
-                'data_type' => $dataType,
-                'dimension' => $dimension,
-                'amount' => (float)($row['amount'] ?? 0),
-                'quantity' => (int)round((float)($row['quantity'] ?? 0)),
-                'book_order_num' => (int)round((float)($row['book_order_num'] ?? 0)),
-                'comment_score' => (float)($row['comment_score'] ?? 0),
-                'qunar_comment_score' => (float)($row['qunar_comment_score'] ?? 0),
-                'data_value' => (float)($row['data_value'] ?? 0),
-                'compare_type' => trim((string)($row['compare_type'] ?? '')),
-                'list_exposure' => (int)round((float)($row['list_exposure'] ?? 0)),
-                'detail_exposure' => (int)round((float)($row['detail_exposure'] ?? 0)),
-                'flow_rate' => (float)($row['flow_rate'] ?? 0),
-                'order_filling_num' => (int)round((float)($row['order_filling_num'] ?? 0)),
-                'order_submit_num' => (int)round((float)($row['order_submit_num'] ?? 0)),
-                'ingestion_method' => 'browser_profile',
-                'source_trace_id' => $this->buildCtripStandardRowSourceTraceId(array_merge($row, ['source' => $source, 'platform' => $platform]), $captureSection, $dataType, $dimension, $rowDataDate, $rawDataForTrace),
-                'raw_data' => $rawData,
-            ];
-            if ($dataSourceId !== null && $dataSourceId > 0) {
-                $standardRow['data_source_id'] = $dataSourceId;
-            }
-            $rows[] = $standardRow;
-        }
-
-        return $rows;
-    }
-
-    private function normalizeCtripProfileEnabledFieldKeyMap(array $keys): array
-    {
-        $map = [];
-        foreach ($keys as $key => $value) {
-            $fieldKey = is_int($key) ? (string)$value : (string)$key;
-            $fieldKey = strtolower(trim($fieldKey));
-            if ($fieldKey !== '') {
-                $map[$fieldKey] = true;
-            }
-        }
-        return $map;
-    }
-
-    private function normalizeCtripProfileTrafficPlatform(string $platform): string
-    {
-        $value = strtolower(trim($platform));
-        if ($value === 'qunar' || $value === '去哪儿' || $value === 'qunaer') {
-            return 'Qunar';
-        }
-        return 'Ctrip';
-    }
-
-    private function sourceForCtripProfileTrafficPlatform(string $source, string $platform): string
-    {
-        $value = strtolower(trim($source));
-        if ($value === 'qunar' || $platform === 'Qunar') {
-            return 'qunar';
-        }
-        return 'ctrip';
-    }
-
-    private function buildCtripStandardRowSourceTraceId(array $row, string $captureSection, string $dataType, string $dimension, string $dataDate, array $rawData): string
-    {
-        $endpointId = trim((string)($row['endpoint_id'] ?? ($rawData['endpoint_id'] ?? '')));
-        $sourceUrl = trim((string)($row['source_url'] ?? ($rawData['source_url'] ?? '')));
-        $metricKey = $this->ctripStandardRowMetricKey($row);
-        if ($metricKey === '' && is_array($rawData['metrics'] ?? null)) {
-            $metricKeys = array_keys($rawData['metrics']);
-            $metricKey = strtolower(trim((string)($metricKeys[0] ?? '')));
-        }
-
-        $basis = [
-            'platform' => $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? '')),
-            'hotel_id' => trim((string)($row['hotel_id'] ?? '')),
-            'data_date' => $dataDate,
-            'data_type' => $dataType,
-            'capture_section' => $captureSection,
-            'endpoint_id' => $endpointId,
-            'dimension' => $dimension,
-            'metric_key' => $metricKey,
-            'source_url' => $this->canonicalizeCtripStandardRowSourceUrl($sourceUrl),
-        ];
-
-        return 'ctrip:' . hash('sha256', (string)json_encode($basis, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
-    }
-
-    private function canonicalizeCtripStandardRowSourceUrl(string $sourceUrl): string
-    {
-        if ($sourceUrl === '') {
-            return '';
-        }
-
-        $parts = parse_url($sourceUrl);
-        if (!is_array($parts)) {
-            return preg_replace('/[?#].*$/', '', $sourceUrl) ?? $sourceUrl;
-        }
-
-        return strtolower((string)($parts['host'] ?? '')) . (string)($parts['path'] ?? '');
-    }
-
-    private function shouldSkipCtripLegacyStandardRow(string $captureSection, string $dataType, array $row): bool
-    {
-        $metricKey = $this->ctripStandardRowMetricKey($row);
-        if ($metricKey === '') {
-            return false;
-        }
-        if (in_array($captureSection, ['business_overview', 'sales_report', 'room_type'], true) && $dataType === 'business') {
-            return in_array($metricKey, ['order_amount', 'room_nights', 'order_count'], true);
-        }
-        if ($captureSection === 'traffic_report' && $dataType === 'traffic') {
-            return in_array($metricKey, [
-                'visitor_count',
-                'list_exposure',
-                'detail_visitor',
-                'order_page_visitor',
-                'order_submit_user',
-                'flow_rate',
-            ], true);
-        }
-        return false;
-    }
-
-    private function ctripStandardRowMetricKey(array $row): string
-    {
-        $dimension = trim((string)($row['dimension'] ?? ''));
-        if ($dimension !== '' && preg_match('/^catalog:[^:]+:[^:]+:([^:]+)/', $dimension, $matches)) {
-            return strtolower(trim((string)$matches[1]));
-        }
-        $rawData = $row['raw_data'] ?? [];
-        if (is_array($rawData) && is_array($rawData['metrics'] ?? null)) {
-            $keys = array_keys($rawData['metrics']);
-            return strtolower(trim((string)($keys[0] ?? '')));
-        }
-        return '';
-    }
-
-    private function ctripStandardRowMetricKeys(array $row): array
-    {
-        $keys = [];
-        $dimensionKey = $this->ctripStandardRowMetricKey($row);
-        foreach (preg_split('/[|+]/', $dimensionKey) ?: [] as $key) {
-            $key = strtolower(trim((string)$key));
-            if ($key !== '') {
-                $keys[$key] = true;
-            }
-        }
-
-        $rawData = $row['raw_data'] ?? [];
-        if (is_array($rawData)) {
-            if (is_array($rawData['metrics'] ?? null)) {
-                foreach (array_keys($rawData['metrics']) as $key) {
-                    $key = strtolower(trim((string)$key));
-                    if ($key !== '') {
-                        $keys[$key] = true;
-                    }
-                }
-            }
-            if (is_array($rawData['facts'] ?? null)) {
-                foreach ($rawData['facts'] as $fact) {
-                    if (!is_array($fact)) {
-                        continue;
-                    }
-                    $key = strtolower(trim((string)($fact['metric_key'] ?? '')));
-                    if ($key !== '') {
-                        $keys[$key] = true;
-                    }
-                }
-            }
-        }
-
-        return array_keys($keys);
-    }
-
-    private function ctripProfileEnabledFieldKeyMap(?array $fields = null): array
-    {
-        $fields = $fields ?? $this->readCtripProfileCaptureFields(true);
-        $enabled = [];
-        foreach ($fields as $field) {
-            if (!is_array($field) || $this->isCtripProfileCaptureFieldDeleted($field) || empty($field['enabled'])) {
-                continue;
-            }
-            $fieldKey = strtolower(trim((string)($field['field_key'] ?? '')));
-            if ($fieldKey !== '') {
-                $enabled[$fieldKey] = true;
-            }
-        }
-        return $enabled;
-    }
-
-    private function normalizeCtripStandardDataType(string $value): string
-    {
-        $value = strtolower(trim($value));
-        return match ($value) {
-            'ad', 'ads', 'advertising', 'campaign' => 'advertising',
-            'flow' => 'traffic',
-            'review', 'reviews', 'comment', 'comments' => 'review',
-            'order', 'orders' => 'order',
-            'service', 'service_quality', 'psi' => 'quality',
-            default => $value !== '' ? $value : 'business',
-        };
-    }
-
-    private function saveCtripStandardRows(array $rows): int
-    {
-        $columns = $this->getOnlineDailyDataColumns();
-        $savedCount = 0;
-        $now = date('Y-m-d H:i:s');
-
-        foreach ($rows as $row) {
-            if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
-                continue;
-            }
-            if (isset($columns['update_time'])) {
-                $row['update_time'] = $now;
-            }
-            $row = $this->applyOnlineDailyDataPeriodFields($row, $columns, $row);
-
-            $query = Db::name('online_daily_data')
-                ->where('source', (string)($row['source'] ?? 'ctrip'))
-                ->where('data_type', (string)$row['data_type'])
-                ->where('data_date', (string)$row['data_date'])
-                ->where('dimension', (string)($row['dimension'] ?? ''));
-            $this->applyOnlineDailyDataPeriodQuery($query, $row, $columns);
-
-            if (!empty($row['hotel_id'])) {
-                $query->where('hotel_id', (string)$row['hotel_id']);
-            } else {
-                $query->where('hotel_name', (string)($row['hotel_name'] ?? ''));
-            }
-
-            if (array_key_exists('system_hotel_id', $row) && $row['system_hotel_id'] !== null) {
-                $query->where('system_hotel_id', (int)$row['system_hotel_id']);
-            } else {
-                $query->whereNull('system_hotel_id');
-            }
-
-            $exists = $query->find();
-            if (!$exists && isset($columns['create_time'])) {
-                $row['create_time'] = $now;
-            }
-
-            $data = array_intersect_key($this->applyOnlineDailyDataValidationFields($row, $columns), $columns);
-            if ($exists) {
-                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
-            } else {
-                Db::name('online_daily_data')->insert($data);
-            }
-            $savedCount++;
-        }
-
-        return $savedCount;
-    }
-
-    private function extractCtripCapturedResponseData(array $payload, string $section): array
-    {
-        $result = [];
-        foreach (($payload['responses'] ?? []) as $response) {
-            if (!is_array($response) || strtolower((string)($response['section'] ?? '')) !== $section) {
-                continue;
-            }
-            $data = $response['data'] ?? $response['body'] ?? $response['json'] ?? null;
-            if (is_array($data)) {
-                $result[] = $data;
-            }
-        }
-        return $result;
-    }
-
-    private function executeMeituanAutoFetch(int $hotelId, string $dataDate, array $options = []): array
-    {
-        $config = $this->resolveMeituanFetchConfigForHotel($hotelId);
-        $apiStatus = $this->meituanAutoFetchConfigStatus($config, $hotelId);
-        $missingText = (string)$apiStatus['missing_text'];
-        $mode = $this->resolvePlatformAutoFetchMode($config, $options, 'meituan');
-        $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
-        $runProfileBrowser = $this->shouldRunProfileBrowser($mode);
-        $taskPlanForConfig = $this->buildAutoFetchConfigTaskPlan($hotelId, $dataDate, [], $config);
-        $hasConfiguredTask = (bool)array_filter($taskPlanForConfig, static fn(array $task): bool => ($task['platform'] ?? '') === 'meituan');
-        $hasProfile = $this->meituanProfileExistsForConfig($config);
-        $hasProfileSeed = $this->meituanProfileStoreIdFromConfig($config) !== '';
-
-        $hasDirectConfig = $hasConfiguredTask;
-        $hasProfileConfig = $runProfileBrowser && ($hasProfile || $hasProfileSeed);
-        if (!$hasDirectConfig && !$hasProfileConfig) {
-            $message = $runProfileBrowser
-                ? '未配置美团浏览器 Profile'
-                : ($missingText !== '' ? '未配置美团 ' . $missingText : '未配置美团 Partner ID / POI ID / Cookies');
-            return [
-                'platform' => 'meituan',
-                'success' => false,
-                'message' => $message,
-                'saved_count' => 0,
-                'auto_fetch_mode' => $mode,
-                'mode_label' => $this->autoFetchModeLabel($mode),
-                'modules' => [
-                    $this->withAutoFetchResultMeta(['module' => 'configuration', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], $runProfileBrowser ? 'profile_browser' : 'cookie_config'),
-                ],
-            ];
-        }
-
-        $savedCount = 0;
-        $errors = [];
-        $modules = [];
-        $browserResult = [];
-
-        if ($runCookieConfig && empty($apiStatus['api_configured'])) {
-            $message = $missingText !== '' ? '缺少美团 ' . $missingText : '缺少美团 Partner ID / POI ID / Cookies';
-            if ($mode === 'cookie_config') {
-                $errors[] = $message;
-            }
-            $modules[] = $this->withAutoFetchResultMeta(['module' => 'ranking_api', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => $message], 'cookie_config');
-        } elseif (!$runCookieConfig) {
-            $modules[] = $this->withAutoFetchResultMeta(['module' => 'cookie_config_tasks', 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => '当前策略仅使用浏览器 Profile'], 'cookie_config');
-        }
-
-        if ($runCookieConfig) {
-            foreach ($taskPlanForConfig as $task) {
-                if (($task['platform'] ?? '') !== 'meituan') {
-                    continue;
-                }
-                $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate);
-                $savedCount += (int)($taskResult['saved_count'] ?? 0);
-                $modules[] = $taskResult;
-                if (empty($taskResult['success']) && empty($taskResult['skipped'])) {
-                    $errors[] = (string)($taskResult['message'] ?? (($task['label'] ?? 'task') . ' failed'));
-                }
-            }
-        }
-
-        if ($runProfileBrowser) {
-            $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
-            $browserResult = $runProfileByCost
-                ? $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']), $options)
-                : [
-                    'success' => false,
-                    'skipped' => true,
-                    'message' => '当前策略未启动 Profile',
-                    'saved_count' => 0,
-                ];
-            if (empty($browserResult['skipped'])) {
-                $savedCount += (int)($browserResult['saved_count'] ?? 0);
-            }
-            $browserModule = $this->withAutoFetchResultMeta([
-                'module' => 'browser_profile',
-                'saved_count' => (int)($browserResult['saved_count'] ?? 0),
-                'success' => (bool)($browserResult['success'] ?? false),
-                'message' => (string)($browserResult['message'] ?? ''),
-                'skipped' => (bool)($browserResult['skipped'] ?? false),
-            ], 'profile_browser');
-            $modules[] = $browserModule;
-
-            if (!empty($browserResult['message']) && empty($browserResult['success']) && empty($browserResult['skipped'])) {
-                $prefix = ($browserModule['status_code'] ?? '') === 'needs_profile'
-                    ? 'browser_profile 需重新登录'
-                    : 'browser';
-                $errors[] = $prefix . ' ' . $browserResult['message'];
-            } elseif (!empty($browserResult['skipped'])) {
-                $errors[] = (string)$browserResult['message'];
-            }
-        }
-
-        if ($savedCount > 0) {
-            \think\facade\Log::info("美团自动获取成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
-            return [
-                'platform' => 'meituan',
-                'success' => true,
-                'message' => "成功获取 {$savedCount} 条数据",
-                'saved_count' => $savedCount,
-                'data_period' => $options['data_period'] ?? 'historical_daily',
-                'auto_fetch_mode' => $mode,
-                'mode_label' => $this->autoFetchModeLabel($mode),
-                'modules' => $modules,
-                'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : [],
-            ];
-        }
-
-        $message = empty($errors)
-            ? '未获取到有效数据'
-            : '未获取到有效数据：' . implode('；', array_slice($errors, 0, 3));
-        return [
-            'platform' => 'meituan',
-            'success' => false,
-            'message' => $message,
-            'saved_count' => 0,
-            'data_period' => $options['data_period'] ?? 'historical_daily',
-            'auto_fetch_mode' => $mode,
-            'mode_label' => $this->autoFetchModeLabel($mode),
-            'modules' => $modules,
-            'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : [],
-        ];
-    }
-
-    private function executeMeituanRankingAutoFetchTask(string $label, array $body, int $hotelId): array
-    {
-        return $this->withAutoFetchCredential('meituan', $body, $hotelId, function (array $credentialPayload) use ($label, $body, $hotelId): array {
-            return $this->executeMeituanRankingAutoFetchWithCredential($label, $body, $hotelId, $credentialPayload);
-        });
-    }
-
-    private function executeMeituanRankingAutoFetchWithCredential(string $label, array $body, int $hotelId, array $credentialPayload): array
-    {
-        $partnerId = trim((string)($body['partner_id'] ?? ''));
-        $poiId = trim((string)($body['poi_id'] ?? ''));
-        $rankType = trim((string)($body['rank_type'] ?? 'P_RZ')) ?: 'P_RZ';
-        if ($partnerId === '' || $poiId === '') {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'meituan_resource_id_missing'];
-        }
-
-        $cookieHeader = $this->autoFetchCredentialCookieHeader($credentialPayload);
-        if ($cookieHeader === '') {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'credential_payload_missing_cookie'];
-        }
-
-        $params = [
-            'dataScope' => $body['data_scope'] ?? 'vpoi',
-            'deviceType' => 1,
-            'yodaReady' => 'h5',
-            'csecplatform' => 4,
-            'csecversion' => '4.2.0',
-            'partnerId' => $partnerId,
-            'poiId' => $poiId,
-            'rankType' => $rankType,
-            'startDate' => str_replace('-', '', (string)($body['start_date'] ?? '')),
-            'endDate' => str_replace('-', '', (string)($body['end_date'] ?? '')),
-            'dateRange' => 1,
-        ];
-        $result = $this->sendMeituanRequest(
-            trim((string)($body['url'] ?? '')) ?: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
-            $params,
-            $cookieHeader,
-            $this->autoFetchCredentialAuthData($credentialPayload)
-        );
-        if (!$result['success']) {
-            $this->recordCookieAlert('meituan', 'auto-fetch-meituan-ranking', 'meituan_ranking_request_failed', $hotelId);
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'meituan_ranking_request_failed'];
-        }
-
-        $savedCount = is_array($result['data'] ?? null)
-            ? $this->parseAndSaveMeituanData($result['data'], (string)($body['start_date'] ?? ''), (string)($body['end_date'] ?? ''), $hotelId, [
-                'date_range' => (string)($body['date_range'] ?? 'custom'),
-                'rank_type' => $rankType,
-                'start_date' => (string)($body['start_date'] ?? ''),
-                'end_date' => (string)($body['end_date'] ?? ''),
-            ])
-            : 0;
-        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no_rows', 'credential_source' => 'vault'];
-    }
-
-    private function executeMeituanTrafficAutoFetchTask(string $label, array $body, int $hotelId): array
-    {
-        return $this->withAutoFetchCredential('meituan', $body, $hotelId, function (array $credentialPayload) use ($label, $body, $hotelId): array {
-            return $this->executeMeituanTrafficAutoFetchWithCredential($label, $body, $hotelId, $credentialPayload);
-        });
-    }
-
-    private function executeMeituanTrafficAutoFetchWithCredential(string $label, array $body, int $hotelId, array $credentialPayload): array
-    {
-        $url = trim((string)($body['url'] ?? ''));
-        $partnerId = trim((string)($body['partner_id'] ?? ''));
-        $poiId = trim((string)($body['poi_id'] ?? ''));
-        if ($url === '' || $partnerId === '' || $poiId === '') {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'meituan_traffic_config_missing'];
-        }
-
-        $cookieHeader = $this->autoFetchCredentialCookieHeader($credentialPayload);
-        if ($cookieHeader === '') {
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'credential_payload_missing_cookie'];
-        }
-
-        $extraParams = $this->configValueToArray($credentialPayload['extra_params'] ?? []);
-        $params = array_merge([
-            'deviceType' => 1,
-            'yodaReady' => 'h5',
-            'csecplatform' => 4,
-            'csecversion' => '4.2.0',
-        ], $extraParams);
-        $params['partnerId'] = $partnerId;
-        $params['poiId'] = $poiId;
-        $startDate = (string)($body['start_date'] ?? date('Y-m-d', strtotime('-1 day')));
-        $endDate = (string)($body['end_date'] ?? $startDate);
-        $params['startDate'] = str_replace('-', '', $startDate);
-        $params['endDate'] = str_replace('-', '', $endDate);
-        $params['dateRange'] = 1;
-
-        $result = $this->sendMeituanRequest($url, $params, $cookieHeader, $this->autoFetchCredentialAuthData($credentialPayload));
-        if (!$result['success']) {
-            $this->recordCookieAlert('meituan', 'auto-fetch-meituan-traffic', 'meituan_traffic_request_failed', $hotelId);
-            return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'meituan_traffic_request_failed'];
-        }
-
-        $responseData = $result['data'] ?? [];
-        $savedCount = is_array($responseData)
-            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, 'meituan', $hotelId)
-            : 0;
-        return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no_rows', 'credential_source' => 'vault'];
-    }
-
-    private function executeMeituanBrowserProfileAutoFetch(array $config, int $hotelId, string $dataDate, bool $interactiveBrowser = false, array $periodOptions = []): array
-    {
-        $storeId = $this->meituanProfileStoreIdFromConfig($config);
-        if ($storeId === '') {
-            return ['success' => false, 'skipped' => true, 'message' => '未配置 Store ID / POI ID', 'saved_count' => 0];
-        }
-        $profileSource = $this->loadProfileSessionSource('meituan', $hotelId, $storeId);
-        if (!(new OtaProfileSessionProofService())->isCurrentVerified($profileSource ?? [])) {
-            return ['success' => false, 'message' => 'current_session_not_verified', 'saved_count' => 0];
-        }
-        if (!$this->meituanProfileExistsForConfig($config) && !$interactiveBrowser) {
-            return ['success' => false, 'skipped' => true, 'message' => '未发现本地美团浏览器 Profile，跳过浏览器采集', 'saved_count' => 0];
-        }
-
-        $projectRoot = dirname(__DIR__, 3);
-        $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs';
-        if (!is_file($scriptPath)) {
-            return ['success' => false, 'skipped' => true, 'message' => '未找到美团浏览器抓取脚本', 'saved_count' => 0];
-        }
-        $nodeBinary = BrowserProfileCaptureRequestService::resolveNodeBinary();
-        if ($nodeBinary === '') {
-            return ['success' => false, 'skipped' => true, 'message' => '未找到 Node.js', 'saved_count' => 0];
-        }
-
-        $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'meituan_capture';
-        if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
-            return ['success' => false, 'message' => '无法创建美团抓取输出目录', 'saved_count' => 0];
-        }
-
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_auto_' . BrowserProfileCaptureRequestService::safeFilePart($storeId) . '_' . date('YmdHis') . '.json';
-        $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
-        $args = BrowserProfileCaptureRequestService::buildMeituanAutoArgs(
-            $config,
-            $nodeBinary,
-            $scriptPath,
-            $hotelId,
-            $storeId,
-            $outputPath,
-            $interactiveBrowser,
-            $chromePath
-        );
-
-        $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 180);
-        if (!$runResult['success']) {
-            return ['success' => false, 'message' => $runResult['message'], 'saved_count' => 0];
-        }
-        if (!is_file($outputPath)) {
-            return ['success' => false, 'message' => '浏览器采集未生成结果文件', 'saved_count' => 0];
-        }
-
-        $payload = json_decode((string)file_get_contents($outputPath), true);
-        if (!is_array($payload)) {
-            return ['success' => false, 'message' => '浏览器采集结果 JSON 无法解析', 'saved_count' => 0];
-        }
-        $payload['system_hotel_id'] = $hotelId;
-        $payload['default_data_date'] = $dataDate;
-        $payload = $this->applyAutoFetchPeriodOptionsToPayload($payload, $periodOptions);
-        $rows = $this->buildMeituanCapturedDailyRows($payload, $hotelId);
-        $savedCount = empty($rows) ? 0 : $this->saveMeituanCapturedDailyRows($rows);
-
-        return [
-            'success' => $savedCount > 0,
-            'message' => $savedCount > 0 ? "浏览器采集保存 {$savedCount} 条" : '浏览器采集未解析到指定日期数据',
-            'saved_count' => $savedCount,
-        ];
-    }
-
-    /**
-     * 从系统配置读取列表
-     */
 
 }

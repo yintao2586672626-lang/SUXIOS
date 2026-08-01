@@ -1,0 +1,155 @@
+<?php
+declare(strict_types=1);
+
+use app\service\WechatMonitorVisualCardService;
+use app\service\WechatRobotDeliveryService;
+use app\service\CloudAutomationStateStore;
+use think\App;
+use think\facade\Db;
+
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+/** @return string */
+function visual_option(string $name): string
+{
+    foreach ($GLOBALS['argv'] as $index => $argument) {
+        if ($argument === '--' . $name) return trim((string)($GLOBALS['argv'][$index + 1] ?? ''));
+    }
+    return '';
+}
+
+$hotelId = (int)visual_option('hotel-id');
+$testRobotId = (int)visual_option('test-robot-id');
+$policyId = (int)visual_option('policy-id');
+$formalRobotId = (int)visual_option('robot-id');
+$selectedModes = ($testRobotId > 0 ? 1 : 0) + ($policyId > 0 ? 1 : 0) + ($formalRobotId > 0 ? 1 : 0);
+if ($hotelId <= 0 || $selectedModes !== 1) {
+    fwrite(STDERR, "Usage: php scripts/send_test_wechat_visual_card.php --hotel-id 80 (--test-robot-id 1 | --policy-id 2 | --robot-id 3)\n");
+    exit(1);
+}
+$testOnly = $testRobotId > 0;
+$accountPolicy = $policyId > 0;
+
+$root = dirname(__DIR__);
+try {
+    (new App($root))->initialize();
+    if ($testOnly) {
+        $robotId = $testRobotId;
+    } elseif ($accountPolicy) {
+        $policy = Db::name('account_wechat_push_policies')
+            ->where('id', $policyId)
+            ->where('hotel_id', $hotelId)
+            ->where('status', 1)
+            ->where('visual_card_enabled', 1)
+            ->field('id,robot_id')
+            ->find();
+        $robotId = is_array($policy) ? (int)($policy['robot_id'] ?? 0) : 0;
+        if ($robotId <= 0) {
+            throw new RuntimeException('正式图卡必须来自已启用的账号推送策略。');
+        }
+    } else {
+        $robotId = $formalRobotId;
+    }
+    $robot = Db::name('competitor_wechat_robot')->where('id', $robotId)->where('store_id', $hotelId)->where('status', 1)->field('id,name')->find();
+    if (!is_array($robot)) {
+        throw new RuntimeException('未找到启用中的门店企业微信机器人绑定。');
+    }
+    if ($testOnly && !str_contains((string)($robot['name'] ?? ''), '测试')) {
+        throw new RuntimeException('测试图卡只能发送到名称含“测试”的已绑定机器人。');
+    }
+    $hourKey = date('Y-m-d-H');
+    $idempotencyKey = "hourly-monitor-image:{$hotelId}:{$robotId}:{$hourKey}";
+    $scope = $testOnly ? 'test_only' : 'operating_group';
+    $identity = [
+        'robot_id' => $robotId,
+        'policy_id' => $accountPolicy ? $policyId : null,
+        'hour' => $hourKey,
+        'scope' => $scope,
+    ];
+    $context = [
+        'test_only' => $testOnly,
+        'policy_id' => $accountPolicy ? $policyId : null,
+        'robot_name' => (string)$robot['name'],
+        'hour' => $hourKey,
+    ];
+    $state = new CloudAutomationStateStore();
+
+    // Build before a delivery record exists. A render error must not leave a
+    // placeholder image payload queued for the generic retry worker.
+    $stamp = date('Ymd-His');
+    $output = $root . '/runtime/wechat_visual_cards/hourly-' . $hotelId . '-' . $stamp . '.png';
+    $command = [PHP_BINARY, $root . '/scripts/build_wechat_monitor_visual_card.php', '--hotel-id=' . $hotelId, '--output=' . $output];
+    $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    $process = proc_open($command, $descriptors, $pipes, $root, null, ['bypass_shell' => true]);
+    if (!is_resource($process)) throw new RuntimeException('图卡构建器未能启动。');
+    fclose($pipes[0]); $stdout = stream_get_contents($pipes[1]); $stderr = stream_get_contents($pipes[2]); fclose($pipes[1]); fclose($pipes[2]);
+    if (proc_close($process) !== 0) throw new RuntimeException('图卡构建失败：' . trim((string)$stderr));
+    $build = json_decode((string)$stdout, true, 512, JSON_THROW_ON_ERROR);
+    $payload = (new WechatMonitorVisualCardService())->imagePayloadFromFile((string)($build['output_path'] ?? ''));
+    $lock = $state->acquireLock(5);
+    if (!is_resource($lock)) {
+        throw new RuntimeException('图卡投递已有进程执行中，本次未重复发送。');
+    }
+    $shouldDeliver = false;
+    try {
+        $record = $state->queueDelivery(
+            'hourly_monitor_visual_card',
+            $hotelId,
+            $identity,
+            $payload,
+            $context,
+            $idempotencyKey
+        );
+        $existingStatus = (string)($record['status'] ?? 'queued');
+        if ($existingStatus === 'sent') {
+            $delivery = ['delivery_status' => 'sent', 'sent_count' => 0, 'failed_count' => 0, 'reused' => true];
+        } elseif (in_array($existingStatus, ['sending', 'delivery_outcome_unknown'], true)) {
+            $delivery = ['delivery_status' => $existingStatus, 'sent_count' => 0, 'failed_count' => 0, 'reused' => true];
+        } else {
+            $attempt = $state->beginDeliveryAttempt($record);
+            $shouldDeliver = (string)($attempt['status'] ?? '') === 'sending';
+            if (!$shouldDeliver) {
+                $delivery = [
+                    'delivery_status' => (string)($attempt['status'] ?? 'in_progress'),
+                    'sent_count' => 0,
+                    'failed_count' => 0,
+                    'reused' => true,
+                ];
+            }
+        }
+    } finally {
+        $state->releaseLock($lock);
+    }
+    if ($shouldDeliver) {
+        $deliveryService = new WechatRobotDeliveryService();
+        if ($testOnly) {
+            $delivery = $deliveryService->deliverToHotel($hotelId, $payload, [$robotId]);
+        } elseif ($accountPolicy) {
+            $delivery = $deliveryService->deliverToAccountPolicyRobot(
+                $policyId,
+                $hotelId,
+                'visual_card',
+                $robotId,
+                $payload
+            );
+        } else {
+            $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+            $delivery = $deliveryService->deliverToPlanRobot(
+                $tenantId,
+                $hotelId,
+                $robotId,
+                (string)($robot['name'] ?? ''),
+                0,
+                'formal',
+                $payload,
+                'admin_shared'
+            );
+        }
+        $record = $state->recordDeliveryAttempt($attempt, $delivery);
+    }
+    fwrite(STDOUT, json_encode(['build' => $build, 'delivery' => $delivery, 'delivery_record' => $record], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+    exit((string)($delivery['delivery_status'] ?? '') === 'sent' ? 0 : 2);
+} catch (Throwable $e) {
+    fwrite(STDERR, $e->getMessage() . PHP_EOL);
+    exit(1);
+}

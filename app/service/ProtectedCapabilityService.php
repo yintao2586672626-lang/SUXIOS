@@ -18,12 +18,15 @@ class ProtectedCapabilityService
     /** @var array<string, mixed> */
     private array $policy;
 
+    private TenantContext $tenantContext;
+
     /**
      * @param array<string, mixed>|null $policy
      */
-    public function __construct(?array $policy = null)
+    public function __construct(?array $policy = null, ?TenantContext $tenantContext = null)
     {
         $this->policy = $this->normalizePolicy($policy ?? $this->loadPolicy());
+        $this->tenantContext = $tenantContext ?? new TenantContext();
     }
 
     /**
@@ -39,6 +42,18 @@ class ProtectedCapabilityService
             'tenant_modules' => [],
             'redaction_reason' => self::DEFAULT_REDACTION_REASON,
             'capabilities' => [
+                'knowledge_read' => [
+                    'label' => 'Knowledge library read access',
+                    'permission' => 'ai.view',
+                    'module' => '',
+                    'paths' => [
+                        ['path' => 'api/knowledge/distillation/options', 'methods' => ['GET']],
+                        ['path' => 'api/knowledge/list', 'methods' => ['GET']],
+                        ['path' => 'api/knowledge/*', 'methods' => ['GET']],
+                    ],
+                    'response_mode' => 'summary_only',
+                    'rate_limit' => ['scope' => 'protected_knowledge_read', 'limit' => 120, 'window' => 3600],
+                ],
                 'ai_governance' => [
                     'label' => 'AI governance and model config',
                     'permission' => 'can_manage_ai_governance',
@@ -49,6 +64,14 @@ class ProtectedCapabilityService
                         'api/agent/config',
                         'api/agent/knowledge',
                         'api/agent/knowledge-categories',
+                        ['path' => 'api/knowledge/distillation/run', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/add', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/import', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/document-text', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/*/add-chunk', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/*/update', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/*/status', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/*', 'methods' => ['DELETE']],
                         'api/agent/logs',
                     ],
                     'response_mode' => 'summary_only',
@@ -105,6 +128,7 @@ class ProtectedCapabilityService
                         'api/online-data/data-analysis',
                         'api/online-data/ai-analysis',
                         'api/online-data/fetch-ctrip',
+                        'api/online-data/fetch-ctrip-temporary-cookie',
                         'api/online-data/fetch-meituan',
                         'api/online-data/fetch-custom',
                         'api/online-data/fetch-ctrip-cookie-api',
@@ -113,12 +137,14 @@ class ProtectedCapabilityService
                         'api/online-data/fetch-ctrip-ads',
                         'api/online-data/fetch-ctrip-comments',
                         'api/online-data/fetch-meituan-traffic',
+                        'api/online-data/fetch-meituan-order-flow',
                         'api/online-data/fetch-meituan-orders',
                         'api/online-data/fetch-meituan-ads',
                         'api/online-data/fetch-meituan-comments',
                         'api/online-data/capture-ctrip-browser',
                         'api/online-data/capture-ctrip-comments-browser',
                         'api/online-data/capture-meituan-browser',
+                        ['path' => 'api/online-data/public-page-evidence', 'methods' => ['POST']],
                         ['path' => 'api/online-data/data-sources', 'methods' => ['POST']],
                         ['path' => 'api/online-data/data-sources/*', 'methods' => ['DELETE']],
                         ['path' => 'api/online-data/data-sources/*/sync', 'methods' => ['POST']],
@@ -126,6 +152,23 @@ class ProtectedCapabilityService
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_online_data', 'limit' => 60, 'window' => 3600],
+                ],
+                'operation_execution' => [
+                    'label' => 'Operation execution write bridge',
+                    'permission' => 'operation.execute',
+                    'module' => 'operation_decision',
+                    'paths' => [
+                        [
+                            'path' => 'api/revenue-ai/price-suggestions/*/execution-intent',
+                            'methods' => ['POST'],
+                        ],
+                        [
+                            'path' => 'api/knowledge/*/chunks/*/execution-intent',
+                            'methods' => ['POST'],
+                        ],
+                    ],
+                    'response_mode' => 'summary_only',
+                    'rate_limit' => ['scope' => 'protected_operation', 'limit' => 60, 'window' => 3600],
                 ],
                 'ai_decision' => [
                     'label' => 'AI decision and revenue analysis',
@@ -137,16 +180,18 @@ class ProtectedCapabilityService
                         'api/ai-daily-reports',
                         'api/ota-standard',
                         'api/revenue-research',
+                        'api/revenue-ai',
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_ai_decision', 'limit' => 30, 'window' => 3600],
                 ],
                 'operation_decision' => [
                     'label' => 'Operation decision loop',
-                    'permission' => 'can_use_ai_decision',
+                    'permission' => 'operation.view',
                     'module' => 'operation_decision',
                     'paths' => [
                         'api/operation',
+                        ['path' => 'api/online-data/public-page-diagnosis/execution-intent', 'methods' => ['POST']],
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_operation', 'limit' => 60, 'window' => 3600],
@@ -161,6 +206,8 @@ class ProtectedCapabilityService
                         'api/simulation',
                         'api/expansion',
                         'api/opening',
+                        'api/lifecycle',
+                        'api/investment-decision',
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_investment', 'limit' => 30, 'window' => 3600],
@@ -276,8 +323,33 @@ class ProtectedCapabilityService
 
         $permission = trim((string)($capability['permission'] ?? ''));
         $module = trim((string)($capability['module'] ?? ''));
-        $tenantId = $this->resolveTenantId($params, $user);
         $hotelId = $this->resolveHotelId($params, $user);
+        $tenantId = $this->resolveTenantId($user);
+
+        if ($tenantId <= 0) {
+            return [
+                'allowed' => false,
+                'reason' => 'tenant_context_missing',
+                'status' => 403,
+                'tenant_id' => 0,
+                'hotel_id' => $hotelId,
+                'required_permission' => $permission,
+                'required_module' => $module,
+            ];
+        }
+
+        $claimedTenantId = $this->tenantContext->currentRequestTenantId($params);
+        if ($claimedTenantId > 0 && $tenantId > 0 && $claimedTenantId !== $tenantId) {
+            return [
+                'allowed' => false,
+                'reason' => 'tenant_context_mismatch',
+                'status' => 403,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'required_permission' => $permission,
+                'required_module' => $module,
+            ];
+        }
 
         if (!$this->hotelScopeAllows($user, $hotelId)) {
             return [
@@ -295,6 +367,18 @@ class ProtectedCapabilityService
             return [
                 'allowed' => false,
                 'reason' => 'role_permission_denied',
+                'status' => 403,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'required_permission' => $permission,
+                'required_module' => $module,
+            ];
+        }
+
+        if ($permission !== '' && !$this->hotelCapabilityAllows($user, $hotelId, $permission)) {
+            return [
+                'allowed' => false,
+                'reason' => 'hotel_permission_denied',
                 'status' => 403,
                 'tenant_id' => $tenantId,
                 'hotel_id' => $hotelId,
@@ -364,24 +448,9 @@ class ProtectedCapabilityService
         return (string)($capability['response_mode'] ?? 'summary_only') === 'summary_only';
     }
 
-    /**
-     * @param array<string, mixed> $params
-     */
-    public function resolveTenantId(array $params, User $user): int
+    public function resolveTenantId(User $user): int
     {
-        foreach (['tenant_id', 'system_hotel_id', 'hotel_id'] as $key) {
-            if (isset($params[$key]) && is_numeric($params[$key]) && (int)$params[$key] > 0) {
-                return (int)$params[$key];
-            }
-        }
-
-        foreach (['tenant_id', 'hotel_id'] as $key) {
-            if (isset($user->{$key}) && is_numeric($user->{$key}) && (int)$user->{$key} > 0) {
-                return (int)$user->{$key};
-            }
-        }
-
-        return 0;
+        return $this->tenantContext->currentUserTenantId($user);
     }
 
     /**
@@ -395,7 +464,20 @@ class ProtectedCapabilityService
             }
         }
 
-        return isset($user->hotel_id) && is_numeric($user->hotel_id) ? (int)$user->hotel_id : 0;
+        $primaryHotelId = $this->positiveInt($user->hotel_id ?? null);
+        if ($primaryHotelId > 0) {
+            return $primaryHotelId;
+        }
+
+        try {
+            $permitted = array_values(array_unique(array_filter(
+                array_map('intval', $user->getPermittedHotelIds()),
+                static fn(int $id): bool => $id > 0
+            )));
+            return count($permitted) === 1 ? $permitted[0] : 0;
+        } catch (\Throwable $e) {
+            return 0;
+        }
     }
 
     public function normalizePath(string $uri): string
@@ -502,22 +584,31 @@ class ProtectedCapabilityService
 
     private function hotelScopeAllows(User $user, int $hotelId): bool
     {
-        $permitted = array_map('intval', $user->getPermittedHotelIds());
-        if ($hotelId > 0) {
-            return in_array($hotelId, $permitted, true);
+        if ($hotelId <= 0) {
+            return false;
         }
 
-        return $permitted !== [];
+        $permitted = array_map('intval', $user->getPermittedHotelIds());
+        return in_array($hotelId, $permitted, true);
+    }
+
+    private function hotelCapabilityAllows(User $user, int $hotelId, string $permission): bool
+    {
+        try {
+            return $user->hasHotelPermission($hotelId, $permission);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function positiveInt($value): int
+    {
+        return is_numeric($value) && (int)$value > 0 ? (int)$value : 0;
     }
 
     private function roleAllows(User $user, string $permission): bool
     {
-        $role = $user->role ?? null;
-        if (is_object($role) && method_exists($role, 'hasPermission')) {
-            return $role->hasPermission($permission);
-        }
-
-        return false;
+        return (new PermissionService())->roleAllows($user, $permission);
     }
 
     private function moduleEntitled(int $tenantId, string $module): bool

@@ -4,7 +4,7 @@ const read = (path) => readFileSync(path, 'utf8');
 
 const operationSource = read('app/service/OperationManagementService.php');
 const aiReportSource = read('app/service/AiDailyReportService.php');
-const publicSource = read('public/index.html');
+const publicSource = read('resources/frontend/templates/fragments/16-page-ai-daily-report.html');
 const packageSource = read('package.json');
 
 const checks = [

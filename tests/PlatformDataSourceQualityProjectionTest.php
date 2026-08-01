@@ -34,6 +34,8 @@ final class PlatformDataSourceQualityProjectionTest extends TestCase
                 'target_date_traffic_field_fact_ready_count' => 1,
                 'target_date_traffic_verified_metric_keys' => $this->requiredTrafficMetrics(),
                 'target_date_traffic_ready_data_source_ids' => [31],
+                'target_date_readback_check_supported' => true,
+                'target_date_readback_verified_rows' => 2,
                 'row_count' => 2,
                 'end_date' => '2026-07-09',
                 'latest_collected_at' => '2026-07-10 08:20:00',
@@ -170,6 +172,30 @@ final class PlatformDataSourceQualityProjectionTest extends TestCase
         self::assertStringNotContainsString('->limit(2000)', $source);
         self::assertStringContainsString("->whereNotIn('data_type', ['traffic_forecast', 'forecast'])", $source);
         self::assertStringContainsString("->whereOr('data_period', 'not in', ['next_7_days', 'next_30_days', 'forecast', 'future_forecast'])", $source);
+    }
+
+    public function testPlatformDataTaskResponseDoesNotExposePartialOrFailedWorkAsSuccess(): void
+    {
+        $controller = (new ReflectionClass(OnlineData::class))->newInstanceWithoutConstructor();
+
+        $success = $this->invokeNonPublic($controller, 'platformDataTaskResponse', [[
+            'status' => 'success',
+            'saved_count' => 2,
+        ], '同步']);
+        $partial = $this->invokeNonPublic($controller, 'platformDataTaskResponse', [[
+            'status' => 'partial_success',
+            'saved_count' => 1,
+        ], '同步']);
+        $failed = $this->invokeNonPublic($controller, 'platformDataTaskResponse', [[
+            'status' => 'failed',
+            'saved_count' => 0,
+        ], '同步']);
+
+        self::assertSame(200, $success->getCode());
+        self::assertSame(422, $partial->getCode());
+        self::assertSame(500, $failed->getCode());
+        self::assertSame(1, json_decode($partial->getContent(), true)['data']['saved_count']);
+        self::assertSame(0, json_decode($failed->getContent(), true)['data']['saved_count']);
     }
 
     public function testCollectionStatusRowExposesOnlySafeTaskQualitySnapshot(): void

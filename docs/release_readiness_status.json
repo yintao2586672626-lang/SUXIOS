@@ -1,6 +1,10 @@
 {
   "schema_version": 1,
   "updated_at": "2026-07-09",
+  "status_role": "historical_snapshot",
+  "current_use_forbidden": true,
+  "live_status_command": "npm run review:release-readiness",
+  "current_state_path": "vault/current-state.md",
   "scope": [
     "@github",
     "@openai-developers",

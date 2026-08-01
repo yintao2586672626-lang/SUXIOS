@@ -1,6 +1,6 @@
 # SUXIOS 宿析OS
 
-宿析OS 是面向酒店线上经营的 OTA 数据证据、收益诊断与运营决策系统。当前版本以携程、美团、携程商旅等授权后台可见数据为输入，先固定采集证据与字段口径，再把收益、流量、转化、竞争圈、服务质量、广告和商旅表现转成待确认 AI 建议、运营动作和效果复盘；投前、筹建、开业、扩张和转让作为二期辅助判断入口保留。
+宿析OS 是面向酒店线上经营的 OTA 数据证据、收益诊断与运营决策系统。当前版本以携程、美团、携程商旅等授权后台可见数据和门店经营数据为输入，先固定采集证据与字段口径，再把收益、流量、转化、竞争圈、服务质量、广告和商旅表现转成待确认 AI 建议、运营动作和效果复盘。投前、筹建、开业、扩张和转让的代码与历史数据暂时保留，但不进入当前主导航和核心闭环。
 
 ## 当前产品边界
 
@@ -63,7 +63,7 @@
 - 流量：每日曝光、访客、订单、间夜、收入、调价、促销、投诉和点评新增。
 - 反馈：收益诊断生成建议，运营动作改变市场表现，再回到新一轮数据。
 - 延迟：调价、服务、投放、点评和投资结果都有观察期，不用短期波动替代长期判断。
-- 目标：从 OTA 数据进入收益分析、AI 决策、运营管理和投资决策，提升经营质量和决策确定性。
+- 当前主线：授权 OTA 和门店经营数据 -> 收益分析 -> AI 建议 -> 运营执行；通过下一轮数据复盘动作效果。
 
 详细原则见 `docs/system_design_logic.md`。
 
@@ -76,7 +76,7 @@
 - 数据库：MySQL
 - 默认数据库名：hotelx
 - Web 根目录：public
-- 前端：public/index.html 单文件 Vue 3 CDN 页面
+- 前端：Vue 3 runtime-only；业务模板按页面拆分在 `resources/frontend/templates/fragments/`，`public/index.html` 仅保留启动壳
 - 一键启动：start-hotel.bat
 
 ## 快速启动
@@ -105,24 +105,42 @@ http://127.0.0.1:8080/
 http://127.0.0.1:8080/api/health
 ```
 
-## 数据库
+## 前端模板维护
 
-仓库已包含完整初始化入口：
-
-```text
-database/init_full.sql
-```
-
-导入示例：
+- 业务页面模板以 `resources/frontend/templates/fragments/*.html` 为唯一编辑源，加载顺序由 `resources/frontend/templates/manifest.json` 固定。
+- `resources/frontend/app-template.html` 是由业务分片生成的兼容快照，不应独立修改；`public/app-render.min.js` 是预编译运行产物。
+- 修改业务分片后依次运行：
 
 ```powershell
-C:\xampp\mysql\bin\mysql.exe -u root -e "CREATE DATABASE IF NOT EXISTS hotelx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-C:\xampp\mysql\bin\mysql.exe -u root hotelx < database/init_full.sql
+node scripts/sync_frontend_template_snapshot.mjs
+npm.cmd run build:frontend-template
+npm.cmd run verify:frontend-template
+```
+
+如果发现旧工具直接改动了兼容快照，先运行 `node scripts/migrate_frontend_template_fragments.mjs --check` 检查冲突；仅在人工确认需要以该快照覆盖分片后再使用 `--force`。
+
+## 数据库
+
+新环境完整初始化：
+
+```powershell
+C:\xampp\php\php.exe scripts\init_database.php
 ```
 
 如果 XAMPP 安装在 D 盘，请把命令中的 `C:\xampp` 改为 `D:\xampp`。
 
-`database/hotel_admin_mysql.sql` 是可提交的基础 dump；`database/init_full.sql` 会继续加载登录日志、投诉表和所有迁移，覆盖当前代码使用的表与字段。
+`database/init_full.sql` 已冻结为历史基线，不再追加 migration。初始化器会导入基线、自动执行 `database/migrations/` 下的待执行文件，并在 `schema_versions` 记录 migration、version、SHA-256 checksum、执行方式和执行时间；4 个冻结 SQL 源另由 `schema_baseline_sources` 记录校验和，失败尝试由 `schema_migration_failures` 留存并在重试成功后关闭。现有环境可先运行 `php think db:check`，再按提示执行 `php think db:migrate`；旧库首次纳管会先做只读结构预检，再由 `--baseline` 登记。业务请求与旧命令不再动态建表或改表。
+
+CI 会在 MariaDB 10.11（项目当前 MySQL 兼容方言）中运行 `npm run verify:mysql-fresh-concurrency`：创建随机 `*_e2e` 临时库、执行全量初始化、把扩张幂等迁移再执行两次，并用 8 个独立 PHP 进程验证只生成 1 条执行意图。该命令必须显式设置 `SUXI_CI_MYSQL_VERIFY=1`，结束后会删除临时库。
+
+手动 OTA 后台任务默认保留 7 天。可先预览、再清理过期终态和孤儿任务目录：
+
+```powershell
+C:\xampp\php\php.exe think online-data:cleanup-manual-fetch-tasks --dry-run
+C:\xampp\php\php.exe think online-data:cleanup-manual-fetch-tasks
+```
+
+`queued/running` 任务不会直接删除；超过执行时限后会先原子转成 `timeout`，再从该时刻计算保留期。状态默认使用 `database` 驱动，使用同一数据库的多节点可共享任务状态；`file` 仅用于本机兼容或测试。配置未实现的 driver 会明确失败，不会静默回退到节点本地文件。若未来需要独立任务调度与背压，再迁移到共享队列。
 
 ## 配置
 
@@ -143,7 +161,7 @@ route/            路由配置
 public/           Web 根目录和前端页面
 database/         SQL 资源和迁移脚本
 database/hotel_admin_mysql.sql 基础数据库备份
-database/init_full.sql 完整数据库初始化入口
+database/init_full.sql 冻结数据库基线（禁止追加新 migration）
 start-hotel.bat   Windows 一键启动脚本
 QUICK_START.md    下载后运行说明
 ```

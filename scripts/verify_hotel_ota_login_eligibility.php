@@ -33,6 +33,7 @@ function hotel_ota_columns(PDO $pdo, string $table): array
 function hotel_ota_applicable_platforms(string $strategy): array
 {
     return match ($strategy) {
+        'none' => [],
         'ctrip_only' => ['ctrip'],
         'meituan_only' => ['meituan'],
         default => ['ctrip', 'meituan'],
@@ -492,7 +493,7 @@ try {
         $issues[] = ['severity' => 'error', 'code' => 'can_fetch_online_data_missing', 'message' => 'user_hotel_permissions.can_fetch_online_data is required.'];
     }
     if (!$hasOtaStrategy) {
-        $issues[] = ['severity' => 'warning', 'code' => 'ota_channel_strategy_missing', 'message' => 'hotels.ota_channel_strategy is missing; dual strategy is assumed for compatibility.'];
+        $issues[] = ['severity' => 'warning', 'code' => 'ota_channel_strategy_missing', 'message' => 'hotels.ota_channel_strategy is missing; no OTA channel is assumed until the schema is migrated and the hotel strategy is confirmed.'];
     }
     if (!$hasSourceConfig) {
         $issues[] = ['severity' => 'warning', 'code' => 'source_config_json_missing', 'message' => 'platform_data_sources.config_json is missing; Profile login verification cannot be proven.'];
@@ -504,8 +505,8 @@ try {
     $hotels = [];
     if ($missingTables === []) {
         $strategyExpr = $hasOtaStrategy
-            ? "COALESCE(NULLIF(h.`ota_channel_strategy`, ''), 'dual') AS ota_channel_strategy"
-            : "'dual' AS ota_channel_strategy";
+            ? "COALESCE(NULLIF(h.`ota_channel_strategy`, ''), 'none') AS ota_channel_strategy"
+            : "'none' AS ota_channel_strategy";
         $hotelWhere = $hotelIdFilter !== '' ? 'WHERE h.`id` = ?' : '';
         $hotelParams = $hotelIdFilter !== '' ? [(int)$hotelIdFilter] : [];
         $hotels = ota_inventory_query_all($pdo, "
@@ -637,8 +638,8 @@ try {
         $hotelStatus = (int)($hotel['status'] ?? 0);
         $hotelLifecycleState = $hotelStatus === 1 ? 'active' : 'inactive';
         $inactiveHotelBlocksOtaFlow = $hotelStatus !== 1;
-        $strategy = strtolower(trim((string)($hotel['ota_channel_strategy'] ?? 'dual')));
-        if (!in_array($strategy, ['ctrip_only', 'dual', 'meituan_only'], true)) {
+        $strategy = strtolower(trim((string)($hotel['ota_channel_strategy'] ?? 'none')));
+        if (!in_array($strategy, ['none', 'ctrip_only', 'dual', 'meituan_only'], true)) {
             $strategy = 'dual';
         }
         $strategyPlatforms = hotel_ota_applicable_platforms($strategy);

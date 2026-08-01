@@ -4,6 +4,13 @@ const { expect } = require('@playwright/test');
 const { Parser } = require('@json2csv/plainjs');
 
 const MODULE = Object.freeze({
+  AI_WORKBENCH: '\u4eca\u65e5\u7ecf\u8425\u770b\u677f',
+  REVENUE_DIAGNOSIS: '\u6536\u76ca\u8bca\u65ad',
+  DATA_TRUST: '\u6570\u636e\u53ef\u4fe1\u5ea6',
+  AI_DAILY_REPORT: 'AI\u7ecf\u8425\u65e5\u62a5',
+  EXECUTION_TRACKING: '\u6267\u884c\u8ddf\u8e2a',
+  ADVANCED_AI: '\u9ad8\u7ea7AI\u5de5\u5177\u7bb1',
+  HOTEL_MANAGEMENT: '\u95e8\u5e97\u7ba1\u7406',
   STRATEGY: '\u667a\u7565\u00b7\u6218\u7565\u63a8\u6f14',
   SIMULATION: '\u667a\u7b97\u00b7\u91cf\u5316\u6a21\u62df',
   FEASIBILITY: '\u667a\u7b56\u00b7\u53ef\u884c\u6027\u62a5\u544a',
@@ -22,9 +29,20 @@ const MODULE = Object.freeze({
   DATA_DASHBOARD: '\u667a\u51b3\u00b7\u6570\u636e\u770b\u677f',
 });
 
-const MODULES = Object.values(MODULE);
+const MODULES = [
+  MODULE.AI_WORKBENCH,
+  MODULE.REVENUE_DIAGNOSIS,
+  MODULE.DATA_TRUST,
+  MODULE.AI_DAILY_REPORT,
+  MODULE.EXECUTION_TRACKING,
+  MODULE.HOTEL_MANAGEMENT,
+];
 
 const GROUP = Object.freeze({
+  BUSINESS_LOOP: '\u7ecf\u8425\u95ed\u73af',
+  OTA_DATA: 'OTA\u6570\u636e',
+  OPERATION_EXECUTION: '\u8fd0\u8425\u6267\u884c',
+  MORE: '\u5f85\u5f00\u53d1...',
   PROJECT_BUILD: '\u7b79\u5efa\u7ba1\u7406',
   OPENING: '\u5f00\u4e1a\u7ba1\u7406',
   OPERATION: '\u8fd0\u8425\u7ba1\u7406',
@@ -32,10 +50,15 @@ const GROUP = Object.freeze({
   TRANSFER: '\u8f6c\u8ba9\u7ba1\u7406',
 });
 
-const GROUPS = Object.values(GROUP);
-const PROJECT_MENU = '\u9879\u76eeAI\u7ba1\u7406';
+const GROUPS = [GROUP.BUSINESS_LOOP, GROUP.OTA_DATA, GROUP.OPERATION_EXECUTION, GROUP.MORE];
+const PROJECT_MENU = '';
 
 const MODULE_GROUPS = {
+  [MODULE.REVENUE_DIAGNOSIS]: GROUP.BUSINESS_LOOP,
+  [MODULE.DATA_TRUST]: GROUP.OTA_DATA,
+  [MODULE.AI_DAILY_REPORT]: GROUP.OPERATION_EXECUTION,
+  [MODULE.EXECUTION_TRACKING]: GROUP.OPERATION_EXECUTION,
+  [MODULE.ADVANCED_AI]: GROUP.MORE,
   [MODULE.STRATEGY]: GROUP.PROJECT_BUILD,
   [MODULE.SIMULATION]: GROUP.PROJECT_BUILD,
   [MODULE.FEASIBILITY]: GROUP.PROJECT_BUILD,
@@ -55,6 +78,13 @@ const MODULE_GROUPS = {
 };
 
 const MODULE_PATHS = {
+  [MODULE.AI_WORKBENCH]: 'ai-workbench',
+  [MODULE.REVENUE_DIAGNOSIS]: 'revenue-research-center',
+  [MODULE.DATA_TRUST]: 'online-data',
+  [MODULE.AI_DAILY_REPORT]: 'ai-daily-report',
+  [MODULE.EXECUTION_TRACKING]: 'ops-track',
+  [MODULE.ADVANCED_AI]: 'agent-center',
+  [MODULE.HOTEL_MANAGEMENT]: 'hotels',
   [MODULE.STRATEGY]: 'ai-strategy',
   [MODULE.SIMULATION]: 'ai-simulation',
   [MODULE.FEASIBILITY]: 'ai-feasibility',
@@ -73,7 +103,16 @@ const MODULE_PATHS = {
   [MODULE.DATA_DASHBOARD]: 'decision-board',
 };
 
+const MODULE_NAV_TEST_IDS = {
+  [MODULE.AI_WORKBENCH]: 'nav-lean-ai-workbench',
+  [MODULE.HOTEL_MANAGEMENT]: 'nav-lean-hotel-management',
+};
+
 const GROUP_PATHS = {
+  [GROUP.BUSINESS_LOOP]: 'lean-business-loop',
+  [GROUP.OTA_DATA]: 'lean-ota-data',
+  [GROUP.OPERATION_EXECUTION]: 'lean-operation',
+  [GROUP.MORE]: 'lean-more',
   [GROUP.PROJECT_BUILD]: 'ai-construction',
   [GROUP.OPENING]: 'ai-opening',
   [GROUP.OPERATION]: 'ai-ops',
@@ -90,10 +129,47 @@ const DETAIL_API_PATTERNS = [
 ];
 
 function getConfig() {
+  const baseURL = String(process.env.E2E_BASE_URL || '').trim();
+  const username = String(process.env.E2E_USERNAME || '').trim();
+  const password = String(process.env.E2E_PASSWORD || '');
+  const databaseName = String(process.env.SUXI_E2E_DB_NAME || '').trim();
+  const objectPrefix = String(process.env.E2E_OBJECT_PREFIX || '').trim();
+  if (process.env.SUXI_E2E_ISOLATED_RUNNER !== '1'
+    || process.env.SUXI_E2E_DB_OVERRIDE !== '1'
+    || !/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/i.test(databaseName)) {
+    throw new Error('Playwright E2E requires the isolated runner and a dedicated *_test/*_testing/*_e2e database');
+  }
+  let parsedBaseURL;
+  try {
+    parsedBaseURL = new URL(baseURL);
+  } catch {
+    throw new Error('E2E_BASE_URL must be an isolated loopback URL');
+  }
+  const host = parsedBaseURL.hostname.toLowerCase();
+  const appPort = Number(process.env.SUXI_E2E_APP_PORT || 18080);
+  const effectivePort = Number(parsedBaseURL.port || 80);
+  if (parsedBaseURL.protocol !== 'http:'
+    || !['127.0.0.1', 'localhost'].includes(host)
+    || effectivePort !== appPort
+    || effectivePort === 8080
+    || parsedBaseURL.pathname !== '/'
+    || parsedBaseURL.search
+    || parsedBaseURL.hash
+    || parsedBaseURL.username
+    || parsedBaseURL.password) {
+    throw new Error('E2E_BASE_URL must match the isolated loopback app port and root path');
+  }
+  if (!username || !password || !/^codex_e2e_[a-z0-9_]{8,48}$/.test(objectPrefix)) {
+    throw new Error('Isolated E2E credentials and object prefix are required');
+  }
+
   return {
-    baseURL: process.env.E2E_BASE_URL || 'http://localhost:8080/',
-    username: process.env.E2E_USERNAME || 'admin',
-    password: process.env.E2E_PASSWORD || 'admin123',
+    baseURL,
+    username,
+    password,
+    hotelId: Number(process.env.E2E_HOTEL_ID || 0),
+    hotelName: String(process.env.E2E_HOTEL_NAME || '').trim(),
+    objectPrefix,
   };
 }
 
@@ -147,7 +223,7 @@ function modulePath(mod) {
 }
 
 function testIdForModule(mod) {
-  return `nav-${modulePath(mod)}`;
+  return MODULE_NAV_TEST_IDS[mod] || `nav-${modulePath(mod)}`;
 }
 
 function pageTestIdForModule(mod) {
@@ -316,13 +392,58 @@ function installDiagnostics(page, sinks = {}) {
 
 async function login(page, config = getConfig()) {
   await page.goto(config.baseURL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  const usernameInput = page.getByTestId('login-username').or(page.locator('input[name="username"]')).first();
+  const publicLoginForm = page.locator('#public-login-form');
+  const hasPublicLoginForm = await publicLoginForm.count() > 0;
+  const usernameInput = hasPublicLoginForm
+    ? publicLoginForm.locator('input[name="username"]').first()
+    : page.getByTestId('login-username').or(page.locator('input[name="username"]')).first();
   if (await usernameInput.count()) {
+    if (hasPublicLoginForm) {
+      await expect(publicLoginForm).toHaveAttribute('data-suxi-login-ready', '1', { timeout: 10000 });
+    }
     await usernameInput.fill(config.username);
-    await page.getByTestId('login-password').or(page.locator('input[name="password"]')).first().fill(config.password);
-    await page.getByTestId('login-submit').or(page.locator('button[type="submit"]')).first().click();
+    const passwordInput = hasPublicLoginForm
+      ? publicLoginForm.locator('input[name="password"]').first()
+      : page.getByTestId('login-password').or(page.locator('input[name="password"]')).first();
+    await passwordInput.fill(config.password);
+    const submitButton = hasPublicLoginForm
+      ? publicLoginForm.locator('button[type="submit"]').first()
+      : page.getByTestId('login-submit').or(page.locator('button[type="submit"]')).first();
+    await expect(submitButton).toBeEnabled({ timeout: 10000 });
+    let loginResponse;
+    try {
+      [loginResponse] = await Promise.all([
+        page.waitForResponse((response) => {
+          const request = response.request();
+          return request.method() === 'POST' && new URL(response.url()).pathname === '/api/auth/login';
+        }, { timeout: 20000 }),
+        submitButton.click(),
+      ]);
+    } catch (error) {
+      const visibleError = await page.locator('#public-login-error span, #login-error').first().textContent().catch(() => '');
+      const browserState = await page.evaluate(() => {
+        const form = document.getElementById('public-login-form');
+        const username = document.getElementById('login-username');
+        const password = document.getElementById('login-password');
+        const submit = form?.querySelector('button[type="submit"]');
+        return {
+          url: location.href,
+          ready: form?.dataset?.suxiLoginReady || '',
+          username_length: String(username?.value || '').length,
+          password_length: String(password?.value || '').length,
+          submit_disabled: Boolean(submit?.disabled),
+        };
+      }).catch(() => ({ url: page.url(), page_unavailable: true }));
+      throw new Error(`Browser login interaction did not complete${visibleError?.trim() ? `: ${visibleError.trim()}` : ''}; state=${JSON.stringify(browserState)}`, { cause: error });
+    }
+    const loginPayload = await loginResponse.json().catch(() => ({}));
+    if (!loginResponse.ok() || Number(loginPayload?.code) !== 200) {
+      throw new Error(`Browser login failed with HTTP ${loginResponse.status()} code ${String(loginPayload?.code ?? 'unknown')}`);
+    }
   }
-  await expect(page.locator('input[name="username"]')).toHaveCount(0, { timeout: 10000 });
+  await expect(page.locator('input[name="username"]')).toHaveCount(0, { timeout: 30000 });
+  await expect(page.locator('#app[data-asset-error-rendered="1"]')).toHaveCount(0);
+  await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 30000 });
 }
 
 async function navRoot(page) {
@@ -350,29 +471,8 @@ async function expandModuleMenus(page, targetModule) {
   ];
   if (await firstVisibleLocator(targetLocators)) return nav;
 
-  let hasVisibleGroup = false;
-  for (const group of GROUPS) {
-    const groupTestId = `nav-${GROUP_PATHS[group] || normalizeTestIdSegment(group)}`;
-    const item = await firstVisibleLocator([
-      page.getByTestId(groupTestId),
-      nav.getByText(group, { exact: true }),
-    ]);
-    if (item) {
-      hasVisibleGroup = true;
-      break;
-    }
-  }
-
-  const menu = await firstVisibleLocator([
-    page.getByTestId('nav-project-ai-management'),
-    nav.getByText(PROJECT_MENU, { exact: true }),
-  ]);
-  if (!hasVisibleGroup && menu) {
-    await menu.click({ timeout: 3000 });
-  }
-
-  if (!(await firstVisibleLocator(targetLocators))) {
-    const group = MODULE_GROUPS[targetModule];
+  const group = MODULE_GROUPS[targetModule];
+  if (group) {
     const groupTestId = `nav-${GROUP_PATHS[group] || normalizeTestIdSegment(group)}`;
     const item = await firstVisibleLocator([
       page.getByTestId(groupTestId),
@@ -380,6 +480,7 @@ async function expandModuleMenus(page, targetModule) {
     ]);
     if (item) {
       await item.click({ timeout: 3000 });
+      await page.waitForTimeout(50);
     }
   }
 
@@ -394,8 +495,8 @@ async function goModule(page, mod) {
   ]);
   expect(navItem, `nav item not found: ${mod}`).toBeTruthy();
   await navItem.click({ timeout: 3000 });
-  await expect(page.getByTestId(pageTestIdForModule(mod)).or(page.locator('main')).first()).toBeVisible({ timeout: 5000 });
-  await expect(page.locator('main')).toContainText(mod, { timeout: 5000 });
+  await expect(page.getByTestId(pageTestIdForModule(mod))).toBeVisible({ timeout: 5000 });
+  await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', modulePath(mod), { timeout: 5000 });
 }
 
 async function waitForApiOrState(page, action, options = {}) {

@@ -1,0 +1,26 @@
+[Unit]
+Description=SUXIOS hourly hotel monitoring broadcast (formal operating group)
+After=network-online.target mariadb.service php8.3-fpm.service
+Wants=network-online.target
+ConditionPathExists=/var/www/suxios/current/think
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+# The renderer runs as www-data rather than an interactive desktop user.
+Environment=HOME=/var/www/suxios/shared/runtime/chromium-home
+Environment=XDG_CACHE_HOME=/var/www/suxios/shared/runtime/chromium-cache
+Environment=SUXIOS_CHROME_EXECUTABLE=/usr/bin/google-chrome
+EnvironmentFile=-/etc/suxios/cloud-automation.env
+# A formal group is opt-in. Keep the existing test-group unit separate so a
+# test webhook can never be promoted by a scheduler configuration change.
+ExecStart=/bin/sh -c 'test "$${SUXIOS_MONITOR_FORMAL_ENABLED:-0}" = "1" && test -n "$${SUXIOS_MONITOR_HOTEL_ID:-}" && test -n "$${SUXIOS_MONITOR_FORMAL_ROBOT_ID:-}" || exit 75; exec /usr/bin/php -d memory_limit=384M think hotel-monitor:wechat-broadcast --hotel-id=$${SUXIOS_MONITOR_HOTEL_ID} --robot-id=$${SUXIOS_MONITOR_FORMAL_ROBOT_ID} --with-visual-card'
+Nice=10
+CPUQuota=30%
+MemoryMax=384M
+TasksMax=24
+TimeoutStartSec=10min
+UMask=0027

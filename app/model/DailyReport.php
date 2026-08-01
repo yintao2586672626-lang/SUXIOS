@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace app\model;
 
-use think\Model;
+use app\model\base\BaseTenantModel;
 
-class DailyReport extends Model
+class DailyReport extends BaseTenantModel
 {
     protected $name = 'daily_reports';
     
@@ -17,6 +17,7 @@ class DailyReport extends Model
     // JSON 字段自动转换
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'hotel_id' => 'integer',
         'report_data' => 'json',
         'submitter_id' => 'integer',

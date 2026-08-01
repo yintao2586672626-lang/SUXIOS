@@ -1,0 +1,172 @@
+<?php
+declare(strict_types=1);
+
+use app\service\ManualNotificationService;
+use app\service\ManualNotificationScheduleRuleService;
+use think\App;
+use think\facade\Db;
+
+$releaseRoot = realpath(dirname(__DIR__, 2));
+if (!is_string($releaseRoot) || $releaseRoot === '') {
+    fwrite(STDERR, "release_root_unresolved\n");
+    exit(2);
+}
+
+require $releaseRoot . '/vendor/autoload.php';
+$app = new App($releaseRoot);
+$app->initialize();
+
+try {
+    foreach ([
+        'manual_notifications',
+        'manual_notification_schedule_dispatches',
+        'manual_notification_dispatch_attempts',
+        'manual_notification_schedule_runs',
+        'operating_target_daily_records',
+        'operating_target_daily_snapshots',
+        'competitor_wechat_robot',
+    ] as $table) {
+        Db::query('SELECT 1 FROM `' . $table . '` WHERE 1 = 0');
+    }
+    Db::query(
+        'SELECT `source_scope`,`content_sections`,`business_date_rule`,`active_weekdays`,'
+        . '`effective_from`,`effective_to`,`hourly_start_time`,`hourly_end_time`,'
+        . '`interval_minutes`,`last_test_status`,`last_tested_at`,`update_time`'
+        . ' FROM `manual_notifications` WHERE 1 = 0'
+    );
+
+    $robot = Db::name('competitor_wechat_robot')
+        ->where('id', 1)
+        ->where('store_id', 80)
+        ->where('name', ManualNotificationService::TEST_ROBOT_NAME)
+        ->where('status', 1)
+        ->field('id,store_id,name,status')
+        ->find();
+    if (!is_array($robot)) {
+        throw new RuntimeException('hotel80_test_robot1_identity_missing');
+    }
+
+    $records = Db::name('manual_notifications')
+        ->where('enabled', 1)
+        ->where('schedule_status', 'schedule_enabled')
+        ->whereIn('trigger_type', ['daily_fixed_time', 'hourly_on_the_hour', 'interval_minutes'])
+        ->where('send_method', 'wecom_test')
+        ->field(
+            'id,hotel_id,notification_type,template_type,trigger_type,'
+            . 'planned_send_at,active_weekdays,effective_from,effective_to,'
+            . 'hourly_start_time,hourly_end_time,interval_minutes,'
+            . 'last_test_status,last_tested_at,update_time,'
+            . 'test_robot_id,test_robot_name'
+        )
+        ->select()
+        ->toArray();
+    $policyBlocked = [];
+    $records = array_values(array_filter(
+        $records,
+        static function (array $record) use (&$policyBlocked): bool {
+            $templateType = trim((string)(
+                $record['template_type']
+                ?? $record['notification_type']
+                ?? ''
+            ));
+            $triggerType = trim((string)($record['trigger_type'] ?? ''));
+            $allowed = !ManualNotificationService::isOperatingDailyReportType(
+                $templateType
+            ) || ManualNotificationService::isOperatingDailyTriggerAllowed(
+                $triggerType
+            );
+            if (!$allowed) {
+                $policyBlocked[] = (int)($record['id'] ?? 0);
+            }
+            return $allowed;
+        }
+    ));
+    if ($policyBlocked !== []) {
+        throw new RuntimeException(
+            'operating_daily_loop_schedule_forbidden ids='
+            . implode(',', $policyBlocked)
+        );
+    }
+    $invalidTestEvidence = [];
+    $records = array_values(array_filter(
+        $records,
+        static function (array $record) use (&$invalidTestEvidence): bool {
+            $testedAt = trim((string)($record['last_tested_at'] ?? ''));
+            $updatedAt = trim((string)($record['update_time'] ?? ''));
+            $testedTimestamp = $testedAt === '' ? false : strtotime($testedAt);
+            $updatedTimestamp = $updatedAt === '' ? false : strtotime($updatedAt);
+            $valid = strtolower(trim((string)(
+                $record['last_test_status'] ?? ''
+            ))) === 'sent'
+                && $testedTimestamp !== false
+                && $updatedTimestamp !== false
+                && $testedTimestamp >= $updatedTimestamp;
+            if (!$valid) {
+                $invalidTestEvidence[] = (int)($record['id'] ?? 0);
+            }
+            return $valid;
+        }
+    ));
+    if ($invalidTestEvidence !== []) {
+        throw new RuntimeException(
+            'manual_notification_schedule_test_evidence_invalid ids='
+            . implode(',', $invalidTestEvidence)
+        );
+    }
+    $scheduleRules = new ManualNotificationScheduleRuleService();
+    $now = new DateTimeImmutable(
+        'now',
+        new DateTimeZone(ManualNotificationScheduleRuleService::TIMEZONE)
+    );
+    $expired = [];
+    $records = array_values(array_filter(
+        $records,
+        static function (array $record) use ($scheduleRules, $now, &$expired): bool {
+            $hasFutureRun = $scheduleRules->nextRunAt($record, $now) !== null;
+            if (!$hasFutureRun) {
+                $expired[] = (int)($record['id'] ?? 0);
+            }
+            return $hasFutureRun;
+        }
+    ));
+    if ($expired !== []) {
+        throw new RuntimeException(
+            'enabled_schedule_window_expired ids=' . implode(',', $expired)
+        );
+    }
+    $outsideScope = [];
+    foreach ($records as $record) {
+        if ((int)($record['hotel_id'] ?? 0) !== 80
+            || (int)($record['test_robot_id'] ?? 0) !== 1
+            || trim((string)($record['test_robot_name'] ?? '')) !== ManualNotificationService::TEST_ROBOT_NAME
+            || !ManualNotificationService::isDynamicReportType(
+                trim((string)($record['template_type'] ?? ''))
+            )
+        ) {
+            $outsideScope[] = (int)($record['id'] ?? 0);
+        }
+    }
+    if ($outsideScope !== []) {
+        throw new RuntimeException(
+            'enabled_test_schedule_outside_hotel80_robot1 ids=' . implode(',', $outsideScope)
+        );
+    }
+    if (in_array('--require-enabled', $argv, true) && $records === []) {
+        throw new RuntimeException('enabled_operating_target_test_schedule_missing');
+    }
+
+    echo json_encode([
+        'status' => 'ready',
+        'release_root' => $releaseRoot,
+        'delivery_mode' => 'test',
+        'hotel_id' => 80,
+        'robot_id' => 1,
+        'eligible_saved_schedule_count' => count($records),
+        'webhook_read' => false,
+        'message_sent' => false,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    exit(0);
+} catch (Throwable $exception) {
+    fwrite(STDERR, mb_substr($exception->getMessage(), 0, 240, 'UTF-8') . PHP_EOL);
+    exit(2);
+}

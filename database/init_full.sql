@@ -1,12 +1,16 @@
 -- SuXi OS full database initialization entry.
 -- Run from the HOTEL project root:
 -- mysql -u root hotelx < database/init_full.sql
+-- FROZEN BASELINE through 20260719: do not append new migrations here.
+-- Use scripts/init_database.php for a fresh database and db:migrate for upgrades;
+-- both discover database/migrations/*.sql automatically.
 
 SET NAMES utf8mb4;
 SET time_zone = '+08:00';
 
 SOURCE ./database/hotel_admin_mysql.sql;
 SOURCE ./database/login_logs.sql;
+SOURCE ./database/migrations/20260719_create_login_rate_limit_counters.sql;
 SOURCE ./database/complaint_tables.sql;
 SOURCE ./database/update_system_config.sql;
 SOURCE ./database/migrations/20260603_create_china_division_dim.sql;
@@ -20,15 +24,30 @@ SOURCE ./database/migrations/20260527_create_ai_governance_tables.sql;
 SOURCE ./database/migrations/20260528_create_platform_data_sync_tables.sql;
 SOURCE ./database/migrations/20260606_add_online_daily_data_period_fields.sql;
 SOURCE ./database/migrations/20260710_fix_traffic_forecast_period.sql;
+SOURCE ./database/migrations/20260715_create_temporal_forecast_snapshots.sql;
+SOURCE ./database/migrations/20260715_repair_online_data_period_semantics.sql;
+SOURCE ./database/migrations/20260715_create_online_data_correction_ledger.sql;
 SOURCE ./database/migrations/20260704_fix_online_daily_data_keys.sql;
+SOURCE ./database/migrations/20260716_add_online_data_history_pagination_index.sql;
 SOURCE ./database/migrations/20260511_create_missing_business_tables.sql;
+SOURCE ./database/migrations/20260719_expand_sensitive_webhook_storage.sql;
+SOURCE ./database/migrations/20260717_add_competitor_rate_comparability.sql;
+SOURCE ./database/migrations/20260719_allow_competitor_availability_events.sql;
+SOURCE ./database/migrations/20260719_add_competitor_observation_idempotency_index.sql;
 SOURCE ./database/migrations/20260517_add_international_ota_report_fields.sql;
 SOURCE ./database/migrations/20260516_create_opening_management_tables.sql;
 SOURCE ./database/migrations/20260518_add_opening_task_progress.sql;
 SOURCE ./database/migrations/20260516_create_operation_management_tables.sql;
 SOURCE ./database/migrations/20260526_create_operation_execution_loop_tables.sql;
+SOURCE ./database/migrations/20260716_add_execution_intent_idempotency_key.sql;
 SOURCE ./database/migrations/20260607_create_ai_daily_reports.sql;
+SOURCE ./database/migrations/20260716_create_ai_report_generation_tasks.sql;
+SOURCE ./database/migrations/20260717_create_manual_online_fetch_task_statuses.sql;
+SOURCE ./database/migrations/20260717_add_online_data_history_projection.sql;
+SOURCE ./database/migrations/20260717_create_ai_analysis_review_tables.sql;
+SOURCE ./database/migrations/20260716_remove_public_registration_config.sql;
 SOURCE ./database/migrations/20260607_create_system_notifications.sql;
+SOURCE ./database/migrations/20260714_add_system_notification_recipient.sql;
 SOURCE ./database/migrations/20260517_create_quant_simulation_records.sql;
 SOURCE ./database/migrations/20260517_create_expansion_records.sql;
 SOURCE ./database/migrations/20260517_create_transfer_records.sql;
@@ -36,11 +55,16 @@ SOURCE ./database/migrations/20260518_create_knowledge_center_tables.sql;
 SOURCE ./database/migrations/20260526_add_knowledge_owner_scope.sql;
 SOURCE ./database/migrations/20260601_add_knowledge_unit_hotel_scope.sql;
 SOURCE ./database/migrations/20260529_add_tenant_security_fields.sql;
+SOURCE ./database/migrations/20260719_bind_competitor_devices_to_hotel_scope.sql;
+SOURCE ./database/migrations/20260717_repair_operation_tenant_scope.sql;
+SOURCE ./database/migrations/20260719_harden_operation_audit_records.sql;
 SOURCE ./database/migrations/20260614_add_access_tier_hotel_owner_scope.sql;
 SOURCE ./database/migrations/20260709_add_hotel_ota_channel_strategy.sql;
 SOURCE ./database/migrations/20260710_create_ota_credentials.sql;
+SOURCE ./database/migrations/20260717_add_ota_credential_retention.sql;
 SOURCE ./database/migrations/20260710_create_ota_profile_bindings.sql;
 SOURCE ./database/migrations/20260530_create_system_configs_table.sql;
+SOURCE ./database/migrations/20260717_reconcile_system_config_table_boundary.sql;
 SOURCE ./database/migrations/20260602_create_ctrip_ota_metric_tables.sql;
 SOURCE ./database/migrations/20260629_create_ctrip_review_order_match_tables.sql;
 SOURCE ./database/migrations/20260629_create_meituan_review_order_match_tables.sql;
@@ -56,3 +80,7 @@ SOURCE ./database/migrations/20260526_seed_ota_operation_mindmap_knowledge.sql;
 SOURCE ./database/migrations/20260526_seed_hotel_ota_metric_professional_knowledge.sql;
 SOURCE ./database/migrations/20260526_seed_ota_knowledge_distillation_experience.sql;
 SOURCE ./database/migrations/20260703_seed_owner_negotiation_qa_knowledge.sql;
+SOURCE ./database/migrations/20260714_seed_room_type_analysis_communication_knowledge.sql;
+SOURCE ./database/migrations/20260714_seed_revenue_operations_decision_support_knowledge.sql;
+SOURCE ./database/migrations/20260716_seed_ota_external_analysis_sop_knowledge.sql;
+SOURCE ./database/migrations/20260717_materialize_ota_sop_reference_cards.sql;

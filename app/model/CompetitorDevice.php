@@ -12,8 +12,16 @@ class CompetitorDevice extends Model
     protected $createTime = 'create_time';
     protected $updateTime = false;
 
+    protected $hidden = [
+        'token_hash',
+    ];
+
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
+        'user_id' => 'integer',
+        'store_id' => 'integer',
         'status' => 'integer',
+        'token_version' => 'integer',
     ];
 }

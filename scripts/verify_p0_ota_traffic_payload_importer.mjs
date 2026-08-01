@@ -12,6 +12,12 @@ const systemHotelId = '7';
 const runtimeExecuteDate = '1900-01-01';
 const runtimeExecuteSystemHotelId = systemHotelId;
 const checks = [];
+const shanghaiToday = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
 
 const hash = (char) => char.repeat(64);
 
@@ -137,6 +143,203 @@ const cases = [
     expect: { exitCode: 0, status: 'ready_to_import', targetRows: 1, evidenceRows: 1, browserResponseEvidenceRows: 1, issuesAbsent: ['desensitized_capture_evidence_missing', 'browser_capture_response_evidence_missing'] },
   },
   {
+    name: 'ctrip_browser_capture_mixed_hotel_rows_filters_out_of_scope',
+    platform: 'ctrip',
+    payload: {
+      source: 'ctrip_browser_profile',
+      mode: 'capture',
+      system_hotel_id: Number(systemHotelId),
+      hotel_id: 'authorized-hotel',
+      auth_status: { ok: true, status: 'logged_in' },
+      capture_gate: { status: 'pass', failed_check_ids: [], mode: 'capture' },
+      responses: [
+        {
+          section: 'traffic',
+          row_count: 2,
+          url_hash: hash('f'),
+          source_trace_id: 'ctrip:mixed-hotel-row',
+        },
+      ],
+      traffic: [
+        trafficRow({
+          hotelId: 'authorized-hotel',
+          date,
+          dateSource: 'row',
+          trace: 'ctrip:mixed-hotel-row',
+          hash: hash('f'),
+          sourcePath: 'data.flowData.0',
+        }),
+        trafficRow({
+          hotelId: 'other-hotel',
+          date,
+          dateSource: 'row',
+          trace: 'ctrip:mixed-hotel-row',
+          hash: hash('f'),
+          sourcePath: 'data.flowData.1',
+        }),
+      ],
+    },
+    expect: {
+      exitCode: 0,
+      status: 'ready_to_import',
+      targetRows: 1,
+      evidenceRows: 1,
+      scopeFilterApplied: true,
+      scopeFilterMatchedRows: 1,
+      scopeFilterRejectedRows: 1,
+      warningsPresent: ['browser_capture_out_of_scope_rows_rejected'],
+      issuesAbsent: ['browser_capture_row_hotel_scope_mismatch'],
+    },
+  },
+  {
+    name: 'ctrip_browser_capture_all_rows_other_hotel_blocked',
+    platform: 'ctrip',
+    payload: {
+      source: 'ctrip_browser_profile',
+      mode: 'capture',
+      system_hotel_id: Number(systemHotelId),
+      hotel_id: 'authorized-hotel',
+      auth_status: { ok: true, status: 'logged_in' },
+      capture_gate: { status: 'pass', failed_check_ids: [], mode: 'capture' },
+      responses: [
+        {
+          section: 'traffic',
+          row_count: 1,
+          url_hash: hash('g'),
+          source_trace_id: 'ctrip:wrong-hotel-row',
+        },
+      ],
+      traffic: [
+        trafficRow({
+          hotelId: 'other-hotel',
+          date,
+          dateSource: 'row',
+          trace: 'ctrip:wrong-hotel-row',
+          hash: hash('g'),
+        }),
+      ],
+    },
+    expect: {
+      exitCode: 1,
+      status: 'blocked',
+      targetRows: 0,
+      evidenceRows: 0,
+      scopeFilterApplied: true,
+      scopeFilterMatchedRows: 0,
+      scopeFilterRejectedRows: 1,
+      issuesPresent: ['browser_capture_row_hotel_scope_mismatch', 'target_date_traffic_rows_missing'],
+    },
+  },
+  {
+    name: 'ctrip_browser_capture_identity_mismatch_blocked',
+    platform: 'ctrip',
+    payload: {
+      source: 'ctrip_browser_profile',
+      mode: 'capture',
+      system_hotel_id: Number(systemHotelId),
+      hotel_id: 'authorized-hotel',
+      auth_status: { ok: true, status: 'logged_in' },
+      capture_gate: { status: 'pass', failed_check_ids: [], mode: 'capture' },
+      platform_identity_validation: {
+        status: 'mismatch',
+        source_validation: false,
+        validated_identifier: '',
+        sensitive_values_exposed: false,
+      },
+      responses: [
+        {
+          section: 'traffic',
+          row_count: 1,
+          url_hash: hash('h'),
+          source_trace_id: 'ctrip:identity-mismatch',
+        },
+      ],
+      traffic: [
+        {
+          ...trafficRow({
+            hotelId: 'authorized-hotel',
+            date,
+            dateSource: 'row',
+            trace: 'ctrip:identity-mismatch',
+            hash: hash('h'),
+          }),
+          _platform_hotel_identifier_source: 'capture_scope_default',
+        },
+      ],
+    },
+    expect: {
+      exitCode: 1,
+      status: 'blocked',
+      targetRows: 0,
+      evidenceRows: 0,
+      scopeFilterApplied: true,
+      scopeFilterMatchedRows: 0,
+      scopeFilterRejectedRows: 1,
+      issuesPresent: [
+        'browser_capture_platform_identity_not_matched',
+        'browser_capture_row_hotel_scope_mismatch',
+        'target_date_traffic_rows_missing',
+      ],
+    },
+  },
+  {
+    name: 'ctrip_browser_capture_verified_scope_accepts_defaulted_row_identity',
+    platform: 'ctrip',
+    payload: {
+      source: 'ctrip_browser_profile',
+      mode: 'capture',
+      system_hotel_id: Number(systemHotelId),
+      hotel_id: 'authorized-hotel',
+      auth_status: { ok: true, status: 'logged_in' },
+      capture_gate: { status: 'pass', failed_check_ids: [], mode: 'capture' },
+      platform_identity_validation: {
+        status: 'matched',
+        source_validation: true,
+        validated_identifier: 'authorized-hotel',
+        sensitive_values_exposed: false,
+      },
+      responses: [
+        {
+          section: 'traffic',
+          row_count: 1,
+          url_hash: hash('i'),
+          source_trace_id: 'ctrip:verified-default-scope',
+        },
+      ],
+      traffic: [
+        {
+          ...trafficRow({
+            hotelId: 'authorized-hotel',
+            date,
+            dateSource: 'row',
+            trace: 'ctrip:verified-default-scope',
+            hash: hash('i'),
+          }),
+          _platform_hotel_identifier_source: 'capture_scope_default',
+          listExposure: 0,
+          detailExposure: 0,
+          flowRate: 0,
+          orderFillingNum: 0,
+          orderSubmitNum: 0,
+        },
+      ],
+    },
+    expect: {
+      exitCode: 1,
+      status: 'blocked',
+      targetRows: 1,
+      evidenceRows: 1,
+      scopeFilterApplied: true,
+      scopeFilterMatchedRows: 1,
+      scopeFilterRejectedRows: 0,
+      issuesPresent: ['target_date_required_traffic_metrics_zero_unverified'],
+      issuesAbsent: [
+        'browser_capture_platform_identity_not_matched',
+        'browser_capture_row_hotel_scope_mismatch',
+      ],
+    },
+  },
+  {
     name: 'browser_capture_raw_metadata_projection_ready',
     platform: 'ctrip',
     payload: {
@@ -168,7 +371,7 @@ const cases = [
           section: 'traffic',
           row_count: 1,
           status: 200,
-          url_hash: hash('browser-projection'),
+          url_hash: hash('a'),
           source_trace_id: 'ctrip:browser-projection',
           request_date_source: 'request.query.date',
         },
@@ -179,7 +382,7 @@ const cases = [
           date,
           dateSource: 'row',
           trace: 'ctrip:browser-projection',
-          hash: hash('browser-projection'),
+          hash: hash('a'),
           sourcePath: 'traffic.0',
         }),
       ].map((row) => ({
@@ -231,7 +434,7 @@ const cases = [
         {
           section: 'traffic',
           row_count: 1,
-          url_hash: hash('request-date'),
+          url_hash: hash('b'),
           source_trace_id: 'ctrip:request-date-row',
           request_date_source: 'request.payload.dataDate',
         },
@@ -242,7 +445,7 @@ const cases = [
           date,
           dateSource: 'request.payload.dataDate',
           trace: 'ctrip:request-date-row',
-          hash: hash('request-date'),
+          hash: hash('b'),
           sourcePath: 'data.traffic.0',
         }),
       ],
@@ -278,7 +481,7 @@ const cases = [
           section: 'traffic',
           row_count: 0,
           standard_row_count: 1,
-          url_hash: hash('standard-row-count'),
+          url_hash: hash('c'),
           source_trace_id: 'ctrip:standard-row-count',
           request_date_source: 'request.query.date',
         },
@@ -293,7 +496,7 @@ const cases = [
           _source_path: 'standard_rows.0',
           capture_evidence: {
             source_trace_id: 'ctrip:standard-row-count',
-            source_url_hash: hash('standard-row-count'),
+            source_url_hash: hash('c'),
           },
           list_exposure: 30,
           detail_exposure: 15,
@@ -677,7 +880,6 @@ const cases = [
             listExposure: 50,
             detailExposure: 25,
             flowRate: 50,
-            orderFillingNum: 10,
             orderSubmitNum: 5,
           },
         ],
@@ -701,8 +903,8 @@ const cases = [
             _source_path: 'data.flowData.0',
             listExposure: 50,
             detailExposure: 25,
-            flowRate: 50,
             orderFillingNum: 10,
+            orderSubmitNum: 5,
           },
         ],
       },
@@ -713,7 +915,7 @@ const cases = [
       targetRows: 1,
       evidenceRows: 1,
       completePreviewRows: 0,
-      missingMetricKeys: ['order_submit_num'],
+      missingMetricKeys: ['flow_rate'],
       issuesPresent: ['required_traffic_metric_keys_missing', 'traffic_field_fact_preview_rows_incomplete'],
       issuesAbsent: ['desensitized_capture_evidence_missing'],
     },
@@ -1192,6 +1394,7 @@ const cases = [
 for (const item of cases) {
   const result = runImporterCase(item);
   const issueCodes = new Set((result.issues || []).map((issue) => issue.code));
+  const warningCodes = new Set((result.warnings || []).map((warning) => warning.code));
   const summary = result.summary || {};
   check(item.name, `${item.name} status`, result.status === item.expect.status, `expected ${item.expect.status}, got ${result.status}`);
   check(item.name, `${item.name} exit code`, result.exitCode === item.expect.exitCode, `expected ${item.expect.exitCode}, got ${result.exitCode}`);
@@ -1222,6 +1425,15 @@ for (const item of cases) {
   if (Number.isFinite(Number(item.expect.projectionDroppedTopLevelMin))) {
     check(item.name, `${item.name} payload import projection dropped top-level capture metadata`, Number(result.payload_import_projection?.dropped_top_level_key_count || 0) >= item.expect.projectionDroppedTopLevelMin, JSON.stringify(result.payload_import_projection || {}));
   }
+  if (typeof item.expect.scopeFilterApplied === 'boolean') {
+    check(item.name, `${item.name} hotel scope filter applied`, result.payload_hotel_scope_filter?.applied === item.expect.scopeFilterApplied, JSON.stringify(result.payload_hotel_scope_filter || {}));
+  }
+  if (Number.isFinite(Number(item.expect.scopeFilterMatchedRows))) {
+    check(item.name, `${item.name} hotel scope matched rows`, Number(result.payload_hotel_scope_filter?.matched_row_count || 0) === item.expect.scopeFilterMatchedRows, JSON.stringify(result.payload_hotel_scope_filter || {}));
+  }
+  if (Number.isFinite(Number(item.expect.scopeFilterRejectedRows))) {
+    check(item.name, `${item.name} hotel scope rejected rows`, Number(result.payload_hotel_scope_filter?.rejected_row_count || 0) === item.expect.scopeFilterRejectedRows, JSON.stringify(result.payload_hotel_scope_filter || {}));
+  }
   if (Number.isFinite(Number(item.expect.defaultedDateRows))) {
     check(item.name, `${item.name} defaulted date rows`, Number(summary.defaulted_date_rows || 0) === item.expect.defaultedDateRows, JSON.stringify(summary));
   }
@@ -1250,16 +1462,17 @@ for (const item of cases) {
   }
   const trafficEvidence = Array.isArray(result.traffic_evidence) ? result.traffic_evidence : [];
   if (item.expect.status === 'ready_to_import') {
+    const requiredMetricCount = item.platform === 'meituan' ? 3 : 5;
     check(item.name, `${item.name} dry-run is not P0 complete`, result.p0_completion_status === 'pre_import_ready_not_p0_complete', JSON.stringify({ p0_completion_status: result.p0_completion_status, p0_completion_gate: result.p0_completion_gate }));
     const uiStatus = trafficEvidence[0]?.ui_status || {};
     check(item.name, `${item.name} evidence UI status ready`, uiStatus.field_fact_status === 'ready', JSON.stringify(uiStatus));
     check(item.name, `${item.name} evidence UI status does not expose raw data`, uiStatus.raw_data_exposed === false, JSON.stringify(uiStatus));
-    check(item.name, `${item.name} evidence UI status covers traffic metrics`, Number(uiStatus.metric_key_count || 0) >= 5 && Number(uiStatus.stored_value_present_count || 0) >= 5, JSON.stringify(uiStatus));
-    check(item.name, `${item.name} evidence UI status exposes desensitized capture evidence`, Number(uiStatus.desensitized_capture_evidence_count || 0) >= 5, JSON.stringify(uiStatus));
+    check(item.name, `${item.name} evidence UI status covers traffic metrics`, Number(uiStatus.metric_key_count || 0) >= requiredMetricCount && Number(uiStatus.stored_value_present_count || 0) >= requiredMetricCount, JSON.stringify(uiStatus));
+    check(item.name, `${item.name} evidence UI status exposes desensitized capture evidence`, Number(uiStatus.desensitized_capture_evidence_count || 0) >= requiredMetricCount, JSON.stringify(uiStatus));
     check(item.name, `${item.name} evidence proves platform hotel identity without raw id`, trafficEvidence[0]?.platform_hotel_identifier_present === true && ['poi_id_family', 'hotel_id_family'].includes(trafficEvidence[0]?.platform_hotel_identifier_source), JSON.stringify(trafficEvidence[0] || {}));
     check(item.name, `${item.name} evidence exposes structured row source path`, typeof trafficEvidence[0]?.source_path === 'string' && trafficEvidence[0].source_path.length > 0 && trafficEvidence[0]?.source_path_structured === true, JSON.stringify(trafficEvidence[0] || {}));
     check(item.name, `${item.name} evidence proves raw_data field facts without exposing raw data`, trafficEvidence[0]?.raw_data_field_facts_present === true && trafficEvidence[0]?.raw_data_exposed === false, JSON.stringify(trafficEvidence[0] || {}));
-    check(item.name, `${item.name} evidence counts field fact source paths`, Number(trafficEvidence[0]?.field_fact_source_path_count || 0) >= 5 && Number(trafficEvidence[0]?.field_fact_structured_source_path_count || 0) >= 5, JSON.stringify(trafficEvidence[0] || {}));
+    check(item.name, `${item.name} evidence counts field fact source paths`, Number(trafficEvidence[0]?.field_fact_source_path_count || 0) >= requiredMetricCount && Number(trafficEvidence[0]?.field_fact_structured_source_path_count || 0) >= requiredMetricCount, JSON.stringify(trafficEvidence[0] || {}));
     const closureChain = trafficEvidence[0]?.traffic_closure_chain || {};
     const closureChainKeys = ['capture_evidence', 'source_path', 'metric_key', 'storage_field', 'stored_value', 'ui_status', 'platform_hotel_identifier', 'verifier'];
     check(item.name, `${item.name} evidence exposes full pre-import closure chain`, closureChainKeys.every((key) => closureChain[key]), JSON.stringify(closureChain));
@@ -1273,7 +1486,56 @@ for (const item of cases) {
   for (const code of item.expect.issuesAbsent || []) {
     check(item.name, `${item.name} issue ${code} absent`, !issueCodes.has(code), [...issueCodes].join(', '));
   }
+  for (const code of item.expect.warningsPresent || []) {
+    check(item.name, `${item.name} warning ${code} present`, warningCodes.has(code), [...warningCodes].join(', '));
+  }
 }
+
+const meituanTodayRealtimeFreshCase = {
+  name: 'meituan_today_realtime_fresh_ready',
+  platform: 'meituan',
+  payload: {
+    data_period: 'realtime_snapshot',
+    captured_at: new Date().toISOString(),
+    traffic: [{
+      ...trafficRow({
+        poiId: 'demo',
+        dataDate: shanghaiToday,
+        dateSource: 'page.traffic_period_selection.readback',
+        trace: 'meituan:today-realtime-fresh',
+        hash: hash('r'),
+      }),
+      live_page_verified: true,
+      period_control: 'today_realtime',
+      period_control_state: 'active',
+    }],
+  },
+};
+const meituanTodayRealtimeFreshResult = runImporterCase(meituanTodayRealtimeFreshCase, shanghaiToday);
+check(
+  meituanTodayRealtimeFreshCase.name,
+  'fresh current-run Meituan today payload passes',
+  meituanTodayRealtimeFreshResult.status === 'ready_to_import'
+    && meituanTodayRealtimeFreshResult.realtime_freshness?.status === 'ready',
+  JSON.stringify(meituanTodayRealtimeFreshResult.realtime_freshness || {}),
+);
+
+const meituanTodayRealtimeStaleCase = {
+  ...meituanTodayRealtimeFreshCase,
+  name: 'meituan_today_realtime_stale_blocked',
+  payload: {
+    ...meituanTodayRealtimeFreshCase.payload,
+    captured_at: '2000-01-01T00:00:00.000Z',
+  },
+};
+const meituanTodayRealtimeStaleResult = runImporterCase(meituanTodayRealtimeStaleCase, shanghaiToday);
+check(
+  meituanTodayRealtimeStaleCase.name,
+  'historical capture timestamp cannot stand in for current success',
+  meituanTodayRealtimeStaleResult.status === 'blocked'
+    && (meituanTodayRealtimeStaleResult.issues || []).some((issue) => issue.code === 'meituan_today_realtime_capture_stale'),
+  JSON.stringify(meituanTodayRealtimeStaleResult.issues || []),
+);
 
 const evidenceCase = cases.find((item) => item.name === 'payload_level_evidence_propagates_to_rows');
 if (evidenceCase) {
@@ -1570,6 +1832,7 @@ check('execute_contract', 'importer blocks raw URL string values before evidence
 check('execute_contract', 'importer normalizes camelCase browser metadata keys before projection or sensitive scan', importerSource.includes('p0_import_is_sensitive_browser_metadata_key') && importerSource.includes('p0_import_normalize_sensitive_key_segment') && importerSource.includes('profile_(path|dir|directory)') && importerSource.includes('spider_token'));
 check('execute_contract', 'importer projects browser capture payloads before sensitive scan or execute', importerSource.includes('p0_import_project_payload_for_import') && importerSource.includes('$payloadProjection = p0_import_project_payload_for_import($rawPayload)') && importerSource.includes("'payload_import_projection' => $payloadProjectionMetadata"));
 check('execute_contract', 'browser capture import projection keeps only importable evidence keys', importerSource.includes('browser_capture_import_projection') && importerSource.includes("'standard_rows'") && importerSource.includes("'responses'") && importerSource.includes("'traffic'"));
+check('execute_contract', 'same-day Meituan import requires fresh current-run period evidence', importerSource.includes('p0_import_meituan_today_realtime_freshness') && importerSource.includes('meituan_today_realtime_capture_stale') && importerSource.includes('meituan_today_realtime_period_not_verified') && importerSource.includes('historical success is not current-run evidence'));
 check('execute_contract', 'browser capture import projection exposes removed metadata without raw values', importerSource.includes('removed_sensitive_metadata_paths') && importerSource.includes('dropped_top_level_keys') && importerSource.includes('removed_sensitive_metadata_count'));
 check('execute_contract', 'importer markdown exposes browser capture projection status', importerSource.includes('payload import projection') && importerSource.includes('projection removed sensitive metadata') && importerSource.includes('projection dropped top-level metadata') && importerSource.includes('sensitive values exposed'));
 check('execute_contract', 'importer markdown exposes traffic evidence non-completion policy', importerSource.includes('traffic evidence contract') && importerSource.includes('traffic evidence verifier command') && importerSource.includes('traffic evidence completion policy') && importerSource.includes('next verifier command'));
@@ -1595,7 +1858,7 @@ check('traffic_evidence_contract', 'importer keeps external evidence non-complet
 check('traffic_evidence_contract', 'importer blocks cross-row metric coverage', importerSource.includes('traffic_field_fact_preview_rows_incomplete') && importerSource.includes('cross-row metric coverage is not accepted'));
 check('traffic_evidence_contract', 'importer blocks unverified all-zero target-date core traffic metrics', importerSource.includes('target_date_required_traffic_metrics_zero_unverified') && importerSource.includes('target_date_nonzero_required_metric_rows') && importerSource.includes('zero_value_unverified'));
 check('traffic_evidence_contract', 'importer blocks traffic evidence and execute row count mismatches', importerSource.includes('traffic_evidence_execute_row_count_mismatch') && importerSource.includes('Traffic evidence rows, target-date rows, and execute payload rows must match before import.') && importerSource.includes('$trafficEvidenceRowCount') && importerSource.includes('$executeRowCount'));
-check('traffic_evidence_contract', 'importer requires exact P0 traffic storage fields in preview', importerSource.includes('$requiredStorageFields = p0_import_required_traffic_storage_fields()') && importerSource.includes("trim((string)($fact['storage_field'] ?? '')) === $requiredStorageFields[$metricKey]"));
+check('traffic_evidence_contract', 'importer requires platform-specific exact P0 traffic storage fields in preview', importerSource.includes('function p0_import_required_traffic_storage_fields(string $platform') && importerSource.includes("strtolower(trim($platform)) === 'meituan'") && importerSource.includes('$requiredStorageFields = p0_import_required_traffic_storage_fields($platform)') && importerSource.includes("trim((string)($fact['storage_field'] ?? '')) === $requiredStorageFields[$metricKey]"));
 check('traffic_evidence_contract', 'importer requires metric-level trace and source hash before field facts are complete', importerSource.includes('p0_import_fact_has_desensitized_capture_evidence') && importerSource.includes('p0_import_fact_capture_evidence_matches_row') && importerSource.includes('$rowSourceTraceId') && importerSource.includes('$rowSourceUrlHash') && importerSource.includes("$desensitized['source_trace_id']") && importerSource.includes("$desensitized['source_url_hash']"));
 check('traffic_evidence_contract', 'P0 verifier requires external evidence UI status', p0VerifierSource.includes('ui_status_missing') && p0VerifierSource.includes('ui_status_not_ready'));
 check('traffic_evidence_contract', 'P0 verifier requires external traffic closure chain and pre-import policy', p0VerifierSource.includes('p0_validate_external_traffic_closure_chain') && p0VerifierSource.includes('traffic_closure_chain_missing') && p0VerifierSource.includes('traffic_closure_chain_stage_not_ready') && p0VerifierSource.includes('traffic_closure_chain_metric_key_required_incomplete') && p0VerifierSource.includes('traffic_closure_chain_storage_field_required_incomplete') && p0VerifierSource.includes('traffic_closure_chain_verifier_status_invalid') && p0VerifierSource.includes('traffic_closure_chain_verifier_required_incomplete') && p0VerifierSource.includes('traffic_closure_chain_policy_missing') && p0VerifierSource.includes('traffic_closure_chain_ready_rows'));
@@ -1627,8 +1890,10 @@ const noSourceRowsPlatform = (noSourceRowsVerifierResult.platforms || []).find((
 check('source_chain_scope_contract', 'P0 verifier does not label missing source rows as reference evidence', Number(noSourceRowsPlatform.target_date_rows || 0) === 0 && noSourceRowsPlatform.source_chain_reference_only === false && noSourceRowsPlatform.source_chain_scope === 'no_target_date_source_rows', JSON.stringify(noSourceRowsPlatform));
 const noSourceRowsTraffic = (noSourceRowsVerifierResult.traffic_evidence_availability || []).find((traffic) => traffic.platform === 'ctrip') || {};
 const noSourceRowsMatrix = noSourceRowsTraffic.traffic_field_fact_closure?.field_loop_matrix || [];
-const requiredP0TrafficMetricKeys = ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'];
-check('source_chain_scope_contract', 'P0 verifier expands no-source traffic closure into every required metric', JSON.stringify(noSourceRowsMatrix.map((row) => String(row.metric_key || '')).sort()) === JSON.stringify([...requiredP0TrafficMetricKeys].sort()), JSON.stringify(noSourceRowsMatrix));
+const requiredP0TrafficMetricKeys = (platform) => platform === 'meituan'
+  ? ['list_exposure', 'detail_exposure', 'flow_rate']
+  : ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'];
+check('source_chain_scope_contract', 'P0 verifier expands no-source traffic closure into every required metric', JSON.stringify(noSourceRowsMatrix.map((row) => String(row.metric_key || '')).sort()) === JSON.stringify([...requiredP0TrafficMetricKeys('ctrip')].sort()), JSON.stringify(noSourceRowsMatrix));
 check('source_chain_scope_contract', 'P0 verifier keeps every no-source metric explicitly unloaded', noSourceRowsMatrix.length === 5 && noSourceRowsMatrix.every((row) => row.status === 'no_target_date_traffic_rows' && Number(row.row_count || 0) === 0 && row.capture_evidence_present === false && row.source_path_structured === false && row.storage_field_matches_expected === false && row.stored_value_present === false && row.ui_status_ready === false), JSON.stringify(noSourceRowsMatrix));
 
 const runtimeExecuteCases = [
@@ -1638,11 +1903,11 @@ const runtimeExecuteCases = [
     payload: {
       traffic: [
         trafficRow({
-          hotelId: 'runtime-ctrip-platform-hotel',
+          hotelId: '990000007',
           date: runtimeExecuteDate,
           dateSource: 'request.payload.dataDate',
           trace: 'ctrip:runtime-execute-traffic',
-          hash: hash('r'),
+          hash: hash('d'),
           sourcePath: 'traffic.0',
         }),
       ],
@@ -1658,7 +1923,7 @@ const runtimeExecuteCases = [
           dataDate: runtimeExecuteDate,
           dateSource: 'request.query.date',
           trace: 'meituan:runtime-execute-traffic',
-          hash: hash('s'),
+          hash: hash('e'),
           sourcePath: 'traffic.0',
         }),
       ],
@@ -1681,10 +1946,10 @@ for (const executeCase of runtimeExecuteCases) {
     const trafficGate = platformResult.p0_traffic_gate || {};
     const trafficAvailability = (verifierResult.traffic_evidence_availability || []).find((traffic) => traffic.platform === executeCase.platform) || {};
     const trafficClosure = trafficAvailability.traffic_field_fact_closure || {};
-    check('runtime_execute_contract', `${executeCase.name} synthetic importer row cannot bypass the authoritative Profile identity gate`, trafficGate.status === 'traffic_field_fact_closure_incomplete' && Number(verifierResult.summary?.traffic_gates_ready || 0) === 0, JSON.stringify({ status: verifierResult.status, summary: verifierResult.summary || {}, trafficGate, issues: verifierResult.issues || [] }));
+    check('runtime_execute_contract', `${executeCase.name} synthetic importer row cannot bypass the authoritative Profile identity gate`, ['traffic_field_fact_closure_incomplete', 'platform_hotel_identifier_mismatch'].includes(trafficGate.status) && trafficGate.platform_hotel_identifier_status === 'mismatch' && Number(verifierResult.summary?.traffic_gates_ready || 0) === 0, JSON.stringify({ status: verifierResult.status, summary: verifierResult.summary || {}, trafficGate, issues: verifierResult.issues || [] }));
     check('runtime_execute_contract', `${executeCase.name} P0 verifier counts scoped traffic rows`, Number(trafficGate.traffic_rows || 0) > 0 && Number(trafficAvailability.target_date?.traffic_rows || 0) > 0, JSON.stringify({ trafficGate, trafficAvailability }));
     check('runtime_execute_contract', `${executeCase.name} P0 verifier uses stored target-date rows as gate source`, trafficGate.traffic_row_source === 'stored_target_date_rows' && Number(trafficGate.traffic_rows || 0) === Number(trafficGate.stored_target_date_traffic_rows || 0), JSON.stringify({ trafficGate, trafficAvailability }));
-    check('runtime_execute_contract', `${executeCase.name} P0 verifier still closes every non-identity metric key`, requiredP0TrafficMetricKeys.every((key) => (trafficClosure.complete_metric_keys || []).includes(key)), JSON.stringify(trafficClosure));
+    check('runtime_execute_contract', `${executeCase.name} P0 verifier still closes every non-identity metric key`, requiredP0TrafficMetricKeys(executeCase.platform).every((key) => (trafficClosure.complete_metric_keys || []).includes(key)), JSON.stringify(trafficClosure));
     check('runtime_execute_contract', `${executeCase.name} P0 verifier reports the unmatched Profile identity without raw identifiers`, trafficGate.platform_hotel_identifier_status === 'mismatch' && trafficGate.platform_hotel_identifier_match_status === 'unmatched' && Number(trafficGate.platform_hotel_identifier_matched_rows || 0) === 0 && Number(trafficGate.platform_hotel_identifier_mismatch_rows || 0) > 0 && trafficGate.platform_hotel_identifier_match_reason_counts && Object.keys(trafficGate.platform_hotel_identifier_match_reason_counts).length > 0, JSON.stringify(trafficGate));
   } finally {
     cleanupP0RuntimeRows(executeCase.platform, runtimeExecuteDate, runtimeExecuteSystemHotelId);
@@ -1753,7 +2018,11 @@ function runImporterCase(item, importDate = date, scopedSystemHotelId = systemHo
     ], {
       cwd: root,
       encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
     });
+    if (child.error) {
+      throw new Error(`${item.name} importer process failed: ${child.error.message}`);
+    }
     const stdout = String(child.stdout || '').trim();
     let parsed = {};
     try {
@@ -1783,7 +2052,11 @@ function runImporterMarkdownCase(item, importDate = date, scopedSystemHotelId = 
     ], {
       cwd: root,
       encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
     });
+    if (child.error) {
+      throw new Error(`${item.name} importer process failed: ${child.error.message}`);
+    }
     const stdout = String(child.stdout || '').trim();
     if (Number(child.status ?? 0) !== Number(item.expect.exitCode ?? 0)) {
       throw new Error(`${item.name} markdown exit code ${child.status}; stdout=${stdout}; stderr=${child.stderr || ''}`);

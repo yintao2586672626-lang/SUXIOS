@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { checkDesignHandoff } from './lib/design_handoff_checks.mjs';
 import { checkOtaCredentialRotationAttestation } from './lib/ota_credential_checks.mjs';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const evidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
@@ -58,7 +59,7 @@ function readJsonWithRaw(filePath, label, failures) {
       json: JSON.parse(raw),
     };
   } catch (error) {
-    failures.push(`${label} is not valid JSON: ${error.message}`);
+    failures.push(`${label} is not valid JSON (${safeJsonParseErrorCode(error)}).`);
     return null;
   }
 }

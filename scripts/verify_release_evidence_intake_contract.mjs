@@ -9,10 +9,37 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'release-evidence-intake-'));
 const scriptsDir = path.join(repoRoot, 'scripts');
 const designScript = path.join(scriptsDir, 'create_release_design_manifest.mjs');
-const otaScript = path.join(scriptsDir, 'create_release_ota_attestation.mjs');
+const otaFixtureRepoRoot = path.join(tempRoot, 'ota-script-repo');
+const otaScript = prepareIsolatedOtaScriptRepo();
 
 const passes = [];
 const failures = [];
+
+function prepareIsolatedOtaScriptRepo() {
+  const relativeFiles = [
+    'create_release_ota_attestation.mjs',
+    'lib/ota_credential_checks.mjs',
+    'lib/release_env_checks.mjs',
+    'lib/safe_json_parse_error.mjs',
+  ];
+  for (const relativePath of relativeFiles) {
+    const sourcePath = path.join(scriptsDir, relativePath);
+    const targetPath = path.join(otaFixtureRepoRoot, 'scripts', relativePath);
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.copyFileSync(sourcePath, targetPath);
+  }
+  fs.mkdirSync(path.join(otaFixtureRepoRoot, 'database', 'backups'), { recursive: true });
+  fs.writeFileSync(path.join(otaFixtureRepoRoot, '.gitignore'), 'database/backups/\n', 'utf8');
+  fs.writeFileSync(path.join(otaFixtureRepoRoot, '.gitattributes'), 'database/backups/* export-ignore\n', 'utf8');
+  const gitInit = spawnSync('git', ['init', '--quiet'], {
+    cwd: otaFixtureRepoRoot,
+    encoding: 'utf8',
+  });
+  if (gitInit.error || gitInit.status !== 0) {
+    throw new Error('isolated OTA intake fixture could not initialize Git');
+  }
+  return path.join(otaFixtureRepoRoot, 'scripts', 'create_release_ota_attestation.mjs');
+}
 
 function writeJson(filePath, payload) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -50,9 +77,9 @@ function cleanReleaseEnv(overrides) {
   return { ...env, ...overrides };
 }
 
-function runNodeScript(scriptPath, envOverrides) {
+function runNodeScript(scriptPath, envOverrides, cwd = repoRoot) {
   const result = spawnSync(process.execPath, [scriptPath], {
-    cwd: repoRoot,
+    cwd,
     env: cleanReleaseEnv(envOverrides),
     encoding: 'utf8',
   });
@@ -62,6 +89,10 @@ function runNodeScript(scriptPath, envOverrides) {
     stderr: result.stderr || '',
     combined: `${result.stdout || ''}\n${result.stderr || ''}`,
   };
+}
+
+function runOtaScript(envOverrides) {
+  return runNodeScript(otaScript, envOverrides, otaFixtureRepoRoot);
 }
 
 function expect(condition, message) {
@@ -140,7 +171,7 @@ function validOtaAttestation() {
       },
     ],
     backup_cleanup: {
-      database_backups_action: 'sanitized',
+      database_backups_action: 'deleted',
       paths_reviewed: ['database/backups'],
       git_tracking_check: `git ls-files database/backups returned no tracked files on ${reviewDate}`,
       release_readiness_check: `review:release-ota-credentials and review:release-readiness rerun recorded on ${reviewDate}`,
@@ -227,7 +258,7 @@ function verifyOtaIntake() {
   const resultPath = path.join(otaDir, 'result', 'release-ota-attestation-create-result.json');
   writeJson(inputPath, validOtaAttestation());
 
-  const success = runNodeScript(otaScript, {
+  const success = runOtaScript({
     RELEASE_EVIDENCE_DIR: path.join(otaDir, 'evidence'),
     OTA_CREDENTIAL_ROTATION_INPUT_FILE: inputPath,
     OTA_CREDENTIAL_ROTATION_ATTESTATION_OUTPUT: outputPath,
@@ -245,7 +276,7 @@ function verifyOtaIntake() {
   }
 
   const repoOutputPath = path.join(otaDir, 'repo-input-output.json');
-  const repoInput = runNodeScript(otaScript, {
+  const repoInput = runOtaScript({
     RELEASE_EVIDENCE_DIR: path.join(otaDir, 'repo-input-evidence'),
     OTA_CREDENTIAL_ROTATION_INPUT_FILE: 'docs/ota_credential_rotation_attestation.example.json',
     OTA_CREDENTIAL_ROTATION_ATTESTATION_OUTPUT: repoOutputPath,
@@ -255,7 +286,7 @@ function verifyOtaIntake() {
   expect(/OTA_CREDENTIAL_ROTATION_INPUT_FILE must be outside the repository/.test(repoInput.combined), 'OTA intake explains repository input rejection');
   expect(!fs.existsSync(repoOutputPath), 'OTA intake does not write final output for repository input');
 
-  const samePath = runNodeScript(otaScript, {
+  const samePath = runOtaScript({
     RELEASE_EVIDENCE_DIR: path.join(otaDir, 'same-path-evidence'),
     OTA_CREDENTIAL_ROTATION_INPUT_FILE: inputPath,
     OTA_CREDENTIAL_ROTATION_ATTESTATION_OUTPUT: inputPath,
@@ -270,7 +301,7 @@ function verifyOtaIntake() {
     const actionOutputPath = path.join(actionDir, 'output', 'ota_credential_rotation_attestation.json');
     const actionResultPath = path.join(actionDir, 'result', 'release-ota-attestation-create-result.json');
     writeJson(actionInputPath, otaAttestationWithPlatformAction(action));
-    const platformAction = runNodeScript(otaScript, {
+    const platformAction = runOtaScript({
       RELEASE_EVIDENCE_DIR: path.join(actionDir, 'evidence'),
       OTA_CREDENTIAL_ROTATION_INPUT_FILE: actionInputPath,
       OTA_CREDENTIAL_ROTATION_ATTESTATION_OUTPUT: actionOutputPath,

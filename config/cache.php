@@ -1,12 +1,20 @@
 <?php
+declare(strict_types=1);
+
+use app\service\LocalStatePathPolicy;
 
 // +----------------------------------------------------------------------
 // | 缓存设置
 // +----------------------------------------------------------------------
 
+$localState = LocalStatePathPolicy::resolve();
+
 return [
     // 默认缓存驱动
     'default' => 'file',
+
+    // 单机发布状态路径；生产环境必须配置到 release 目录之外。
+    'local_state' => $localState,
 
     // 缓存连接方式配置
     'stores'  => [
@@ -14,7 +22,7 @@ return [
             // 驱动方式
             'type'       => 'File',
             // 缓存保存目录
-            'path'       => '',
+            'path'       => $localState['cache_path'],
             // 缓存前缀
             'prefix'     => '',
             // 缓存有效期 0表示永久缓存

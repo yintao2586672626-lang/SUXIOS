@@ -1,6 +1,6 @@
 # 宿析OS第一阶段 OTA 字段缺口解释矩阵
 
-Updated: 2026-06-12
+Updated: 2026-07-19
 
 ## 目标
 
@@ -33,10 +33,15 @@ Updated: 2026-06-12
 | `meituan_revenue_metrics_not_ready` | 美团收益指标未就绪，不能计算美团收入、间夜、客单等经营结论。 | 美团收益、ADR、订单、间夜和相关 AI 建议 | 其它已 ready 平台的收益指标可单独复核 | 补齐美团目标日源数据和标准事实后复跑收益指标 |
 | `meituan_traffic_facts_missing` | 美团目标日缺少流量/转化事实，不能判断曝光、访问、转化链路。 | 美团流量、转化率、漏斗诊断、AI 对流量问题的确定结论 | 美团历史参考行只能说明最近有数据，不证明目标日流量 | 使用现有美团流量获取入口补齐目标日流量事实 |
 | `ai_diagnosis_evidence_sample_missing` | 尚未提供真实 OTA 诊断证据样例，不能证明 AI 建议已有证据来源、数据缺口和动作项支撑。 | AI 建议依据、自动动作项、运营执行前置判断 | 已验证的 OTA 数据缺口和字段缺口可作为补证据清单 | 调用现有 OTA 诊断接口并附脱敏证据 JSON，必须包含证据来源、数据缺口和动作项 |
+| `ai_diagnosis_persistence_unverified` | OTA 诊断内容尚未按记录 ID、酒店、平台和目标日期从 `agent_logs` 实时回读，或回读快照与当前诊断内容不一致。 | AI 建议依据、动作项真实性、运营执行前置判断 | 脱敏诊断内容可作待核对材料，但不能作生产闭环证明 | 按 `saved_record.id + system_hotel_id` 回读，并比对平台、日期和关键诊断内容 |
 | `ai_diagnosis_action_items_blocked` | AI 诊断已有阻断依据，但 action_items 不能作为可执行经营建议。 | AI 自动建议、执行意图创建、运营闭环完成判断 | 阻断原因、证据来源和 data_gaps 可作为补证据清单 | 先解除上游 OTA 缺口，再重新生成包含非 blocked action_items 的诊断 |
-| `operation_execution_sample_missing` | 尚无能追溯到 OTA 诊断的执行意图、审批、执行证据或复盘样例。 | 运营执行闭环、动作完成、复盘和 ROI 判断 | 下一步动作和阻断链可见，但不能算执行完成 | 取得可执行 AI action_items 后，创建或附上执行意图和证据 |
-| `operation_execution_ai_action_link_missing` | 已有执行相关数据，但未能追溯到 OTA 诊断 action_items，不能证明这一步是 AI 建议的运营承接。 | AI 建议执行承接、运营执行闭环、动作完成归因 | 普通执行流可作为运营参考，OTA 诊断缺口和动作队列仍可作为待处理清单 | 将执行意图或执行流程的 source/evidence 关联到 OTA 诊断 action_items，再补齐审批、执行证据或复盘 |
-| `operation_execution_evidence_incomplete` | 已有可追溯到 OTA 诊断的执行意图或执行流程，但缺少审批、执行证据、复盘或 ROI 信号。 | 运营执行闭环、动作完成、复盘和 ROI 判断 | 执行意图本身和阻断原因可用于跟进，但不能算闭环完成 | 补齐 approval.status=approved、execution.status=executed、evidence.count>0、review.status 或 ROI 信号 |
+| `evidence_scope_date_mismatch` | 诊断或执行分段的日期缺失、错配或重复日期字段互相冲突。 | 目标日 AI 诊断、运营动作和闭环判断 | 其他同日已验证 OTA 事实仍可单独复核 | 重新生成与巡检目标日唯一一致的分段证据 |
+| `evidence_scope_system_hotel_mismatch` | 诊断或执行分段的系统酒店缺失、非法、错配或重复酒店字段互相冲突；`80evil` 等数字前缀字符串不会被当成酒店 80。 | 单门店 AI 诊断、运营动作和闭环判断 | 已验证的渠道事实可在原酒店范围内参考 | 指定严格正整数 `system_hotel_id`，并确保分段内所有酒店标识唯一一致 |
+| `evidence_scope_platform_mismatch` | 诊断或执行分段的 OTA 平台缺失、错配或重复平台字段互相冲突。 | 单平台 AI 诊断、运营动作和闭环判断 | 其他平台事实可在各自范围内参考 | 指定单一平台，并确保分段内所有平台标识唯一一致 |
+| `strict_system_hotel_scope_required` | 严格巡检未指定单一系统酒店，不能证明单门店生产闭环。 | 单门店收益、AI 和运营闭环 | 多门店聚合缺口可作巡检参考 | 传入 `--system_hotel_id=<id>` 后重新巡检 |
+| `operation_execution_sample_missing` | 尚无能追溯到 OTA 诊断的执行意图、执行证据或复盘样例。 | 运营执行闭环、动作完成、复盘和 ROI 判断 | 下一步动作和阻断链可见，但不能算执行完成 | 取得可执行 AI action_items 后，创建或附上执行意图和证据 |
+| `operation_execution_ai_action_link_missing` | 已有执行相关数据，但未能追溯到 OTA 诊断 action_items，不能证明这一步是 AI 建议的运营承接。 | AI 建议执行承接、运营执行闭环、动作完成归因 | 普通执行流可作为运营参考，OTA 诊断缺口和动作队列仍可作为待处理清单 | 关联 OTA 诊断 action_items 后，再补齐执行证据和已执行、复盘或 ROI 状态 |
+| `operation_execution_evidence_incomplete` | 已有可追溯到 OTA 诊断的执行意图或执行流程，但未同时具备执行证据和已执行、复盘或 ROI 状态。 | 运营执行闭环、动作完成、复盘和 ROI 判断 | 执行意图本身和阻断原因可用于跟进，但不能算闭环完成 | 补齐 `evidence.count>0`，并确认 `execution.status=executed`、`review.status` 或 ROI 状态之一；审批或单独 executed 不算完成 |
 
 ## 展示规则
 

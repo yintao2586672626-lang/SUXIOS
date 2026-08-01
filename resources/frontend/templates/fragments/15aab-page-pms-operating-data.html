@@ -1,0 +1,137 @@
+<div v-if="currentPage === 'pms-operating-data'" class="suxi-dashboard-scope mx-auto max-w-7xl space-y-4" data-testid="pms-operating-data-page">
+  <section class="overflow-hidden rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-5 shadow-sm sm:p-6">
+    <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+      <div>
+        <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">运营自动化中心 · 数据事实</p>
+        <h2 class="mt-2 text-2xl font-semibold text-slate-900">PMS经营数据</h2>
+      </div>
+      <div class="flex flex-wrap items-end gap-2">
+        <div class="min-w-[220px]">
+          <label for="pms-operating-data-hotel-search" class="mb-1 block text-xs text-slate-500">当前门店</label>
+          <input
+            id="pms-operating-data-hotel-search"
+            v-model.trim="pmsHotelSearch"
+            type="search"
+            autocomplete="off"
+            placeholder="搜索名称、编码或 ID"
+            data-testid="pms-operating-data-hotel-search"
+            class="mb-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15"
+          >
+          <select :value="operatingTargetForm.hotel_id" @change="selectPmsHotel" aria-label="选择当前 PMS 门店" data-testid="pms-operating-data-hotel" class="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-sm">
+            <option value="">请选择门店</option>
+            <option v-for="hotel in pmsFilteredHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option>
+            <option v-if="pmsHotelSearch &amp;&amp; !pmsFilteredHotelOptions.length" value="" disabled>没有匹配的有权限门店</option>
+          </select>
+        </div>
+        <label>
+          <span class="mb-1 block text-xs text-slate-500">经营日期</span>
+          <input v-model="operatingTargetForm.target_date" @change="loadOperatingTarget" data-testid="pms-operating-data-date" type="date" class="rounded-lg border border-slate-200 bg-white p-2.5 text-sm">
+        </label>
+        <button data-testid="pms-operating-data-load" @click="loadOperatingTarget" :disabled="operatingPmsControlsBusy" class="pms-operating-read-button">{{ operatingTargetLoading.current ? '读取中...' : '读取已保存数据' }}</button>
+        <button data-testid="pms-operating-data-live-sync" @click="syncOperatingPmsRealtime" :disabled="operatingPmsControlsBusy || operatingHotelPmsBindingLoading || operatingHotelPmsBinding?.binding_status !== 'configured'" :title="operatingHotelPmsBinding?.binding_status === 'configured' ? '' : '请先为当前门店配置唯一 PMS'" class="pms-operating-live-button">{{ operatingTargetLoading.liveSync ? '正在获取并核验...' : operatingPmsRealtimeActionText }}</button>
+      </div>
+    </div>
+  </section>
+
+  <p v-if="operatingPmsRealtimeSyncResult" class="pms-realtime-sync-result" :class="operatingPmsRealtimeResultClass" data-testid="pms-realtime-sync-result" role="status">{{ operatingPmsRealtimeResultText }}</p>
+  <p v-if="operatingTargetError" data-testid="pms-operating-data-error" class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ operatingTargetError }}</p>
+  <p v-if="operatingHotelPmsBindingError" data-testid="pms-binding-read-error" class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ operatingHotelPmsBindingError }}</p>
+
+  <section v-if="operatingTargetLoading.current || operatingHotelPmsBindingLoading" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="pms-selected-source-loading" role="status" aria-live="polite">
+    <span class="sr-only">正在读取门店 PMS 配置、目标日期事实与数据库回读状态...</span>
+    <div class="animate-pulse" aria-hidden="true">
+      <div class="flex items-center justify-between gap-4 border-b border-slate-100 pb-5">
+        <div class="space-y-2">
+          <div class="h-3 w-28 rounded bg-slate-200"></div>
+          <div class="h-6 w-48 rounded bg-slate-200"></div>
+        </div>
+        <div class="h-9 w-28 rounded-lg bg-slate-100"></div>
+      </div>
+      <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div v-for="index in 5" :key="`pms-loading-${index}`" class="rounded-xl bg-slate-50 p-3">
+          <div class="h-3 w-16 rounded bg-slate-200"></div>
+          <div class="mt-3 h-5 w-24 rounded bg-slate-200"></div>
+        </div>
+      </div>
+      <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div v-for="index in 4" :key="`pms-metric-loading-${index}`" class="h-24 rounded-xl border border-slate-100 bg-slate-50"></div>
+      </div>
+    </div>
+  </section>
+
+  <section v-else-if="operatingHotelPmsBinding && operatingHotelPmsBinding.binding_status !== 'configured'" class="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm" data-testid="pms-binding-required">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p class="text-xs font-semibold tracking-[0.16em] text-amber-700">门店 PMS 配置</p>
+        <h3 class="mt-1 text-lg font-semibold text-slate-900">{{ operatingHotelPmsBinding.binding_status_label || '尚未配置 PMS' }}</h3>
+        <p class="mt-2 text-sm leading-6 text-amber-900">{{ operatingHotelPmsBinding.blockers?.[0]?.message || '请先在门店管理中选择当前使用的 PMS。' }}</p>
+        <p class="mt-1 text-xs text-amber-700">历史数据不会删除；配置冲突时宿析OS不会自动选择其中一套作为真值。</p>
+      </div>
+      <button v-if="canManageOwnHotels()" type="button" @click="openSelectedHotelPmsConfiguration" data-testid="pms-open-hotel-configuration" class="shrink-0 rounded-lg border border-amber-300 bg-white px-4 py-2.5 text-sm font-medium text-amber-800 hover:bg-amber-100">前往门店管理配置</button>
+    </div>
+  </section>
+
+  <template v-else-if="operatingHotelPmsBinding?.selected_source">
+    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="pms-selected-source">
+      <header class="border-b border-slate-100 bg-gradient-to-r from-white to-[#faf7ef] p-5">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="text-xs font-semibold tracking-[0.16em] text-[#96743f]">当前门店唯一 PMS</p>
+              <span :class="[
+                'rounded-full border px-2.5 py-1 text-xs font-medium',
+                selectedOperatingPmsFactGate.allowed
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-amber-200 bg-amber-50 text-amber-700'
+              ]">{{ selectedOperatingPmsFactGate.allowed ? '事实验真通过' : '事实尚未通过' }}</span>
+            </div>
+            <h3 class="mt-2 text-xl font-semibold text-slate-900">{{ operatingHotelPmsBinding.selected_provider_label }}</h3>
+            <p class="mt-1 text-sm text-slate-600">绑定门店：{{ selectedOperatingPmsSource.config?.provider_hotel_name || '未取得' }}<span v-if="selectedOperatingPmsSource.config?.provider_hotel_id"> · ID {{ selectedOperatingPmsSource.config.provider_hotel_id }}</span></p>
+          </div>
+          <button v-if="canManageOwnHotels()" type="button" @click="openSelectedHotelPmsConfiguration" data-testid="pms-edit-hotel-configuration" class="shrink-0 rounded-lg border border-[#d8c49f] bg-[#fffaf0] px-4 py-2 text-sm font-medium text-[#826333] hover:border-[#ad8b52]">修改门店 PMS</button>
+        </div>
+      </header>
+
+      <div class="grid gap-3 border-b border-slate-100 p-5 text-sm sm:grid-cols-2 xl:grid-cols-5" data-testid="pms-selected-source-evidence">
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">经营日期</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.business_date || operatingTargetForm.target_date || '未取得' }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">登录状态</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsProfileText }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">门店身份</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.identity_status || '未验证' }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">数据库回读</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.readback_status || '未取得' }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">采集时间</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.captured_at || '未取得' }}</p></div>
+      </div>
+
+      <div class="p-5">
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-testid="pms-selected-source-metrics">
+          <article v-for="metric in selectedOperatingPmsMetricRows" :key="metric.key" :class="[
+            'rounded-xl border p-4',
+            metric.available ? 'border-slate-200 bg-white' : 'border-amber-100 bg-amber-50/60'
+          ]">
+            <p class="text-xs text-slate-500">{{ metric.label }}</p>
+            <p :class="['mt-2 text-xl font-semibold', metric.available ? 'text-slate-900' : 'text-amber-700']">{{ metric.value }}</p>
+          </article>
+        </div>
+
+        <div v-if="operatingHotelPmsBinding.selected_provider === 'meituan_cloud_pms' && selectedOperatingPmsCapture" class="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-sm text-blue-800" data-testid="pms-selected-source-availability-delta">
+          首页可售与房型可售差值：<b>{{ selectedOperatingPmsCapture.availability_difference ?? '未取得' }}</b>；验真容差：<b>{{ selectedOperatingPmsCapture.availability_tolerance ?? '未取得' }}</b>。
+        </div>
+
+        <div v-if="(selectedOperatingPmsFactGate.blockers || []).length" class="mt-4 space-y-2" data-testid="pms-selected-source-blockers">
+          <p v-for="blocker in selectedOperatingPmsFactGate.blockers" :key="blocker.code" class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ blocker.message }}（{{ blocker.code }}）</p>
+        </div>
+        <p v-else class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">当前门店、经营日期、来源身份、数据质量与数据库回读均已通过。</p>
+        <p class="mt-3 text-xs leading-5 text-slate-500">缺失字段保持“未取得”，不会使用另一套 PMS、OTA 数据、历史记录或 0 代替。</p>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="pms-selected-source-deltas">
+      <h3 class="text-base font-semibold text-slate-900">同一 PMS 的相邻快照差值</h3>
+      <p class="mt-1 text-xs text-slate-500">只比较当前门店已配置来源的同源快照；净拾取不等于毛预订。</p>
+      <div v-if="selectedOperatingPmsDeltas.length" class="mt-3 space-y-2">
+        <p v-for="delta in selectedOperatingPmsDeltas" :key="delta.provider" class="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-700">
+          <b>{{ delta.status_label || '待判断' }}</b> · 净拾取 {{ pmsDeltaText(delta.delta_vector?.net_pickup) }}，房费 {{ pmsDeltaText(delta.delta_vector?.room_revenue, 'money') }}，OCC {{ pmsDeltaText(delta.delta_vector?.occupancy_rate_points, 'percent') }}。{{ delta.judgment }}
+        </p>
+      </div>
+      <p v-else class="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-500">目标日期尚无可比较的同源前次快照。</p>
+    </section>
+  </template>
+</div>

@@ -66,6 +66,11 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         return nums.length > 0 ? Math.max(...nums) : null;
     };
 
+    const minPositiveNullableNumber = (...values) => {
+        const nums = values.map(toNullableNumber).filter(value => value !== null && value > 0);
+        return nums.length > 0 ? Math.min(...nums) : null;
+    };
+
     const getAiAnalysisHotelKey = (hotel) => `${hotel.poiId}_${hotel.hotelName}`;
 
     const resolveAiSelectedData = (selectedKeys = [], hotels = []) => {
@@ -246,15 +251,15 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
 
     const aiAnalysisDataNoticeTitle = (report) => {
         const quality = report?.data_quality || {};
-        return (quality.is_cross_day_window || (quality.warning && quality.is_reliable !== false)) ? '数据口径提示' : '数据异常';
+        return quality.is_reliable === true ? '数据口径提示' : '数据质量待核验';
     };
 
     const aiAnalysisDataNoticeList = (report) => {
         const quality = report?.data_quality || {};
         if (quality.is_cross_day_window) {
-            return ['当前可能处于OTA跨日统计窗口，曝光、访客、浏览率、订单率、转化率等流量指标可能尚未完成统计。本次报告优先参考订单、间夜、收入、ADR、评分等已返回指标，流量类指标建议待平台更新后复查。'];
+            return ['当前可能处于OTA跨日统计窗口，曝光、访客、浏览率、订单率、转化率等指标可能尚未完成统计。本次报告仅参考实际返回且通过校验的指标，未返回字段继续保留为缺口，建议待平台更新后复查。'];
         }
-        if (quality.warning && quality.is_reliable !== false) {
+        if (quality.warning) {
             return [quality.warning];
         }
         return normalizeAiAnalysisList(report?.data_anomalies);
@@ -288,23 +293,28 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
     };
 
     const buildCapturedOtaHotelPayload = (hotel) => {
-        const roomNights = toNumber(hotel.roomNights);
-        const revenue = toNumber(hotel.roomRevenue || hotel.sales);
+        const roomNights = pickNullableNumber(hotel.roomNights);
+        const revenue = pickNullableNumber(hotel.roomRevenue, hotel.sales);
         const visitors = pickNullableNumber(hotel.views, hotel.totalDetailNum, hotel.qunarDetailVisitors);
         const exposure = pickNullableNumber(hotel.exposure);
-        const orders = toNumber(hotel.totalOrderNum || hotel.bookOrderNum);
+        const orders = pickNullableNumber(hotel.totalOrderNum, hotel.bookOrderNum);
         const viewConversion = pickNullableNumber(hotel.viewConversion, hotel.convertionRate);
         const payConversion = pickNullableNumber(hotel.payConversion);
         const conversionRate = pickNullableNumber(hotel.qunarDetailCR, hotel.conversionRate);
-        const price = roomNights > 0 ? Number((revenue / roomNights).toFixed(2)) : 0;
+        const price = roomNights !== null && revenue !== null && roomNights > 0
+            ? Number((revenue / roomNights).toFixed(2))
+            : null;
         const rankValues = [hotel.amountRank, hotel.quantityRank, hotel.commentScoreRank, hotel.qunarDetailCRRank]
-            .map(value => toNumber(value))
+            .map(value => toNullableNumber(value))
+            .filter(value => value !== null)
             .filter(value => value > 0);
-        const rank = rankValues.length > 0 ? Math.min(...rankValues) : 0;
-        const score = toNumber(hotel.commentScore || hotel.qunarCommentScore);
+        const rank = rankValues.length > 0 ? Math.min(...rankValues) : null;
+        const score = pickNullableNumber(hotel.commentScore, hotel.qunarCommentScore);
+        const commentsCount = pickNullableNumber(hotel.commentsCount, hotel.commentCount);
+        const metricText = (value) => value === null ? '未返回' : value;
         const tags = [];
-        if (rank > 0) tags.push(`最好排名${rank}`);
-        if (price > 0) tags.push(`ADR ${price}`);
+        if (rank !== null && rank > 0) tags.push(`最好排名${rank}`);
+        if (price !== null && price > 0) tags.push(`ADR ${price}`);
         if (viewConversion !== null && viewConversion > 0) tags.push(`浏览转化${viewConversion}%`);
         if (payConversion !== null && payConversion > 0) tags.push(`支付转化${payConversion}%`);
         return {
@@ -313,7 +323,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
             rank,
             price,
             score,
-            comments_count: toNumber(hotel.commentsCount || hotel.commentCount),
+            comments_count: commentsCount,
             exposure,
             visitors,
             orders,
@@ -323,7 +333,7 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
             pay_conversion: payConversion,
             conversion_rate: conversionRate,
             tags: tags.slice(0, 6),
-            short_summary: `间夜${roomNights}，收入${revenue}，曝光${exposure ?? '未返回'}，访客${visitors ?? '未返回'}，订单${orders}`,
+            short_summary: `间夜${metricText(roomNights)}，收入${metricText(revenue)}，曝光${metricText(exposure)}，访客${metricText(visitors)}，订单${metricText(orders)}`,
         };
     };
 
@@ -338,51 +348,77 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
                 hotelMap.set(key, {
                     poiId: h.hotelId || h.id || '',
                     hotelName: h.hotelName || h.name || '',
-                    roomNights: h.quantity || h.roomNights || 0,
-                    roomRevenue: h.amount || h.roomRevenue || 0,
-                    salesRoomNights: h.salesRoomNights || 0,
-                    sales: h.sales || h.amount || 0,
+                    systemHotelName: h.systemHotelName || h.system_hotel_name || '',
+                    compareType: h.compareType || h.compare_type || '',
+                    isSelf: h.isSelf === true || h.is_self === true || (h.compareType || h.compare_type) === 'self',
+                    roomNights: pickNullableNumber(h.quantity, h.roomNights),
+                    roomRevenue: pickNullableNumber(h.amount, h.roomRevenue),
+                    salesRoomNights: pickNullableNumber(h.salesRoomNights),
+                    sales: pickNullableNumber(h.sales, h.amount),
                     viewConversion: pickNullableNumber(h.viewConversion, h.convertionRate),
                     payConversion: pickNullableNumber(h.payConversion),
                     exposure: pickNullableNumber(h.exposure),
                     views: pickNullableNumber(h.views, h.totalDetailNum, h.qunarDetailVisitors),
-                    commentScore: h.commentScore || 0,
-                    qunarCommentScore: h.qunarCommentScore || 0,
+                    commentScore: pickNullableNumber(h.commentScore),
+                    qunarCommentScore: pickNullableNumber(h.qunarCommentScore),
                     convertionRate: pickNullableNumber(h.convertionRate),
                     qunarDetailCR: pickNullableNumber(h.qunarDetailCR),
-                    totalOrderNum: h.totalOrderNum || 0,
-                    bookOrderNum: h.bookOrderNum || 0,
-                    amountRank: h.amountRank || 0,
-                    quantityRank: h.quantityRank || 0,
-                    commentScoreRank: h.commentScoreRank || 0,
-                    qunarDetailCRRank: h.qunarDetailCRRank || 0,
+                    totalOrderNum: pickNullableNumber(h.totalOrderNum),
+                    bookOrderNum: pickNullableNumber(h.bookOrderNum),
+                    amountRank: minPositiveNullableNumber(h.amountRank),
+                    quantityRank: minPositiveNullableNumber(h.quantityRank),
+                    commentScoreRank: minPositiveNullableNumber(h.commentScoreRank),
+                    qunarDetailCRRank: minPositiveNullableNumber(h.qunarDetailCRRank),
                 });
                 return;
             }
             const existing = hotelMap.get(key);
-            existing.roomNights = Math.max(existing.roomNights, h.quantity || h.roomNights || 0);
-            existing.roomRevenue = Math.max(existing.roomRevenue, h.amount || h.roomRevenue || 0);
-            existing.salesRoomNights = Math.max(existing.salesRoomNights, h.salesRoomNights || 0);
-            existing.sales = Math.max(existing.sales, h.sales || h.amount || 0);
+            existing.isSelf = existing.isSelf || h.isSelf === true || h.is_self === true || (h.compareType || h.compare_type) === 'self';
+            existing.compareType = existing.isSelf ? 'self' : (existing.compareType || h.compareType || h.compare_type || 'competitor');
+            existing.systemHotelName = existing.systemHotelName || h.systemHotelName || h.system_hotel_name || '';
+            existing.roomNights = maxNullableNumber(existing.roomNights, h.quantity, h.roomNights);
+            existing.roomRevenue = maxNullableNumber(existing.roomRevenue, h.amount, h.roomRevenue);
+            existing.salesRoomNights = maxNullableNumber(existing.salesRoomNights, h.salesRoomNights);
+            existing.sales = maxNullableNumber(existing.sales, h.sales, h.amount);
             existing.viewConversion = maxNullableNumber(existing.viewConversion, h.viewConversion, h.convertionRate);
             existing.payConversion = maxNullableNumber(existing.payConversion, h.payConversion);
             existing.exposure = maxNullableNumber(existing.exposure, h.exposure);
             existing.views = maxNullableNumber(existing.views, h.views, h.totalDetailNum, h.qunarDetailVisitors);
-            existing.commentScore = Math.max(existing.commentScore || 0, h.commentScore || 0);
-            existing.qunarCommentScore = Math.max(existing.qunarCommentScore || 0, h.qunarCommentScore || 0);
+            existing.commentScore = maxNullableNumber(existing.commentScore, h.commentScore);
+            existing.qunarCommentScore = maxNullableNumber(existing.qunarCommentScore, h.qunarCommentScore);
             existing.convertionRate = maxNullableNumber(existing.convertionRate, h.convertionRate);
             existing.qunarDetailCR = maxNullableNumber(existing.qunarDetailCR, h.qunarDetailCR);
-            existing.totalOrderNum = Math.max(existing.totalOrderNum || 0, h.totalOrderNum || 0);
-            existing.bookOrderNum = Math.max(existing.bookOrderNum || 0, h.bookOrderNum || 0);
-            existing.amountRank = existing.amountRank === 0 ? (h.amountRank || 0) : Math.min(existing.amountRank, h.amountRank || existing.amountRank);
-            existing.quantityRank = existing.quantityRank === 0 ? (h.quantityRank || 0) : Math.min(existing.quantityRank, h.quantityRank || existing.quantityRank);
-            existing.commentScoreRank = existing.commentScoreRank === 0 ? (h.commentScoreRank || 0) : Math.min(existing.commentScoreRank, h.commentScoreRank || existing.commentScoreRank);
-            existing.qunarDetailCRRank = existing.qunarDetailCRRank === 0 ? (h.qunarDetailCRRank || 0) : Math.min(existing.qunarDetailCRRank, h.qunarDetailCRRank || existing.qunarDetailCRRank);
+            existing.totalOrderNum = maxNullableNumber(existing.totalOrderNum, h.totalOrderNum);
+            existing.bookOrderNum = maxNullableNumber(existing.bookOrderNum, h.bookOrderNum);
+            existing.amountRank = minPositiveNullableNumber(existing.amountRank, h.amountRank);
+            existing.quantityRank = minPositiveNullableNumber(existing.quantityRank, h.quantityRank);
+            existing.commentScoreRank = minPositiveNullableNumber(existing.commentScoreRank, h.commentScoreRank);
+            existing.qunarDetailCRRank = minPositiveNullableNumber(existing.qunarDetailCRRank, h.qunarDetailCRRank);
         });
-        const hotels = Array.from(hotelMap.values());
+        const allHotels = Array.from(hotelMap.values());
+        const hasExplicitRoles = ctripHotels.some(h =>
+            h?.isSelf === true
+            || h?.is_self === true
+            || ['self', 'competitor'].includes(String(h?.compareType || h?.compare_type || '').toLowerCase())
+        );
+        const isGenericSelfName = value => ['我的酒店', '本店', 'myhotel', 'currenthotel']
+            .includes(String(value || '').replace(/\s+/g, '').toLowerCase());
+        const hotels = allHotels
+            .filter(hotel => hasExplicitRoles ? hotel.isSelf === true : isGenericSelfName(hotel.hotelName))
+            .map(hotel => ({
+                ...hotel,
+                hotelName: String(hotel.systemHotelName || hotel.hotelName || '').trim(),
+                compareType: 'self',
+                isSelf: true,
+            }));
+        const selfIds = new Set(hotels.map(hotel => String(hotel.poiId || '')));
+        const comparisonHotels = allHotels
+            .filter(hotel => !selfIds.has(String(hotel.poiId || '')))
+            .map(hotel => ({ ...hotel, compareType: 'competitor', isSelf: false }));
         const visibleKeys = new Set(hotels.map(getAiAnalysisHotelKey));
         return {
             hotels,
+            comparisonHotels,
             selectedKeys: selectedKeys.filter(key => visibleKeys.has(key)),
         };
     };
@@ -868,6 +904,18 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
                 maskError,
             });
             setCompletion(execution);
+            const successCount = Array.isArray(execution.successGroups) ? execution.successGroups.length : 0;
+            const failedCount = Array.isArray(execution.failedGroups) ? execution.failedGroups.length : 0;
+            if (successCount === 0 || execution.capturedError) {
+                const message = execution.capturedError || '全部分析失败，未生成综合报告';
+                setCapturedError(message);
+                notify(message.split('\n')[0], 'error');
+                return { status: 'failed', startContext, runContext, execution, message };
+            }
+            if (failedCount > 0) {
+                notify(`AI分析部分完成：${successCount} 组成功，${failedCount} 组失败`, 'warning');
+                return { status: 'partial', startContext, runContext, execution };
+            }
             notify('AI分析完成');
             return { status: 'success', startContext, runContext, execution };
         } catch (error) {
@@ -891,14 +939,14 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
                     hotelMap.set(key, {
                         poiId: hotel.poiId,
                         hotelName: hotel.hotelName,
-                        roomNights: hotel.roomNights || 0,
-                        roomRevenue: hotel.roomRevenue || 0,
-                        salesRoomNights: hotel.salesRoomNights || 0,
-                        sales: hotel.sales || 0,
-                        viewConversion: hotel.viewConversion || 0,
-                        payConversion: hotel.payConversion || 0,
-                        exposure: hotel.exposure || 0,
-                        views: hotel.views || 0,
+                        roomNights: pickNullableNumber(hotel.roomNights),
+                        roomRevenue: pickNullableNumber(hotel.roomRevenue),
+                        salesRoomNights: pickNullableNumber(hotel.salesRoomNights),
+                        sales: pickNullableNumber(hotel.sales),
+                        viewConversion: pickNullableNumber(hotel.viewConversion),
+                        payConversion: pickNullableNumber(hotel.payConversion),
+                        exposure: pickNullableNumber(hotel.exposure),
+                        views: pickNullableNumber(hotel.views),
                     });
                 }
             });
@@ -930,22 +978,25 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
     const buildMeituanAiAnalysisRequestBody = (selectedData = []) => ({
         hotels: selectedData,
         total_hotels: selectedData.length,
-        analysis_type: 'business_overview',
+        analysis_type: 'competitor_preview',
+        preview_scope: 'ota_competitor_sample',
         source: 'meituan',
-        include_suggestions: true,
+        include_suggestions: false,
     });
 
     const buildMeituanAiAnalysisHistoryRecord = ({
         selectedData = [],
         summary = '',
         report = '',
+        trustStatus = 'unverified_client_preview',
         now = new Date(),
     } = {}) => ({
         id: now.getTime(),
         hotel_names: selectedData.slice(0, 3).map(h => h.hotelName).join('、') + (selectedData.length > 3 ? '等' : ''),
         hotel_count: selectedData.length,
-        summary: summary || 'AI分析报告',
+        summary: summary || '未验证竞对数据预览',
         report,
+        trust_status: trustStatus,
         create_time: now.toLocaleString('zh-CN'),
     });
 
@@ -974,10 +1025,13 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
         setResult('');
         try {
             const requestBody = buildMeituanAiAnalysisRequestBody(selectedData);
-            notify('AI正在分析数据，请稍候...');
+            notify('正在生成未验证竞对数据预览，请稍候...');
             const res = await requestAnalysis(requestBody);
 
-            if (res.code === 200 && res.data) {
+            const isUnverifiedPreview = res?.data?.trust_status === 'unverified_client_preview'
+                && res?.data?.decision_use?.revenue_analysis === false
+                && res?.data?.decision_use?.ai_decision_support === false;
+            if (res.code === 200 && res.data && isUnverifiedPreview) {
                 const report = sanitizeReport(res.data.report || res.data.analysis || res.data);
                 setResult(report);
                 const nextHistory = [
@@ -985,17 +1039,21 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
                         selectedData,
                         summary: res.data.summary,
                         report,
+                        trustStatus: res.data.trust_status,
                         now: now(),
                     }),
                     ...((getHistory() || [])),
                 ].slice(0, historyLimit);
                 setHistory(nextHistory);
-                notify('AI分析完成！');
+                notify('未验证竞对数据预览已生成', 'warning');
                 return { status: 'success', response: res, requestBody, selectedData, report, history: nextHistory };
             }
 
             setResult('');
-            notify(res.message || '美团 AI 分析接口返回失败，请修复后端接口后重试', 'error');
+            const message = res.code === 200
+                ? '预览响应缺少未验证状态，已阻止展示为经营分析'
+                : (res.message || '美团竞对数据预览接口返回失败，请修复后端接口后重试');
+            notify(message, 'error');
             return { status: 'failed', response: res, requestBody, selectedData };
         } catch (error) {
             logError('美团AI分析请求失败:', error);

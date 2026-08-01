@@ -7,6 +7,13 @@ $routeFile = $root . DIRECTORY_SEPARATOR . 'route' . DIRECTORY_SEPARATOR . 'app.
 $autoloadFile = $root . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
 if (is_file($autoloadFile)) {
     require_once $autoloadFile;
+    foreach (spl_autoload_functions() ?: [] as $autoloadFunction) {
+        $loader = is_array($autoloadFunction) ? ($autoloadFunction[0] ?? null) : null;
+        if (!$loader instanceof \Composer\Autoload\ClassLoader) {
+            continue;
+        }
+        $loader->setPsr4('app\\', [$root . DIRECTORY_SEPARATOR . 'app']);
+    }
 }
 
 $ignoredControllers = [
@@ -16,10 +23,12 @@ $ignoredControllers = [
 
 $actions = collectControllerActions($controllerDir, $ignoredControllers);
 $routes = collectRouteActions($routeFile);
+$compatibilityAliases = otaCompatibilityRouteAliases();
 
 $missing = [];
 foreach ($actions as $key => $action) {
-    if (!isset($routes[$key])) {
+    $aliasKey = $compatibilityAliases[$key] ?? null;
+    if (!isset($routes[$key]) && ($aliasKey === null || !isset($routes[$aliasKey]))) {
         $missing[$key] = $action;
     }
 }
@@ -35,6 +44,7 @@ echo "Route coverage check\n";
 echo "Controllers scanned: " . count(array_unique(array_column($actions, 'controller'))) . PHP_EOL;
 echo "Public actions scanned: " . count($actions) . PHP_EOL;
 echo "Route targets scanned: " . count($routes) . PHP_EOL;
+echo "Compatibility aliases: " . count($compatibilityAliases) . PHP_EOL;
 echo "Ignored controllers: " . count($ignoredControllers) . PHP_EOL;
 
 if ($missing !== []) {
@@ -267,6 +277,28 @@ function controllerClassFromFile(string $controllerDir, string $path): string
 function actionKey(string $controller, string $method): string
 {
     return strtolower($controller . '::' . $method);
+}
+
+/** @return array<string, string> legacy action key => domain controller action key */
+function otaCompatibilityRouteAliases(): array
+{
+    if (!class_exists(\app\domain\Ota\OtaActionCatalog::class)) {
+        return [];
+    }
+
+    $aliases = [];
+    foreach (\app\domain\Ota\OtaActionCatalog::all() as $domain => $methods) {
+        $controller = 'app\\controller\\ota\\' . ucfirst($domain) . 'Controller';
+        if (!class_exists($controller)) {
+            throw new RuntimeException("Missing OTA domain controller: {$controller}");
+        }
+
+        foreach ($methods as $method) {
+            $aliases[actionKey('app\\controller\\OnlineData', $method)] = actionKey($controller, $method);
+        }
+    }
+
+    return $aliases;
 }
 
 function relativePath(string $root, string $path): string

@@ -4,17 +4,22 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\AiDailyReportService;
+use app\service\AiReportGenerationTaskService;
+use app\service\OtaCompetitionAnalysisBundleService;
+use app\service\P0OtaDownstreamGateService;
 use think\Response;
 use Throwable;
 
 class AiDailyReport extends Base
 {
     private AiDailyReportService $service;
+    private AiReportGenerationTaskService $taskService;
 
     public function __construct(\think\App $app)
     {
         parent::__construct($app);
         $this->service = new AiDailyReportService();
+        $this->taskService = new AiReportGenerationTaskService();
     }
 
     public function index(): Response
@@ -62,13 +67,88 @@ class AiDailyReport extends Base
                 $date = date('Y-m-d', strtotime('-1 day'));
             }
             $userId = (int)($this->currentUser->id ?? 0);
-
-            return $this->success($this->service->generate($hotelIds, $hotelId, $date, $userId, [
+            $edition = OtaCompetitionAnalysisBundleService::normalizeEdition($input['edition'] ?? 'lite');
+            $isAdmin = (bool)$this->currentUser->isSuperAdmin();
+            OtaCompetitionAnalysisBundleService::assertGenerationAllowed($edition, $isAdmin);
+            $options = [
                 'model_key' => (string)($input['model_key'] ?? ''),
                 'use_llm' => array_key_exists('use_llm', $input) ? $input['use_llm'] : true,
-            ]));
+                'edition' => $edition,
+                'actor_is_admin' => $isAdmin,
+            ];
+            $background = array_key_exists('background', $input)
+                && filter_var($input['background'], FILTER_VALIDATE_BOOL);
+            if (OtaCompetitionAnalysisBundleService::editionRequiresAdmin($edition)) {
+                $background = false;
+            }
+            $p0Gate = (new P0OtaDownstreamGateService())->resolveRuntime(
+                $date,
+                $hotelId !== null ? (int)$hotelId : null,
+                null,
+                ['ctrip', 'meituan']
+            );
+            if (($p0Gate['status'] ?? '') !== 'ready') {
+                return $this->error(
+                    '昨日双 OTA 数据尚未通过真实 P0 verifier；本次不生成正式日报。',
+                    409,
+                    [
+                        'status' => 'blocked_by_p0_ota_gate',
+                        'formal_report_generated' => false,
+                        'target_date' => $date,
+                        'hotel_id' => $hotelId,
+                        'p0_downstream_gate' => $p0Gate,
+                    ]
+                );
+            }
+            if ($background) {
+                return $this->success($this->taskService->enqueue(
+                    $hotelIds,
+                    (int)$hotelId,
+                    $date,
+                    $userId,
+                    $options
+                ));
+            }
+
+            return $this->success($this->service->generate($hotelIds, $hotelId, $date, $userId, $options));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'AI daily report generate failed'), $this->statusCode($e));
+        }
+    }
+
+    public function generationTask(string $taskId): Response
+    {
+        try {
+            [$hotelIds] = $this->resolveHotelScope();
+            $task = $this->taskService->readPublicTask($taskId, $hotelIds);
+            if (!is_array($task)) {
+                return $this->error('AI report generation task not found', 404);
+            }
+            return $this->success($task);
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'AI report task query failed'), $this->statusCode($e));
+        }
+    }
+
+    public function recordHumanJudgment(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('AI daily report is invalid', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            $userId = (int)($this->currentUser->id ?? 0);
+            $userLabel = (string)($this->currentUser->username ?? $this->currentUser->name ?? '');
+
+            return $this->success($this->service->recordHumanJudgment(
+                $id,
+                $hotelIds,
+                $userId,
+                $this->requestData(),
+                $userLabel
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'AI daily report judgment save failed'), $this->statusCode($e));
         }
     }
 
@@ -121,6 +201,9 @@ class AiDailyReport extends Base
             return 401;
         }
         if (str_contains($message, 'permitted') || str_contains($message, 'no permitted hotel')) {
+            return 403;
+        }
+        if (str_contains($message, 'flagship_generation_requires_admin')) {
             return 403;
         }
         if (str_contains($message, 'not found')) {

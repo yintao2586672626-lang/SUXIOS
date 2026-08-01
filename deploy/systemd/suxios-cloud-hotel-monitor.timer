@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SUXIOS hourly hotel monitoring broadcast
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=45s
+
+[Install]
+WantedBy=timers.target

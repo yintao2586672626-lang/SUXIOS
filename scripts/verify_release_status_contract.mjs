@@ -28,6 +28,7 @@ const requiredDocs = [
   'docs/release_evidence_bundle_intake.md',
   'docs/release_evidence_collection.zh-CN.md',
   'docs/formal_release_final_handoff.md',
+  'docs/release_blocker_policy.json',
   'docs/release_readiness_status.json',
   'docs/release_readiness_status.schema.json',
   'docs/deployment_env_checklist.md',
@@ -76,9 +77,13 @@ const requiredDocs = [
   'scripts/lib/ota_credential_checks.mjs',
   'scripts/verify_release_security_scan.mjs',
   'scripts/lib/security_scan_checks.mjs',
+  'scripts/generate_project_state.ps1',
 ];
 
 const requiredPackageScripts = [
+  'state:current',
+  'state:refresh',
+  'state:check',
   'review:release-readiness',
   'review:functional-readiness',
   'review:release-issues',
@@ -325,6 +330,7 @@ const asciiReleaseDocs = [
   'docs/release_verification_command_matrix.md',
   'docs/release_functional_acceptance_matrix.md',
   'docs/release_issue_register.md',
+  'docs/release_blocker_policy.json',
   'docs/release_readiness_status.json',
   'docs/codex_security_scan_authorization.md',
   'docs/release_readiness_result.example.json',
@@ -1178,6 +1184,10 @@ try {
       /function evidencePath/,
       /function existingEvidenceOrRepo/,
       /function latestExistingEvidencePath/,
+      /function readCurrentProjectStateSnapshot/,
+      /function rejectEvidenceOlderThanCurrentSnapshot/,
+      /vault\/current-state\.md/,
+      /historical Git\/PR failure details were suppressed/,
       /generated_at/,
       /mtimeMs/,
       /production\.env/,
@@ -1592,8 +1602,8 @@ try {
   assertTextContainsPatterns(
     readText('scripts/verify_release_readiness.mjs'),
     [
-      /checkBackupCredentialFields/,
-      /checkOtaAttestationFile/,
+      /checkOtaCredentialRelease/,
+      /checkOtaCredentialReadiness/,
       /requireOutsideRepo/,
     ],
     'scripts/verify_release_readiness.mjs release OTA credential integration',
@@ -1653,6 +1663,17 @@ if (status) {
     fail('updated_at must be a YYYY-MM-DD date');
   } else {
     pass('updated_at is a YYYY-MM-DD date');
+  }
+
+  if (
+    status.status_role !== 'historical_snapshot'
+    || status.current_use_forbidden !== true
+    || status.live_status_command !== 'npm run review:release-readiness'
+    || status.current_state_path !== 'vault/current-state.md'
+  ) {
+    fail('release_readiness_status.json must be explicitly historical and forbidden as current state');
+  } else {
+    pass('release_readiness_status.json is explicitly historical');
   }
 
   if (status.overall_status !== 'not_release_ready') {
@@ -1921,12 +1942,45 @@ if (status) {
   }
 }
 
+const blockerPolicy = readJson('docs/release_blocker_policy.json');
+if (blockerPolicy) {
+  if (
+    blockerPolicy.schema_version !== 1
+    || blockerPolicy.status_role !== 'stable_release_blocker_policy'
+    || blockerPolicy.overall_status !== 'not_release_ready'
+    || blockerPolicy.release_ready !== false
+    || blockerPolicy.does_not_close_release_readiness !== true
+  ) {
+    fail('release_blocker_policy.json must be stable, non-closing, and not release-ready');
+  } else {
+    pass('release blocker policy is stable and non-closing');
+  }
+  if (
+    blockerPolicy.current_state?.path !== 'vault/current-state.md'
+    || blockerPolicy.current_state?.refresh_command !== 'npm run state:refresh'
+    || blockerPolicy.live_release_review?.command !== 'npm run review:release-readiness'
+    || blockerPolicy.live_release_review?.status !== 'live_review_required'
+  ) {
+    fail('release blocker policy must point current facts and live status to their generated sources');
+  }
+  const policyBlockers = Array.isArray(blockerPolicy.blockers) ? blockerPolicy.blockers : [];
+  assertExactStringArray(policyBlockers.map((entry) => entry?.id), requiredBlockerIds, 'release blocker policy blocker ids');
+  for (const blocker of policyBlockers) {
+    if (blocker?.status !== 'live_review_required' || !String(blocker?.acceptance_command || '').trim()) {
+      fail(`release blocker policy ${blocker?.id || 'unknown'} must require live review and an acceptance command`);
+    }
+  }
+}
+
 const packageJson = readJson('package.json');
 if (packageJson) {
   for (const scriptName of requiredPackageScripts) {
     if (typeof packageJson.scripts?.[scriptName] !== 'string') {
       fail(`package.json scripts is missing ${scriptName}`);
     }
+  }
+  if (!String(packageJson.scripts?.['review:release-readiness'] || '').includes('npm run state:check')) {
+    fail('package.json review:release-readiness must verify the machine-generated current project snapshot first');
   }
   const localExternalStateScript = String(packageJson.scripts?.['review:release-external-state:local'] || '');
   for (const fragment of requiredLocalExternalStateScriptFragments) {
@@ -2286,16 +2340,19 @@ if (readinessResultExample) {
     fail(`docs/release_readiness_result.example.json failures must include at least ${requiredOpenFailurePatterns.length} entries`);
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.passed !== 20) {
-    fail('docs/release_readiness_result.example.json summary.passed must match the current 20 release-readiness passes');
+  const examplePassCount = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.length : -1;
+  const exampleWarningCount = Array.isArray(readinessResultExample.warnings) ? readinessResultExample.warnings.length : -1;
+  const exampleFailureCount = Array.isArray(readinessResultExample.failures) ? readinessResultExample.failures.length : -1;
+  if (readinessResultExample.summary?.passed !== examplePassCount) {
+    fail('docs/release_readiness_result.example.json summary.passed must match its example passes array');
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.warnings !== 3) {
-    fail('docs/release_readiness_result.example.json summary.warnings must match the current 3 release-readiness warnings');
+  if (readinessResultExample.summary?.warnings !== exampleWarningCount) {
+    fail('docs/release_readiness_result.example.json summary.warnings must match its example warnings array');
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.failures !== 2) {
-    fail('docs/release_readiness_result.example.json summary.failures must match the current 2 release-readiness failures');
+  if (readinessResultExample.summary?.failures !== exampleFailureCount) {
+    fail('docs/release_readiness_result.example.json summary.failures must match its example failures array');
     resultComplete = false;
   }
   const readinessPasses = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.join('\n') : '';
@@ -2595,6 +2652,9 @@ try {
   if (!report.includes('docs/release_readiness_status.json')) {
     fail('release_readiness_remaining_issues.md must reference docs/release_readiness_status.json');
   }
+  if (!report.includes('docs/release_blocker_policy.json')) {
+    fail('release_readiness_remaining_issues.md must reference docs/release_blocker_policy.json');
+  }
   if (!report.includes('docs/release_functional_acceptance_matrix.md')) {
     fail('release_readiness_remaining_issues.md must reference docs/release_functional_acceptance_matrix.md');
   }
@@ -2613,8 +2673,14 @@ try {
   if (!report.includes('npm run review:functional-readiness')) {
     fail('release_readiness_remaining_issues.md must mention npm run review:functional-readiness');
   }
-  if (!report.includes('2 release-readiness failures')) {
-    fail('release_readiness_remaining_issues.md must state the current 2 release-readiness failures');
+  if (!report.includes('Evidence note: this document records a dated 2026-07-09 snapshot')) {
+    fail('release_readiness_remaining_issues.md must label dated evidence as a historical snapshot');
+  }
+  if (!report.includes('CI contract checks validate structure and behavior only; they are not release approval')) {
+    fail('release_readiness_remaining_issues.md must distinguish structural CI checks from release approval');
+  }
+  if (/currently reports\s+\d+\s+release-readiness failures/i.test(report)) {
+    fail('release_readiness_remaining_issues.md must not present a historical failure count as current');
   }
   if (report.includes('3 release-evidence failures')) {
     fail('release_readiness_remaining_issues.md must not use the stale 3 release-evidence failure count');

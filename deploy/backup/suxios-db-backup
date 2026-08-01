@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+env_file='/etc/suxios/suxios.env'
+while (($#)); do
+  case "$1" in
+    --env-file) env_file="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 64 ;;
+  esac
+done
+
+if [[ $EUID -ne 0 ]]; then
+  echo 'Run as root.' >&2
+  exit 77
+fi
+
+test -f "$env_file"
+database_line="$(grep -E '^[[:space:]]*DB_NAME[[:space:]]*=' "$env_file" | tail -n 1 || true)"
+database="${database_line#*=}"
+database="${database//$'\r'/}"
+database="${database#\"}"
+database="${database%\"}"
+database="${database#\'}"
+database="${database%\'}"
+if [[ ! "$database" =~ ^[A-Za-z0-9_]{1,64}$ ]]; then
+  echo 'Invalid or missing DB_NAME in the controlled environment file.' >&2
+  exit 65
+fi
+
+exec 9>/run/lock/suxios-db-backup.lock
+if ! flock -n 9; then
+  echo "backup_failed=already_running" >&2
+  exit 75
+fi
+
+backup_dir='/var/backups/suxios/mysql'
+timestamp="$(date '+%Y%m%d-%H%M%S')"
+filename="${database}_${timestamp}.sql.gz"
+tmp_file="${backup_dir}/.${filename}.tmp"
+final_file="${backup_dir}/${filename}"
+checksum_file="${final_file}.sha256"
+
+install -d -o root -g root -m 0700 "$backup_dir"
+trap 'rm -f -- "$tmp_file"' EXIT
+
+mariadb-dump --default-character-set=utf8mb4 \
+  --single-transaction --quick --routines --triggers --events \
+  "$database" | gzip -9 > "$tmp_file"
+
+test -s "$tmp_file"
+gzip -t "$tmp_file"
+mv "$tmp_file" "$final_file"
+(
+  cd "$backup_dir"
+  sha256sum "$filename" > "${filename}.sha256"
+  sha256sum -c "${filename}.sha256"
+)
+chmod 0600 "$final_file" "$checksum_file"
+
+find "$backup_dir" -maxdepth 1 -type f \
+  \( -name "${database}_*.sql.gz" -o -name "${database}_*.sql.gz.sha256" \) \
+  -mtime +7 -delete
+
+logger -t suxios-db-backup "backup completed and verified: $filename"
+printf 'backup_database=%s\n' "$database"
+printf 'backup_file=%s\n' "$final_file"

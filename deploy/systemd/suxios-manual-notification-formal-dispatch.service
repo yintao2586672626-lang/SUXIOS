@@ -1,0 +1,19 @@
+[Unit]
+Description=SUXIOS formal WeCom notification scheduler
+Wants=network-online.target
+After=network-online.target mariadb.service php8.3-fpm.service
+ConditionPathExists=@SUXIOS_RELEASE_ROOT@/think
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=@SUXIOS_RELEASE_ROOT@
+Environment=TZ=Asia/Shanghai
+ExecStart=/usr/bin/php -d memory_limit=192M think manual-notification:schedule --dispatch --mode=formal --limit=100
+Nice=10
+CPUQuota=20%
+MemoryMax=192M
+TasksMax=12
+TimeoutStartSec=2min
+UMask=0027

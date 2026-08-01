@@ -20,6 +20,21 @@ export function timestamp(date = new Date()) {
   return date.toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
 }
 
+export function formatDateInTimeZone(date = new Date(), timeZone = 'Asia/Shanghai') {
+  const value = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(value.getTime())) {
+    throw new TypeError('Invalid date');
+  }
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const byType = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
 export function safeName(value) {
   return String(value || 'default').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
 }

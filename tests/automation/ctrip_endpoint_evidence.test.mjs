@@ -10,6 +10,7 @@ import {
   renderCtripEndpointEvidenceTemplatesMarkdown,
   validateCtripEndpointEvidenceBundle,
 } from '../../scripts/lib/ctrip_endpoint_evidence.mjs';
+import { extractCtripCatalogFacts, findCtripEndpointByUrl } from '../../scripts/lib/ctrip_capture_catalog.mjs';
 
 test('generates P3 evidence templates for every Ctrip candidate direction', () => {
   const templates = buildCtripEndpointEvidenceTemplates({
@@ -118,8 +119,9 @@ test('marks complete Ctrip DevTools evidence as ready for field mapping and reda
 });
 
 test('previews standard rows for cataloged Ctrip endpoint evidence', () => {
+  const rawRequestUrl = 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData?_fxpcqlniredt=0903&x-traceID=trace&token=query-secret-must-not-persist';
   const result = validateCtripEndpointEvidenceBundle({
-    request_url: 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData?_fxpcqlniredt=0903&x-traceID=trace',
+    request_url: rawRequestUrl,
     method: 'POST',
     payload: {
       nodeId: 'ctrip-1001',
@@ -166,9 +168,98 @@ test('previews standard rows for cataloged Ctrip endpoint evidence', () => {
   assert.equal(core.book_order_num, 1);
   assert.equal(core.quantity, 4);
   assert.equal(core.detail_exposure, 5);
-  assert.equal(core.raw_data.source_url, 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData?_fxpcqlniredt=0903&x-traceID=trace');
+  const safeRequestUrl = 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData';
+  assert.equal(result.request_url, safeRequestUrl);
+  assert.equal(result.redacted_bundle.request_url, safeRequestUrl);
+  assert.equal(core.raw_data.source_url, safeRequestUrl);
+  assert.match(result.source_url_hash, /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(result), /query-secret-must-not-persist/);
   assert.equal(result.catalog_preview.metric_keys.includes('order_amount'), true);
   assert.equal(result.catalog_preview.metric_keys.includes('visitor_count'), true);
+});
+
+test('recursively redacts URL-shaped response facts and page context while retaining value hashes', () => {
+  const rawResponseUrl = 'https://response-user:response-pass@ebooking.ctrip.com/offer/detail?token=response-query-secret#response-fragment';
+  const rawNestedPageUrl = 'https://page-user:page-pass@ebooking.ctrip.com/order/list?ticket=page-query-secret#page-fragment';
+  const rawArrayPageUrl = 'https://array-user:array-pass@ebooking.ctrip.com/order/detail?auth=array-query-secret#array-fragment';
+  const result = validateCtripEndpointEvidenceBundle({
+    request_url: 'https://request-user:request-pass@ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData?token=request-query-secret#request-fragment',
+    method: 'POST',
+    payload: {
+      nodeId: 'ctrip-1001',
+      startDate: '2026-07-22',
+      endDate: '2026-07-22',
+    },
+    response: {
+      data: {
+        visitorCount: 5,
+        lossOrderDetail: {
+          targetUrl: rawResponseUrl,
+        },
+      },
+    },
+    page_context: {
+      page: 'data center',
+      nested: {
+        configured_url: rawNestedPageUrl,
+      },
+      tabs: [{ url: rawArrayPageUrl }],
+    },
+    params: {
+      hotel_id: 'ctrip-1001',
+      data_date: '2026-07-22',
+    },
+  }, {
+    capturedAt: '2026-07-22T09:30:00.000Z',
+  });
+
+  assert.equal(result.request_url, 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData');
+  assert.equal(result.redacted_bundle.response.data.lossOrderDetail.targetUrl, 'https://ebooking.ctrip.com/offer/detail');
+  assert.match(result.redacted_bundle.response.data.lossOrderDetail.targetUrl_url_hash, /^[a-f0-9]{64}$/);
+  assert.equal(result.redacted_bundle.page_context.nested.configured_url, 'https://ebooking.ctrip.com/order/list');
+  assert.match(result.redacted_bundle.page_context.nested.configured_url_url_hash, /^[a-f0-9]{64}$/);
+  assert.equal(result.redacted_bundle.page_context.tabs[0].url, 'https://ebooking.ctrip.com/order/detail');
+  assert.match(result.redacted_bundle.page_context.tabs[0].url_url_hash, /^[a-f0-9]{64}$/);
+
+  const catalogFacts = extractCtripCatalogFacts({
+    data: {
+      visitorCount: 5,
+      lossOrderDetail: { targetUrl: rawResponseUrl },
+    },
+  }, {
+    endpoint: findCtripEndpointByUrl(result.request_url),
+    section: 'homepage',
+    dataType: 'business',
+    hotelId: 'ctrip-1001',
+    dataDate: '2026-07-22',
+    capturedAt: '2026-07-22T09:30:00.000Z',
+    persistRawSourceUrl: false,
+  });
+  const catalogUrlFact = catalogFacts.find((fact) => fact.metric_key === 'target_url');
+  assert.ok(catalogUrlFact);
+  assert.equal(catalogUrlFact.value, 'https://ebooking.ctrip.com/offer/detail');
+  assert.equal(catalogUrlFact.value_url_hash, result.redacted_bundle.response.data.lossOrderDetail.targetUrl_url_hash);
+
+  const row = result.catalog_preview.standard_rows.find((candidate) => (
+    candidate.raw_data?.facts?.some((fact) => fact.metric_key === 'target_url')
+  ));
+  assert.ok(row);
+  const rawFact = row.raw_data.facts.find((fact) => fact.metric_key === 'target_url');
+  const fieldFact = row.raw_data.field_facts.find((fact) => fact.metric_key === 'target_url');
+  assert.equal(rawFact.value, 'https://ebooking.ctrip.com/offer/detail');
+  assert.equal(rawFact.value_url_hash, catalogUrlFact.value_url_hash);
+  assert.equal(fieldFact.value, 'https://ebooking.ctrip.com/offer/detail');
+  assert.equal(fieldFact.value_url_hash, rawFact.value_url_hash);
+
+  const encoded = JSON.stringify(result);
+  for (const secret of [
+    'response-user', 'response-pass', 'response-query-secret', 'response-fragment',
+    'page-user', 'page-pass', 'page-query-secret', 'page-fragment',
+    'array-user', 'array-pass', 'array-query-secret', 'array-fragment',
+    'request-user', 'request-pass', 'request-query-secret', 'request-fragment',
+  ]) {
+    assert.equal(encoded.includes(secret), false, `${secret} must not persist`);
+  }
 });
 
 test('uses Ctrip sales page context for shared beneficialdata endpoints', () => {
@@ -322,7 +413,7 @@ test('builds redacted P3 evidence drafts from browser profile captures', () => {
   assert.equal(drafts[0].catalog_ready, true);
   assert.equal(drafts[0].redacted_bundle.payload.hotelId, 'ctrip-1001');
   assert.equal(drafts[0].redacted_bundle.page_context.source, 'browser_profile');
-  assert.equal(drafts[0].redacted_bundle.page_context.page_url, 'https://ebooking.ctrip.com/order/list?microJump=true');
+  assert.equal(drafts[0].redacted_bundle.page_context.page_url, 'https://ebooking.ctrip.com/order/list');
   assert.equal(drafts[0].redacted_bundle.params.hotel_id, 'ctrip-1001');
   assert.equal(drafts[0].field_mapping_draft.safe_to_auto_apply, false);
 

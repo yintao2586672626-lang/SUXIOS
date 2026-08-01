@@ -100,7 +100,12 @@ includesAll('route/app.php', 'employee workflow routes exist', [
   "Route::get('/execution-flow', 'OperationManagement/executionFlow');",
 ]);
 
-includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data health UI exposes collection state, field assets, and next actions', [
+includesAllSources([
+  'public/index.html',
+  'resources/frontend/app-template.html',
+  'public/app-main.js',
+  'public/data-health-static.js',
+], 'data health UI exposes collection state, field assets, and next actions', [
   'collectionHealthSummaryCards',
   'collectionHealthStatusText',
   'collectionHealthFieldAssetCards',
@@ -875,7 +880,11 @@ includesAll('scripts/verify_phase1_live_action_queue_runtime.mjs', 'live action 
   'payload_file_present_requires_importer_dry_run',
 ]);
 
-includesAll('public/index.html', 'AI diagnosis and operation UI bindings exist', [
+includesAllSources([
+  'public/index.html',
+  'resources/frontend/app-template.html',
+  'public/app-main.js',
+], 'AI diagnosis and operation UI bindings exist', [
   'otaDiagnosisMetricCards',
   'otaDiagnosisResultSections',
   'otaDiagnosisResult',
@@ -1093,11 +1102,21 @@ includesAll('app/service/OperationManagementService.php', 'operation execution f
   'public function executionFlow',
   'blocked execution intent cannot be approved',
   'execution evidence is required',
-  'next_action',
+  'ExecutionFlowReadService',
+  '$this->executionFlowReadService->buildItem(',
   'data_collection',
   'evidence_refs',
   'source_policy',
   'protected_boundary',
+]);
+
+includesAll('app/service/operation/ExecutionFlowReadService.php', 'operation execution flow keeps employee next-action semantics in its read boundary', [
+  "'next_action' =>",
+  "'approve_intent'",
+  "'record_execution'",
+  "'record_evidence'",
+  "'review_effect'",
+  "'resolve_blocker'",
 ]);
 
 includesAll('docs/phase1_ota_trusted_loop_goal.md', 'goal document includes employee console verifier', [
@@ -1111,10 +1130,11 @@ includesAll('docs/phase1_ota_trusted_loop_audit.md', 'audit document references 
 
 packageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_employee_console_contract.mjs && node --test tests/automation/p0_profile_next_steps_report.test.mjs');
 
-const publicEntry = read('public/index.html');
+const publicEntry = `${read('public/index.html')}\n${read('resources/frontend/app-template.html')}`;
+const appMainEntry = read('public/app-main.js');
 const dataHealthStaticEntry = read('public/data-health-static.js');
 const autoFetchStaticEntry = read('public/auto-fetch-static.js');
-const frontendEntry = `${dataHealthStaticEntry}\n${autoFetchStaticEntry}\n${publicEntry}`;
+const frontendEntry = `${dataHealthStaticEntry}\n${autoFetchStaticEntry}\n${appMainEntry}\n${publicEntry}`;
 const collectionSourceRowSource = [
   sliceBetween(frontendEntry, [
     'const phase1EmployeeCollectionDataTypeText = (type) => {',
@@ -1989,7 +2009,7 @@ check(
 );
 
 const acceptanceDoc = read('docs/phase1_ota_employee_console_acceptance.md');
-const projectState = read('vault/project-state.md');
+const projectHistory = read('vault/project-history.md');
 check(
   'docs/phase1_ota_employee_console_acceptance.md',
   'employee console complete action queue is documented',
@@ -2198,11 +2218,11 @@ check(
   'ready platform verifier-only and operator-skip no action URL boundary'
 );
 check(
-  'vault/project-state.md',
+  'vault/project-history.md',
   'P0 Profile next-step supersedes old all-sources login-sync wording',
-  projectState.includes('supersedes the 2026-06-27 report wording') &&
-    projectState.includes('valid only for non-ready and non-skipped data sources'),
-  'project state records ready/skip sequence correction'
+  projectHistory.includes('supersedes the 2026-06-27 report wording') &&
+    projectHistory.includes('valid only for non-ready and non-skipped data sources'),
+  'project history records ready/skip sequence correction'
 );
 check(
   'docs/phase1_ota_employee_console_acceptance.md',

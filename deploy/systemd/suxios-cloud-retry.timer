@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry persisted SUXIOS WeCom messages only
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Unit=suxios-cloud-automation@retry.service
+
+[Install]
+WantedBy=timers.target

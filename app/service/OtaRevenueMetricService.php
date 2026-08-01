@@ -22,12 +22,37 @@ class OtaRevenueMetricService
         $comments = $this->list($dataset['fact_ota_comment'] ?? []);
         $dataGaps = [];
 
-        $revenue = $this->sum($daily, 'revenue');
-        $roomRevenue = $this->sumWithFallback($daily, 'room_revenue', 'revenue');
-        $roomNights = $this->sum($daily, 'room_nights');
+        $revenueRows = $this->rowsWithNumeric($daily, 'revenue');
+        $grossRevenueRows = $this->rowsWithNumeric($daily, 'gross_revenue');
+        $roomRevenueRows = $this->rowsWithNumeric($daily, 'room_revenue');
+        $genericRevenueWithoutRoomRevenueRows = array_values(array_filter(
+            $daily,
+            fn(array $row): bool => $this->hasNumericValue($row, 'revenue')
+                && !$this->hasNumericValue($row, 'room_revenue')
+        ));
+        $revenue = $this->sum($revenueRows, 'revenue');
+        $roomRevenue = $this->sum($roomRevenueRows, 'room_revenue');
+        $roomNightRows = $this->rowsWithNumeric($daily, 'room_nights');
+        $roomNights = $this->sum($roomNightRows, 'room_nights');
         $availableRows = $this->rowsWithPositive($daily, 'available_room_nights');
         $availableRoomNights = $this->sum($availableRows, 'available_room_nights');
-        $revparRoomRevenue = $this->sumWithFallback($availableRows, 'room_revenue', 'revenue');
+        $revparRows = array_values(array_filter(
+            $availableRows,
+            fn(array $row): bool => $this->hasNumericValue($row, 'room_revenue')
+        ));
+        $revparRoomRevenue = $this->sum($revparRows, 'room_revenue');
+        $revparAvailableRoomNights = $this->sum($revparRows, 'available_room_nights');
+        if (!$roomRevenueRows) {
+            $dataGaps[] = [
+                'code' => 'room_revenue_missing',
+                'message' => 'Verified room revenue is missing. Order GMV, paid amount, settlement amount, and generic revenue cannot replace room revenue.',
+            ];
+        } elseif ($genericRevenueWithoutRoomRevenueRows !== []) {
+            $dataGaps[] = [
+                'code' => 'room_revenue_partial',
+                'message' => 'Some revenue-bearing OTA facts lack verified room revenue, so ADR and RevPAR exclude those unverified numerator rows.',
+            ];
+        }
         $occupancyRows = array_values(array_filter($daily, function (array $row): bool {
             return $this->hasNumericValue($row, 'available_room_nights')
                 && (float)$row['available_room_nights'] > 0
@@ -104,7 +129,10 @@ class OtaRevenueMetricService
             ];
         }
 
-        $orderCount = (int)round($this->sum($daily, 'order_count'));
+        $orderCountRows = $this->rowsWithNumeric($daily, 'order_count');
+        $orderCount = $orderCountRows ? (int)round($this->sum($orderCountRows, 'order_count')) : null;
+        $reviewCountRows = $this->rowsWithNumeric($comments, 'comment_count');
+        $reviewCount = $reviewCountRows ? $this->sum($reviewCountRows, 'comment_count') : null;
         $cancelRows = array_values(array_filter($daily, static fn(array $row): bool => array_key_exists('cancel_order_num', $row) && $row['cancel_order_num'] !== null));
         $directCancelRateRows = array_values(array_filter($daily, fn(array $row): bool => $this->hasNumericValue($row, 'cancel_rate')));
         $cancelOrders = $this->sum($cancelRows, 'cancel_order_num');
@@ -172,9 +200,9 @@ class OtaRevenueMetricService
             $cancelRows ?: $directCancelRateRows,
             $cancelRoomNightRows
         );
-        $metricTrust['advertising.spend'] = $this->trust($advertising, 'sum(fact_ota_advertising.spend)');
-        $metricTrust['advertising.order_amount'] = $this->trust($advertising, 'sum(fact_ota_advertising.order_amount)');
-        $metricTrust['advertising.roas'] = $this->trust($advertising, 'sum(fact_ota_advertising.order_amount) / sum(fact_ota_advertising.spend)');
+        $metricTrust['advertising.spend'] = $this->trust($this->rowsWithNumeric($advertising, 'spend'), 'sum(fact_ota_advertising.spend)');
+        $metricTrust['advertising.order_amount'] = $this->trust($this->rowsWithNumeric($advertising, 'order_amount'), 'sum(fact_ota_advertising.order_amount)');
+        $metricTrust['advertising.roas'] = $this->trust($this->rowsWithNumeric($advertising, 'roas'), 'sum(fact_ota_advertising.order_amount) / sum(fact_ota_advertising.spend)');
         $metricTrust['quality.avg_psi_score'] = $this->trust($quality, 'avg(fact_ota_quality.psi_score)');
         $metricTrust['quality.avg_service_score'] = $this->trust($quality, 'avg(fact_ota_quality.service_score)');
         $metricTrust['peer_rank.rows'] = $this->trust($peerRanks, 'count(fact_ota_peer_rank)');
@@ -191,32 +219,34 @@ class OtaRevenueMetricService
             ],
             'metric_definitions' => $this->metricDefinitions(),
             'totals' => [
-                'revenue' => round($revenue, 2),
-                'gross_revenue' => round($revenue, 2),
-                'room_revenue' => round($roomRevenue, 2),
+                'revenue' => $revenueRows ? round($revenue, 2) : null,
+                'gross_revenue' => $grossRevenueRows ? round($this->sum($grossRevenueRows, 'gross_revenue'), 2) : null,
+                'room_revenue' => $roomRevenueRows ? round($roomRevenue, 2) : null,
                 'net_revenue' => $netRows ? round($netRevenue, 2) : null,
                 'commission_amount' => $commissionRows ? round($commissionAmount, 2) : null,
                 'commission_rate' => $commissionRows && $commissionGrossRevenue > 0 ? round($commissionAmount / $commissionGrossRevenue * 100, 2) : null,
-                'room_nights' => round($roomNights, 2),
+                'room_nights' => $roomNightRows ? round($roomNights, 2) : null,
                 'available_room_nights' => $availableRows ? round($availableRoomNights, 2) : null,
                 'occupied_room_nights' => $occupancyRows ? round($occupiedRoomNights, 2) : null,
                 'order_count' => $orderCount,
-                'adr' => $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : null,
+                'adr' => $roomRevenueRows && $roomNightRows && $roomNights > 0
+                    ? round($roomRevenue / $roomNights, 2)
+                    : null,
                 'occ' => $occupancyRows && $occupancyAvailableRoomNights > 0 ? round($occupiedRoomNights / $occupancyAvailableRoomNights * 100, 2) : null,
-                'revpar' => $availableRows && $availableRoomNights > 0 ? round($revparRoomRevenue / $availableRoomNights, 2) : null,
+                'revpar' => $revparRows && $revparAvailableRoomNights > 0 ? round($revparRoomRevenue / $revparAvailableRoomNights, 2) : null,
                 'net_revpar' => $netRevparRows && $netRevparAvailableRoomNights > 0 ? round($netRevparNetRevenue / $netRevparAvailableRoomNights, 2) : null,
                 'avg_lead_time_days' => $this->average($leadTimeRows, 'lead_time_days'),
                 'cancellation_rate' => $cancellationRate,
                 'room_night_cancellation_rate' => $roomNightCancellationRate,
-                'review_count' => count($comments),
-                'avg_comment_score' => $this->average($comments, 'score'),
+                'review_count' => $reviewCountRows ? $reviewCount : null,
+                'avg_comment_score' => $this->average($comments, 'comment_score'),
             ],
             'traffic' => [
                 'rows' => count($traffic),
                 'avg_flow_rate' => $this->average($traffic, 'flow_rate'),
                 'avg_submit_rate' => $this->average($traffic, 'submit_rate'),
-                'list_exposure' => (int)round($this->sum($traffic, 'list_exposure')),
-                'detail_exposure' => (int)round($this->sum($traffic, 'detail_exposure')),
+                'list_exposure' => ($rows = $this->rowsWithNumeric($traffic, 'list_exposure')) ? (int)round($this->sum($rows, 'list_exposure')) : null,
+                'detail_exposure' => ($rows = $this->rowsWithNumeric($traffic, 'detail_exposure')) ? (int)round($this->sum($rows, 'detail_exposure')) : null,
             ],
             'advertising' => $this->advertisingSummary($advertising),
             'quality' => $this->qualitySummary($quality),
@@ -271,7 +301,7 @@ class OtaRevenueMetricService
 
         $missingItems = $this->p1MissingItems($metrics);
         $anomalyItems = $this->p1AnomalyItems($metrics, $sections, $calculationAllowed);
-        $status = $this->p1ClosureStatus($gate, $missingItems, $anomalyItems);
+        $status = $this->p1ClosureStatus($gate, $sections, $missingItems, $anomalyItems);
 
         return [
             'status' => $status,
@@ -325,6 +355,9 @@ class OtaRevenueMetricService
             'source' => is_array($trust['source'] ?? null) ? $trust['source'] : [],
             'updated_at' => $trust['updated_at'] ?? null,
             'failure_reasons' => $failureReasons,
+            'truth' => is_array($trust['truth'] ?? null)
+                ? $trust['truth']
+                : OnlineDataTrustStatusService::metricTruthEnvelope($trust),
         ];
     }
 
@@ -409,6 +442,22 @@ class OtaRevenueMetricService
                     'affected_metrics' => $affectedMetrics,
                 ];
             }
+            $metricValue = $metrics;
+            foreach (explode('.', $metricKey) as $segment) {
+                if (!is_array($metricValue) || !array_key_exists($segment, $metricValue)) {
+                    $metricValue = null;
+                    break;
+                }
+                $metricValue = $metricValue[$segment];
+            }
+            if ($this->numericValue($metricValue) === null) {
+                $items[] = [
+                    'type' => 'metric_value',
+                    'code' => $metricKey . ':metric_value_missing',
+                    'message' => 'metric_value_missing',
+                    'affected_metrics' => $affectedMetrics,
+                ];
+            }
         }
 
         return $this->uniqueItemsByCode($items);
@@ -419,6 +468,9 @@ class OtaRevenueMetricService
      */
     private function affectedP1Metrics(string $code): array
     {
+        if (str_starts_with($code, 'room_revenue_')) {
+            return ['revenue', 'adr'];
+        }
         if (str_starts_with($code, 'available_') || str_starts_with($code, 'occupied_')) {
             return ['whole_hotel_guard'];
         }
@@ -479,15 +531,33 @@ class OtaRevenueMetricService
 
     /**
      * @param array<string, mixed> $gate
+     * @param array<string, mixed> $sections
      * @param array<int, array<string, mixed>> $missingItems
      * @param array<int, array<string, mixed>> $anomalyItems
      */
-    private function p1ClosureStatus(array $gate, array $missingItems, array $anomalyItems): string
+    private function p1ClosureStatus(array $gate, array $sections, array $missingItems, array $anomalyItems): string
     {
         if (($gate['status'] ?? '') === 'blocked') {
             return 'blocked';
         }
-        return $missingItems === [] && $anomalyItems === [] ? 'ready' : 'warning';
+        $sectionStatuses = [];
+        foreach ($sections as $section) {
+            if (!is_array($section)) {
+                continue;
+            }
+            if (isset($section['metrics']) && is_array($section['metrics'])) {
+                foreach ($section['metrics'] as $metric) {
+                    if (is_array($metric)) {
+                        $sectionStatuses[] = (string)($metric['status'] ?? 'unknown');
+                    }
+                }
+                continue;
+            }
+            $sectionStatuses[] = (string)($section['status'] ?? 'unknown');
+        }
+        $allSectionsReady = $sectionStatuses !== []
+            && array_values(array_filter($sectionStatuses, static fn(string $status): bool => $status !== 'ok')) === [];
+        return $allSectionsReady && $missingItems === [] && $anomalyItems === [] ? 'ready' : 'warning';
     }
 
     /**
@@ -537,20 +607,28 @@ class OtaRevenueMetricService
      */
     private function advertisingSummary(array $rows): array
     {
-        $spend = $this->sum($rows, 'spend');
-        $orderAmount = $this->sum($rows, 'order_amount');
+        $spendRows = $this->rowsWithNumeric($rows, 'spend');
+        $orderAmountRows = $this->rowsWithNumeric($rows, 'order_amount');
+        $bookingRows = $this->rowsWithNumeric($rows, 'bookings');
+        $roomNightRows = $this->rowsWithNumeric($rows, 'room_nights');
+        $impressionRows = $this->rowsWithNumeric($rows, 'impressions');
+        $clickRows = $this->rowsWithNumeric($rows, 'clicks');
+        $spend = $this->sum($spendRows, 'spend');
+        $orderAmount = $this->sum($orderAmountRows, 'order_amount');
 
         return [
             'rows' => count($rows),
-            'spend' => round($spend, 2),
-            'order_amount' => round($orderAmount, 2),
-            'bookings' => (int)round($this->sum($rows, 'bookings')),
-            'room_nights' => round($this->sum($rows, 'room_nights'), 2),
-            'impressions' => (int)round($this->sum($rows, 'impressions')),
-            'clicks' => (int)round($this->sum($rows, 'clicks')),
+            'spend' => $spendRows ? round($spend, 2) : null,
+            'order_amount' => $orderAmountRows ? round($orderAmount, 2) : null,
+            'bookings' => $bookingRows ? (int)round($this->sum($bookingRows, 'bookings')) : null,
+            'room_nights' => $roomNightRows ? round($this->sum($roomNightRows, 'room_nights'), 2) : null,
+            'impressions' => $impressionRows ? (int)round($this->sum($impressionRows, 'impressions')) : null,
+            'clicks' => $clickRows ? (int)round($this->sum($clickRows, 'clicks')) : null,
             'avg_ctr' => $this->average($rows, 'ctr'),
             'avg_cvr' => $this->average($rows, 'cvr'),
-            'roas' => $spend > 0 && $orderAmount > 0 ? round($orderAmount / $spend, 2) : $this->average($rows, 'roas'),
+            'roas' => $spendRows && $orderAmountRows && $spend > 0
+                ? round($orderAmount / $spend, 2)
+                : $this->average($rows, 'roas'),
         ];
     }
 
@@ -566,7 +644,9 @@ class OtaRevenueMetricService
             'avg_service_score' => $this->average($rows, 'service_score'),
             'avg_im_score' => $this->average($rows, 'im_score'),
             'avg_reply_rate' => $this->average($rows, 'reply_rate'),
-            'hotel_collect' => (int)round($this->sum($rows, 'hotel_collect')),
+            'hotel_collect' => ($collectRows = $this->rowsWithNumeric($rows, 'hotel_collect'))
+                ? (int)round($this->sum($collectRows, 'hotel_collect'))
+                : null,
         ];
     }
 
@@ -663,20 +743,38 @@ class OtaRevenueMetricService
                     'available_room_nights' => 0.0,
                     'occupied_room_nights' => 0.0,
                     'order_count' => 0,
+                    'has_revenue' => false,
+                    'has_room_revenue' => false,
+                    'has_room_nights' => false,
+                    'has_order_count' => false,
                     'has_net_revenue' => false,
                     'has_commission_amount' => false,
                     'has_available_room_nights' => false,
                     'has_occupied_room_nights' => false,
                     'revpar_room_revenue' => 0.0,
+                    'revpar_available_room_nights' => 0.0,
+                    'has_revpar_room_revenue' => false,
                     'occupancy_available_room_nights' => 0.0,
                     'net_revpar_net_revenue' => 0.0,
                     'net_revpar_available_room_nights' => 0.0,
                 ];
             }
-            $groups[$groupKey]['revenue'] += (float)($row['revenue'] ?? 0);
-            $groups[$groupKey]['room_revenue'] += (float)($row['room_revenue'] ?? $row['revenue'] ?? 0);
-            $groups[$groupKey]['room_nights'] += (float)($row['room_nights'] ?? 0);
-            $groups[$groupKey]['order_count'] += (int)($row['order_count'] ?? 0);
+            if ($this->hasNumericValue($row, 'revenue')) {
+                $groups[$groupKey]['has_revenue'] = true;
+                $groups[$groupKey]['revenue'] += (float)$row['revenue'];
+            }
+            if ($this->hasNumericValue($row, 'room_revenue')) {
+                $groups[$groupKey]['has_room_revenue'] = true;
+                $groups[$groupKey]['room_revenue'] += (float)$row['room_revenue'];
+            }
+            if ($this->hasNumericValue($row, 'room_nights')) {
+                $groups[$groupKey]['has_room_nights'] = true;
+                $groups[$groupKey]['room_nights'] += (float)$row['room_nights'];
+            }
+            if ($this->hasNumericValue($row, 'order_count')) {
+                $groups[$groupKey]['has_order_count'] = true;
+                $groups[$groupKey]['order_count'] += (int)$row['order_count'];
+            }
             if ($this->hasNumericValue($row, 'net_revenue')) {
                 $groups[$groupKey]['has_net_revenue'] = true;
                 $groups[$groupKey]['net_revenue'] += (float)$row['net_revenue'];
@@ -689,7 +787,11 @@ class OtaRevenueMetricService
                 $availableRoomNights = (float)$row['available_room_nights'];
                 $groups[$groupKey]['has_available_room_nights'] = true;
                 $groups[$groupKey]['available_room_nights'] += $availableRoomNights;
-                $groups[$groupKey]['revpar_room_revenue'] += (float)($row['room_revenue'] ?? $row['revenue'] ?? 0);
+                if ($this->hasNumericValue($row, 'room_revenue')) {
+                    $groups[$groupKey]['has_revpar_room_revenue'] = true;
+                    $groups[$groupKey]['revpar_room_revenue'] += (float)$row['room_revenue'];
+                    $groups[$groupKey]['revpar_available_room_nights'] += $availableRoomNights;
+                }
                 if ($this->hasNumericValue($row, 'net_revenue')) {
                     $groups[$groupKey]['net_revpar_net_revenue'] += (float)$row['net_revenue'];
                     $groups[$groupKey]['net_revpar_available_room_nights'] += $availableRoomNights;
@@ -707,24 +809,29 @@ class OtaRevenueMetricService
         }
 
         foreach ($groups as &$group) {
-            $group['revenue'] = round((float)$group['revenue'], 2);
-            $group['room_revenue'] = round((float)$group['room_revenue'], 2);
+            $group['revenue'] = $group['has_revenue'] ? round((float)$group['revenue'], 2) : null;
+            $group['room_revenue'] = $group['has_room_revenue'] ? round((float)$group['room_revenue'], 2) : null;
             $group['net_revenue'] = $group['has_net_revenue'] ? round((float)$group['net_revenue'], 2) : null;
             $group['commission_amount'] = $group['has_commission_amount'] ? round((float)$group['commission_amount'], 2) : null;
-            $group['room_nights'] = round((float)$group['room_nights'], 2);
+            $group['room_nights'] = $group['has_room_nights'] ? round((float)$group['room_nights'], 2) : null;
+            $group['order_count'] = $group['has_order_count'] ? (int)$group['order_count'] : null;
             $group['available_room_nights'] = $group['has_available_room_nights'] ? round((float)$group['available_room_nights'], 2) : null;
             $group['occupied_room_nights'] = $group['has_occupied_room_nights'] ? round((float)$group['occupied_room_nights'], 2) : null;
-            $group['adr'] = $group['room_nights'] > 0 ? round($group['room_revenue'] / $group['room_nights'], 2) : null;
+            $group['adr'] = $group['room_revenue'] !== null && $group['room_nights'] !== null && $group['room_nights'] > 0
+                ? round($group['room_revenue'] / $group['room_nights'], 2)
+                : null;
             $group['occ'] = $group['occupancy_available_room_nights'] > 0 && $group['occupied_room_nights'] !== null
                 ? round($group['occupied_room_nights'] / $group['occupancy_available_room_nights'] * 100, 2)
                 : null;
-            $group['revpar'] = $group['available_room_nights'] !== null && $group['available_room_nights'] > 0
-                ? round($group['revpar_room_revenue'] / $group['available_room_nights'], 2)
+            $group['revpar'] = $group['has_revpar_room_revenue'] && $group['revpar_available_room_nights'] > 0
+                ? round($group['revpar_room_revenue'] / $group['revpar_available_room_nights'], 2)
                 : null;
             $group['net_revpar'] = $group['net_revpar_available_room_nights'] > 0
                 ? round($group['net_revpar_net_revenue'] / $group['net_revpar_available_room_nights'], 2)
                 : null;
-            $group['channel_contribution_rate'] = $totalRevenue > 0 ? round($group['revenue'] / $totalRevenue * 100, 2) : null;
+            $group['channel_contribution_rate'] = $totalRevenue > 0 && $group['revenue'] !== null
+                ? round($group['revenue'] / $totalRevenue * 100, 2)
+                : null;
             $group['revenue_contribution_rate'] = $group['channel_contribution_rate'];
             $group['net_revenue_contribution_rate'] = $totalNetRevenue > 0 && $group['net_revenue'] !== null
                 ? round($group['net_revenue'] / $totalNetRevenue * 100, 2)
@@ -734,7 +841,13 @@ class OtaRevenueMetricService
                 $group['has_commission_amount'],
                 $group['has_available_room_nights'],
                 $group['has_occupied_room_nights'],
+                $group['has_revenue'],
+                $group['has_room_revenue'],
+                $group['has_room_nights'],
+                $group['has_order_count'],
                 $group['revpar_room_revenue'],
+                $group['revpar_available_room_nights'],
+                $group['has_revpar_room_revenue'],
                 $group['occupancy_available_room_nights'],
                 $group['net_revpar_net_revenue'],
                 $group['net_revpar_available_room_nights']
@@ -971,21 +1084,39 @@ class OtaRevenueMetricService
         $netRevenueFailures = $this->dataGapCodesByPrefix($dataGaps, 'net_');
         $leadTimeFailures = $this->dataGapCodesByPrefix($dataGaps, 'lead_time_');
         $priceFailures = $this->dataGapCodesByPrefix($dataGaps, 'competitor_price_');
+        $roomRevenueFailures = $this->dataGapCodesByPrefix($dataGaps, 'room_revenue_');
+        $revenueRows = $this->rowsWithNumeric($daily, 'revenue');
+        $grossRevenueRows = $this->rowsWithNumeric($daily, 'gross_revenue');
+        $roomRevenueRows = $this->rowsWithNumeric($daily, 'room_revenue');
+        $roomNightRows = $this->rowsWithNumeric($daily, 'room_nights');
+        $orderCountRows = $this->rowsWithNumeric($daily, 'order_count');
+        $adrRows = $this->mergeMetricRows($roomRevenueRows, $roomNightRows);
+        $revparRows = array_values(array_filter(
+            $availableRows,
+            fn(array $row): bool => $this->hasNumericValue($row, 'room_revenue')
+        ));
         $trust = [
-            'totals.revenue' => $this->trust($daily, 'sum(fact_ota_daily.revenue)'),
-            'totals.gross_revenue' => $this->trust($daily, 'sum(fact_ota_daily.gross_revenue)'),
-            'totals.room_revenue' => $this->trust($daily, 'sum(fact_ota_daily.room_revenue)'),
+            'totals.revenue' => $this->trust($revenueRows, 'sum(fact_ota_daily.revenue)'),
+            'totals.gross_revenue' => $this->trust($grossRevenueRows, 'sum(fact_ota_daily.gross_revenue)'),
+            'totals.room_revenue' => $this->trust(
+                $roomRevenueRows,
+                'sum(fact_ota_daily.room_revenue)',
+                $roomRevenueFailures
+            ),
             'totals.net_revenue' => $this->trust($netRows, 'sum(fact_ota_daily.net_revenue)', $netRevenueFailures),
             'totals.commission_amount' => $this->trust($commissionRows, 'sum(fact_ota_daily.commission_amount)', $commissionFailures),
             'totals.commission_rate' => $this->trust($commissionRows, 'sum(fact_ota_daily.commission_amount) / sum(fact_ota_daily.gross_revenue)', $commissionFailures),
-            'totals.room_nights' => $this->trust($daily, 'sum(fact_ota_daily.room_nights)'),
+            'totals.room_nights' => $this->trust($roomNightRows, 'sum(fact_ota_daily.room_nights)'),
             'totals.available_room_nights' => $this->trust($availableRows, 'sum(fact_ota_daily.available_room_nights)', $availabilityFailures),
             'totals.occupied_room_nights' => $this->trust($occupancyRows, 'sum(fact_ota_daily.occupied_room_nights)', $availabilityFailures),
-            'totals.order_count' => $this->trust($daily, 'sum(fact_ota_daily.order_count)'),
+            'totals.order_count' => $this->trust($orderCountRows, 'sum(fact_ota_daily.order_count)'),
             'totals.adr' => $this->trust(
-                $daily,
+                $adrRows,
                 'sum(fact_ota_daily.room_revenue) / sum(fact_ota_daily.room_nights)',
-                $roomNights > 0 ? [] : ['adr_denominator_zero']
+                array_merge(
+                    $roomRevenueFailures,
+                    $roomNights > 0 ? [] : ['adr_denominator_zero']
+                )
             ),
             'totals.occ' => $this->trust(
                 $occupancyRows,
@@ -993,9 +1124,9 @@ class OtaRevenueMetricService
                 $availabilityFailures
             ),
             'totals.revpar' => $this->trust(
-                $availableRows,
+                $revparRows,
                 'sum(fact_ota_daily.room_revenue) / sum(fact_ota_daily.available_room_nights)',
-                $availabilityFailures
+                array_merge($availabilityFailures, $roomRevenueFailures)
             ),
             'totals.net_revpar' => $this->trust(
                 $netRevparRows,
@@ -1013,8 +1144,8 @@ class OtaRevenueMetricService
                 'sum(fact_ota_daily.cancel_room_nights) / sum(fact_ota_daily.room_nights)',
                 $cancelRoomNightFailures
             ),
-            'totals.review_count' => $this->trust($comments, 'count(fact_ota_comment)'),
-            'totals.avg_comment_score' => $this->trust($comments, 'avg(fact_ota_comment.score)'),
+            'totals.review_count' => $this->trust($this->rowsWithNumeric($comments, 'comment_count'), 'sum(fact_ota_comment.comment_count)'),
+            'totals.avg_comment_score' => $this->trust($this->rowsWithNumeric($comments, 'comment_score'), 'avg(fact_ota_comment.comment_score)'),
             'traffic.rows' => $this->trust($traffic, 'count(fact_ota_traffic)'),
             'traffic.avg_flow_rate' => $this->trust($traffic, 'avg(fact_ota_traffic.flow_rate)'),
             'traffic.avg_submit_rate' => $this->trust($traffic, 'avg(fact_ota_traffic.submit_rate)'),
@@ -1048,6 +1179,11 @@ class OtaRevenueMetricService
      */
     private function groupMetricTrust(array $rows, string $prefix): array
     {
+        $revenueRows = $this->rowsWithNumeric($rows, 'revenue');
+        $roomRevenueRows = $this->rowsWithNumeric($rows, 'room_revenue');
+        $roomNightRows = $this->rowsWithNumeric($rows, 'room_nights');
+        $orderCountRows = $this->rowsWithNumeric($rows, 'order_count');
+        $adrRows = $this->mergeMetricRows($roomRevenueRows, $roomNightRows);
         $availableRows = $this->rowsWithPositive($rows, 'available_room_nights');
         $occupancyRows = array_values(array_filter($rows, function (array $row): bool {
             return $this->hasNumericValue($row, 'available_room_nights')
@@ -1061,6 +1197,10 @@ class OtaRevenueMetricService
                 && $this->hasNumericValue($row, 'available_room_nights')
                 && (float)$row['available_room_nights'] > 0;
         }));
+        $revparRows = array_values(array_filter(
+            $availableRows,
+            fn(array $row): bool => $this->hasNumericValue($row, 'room_revenue')
+        ));
         $availabilityFailures = $availableRows ? [] : ['available_room_nights_missing'];
         if ($availableRows && count($availableRows) < count($rows)) {
             $availabilityFailures[] = 'available_room_nights_partial';
@@ -1071,6 +1211,16 @@ class OtaRevenueMetricService
             $availabilityFailures[] = 'occupied_room_nights_partial';
         }
         $netRevenueFailures = [];
+        $roomRevenueFailures = [];
+        if (!$roomRevenueRows) {
+            $roomRevenueFailures[] = 'room_revenue_missing';
+        } elseif (array_filter(
+            $rows,
+            fn(array $row): bool => $this->hasNumericValue($row, 'revenue')
+                && !$this->hasNumericValue($row, 'room_revenue')
+        ) !== []) {
+            $roomRevenueFailures[] = 'room_revenue_partial';
+        }
         if (!$netRows) {
             $netRevenueFailures[] = 'net_revenue_fields_missing';
         } elseif (count($netRows) < count($rows)) {
@@ -1078,18 +1228,25 @@ class OtaRevenueMetricService
         }
 
         return [
-            $prefix . '.revenue' => $this->trust($rows, 'sum(fact_ota_daily.revenue)'),
-            $prefix . '.room_revenue' => $this->trust($rows, 'sum(fact_ota_daily.room_revenue)'),
+            $prefix . '.revenue' => $this->trust($revenueRows, 'sum(fact_ota_daily.revenue)'),
+            $prefix . '.room_revenue' => $this->trust(
+                $roomRevenueRows,
+                'sum(fact_ota_daily.room_revenue)',
+                $roomRevenueFailures
+            ),
             $prefix . '.net_revenue' => $this->trust($netRows, 'sum(fact_ota_daily.net_revenue)', $netRevenueFailures),
             $prefix . '.commission_amount' => $this->trust($commissionRows, 'sum(fact_ota_daily.commission_amount)', $commissionRows ? [] : ['commission_fields_missing']),
-            $prefix . '.room_nights' => $this->trust($rows, 'sum(fact_ota_daily.room_nights)'),
+            $prefix . '.room_nights' => $this->trust($roomNightRows, 'sum(fact_ota_daily.room_nights)'),
             $prefix . '.available_room_nights' => $this->trust($availableRows, 'sum(fact_ota_daily.available_room_nights)', $availabilityFailures),
             $prefix . '.occupied_room_nights' => $this->trust($occupancyRows, 'sum(fact_ota_daily.occupied_room_nights)', $availabilityFailures),
-            $prefix . '.order_count' => $this->trust($rows, 'sum(fact_ota_daily.order_count)'),
+            $prefix . '.order_count' => $this->trust($orderCountRows, 'sum(fact_ota_daily.order_count)'),
             $prefix . '.adr' => $this->trust(
-                $rows,
+                $adrRows,
                 'sum(fact_ota_daily.room_revenue) / sum(fact_ota_daily.room_nights)',
-                $this->sum($rows, 'room_nights') > 0 ? [] : ['adr_denominator_zero']
+                array_merge(
+                    $roomRevenueFailures,
+                    $this->sum($rows, 'room_nights') > 0 ? [] : ['adr_denominator_zero']
+                )
             ),
             $prefix . '.occ' => $this->trust(
                 $occupancyRows,
@@ -1097,9 +1254,9 @@ class OtaRevenueMetricService
                 $availabilityFailures
             ),
             $prefix . '.revpar' => $this->trust(
-                $availableRows,
+                $revparRows,
                 'sum(fact_ota_daily.room_revenue) / sum(fact_ota_daily.available_room_nights)',
-                $availabilityFailures
+                array_merge($availabilityFailures, $roomRevenueFailures)
             ),
             $prefix . '.net_revpar' => $this->trust(
                 $netRevparRows,
@@ -1119,7 +1276,7 @@ class OtaRevenueMetricService
             'metrics' => [
                 'adr' => [
                     'formula' => 'sum(room_revenue) / sum(room_nights)',
-                    'not_calculable_when' => 'room_nights is missing or zero',
+                    'not_calculable_when' => 'verified room_revenue is missing, or room_nights is missing or zero',
                 ],
                 'occ' => [
                     'formula' => 'sum(occupied_room_nights) / sum(available_room_nights) * 100',
@@ -1127,7 +1284,7 @@ class OtaRevenueMetricService
                 ],
                 'revpar' => [
                     'formula' => 'sum(room_revenue for rows with available_room_nights) / sum(available_room_nights)',
-                    'not_calculable_when' => 'available_room_nights is missing or zero; partial rows are reported in data_gaps',
+                    'not_calculable_when' => 'verified room_revenue is missing, or available_room_nights is missing or zero; partial rows are reported in data_gaps',
                 ],
                 'net_revpar' => [
                     'formula' => 'sum(net_revenue for rows with net_revenue and available_room_nights) / sum(available_room_nights for those rows)',
@@ -1222,13 +1379,15 @@ class OtaRevenueMetricService
             static fn(string $reason): bool => $reason !== ''
         )));
 
-        return [
+        $result = [
             'source' => $this->sourceSummary($traces),
             'caliber' => $caliber,
             'updated_at' => $updatedAt,
             'failure_reasons' => $failureReasons,
             'saved_success' => $allSaved && empty($failureReasons),
         ];
+        $result['truth'] = OnlineDataTrustStatusService::metricTruthEnvelope($result);
+        return $result;
     }
 
     /**
@@ -1248,6 +1407,26 @@ class OtaRevenueMetricService
     }
 
     /**
+     * A ratio may use independently persisted numerator and denominator facts.
+     * Preserve every contributing source row once in its trust envelope.
+     *
+     * @param array<int, array<string, mixed>> ...$rowSets
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeMetricRows(array ...$rowSets): array
+    {
+        $merged = [];
+        foreach ($rowSets as $rows) {
+            foreach ($rows as $row) {
+                if (!in_array($row, $merged, true)) {
+                    $merged[] = $row;
+                }
+            }
+        }
+        return $merged;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $traces
      * @return array<string, mixed>
      */
@@ -1255,18 +1434,72 @@ class OtaRevenueMetricService
     {
         $dates = $this->uniqueTraceValues($traces, 'date_key');
         sort($dates);
+        $collectedTimes = array_values(array_filter(array_map(
+            static fn(mixed $value): string => trim((string)$value),
+            $this->uniqueTraceValues($traces, 'collected_at')
+        ), static fn(string $value): bool => $value !== ''));
+        sort($collectedTimes);
+        $storedCount = count(array_filter($traces, static function (array $trace): bool {
+            if (array_key_exists('stored', $trace)) {
+                return ($trace['stored'] ?? false) === true;
+            }
+            return isset($trace['row_id']) && trim((string)$trace['row_id']) !== '';
+        }));
+        $readbackVerifiedCount = count(array_filter(
+            $traces,
+            static fn(array $trace): bool => ($trace['readback_verified'] ?? false) === true
+        ));
 
         return [
             'table' => 'online_daily_data',
             'row_ids' => $this->uniqueTraceValues($traces, 'row_id'),
+            'trace_ids' => $this->uniqueTraceValues($traces, 'source_trace_id'),
+            'hotels' => $this->sourceHotels($traces),
             'platforms' => $this->uniqueTraceValues($traces, 'platform'),
             'data_types' => $this->uniqueTraceValues($traces, 'data_type'),
+            'source_methods' => $this->uniqueTraceValues($traces, 'ingestion_method'),
             'date_range' => [
                 'start' => $dates[0] ?? null,
                 'end' => $dates ? $dates[count($dates) - 1] : null,
             ],
+            'collected_at_range' => [
+                'start' => $collectedTimes[0] ?? null,
+                'end' => $collectedTimes !== [] ? $collectedTimes[count($collectedTimes) - 1] : null,
+            ],
             'row_count' => count($traces),
+            'stored_count' => $storedCount,
+            'readback_verified_count' => $readbackVerifiedCount,
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $traces
+     * @return array<int, array<string, mixed>>
+     */
+    private function sourceHotels(array $traces): array
+    {
+        $hotels = [];
+        foreach ($traces as $trace) {
+            $systemHotelId = max(0, (int)($trace['system_hotel_id'] ?? 0));
+            $hotelKey = trim((string)($trace['hotel_key'] ?? ''));
+            if ($systemHotelId <= 0 && preg_match('/^system:(\d+)$/D', $hotelKey, $match) === 1) {
+                $systemHotelId = (int)$match[1];
+            }
+            $platformHotelId = trim((string)($trace['platform_hotel_id'] ?? ''));
+            $name = trim((string)($trace['hotel_name'] ?? ''));
+            if ($systemHotelId <= 0 && $platformHotelId === '' && $name === '' && $hotelKey === '') {
+                continue;
+            }
+            $key = $systemHotelId > 0
+                ? 'system:' . $systemHotelId
+                : ($platformHotelId !== '' ? 'platform:' . $platformHotelId : ($name !== '' ? 'name:' . $name : 'key:' . $hotelKey));
+            $hotels[$key] = [
+                'system_hotel_id' => $systemHotelId > 0 ? $systemHotelId : null,
+                'platform_hotel_id' => $platformHotelId,
+                'name' => $name,
+            ];
+        }
+        return array_values($hotels);
     }
 
     /**

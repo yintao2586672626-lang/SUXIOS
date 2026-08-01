@@ -8,7 +8,7 @@
 // ==UserScript==
 // @name         SUXIOS OTA browser assist collector
 // @namespace    https://suxios.local/
-// @version      0.1.0
+// @version      0.2.0
 // @description  Read visible Ctrip/Meituan OTA page text and produce supplemental JSON for SUXIOS import.
 // @match        https://ebooking.ctrip.com/*
 // @match        https://me.meituan.com/*
@@ -22,10 +22,35 @@
 
     var CONTRACT_VERSION = 'ota_browser_assist_collection_contract.v1';
     var COLLECTION_MODE = 'browser_assist_dom';
-    var state = { lastCapture: null };
+    var state = {
+        lastCapture: null,
+        captureTemplate: 'auto',
+        selectedRegion: null,
+        selectedSelector: '',
+        selectedAt: '',
+        selectedStyle: null,
+        hoveredRegion: null,
+        hoveredStyle: null,
+        selectionCleanup: null
+    };
 
     var clean = function (value) {
         return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+    };
+
+    var containsSensitiveText = function (value) {
+        var text = String(value == null ? '' : value);
+        return /(?:password|passwd|pwd|token|authorization|cookie|secret|session[_-]?(?:id|token)|access[_-]?key|api[_-]?key|账号|账户|用户名|密码|口令|令牌|密钥)/i.test(text)
+            || /\bBearer\s+[A-Za-z0-9._~+/-]{8,}/i.test(text)
+            || /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]{8,})?\b/.test(text)
+            || /\b(?:sk|rk|pk)-(?:proj-)?[A-Za-z0-9_-]{12,}\b/i.test(text);
+    };
+
+    var redactEvidenceText = function (value, maxLength) {
+        var text = clean(value);
+        if (!text) return '';
+        if (containsSensitiveText(text)) return '[REDACTED]';
+        return text.slice(0, maxLength);
     };
 
     var pad = function (value) {
@@ -50,11 +75,12 @@
     };
 
     var textOf = function (node) {
-        return clean(node && (node.innerText || node.textContent || ''));
+        if (!node || typeof node.innerText !== 'string') return '';
+        return clean(node.innerText);
     };
 
-    var bodyText = function () {
-        return textOf(document.body);
+    var bodyText = function (root) {
+        return textOf(root || document.body);
     };
 
     var detectPlatform = function () {
@@ -72,15 +98,35 @@
         return Number.isFinite(number) ? number : null;
     };
 
-    var valueAfter = function (sourceText, labels) {
+    var occurrenceInsidePhrase = function (sourceText, index, label, phrases) {
+        return (phrases || []).some(function (phrase) {
+            var windowStart = Math.max(0, index - phrase.length);
+            var windowEnd = Math.min(sourceText.length, index + label.length + phrase.length);
+            var phraseIndex = sourceText.indexOf(phrase, windowStart);
+            while (phraseIndex >= 0 && phraseIndex < windowEnd) {
+                if (index >= phraseIndex && index + label.length <= phraseIndex + phrase.length) {
+                    return true;
+                }
+                phraseIndex = sourceText.indexOf(phrase, phraseIndex + 1);
+            }
+            return false;
+        });
+    };
+
+    var valueAfter = function (sourceText, labels, excludedPhrases) {
         for (var i = 0; i < labels.length; i += 1) {
             var label = labels[i];
-            var index = sourceText.indexOf(label);
-            if (index < 0) continue;
-            var raw = clean(sourceText.slice(index, index + label.length + 80));
-            var value = numberFrom(sourceText.slice(index + label.length, index + label.length + 80));
-            if (value != null) {
-                return { label: label, value: String(value), rawText: raw };
+            var searchIndex = 0;
+            while (searchIndex < sourceText.length) {
+                var index = sourceText.indexOf(label, searchIndex);
+                if (index < 0) break;
+                searchIndex = index + label.length;
+                if (occurrenceInsidePhrase(sourceText, index, label, excludedPhrases)) continue;
+                var raw = redactEvidenceText(sourceText.slice(index, index + label.length + 80), label.length + 80);
+                var value = numberFrom(sourceText.slice(index + label.length, index + label.length + 80));
+                if (value != null) {
+                    return { label: label, value: String(value), rawText: raw };
+                }
             }
         }
         return null;
@@ -127,6 +173,278 @@
         }
     };
 
+    var escapeAttributeValue = function (value) {
+        return String(value == null ? '' : value)
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"')
+            .replace(/\r?\n/g, ' ');
+    };
+
+    var selectorCount = function (selector) {
+        if (!selector) return 0;
+        try {
+            return document.querySelectorAll(selector).length;
+        } catch (error) {
+            return 0;
+        }
+    };
+
+    var selectorPointsTo = function (selector, node) {
+        if (!selector || !node) return false;
+        try {
+            return selectorCount(selector) === 1 && document.querySelector(selector) === node;
+        } catch (error) {
+            return false;
+        }
+    };
+
+    var buildUniqueSelector = function (node) {
+        if (!node || node.nodeType !== 1) return '';
+        var tag = String(node.tagName || '').toLowerCase();
+        var id = clean(node.getAttribute('id') || '');
+        if (id) {
+            var idSelector = '[id="' + escapeAttributeValue(id) + '"]';
+            if (selectorPointsTo(idSelector, node)) return idSelector;
+        }
+
+        var stableAttributes = ['data-testid', 'data-test', 'data-qa', 'aria-label', 'name', 'role'];
+        for (var i = 0; i < stableAttributes.length; i += 1) {
+            var attribute = stableAttributes[i];
+            var value = clean(node.getAttribute(attribute) || '');
+            if (!value || value.length > 120) continue;
+            var attributeSelector = tag + '[' + attribute + '="' + escapeAttributeValue(value) + '"]';
+            if (selectorPointsTo(attributeSelector, node)) return attributeSelector;
+        }
+
+        var stableClasses = Array.prototype.slice.call(node.classList || [])
+            .filter(function (className) {
+                return /^[A-Za-z_][A-Za-z0-9_-]{1,48}$/.test(className)
+                    && !/(active|current|selected|hover|focus|open|checked|disabled)$/i.test(className);
+            })
+            .slice(0, 3);
+        for (var classCount = 1; classCount <= stableClasses.length; classCount += 1) {
+            var classSelector = tag + stableClasses.slice(0, classCount).map(function (className) {
+                return '.' + className;
+            }).join('');
+            if (selectorPointsTo(classSelector, node)) return classSelector;
+        }
+
+        var parts = [];
+        var current = node;
+        while (current && current.nodeType === 1 && parts.length < 7) {
+            var currentTag = String(current.tagName || '').toLowerCase();
+            if (!currentTag) break;
+            var part = currentTag;
+            var parent = current.parentElement;
+            if (parent) {
+                var siblings = Array.prototype.filter.call(parent.children, function (child) {
+                    return String(child.tagName || '').toLowerCase() === currentTag;
+                });
+                if (siblings.length > 1) {
+                    part += ':nth-of-type(' + (siblings.indexOf(current) + 1) + ')';
+                }
+            }
+            parts.unshift(part);
+            var pathSelector = parts.join(' > ');
+            if (selectorPointsTo(pathSelector, node)) return pathSelector;
+            current = parent;
+        }
+        return parts.join(' > ').slice(0, 320);
+    };
+
+    var styleSnapshot = function (node) {
+        return {
+            outline: node && node.style ? node.style.outline : '',
+            outlineOffset: node && node.style ? node.style.outlineOffset : '',
+            cursor: node && node.style ? node.style.cursor : ''
+        };
+    };
+
+    var restoreStyle = function (node, snapshot) {
+        if (!node || !node.style || !snapshot) return;
+        node.style.outline = snapshot.outline;
+        node.style.outlineOffset = snapshot.outlineOffset;
+        node.style.cursor = snapshot.cursor;
+    };
+
+    var invalidateLastCapture = function () {
+        state.lastCapture = null;
+        var output = document.getElementById('suxi-ota-browser-assist-output');
+        if (output) output.value = '';
+    };
+
+    var renderRegionStatus = function () {
+        var node = document.getElementById('suxi-ota-browser-assist-region-status');
+        if (!node) return;
+        if (!state.selectedRegion) {
+            node.textContent = '目标区域：未圈选。';
+            return;
+        }
+        var contract = buildTargetRegionContract();
+        var labels = {
+            ready: '可采集',
+            stale: '页面状态已变化，请重新圈选',
+            not_unique: '定位不唯一，请重新圈选',
+            empty: '区域没有可见文字',
+            not_selected: '未圈选'
+        };
+        node.textContent = '目标区域：' + (labels[contract.status] || contract.status)
+            + '｜命中 ' + contract.matchCount + ' 个'
+            + (contract.selector ? '｜' + contract.selector : '');
+    };
+
+    var setSelectedRegion = function (node) {
+        if (!node || node.nodeType !== 1) return;
+        invalidateLastCapture();
+        if (state.selectedRegion && state.selectedStyle) {
+            restoreStyle(state.selectedRegion, state.selectedStyle);
+        }
+        state.selectedRegion = node;
+        state.selectedStyle = styleSnapshot(node);
+        state.selectedSelector = buildUniqueSelector(node);
+        state.selectedAt = formatDateTime(new Date());
+        node.style.outline = '3px solid #10b981';
+        node.style.outlineOffset = '2px';
+        renderRegionStatus();
+    };
+
+    var clearHoveredRegion = function () {
+        if (state.hoveredRegion && state.hoveredStyle) {
+            restoreStyle(state.hoveredRegion, state.hoveredStyle);
+        }
+        state.hoveredRegion = null;
+        state.hoveredStyle = null;
+    };
+
+    var stopRegionSelection = function (message) {
+        if (typeof state.selectionCleanup === 'function') {
+            state.selectionCleanup();
+        }
+        state.selectionCleanup = null;
+        clearHoveredRegion();
+        if (message) setStatus(message);
+    };
+
+    var beginRegionSelection = function () {
+        stopRegionSelection();
+        setStatus('圈选中：点击真实数据所在区域；按 Esc 取消。不要点击账号、密码等敏感区域。');
+
+        var onMove = function (event) {
+            var target = event.target && event.target.nodeType === 1 ? event.target : null;
+            if (!target || target.closest('#suxi-ota-browser-assist-panel')) return;
+            if (target === state.hoveredRegion) return;
+            clearHoveredRegion();
+            state.hoveredRegion = target;
+            state.hoveredStyle = styleSnapshot(target);
+            target.style.outline = '3px solid #2563eb';
+            target.style.outlineOffset = '2px';
+            target.style.cursor = 'crosshair';
+        };
+
+        var onClick = function (event) {
+            var target = event.target && event.target.nodeType === 1 ? event.target : null;
+            if (!target || target.closest('#suxi-ota-browser-assist-panel')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            clearHoveredRegion();
+            setSelectedRegion(target);
+            stopRegionSelection('已圈选目标区域。若日期面板、下拉层或页面状态变化，请重新圈选当前状态。');
+        };
+
+        var onKeydown = function (event) {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            stopRegionSelection('已取消圈选。');
+        };
+
+        document.addEventListener('mousemove', onMove, true);
+        document.addEventListener('click', onClick, true);
+        document.addEventListener('keydown', onKeydown, true);
+        state.selectionCleanup = function () {
+            document.removeEventListener('mousemove', onMove, true);
+            document.removeEventListener('click', onClick, true);
+            document.removeEventListener('keydown', onKeydown, true);
+        };
+    };
+
+    var expandSelectedRegion = function () {
+        if (!state.selectedRegion) {
+            setStatus('请先圈选目标区域。');
+            return;
+        }
+        var parent = state.selectedRegion.parentElement;
+        if (!parent || parent === document.body || parent === document.documentElement
+            || parent.closest('#suxi-ota-browser-assist-panel')) {
+            setStatus('目标区域已经不能继续扩大，请重新圈选。');
+            return;
+        }
+        setSelectedRegion(parent);
+        setStatus('目标区域已扩大一级；请确认绿色边框只覆盖所需数据。');
+    };
+
+    var clearSelectedRegion = function () {
+        stopRegionSelection();
+        if (state.selectedRegion && state.selectedStyle) {
+            restoreStyle(state.selectedRegion, state.selectedStyle);
+        }
+        state.selectedRegion = null;
+        state.selectedStyle = null;
+        state.selectedSelector = '';
+        state.selectedAt = '';
+        invalidateLastCapture();
+        renderRegionStatus();
+        setStatus('已清除目标区域。');
+    };
+
+    var buildTargetRegionContract = function () {
+        var pageStateNote = '日期面板、下拉层、浮层或页面内容变化后，必须重新圈选当前状态。';
+        if (!state.selectedRegion) {
+            return {
+                status: 'not_selected',
+                selector: '',
+                matchCount: 0,
+                tag: '',
+                textPreview: '',
+                selectedAt: '',
+                pageStateNote: pageStateNote
+            };
+        }
+
+        var node = state.selectedRegion;
+        var connected = typeof node.isConnected === 'boolean'
+            ? node.isConnected
+            : Boolean(document.documentElement && document.documentElement.contains(node));
+        var selector = state.selectedSelector || '';
+        var matchCount = selectorCount(selector);
+        var rect = node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+        var visibleText = textOf(node);
+        var textPreview = redactEvidenceText(visibleText, 180);
+        var status = 'ready';
+        if (!connected || !visible(node)) {
+            status = 'stale';
+        } else if (!selectorPointsTo(selector, node)) {
+            status = 'not_unique';
+        } else if (!visibleText) {
+            status = 'empty';
+        }
+
+        return {
+            status: status,
+            selector: redactEvidenceText(selector, 320),
+            matchCount: matchCount,
+            tag: String(node.tagName || '').toLowerCase(),
+            textPreview: textPreview,
+            selectedAt: state.selectedAt,
+            rect: rect ? {
+                x: Math.round(rect.x),
+                y: Math.round(rect.y),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height)
+            } : null,
+            pageStateNote: pageStateNote
+        };
+    };
+
     var identityFromUrl = function (url, source) {
         try {
             var parsed = new URL(String(url || ''), window.location.href);
@@ -159,30 +477,24 @@
             });
         }
 
-        var partnerId = '';
-        var poiId = '';
-        var evidence = [];
-        candidates.forEach(function (item) {
-            if (!partnerId && item.partnerId) partnerId = item.partnerId;
-            if (!poiId && item.poiId) poiId = item.poiId;
-            evidence.push({
-                source: item.source,
-                host: item.host,
-                path: item.path,
-                fields: [
-                    item.partnerId ? 'partnerId' : '',
-                    item.poiId ? 'poiId' : ''
-                ].filter(Boolean)
-            });
-        });
-
-        if (!partnerId && !poiId) return null;
+        var selected = candidates.find(function (item) {
+            return Boolean(item.partnerId && item.poiId);
+        }) || candidates[0] || null;
+        if (!selected) return null;
         return {
             platform: 'meituan',
             updatedAt: formatDateTime(new Date()),
-            partnerId: partnerId,
-            poiId: poiId,
-            evidence: evidence.slice(0, 12)
+            partnerId: selected.partnerId,
+            poiId: selected.poiId,
+            evidence: [{
+                source: selected.source,
+                host: selected.host,
+                path: selected.path,
+                fields: [
+                    selected.partnerId ? 'partnerId' : '',
+                    selected.poiId ? 'poiId' : ''
+                ].filter(Boolean)
+            }]
         };
     };
 
@@ -190,7 +502,12 @@
         var seen = [];
         var nodes = [];
         selectors.forEach(function (selector) {
-            var list = Array.prototype.slice.call((root || document).querySelectorAll(selector));
+            var searchRoot = root || document;
+            var list = [];
+            if (searchRoot !== document && searchRoot.matches && searchRoot.matches(selector)) {
+                list.push(searchRoot);
+            }
+            list = list.concat(Array.prototype.slice.call(searchRoot.querySelectorAll(selector)));
             list.forEach(function (node) {
                 if (seen.indexOf(node) >= 0 || !visible(node)) return;
                 seen.push(node);
@@ -238,11 +555,11 @@
             remainText: remain ? '剩余' + remain : '',
             reserved: reserved,
             sold: sold,
-            rawText: text.slice(0, 240)
+            rawText: redactEvidenceText(text, 240)
         };
     };
 
-    var parseInventoryRows = function (platform, warnings) {
+    var parseInventoryRows = function (platform, warnings, root) {
         var roomSelectors = [
             '#roomlistContainer .son-room-list',
             '.son-room-list',
@@ -263,7 +580,14 @@
             'td',
             'li'
         ];
-        var roomNodes = uniqueVisibleNodes(roomSelectors, document);
+        var roomNodes = uniqueVisibleNodes(roomSelectors, root || document);
+        roomNodes = roomNodes.filter(function (candidate) {
+            return !roomNodes.some(function (other) {
+                return other !== candidate
+                    && typeof candidate.contains === 'function'
+                    && candidate.contains(other);
+            });
+        });
         var rooms = [];
         roomNodes.slice(0, 80).forEach(function (roomNode) {
             var name = roomNameFrom(roomNode);
@@ -294,20 +618,24 @@
         };
     };
 
-    var parseRealtimeMetrics = function (platform, warnings) {
-        var text = bodyText();
+    var parseRealtimeMetrics = function (platform, warnings, root) {
+        var text = bodyText(root);
         if (platform === 'ctrip') {
+            var qunarVisitorLabels = ['去哪儿实时访客量', '去哪儿访客', 'Qunar访客'];
+            var qunarPeerLabels = ['去哪儿竞争圈平均', '去哪儿同行平均'];
+            var qunarConversionLabels = ['去哪儿实时下单转化率', '去哪儿转化率'];
+            var qunarRankLabels = ['去哪儿实时排名', '去哪儿排名'];
             var ctrip = {
-                realtimeVisitors: valueAfter(text, ['实时访客量', '实时访客', '访客量']),
-                visitorPeerAvg: valueAfter(text, ['竞争圈平均', '竞品平均', '同行平均']),
-                orderConversionRate: valueAfter(text, ['实时下单转化率', '下单转化率', '转化率']),
-                realtimeRank: valueAfter(text, ['实时排名', '排名'])
+                realtimeVisitors: valueAfter(text, ['实时访客量', '实时访客', '访客量'], qunarVisitorLabels),
+                visitorPeerAvg: valueAfter(text, ['竞争圈平均', '竞品平均', '同行平均'], qunarPeerLabels),
+                orderConversionRate: valueAfter(text, ['实时下单转化率', '下单转化率', '转化率'], qunarConversionLabels),
+                realtimeRank: valueAfter(text, ['实时排名', '排名'], qunarRankLabels)
             };
             var qunar = {
-                realtimeVisitors: valueAfter(text, ['去哪儿实时访客量', '去哪儿访客', 'Qunar访客']),
-                visitorPeerAvg: valueAfter(text, ['去哪儿竞争圈平均', '去哪儿同行平均']),
-                orderConversionRate: valueAfter(text, ['去哪儿实时下单转化率', '去哪儿转化率']),
-                realtimeRank: valueAfter(text, ['去哪儿实时排名', '去哪儿排名'])
+                realtimeVisitors: valueAfter(text, qunarVisitorLabels),
+                visitorPeerAvg: valueAfter(text, qunarPeerLabels),
+                orderConversionRate: valueAfter(text, qunarConversionLabels),
+                realtimeRank: valueAfter(text, qunarRankLabels)
             };
             var ctripFound = hasMetricValue(ctrip);
             var qunarFound = hasMetricValue(qunar);
@@ -329,12 +657,14 @@
             };
         }
         if (platform === 'meituan') {
+            var exposureBrowseLabels = ['曝光-浏览', '曝光浏览转化率'];
+            var browsePayLabels = ['浏览-支付', '浏览支付转化率'];
             var metrics = {
-                exposureUsers: valueAfter(text, ['曝光人数', '曝光用户', '曝光']),
-                browseUsers: valueAfter(text, ['浏览人数', '浏览用户', '浏览']),
+                exposureUsers: valueAfter(text, ['曝光人数', '曝光用户', '曝光'], exposureBrowseLabels),
+                browseUsers: valueAfter(text, ['浏览人数', '浏览用户', '浏览'], exposureBrowseLabels.concat(browsePayLabels)),
                 paidOrders: valueAfter(text, ['支付订单数', '支付订单', '订单数']),
-                exposureBrowseRate: valueAfter(text, ['曝光-浏览', '曝光浏览转化率']),
-                browsePayRate: valueAfter(text, ['浏览-支付', '浏览支付转化率'])
+                exposureBrowseRate: valueAfter(text, exposureBrowseLabels),
+                browsePayRate: valueAfter(text, browsePayLabels)
             };
             if (!hasMetricValue(metrics)) {
                 warnings.push({
@@ -361,35 +691,107 @@
         };
     };
 
-    var buildCapture = function () {
+    var pushTargetRegionWarning = function (contract, warnings) {
+        var codes = {
+            not_selected: 'target_region_not_selected',
+            stale: 'target_region_stale',
+            not_unique: 'target_region_not_unique',
+            empty: 'target_region_empty'
+        };
+        var messages = {
+            not_selected: '尚未圈选目标区域，未读取任何业务数据。',
+            stale: '圈选区域已离开页面或不可见；页面状态变化后必须重新圈选。',
+            not_unique: '圈选区域的定位不再唯一，未读取任何业务数据。',
+            empty: '圈选区域没有可见文字，未读取任何业务数据。'
+        };
+        warnings.push({
+            platform: detectPlatform(),
+            module: 'target_region',
+            code: codes[contract.status] || 'target_region_invalid',
+            message: messages[contract.status] || '目标区域不可用，请重新圈选。'
+        });
+    };
+
+    var shouldParseTemplate = function (template, section) {
+        return template === 'auto' || template === section;
+    };
+
+    var buildCapture = function (options) {
+        options = options || {};
+        var scope = options.scope === 'page' ? 'page' : 'region';
+        var template = ['auto', 'inventory', 'metrics'].indexOf(options.template) >= 0
+            ? options.template
+            : 'auto';
         var platform = detectPlatform();
         var warnings = [];
         var now = formatDateTime(new Date());
+        var targetRegion = scope === 'region'
+            ? buildTargetRegionContract()
+            : {
+                status: 'not_used',
+                selector: '',
+                matchCount: 0,
+                tag: '',
+                textPreview: '',
+                selectedAt: '',
+                pageStateNote: '当前为整页兼容采集，准确性低于圈选区域。'
+            };
         var capture = {
             source_contract: CONTRACT_VERSION,
             collection_mode: COLLECTION_MODE,
+            capture_scope: scope,
+            capture_template: template,
             generatedAt: now,
             snapshotTime: now,
             page: sanitizedPage(),
+            target_region: targetRegion,
             warnings: warnings
         };
-        if (platform === 'ctrip') {
-            capture.ctrip = parseInventoryRows('ctrip', warnings);
-            var ctripStats = parseRealtimeMetrics('ctrip', warnings);
-            if (ctripStats) capture.ctripStats = ctripStats;
-        } else if (platform === 'meituan') {
-            capture.meituan = parseInventoryRows('meituan', warnings);
-            var meituanStats = parseRealtimeMetrics('meituan', warnings);
-            if (meituanStats) capture.meituanStats = meituanStats;
-            var meituanIdentity = collectMeituanIdentity();
-            if (meituanIdentity) capture.platformIdentity = meituanIdentity;
-        } else {
+
+        if (platform === 'unknown') {
             warnings.push({
                 platform: 'unknown',
                 module: 'browser_assist',
                 code: 'unsupported_host',
                 message: '当前域名不是已配置的携程/美团后台页面。'
             });
+            return capture;
+        }
+
+        var captureRoot = document.body;
+        if (scope === 'region') {
+            if (targetRegion.status !== 'ready') {
+                pushTargetRegionWarning(targetRegion, warnings);
+                return capture;
+            }
+            captureRoot = state.selectedRegion;
+        } else {
+            warnings.push({
+                platform: platform,
+                module: 'target_region',
+                code: 'page_scope_broad',
+                message: '当前按整页兼容模式识别，页面存在重复标签时可能误命中；优先使用圈选区域。'
+            });
+        }
+
+        if (platform === 'ctrip') {
+            if (shouldParseTemplate(template, 'inventory')) {
+                capture.ctrip = parseInventoryRows('ctrip', warnings, captureRoot);
+            }
+            if (shouldParseTemplate(template, 'metrics')) {
+                var ctripStats = parseRealtimeMetrics('ctrip', warnings, captureRoot);
+                if (ctripStats) capture.ctripStats = ctripStats;
+            }
+        } else if (platform === 'meituan') {
+            if (shouldParseTemplate(template, 'inventory')) {
+                capture.meituan = parseInventoryRows('meituan', warnings, captureRoot);
+            }
+            if (shouldParseTemplate(template, 'metrics')) {
+                var meituanStats = parseRealtimeMetrics('meituan', warnings, captureRoot);
+                if (meituanStats) capture.meituanStats = meituanStats;
+            }
+            var meituanIdentity = collectMeituanIdentity();
+            if (meituanIdentity) capture.platformIdentity = meituanIdentity;
         }
         return capture;
     };
@@ -399,16 +801,26 @@
         if (node) node.textContent = message;
     };
 
-    var updateOutput = function () {
-        state.lastCapture = buildCapture();
+    var updateOutput = function (scope) {
+        state.lastCapture = buildCapture({
+            scope: scope,
+            template: state.captureTemplate
+        });
         var output = document.getElementById('suxi-ota-browser-assist-output');
         if (output) output.value = JSON.stringify(state.lastCapture, null, 2);
         var warningCount = state.lastCapture.warnings ? state.lastCapture.warnings.length : 0;
-        setStatus('已生成当前页 JSON，提醒 ' + warningCount + ' 条。');
+        if (scope === 'region' && state.lastCapture.target_region.status !== 'ready') {
+            setStatus('目标区域不可用，未读取业务数据；提醒 ' + warningCount + ' 条。');
+        } else if (scope === 'region') {
+            setStatus('已从圈选区域生成 JSON，提醒 ' + warningCount + ' 条。请先核对预览再导入。');
+        } else {
+            setStatus('已按整页兼容模式生成 JSON，提醒 ' + warningCount + ' 条。请优先改用圈选区域。');
+        }
+        renderRegionStatus();
     };
 
     var copyOutput = function () {
-        if (!state.lastCapture) updateOutput();
+        if (!state.lastCapture) updateOutput('region');
         var text = JSON.stringify(state.lastCapture, null, 2);
         if (!navigator.clipboard || !navigator.clipboard.writeText) {
             setStatus('浏览器不支持自动复制，请手动复制文本框内容。');
@@ -422,7 +834,7 @@
     };
 
     var downloadOutput = function () {
-        if (!state.lastCapture) updateOutput();
+        if (!state.lastCapture) updateOutput('region');
         var blob = new Blob([JSON.stringify(state.lastCapture, null, 2)], { type: 'application/json' });
         var link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
@@ -451,18 +863,58 @@
         var title = document.createElement('div');
         title.textContent = 'SUXIOS OTA 辅助采集';
         title.style.cssText = 'font-weight:700;font-size:13px;';
-        var close = createButton('关闭', function () { panel.remove(); });
+        var close = createButton('关闭', function () {
+            clearSelectedRegion();
+            panel.remove();
+        });
         header.appendChild(title);
         header.appendChild(close);
 
         var body = document.createElement('div');
         body.style.cssText = 'padding:10px 12px;';
         var note = document.createElement('div');
-        note.textContent = '只读取当前已授权页面的可见文字和必要平台标识，生成 OTA 渠道补充 JSON；不读取 Cookie，选择器未命中会保留提醒。';
+        note.textContent = '先圈选真实数据区域，再选择识别模板。只读取圈选区域的可见文字；日期面板、下拉层或页面状态变化后必须重新圈选。';
         note.style.cssText = 'font-size:12px;line-height:1.5;margin-bottom:8px;';
+
+        var templateRow = document.createElement('label');
+        templateRow.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px;';
+        var templateLabel = document.createElement('span');
+        templateLabel.textContent = '识别模板';
+        var templateSelect = document.createElement('select');
+        templateSelect.id = 'suxi-ota-browser-assist-template';
+        templateSelect.style.cssText = 'flex:1;border:1px solid #a7f3d0;border-radius:6px;padding:6px;background:#fff;color:#064e3b;';
+        [
+            { value: 'auto', label: '自动识别（库存 + 实时指标）' },
+            { value: 'inventory', label: '房态 / 库存' },
+            { value: 'metrics', label: '实时流量指标' }
+        ].forEach(function (item) {
+            var option = document.createElement('option');
+            option.value = item.value;
+            option.textContent = item.label;
+            templateSelect.appendChild(option);
+        });
+        templateSelect.addEventListener('change', function () {
+            state.captureTemplate = templateSelect.value;
+            invalidateLastCapture();
+            setStatus('已切换识别模板，请重新采集。');
+        });
+        templateRow.appendChild(templateLabel);
+        templateRow.appendChild(templateSelect);
+
+        var regionStatus = document.createElement('div');
+        regionStatus.id = 'suxi-ota-browser-assist-region-status';
+        regionStatus.style.cssText = 'font-size:11px;line-height:1.45;margin-bottom:8px;padding:6px;background:#d1fae5;border-radius:6px;word-break:break-all;';
+
+        var regionActions = document.createElement('div');
+        regionActions.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;';
+        regionActions.appendChild(createButton('圈选目标区域', beginRegionSelection));
+        regionActions.appendChild(createButton('扩大一级', expandSelectedRegion));
+        regionActions.appendChild(createButton('清除圈选', clearSelectedRegion));
+
         var actions = document.createElement('div');
         actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;';
-        actions.appendChild(createButton('采集当前页', updateOutput));
+        actions.appendChild(createButton('采集圈选区域', function () { updateOutput('region'); }));
+        actions.appendChild(createButton('采集当前页（兼容）', function () { updateOutput('page'); }));
         actions.appendChild(createButton('复制JSON', copyOutput));
         actions.appendChild(createButton('下载JSON', downloadOutput));
         var output = document.createElement('textarea');
@@ -471,16 +923,19 @@
         output.style.cssText = 'box-sizing:border-box;width:100%;height:160px;border:1px solid #a7f3d0;border-radius:6px;padding:8px;font-family:Consolas,monospace;font-size:11px;background:#fff;color:#111827;';
         var status = document.createElement('div');
         status.id = 'suxi-ota-browser-assist-status';
-        status.textContent = '等待采集。';
+        status.textContent = '等待圈选。';
         status.style.cssText = 'font-size:12px;margin-top:6px;color:#047857;';
         body.appendChild(note);
+        body.appendChild(templateRow);
+        body.appendChild(regionStatus);
+        body.appendChild(regionActions);
         body.appendChild(actions);
         body.appendChild(output);
         body.appendChild(status);
         panel.appendChild(header);
         panel.appendChild(body);
         document.body.appendChild(panel);
-        updateOutput();
+        renderRegionStatus();
     };
 
     if (document.readyState === 'loading') {

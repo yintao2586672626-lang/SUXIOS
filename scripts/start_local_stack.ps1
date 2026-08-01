@@ -1,6 +1,9 @@
 param(
     [string]$BindHost = "127.0.0.1",
     [int]$Port = 8080,
+    [int]$BackendPort = 8081,
+    [ValidateRange(3, 16)]
+    [int]$PhpWorkerCount = 3,
     [string]$DbHost = "127.0.0.1",
     [int]$DbPort = 3306,
     [string]$DbName = "hotelx",
@@ -14,8 +17,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 if ($env:Path) {
-    [System.Environment]::SetEnvironmentVariable("Path", $env:Path, "Process")
+    $ProcessSearchPath = $env:Path
+    # Codex shells may expose both PATH and Path. Start-Process builds a
+    # case-insensitive environment dictionary and fails when both are present.
     [System.Environment]::SetEnvironmentVariable("PATH", $null, "Process")
+    [System.Environment]::SetEnvironmentVariable("Path", $ProcessSearchPath, "Process")
 }
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -23,7 +29,15 @@ $LogDir = Join-Path $RepoRoot "runtime\codex"
 $BaseUrl = "http://$BindHost`:$Port/"
 $HealthPath = "/api/health"
 $HealthUrl = "http://$BindHost`:$Port$HealthPath"
+$BackendPorts = @($BackendPort..($BackendPort + $PhpWorkerCount - 1))
+$BackendUrls = @($BackendPorts | ForEach-Object { "http://$BindHost`:$($_)" })
 $StaticProbeUrl = "http://$BindHost`:$Port/vue.global.prod.js?v=startup-static-probe"
+$OriginServerPath = Join-Path $RepoRoot "scripts\local_origin_server.mjs"
+$PublicRoot = Join-Path $RepoRoot "public"
+
+if (($BackendPort + $PhpWorkerCount - 1) -gt 65535) {
+    throw "PHP worker port range exceeds 65535."
+}
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 Set-Location $RepoRoot
@@ -61,6 +75,35 @@ if (-not $PhpExe) {
 }
 if (-not $PhpExe) {
     throw "PHP was not found. Install XAMPP or add php.exe to PATH."
+}
+
+$NodeExe = Resolve-CommandSource "node"
+if (-not $NodeExe) {
+    throw "Node.js was not found. Install Node.js or add node.exe to PATH."
+}
+if (-not (Test-Path -LiteralPath $OriginServerPath)) {
+    throw "Concurrent local origin server is missing: $OriginServerPath"
+}
+
+$PhpRuntimeArgs = @(
+    "-d", "realpath_cache_size=4096K",
+    "-d", "realpath_cache_ttl=600"
+)
+$PhpDir = Split-Path -Parent $PhpExe
+$PhpOpcacheDll = Resolve-FirstExisting @(
+    (Join-Path $PhpDir "ext\php_opcache.dll"),
+    "C:\xampp\php\ext\php_opcache.dll",
+    "D:\xampp\php\ext\php_opcache.dll"
+)
+if ($PhpOpcacheDll) {
+    $PhpRuntimeArgs += @(
+        "-d", "zend_extension=$PhpOpcacheDll",
+        "-d", "opcache.enable_cli=1",
+        "-d", "opcache.memory_consumption=128",
+        "-d", "opcache.max_accelerated_files=20000",
+        "-d", "opcache.validate_timestamps=1",
+        "-d", "opcache.revalidate_freq=2"
+    )
 }
 
 $MySqlExe = Resolve-FirstExisting @(
@@ -152,7 +195,7 @@ function Start-LocalMySql {
 function Assert-DatabaseReady {
     $schema = (Invoke-MySql "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='$DbName';" | Select-Object -First 1)
     if ($schema -ne $DbName) {
-        throw "Database '$DbName' was not found. Import database/init_full.sql first."
+        throw "Database '$DbName' was not found. Run php scripts/init_database.php first."
     }
 
     $coreTableSql = @"
@@ -163,15 +206,82 @@ WHERE TABLE_SCHEMA='$DbName'
 "@
     $coreTableCount = [int]((Invoke-MySql $coreTableSql | Select-Object -First 1) -as [int])
     if ($coreTableCount -ne 5) {
-        throw "Database '$DbName' is missing core tables. Re-import database/init_full.sql."
+        throw "Database '$DbName' is missing core tables. Initialize a fresh database with php scripts/init_database.php."
     }
 
     Write-Host "[OK] Database '$DbName' and core tables are ready"
 }
 
+function Assert-DatabaseVersion {
+    # Keep the version probe aligned with the explicit startup parameters and
+    # pass credentials through the child environment rather than command args.
+    $env:DB_TYPE = "mysql"
+    $env:DB_HOST = $DbHost
+    $env:DB_PORT = [string]$DbPort
+    $env:DB_NAME = $DbName
+    $env:DB_USER = $DbUser
+    $env:DB_PASS = $DbPass
+
+    $schemaArgs = $PhpRuntimeArgs + @("think", "db:check")
+    $schemaOutput = & $PhpExe @schemaArgs 2>&1
+    $schemaExitCode = $LASTEXITCODE
+    foreach ($line in $schemaOutput) {
+        Write-Host $line
+    }
+    if ($schemaExitCode -ne 0) {
+        if ($schemaExitCode -eq 2) {
+            throw "Database schema upgrade required. Follow the command shown above before starting SUXIOS."
+        }
+        throw "Database schema check failed. Fix the connection or checker error shown above before starting SUXIOS."
+    }
+}
+
+function Invoke-OtaRetentionMaintenance {
+    Write-Host "[INFO] Checking 30-day OTA credential/Profile retention..."
+    $maintenanceArgs = $PhpRuntimeArgs + @(
+        "think",
+        "online-data:cleanup-dormant-profiles",
+        "--retention-days=30"
+    )
+    $maintenanceOutput = & $PhpExe @maintenanceArgs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "OTA retention maintenance did not complete; credentials and Profiles were kept fail-closed."
+        return
+    }
+
+    $summaryLine = $maintenanceOutput | Select-Object -Last 1
+    try {
+        $summary = $summaryLine | ConvertFrom-Json
+        Write-Host (
+            "[OK] OTA retention checked: profiles removed={0}, credentials revoked={1}, errors={2}" -f `
+                [int]$summary.profiles_removed,
+                [int]$summary.credentials_revoked,
+                [int]$summary.errors
+        )
+    } catch {
+        Write-Host "[OK] OTA retention maintenance completed"
+    }
+}
+
 function Test-HttpHealth {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $HealthUrl -TimeoutSec 2
+        $reportedWorkerCount = [int]([string]$response.Headers["X-SUXIOS-Backend-Pool-Size"] -as [int])
+        return $response.StatusCode -eq 200 `
+            -and $response.Content -like "*status*" `
+            -and $response.Content -like "*ok*" `
+            -and $reportedWorkerCount -eq $PhpWorkerCount
+    } catch {
+        return $false
+    }
+}
+
+function Test-BackendHttpHealth {
+    param([int]$TargetPort)
+
+    $targetHealthUrl = "http://$BindHost`:$TargetPort$HealthPath"
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $targetHealthUrl -TimeoutSec 2
         return $response.StatusCode -eq 200 -and $response.Content -like "*status*" -and $response.Content -like "*ok*"
     } catch {
         return $false
@@ -191,42 +301,93 @@ function Test-StaticAsset {
 }
 
 function Test-PortListening {
-    $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    param([int]$TargetPort)
+
+    $listener = Get-NetTCPConnection -LocalPort $TargetPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     return $null -ne $listener
 }
 
 function Start-ThinkPhp {
     if ((Test-HttpHealth) -and (Test-StaticAsset)) {
-        Write-Host "[OK] ThinkPHP is already serving $BaseUrl"
-        return
+        $unhealthyExistingPorts = @($BackendPorts | Where-Object { -not (Test-BackendHttpHealth -TargetPort $_) })
+        if ($unhealthyExistingPorts.Count -eq 0) {
+            Write-Host "[OK] ThinkPHP worker pool is already serving $BaseUrl ($PhpWorkerCount workers)"
+            return
+        }
+        throw "Local origin is already running, but configured PHP workers are not all healthy: $($unhealthyExistingPorts -join ', '). Restart the local stack to apply the worker pool."
     }
 
-    if (Test-PortListening) {
+    if (Test-PortListening -TargetPort $Port) {
         throw "Port $Port is already in use, but $HealthUrl did not pass."
     }
 
-    $stdout = Join-Path $LogDir "think-run-$Port.out.log"
-    $stderr = Join-Path $LogDir "think-run-$Port.err.log"
+    foreach ($workerPort in $BackendPorts) {
+        if (-not (Test-BackendHttpHealth -TargetPort $workerPort) -and (Test-PortListening -TargetPort $workerPort)) {
+            throw "Backend port $workerPort is already in use, but its $HealthPath check did not pass."
+        }
+    }
 
-    Write-Host "[INFO] Starting ThinkPHP on $BaseUrl"
+    foreach ($workerPort in $BackendPorts) {
+        if (Test-BackendHttpHealth -TargetPort $workerPort) {
+            Write-Host "[OK] ThinkPHP worker is already serving http://$BindHost`:$workerPort/"
+            continue
+        }
+
+        $backendStdout = Join-Path $LogDir "think-backend-$workerPort.out.log"
+        $backendStderr = Join-Path $LogDir "think-backend-$workerPort.err.log"
+
+        Write-Host "[INFO] Starting hidden ThinkPHP worker on http://$BindHost`:$workerPort/"
+        Start-Process `
+            -FilePath $PhpExe `
+            -ArgumentList ($PhpRuntimeArgs + @("-S", "$BindHost`:$workerPort", "-t", "public", "public/router.php")) `
+            -WorkingDirectory $RepoRoot `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $backendStdout `
+            -RedirectStandardError $backendStderr `
+            | Out-Null
+
+    }
+
+    for ($i = 0; $i -lt $PhpWaitSeconds; $i++) {
+        $unhealthyPorts = @($BackendPorts | Where-Object { -not (Test-BackendHttpHealth -TargetPort $_) })
+        if ($unhealthyPorts.Count -eq 0) { break }
+        Start-Sleep -Seconds 1
+    }
+    $unhealthyPorts = @($BackendPorts | Where-Object { -not (Test-BackendHttpHealth -TargetPort $_) })
+    if ($unhealthyPorts.Count -gt 0) {
+        throw "ThinkPHP workers did not all become healthy within $PhpWaitSeconds seconds: $($unhealthyPorts -join ', ')."
+    }
+    foreach ($workerPort in $BackendPorts) {
+        Write-Host "[OK] ThinkPHP worker healthy: http://$BindHost`:$workerPort/"
+    }
+
+    $originStdout = Join-Path $LogDir "local-origin-$Port.out.log"
+    $originStderr = Join-Path $LogDir "local-origin-$Port.err.log"
+    Write-Host "[INFO] Starting hidden concurrent local origin on $BaseUrl"
     Start-Process `
-        -FilePath $PhpExe `
-        -ArgumentList @("-S", "$BindHost`:$Port", "-t", "public", "public/router.php") `
+        -FilePath $NodeExe `
+        -ArgumentList @(
+            $OriginServerPath,
+            "--host=$BindHost",
+            "--port=$Port",
+            "--backends=$($BackendUrls -join ',')",
+            "--public-root=$PublicRoot"
+        ) `
         -WorkingDirectory $RepoRoot `
         -WindowStyle Hidden `
-        -RedirectStandardOutput $stdout `
-        -RedirectStandardError $stderr `
+        -RedirectStandardOutput $originStdout `
+        -RedirectStandardError $originStderr `
         | Out-Null
 
     for ($i = 0; $i -lt $PhpWaitSeconds; $i++) {
         if ((Test-HttpHealth) -and (Test-StaticAsset)) {
-            Write-Host "[OK] ThinkPHP started: $BaseUrl"
+            Write-Host "[OK] Concurrent local origin started: $BaseUrl"
             return
         }
         Start-Sleep -Seconds 1
     }
 
-    throw "ThinkPHP did not become healthy at $HealthUrl with static assets available within $PhpWaitSeconds seconds."
+    throw "Concurrent local origin did not become healthy at $HealthUrl with static assets available within $PhpWaitSeconds seconds."
 }
 
 if (-not (Test-Path (Join-Path $RepoRoot "think"))) {
@@ -235,6 +396,8 @@ if (-not (Test-Path (Join-Path $RepoRoot "think"))) {
 
 Start-LocalMySql
 Assert-DatabaseReady
+Assert-DatabaseVersion
+Invoke-OtaRetentionMaintenance
 Start-ThinkPhp
 
 if (-not $NoBrowser) {

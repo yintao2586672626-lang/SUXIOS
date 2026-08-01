@@ -1,0 +1,170 @@
+                    <div v-if="currentPage === 'asset-pricing'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-cyan-900 to-blue-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智算·资产定价</h2>
+                                    <p class="text-sm text-cyan-100 mt-1">基于人工输入的情景测算；未核验流水、租约与证照时，不构成正式估值或接盘结论</p>
+                                </div>
+                                <button @click="handleTransferPricing" :disabled="transferPricingLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <i :class="transferPricingLoading ? 'fas fa-spinner fa-spin' : 'fas fa-calculator'"></i>
+                                    <span>{{ transferPricingLoading ? '测算中...' : '运行情景测算' }}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-5 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">基础与经营数据</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div v-for="field in transferPricingFields" :key="field.key" :class="field.full ? 'md:col-span-2' : ''">
+                                            <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                            <input :type="field.type" v-model.number="transferPricingForm[field.key]" :data-testid="'field-transfer-pricing-' + field.key" class="input-field w-full">
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                                        <label class="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                            <input type="checkbox" v-model="transferPricingForm.licenses_complete" class="rounded border-gray-300">
+                                            <span>证照是否齐全</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                            <input type="checkbox" v-model="transferPricingForm.has_data_anomaly" class="rounded border-gray-300">
+                                            <span>是否存在数据异常</span>
+                                        </label>
+                                    </div>
+                                    <div class="mt-4 rounded-lg border border-cyan-100 bg-cyan-50/60 p-4">
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="block text-xs text-cyan-700 mb-1">AI模型</label>
+                                                <select v-model="transferPricingForm.model_key" class="input-field w-full bg-white">
+                                                    <option v-for="model in transferAiModelOptions" :key="model.value" :value="model.value">{{ model.label }}</option>
+                                                </select>
+                                            </div>
+                                            <label class="flex items-center gap-2 rounded-lg border border-cyan-100 bg-white px-3 py-2 text-sm text-cyan-800">
+                                                <input type="checkbox" v-model="transferPricingForm.require_ai_evaluation" class="rounded border-cyan-300">
+                                                <span>必须使用AI生成评估</span>
+                                            </label>
+                                        </div>
+                                        <p class="mt-2 text-xs text-cyan-700">开启后模型未配置或调用失败会直接提示错误，不使用本地兜底冒充AI结果。</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-7 space-y-5">
+                                <div v-if="transferPricingResult" class="space-y-5">
+                                    <div v-if="transferPricingResult.status === 'insufficient_data'" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                        {{ transferPricingResult.data_notice || '关键输入缺失，未生成估值。' }}
+                                    </div>
+                                    <div v-if="transferPricingResult.status !== 'insufficient_data'" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div v-for="card in transferPricingCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                            <div :class="['text-2xl font-bold mt-2', card.className || 'text-gray-800']">{{ card.value }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-if="transferPricingResult.status !== 'insufficient_data'" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-4">情景估值结果</h3>
+                                        <div class="overflow-x-auto">
+                                            <table class="min-w-full text-sm">
+                                                <thead class="bg-gray-50 text-gray-500">
+                                                    <tr>
+                                                        <th class="px-4 py-3 text-left">项目</th>
+                                                        <th class="px-4 py-3 text-right">金额</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    <tr v-for="row in transferPricingValuationRows" :key="row.label">
+                                                        <td class="px-4 py-3 font-medium text-gray-800">{{ row.label }}</td>
+                                                        <td class="px-4 py-3 text-right">{{ row.value }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">主要原因</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in transferPricingResult.main_reasons" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-check-circle text-blue-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">风险点</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in transferPricingResult.risk_points" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-exclamation-triangle text-amber-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                            <div v-if="transferPricingResult.data_notice" class="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">{{ transferPricingResult.data_notice }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <div class="text-xs text-gray-500 mb-1">下一步建议</div>
+                                        <div class="font-semibold text-gray-800">{{ transferPricingAdvice }}</div>
+                                    </div>
+                                    <div v-if="transferPricingAiEvaluationVisible" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                                            <h3 class="font-bold text-gray-800">AI评估</h3>
+                                            <div class="flex flex-wrap items-center gap-2 text-xs">
+                                                <span :class="['px-2 py-1 rounded border', transferPricingAiEvaluation.source === 'llm' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-gray-50 text-gray-600 border-gray-100']">{{ transferPricingAiEvaluationSourceLabel }}</span>
+                                                <span v-if="transferPricingAiEvaluation.model_key" class="px-2 py-1 rounded border border-gray-100 bg-gray-50 text-gray-500">{{ transferPricingAiEvaluation.model_key }}</span>
+                                                <span v-if="transferPricingAiEvaluation.generated_at" class="text-gray-400">{{ transferPricingAiEvaluation.generated_at }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-4">
+                                            <div v-if="transferPricingAiEvaluation.summary" class="rounded-lg bg-cyan-50 border border-cyan-100 text-cyan-900 px-4 py-3 text-sm">
+                                                {{ transferPricingAiEvaluation.summary }}
+                                            </div>
+                                            <div v-if="transferPricingAiEvaluation.decision" class="rounded-lg bg-slate-50 border border-slate-100 px-4 py-3">
+                                                <div class="text-xs text-gray-500 mb-1">接盘判断</div>
+                                                <div class="text-sm font-medium text-gray-800">{{ transferPricingAiEvaluation.decision }}</div>
+                                            </div>
+                                            <div v-if="transferPricingAiEvaluation.recommendations.length" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div v-for="item in transferPricingAiEvaluation.recommendations" :key="item.priority + item.title" class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                    <div class="flex items-center gap-2 mb-2">
+                                                        <span class="px-2 py-0.5 rounded bg-white border border-gray-200 text-xs text-gray-600">{{ item.priority }}</span>
+                                                        <span class="font-semibold text-gray-800">{{ item.title }}</span>
+                                                    </div>
+                                                    <div class="text-sm text-gray-700"><span class="font-medium">建议动作：</span>{{ item.action || item.detail }}</div>
+                                                    <ai-decision-quality-details :item="item"></ai-decision-quality-details>
+                                                </div>
+                                            </div>
+                                            <div v-if="transferPricingAiEvaluation.watch_points.length" class="overflow-x-auto">
+                                                <table class="min-w-full text-sm">
+                                                    <thead>
+                                                        <tr class="bg-gray-50 text-gray-500">
+                                                            <th class="px-4 py-3 text-left">关注指标</th>
+                                                            <th class="px-4 py-3 text-left">阈值</th>
+                                                            <th class="px-4 py-3 text-left">动作</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-gray-100">
+                                                        <tr v-for="item in transferPricingAiEvaluation.watch_points" :key="item.metric + item.threshold">
+                                                            <td class="px-4 py-3 font-medium text-gray-800">{{ item.metric }}</td>
+                                                            <td class="px-4 py-3 text-gray-600">{{ item.threshold }}</td>
+                                                            <td class="px-4 py-3 text-gray-600">{{ item.action }}</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div v-if="transferPricingAiEvaluation.assumptions.length" class="text-xs text-gray-500">
+                                                <div class="font-medium text-gray-600 mb-1">假设与限制</div>
+                                                <div class="space-y-1">
+                                                    <div v-for="item in transferPricingAiEvaluation.assumptions" :key="item">· {{ item }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-else="" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+                                    <i class="fas fa-calculator text-4xl mb-3 opacity-50"></i>
+                                    <p>补齐转让参数后生成情景测算结果</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 智略·时机推演 -->

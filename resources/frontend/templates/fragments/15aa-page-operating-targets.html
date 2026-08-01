@@ -1,0 +1,185 @@
+                    <div v-if="currentPage === 'operating-targets'" class="mx-auto max-w-7xl space-y-4" data-testid="operating-target-page">
+                        <section class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
+                            <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                                <div>
+                                    <div class="mb-1 text-sm font-medium text-emerald-700">经营分析 · 目标与事实</div>
+                                    <h2 class="text-xl font-bold text-gray-900 sm:text-2xl">每天目标、事实与剩余经营压力</h2>
+                                    <p class="mt-1 max-w-2xl text-sm leading-6 text-gray-500">支持全酒店经营，也支持订单来了、美团云 PMS 两个独立真实数据源的住宿房费口径；目标与实际必须一致。携程、美团 OTA 渠道数据不能替代酒店经营事实；缺数据时保留缺口，不显示伪造的 0。</p>
+                                </div>
+                                <div class="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(190px,1fr)_auto_auto]">
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">门店</span>
+                                        <select v-model="operatingTargetForm.hotel_id" data-testid="operating-target-hotel" class="w-full min-w-[190px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                                            <option value="">请选择门店</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">经营日期</span>
+                                        <input v-model="operatingTargetForm.target_date" data-testid="operating-target-date" type="date" class="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    </label>
+                                    <button type="button" data-testid="operating-target-load" @click="loadOperatingTarget" :disabled="operatingTargetLoading.current" class="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-900 disabled:cursor-wait disabled:opacity-60">
+                                        <i :class="[operatingTargetLoading.current ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt', 'mr-1.5']"></i>{{ operatingTargetLoading.current ? '读取中...' : '读取记录' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </section>
+
+                        <div v-if="operatingTargetError" data-testid="operating-target-error" class="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+                            <div class="font-semibold">经营目标读取或保存失败</div>
+                            <div class="mt-1">{{ operatingTargetError }}</div>
+                            <button type="button" @click="loadOperatingTarget" class="mt-3 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">重新读取</button>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)] xl:items-start">
+                            <div class="space-y-4">
+                                <section class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
+                                    <div class="flex flex-col gap-3 border-b border-gray-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900">设置当日住宿房费总目标</h3>
+                                            <p class="mt-1 text-xs leading-5 text-gray-500">只设置一个总目标；实际房费、间夜、入住率、ADR 和 RevPAR 统一从同店当天 PMS 事实核对，不再重复手工填写。</p>
+                                        </div>
+                                        <div class="flex flex-wrap gap-2">
+                                            <button type="button" data-testid="operating-target-prefill-dingdandao" @click="prefillOperatingTargetFromDingdandao" :disabled="operatingTargetLoading.prefill" class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60">
+                                                <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-hotel', 'mr-1.5']"></i>核对订单来了
+                                            </button>
+                                            <button type="button" data-testid="operating-target-prefill-meituan-cloud" @click="prefillOperatingTargetFromMeituanCloud" :disabled="operatingTargetLoading.prefill" class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60">
+                                                <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-cloud', 'mr-1.5']"></i>核对美团云 PMS
+                                            </button>
+                                            <button type="button" data-testid="operating-target-save" @click="saveOperatingTarget" :disabled="operatingTargetLoading.save" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60">
+                                                <i :class="[operatingTargetLoading.save ? 'fas fa-spinner fa-spin' : 'fas fa-save', 'mr-1.5']"></i>{{ operatingTargetLoading.save ? '保存目标并回读中...' : '保存目标并回读' }}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(240px,0.55fr)_minmax(0,1.45fr)] lg:items-start">
+                                        <label class="block rounded-xl border border-[#d8c49f] bg-[#fffaf0] p-4">
+                                            <span class="mb-2 block text-xs font-medium text-[#826333]">当日住宿房费总目标（元）</span>
+                                            <input v-model="operatingTargetForm.target_revenue" data-testid="operating-target-revenue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="例如 10000" class="w-full rounded-lg border border-[#d8c49f] bg-white px-3 py-2.5 text-lg font-semibold text-gray-900 focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15">
+                                            <span class="mt-2 block text-xs leading-5 text-gray-500">目标只保存住宿房费总额；不再单独设入住率或 RevPAR 目标。</span>
+                                        </label>
+
+                                        <section class="rounded-xl border border-gray-100 bg-gray-50/70 p-4" data-testid="operating-target-pms-facts">
+                                            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                <div>
+                                                    <h4 class="font-semibold text-gray-900">PMS 经营事实（只读）</h4>
+                                                    <p class="mt-1 text-xs leading-5 text-gray-500">点击上方 PMS 核对按钮后回显；页面不允许手工改写经营事实。</p>
+                                                </div>
+                                                <span class="inline-flex self-start rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+                                                    {{ operatingTargetForm.source_type === 'pms' ? (operatingTargetSourceText(operatingTargetForm.source_type) + ' / ' + operatingTargetQualityText(operatingTargetForm.quality_status)) : '尚未核对 PMS' }}
+                                                </span>
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                                <article v-for="item in operatingTargetPmsFactRows" :key="item.key" class="rounded-lg border border-white bg-white px-3 py-2.5">
+                                                    <div class="text-xs text-gray-500">{{ item.label }}</div>
+                                                    <div :class="['mt-1 font-semibold', item.available ? 'text-gray-900' : 'text-gray-400']">{{ item.displayValue }}</div>
+                                                </article>
+                                            </div>
+                                            <p class="mt-3 break-all text-xs leading-5 text-gray-500">
+                                                核对依据：{{ operatingTargetForm.source_reference || '尚未取得同店当天 PMS 回读证据' }}
+                                            </p>
+                                        </section>
+                                    </div>
+                                </section>
+
+                                <template v-if="operatingTargetPreview">
+                                    <section :class="['rounded-xl border p-4 text-sm', operatingTargetStatusClass(operatingTargetPreview.status)]" data-testid="operating-target-status">
+                                        <div class="font-semibold">{{ operatingTargetStatusText(operatingTargetPreview.status) }}</div>
+                                        <div class="mt-1 leading-6">{{ operatingTargetPreview.delivery_note || '当前为页面预览；不会自动向企业微信或其他外部渠道发送。' }}</div>
+                                    </section>
+
+                                    <section v-if="operatingTargetResult" class="grid grid-cols-2 gap-3 md:grid-cols-4" data-testid="operating-target-metrics">
+                                        <div v-for="item in operatingTargetMetricRows" :key="item.key" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                                            <div class="text-xs text-gray-500">{{ item.label }}</div>
+                                            <div class="mt-2 text-2xl font-bold text-gray-900">{{ item.value }}</div>
+                                        </div>
+                                    </section>
+                                </template>
+
+                                <section v-if="operatingTargetResult" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm" data-testid="operating-target-task-draft-actions">
+                                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <p class="text-xs leading-5 text-gray-500">当住宿房费尚未达到总目标时，可把已保存的金额差距生成待人工审批任务；不会自动修改 OTA。</p>
+                                        <button type="button" data-testid="operating-target-create-task-draft" @click="createOperatingTargetTaskDraft" :disabled="operatingTargetTaskDraftLoading" class="shrink-0 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60">
+                                            <i :class="[operatingTargetTaskDraftLoading ? 'fas fa-spinner fa-spin' : 'fas fa-tasks', 'mr-1.5']"></i>{{ operatingTargetTaskDraftLoading ? '生成中...' : '根据金额差距生成任务' }}
+                                        </button>
+                                    </div>
+                                    <div v-if="operatingTargetTaskDraftError" data-testid="operating-target-task-draft-error" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">{{ operatingTargetTaskDraftError }}</div>
+                                    <div v-if="operatingTargetTaskDraft" data-testid="operating-target-task-draft-success" class="mt-3 flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800 sm:flex-row sm:items-center sm:justify-between">
+                                        <span>{{ operatingTargetTaskDraft.reused_existing_intent ? '已回读同一目标版本的待审批任务' : '待审批任务已生成' }} #{{ operatingTargetTaskDraft.execution_intent?.id || '未取得编号' }}</span>
+                                        <button type="button" @click="openOperatingTargetTaskDraft" class="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100">进入任务执行与复盘</button>
+                                    </div>
+                                </section>
+                            </div>
+
+                            <aside class="space-y-4">
+                                <section v-if="operatingTargetPreview" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                                    <div>
+                                        <h3 class="font-bold text-gray-900">数据缺口与一致性检查</h3>
+                                        <div v-if="(operatingTargetPreview.gaps || []).length" class="mt-3 space-y-2">
+                                            <div v-for="gap in operatingTargetPreview.gaps" :key="gap.code" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ gap.message }}</div>
+                                        </div>
+                                        <div v-else class="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">已取得本页计算所需的目标和确认后的经营事实。</div>
+                                    </div>
+                                    <div class="mt-4 border-t border-gray-100 pt-4">
+                                        <h3 class="font-bold text-gray-900">经营提醒</h3>
+                                        <div v-if="(operatingTargetPreview.reminders || []).length" class="mt-3 space-y-2">
+                                            <div v-for="item in operatingTargetPreview.reminders" :key="item.code" :class="['rounded-lg border px-3 py-2 text-sm', item.level === 'danger' ? 'border-red-100 bg-red-50 text-red-700' : 'border-blue-100 bg-blue-50 text-blue-700']">{{ item.message }}</div>
+                                        </div>
+                                        <div v-else class="mt-3 text-sm text-gray-500">尚未形成需要提示的经营提醒。</div>
+                                    </div>
+                                </section>
+                            </aside>
+                        </div>
+
+                        <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm" data-testid="operating-target-report-preview">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                    <h3 class="font-bold text-gray-900">经营目标报告预览与发送门禁</h3>
+                                    <p class="mt-1 text-xs leading-5 text-gray-500">预览只是内容核对，不代表已发送。只有同门店、同日期、来源和质量均通过时，才允许进入测试群投递。</p>
+                                </div>
+                                <span
+                                    class="inline-flex self-start rounded-full border px-3 py-1 text-xs font-medium"
+                                    :class="operatingTargetReportGate?.formal_send_gate?.allowed === true
+                                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                        : 'border-amber-200 bg-amber-50 text-amber-700'"
+                                >
+                                    {{ operatingTargetReportGate?.formal_send_gate?.allowed === true ? '数据门禁通过，尚未发送' : '发送已阻断' }}
+                                </span>
+                            </div>
+                            <div v-if="operatingTargetLoading.reportGate" class="mt-4 text-sm text-gray-500">
+                                <i class="fas fa-spinner fa-spin mr-2"></i>正在生成报告预览并核对发送门禁...
+                            </div>
+                            <template v-else-if="operatingTargetReportGate">
+                                <div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+                                    <div class="overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                                        <div class="border-b border-gray-200 px-4 py-3 text-xs font-semibold text-gray-600">企业微信 Markdown 预览（未发送）</div>
+                                        <pre class="max-h-[420px] overflow-auto whitespace-pre-wrap break-words p-4 text-sm leading-6 text-gray-700">{{ operatingTargetReportGate?.payload?.markdown?.content || '报告内容未取得。' }}</pre>
+                                    </div>
+                                    <div>
+                                        <div v-if="(operatingTargetReportGate?.formal_send_gate?.blockers || []).length" class="space-y-2" data-testid="operating-target-report-blockers">
+                                            <div v-for="blocker in operatingTargetReportGate.formal_send_gate.blockers" :key="blocker.code" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                                                <div class="font-medium">{{ blocker.message }}</div>
+                                                <div class="mt-1 text-xs text-amber-700">{{ blocker.code }}</div>
+                                            </div>
+                                        </div>
+                                        <div v-else class="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-3 text-sm leading-6 text-emerald-800">
+                                            当前数据门禁已通过；该状态仍不等于调度已执行或企业微信已送达，实际结果以发送历史回执为准。
+                                        </div>
+                                        <div class="mt-3 rounded-lg border border-gray-200 bg-white px-3 py-3 text-xs leading-5 text-gray-600">
+                                            {{ operatingTargetReportGate.delivery_note || '当前仅为页面预览，未触发外部发送。' }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                            <div v-else class="mt-4 rounded-lg border border-dashed border-gray-200 p-5 text-center text-sm text-gray-500">
+                                读取当前经营目标后生成报告预览；没有门店、日期或事实时不生成成功状态。
+                            </div>
+                        </section>
+
+                        <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                            <div class="flex items-center justify-between gap-3"><div><h3 class="font-bold text-gray-900">历史快照</h3><p class="mt-1 text-xs text-gray-500">每次保存保留一个可回读版本，便于复盘目标和事实口径的变化。</p></div><button type="button" @click="loadOperatingTargetHistory" class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">刷新历史</button></div>
+                            <div v-if="operatingTargetLoading.history" class="mt-4 text-sm text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>读取历史中...</div>
+                            <div v-else-if="(operatingTargetHistory.list || []).length" class="mt-4 overflow-x-auto"><table class="min-w-full text-sm"><thead class="border-b border-gray-100 text-left text-xs text-gray-500"><tr><th class="px-2 py-2">日期</th><th class="px-2 py-2">版本</th><th class="px-2 py-2">状态</th><th class="px-2 py-2">来源</th><th class="px-2 py-2">更新时间</th></tr></thead><tbody><tr v-for="item in operatingTargetHistory.list" :key="item.id" class="border-b border-gray-50 text-gray-700"><td class="px-2 py-2">{{ item.target_date }}</td><td class="px-2 py-2">v{{ item.revision_no || 1 }}</td><td class="px-2 py-2">{{ operatingTargetStatusText(item.calculation?.status) }}</td><td class="px-2 py-2">{{ item.facts?.source_type || '未说明' }}</td><td class="px-2 py-2">{{ item.updated_at || '未取得' }}</td></tr></tbody></table></div>
+                            <div v-else class="mt-4 rounded-lg border border-dashed border-gray-200 p-5 text-center text-sm text-gray-500">该门店暂未保存经营目标历史。</div>
+                        </section>
+                    </div>

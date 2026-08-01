@@ -1,0 +1,578 @@
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(scriptDir, '..');
+const qaDir = path.join(projectRoot, 'docs', 'qa');
+const auditDate = '2026-07-15';
+const generatedAt = `${auditDate}T00:00:00+08:00`;
+const sourcePath = path.join(qaDir, 'hotel_system_500_test_cases_2026-07-14.json');
+const outputDir = process.env.SUXI_DIAGNOSTIC_OUTPUT_DIR
+  ? path.resolve(process.env.SUXI_DIAGNOSTIC_OUTPUT_DIR)
+  : qaDir;
+const executionEvidencePath = process.env.SUXI_DIAGNOSTIC_EVIDENCE_PATH
+  ? path.resolve(process.env.SUXI_DIAGNOSTIC_EVIDENCE_PATH)
+  : path.join(qaDir, `hotel_system_4000_execution_evidence_${auditDate}.json`);
+
+const sourceAudit = JSON.parse(readFileSync(sourcePath, 'utf8'));
+const baseCases = sourceAudit.test_cases;
+
+if (!Array.isArray(baseCases) || baseCases.length !== 500) {
+  throw new Error(`Expected 500 source cases, received ${baseCases?.length ?? 'invalid input'}`);
+}
+
+// L8 orthogonal array for four binary factors. Every pair of factors covers all
+// four value combinations, while keeping the suite materially smaller than the
+// full 2^4 cross-product for every source case.
+const coverageRows = [
+  ['authorized', 'complete', 'fresh', 'success'],
+  ['authorized', 'complete', 'stale', 'failure'],
+  ['authorized', 'missing_required', 'fresh', 'failure'],
+  ['authorized', 'missing_required', 'stale', 'success'],
+  ['restricted', 'complete', 'fresh', 'failure'],
+  ['restricted', 'complete', 'stale', 'success'],
+  ['restricted', 'missing_required', 'fresh', 'success'],
+  ['restricted', 'missing_required', 'stale', 'failure'],
+].map(([actorScope, dataCompleteness, freshness, upstreamState], index) => ({
+  variant: index + 1,
+  actor_scope: actorScope,
+  data_completeness: dataCompleteness,
+  freshness,
+  upstream_state: upstreamState,
+}));
+
+const factorNames = ['actor_scope', 'data_completeness', 'freshness', 'upstream_state'];
+const baseResultMap = {
+  满足: 'pass',
+  部分满足: 'partial',
+  不满足: 'fail',
+  未验证: 'blocked',
+  不适用: 'not_applicable',
+};
+
+function classifyBaseEvidence(testCase) {
+  const basis = testCase.assessment_basis ?? '';
+  if (/(自动化|最新执行|本机证据|运行检查)/u.test(basis)) return 'automated_or_runtime_evidence';
+  if (/(代码|静态|范围|产品|公式|法规|WCAG|接口一致性)/u.test(basis)) return 'static_or_contract_evidence';
+  return 'manual_or_external_evidence';
+}
+
+function classifyExecutionType(testCase) {
+  if (testCase.assessment_status === '不适用') return 'scope_review';
+  const baseEvidenceClass = classifyBaseEvidence(testCase);
+  if (baseEvidenceClass === 'automated_or_runtime_evidence') return 'automated_integration';
+  if (baseEvidenceClass === 'static_or_contract_evidence') return 'contract_plus_runtime';
+  return 'manual_or_external_integration';
+}
+
+function buildVariantSteps(testCase, factors) {
+  const context = [
+    `权限范围=${factors.actor_scope}`,
+    `数据完整性=${factors.data_completeness}`,
+    `数据新鲜度=${factors.freshness}`,
+    `上游状态=${factors.upstream_state}`,
+  ].join('；');
+
+  return [
+    `建立隔离测试上下文：${context}。`,
+    ...testCase.steps,
+    '核对接口、数据库回读、页面回显和日志证据是否保持同一酒店、平台、业务日期与质量状态。',
+  ];
+}
+
+function buildVariantExpected(testCase, factors) {
+  const guards = [];
+  if (factors.actor_scope === 'restricted') guards.push('越权主体必须被拒绝且不得泄露其他酒店数据');
+  if (factors.data_completeness === 'missing_required') guards.push('缺失必填数据必须显式标记，不得以 0、空数组或旧数据补齐');
+  if (factors.freshness === 'stale') guards.push('过期数据必须标记 stale/截止时间，不得作为实时事实');
+  if (factors.upstream_state === 'failure') guards.push('上游失败必须保留真实失败阶段，不得伪报成功或写入正式快照');
+  if (guards.length === 0) guards.push('正常路径应完成保存、回读、回显和可追溯验证');
+  return `${testCase.expected}；组合守卫：${guards.join('；')}。`;
+}
+
+function buildPendingExecutionNote(factors) {
+  const context = factorNames.map((factorName) => `${factorName}=${factors[factorName]}`).join('；');
+  return `尚无该四因子组合的直接执行证据；需在隔离环境按“${context}”执行完整步骤，保存请求/响应、数据库回读、页面回显和日志证据后再更新状态。500 条基线评估仅作参考，不能替代本变体验证。`;
+}
+
+function createScenarioSignature(baseCase, factors, steps, expected) {
+  // Exclude generated IDs, ordinal numbers, dates and the L8 title suffix so
+  // title-only/date-only variants cannot pass the semantic uniqueness check.
+  const semanticDefinition = {
+    category_code: baseCase.category_code,
+    category_name: baseCase.category_name,
+    scope: baseCase.scope,
+    test_type: baseCase.type,
+    benchmark_basis: baseCase.benchmark_basis,
+    precondition: baseCase.precondition,
+    steps,
+    expected,
+    factors: factorNames.map((factorName) => [factorName, factors[factorName]]),
+  };
+  return `sha256:${createHash('sha256').update(JSON.stringify(semanticDefinition), 'utf8').digest('hex')}`;
+}
+
+const cases = [];
+for (const baseCase of baseCases) {
+  for (const factors of coverageRows) {
+    const ordinal = cases.length + 1;
+    const steps = buildVariantSteps(baseCase, factors);
+    const expected = buildVariantExpected(baseCase, factors);
+    cases.push({
+      id: `DX-${String(ordinal).padStart(4, '0')}`,
+      base_case_id: baseCase.id,
+      variant: factors.variant,
+      category_code: baseCase.category_code,
+      category_name: baseCase.category_name,
+      priority: baseCase.priority,
+      scope: baseCase.scope,
+      type: baseCase.type,
+      execution_type: classifyExecutionType(baseCase),
+      title: `${baseCase.title}｜L8-${factors.variant}`,
+      factors: {
+        actor_scope: factors.actor_scope,
+        data_completeness: factors.data_completeness,
+        freshness: factors.freshness,
+        upstream_state: factors.upstream_state,
+      },
+      benchmark_basis: baseCase.benchmark_basis,
+      precondition: baseCase.precondition,
+      steps,
+      expected,
+      scenario_signature: createScenarioSignature(baseCase, factors, steps, expected),
+      base_evidence_execution_class: classifyBaseEvidence(baseCase),
+      base_assessment_result: baseResultMap[baseCase.assessment_status],
+      base_assessment_status: baseCase.assessment_status,
+      base_assessment_basis: baseCase.assessment_basis,
+      base_project_evidence: baseCase.project_evidence,
+      base_next_action: baseCase.next_action,
+      variant_execution_status: 'not_executed',
+      variant_execution_evidence: null,
+      pending_execution_note: buildPendingExecutionNote(factors),
+      case_definition_valid: true,
+    });
+  }
+}
+
+function loadExecutionEvidence() {
+  if (!existsSync(executionEvidencePath)) {
+    return { schema_version: 1, audit_date: auditDate, records: [] };
+  }
+
+  const ledger = JSON.parse(readFileSync(executionEvidencePath, 'utf8'));
+  if (Number(ledger?.schema_version) !== 1 || ledger?.audit_date !== auditDate || !Array.isArray(ledger?.records)) {
+    throw new Error('Execution evidence ledger must use schema_version=1, the current audit_date, and a records array.');
+  }
+  return ledger;
+}
+
+const executionLedger = loadExecutionEvidence();
+const allowedExecutedStatuses = new Set(['pass', 'partial', 'fail', 'blocked', 'not_applicable']);
+const casesById = new Map(cases.map((testCase) => [testCase.id, testCase]));
+const seenEvidenceCaseIds = new Set();
+for (const record of executionLedger.records) {
+  const caseId = String(record?.case_id || '').trim();
+  const testCase = casesById.get(caseId);
+  if (!testCase) throw new Error(`Execution evidence references unknown case_id: ${caseId || '(empty)'}`);
+  if (seenEvidenceCaseIds.has(caseId)) throw new Error(`Execution evidence contains duplicate case_id: ${caseId}`);
+  seenEvidenceCaseIds.add(caseId);
+
+  const signature = String(record?.scenario_signature || '').trim();
+  if (!signature || !hashEquals(signature, testCase.scenario_signature)) {
+    throw new Error(`Execution evidence signature mismatch for ${caseId}`);
+  }
+  const status = String(record?.status || '').trim();
+  if (!allowedExecutedStatuses.has(status)) throw new Error(`Execution evidence status is invalid for ${caseId}: ${status}`);
+  for (const field of ['executed_at', 'runner', 'evidence_ref']) {
+    if (!String(record?.[field] || '').trim()) throw new Error(`Execution evidence ${field} is required for ${caseId}`);
+  }
+  const exitCode = verifiedExitCode(record.exit_code, status, caseId);
+  const evidenceBinding = verifyLocalEvidenceRef(record.evidence_ref, {
+    caseId,
+    scenarioSignature: signature,
+    status,
+    exitCode,
+    expectedSha256: record.evidence_sha256,
+  });
+  const assertions = normalizedAssertions(record.assertions, caseId);
+  if (assertions.length === 0 && !hasMinimumOutputSummary(record.output_summary)) {
+    throw new Error(`Execution evidence minimum assertion or output summary is required for ${caseId}`);
+  }
+
+  testCase.variant_execution_status = status;
+  testCase.variant_execution_evidence = {
+    executed_at: String(record.executed_at),
+    runner: String(record.runner),
+    evidence_ref: String(record.evidence_ref),
+    evidence_sha256: evidenceBinding.sha256,
+    exit_code: exitCode,
+    assertions,
+    notes: String(record.notes || ''),
+  };
+  if (record.output_summary !== undefined) {
+    testCase.variant_execution_evidence.output_summary = record.output_summary;
+  }
+  testCase.pending_execution_note = null;
+}
+
+function verifyLocalEvidenceRef(evidenceRef, expected) {
+  const rawRef = String(evidenceRef).trim();
+  const hashIndex = rawRef.indexOf('#');
+  const fileRef = (hashIndex === -1 ? rawRef : rawRef.slice(0, hashIndex)).trim();
+  const fragment = hashIndex === -1 ? '' : rawRef.slice(hashIndex + 1).trim();
+  const caseId = expected.caseId;
+  if (!fileRef || /^[a-z][a-z\d+.-]*:\/\//iu.test(fileRef)) {
+    throw new Error(`Execution evidence evidence_ref must reference a local file for ${caseId}`);
+  }
+
+  const fragmentParams = new URLSearchParams(fragment);
+  const anchorCaseIds = fragmentParams.getAll('case').map((value) => value.trim());
+  const fragmentKeys = [...fragmentParams.keys()];
+  if (anchorCaseIds.length !== 1
+    || fragmentKeys.length !== 1
+    || fragmentKeys[0] !== 'case'
+    || !anchorCaseIds[0]
+  ) {
+    throw new Error(`Execution evidence evidence_ref must include exactly one #case=${caseId} anchor`);
+  }
+  if (!hashEquals(anchorCaseIds[0], caseId)) {
+    throw new Error(`Execution evidence evidence_ref case anchor mismatch for ${caseId}: ${anchorCaseIds[0]}`);
+  }
+
+  const portableRef = fileRef.replaceAll('\\', '/');
+  const absolutePath = path.resolve(projectRoot, fileRef);
+  const projectRelativePath = path.relative(projectRoot, absolutePath);
+  if (path.isAbsolute(fileRef)
+    || portableRef.startsWith('/')
+    || portableRef.split('/').includes('..')
+    || projectRelativePath === ''
+    || projectRelativePath.startsWith(`..${path.sep}`)
+    || path.isAbsolute(projectRelativePath)
+  ) {
+    throw new Error(`Execution evidence evidence_ref must be project-relative for ${caseId}`);
+  }
+  if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) {
+    throw new Error(`Execution evidence evidence_ref file is missing for ${caseId}: ${fileRef}`);
+  }
+
+  const evidenceBytes = readFileSync(absolutePath);
+  let evidenceDocument;
+  try {
+    evidenceDocument = JSON.parse(evidenceBytes.toString('utf8').replace(/^\uFEFF/u, ''));
+  } catch {
+    throw new Error(`Execution evidence evidence_ref must contain a valid JSON batch for ${caseId}: ${fileRef}`);
+  }
+  if (Number(evidenceDocument?.schema_version) !== 1
+    || evidenceDocument?.audit_date !== auditDate
+    || !Array.isArray(evidenceDocument?.cases)
+  ) {
+    throw new Error(`Execution evidence evidence_ref batch contract is invalid for ${caseId}: ${fileRef}`);
+  }
+
+  const matchingCases = evidenceDocument.cases.filter((entry) => String(entry?.case_id || '').trim() === caseId);
+  if (matchingCases.length !== 1) {
+    throw new Error(`Execution evidence evidence_ref must resolve exactly one batch case for ${caseId}`);
+  }
+  const evidenceCase = matchingCases[0];
+  if (!hashEquals(String(evidenceCase?.scenario_signature || '').trim(), expected.scenarioSignature)) {
+    throw new Error(`Execution evidence batch scenario_signature mismatch for ${caseId}`);
+  }
+  const evidenceStatus = String(evidenceCase?.status || '').trim();
+  if (!hashEquals(evidenceStatus, expected.status)) {
+    throw new Error(`Execution evidence batch status mismatch for ${caseId}`);
+  }
+  const evidenceExitCode = verifiedExitCode(evidenceCase?.exit_code, evidenceStatus, caseId);
+  if (evidenceExitCode !== expected.exitCode) {
+    throw new Error(`Execution evidence batch exit_code mismatch for ${caseId}`);
+  }
+
+  const sha256 = `sha256:${createHash('sha256').update(evidenceBytes).digest('hex')}`;
+  if (expected.expectedSha256 !== undefined) {
+    const suppliedSha256 = String(expected.expectedSha256 || '').trim();
+    if (!/^sha256:[a-f\d]{64}$/u.test(suppliedSha256)) {
+      throw new Error(`Execution evidence evidence_sha256 is invalid for ${caseId}`);
+    }
+    if (!hashEquals(suppliedSha256, sha256)) {
+      throw new Error(`Execution evidence evidence_sha256 mismatch for ${caseId}`);
+    }
+  }
+
+  return { sha256 };
+}
+
+function verifiedExitCode(value, status, caseId) {
+  const exitCode = value === undefined || value === null ? null : value;
+  if (exitCode !== null && !Number.isInteger(exitCode)) {
+    throw new Error(`Execution evidence exit_code must be an integer or null for ${caseId}`);
+  }
+
+  const successful = status === 'pass' || status === 'partial';
+  const inconsistent = (successful && exitCode !== 0)
+    || (status === 'fail' && (exitCode === null || exitCode === 0))
+    || (status === 'not_applicable' && exitCode !== null && exitCode !== 0);
+  if (inconsistent) {
+    throw new Error(`Execution evidence exit_code is inconsistent with status ${status} for ${caseId}`);
+  }
+  return exitCode;
+}
+
+function normalizedAssertions(value, caseId) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`Execution evidence minimum assertion or output summary is required for ${caseId}`);
+  }
+  if (value.some((item) => typeof item !== 'string' || item.trim() === '')) {
+    throw new Error(`Execution evidence minimum assertion or output summary is required for ${caseId}`);
+  }
+  return value.map((item) => item.trim());
+}
+
+function hasMinimumOutputSummary(value) {
+  if (typeof value === 'string') return value.trim() !== '';
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.values(value).some((item) => (
+    (typeof item === 'string' && item.trim() !== '')
+    || (typeof item === 'number' && Number.isFinite(item))
+  ));
+}
+
+function hashEquals(left, right) {
+  const leftBuffer = Buffer.from(String(left), 'utf8');
+  const rightBuffer = Buffer.from(String(right), 'utf8');
+  return leftBuffer.length === rightBuffer.length && leftBuffer.equals(rightBuffer);
+}
+
+function verifyPairwiseCoverage(rows) {
+  const gaps = [];
+  for (let left = 0; left < factorNames.length; left += 1) {
+    for (let right = left + 1; right < factorNames.length; right += 1) {
+      const leftName = factorNames[left];
+      const rightName = factorNames[right];
+      const leftValues = [...new Set(rows.map((row) => row[leftName]))];
+      const rightValues = [...new Set(rows.map((row) => row[rightName]))];
+      const actual = new Set(rows.map((row) => `${row[leftName]}|${row[rightName]}`));
+      for (const leftValue of leftValues) {
+        for (const rightValue of rightValues) {
+          const key = `${leftValue}|${rightValue}`;
+          if (!actual.has(key)) gaps.push(`${leftName}/${rightName}:${key}`);
+        }
+      }
+    }
+  }
+  return gaps;
+}
+
+const pairwiseGaps = verifyPairwiseCoverage(coverageRows);
+const requiredFields = [
+  'id',
+  'base_case_id',
+  'category_code',
+  'priority',
+  'type',
+  'execution_type',
+  'title',
+  'benchmark_basis',
+  'precondition',
+  'steps',
+  'expected',
+  'scenario_signature',
+  'base_assessment_result',
+  'base_assessment_status',
+  'variant_execution_status',
+];
+const hasRequiredValue = (value) => {
+  if (Array.isArray(value)) return value.length > 0 && value.every((item) => typeof item === 'string' && item.trim() !== '');
+  return value !== undefined && value !== null && (typeof value !== 'string' || value.trim() !== '');
+};
+const invalidCases = cases.filter((testCase) => requiredFields.some((field) => !hasRequiredValue(testCase[field])));
+const uniqueIds = new Set(cases.map((testCase) => testCase.id));
+const invalidContinuousIds = cases.filter((testCase, index) => testCase.id !== `DX-${String(index + 1).padStart(4, '0')}`);
+const uniqueScenarioSignatures = new Set(cases.map((testCase) => testCase.scenario_signature));
+const duplicateScenarioSignatures = cases.length - uniqueScenarioSignatures.size;
+const baseCoverage = new Map();
+for (const testCase of cases) baseCoverage.set(testCase.base_case_id, (baseCoverage.get(testCase.base_case_id) ?? 0) + 1);
+const invalidBaseCoverage = [...baseCoverage.entries()].filter(([, count]) => count !== coverageRows.length);
+const categoryCoverage = new Map();
+for (const testCase of cases) categoryCoverage.set(testCase.category_code, (categoryCoverage.get(testCase.category_code) ?? 0) + 1);
+const expectedCategoryCoverage = new Map(sourceAudit.category_summary.map((category) => [category.code, category.total * coverageRows.length]));
+const invalidCategoryCoverage = [...expectedCategoryCoverage.entries()]
+  .filter(([code, expected]) => categoryCoverage.get(code) !== expected)
+  .map(([code, expected]) => ({ code, expected, actual: categoryCoverage.get(code) ?? 0 }));
+const unexpectedCategories = [...categoryCoverage.keys()].filter((code) => !expectedCategoryCoverage.has(code));
+const allowedVariantStatuses = new Set(['not_executed', 'pass', 'partial', 'fail', 'blocked', 'not_applicable']);
+const invalidVariantEvidence = cases.filter((testCase) => {
+  if (!allowedVariantStatuses.has(testCase.variant_execution_status)) return true;
+  if (testCase.variant_execution_status === 'not_executed') {
+    return testCase.variant_execution_evidence !== null || !hasRequiredValue(testCase.pending_execution_note);
+  }
+  return !hasRequiredValue(testCase.variant_execution_evidence) || testCase.pending_execution_note !== null;
+});
+
+if (
+  cases.length !== 4000
+  || uniqueIds.size !== 4000
+  || invalidContinuousIds.length
+  || duplicateScenarioSignatures
+  || invalidCases.length
+  || baseCoverage.size !== baseCases.length
+  || invalidBaseCoverage.length
+  || invalidCategoryCoverage.length
+  || unexpectedCategories.length
+  || invalidVariantEvidence.length
+  || pairwiseGaps.length
+) {
+  throw new Error(JSON.stringify({
+    total: cases.length,
+    unique: uniqueIds.size,
+    invalidContinuousIds: invalidContinuousIds.length,
+    uniqueScenarioSignatures: uniqueScenarioSignatures.size,
+    duplicateScenarioSignatures,
+    invalidCases: invalidCases.length,
+    baseCoverageSize: baseCoverage.size,
+    invalidBaseCoverage,
+    invalidCategoryCoverage,
+    unexpectedCategories,
+    invalidVariantEvidence: invalidVariantEvidence.length,
+    pairwiseGaps,
+  }));
+}
+
+const countBy = (field) => Object.fromEntries(
+  [...new Set(cases.map((testCase) => testCase[field]))]
+    .map((value) => [value, cases.filter((testCase) => testCase[field] === value).length]),
+);
+
+const categorySummary = sourceAudit.category_summary.map((category) => {
+  const rows = cases.filter((testCase) => testCase.category_code === category.code);
+  return {
+    code: category.code,
+    name: category.name,
+    total: rows.length,
+    base_assessment_results: Object.fromEntries(
+      ['pass', 'partial', 'fail', 'blocked', 'not_applicable']
+        .map((result) => [result, rows.filter((testCase) => testCase.base_assessment_result === result).length]),
+    ),
+    variant_execution_statuses: Object.fromEntries(
+      ['not_executed', 'pass', 'partial', 'fail', 'blocked', 'not_applicable']
+        .map((status) => [status, rows.filter((testCase) => testCase.variant_execution_status === status).length]),
+    ),
+  };
+});
+
+const internetSources = [
+  ...sourceAudit.metadata.sources,
+  {
+    name: 'NIST SP 800-142 Practical Combinatorial Testing',
+    use: 'L8/两两交互覆盖的测试设计依据',
+    url: 'https://csrc.nist.gov/pubs/sp/800/142/final',
+  },
+  {
+    name: 'W3C ACT Rules for WCAG 2.2',
+    use: '可访问性规则及通过/失败/不适用样例结构',
+    url: 'https://www.w3.org/WAI/standards-guidelines/act/rules/',
+  },
+  {
+    name: 'Hotel booking demand datasets',
+    use: '真实脱敏酒店 PMS 预订数据的字段、日期、取消和 ADR 语义参照',
+    url: 'https://doi.org/10.1016/j.dib.2018.11.126',
+  },
+  {
+    name: 'JSON Schema Test Suite',
+    use: '结构化测试用例的 schema + tests + valid 组织方式参照',
+    url: 'https://github.com/json-schema-org/JSON-Schema-Test-Suite',
+  },
+];
+
+const summary = {
+  title: '宿析OS 4,000 条软件与酒店运营诊断矩阵',
+  audit_date: auditDate,
+  // Use an audit-snapshot timestamp so the checked-in artifact is byte-stable
+  // across deterministic regeneration on different machines.
+  generated_at: generatedAt,
+  methodology: '500 个互联网标准/行业基线核心场景 × NIST L8 四因子两两组合 = 4,000 条；500 条基线评估只保存在 base_assessment_result，所有没有组合级直接证据的 L8 变体均为 not_executed，不把基线结论传播为变体动态通过。',
+  totals: {
+    cases: cases.length,
+    base_cases: baseCases.length,
+    variants_per_base: coverageRows.length,
+    unique_ids: uniqueIds.size,
+    continuous_ids: cases.length - invalidContinuousIds.length,
+    unique_scenario_signatures: uniqueScenarioSignatures.size,
+    duplicate_scenario_signatures: duplicateScenarioSignatures,
+    definition_validation_passed: cases.length - invalidCases.length,
+    definition_validation_failed: invalidCases.length,
+    invalid_variant_evidence_records: invalidVariantEvidence.length,
+    pairwise_coverage_gaps: pairwiseGaps.length,
+    base_assessment_results: countBy('base_assessment_result'),
+    variant_execution_statuses: countBy('variant_execution_status'),
+    execution_types: countBy('execution_type'),
+    base_evidence_execution_classes: countBy('base_evidence_execution_class'),
+    execution_evidence_records: executionLedger.records.length,
+  },
+  factor_model: {
+    factors: factorNames,
+    rows: coverageRows,
+    pairwise_coverage: pairwiseGaps.length === 0 ? 'complete' : 'incomplete',
+  },
+  category_summary: categorySummary,
+  sources: internetSources,
+  execution_boundary: {
+    matrix_validation: '4,000 条用例定义均已执行结构校验；ID 连续唯一、语义签名唯一、必填字段完整、领域配额正确、每个核心场景 8 个变体完整且两两覆盖无缺口。',
+    variant_execution: 'L8 变体默认 not_executed；只有执行证据账本同时匹配 case_id、scenario_signature、执行状态和证据引用后，才能更新为 pass、partial、fail、blocked 或 not_applicable。',
+    execution_evidence_ledger: path.relative(projectRoot, executionEvidencePath).replaceAll('\\', '/'),
+    base_assessment: 'base_assessment_result 来自 500 条基线资产，只用于排期与上下文参考，不是 L8 变体执行结果。',
+  },
+};
+
+mkdirSync(outputDir, { recursive: true });
+
+const jsonlPath = path.join(outputDir, `hotel_system_4000_diagnostic_cases_${auditDate}.jsonl`);
+writeFileSync(jsonlPath, `${cases.map((testCase) => JSON.stringify(testCase)).join('\n')}\n`, 'utf8');
+
+const resultPath = path.join(outputDir, `hotel_system_4000_diagnostic_results_${auditDate}.json`);
+writeFileSync(resultPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+
+const markdown = [];
+markdown.push('# 宿析OS 4,000 条软件与酒店运营诊断矩阵', '');
+markdown.push(`- 生成日期：${auditDate}`);
+markdown.push('- 设计：500 个核心场景 × NIST L8 四因子两两组合 = 4,000 条。');
+markdown.push('- 四因子：权限范围、数据完整性、数据新鲜度、上游状态。');
+markdown.push(`- 真实性边界：4,000 条均完成用例定义与组合覆盖校验；当前已登记 ${summary.totals.execution_evidence_records} 条组合级直接证据，其余保持 \`not_executed\`；500 条基线评估不能替代变体执行。`, '');
+markdown.push('## 矩阵校验', '');
+markdown.push(`- 用例总数：${summary.totals.cases}`);
+markdown.push(`- 唯一 ID：${summary.totals.unique_ids}`);
+markdown.push(`- 连续 ID：${summary.totals.continuous_ids}`);
+markdown.push(`- 唯一语义签名：${summary.totals.unique_scenario_signatures}`);
+markdown.push(`- 重复语义签名：${summary.totals.duplicate_scenario_signatures}`);
+markdown.push(`- 定义校验通过：${summary.totals.definition_validation_passed}`);
+markdown.push(`- 变体证据状态违规：${summary.totals.invalid_variant_evidence_records}`);
+markdown.push(`- 两两组合覆盖缺口：${summary.totals.pairwise_coverage_gaps}`, '');
+markdown.push('## 变体执行状态（动态结果唯一口径）', '');
+markdown.push('| 状态 | 数量 |', '|---|---:|');
+for (const [status, count] of Object.entries(summary.totals.variant_execution_statuses)) markdown.push(`| ${status} | ${count} |`);
+markdown.push('', '## 500 条基线评估映射（仅参考）', '');
+markdown.push('| 基线结果 | 映射变体数 |', '|---|---:|');
+for (const [result, count] of Object.entries(summary.totals.base_assessment_results)) markdown.push(`| ${result} | ${count} |`);
+markdown.push('', '## 计划执行类型', '');
+markdown.push('| 类型 | 数量 |', '|---|---:|');
+for (const [executionType, count] of Object.entries(summary.totals.execution_types)) markdown.push(`| ${executionType} | ${count} |`);
+markdown.push('', '## 分类结果', '');
+markdown.push('| 分类 | 总数 | 基线通过映射 | 基线部分映射 | 基线失败映射 | 基线阻塞映射 | 基线不适用映射 | 变体未执行 |', '|---|---:|---:|---:|---:|---:|---:|---:|');
+for (const row of categorySummary) {
+  markdown.push(`| ${row.code} ${row.name} | ${row.total} | ${row.base_assessment_results.pass} | ${row.base_assessment_results.partial} | ${row.base_assessment_results.fail} | ${row.base_assessment_results.blocked} | ${row.base_assessment_results.not_applicable} | ${row.variant_execution_statuses.not_executed ?? 0} |`);
+}
+markdown.push('', '## 生成物', '');
+markdown.push(`- 完整 4,000 条 JSONL：\`docs/qa/${path.basename(jsonlPath)}\``);
+markdown.push(`- 汇总 JSON：\`docs/qa/${path.basename(resultPath)}\``);
+markdown.push(`- 生成脚本：\`scripts/${path.basename(fileURLToPath(import.meta.url))}\``);
+
+const summaryPath = path.join(outputDir, `hotel_system_4000_diagnostic_summary_${auditDate}.md`);
+writeFileSync(summaryPath, `${markdown.join('\n')}\n`, 'utf8');
+
+console.log(JSON.stringify({
+  jsonlPath,
+  resultPath,
+  summaryPath,
+  totals: summary.totals,
+}, null, 2));

@@ -52,8 +52,20 @@ export function checkProductionEnvFile({ repoRoot, envFile, requireOutsideRepo }
   const dbHost = env.get('DB_HOST') ?? '';
   const dbPass = env.get('DB_PASS') ?? '';
   const dbUser = env.get('DB_USER') ?? '';
+  const deploymentMode = (env.get('SUXIOS_DEPLOYMENT_MODE') ?? '').toLowerCase();
+  const persistentLocalState = (env.get('SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE') ?? '').toLowerCase();
+  const cachePath = env.get('SUXIOS_CACHE_PATH') ?? '';
+  const lockPath = env.get('SUXIOS_LOCAL_LOCK_PATH') ?? '';
 
-  const placeholderFields = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS', 'AI_CONFIG_SECRET'].filter((field) => {
+  const placeholderFields = [
+    'DB_HOST',
+    'DB_NAME',
+    'DB_USER',
+    'DB_PASS',
+    'AI_CONFIG_SECRET',
+    'SUXIOS_CACHE_PATH',
+    'SUXIOS_LOCAL_LOCK_PATH',
+  ].filter((field) => {
     return isPlaceholder(env.get(field));
   });
   if (placeholderFields.length > 0) {
@@ -86,8 +98,43 @@ export function checkProductionEnvFile({ repoRoot, envFile, requireOutsideRepo }
   if (/^root$/i.test(dbUser.trim())) {
     failures.push('DB_USER must not be root; production must use a least-privilege database user.');
   }
-  if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0|::1)$/i.test(dbHost.trim())) {
-    failures.push('DB_HOST must not point to localhost or loopback for production release evidence.');
+  if (/^0\.0\.0\.0$/i.test(dbHost.trim())) {
+    failures.push('DB_HOST must not use the wildcard listen address 0.0.0.0.');
+  } else if (/^(localhost|127\.0\.0\.1|::1)$/i.test(dbHost.trim())) {
+    if (deploymentMode === 'single_instance') {
+      passes.push('DB_HOST loopback is accepted for the single-host MariaDB deployment.');
+    } else {
+      failures.push('DB_HOST loopback is only valid for the single_instance deployment mode.');
+    }
+  }
+
+  if (deploymentMode === 'single_instance') {
+    passes.push('SUXIOS_DEPLOYMENT_MODE is constrained to single_instance.');
+  } else {
+    failures.push('SUXIOS_DEPLOYMENT_MODE must be single_instance until shared cache and distributed locks are implemented.');
+  }
+  if (persistentLocalState === 'true') {
+    passes.push('Persistent local state is required in production.');
+  } else {
+    failures.push('SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE must be true in production.');
+  }
+
+  for (const [field, value] of [
+    ['SUXIOS_CACHE_PATH', cachePath],
+    ['SUXIOS_LOCAL_LOCK_PATH', lockPath],
+  ]) {
+    if (isPlaceholder(value)) {
+      continue;
+    }
+    if (!path.isAbsolute(value)) {
+      failures.push(`${field} must be an absolute path outside the release directory.`);
+      continue;
+    }
+    if (isPathInsideRepo(repoRoot, value)) {
+      failures.push(`${field} must be outside the repository/release directory.`);
+      continue;
+    }
+    passes.push(`${field} is an absolute external path.`);
   }
 
   return { passes, failures };

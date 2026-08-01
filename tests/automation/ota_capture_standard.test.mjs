@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
   attachOtaCaptureEvidence,
   buildCapturePlan,
   buildCookieInjectionPlan,
+  buildCollectionStrategyEvidence,
   buildOtaCaptureEvidence,
+  buildWebPlatformCaptureEvidence,
   classifyOtaResponse,
   extractOtaRequestDateEvidence,
   normalizeCaptureSections,
+  OTA_DOM_FALLBACK_EVIDENCE,
+  OTA_STRUCTURED_RESPONSE_EVIDENCE,
   parseCookieHeader,
   sanitizeOtaPayloadForStorage,
 } from '../../scripts/lib/ota_capture_standard.mjs';
@@ -17,7 +22,7 @@ test('normalizes OTA capture sections per platform', () => {
   assert.deepEqual(normalizeCaptureSections('meituan', 'flow,order'), ['traffic', 'orders']);
   assert.deepEqual(
     normalizeCaptureSections('meituan', 'businessData,peerRank,flowData,searchKeywords,roomTypes'),
-    ['traffic'],
+    ['traffic', 'room_types'],
   );
   assert.deepEqual(
     normalizeCaptureSections('meituan', 'flowAnalysis,trafficForecast,flowForecast,flowConversion'),
@@ -26,8 +31,8 @@ test('normalizes OTA capture sections per platform', () => {
   assert.deepEqual(normalizeCaptureSections('ctrip', 'business,traffic'), ['business', 'traffic']);
   assert.deepEqual(normalizeCaptureSections('meituan', ''), ['traffic', 'orders']);
   assert.deepEqual(normalizeCaptureSections('meituan', 'comment'), ['reviews']);
-  assert.deepEqual(normalizeCaptureSections('meituan', 'full'), ['traffic', 'orders', 'ads', 'reviews']);
-  assert.deepEqual(normalizeCaptureSections('meituan', 'all'), ['traffic', 'orders', 'ads', 'reviews']);
+  assert.deepEqual(normalizeCaptureSections('meituan', 'full'), ['traffic', 'orders', 'ads', 'reviews', 'room_types']);
+  assert.deepEqual(normalizeCaptureSections('meituan', 'all'), ['traffic', 'orders', 'ads', 'reviews', 'room_types']);
   assert.deepEqual(normalizeCaptureSections('meituan', 'realtime,advertising'), ['traffic', 'ads']);
   assert.deepEqual(normalizeCaptureSections('ctrip', 'review'), ['reviews']);
 });
@@ -125,6 +130,30 @@ test('classifies OTA JSON responses by platform and section', () => {
   });
   assert.equal(asset.capture, false);
   assert.equal(asset.reason, 'non_business_resource');
+
+  const orderIframeDocument = classifyOtaResponse('meituan', 'https://eb.meituan.com/ebooking/order-eb/index.html#/checkin', {
+    status: 200,
+    resourceType: 'document',
+    contentType: 'text/html; charset=utf-8',
+  });
+  assert.equal(orderIframeDocument.capture, false);
+  assert.equal(orderIframeDocument.reason, 'order_json_xhr_required');
+
+  const orderListJson = classifyOtaResponse('meituan', 'https://eb.meituan.com/api/v1/ebooking/orders/list', {
+    status: 200,
+    resourceType: 'xhr',
+    contentType: 'application/json; charset=utf-8',
+  });
+  assert.equal(orderListJson.capture, true);
+  assert.equal(orderListJson.section, 'orders');
+
+  const currentOrderListJson = classifyOtaResponse('meituan', 'https://eb.meituan.com/api/v1/ebooking/orders?startTime=1784390400000&endTime=1784476799999', {
+    status: 200,
+    resourceType: 'xhr',
+    contentType: 'application/json; charset=utf-8',
+  });
+  assert.equal(currentOrderListJson.capture, true);
+  assert.equal(currentOrderListJson.section, 'orders');
 });
 
 test('extracts request date evidence only when the request proves one target date', () => {
@@ -155,6 +184,13 @@ test('extracts request date evidence only when the request proves one target dat
     }),
     { date: '', date_source: '' },
   );
+
+  assert.deepEqual(
+    extractOtaRequestDateEvidence({
+      url: 'https://eb.meituan.com/api/v1/ebooking/orders?startTime=1783699200000&endTime=1783785599999',
+    }),
+    { date: '2026-07-11', date_source: 'request.query.startTime' },
+  );
 });
 
 test('builds complete desensitized capture evidence without raw source URLs', () => {
@@ -172,6 +208,169 @@ test('builds complete desensitized capture evidence without raw source URLs', ()
   assert.match(evidence.source_trace_id, /^meituan:[a-f0-9]{64}$/);
   assert.equal(Object.hasOwn(evidence, 'url'), false);
   assert.equal(Object.hasOwn(evidence, 'source_url'), false);
+});
+
+test('builds one desensitized evidence contract for web PMS and OTA sources', () => {
+  const evidence = buildWebPlatformCaptureEvidence('dingdandao', {
+    url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsTotal?token=secret',
+    section: 'pms_operating',
+    sourcePath: '/v2/um-b/web/pro/data/businessIndicatorsTotal#data',
+    captureSource: 'existing_session_direct_post',
+    sourceKind: 'pms',
+    businessModule: 'accommodation_operating',
+    sourceMethod: 'authorized_browser_endpoint',
+    collectionMode: 'operating_indicators',
+    dataDate: '2026-07-30',
+    providerHotelId: 'provider-hotel-sensitive',
+  });
+
+  assert.equal(evidence.source_kind, 'pms');
+  assert.equal(evidence.business_module, 'accommodation_operating');
+  assert.equal(evidence.source_method, 'authorized_browser_endpoint');
+  assert.equal(evidence.collection_mode, 'operating_indicators');
+  assert.equal(evidence.data_date, '2026-07-30');
+  assert.match(evidence.provider_hotel_id_hash, /^[a-f0-9]{64}$/);
+  assert.match(evidence.source_url_hash, /^[a-f0-9]{64}$/);
+  assert.match(evidence.source_trace_id, /^dingdandao:[a-f0-9]{64}$/);
+  assert.equal(Object.hasOwn(evidence, 'capture_strategy'), false);
+  assert.doesNotMatch(
+    JSON.stringify(evidence),
+    /provider-hotel-sensitive|token=secret|https:\/\//,
+  );
+});
+
+test('records explicit endpoint, browser-response, and DOM fallback strategies', () => {
+  const endpoint = buildCollectionStrategyEvidence({
+    captureStrategy: 'verified_endpoint_recipe',
+    responseEvidenceType: 'structured_json',
+    recipeIds: ['identity', 'daily_core'],
+  });
+  assert.equal(endpoint.capture_strategy, 'verified_endpoint_recipe');
+  assert.equal(endpoint.fallback_from, null);
+  assert.equal(endpoint.fallback_reason, null);
+  assert.equal(endpoint.response_evidence_type, 'structured_json');
+  assert.equal(endpoint.recipe_count, 2);
+  assert.match(endpoint.recipe_plan_hash, /^[a-f0-9]{64}$/);
+
+  const browser = buildCollectionStrategyEvidence({
+    captureStrategy: 'browser_response',
+    fallbackFrom: 'verified_endpoint_recipe',
+    fallbackReason: 'endpoint_not_hit',
+  });
+  assert.equal(browser.capture_strategy, 'browser_response');
+  assert.equal(browser.fallback_from, 'verified_endpoint_recipe');
+  assert.equal(browser.fallback_reason, 'endpoint_not_hit');
+  assert.equal(browser.response_evidence_type, 'structured_json');
+
+  const dom = buildCollectionStrategyEvidence({
+    captureStrategy: 'dom_fallback',
+    fallbackFrom: 'browser_response',
+    fallbackReason: 'schema_changed',
+  });
+  assert.equal(dom.capture_strategy, 'dom_fallback');
+  assert.equal(dom.response_evidence_type, 'dom_fields');
+});
+
+test('shares one explicit structured-response versus DOM-fallback evidence rule', () => {
+  const structured = buildOtaCaptureEvidence('ctrip', {
+    ...OTA_STRUCTURED_RESPONSE_EVIDENCE,
+    url: 'https://ebooking.ctrip.com/api/traffic',
+    section: 'traffic',
+    sourcePath: 'data.rows.0',
+    captureSource: 'xhr:traffic',
+  });
+  assert.equal(structured.capture_strategy, 'browser_response');
+  assert.equal(structured.response_evidence_type, 'structured_json');
+  assert.equal(structured.fallback_from, null);
+
+  const dom = buildOtaCaptureEvidence('meituan', {
+    ...OTA_DOM_FALLBACK_EVIDENCE,
+    url: 'https://eb.meituan.com/ebooking/traffic',
+    section: 'traffic',
+    sourcePath: 'dom.traffic.cards.0',
+    captureSource: 'dom:traffic',
+  });
+  assert.equal(dom.capture_strategy, 'dom_fallback');
+  assert.equal(dom.response_evidence_type, 'dom_fields');
+  assert.equal(dom.fallback_from, 'browser_response');
+  assert.equal(dom.fallback_reason, 'structured_response_unavailable');
+  assert.notEqual(dom.source_trace_id, structured.source_trace_id);
+});
+
+test('Ctrip and Meituan collectors persist the shared rule at each capture boundary', () => {
+  const ctrip = readFileSync(
+    new URL('../../scripts/ctrip_browser_capture.mjs', import.meta.url),
+    'utf8',
+  );
+  const ctripResponseBlock = ctrip.slice(
+    ctrip.indexOf('function registerResponseCapture'),
+    ctrip.indexOf('function normalizeRows'),
+  );
+  const ctripAttachBlock = ctrip.slice(
+    ctrip.indexOf('function attachCtripCaptureEvidence'),
+    ctrip.indexOf('function normalizeGenericList'),
+  );
+  assert.match(ctripResponseBlock, /\.\.\.OTA_STRUCTURED_RESPONSE_EVIDENCE/);
+  assert.match(ctripAttachBlock, /\.\.\.OTA_STRUCTURED_RESPONSE_EVIDENCE/);
+
+  const meituan = readFileSync(
+    new URL('../../scripts/meituan_browser_capture.mjs', import.meta.url),
+    'utf8',
+  );
+  const responseBlock = meituan.slice(
+    meituan.indexOf('async function captureMeituanResponse'),
+    meituan.indexOf('function normalizeCapturedList'),
+  );
+  const domBlock = meituan.slice(
+    meituan.indexOf('async function collectDomFallback'),
+    meituan.indexOf('async function collectMeituanOrderDomAggregate'),
+  );
+  const orderDomBlock = meituan.slice(
+    meituan.indexOf('async function collectMeituanOrderDomAggregate'),
+    meituan.indexOf('function findMeituanOrderIframe'),
+  );
+  assert.match(responseBlock, /\.\.\.OTA_STRUCTURED_RESPONSE_EVIDENCE/);
+  assert.doesNotMatch(responseBlock, /\.\.\.OTA_DOM_FALLBACK_EVIDENCE/);
+  assert.match(domBlock, /\.\.\.OTA_DOM_FALLBACK_EVIDENCE/);
+  assert.doesNotMatch(domBlock, /\.\.\.OTA_STRUCTURED_RESPONSE_EVIDENCE/);
+  assert.match(orderDomBlock, /\.\.\.OTA_DOM_FALLBACK_EVIDENCE/);
+  assert.doesNotMatch(orderDomBlock, /\.\.\.OTA_STRUCTURED_RESPONSE_EVIDENCE/);
+});
+
+test('rejects silent or sensitive strategy fallback and binds strategy into trace', () => {
+  assert.throws(
+    () => buildCollectionStrategyEvidence({
+      captureStrategy: 'dom_fallback',
+    }),
+    /web_capture_strategy_fallback_invalid/,
+  );
+  assert.throws(
+    () => buildCollectionStrategyEvidence({
+      captureStrategy: 'browser_response',
+      fallbackFrom: 'verified_endpoint_recipe',
+      fallbackReason: 'token_expired',
+    }),
+    /web_capture_strategy_fallback_invalid/,
+  );
+
+  const base = {
+    url: 'https://example.test/api/data',
+    section: 'traffic',
+    sourcePath: 'data.rows',
+    captureSource: 'authorized_response',
+  };
+  const endpoint = buildWebPlatformCaptureEvidence('example', {
+    ...base,
+    captureStrategy: 'verified_endpoint_recipe',
+    recipeIds: ['daily_core'],
+  });
+  const browser = buildWebPlatformCaptureEvidence('example', {
+    ...base,
+    captureStrategy: 'browser_response',
+    fallbackFrom: 'verified_endpoint_recipe',
+    fallbackReason: 'endpoint_not_hit',
+  });
+  assert.notEqual(endpoint.source_trace_id, browser.source_trace_id);
 });
 
 test('attaches row-level complete capture evidence and removes raw URL aliases', () => {
@@ -227,6 +426,8 @@ test('sanitizes order payloads before capture output is written', () => {
       Cookie: 'session=secret-cookie',
       Authorization: 'Bearer secret-token',
     },
+    spiderkey: 'dynamic-spider-secret',
+    fingerPrintKeys: 'dynamic-fingerprint-secret',
   }, 'orders');
 
   const encoded = JSON.stringify(sanitized);
@@ -238,6 +439,8 @@ test('sanitizes order payloads before capture output is written', () => {
   assert.equal(encoded.includes('late arrival'), false);
   assert.equal(encoded.includes('secret-cookie'), false);
   assert.equal(encoded.includes('secret-token'), false);
+  assert.equal(encoded.includes('dynamic-spider-secret'), false);
+  assert.equal(encoded.includes('dynamic-fingerprint-secret'), false);
   assert.match(sanitized.data.orderList[0].order_id_hash, /^[a-f0-9]{64}$/);
   assert.equal(sanitized.data.orderList[0].guest_name_masked, 'A***');
   assert.equal(sanitized.data.orderList[0].guest_phone_masked, '*******5678');

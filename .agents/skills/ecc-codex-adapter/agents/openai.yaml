@@ -3,4 +3,4 @@ display_name: "ECC Codex 适配器"
 short_description: "将已下载的 ECC 资产受控适配到宿析OS Codex 使用"
 default_prompt: "处理 ECC、Everything Claude Code、Claude Code 工作流资产或宿析OS Codex 插件适配时使用 $ecc-codex-adapter。"
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

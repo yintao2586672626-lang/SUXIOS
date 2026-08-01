@@ -1,0 +1,11 @@
+[Unit]
+Description=Start SUXIOS cloud OTA yesterday final collection once each morning
+
+[Timer]
+OnCalendar=*-*-* 08:30:00 Asia/Shanghai
+RandomizedDelaySec=0
+Persistent=false
+Unit=suxios-cloud-ota-daily.service
+
+[Install]
+WantedBy=timers.target

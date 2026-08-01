@@ -1,0 +1,4038 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-07-15",
+  "records": [
+    {
+      "case_id": "DX-0097",
+      "scenario_signature": "sha256:1c1b4dc273263bff520141271563a0f21e1fc3ed9cd18e061882e1c5f127b4f8",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:46.795Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-0097",
+      "assertions": [
+        "phpunit_filter=testTc013SuccessfulPasswordChangeRevokesEveryPreChangeSession@DX-0097 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=30",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 30,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0098",
+      "scenario_signature": "sha256:d15d77e1d66f4993f0c26094caa5b78b7415e4694294e79781611fc85959dafb",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:47.639Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-0098",
+      "assertions": [
+        "phpunit_filter=testTc013SuccessfulPasswordChangeRevokesEveryPreChangeSession@DX-0098 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=26",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 26,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0099",
+      "scenario_signature": "sha256:747497f72b68dee412838db495df0cd50a20ce61293af9799db61310804bf01e",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:48.310Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-0099",
+      "assertions": [
+        "phpunit_filter=testTc013SuccessfulPasswordChangeRevokesEveryPreChangeSession@DX-0099 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=26",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 26,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0100",
+      "scenario_signature": "sha256:6503d095c3ad30b1e0251969406ef86a8b69219400f2d592aeada72597d7749a",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:48.882Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-0100",
+      "assertions": [
+        "phpunit_filter=testTc013SuccessfulPasswordChangeRevokesEveryPreChangeSession@DX-0100 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=26",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 26,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0101",
+      "scenario_signature": "sha256:2624ea130bfce362171fc526ad7d081ce14b0762dfa624996ba4b26d8a438372",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:49.523Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-0101",
+      "assertions": [
+        "phpunit_filter=testTc013SuccessfulPasswordChangeRevokesEveryPreChangeSession@DX-0101 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=30",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 30,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0102",
+      "scenario_signature": "sha256:8338e2aeb1a9bc277bbcc9944c5bd7c202efdf871f047ba9e5a1e17ef70271a6",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:50.186Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-0102",
+      "assertions": [
+        "phpunit_filter=testTc013SuccessfulPasswordChangeRevokesEveryPreChangeSession@DX-0102 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=30",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 30,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0103",
+      "scenario_signature": "sha256:b56c3cd2ca06425551ae071902c635ec295bff3821b96b3c25d50a926f37a84d",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:50.878Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-0103",
+      "assertions": [
+        "phpunit_filter=testTc013SuccessfulPasswordChangeRevokesEveryPreChangeSession@DX-0103 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=30",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 30,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0104",
+      "scenario_signature": "sha256:504406a2fd131b982f26f7e396011b80a1994e2c00f73b888162c2afc606272e",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:51.514Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-0104",
+      "assertions": [
+        "phpunit_filter=testTc013SuccessfulPasswordChangeRevokesEveryPreChangeSession@DX-0104 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=30",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 30,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0825",
+      "scenario_signature": "sha256:c6a110c61553fda27d90b4b92b17ce5e71cddf285bc5f85933ea38dd8d4be699",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:03.792Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-0825",
+      "assertions": [
+        "phpunit_filter=DX-0825",
+        "phpunit_tests=1",
+        "phpunit_assertions=12",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0826",
+      "scenario_signature": "sha256:599bbce79969071b88de56a2d9d275357958cfb16639ab3346b7b4866c18e025",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:03.951Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-0826",
+      "assertions": [
+        "phpunit_filter=DX-0826",
+        "phpunit_tests=1",
+        "phpunit_assertions=12",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0827",
+      "scenario_signature": "sha256:a8d178142a2fc43f7860ce7e918a9ea32022c2e5c54697b150954749a7784a53",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:04.107Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-0827",
+      "assertions": [
+        "phpunit_filter=DX-0827",
+        "phpunit_tests=1",
+        "phpunit_assertions=12",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0828",
+      "scenario_signature": "sha256:77a0cf2326261224371503b87fb33ba720ea8e8213f8ca35c0891e2f4356fcdc",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:04.299Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-0828",
+      "assertions": [
+        "phpunit_filter=DX-0828",
+        "phpunit_tests=1",
+        "phpunit_assertions=12",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0829",
+      "scenario_signature": "sha256:ce92f4c25311f4e2120bd9f656c86d4d19fa013b164cf90e8d061fbdd7b9d2e8",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:04.528Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-0829",
+      "assertions": [
+        "phpunit_filter=DX-0829",
+        "phpunit_tests=1",
+        "phpunit_assertions=12",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0830",
+      "scenario_signature": "sha256:a912b917d111ac6c89d9fa58607a0b4d8f4edbea4c37f95a0b3edb9e53195f3f",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:04.750Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-0830",
+      "assertions": [
+        "phpunit_filter=DX-0830",
+        "phpunit_tests=1",
+        "phpunit_assertions=12",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0831",
+      "scenario_signature": "sha256:88efbec26a978c29e290d75f15073395dfda5ce463b6711ff1c8429d719a3517",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:04.986Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-0831",
+      "assertions": [
+        "phpunit_filter=DX-0831",
+        "phpunit_tests=1",
+        "phpunit_assertions=12",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-0832",
+      "scenario_signature": "sha256:43cd0927e5bf52595375d84e7e1ecdb22bf5d203a5142a3a93632b6b0f556682",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:05.194Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-0832",
+      "assertions": [
+        "phpunit_filter=DX-0832",
+        "phpunit_tests=1",
+        "phpunit_assertions=12",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1153",
+      "scenario_signature": "sha256:dd60eba6fdf6b7c9024c87f869f8cbf2ea171cb2123295db4a39b87b8a1ad0bd",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:27.386Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1153",
+      "assertions": [
+        "phpunit_filter=testTc145L8PreflightAndSyncBoundaries@DX-1153 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=31",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 31,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1154",
+      "scenario_signature": "sha256:c7280da7e0b4d29b46c08f045b5d2a7f8104ccc7abf701b0aba2008aff9e05cb",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:27.724Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1154",
+      "assertions": [
+        "phpunit_filter=testTc145L8PreflightAndSyncBoundaries@DX-1154 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=21",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 21,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1155",
+      "scenario_signature": "sha256:cbe064a150e11d5d8663bec8db96549f2039e2a8e90251ad6fa7437816ce3fcc",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:28.058Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1155",
+      "assertions": [
+        "phpunit_filter=testTc145L8PreflightAndSyncBoundaries@DX-1155 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=21",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 21,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1156",
+      "scenario_signature": "sha256:1d03cda85da5da9c13954c101b7082aceef931f5528ecb0f59fe4f321d14090a",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:28.409Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1156",
+      "assertions": [
+        "phpunit_filter=testTc145L8PreflightAndSyncBoundaries@DX-1156 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=33",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 33,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1157",
+      "scenario_signature": "sha256:b9f5accb9c30da382d9d858251fdce53df52feeaf87fb4e868b8ddb29266def9",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:28.731Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1157",
+      "assertions": [
+        "phpunit_filter=testTc145L8PreflightAndSyncBoundaries@DX-1157 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=13",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1158",
+      "scenario_signature": "sha256:897a50c4ba13b579637119c9890a4e6f48df571a4357e01deed18356f0cbb050",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:29.077Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1158",
+      "assertions": [
+        "phpunit_filter=testTc145L8PreflightAndSyncBoundaries@DX-1158 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=13",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1159",
+      "scenario_signature": "sha256:a446fceee2fe7fe5618419df7662c08ebe47da9503dae32d303ba94a6b6abf55",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:29.539Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1159",
+      "assertions": [
+        "phpunit_filter=testTc145L8PreflightAndSyncBoundaries@DX-1159 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=13",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1160",
+      "scenario_signature": "sha256:3717543533f8edb0a42843853e116da2f5d0c68de8ca96b357e3c7bfaa9d32e2",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:29.899Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1160",
+      "assertions": [
+        "phpunit_filter=testTc145L8PreflightAndSyncBoundaries@DX-1160 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=13",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1249",
+      "scenario_signature": "sha256:a104c63e73c6042373cc04004813eea656ad9c83ba2d2a8f116e551a39458c55",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:30.106Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1249",
+      "assertions": [
+        "phpunit_filter=testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1249 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1250",
+      "scenario_signature": "sha256:ac8d0725b32b61147defb135c0fd2ee5eb42472b266d592a1faa39c5d54486fe",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:30.282Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1250",
+      "assertions": [
+        "phpunit_filter=testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1250 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1251",
+      "scenario_signature": "sha256:d858f6c4fb63ecfa3abd61ada22ae3fb81b23780b10c30da8244724c323fbd05",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:30.459Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1251",
+      "assertions": [
+        "phpunit_filter=testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1251 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1252",
+      "scenario_signature": "sha256:15faeab204bab05c219c6b3dca957a80bf9526882f0f07694426b8439f389806",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:30.666Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1252",
+      "assertions": [
+        "phpunit_filter=testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1252 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1253",
+      "scenario_signature": "sha256:539d43420860f1d83820040f1571cd0041020e91dd53f0597d643dd205c38c92",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:30.871Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1253",
+      "assertions": [
+        "phpunit_filter=testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1253 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1254",
+      "scenario_signature": "sha256:9322c93c04fc7ef53fedf2a3b92e9536dee43aed66d131fe243ef4e89b86b3a3",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:31.056Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1254",
+      "assertions": [
+        "phpunit_filter=testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1254 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1255",
+      "scenario_signature": "sha256:fea7357202a9d3f77e94968312759ae09048ad063c5a3d9da5d9620197e5a0a1",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:31.239Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1255",
+      "assertions": [
+        "phpunit_filter=testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1255 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1256",
+      "scenario_signature": "sha256:3eee4f66bcc3d72e087d42b4da1a9aa4775c02f15fc85302e6a295616d61d13f",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:31.406Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1256",
+      "assertions": [
+        "phpunit_filter=testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1256 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1593",
+      "scenario_signature": "sha256:1e742cc2cf70587888aeeff5642e21e31282698d52a83d952a93738075d6fb98",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:57.374Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1593",
+      "assertions": [
+        "phpunit_filter=testTc200L8ImportAtomicityAndRecovery@DX-1593 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=22",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 22,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1594",
+      "scenario_signature": "sha256:02b3f7359f50c9fdd0372ddb3ab0cd58365ca27297ac211a4ab666f864005560",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:57.659Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1594",
+      "assertions": [
+        "phpunit_filter=testTc200L8ImportAtomicityAndRecovery@DX-1594 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1595",
+      "scenario_signature": "sha256:075143d5f720365ee74a903b5246c3ebe76299e0ac7f21711518fca20297ffd2",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:57.922Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1595",
+      "assertions": [
+        "phpunit_filter=testTc200L8ImportAtomicityAndRecovery@DX-1595 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1596",
+      "scenario_signature": "sha256:6d7661eeaf17ad14f9023725daaa3d9031c0353ef357e906c20123494c395811",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:58.458Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1596",
+      "assertions": [
+        "phpunit_filter=testTc200L8ImportAtomicityAndRecovery@DX-1596 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=22",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 22,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1597",
+      "scenario_signature": "sha256:13186e65fe1271fce786786dd794ffa4e9b1c6465dbfe011a7ca41a988938ca2",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:58.728Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1597",
+      "assertions": [
+        "phpunit_filter=testTc200L8ImportAtomicityAndRecovery@DX-1597 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1598",
+      "scenario_signature": "sha256:7f4e24ed58c8decfcb95fa8881f88d4d67b7d05ba70b3c52132023e872ad2a70",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:59.023Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1598",
+      "assertions": [
+        "phpunit_filter=testTc200L8ImportAtomicityAndRecovery@DX-1598 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1599",
+      "scenario_signature": "sha256:8ad3ba8f7b1bcd06745868fa5e9dcb0c41ceef4a4259bb3e34abac394ad0faf5",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:59.321Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1599",
+      "assertions": [
+        "phpunit_filter=testTc200L8ImportAtomicityAndRecovery@DX-1599 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1600",
+      "scenario_signature": "sha256:d774a89d5b61560a8f82b7d60d5e05c7efdbb3ee4425a82a9a160ab6c28437a6",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:59.624Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1600",
+      "assertions": [
+        "phpunit_filter=testTc200L8ImportAtomicityAndRecovery@DX-1600 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1689",
+      "scenario_signature": "sha256:2f0674d9f7c96b903ece223a3ec70428bb5a9826be4420473946f73214614274",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:31.565Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1689",
+      "assertions": [
+        "phpunit_filter=testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1689",
+        "phpunit_tests=1",
+        "phpunit_assertions=23",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 23,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1690",
+      "scenario_signature": "sha256:6bc7eec2336d132225f3b3ae100d507e4fdd979fce04c83efeb1b61f513f9074",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:31.719Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1690",
+      "assertions": [
+        "phpunit_filter=testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1690",
+        "phpunit_tests=1",
+        "phpunit_assertions=24",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1691",
+      "scenario_signature": "sha256:0dd26c09671f2754714e01b14c52019e7cd43f660db814c5ee8f194ff98fa371",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:31.894Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1691",
+      "assertions": [
+        "phpunit_filter=testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1691",
+        "phpunit_tests=1",
+        "phpunit_assertions=25",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 25,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1692",
+      "scenario_signature": "sha256:6157af29faeca0de14bd68700c2c9a41015cb66513afc08275ebf9ecefc55ddc",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:32.105Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1692",
+      "assertions": [
+        "phpunit_filter=testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1692",
+        "phpunit_tests=1",
+        "phpunit_assertions=24",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1693",
+      "scenario_signature": "sha256:a6cbb755ff997941831c1219ba42a8e3c92d59fdeb9b679a5814057b968465cf",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:32.297Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1693",
+      "assertions": [
+        "phpunit_filter=testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1693",
+        "phpunit_tests=1",
+        "phpunit_assertions=24",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1694",
+      "scenario_signature": "sha256:d0be43dc83596f691d5926a33a593fdda8a5428633f69fc8624e4cf69c4b3b46",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:32.495Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1694",
+      "assertions": [
+        "phpunit_filter=testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1694",
+        "phpunit_tests=1",
+        "phpunit_assertions=23",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 23,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1695",
+      "scenario_signature": "sha256:996d8da6244ae5714adcff1c5db282aea7462981ee969560c1df924d89a94538",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:32.674Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1695",
+      "assertions": [
+        "phpunit_filter=testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1695",
+        "phpunit_tests=1",
+        "phpunit_assertions=24",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1696",
+      "scenario_signature": "sha256:aa9178b306f55d5433dadd1aae45a9c37d66bf2bdfa38e999758b4fa55eb39a6",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:32.836Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+      "evidence_ref": "docs/qa/hotel_system_4000_first_l8_batch_execution_2026-07-15.json#case=DX-1696",
+      "assertions": [
+        "phpunit_filter=testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1696",
+        "phpunit_tests=1",
+        "phpunit_assertions=25",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 25,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1905",
+      "scenario_signature": "sha256:a9224eed7ef7118cd56b2b483940758271cb9fba239d11dcaec87a6ecbb3f28c",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:59.843Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1905",
+      "assertions": [
+        "phpunit_filter=testTc239ReviewPiiSanitizationAndQualityGuards@DX-1905 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=16",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1906",
+      "scenario_signature": "sha256:f6fe2965f59eaef950485c33b21b6493ab05ebb01be62cd9d4af4d2dd9ebd7e8",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:00.036Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1906",
+      "assertions": [
+        "phpunit_filter=testTc239ReviewPiiSanitizationAndQualityGuards@DX-1906 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1907",
+      "scenario_signature": "sha256:6a21e204de066d4aef90f98596d37f8706d232200206ea96fd3b13801e7cd3f3",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:00.253Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1907",
+      "assertions": [
+        "phpunit_filter=testTc239ReviewPiiSanitizationAndQualityGuards@DX-1907 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1908",
+      "scenario_signature": "sha256:c2e450a3725985aee694b0d19b3986dc32acf69a21472ab6015889168e27d7f5",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:00.494Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1908",
+      "assertions": [
+        "phpunit_filter=testTc239ReviewPiiSanitizationAndQualityGuards@DX-1908 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=12",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1909",
+      "scenario_signature": "sha256:8fc20e6bc14f249a34f1508ba0059682cb05aa5b32f17c3353150cde4545a4be",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:00.755Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1909",
+      "assertions": [
+        "phpunit_filter=testTc239ReviewPiiSanitizationAndQualityGuards@DX-1909 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=6",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1910",
+      "scenario_signature": "sha256:0ab0e01fcf97fdca6dde20943f32718cfbfd85407e900e177d2294953e06a7ab",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:01.075Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1910",
+      "assertions": [
+        "phpunit_filter=testTc239ReviewPiiSanitizationAndQualityGuards@DX-1910 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=6",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1911",
+      "scenario_signature": "sha256:8bae69e1c5d6586ff9f6f3c73f4718f2e402b0f404857ba650ce88781b17f1cd",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:01.326Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1911",
+      "assertions": [
+        "phpunit_filter=testTc239ReviewPiiSanitizationAndQualityGuards@DX-1911 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=6",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-1912",
+      "scenario_signature": "sha256:ee89f49272fe888e103d2c3779a3c6081d9ed16eb1028a97f0092aa0e4957a5a",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:01.582Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-1912",
+      "assertions": [
+        "phpunit_filter=testTc239ReviewPiiSanitizationAndQualityGuards@DX-1912 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=6",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2137",
+      "scenario_signature": "sha256:2c500e10ac4b331a02679bc09cfac3e1a1f80dac5a09786d1de1809e05beb5c8",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:33.237Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2137",
+      "assertions": [
+        "phpunit_filter=testTc268KeepsRevenueAiEvidenceInsideTheOtaChannelBoundary@DX-2137",
+        "phpunit_tests=1",
+        "phpunit_assertions=36",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 36,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2138",
+      "scenario_signature": "sha256:76631a971dc78a5060e2cfd848eb695d7fbb1525f26a2f015af64789457da912",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:33.435Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2138",
+      "assertions": [
+        "phpunit_filter=testTc268KeepsRevenueAiEvidenceInsideTheOtaChannelBoundary@DX-2138",
+        "phpunit_tests=1",
+        "phpunit_assertions=41",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 41,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2139",
+      "scenario_signature": "sha256:85e83b1fcb1c113754b15515ee8329a5582a2afe1b4d0f89acc30c002687784d",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:33.679Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2139",
+      "assertions": [
+        "phpunit_filter=testTc268KeepsRevenueAiEvidenceInsideTheOtaChannelBoundary@DX-2139",
+        "phpunit_tests=1",
+        "phpunit_assertions=42",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 42,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2140",
+      "scenario_signature": "sha256:9673e2602223cd180fe2e563dd4db56e677e5a11d9e5415baf7fbe5fe0209ae1",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:33.926Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2140",
+      "assertions": [
+        "phpunit_filter=testTc268KeepsRevenueAiEvidenceInsideTheOtaChannelBoundary@DX-2140",
+        "phpunit_tests=1",
+        "phpunit_assertions=42",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 42,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2141",
+      "scenario_signature": "sha256:b750ff68fddab6c90e676423f40d365e4342200cd22ec25d815a6624b0ce822d",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:34.216Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2141",
+      "assertions": [
+        "phpunit_filter=testTc268KeepsRevenueAiEvidenceInsideTheOtaChannelBoundary@DX-2141",
+        "phpunit_tests=1",
+        "phpunit_assertions=45",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 45,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2142",
+      "scenario_signature": "sha256:e9b8c31b3b4d02c354f9287df91ac86e1431c72e664cd4c634bd19802d58b772",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:34.520Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2142",
+      "assertions": [
+        "phpunit_filter=testTc268KeepsRevenueAiEvidenceInsideTheOtaChannelBoundary@DX-2142",
+        "phpunit_tests=1",
+        "phpunit_assertions=45",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 45,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2143",
+      "scenario_signature": "sha256:a3835e5a0b5dbe6d58c0586462e6bb07fc68234ae64a7bb76187e9f828d38eb0",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:34.777Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2143",
+      "assertions": [
+        "phpunit_filter=testTc268KeepsRevenueAiEvidenceInsideTheOtaChannelBoundary@DX-2143",
+        "phpunit_tests=1",
+        "phpunit_assertions=46",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 46,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2144",
+      "scenario_signature": "sha256:ca2f7ae335c1944e5bffab5f7a24f6bc6292eb41becad358961d8c145edf8e25",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:35.040Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2144",
+      "assertions": [
+        "phpunit_filter=testTc268KeepsRevenueAiEvidenceInsideTheOtaChannelBoundary@DX-2144",
+        "phpunit_tests=1",
+        "phpunit_assertions=48",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 48,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2153",
+      "scenario_signature": "sha256:84ec24a473b15f96c96316b3cfbdf63a8ca1079a698743d84523c66387bc6a3d",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:51.691Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2153",
+      "assertions": [
+        "phpunit_filter=testTc270MinimizesPiiBeforeLlmMessages@DX-2153 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=16",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2154",
+      "scenario_signature": "sha256:630990713e5daadc91864757ae252332ab14f6af3fc7c44cf846b072de0e7d02",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:51.925Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2154",
+      "assertions": [
+        "phpunit_filter=testTc270MinimizesPiiBeforeLlmMessages@DX-2154 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=15",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2155",
+      "scenario_signature": "sha256:0bc9bceea9c45e6bffcc86829b421dfdc28bdf8d1dfcc207293db7478fcf984c",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:52.121Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2155",
+      "assertions": [
+        "phpunit_filter=testTc270MinimizesPiiBeforeLlmMessages@DX-2155 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=15",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2156",
+      "scenario_signature": "sha256:77594c5462cba3c3a598bc12d2cd3f0d657950cb24c2b36b389d3f1365813863",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:52.414Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2156",
+      "assertions": [
+        "phpunit_filter=testTc270MinimizesPiiBeforeLlmMessages@DX-2156 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=15",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2157",
+      "scenario_signature": "sha256:e149c0e6d93360687269d208eb06b362a61ed2f7e83c7629fb69cac468e87dfc",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:52.898Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2157",
+      "assertions": [
+        "phpunit_filter=testTc270MinimizesPiiBeforeLlmMessages@DX-2157 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=13",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2158",
+      "scenario_signature": "sha256:ca9970d43076298f085cd88c4bd3a7651106924dd22667028f529a8672d816fb",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:53.274Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2158",
+      "assertions": [
+        "phpunit_filter=testTc270MinimizesPiiBeforeLlmMessages@DX-2158 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=13",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2159",
+      "scenario_signature": "sha256:94e7f4ddff1ac886a599d60341175b1b906cb793754c2f8a684bbb24d9a793fc",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:53.564Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2159",
+      "assertions": [
+        "phpunit_filter=testTc270MinimizesPiiBeforeLlmMessages@DX-2159 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=13",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2160",
+      "scenario_signature": "sha256:90aec189b45a3fc96463a993ee7e3918504c2653fb9fd95d5bd24db12484f046",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:53.821Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2160",
+      "assertions": [
+        "phpunit_filter=testTc270MinimizesPiiBeforeLlmMessages@DX-2160 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=13",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2201",
+      "scenario_signature": "sha256:043ad997e2cb25341d0a88d308db2b7d10f1fd8edab568a9a47115ec73166b33",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:35.312Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2201",
+      "assertions": [
+        "phpunit_filter=testTc276BuildsTruthfulOperationIntentFromDiagnosis@DX-2201 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=20",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 20,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2202",
+      "scenario_signature": "sha256:7c9ef1331a7dd5dadaca0c8c0319f530acfa2eee4ec35341b467943bbb1adf43",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:35.534Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2202",
+      "assertions": [
+        "phpunit_filter=testTc276BuildsTruthfulOperationIntentFromDiagnosis@DX-2202 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=20",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 20,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2203",
+      "scenario_signature": "sha256:67cc547ccaa8a73486f63b1ad31aa89dc21593b66380a43c98041df35f6d2aca",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:35.740Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2203",
+      "assertions": [
+        "phpunit_filter=testTc276BuildsTruthfulOperationIntentFromDiagnosis@DX-2203 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=19",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2204",
+      "scenario_signature": "sha256:2d7d95d41344203d10e7341d6fc8a2dcfd51effca49734f8df42a885214f5701",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:36.002Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2204",
+      "assertions": [
+        "phpunit_filter=testTc276BuildsTruthfulOperationIntentFromDiagnosis@DX-2204 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=19",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2205",
+      "scenario_signature": "sha256:8ec35ed3f0223ab2ca1b33c2050864c48e94a64be190defa4eb74339a02dc6ee",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:36.279Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2205",
+      "assertions": [
+        "phpunit_filter=testTc276BuildsTruthfulOperationIntentFromDiagnosis@DX-2205 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=4",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2206",
+      "scenario_signature": "sha256:81613b5652de0a62c33c66689fc3a0b8c53de0cf1c5e18d467669d2871095c12",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:36.560Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2206",
+      "assertions": [
+        "phpunit_filter=testTc276BuildsTruthfulOperationIntentFromDiagnosis@DX-2206 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=4",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2207",
+      "scenario_signature": "sha256:7a171c84df45abf9aadc2c6d309b9163429378f476e033760b0e3162036c7361",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:36.762Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2207",
+      "assertions": [
+        "phpunit_filter=testTc276BuildsTruthfulOperationIntentFromDiagnosis@DX-2207 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=4",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2208",
+      "scenario_signature": "sha256:dd1e3b3acbdd98650656698b1c81084a16075ffc39a7ba8cba8953e8b8dffc34",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:36.952Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2208",
+      "assertions": [
+        "phpunit_filter=testTc276BuildsTruthfulOperationIntentFromDiagnosis@DX-2208 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=4",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2257",
+      "scenario_signature": "sha256:4a4a60fca0e08f5f92ea9ac63f9028055f10d631323f7b729a2744963b6d9579",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:39.104Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2257",
+      "assertions": [
+        "phpunit_filter=testTc283OperationApprovalRequiresAllFourGuards@DX-2257 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=40",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 40,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2258",
+      "scenario_signature": "sha256:14e533ef1168e000c8437fe3ed3bcccc84a6c472742a4a723aded053d0609286",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:39.387Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2258",
+      "assertions": [
+        "phpunit_filter=testTc283OperationApprovalRequiresAllFourGuards@DX-2258 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=36",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 36,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2259",
+      "scenario_signature": "sha256:871539b260a071ec6fae47526839ba628a382169fa1e3d083776aa3e3097758f",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:39.658Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2259",
+      "assertions": [
+        "phpunit_filter=testTc283OperationApprovalRequiresAllFourGuards@DX-2259 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=36",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 36,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2260",
+      "scenario_signature": "sha256:243208a8d0dac370aae7cd990e41b4f63bcefa056f9ede8ea31802bfbe2b3855",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:39.881Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2260",
+      "assertions": [
+        "phpunit_filter=testTc283OperationApprovalRequiresAllFourGuards@DX-2260 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=36",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 36,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2261",
+      "scenario_signature": "sha256:1c9ce36040dfd5e35b0550de91202e8b420db451638728a00ad6cbbbd19e22ec",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:40.115Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2261",
+      "assertions": [
+        "phpunit_filter=testTc283OperationApprovalRequiresAllFourGuards@DX-2261 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=19",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2262",
+      "scenario_signature": "sha256:ad6eb474fddda411a34385345eaa89240c46a600045d4486a6d36cce523c48ec",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:40.407Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2262",
+      "assertions": [
+        "phpunit_filter=testTc283OperationApprovalRequiresAllFourGuards@DX-2262 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=19",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2263",
+      "scenario_signature": "sha256:1f39456004fd542b303905d594508b5c26d99340ed10cab33e3dca1ce8c0be63",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:40.653Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2263",
+      "assertions": [
+        "phpunit_filter=testTc283OperationApprovalRequiresAllFourGuards@DX-2263 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=19",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2264",
+      "scenario_signature": "sha256:9d9a640ba59f0236c040a02c77a85501c932549491fa0f12198d6ccb1b52da40",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:40.916Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2264",
+      "assertions": [
+        "phpunit_filter=testTc283OperationApprovalRequiresAllFourGuards@DX-2264 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=19",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2297",
+      "scenario_signature": "sha256:4b80120fe9a7437e3ee4fdc66666cc18188bc806f41586bfdc9f586618888503",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:41.290Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2297",
+      "assertions": [
+        "phpunit_filter=testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2297 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=15",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2298",
+      "scenario_signature": "sha256:9e7adca2afdf2ae4ff3be70f25e50592e52e3288f647431c19f20336db13b54d",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:41.566Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2298",
+      "assertions": [
+        "phpunit_filter=testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2298 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=11",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2299",
+      "scenario_signature": "sha256:1d4f528af90340c50c3929895ab2d537b76eaa673fd17a22c38ed28424cf51b6",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:41.842Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2299",
+      "assertions": [
+        "phpunit_filter=testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2299 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=12",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2300",
+      "scenario_signature": "sha256:0931f21db2e66fe2b33ec87ce30a0911e5b67b2b4ae2f9224f82d3a01ff21445",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:42.102Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2300",
+      "assertions": [
+        "phpunit_filter=testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2300 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=11",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2301",
+      "scenario_signature": "sha256:0f43e0a5d837fd5d20840cda600348b6f141215e5f98017724dffd57632706c0",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:42.368Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2301",
+      "assertions": [
+        "phpunit_filter=testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2301 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2302",
+      "scenario_signature": "sha256:a9c7496d6ac6bce54eeec1e7e17cd2e3789bbceeca0d2f9df5564b3d0d5d9027",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:42.652Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2302",
+      "assertions": [
+        "phpunit_filter=testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2302 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2303",
+      "scenario_signature": "sha256:0abec0984b590464d5703406bfc15e033e8028d174854d7422db49b17aa5771b",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:42.934Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2303",
+      "assertions": [
+        "phpunit_filter=testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2303 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2304",
+      "scenario_signature": "sha256:a53fd92961510618029fa2c22ecde1843c04402e812049b3fd3fd45fb65e5a1f",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:43.182Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2304",
+      "assertions": [
+        "phpunit_filter=testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2304 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2329",
+      "scenario_signature": "sha256:4a9f512b705078a14ec74c08dffd0274b658165e702f56b8a46248d733f1e581",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:54.173Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2329",
+      "assertions": [
+        "phpunit_filter=testTc292FailedActionRequiresCurrentCompleteTraceableCompensationReceipt@DX-2329 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=19",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2330",
+      "scenario_signature": "sha256:5ee344c20b9e8e3821e9a39087b3be3d27dff06b02fd05b1cffceeca9421e6ed",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:54.492Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2330",
+      "assertions": [
+        "phpunit_filter=testTc292FailedActionRequiresCurrentCompleteTraceableCompensationReceipt@DX-2330 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=19",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2331",
+      "scenario_signature": "sha256:64d10fe99ceffb99bda34e84dfcae21a6be2bc49a43617cf609aa8a41246a93a",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:54.809Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2331",
+      "assertions": [
+        "phpunit_filter=testTc292FailedActionRequiresCurrentCompleteTraceableCompensationReceipt@DX-2331 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2332",
+      "scenario_signature": "sha256:1d5c28775ce11def86a7ff2ee2afa6746cc9c8319733be687a94fe266c1c8071",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:55.105Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2332",
+      "assertions": [
+        "phpunit_filter=testTc292FailedActionRequiresCurrentCompleteTraceableCompensationReceipt@DX-2332 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=19",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2333",
+      "scenario_signature": "sha256:1fda6b703c3a9649278011026d7edb8d077d6fd05636e06ca668f90d5b90eabe",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:55.424Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2333",
+      "assertions": [
+        "phpunit_filter=testTc292FailedActionRequiresCurrentCompleteTraceableCompensationReceipt@DX-2333 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2334",
+      "scenario_signature": "sha256:30b8589a6f8d47258a647db9c18df44400f9b0eabbb182a5d6fd71f1f92e9d25",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:55.827Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2334",
+      "assertions": [
+        "phpunit_filter=testTc292FailedActionRequiresCurrentCompleteTraceableCompensationReceipt@DX-2334 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2335",
+      "scenario_signature": "sha256:df16308b4be47b01b4a3f5cef8d6f4298a2a0e9c2bcaf95584949bf8ca397112",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:56.196Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2335",
+      "assertions": [
+        "phpunit_filter=testTc292FailedActionRequiresCurrentCompleteTraceableCompensationReceipt@DX-2335 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2336",
+      "scenario_signature": "sha256:a66c13dc7d608a707600efa1f3a3c7a93ba1fb7ccac408ca33b10333b4e398b7",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:56.504Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fourth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fourth_l8_batch_execution_2026-07-15.json#case=DX-2336",
+      "assertions": [
+        "phpunit_filter=testTc292FailedActionRequiresCurrentCompleteTraceableCompensationReceipt@DX-2336 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2361",
+      "scenario_signature": "sha256:28c5ecc86e59726dbe9c322634265b6baefa76ba88796bf506cdee952896a52f",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:43.440Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2361",
+      "assertions": [
+        "phpunit_filter=testTc296ExecutionSideEffectsAreIdempotent@DX-2361 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=19",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2362",
+      "scenario_signature": "sha256:a472cf57bed7434b43b499cbcdd2fa5d69c2933b8c4e84a9a97a3df5b33f3a2f",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:43.686Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2362",
+      "assertions": [
+        "phpunit_filter=testTc296ExecutionSideEffectsAreIdempotent@DX-2362 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=26",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 26,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2363",
+      "scenario_signature": "sha256:0c688f513b93997ec5d5d52b3d09459851a3a9a232e658c6050ae98250f52333",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:43.962Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2363",
+      "assertions": [
+        "phpunit_filter=testTc296ExecutionSideEffectsAreIdempotent@DX-2363 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=15",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2364",
+      "scenario_signature": "sha256:4f6ae3e6cdbcfd259a97bd588ba9bb505ee01c42ade2af66797a5cd3978c5f41",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:44.264Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2364",
+      "assertions": [
+        "phpunit_filter=testTc296ExecutionSideEffectsAreIdempotent@DX-2364 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=22",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 22,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2365",
+      "scenario_signature": "sha256:5e4fef3c3ec3ca29929baa63f4f31aa918f2a29d08e238230639b255ef089bc3",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:44.551Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2365",
+      "assertions": [
+        "phpunit_filter=testTc296ExecutionSideEffectsAreIdempotent@DX-2365 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2366",
+      "scenario_signature": "sha256:b2056e3c5a35130bbc4ed5f1e50fff207282356254257454b2cbb39c2c862c1a",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:44.810Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2366",
+      "assertions": [
+        "phpunit_filter=testTc296ExecutionSideEffectsAreIdempotent@DX-2366 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=27",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 27,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2367",
+      "scenario_signature": "sha256:b9edc779c3ae5b39024f2cee4a607863a9d7b46b5c2d5d8f76f56b92f45715af",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:45.077Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2367",
+      "assertions": [
+        "phpunit_filter=testTc296ExecutionSideEffectsAreIdempotent@DX-2367 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2368",
+      "scenario_signature": "sha256:4a746136d690ba37785124f3d008a92a897af2dd4fecdbaa0fd37cf25ec898da",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:45.547Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+      "evidence_ref": "docs/qa/hotel_system_4000_third_l8_batch_execution_2026-07-15.json#case=DX-2368",
+      "assertions": [
+        "phpunit_filter=testTc296ExecutionSideEffectsAreIdempotent@DX-2368 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=23",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 23,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2449",
+      "scenario_signature": "sha256:297d399f2cb6e08468d01124dd8f745d6e5cda933e5e9adac3fdbfe0d002e217",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:01.851Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-2449",
+      "assertions": [
+        "phpunit_filter=testTc307PersistsAuditablePeriodicCashflowSeries@DX-2449 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=121",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 121,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2450",
+      "scenario_signature": "sha256:20f3da355bb7b552fc72521d05367c385a906a6291e0f8423a60be8258ebf519",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:02.102Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-2450",
+      "assertions": [
+        "phpunit_filter=testTc307PersistsAuditablePeriodicCashflowSeries@DX-2450 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=65",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 65,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2451",
+      "scenario_signature": "sha256:5f91d5b7be0a8019d0dd70a69116295eb56123cfedb8d532e22a3d5462a422dc",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:02.327Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-2451",
+      "assertions": [
+        "phpunit_filter=testTc307PersistsAuditablePeriodicCashflowSeries@DX-2451 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=9",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2452",
+      "scenario_signature": "sha256:45e40b156f25b96f5eb4a6030051e5480e0f9bf899a26cdf45328ef20a290f48",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:02.542Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-2452",
+      "assertions": [
+        "phpunit_filter=testTc307PersistsAuditablePeriodicCashflowSeries@DX-2452 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=6",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2453",
+      "scenario_signature": "sha256:97b1712e89fce60710f6198d4b14cd123dcc5bf29bfad4a85dbf8153fb409900",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:02.772Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-2453",
+      "assertions": [
+        "phpunit_filter=testTc307PersistsAuditablePeriodicCashflowSeries@DX-2453 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=13",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2454",
+      "scenario_signature": "sha256:498872bde3d7969ac0355d97d6ec6e2fcdc8dc4cbb1b02e5ac8980a4b0eddf57",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:02.995Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-2454",
+      "assertions": [
+        "phpunit_filter=testTc307PersistsAuditablePeriodicCashflowSeries@DX-2454 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2455",
+      "scenario_signature": "sha256:2dffe4617c47b943ee3fb9fa36d48fbbacc64e8ea7d9761187e57a5a56e2feee",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:03.214Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-2455",
+      "assertions": [
+        "phpunit_filter=testTc307PersistsAuditablePeriodicCashflowSeries@DX-2455 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=10",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2456",
+      "scenario_signature": "sha256:a50545ff10d173ca82fc9fff39820586110c7d432b4fc6579b4c7614f9b8f5f4",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:03.455Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+      "evidence_ref": "docs/qa/hotel_system_4000_fifth_l8_batch_execution_2026-07-15.json#case=DX-2456",
+      "assertions": [
+        "phpunit_filter=testTc307PersistsAuditablePeriodicCashflowSeries@DX-2456 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=13",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2513",
+      "scenario_signature": "sha256:576d7ba7fe2baac39910a45beb6bfcbed08e2fd645966024ba9fa0d210b72244",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:37.141Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2513",
+      "assertions": [
+        "phpunit_filter=testTc315RequiresAuthorizedCompleteFreshSuccessfulEvidenceWithoutClaimingHttpAcl@DX-2513 authorized complete fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=25",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 25,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2514",
+      "scenario_signature": "sha256:66d6ab18b34eba188b4708b788f073519da60b643c0686cbdec61b6507efe280",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:37.340Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2514",
+      "assertions": [
+        "phpunit_filter=testTc315RequiresAuthorizedCompleteFreshSuccessfulEvidenceWithoutClaimingHttpAcl@DX-2514 authorized complete stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=28",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 28,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2515",
+      "scenario_signature": "sha256:37d632b90225520ff7dd2e5a85908f03d5c3b3d43536c8e37ddbfdcfee7bbad8",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:37.526Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2515",
+      "assertions": [
+        "phpunit_filter=testTc315RequiresAuthorizedCompleteFreshSuccessfulEvidenceWithoutClaimingHttpAcl@DX-2515 authorized missing fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=32",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 32,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2516",
+      "scenario_signature": "sha256:17575b0d96bb7223df3b387e156a927e3af4e03dbc975ab66e087074e50ad180",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:37.711Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2516",
+      "assertions": [
+        "phpunit_filter=testTc315RequiresAuthorizedCompleteFreshSuccessfulEvidenceWithoutClaimingHttpAcl@DX-2516 authorized missing stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=29",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 29,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2517",
+      "scenario_signature": "sha256:3eb559ffac30891bf9dda5cfd36b677c1e1a8ff7a2cc854d879ee23aeb512e21",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:37.979Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2517",
+      "assertions": [
+        "phpunit_filter=testTc315RequiresAuthorizedCompleteFreshSuccessfulEvidenceWithoutClaimingHttpAcl@DX-2517 restricted complete fresh failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=30",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 30,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2518",
+      "scenario_signature": "sha256:8770deac68e3e0fc25cfeb826be5cacfcbac68aa0d75a0365886fda326ddc182",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:38.185Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2518",
+      "assertions": [
+        "phpunit_filter=testTc315RequiresAuthorizedCompleteFreshSuccessfulEvidenceWithoutClaimingHttpAcl@DX-2518 restricted complete stale success",
+        "phpunit_tests=1",
+        "phpunit_assertions=27",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 27,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2519",
+      "scenario_signature": "sha256:6337fb8c64df355151e9a348a664b93b57f82145cce4f3b11316e5f85df3f3f3",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:38.406Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2519",
+      "assertions": [
+        "phpunit_filter=testTc315RequiresAuthorizedCompleteFreshSuccessfulEvidenceWithoutClaimingHttpAcl@DX-2519 restricted missing fresh success",
+        "phpunit_tests=1",
+        "phpunit_assertions=31",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 31,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-2520",
+      "scenario_signature": "sha256:2b6438c445f40c657dda9c459a0d15c8663fd51681822a010162435a92540d86",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:08:38.621Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=second",
+      "evidence_ref": "docs/qa/hotel_system_4000_second_l8_batch_execution_2026-07-15.json#case=DX-2520",
+      "assertions": [
+        "phpunit_filter=testTc315RequiresAuthorizedCompleteFreshSuccessfulEvidenceWithoutClaimingHttpAcl@DX-2520 restricted missing stale failure",
+        "phpunit_tests=1",
+        "phpunit_assertions=36",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 36,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3089",
+      "scenario_signature": "sha256:20e03ff50eefd48ab6fb4345961bd5d3e928c50efd6e5645998929e788905eae",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:05.419Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3089",
+      "assertions": [
+        "phpunit_filter=testDx3089",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3090",
+      "scenario_signature": "sha256:3312c33dee6b1af750879ca459ae3bd50a0ad9af6bdeee8eb00de52be10a665e",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:05.627Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3090",
+      "assertions": [
+        "phpunit_filter=testDx3090",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3091",
+      "scenario_signature": "sha256:b6d7044ade8a656a103e1de8b95171b71a5d1761a84eeff1208775956674e1b3",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:05.859Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3091",
+      "assertions": [
+        "phpunit_filter=testDx3091",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3092",
+      "scenario_signature": "sha256:dd24ffac6f92e39e2350d301c8bf091f59691e0e4c6e100bd9ca9ba022b235cd",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:06.072Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3092",
+      "assertions": [
+        "phpunit_filter=testDx3092",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3093",
+      "scenario_signature": "sha256:caabe3f8a9bf1862b3a4a9ec4282487f7622bcfd321efe8e2ee1bb536bbee8a4",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:06.312Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3093",
+      "assertions": [
+        "phpunit_filter=testDx3093",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3094",
+      "scenario_signature": "sha256:24206994191497e903087c87a2209d5b89d959b35cd5b348ab1383aafa1b2dfa",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:06.548Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3094",
+      "assertions": [
+        "phpunit_filter=testDx3094",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3095",
+      "scenario_signature": "sha256:9318a312d385971ed88409f85fb2e9a1b0feb1e14cdc1a822b7c760fd9864348",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:06.767Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3095",
+      "assertions": [
+        "phpunit_filter=testDx3095",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3096",
+      "scenario_signature": "sha256:172e5de0105d6c2848bee264f2709b32e24a7f8cfc310a6dc5366d333458c119",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:06.982Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3096",
+      "assertions": [
+        "phpunit_filter=testDx3096",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3225",
+      "scenario_signature": "sha256:a7bba7aec492707ff6c5d83f7575a3fe8c05e98743de43a8e2997a9158977550",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:07.206Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3225",
+      "assertions": [
+        "phpunit_filter=testDx3225",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3226",
+      "scenario_signature": "sha256:5de664e65e10ed6b1abc5150a405af50e30622ae6e1e4387767a4d38238b472d",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:07.435Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3226",
+      "assertions": [
+        "phpunit_filter=testDx3226",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3227",
+      "scenario_signature": "sha256:5a274f3447cca74c927bcac9a30e013ff6b647e2b3c9a6cbf1eb1ce155426e5b",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:07.629Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3227",
+      "assertions": [
+        "phpunit_filter=testDx3227",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3228",
+      "scenario_signature": "sha256:303bb774ad2dfeee8257c93d5aef1e72c48d9115f3bcda19a8b7db6bf05d86e0",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:07.867Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3228",
+      "assertions": [
+        "phpunit_filter=testDx3228",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3229",
+      "scenario_signature": "sha256:ab0525bebd7c3036fa54c374319f32d938b4b2c80538d0ad426a20e183d09f5b",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:08.043Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3229",
+      "assertions": [
+        "phpunit_filter=testDx3229",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3230",
+      "scenario_signature": "sha256:7a9019e53bfabab80e203eef69d3bd49fa574e354ccf0e41f3aeaa6566e07f2e",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:08.256Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3230",
+      "assertions": [
+        "phpunit_filter=testDx3230",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3231",
+      "scenario_signature": "sha256:85e570a0a28e8bc35b3809813caaffbcdbb4114ef06aef3e2b53fe4ce98a6314",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:08.508Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3231",
+      "assertions": [
+        "phpunit_filter=testDx3231",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    },
+    {
+      "case_id": "DX-3232",
+      "scenario_signature": "sha256:292ef4d90f14594a8fd09af6cdf8ac0b343c982d921cb7b2467f219a7dcb2b53",
+      "status": "partial",
+      "executed_at": "2026-07-16T10:09:08.747Z",
+      "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+      "evidence_ref": "docs/qa/hotel_system_4000_seventh_l8_execution_2026-07-15.json#case=DX-3232",
+      "assertions": [
+        "phpunit_filter=testDx3232",
+        "phpunit_tests=1",
+        "phpunit_assertions=1",
+        "http_db_ui_real_ota_coverage=not_executed"
+      ],
+      "output_summary": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0,
+        "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only"
+      },
+      "notes": "Automated per-case PHPUnit evidence only; complete HTTP, database persistence/readback, UI, and real OTA collection evidence were not executed. A successful automated result remains partial and must not be promoted to pass.",
+      "exit_code": 0
+    }
+  ]
+}

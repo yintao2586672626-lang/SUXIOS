@@ -6,7 +6,7 @@
 - Intended users: Codex/Data Analytics agents answering SUXIOS metric, reporting, diagnosis, operations, pricing, and investment questions.
 - Coverage level: Strong for local code/docs/tests; Limited for live source reads.
 - Source inventory: `references/source-inventory.md`
-- Last synthesized: 2026-06-06 Asia/Shanghai
+- Last synthesized: 2026-07-30 Asia/Shanghai
 - Freshness expectations: verify live values from the current database/API before making numeric conclusions; verify OTA platform behavior against current authorized backend evidence before changing capture logic.
 - Default date and time zone rules: use `Asia/Shanghai`; OTA facts use `data_date`/source date fields and must keep channel/platform scope.
 
@@ -16,6 +16,8 @@
 | --- | --- | --- | --- | --- | --- |
 | SUXIOS | Hotel SaaS product chain from OTA data to revenue analysis, AI decisions, operations, and investment decisions | A standalone data warehouse or BI platform | Project root `HOTEL/` | Product-level | `HOTEL/AGENTS.md` |
 | OTA-channel facts | Ctrip/Meituan/other OTA channel data captured or imported into SUXIOS | Whole-hotel operating truth unless PMS/CRS/direct booking evidence exists | `source`, `platform_key`, `hotel_id`, `system_hotel_id` | Usually daily/platform/hotel/resource | `docs/revenue_metric_standard_fact_table.md`, `OtaStandardEtlService.php` |
+| PMS business date | The vendor/hotel operating day closed by night audit | The wall-clock calendar date or a universal industry cutoff time | `tenant_id`, `hotel_id`, `business_date`, capture/night-audit identity | Hotel/business-day/version/configuration | `docs/domestic_pms_business_day_order_reconciliation_semantic_contract_knowledge.md`, `docs/domestic_ota_pms_knowledge_gap_absorption_20260730.md` |
+| PMS order, folio, payment and AR | Separate reservation, posting, payment and receivable facts linked by source IDs | One interchangeable “order amount” or proof of accounting revenue | source order/folio/payment/AR IDs plus hotel and business date | Order/posting/transaction/account grain | `docs/domestic_pms_business_day_order_reconciliation_semantic_contract_knowledge.md` |
 | Logical `fact_ota_daily` | Standardized daily OTA fact output from `online_daily_data` | A guaranteed physical table | `date_key`, `hotel_key`, `platform_key`, `data_type`, `dimension` | Daily grain | `OtaStandardEtlService.php` |
 | AI decision | Source-backed explanation, diagnosis, or recommendation | Automatic business action or direct OTA write | `ai_model_call_logs`, prompt version, evidence refs | Call/task grain | `docs/ai_governance_p2.md`, `LlmClientTest.php` |
 | Operation execution loop | Manual-review path from recommendation to execution evidence and ROI review | Fake automation or success without evidence | `operation_execution_intents`, `operation_execution_tasks`, `operation_execution_evidence` | Intent/task/evidence grain | `p0_decision_execution_closed_loop.md`, `OperationExecutionLoopTest.php` |
@@ -26,12 +28,12 @@
 | Metric | Definition | Numerator | Denominator | Time Grain | Canonical Source | Caveats |
 | --- | --- | --- | --- | --- | --- | --- |
 | OTA revenue | OTA-channel成交总额,优先 `amount`/`gross_revenue` | Sum revenue fields | Not applicable | Daily and aggregate | `OtaRevenueMetricService::summarizeDataset` | OTA scope only |
-| Room revenue | 房费收入;缺结构化房费时沿用 OTA 成交额 | `room_revenue` or revenue fallback | Not applicable | Daily and aggregate | `docs/revenue_metric_standard_fact_table.md` | Label fallback basis where relevant |
+| Room revenue | 已映射的房费收入；缺少结构化房费时不可计算 | `room_revenue` only after source-field and tax/business-date mapping | Not applicable | Daily and aggregate | `docs/revenue_metric_standard_fact_table.md`, `docs/domestic_ota_pms_knowledge_gap_absorption_20260730.md` | Never substitute order GMV, paid amount, settlement amount, deposit, AR or accounting revenue |
 | Room nights | OTA间夜量 | Sum `quantity`/`room_nights` | Not applicable | Daily and aggregate | `OtaStandardEtlService::dailyFact` | ADR not calculable when missing or zero |
 | ADR | Average Daily Rate from standardized OTA revenue and room nights | `sum(room_revenue)` | `sum(room_nights)` | Daily/period | `OtaRevenueMetricService`, `OtaInsightAnalysisService` | Use `ota_adr`/OTA scope unless whole-hotel data exists |
 | OCC | Occupancy from occupied vs available room nights | `sum(occupied_room_nights)` | `sum(available_room_nights)` | Daily/period | `OtaRevenueMetricService` | Return null and data gap when available/occupied room nights are missing |
 | RevPAR | Revenue per available room from standardized room revenue | `sum(room_revenue)` | `sum(available_room_nights)` | Daily/period | `OtaRevenueMetricService` | Channel RevPAR unless whole-hotel denominator is proven |
-| Net revenue | After-commission revenue | Direct net revenue or `gross_revenue - commission_amount` | Not applicable | Daily/period | `docs/revenue_metric_standard_fact_table.md` | Mark direct vs derived basis |
+| Net revenue | After-commission revenue | Source-defined direct net revenue, or `gross_revenue - commission_amount` only when both values and bases align | Not applicable | Daily/period | `docs/revenue_metric_standard_fact_table.md` | Mark direct vs derived basis; settlement amount is not automatically net revenue |
 | Net RevPAR | After-commission revenue per available room | `sum(net_revenue)` | `sum(available_room_nights)` | Daily/period | `OtaRevenueMetricService` | Requires aligned net revenue and available room nights |
 | Commission rate | OTA commission share | `sum(commission_amount)` | `sum(gross_revenue)` | Daily/period | `OtaRevenueMetricService` | Use only aligned rows with commission fields |
 | Cancellation rate | Cancelled orders over order base | `cancel_order_num` or direct platform cancel rate | `order_count` | Daily/period | `OtaRevenueMetricService` | Keep order and room-night cancellation separate |
@@ -42,6 +44,54 @@
 | Execution ROI | Incremental revenue/cost/profit from recorded execution evidence | After revenue minus before revenue and cost | Cost when ROI value calculated | Intent/task review | `OperationManagementService::buildExecutionRoi` | Requires execution evidence; no evidence means data gap |
 | Transfer valuation | Conservative/reasonable/optimistic valuation | Monthly net profit or decoration investment fallback | Valuation multiple or fallback ratio | Scenario | `TransferDecisionService::calculateAssetPricing` | Amount unit is 万元; full diligence still required |
 | Transfer timing score | Score from revenue/order/ADR/OCC trends, rating, holiday window, season, and data quality | Rule score additions/subtractions | 100-point clamp | Scenario | `TransferDecisionService::calculateTransferTiming` | Suspected collection anomaly lowers confidence and must be called out |
+
+## Cross-Platform Core Broadcast Contract (Meituan/Ctrip)
+
+This contract standardizes the business meaning used by the OTA operating broadcast. It does not require Meituan and Ctrip to share capture code or raw response keys.
+
+Current evidence status:
+
+- Meituan metric names and formulas below were verified from the authorized merchant data-center pages on 2026-07-28 and 2026-07-29.
+- Ctrip has corresponding catalog fields for price, room nights, sales amount, average price, traffic, future PV/UV/orders, and peer averages.
+- A Ctrip field enters the common layer only after its page definition, date basis, unit, and hotel binding match the canonical meaning. Similar names alone are not sufficient.
+
+### Minimal broadcast groups
+
+| Broadcast group | Canonical metrics | Collection rhythm |
+| --- | --- | --- |
+| Intraday snapshot | `lead_price`, `sales_room_nights`, `sales_amount`, `sales_avg_price`, `exposure_users`, `detail_visitors`, `paid_order_count`, `browse_to_pay_rate` | Multiple snapshots per day |
+| Yesterday review | `total_exposure`, `organic_exposure`, `ad_exposure`, `sales_room_nights`, `sales_amount`, `sales_avg_price` | Once after the platform finalizes yesterday |
+| Future forecast | `target_date`, `future_pv`, `future_uv`, `advance_order_count`, and the peer average for each metric | Once per day by target date |
+
+### Canonical meanings
+
+| Canonical metric | Chinese display name | Definition or formula | Unit | Mapping boundary |
+| --- | --- | --- | --- | --- |
+| `lead_price` | 引流价 | Lowest currently sellable product price shown by the OTA | CNY | Map Ctrip `min_price` only when it is the same sellable-price concept |
+| `sales_room_nights` | 销售间夜 | Room nights sold in the reporting period under the platform's verified order/payment-time definition | room nights | Do not mix booking-time, stay-date, and checkout-date room nights |
+| `sales_amount` | 销售额 | Sales amount attributed to the same period and scope as `sales_room_nights` | CNY | Keep gross/net and booking/checkout bases separate |
+| `sales_avg_price` | 销售均价 | `sales_amount / sales_room_nights` using aligned inputs | CNY per room night | Return missing when inputs are missing or room nights are zero |
+| `exposure_users` | 曝光人数 | Deduplicated users who saw the hotel | people | Ctrip DataCenter `list_exposure` may map here only for the reviewed DataCenter module whose official help defines it as deduplicated viewers; other endpoints still require their own proof |
+| `detail_visitors` | 浏览人数 | Users who entered the hotel detail page | people | Ctrip `detail_visitor` is a candidate only after scope verification |
+| `paid_order_count` | 支付订单数 | Paid orders in the reporting period | orders | Do not substitute submit users, order-page visitors, or unverified booking counts |
+| `browse_to_pay_rate` | 浏览→支付转化率 | `paid_order_count / detail_visitors * 100` | percent | Inputs must share hotel, platform, time window, and room scope |
+| `total_exposure` | 整体曝光量 | Total exposure count for the finalized period | impressions | Exposure count is not `exposure_users` |
+| `organic_exposure` | 非广告曝光量 | Exposure count not attributed to paid advertising | impressions | Preserve the platform attribution definition |
+| `ad_exposure` | 广告曝光量 | Exposure count attributed to paid advertising | impressions | `total_exposure = organic_exposure + ad_exposure` is a validation check, not a fallback |
+| `future_pv` | 未来 PV | Future hotel-detail page views for one `target_date` | views | Forecast signal, not realized future traffic |
+| `future_uv` | 未来 UV | Future hotel-detail visitors for one `target_date` | people | Forecast signal, not realized future visitors |
+| `advance_order_count` | 提前订订单量 | Advance-booking orders associated with one `target_date` | orders | Preserve missing values; do not convert them to zero |
+| `peer_avg_value` | 同行均值 | Peer average for the same future metric and target date | metric unit | Store with the referenced metric; do not use as the hotel's value |
+
+### Snapshot and mapping rules
+
+- One capture run is one batch. Hotel/Profile binding and capture time belong to the batch and are not repeated on every metric row or in the user-facing broadcast.
+- Intraday runs preserve one batch time per snapshot so changes across the day remain measurable.
+- Future rows preserve `target_date`; the batch time is the forecast's as-of time. Never overwrite prior daily forecasts when trend diagnosis is required.
+- Normal values do not need a verbose status in the broadcast. Missing, stale, parse-failed, or collection-failed values remain explicit internally and are never replaced by `0` or old data.
+- Platform adapters may use different raw keys and capture methods. They must map into this contract only after source definition, date basis, unit, and formula are verified.
+- Meituan `曝光人数` and exposure-volume fields are separate facts. The reviewed Ctrip DataCenter help maps that module's `list_exposure` to deduplicated viewers (`ctrip_datacenter_list_exposure_uv`); the same raw key from another endpoint or version remains unverified until its own source definition is checked.
+- Ctrip `future_search_pv`, `future_search_uv`, and `future_search_order_count` are candidates for the future group because the catalog aligns them by `target_date`; live source verification is still required for each hotel/session.
 
 ## Standard Filters And Dimensions
 
@@ -75,6 +125,7 @@
 | `ai_model_call_logs` | AI call governance | Model call record | request/module/scenario/prompt/eval fields | Check current DB | Prompt body is not stored as sensitive context | `ai_governance_p2.md` |
 | `price_suggestions` | Revenue pricing suggestions | Suggestion record | hotel/room/date | Check current DB | Advisory-only, no direct OTA write | `RevenuePricingRecommendationServiceTest.php` |
 | `transfer_records` | Saved transfer pricing/timing/dashboard records | Scenario record | hotel/record_type | Check current DB | Inputs may be manual unless live data is connected | `TransferDecisionService.php` |
+| `dingdandao_operating_target_captures` | Saved/read-back Dingdandao operating-target capture for one hotel and business date | Capture revision | `tenant_id`, `hotel_id`, `business_date`, capture ID | Verify latest successful capture and quality state | This table is not a generic PMS order, folio, payment, AR or accounting ledger | `DingdandaoOperatingTargetCaptureService.php` |
 
 ## Query Patterns
 
@@ -113,6 +164,13 @@
   - Common joins: pricing + timing + extra risk metrics.
   - Example skeleton: use `TransferDecisionService`; call out manual input basis and data anomaly status.
 
+- Pattern: PMS business-day and accounting-chain review.
+  - Use when: explaining night audit, checkout, postings, payment, AR, settlement or reconciliation.
+  - Key tables/sources: current authorized PMS response, `dingdandao_operating_target_captures` for the bounded operating-target slice, and explicit source IDs for any order/folio/payment/AR facts.
+  - Required filters: tenant, system hotel, PMS vendor/product/version, `business_date`, capture/as-of time, source identity and quality status.
+  - Common joins: order -> folio/posting -> payment or AR -> writeoff/settlement, preserving one-to-many relationships and audit history.
+  - Example skeleton: prove same-hotel/business-date capture and save/readback first; if order/accounting objects were not collected, return an explicit gap instead of inferring them from room revenue or payment totals.
+
 ## Gotchas
 
 - Gotcha: OTA data is not automatically whole-hotel data.
@@ -135,6 +193,21 @@
   - How to avoid: store backend values and operational interpretations; verify current platform backend before acting.
   - Source: `hotel_ota_metric_professional_knowledge.md`
 
+- Gotcha: Order GMV, paid amount, room revenue, settlement and accounting revenue are not interchangeable.
+  - Impact: ADR, RevPAR, net revenue and profit can be materially wrong.
+  - How to avoid: preserve each source object and basis; missing `room_revenue` means `not_calculable`, not a paid-amount fallback.
+  - Source: `domestic_pms_business_day_order_reconciliation_semantic_contract_knowledge.md`, `domestic_ota_pms_knowledge_gap_absorption_20260730.md`
+
+- Gotcha: Meituan and Dianping review rules are separate platform contracts.
+  - Impact: wrong complaint workflow, rating interpretation or prohibited-action advice.
+  - How to avoid: hard-filter `platforms`; use `dianping` for Dianping rules and never infer Meituan HOS/weights.
+  - Source: `domestic_ota_pms_knowledge_gap_absorption_20260730.md`
+
+- Gotcha: `active` knowledge is not automatically current or decision-safe.
+  - Impact: an old platform rule, unverified upload or unresolved version conflict may enter an AI prompt or SOP task.
+  - How to avoid: apply `KnowledgeDecisionGateService`; require traceability, evidence grade and time eligibility, keep `version_conflict` as `known_unknown`, and require explicit resolution for competing `conflict_key` claims.
+  - Source: `domestic_ota_pms_knowledge_gap_absorption_20260730.md`, `KnowledgeDecisionGateService.php`
+
 - Gotcha: Raw capture artifacts may contain sensitive OTA data.
   - Impact: privacy/security and repo hygiene risk.
   - How to avoid: read summary/status files first; target specific fields with scripts; do not linearly dump raw capture JSON.
@@ -151,6 +224,10 @@
 | `docs/ota_acquisition_decision_playbook.md` | Data collection routing and metadata | Does not authorize live scraping |
 | `docs/ai_governance_p2.md` | AI governance behavior | Batch eval runner remains a gap |
 | `docs/ctrip_table_build_plan_20260602.md` | Ctrip field/table plan | Verify migrations before writing |
+| `docs/ctrip_official_help_semantic_contract_20260730.md` | Ctrip review and DataCenter official semantics | Version conflicts and private algorithms remain explicit |
+| `docs/meituan_official_rules_semantic_contract_20260730.md` | Meituan hotel review and operating-rule semantics | Dianping is explicitly excluded |
+| `docs/domestic_pms_business_day_order_reconciliation_semantic_contract_knowledge.md` | Cross-vendor PMS business-day, order and reconciliation semantics | Vendor/region/configuration examples are not universal |
+| `docs/domestic_ota_pms_knowledge_gap_absorption_20260730.md` | Ctrip fulfilment, Dingdandao current workflow and Dianping governance additions | Public rules/product docs do not prove current account or hotel facts |
 
 ## Open Questions
 

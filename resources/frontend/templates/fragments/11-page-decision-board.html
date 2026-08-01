@@ -1,0 +1,69 @@
+                    <div v-if="currentPage === 'decision-board'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-indigo-900 to-purple-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智决·数据看板</h2>
+                                    <p class="text-sm text-indigo-100 mt-1">二期汇总能力：汇总估值、时机、风险项与最终建议动作</p>
+                                </div>
+                                <button @click="handleTransferDashboard" :disabled="transferDashboardLoading || !transferPricingResult || !transferTimingResult" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i :class="transferDashboardLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chart-pie'"></i>
+                                    <span>{{ transferDashboardLoading ? '生成中...' : '生成数据看板' }}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div v-if="transferDashboardResult" class="space-y-5">
+                            <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4">
+                                <div v-for="card in transferDashboardResult.cards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                    <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                    <div class="text-xl font-bold text-gray-800 mt-2">{{ card.value }}</div>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                                <div class="xl:col-span-5 space-y-5">
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <div class="text-xs text-gray-500 mb-1">最终判断</div>
+                                        <div class="text-lg font-semibold text-gray-900">{{ transferDashboardResult.final_judgement }}</div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <div class="text-xs text-gray-500 mb-1">建议动作</div>
+                                        <div class="text-3xl font-bold text-indigo-700">{{ transferDashboardResult.suggested_action }}</div>
+                                    </div>
+                                </div>
+                                <div class="xl:col-span-7 grid grid-cols-1 lg:grid-cols-3 gap-5">
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-3">主要原因</h3>
+                                        <div class="space-y-2 text-sm text-gray-700">
+                                            <div v-for="item in transferDashboardResult.main_reasons" :key="item" class="flex gap-2">
+                                                <i class="fas fa-check-circle text-blue-500 mt-1"></i>
+                                                <span>{{ item }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-3">风险点</h3>
+                                        <div class="space-y-2 text-sm text-gray-700">
+                                            <div v-for="item in transferDashboardResult.risk_points" :key="item" class="flex gap-2">
+                                                <i class="fas fa-exclamation-triangle text-amber-500 mt-1"></i>
+                                                <span>{{ item }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-3">下一步建议</h3>
+                                        <div class="space-y-2 text-sm text-gray-700">
+                                            <div v-for="item in transferDashboardResult.next_suggestions" :key="item" class="flex gap-2">
+                                                <i class="fas fa-arrow-right text-indigo-500 mt-1"></i>
+                                                <span>{{ item }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else="" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+                            <i class="fas fa-chart-pie text-4xl mb-3 opacity-50"></i>
+                            <p>{{ transferPricingResult &amp;&amp; transferTimingResult ? '点击“生成数据看板”汇总决策结果' : '请先完成资产定价和时机推演' }}</p>
+                        </div>
+                    </div>
+

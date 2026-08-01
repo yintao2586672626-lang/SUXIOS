@@ -35,10 +35,27 @@ foreach (array_slice($argv, 1) as $arg) {
     exit(1);
 }
 
-$command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($thinkPath) . ' online-data:daily-workbench-patrol';
-foreach ($forwardArgs as $arg) {
-    $command .= ' ' . escapeshellarg($arg);
+$runThinkCommand = static function (string $name, array $args = []) use ($phpBinary, $thinkPath): int {
+    $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($thinkPath) . ' ' . escapeshellarg($name);
+    foreach ($args as $arg) {
+        $command .= ' ' . escapeshellarg((string)$arg);
+    }
+    passthru($command, $exitCode);
+    return (int)$exitCode;
+};
+
+$maintenanceExitCode = 0;
+foreach ([
+    ['online-data:cleanup-manual-fetch-tasks', []],
+    ['online-data:cleanup-dormant-profiles', ['--retention-days=30']],
+    ['ai-daily-report:cleanup', []],
+] as [$maintenanceCommand, $maintenanceArgs]) {
+    $code = $runThinkCommand($maintenanceCommand, $maintenanceArgs);
+    if ($code !== 0) {
+        $maintenanceExitCode = $code;
+        fwrite(STDERR, '[' . date('Y-m-d H:i:s') . "] Maintenance command failed: {$maintenanceCommand}\n");
+    }
 }
 
-passthru($command, $exitCode);
-exit((int)$exitCode);
+$patrolExitCode = $runThinkCommand('online-data:daily-workbench-patrol', $forwardArgs);
+exit($patrolExitCode !== 0 ? $patrolExitCode : $maintenanceExitCode);

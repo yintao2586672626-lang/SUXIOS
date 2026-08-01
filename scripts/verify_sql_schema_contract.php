@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__);
+require_once $root . '/vendor/autoload.php';
 
 function read_text(string $relative): string
 {
@@ -105,103 +106,38 @@ function init_full_sql_files(): array
 
 function project_sql_files(): array
 {
-    return init_full_sql_files();
+    global $root;
+    $files = init_full_sql_files();
+    $known = array_fill_keys($files, true);
+    $migrationPaths = glob($root . '/database/migrations/*.sql') ?: [];
+    usort($migrationPaths, static fn(string $left, string $right): int => strcmp(basename($left), basename($right)));
+    foreach ($migrationPaths as $path) {
+        $relative = 'database/migrations/' . basename($path);
+        if (!isset($known[$relative])) {
+            $files[] = $relative;
+            $known[$relative] = true;
+        }
+    }
+    return $files;
 }
 
-function trim_sql_line(string $line): string
+function register_baseline_and_apply_pending(PDO $pdo): array
 {
-    return rtrim(trim($line), ", \t");
-}
-
-function split_lines(string $text): array
-{
-    return preg_split("/\r\n|\n|\r/", $text) ?: [];
-}
-
-function normalize_create_table(string $sql): string
-{
-    return preg_replace('/CREATE TABLE\s+`/i', 'CREATE TABLE IF NOT EXISTS `', $sql, 1) ?? $sql;
+    global $root;
+    $service = new \app\service\SchemaVersionService($pdo, $root);
+    $baselineRegistered = $service->baselineInitFullSources();
+    $result = $service->migrate();
+    return [
+        'baseline_registered' => $baselineRegistered,
+        'executed' => $result['executed'],
+        'status' => $result['status'],
+    ];
 }
 
 function parse_sql_resources(array $files): array
 {
-    $schema = [];
-    $creates = [];
-    $columns = [];
-    $indexes = [];
-
-    foreach ($files as $file) {
-        $sql = read_text($file);
-        $lines = split_lines($sql);
-        $currentTable = null;
-        $bodyLines = [];
-        $createLines = [];
-
-        foreach ($lines as $line) {
-            if (preg_match('/^\s*CREATE TABLE(?: IF NOT EXISTS)? `([^`]+)` \(/i', $line, $match)) {
-                $currentTable = $match[1];
-                $bodyLines = [];
-                $createLines = [$line];
-                continue;
-            }
-
-            if ($currentTable !== null) {
-                $createLines[] = $line;
-                if (preg_match('/^\s*\)\s*ENGINE=/i', $line)) {
-                    $table = $currentTable;
-                    if (!isset($creates[$table])) {
-                        $creates[$table] = normalize_create_table(implode(PHP_EOL, $createLines) . ';');
-                    }
-
-                    foreach ($bodyLines as $bodyLine) {
-                        $definition = trim_sql_line($bodyLine);
-                        if (preg_match('/^`([^`]+)`\s+/', $definition, $column)) {
-                            $columns[$table][$column[1]] = $definition;
-                            $schema[$table][] = $column[1];
-                        } elseif (preg_match('/^UNIQUE KEY `([^`]+)`\s*(\(.+\))$/i', $definition, $index)) {
-                            $indexes[$table][$index[1]] = 'ADD UNIQUE INDEX IF NOT EXISTS `' . $index[1] . '` ' . $index[2];
-                        } elseif (preg_match('/^(?:KEY|INDEX) `([^`]+)`\s*(\(.+\))$/i', $definition, $index)) {
-                            $indexes[$table][$index[1]] = 'ADD INDEX IF NOT EXISTS `' . $index[1] . '` ' . $index[2];
-                        }
-                    }
-
-                    $schema[$table] = array_values(array_unique($schema[$table] ?? []));
-                    $currentTable = null;
-                    continue;
-                }
-
-                $bodyLines[] = $line;
-            }
-        }
-
-        if (preg_match_all('/ALTER TABLE\s+`([^`]+)`(?P<body>.*?);/is', $sql, $alters, PREG_SET_ORDER)) {
-            foreach ($alters as $alter) {
-                $table = $alter[1];
-                foreach (split_lines($alter['body']) as $line) {
-                    $definition = trim_sql_line($line);
-                    if (preg_match('/^ADD COLUMN(?: IF NOT EXISTS)?\s+(`([^`]+)`\s+.+)$/i', $definition, $column)) {
-                        $columns[$table][$column[2]] = $column[1];
-                        $schema[$table][] = $column[2];
-                    } elseif (preg_match('/^ADD INDEX(?: IF NOT EXISTS)?\s+`([^`]+)`\s*(\(.+\))$/i', $definition, $index)) {
-                        $indexes[$table][$index[1]] = 'ADD INDEX IF NOT EXISTS `' . $index[1] . '` ' . $index[2];
-                    } elseif (preg_match('/^ADD UNIQUE (?:KEY|INDEX)(?: IF NOT EXISTS)?\s+`([^`]+)`\s*(\(.+\))$/i', $definition, $index)) {
-                        $indexes[$table][$index[1]] = 'ADD UNIQUE INDEX IF NOT EXISTS `' . $index[1] . '` ' . $index[2];
-                    }
-                }
-                if (isset($schema[$table])) {
-                    $schema[$table] = array_values(array_unique($schema[$table]));
-                }
-            }
-        }
-    }
-
-    ksort($schema);
-    return [
-        'schema' => $schema,
-        'creates' => $creates,
-        'columns' => $columns,
-        'indexes' => $indexes,
-    ];
+    global $root;
+    return \app\service\SqlSchemaResourceInspector::parse($root, $files);
 }
 
 function model_table_map(): array
@@ -539,6 +475,22 @@ function ensure_database(array $options): void
     $pdo->exec('CREATE DATABASE IF NOT EXISTS ' . quote_identifier((string) $options['database']) . ' CHARACTER SET ' . $charset . ' COLLATE ' . $charset . '_unicode_ci');
 }
 
+function create_isolated_database(array $options): void
+{
+    $pdo = pdo_server($options);
+    $database = (string)$options['database'];
+    $charset = preg_match('/^[A-Za-z0-9_]+$/', (string)$options['charset']) ? $options['charset'] : 'utf8mb4';
+    $statement = $pdo->prepare('SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?');
+    $statement->execute([$database]);
+    if ((int)$statement->fetchColumn() !== 0) {
+        throw new RuntimeException("Isolated validation database already exists: {$database}");
+    }
+    $pdo->exec(
+        'CREATE DATABASE ' . quote_identifier($database)
+        . ' CHARACTER SET ' . $charset . ' COLLATE ' . $charset . '_unicode_ci'
+    );
+}
+
 function mysql_command(string $mysqlBin, array $options, string $database, string $statement): array
 {
     global $root;
@@ -771,25 +723,47 @@ try {
     }
 
     if ($options['validate-import']) {
-        $tempDatabase = 'suxios_schema_check_' . date('YmdHis');
+        $tempDatabase = 'suxios_schema_check_' . getmypid() . '_' . bin2hex(random_bytes(6));
         $tempOptions = $options;
         $tempOptions['database'] = $tempDatabase;
-        ensure_database($tempOptions);
+        $tempDatabaseCreated = false;
         try {
+            create_isolated_database($tempOptions);
+            $tempDatabaseCreated = true;
             import_init_full($tempDatabase, $tempOptions, $mysqlBin);
             $tempPdo = pdo_database($tempOptions);
+            $versionResult = register_baseline_and_apply_pending($tempPdo);
             $tempActual = inspect_database($tempPdo, $tempDatabase);
             $tempOta = summarize_ota_fields($tempActual['schema']);
-            $summary['import_validation'] = 'passed, tables=' . count($tempActual['schema']) . ', ota_fields=' . $tempOta['count'];
+            $importMissingTables = array_values(array_diff($requiredTables, array_keys($tempActual['schema'])));
+            sort($importMissingTables);
+            $importMissingColumns = missing_columns(
+                $tempActual['schema'],
+                $refs['columns'],
+                $requiredTables
+            );
+            $summary['missing_tables_after'] = $importMissingTables;
+            $summary['missing_columns_after'] = $importMissingColumns;
+            if ($importMissingTables !== [] || $importMissingColumns !== []) {
+                $summary['errors'][] = 'Fresh import is missing code-required tables or columns.';
+                $summary['migration_success'] = false;
+            }
+            $summary['import_validation'] = 'passed, tables=' . count($tempActual['schema'])
+                . ', ota_fields=' . $tempOta['count']
+                . ', versions=' . (int)$versionResult['status']['applied_count'];
         } finally {
-            pdo_server($options)->exec('DROP DATABASE IF EXISTS ' . quote_identifier($tempDatabase));
+            if ($tempDatabaseCreated) {
+                pdo_server($options)->exec('DROP DATABASE IF EXISTS ' . quote_identifier($tempDatabase));
+            }
         }
     }
 
     if ($options['import']) {
         ensure_database($options);
         import_init_full((string) $options['database'], $options, $mysqlBin);
+        $versionResult = register_baseline_and_apply_pending(pdo_database($options));
         $summary['executed'][] = 'SOURCE database/init_full.sql';
+        $summary['executed'] = array_values(array_merge($summary['executed'], $versionResult['executed']));
     }
 
     if ($options['migrate']) {

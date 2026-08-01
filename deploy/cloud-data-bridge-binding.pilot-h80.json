@@ -1,0 +1,17 @@
+{
+  "contract_version": "suxios.cloud_ota_binding.v1",
+  "source_system_hotel_id": 80,
+  "destination_system_hotel_id": 5,
+  "bindings": [
+    {
+      "platform": "ctrip",
+      "source_data_source_id": 25,
+      "destination_data_source_id": 3
+    },
+    {
+      "platform": "meituan",
+      "source_data_source_id": 68,
+      "destination_data_source_id": 4
+    }
+  ]
+}

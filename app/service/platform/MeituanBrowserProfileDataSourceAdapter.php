@@ -31,7 +31,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     {
         $config = is_array($source['config'] ?? null) ? $source['config'] : [];
         $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
-        $storeId = $this->firstString($options, $config, ['store_id', 'storeId', 'poi_id', 'poiId']);
+        $storeId = $this->firstString($options, $config, ['platform_hotel_id', 'store_id', 'storeId', 'poi_id', 'poiId']);
         if ($storeId === '') {
             return [
                 'status' => 'waiting_config',
@@ -95,11 +95,13 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         $requestedSections = $this->firstString($options, $config, ['capture_sections', 'captureSections', 'sections', 'profile_sections'], BrowserProfileCaptureRequestService::MEITUAN_DEFAULT_SECTIONS);
         $sections = $this->sanitizeSections($requestedSections);
-        $poiId = $this->firstString($options, $config, ['poi_id', 'poiId']);
+        $poiId = $this->firstString($options, $config, ['platform_hotel_id', 'poi_id', 'poiId']);
         $poiName = $this->firstString($options, $config, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'name']);
         $adsUrl = $this->firstString($options, $config, ['ads_url', 'adsUrl']);
         $dataPeriod = $this->firstString($options, $config, ['data_period', 'dataPeriod']);
         $snapshotTime = $this->firstString($options, $config, ['snapshot_time', 'snapshotTime']);
+        $captureMode = $this->firstString($options, $config, ['capture_mode', 'captureMode']);
+        $temporalScope = $this->firstString($options, $config, ['temporal_scope', 'temporalScope']);
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
 
         $args = [
@@ -127,6 +129,12 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if ($snapshotTime !== '') {
             $args[] = '--snapshot-time=' . $snapshotTime;
+        }
+        if ($captureMode !== '') {
+            $args[] = '--capture-mode=' . $captureMode;
+        }
+        if ($temporalScope !== '') {
+            $args[] = '--temporal-scope=' . $temporalScope;
         }
 
         try {
@@ -160,18 +168,22 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
+        $payload['read_fallbacks'] = $this->sanitizeReadFallbackDiagnostics($payload['read_fallbacks'] ?? []);
         $payload['output'] = $outputPath;
         $payload['data_source_capture'] = [
             'platform' => 'meituan',
             'acquisition_method' => 'browser_profile',
-            'store_id' => $storeId,
-            'poi_id' => $poiId,
+            'requested_store_id_present' => $storeId !== '',
+            'requested_poi_id_present' => $poiId !== '',
             'capture_sections' => $sections,
             'requested_capture_sections' => $requestedSections,
             'data_date' => $dataDate,
             'data_period' => $dataPeriod,
             'snapshot_time' => $snapshotTime,
+            'capture_mode' => $captureMode,
+            'temporal_scope' => $temporalScope,
             'captured_by' => 'platform_data_source_sync',
+            'read_fallback_summary' => $this->readFallbackSummary($payload),
         ];
         if ($dataPeriod !== '' && empty($payload['data_period'])) {
             $payload['data_period'] = $dataPeriod;
@@ -182,6 +194,23 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
         if ($authStatus !== [] && empty($authStatus['ok'])) {
+            if ($sections === 'ads') {
+                return [
+                    'status' => 'waiting_config',
+                    'status_code' => 'profile_session_unverified',
+                    'error_code' => 'profile_session_unverified',
+                    'message' => 'profile_session_unverified',
+                    'payload' => array_merge($this->compactFailurePayload($payload, $runResult), [
+                        'module_status' => [
+                            'module' => 'ads',
+                            'status' => 'blocked',
+                            'reason' => 'profile_session_unverified',
+                            'external_action_required' => true,
+                            'entry_url' => $adsUrl,
+                        ],
+                    ]),
+                ];
+            }
             return [
                 'status' => 'waiting_config',
                 'message' => (string)($authStatus['message'] ?? 'Meituan login session is not ready; open the Profile and complete login.'),
@@ -189,8 +218,36 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
+        $identityCheck = BrowserProfileCaptureRequestService::assessMeituanPlatformIdentity(
+            $payload,
+            [$storeId, $poiId]
+        );
         $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
         if ($gate !== [] && ($gate['status'] ?? 'fail') !== 'pass') {
+            if ($sections === 'ads') {
+                $reason = $this->adsServiceNotOpened($payload)
+                    ? 'ads_service_not_opened'
+                    : 'ads_collection_failed';
+                $moduleStatus = $reason === 'ads_service_not_opened' ? 'not_applicable' : 'blocked';
+                return [
+                    'status' => $moduleStatus === 'not_applicable' ? 'not_applicable' : 'failed',
+                    'status_code' => $reason,
+                    'error_code' => $reason,
+                    'message' => $reason,
+                    'payload' => array_merge($this->compactFailurePayload($payload, $runResult), [
+                        'module_status' => [
+                            'module' => 'ads',
+                            'status' => $moduleStatus,
+                            'reason' => $reason,
+                            'external_action_required' => $reason === 'ads_service_not_opened',
+                            'entry_url' => $adsUrl,
+                        ],
+                    ]),
+                ];
+            }
+            if (($identityCheck['ok'] ?? false) !== true) {
+                return $this->platformIdentityFailureResult($payload, $runResult, $identityCheck);
+            }
             $failedIds = implode(',', array_map('strval', $gate['failed_check_ids'] ?? []));
             return [
                 'status' => 'failed',
@@ -198,12 +255,81 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 'payload' => $this->compactFailurePayload($payload, $runResult),
             ];
         }
+        if (($identityCheck['ok'] ?? false) !== true) {
+            return $this->platformIdentityFailureResult($payload, $runResult, $identityCheck);
+        }
 
-        $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $poiId !== '' ? $poiId : $storeId);
+        $validatedPlatformIdentifier = trim((string)(
+            $payload['platform_identity_validation']['validated_identifier']
+            ?? ''
+        ));
+        $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $validatedPlatformIdentifier);
+        $supplementalFilter = BrowserProfileCaptureRequestService::filterUnverifiedMeituanSupplementalRows($rows, $dataDate);
+        $rows = $supplementalFilter['rows'];
+        if ($supplementalFilter['dropped_count'] > 0) {
+            $payload['collection_warnings'][] = [
+                'status_code' => 'unverified_supplemental_rows_dropped',
+                'data_types' => $supplementalFilter['dropped_types'],
+                'dropped_count' => $supplementalFilter['dropped_count'],
+            ];
+        }
         if (empty($rows)) {
+            if (BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate($gate)) {
+                $payload['rows'] = [];
+                $payload['sync_summary'] = [
+                    'row_count' => 0,
+                    'confirmed_empty' => true,
+                ];
+                return [
+                    'status' => 'success',
+                    'message' => 'Meituan returned an authoritative empty result; no rows were written.',
+                    'payload' => $payload,
+                ];
+            }
+            if ($sections === 'ads') {
+                $reason = $this->adsServiceNotOpened($payload)
+                    ? 'ads_service_not_opened'
+                    : 'ads_collection_failed';
+                $moduleStatus = $reason === 'ads_service_not_opened' ? 'not_applicable' : 'blocked';
+                return [
+                    'status' => $moduleStatus === 'not_applicable' ? 'not_applicable' : 'failed',
+                    'status_code' => $reason,
+                    'error_code' => $reason,
+                    'message' => $reason,
+                    'payload' => array_merge($this->compactFailurePayload($payload, $runResult), [
+                        'module_status' => [
+                            'module' => 'ads',
+                            'status' => $moduleStatus,
+                            'reason' => $reason,
+                            'external_action_required' => $reason === 'ads_service_not_opened',
+                            'entry_url' => $adsUrl,
+                        ],
+                    ]),
+                ];
+            }
             return [
                 'status' => 'failed',
                 'message' => 'Meituan browser capture completed but no business rows were parsed.',
+                'payload' => $this->compactFailurePayload($payload, $runResult),
+            ];
+        }
+        $mismatchedDates = BrowserProfileCaptureRequestService::mismatchedMeituanTargetDates($rows, $dataDate);
+        if ($mismatchedDates !== []) {
+            return [
+                'status' => 'failed',
+                'status_code' => 'meituan_target_date_mismatch',
+                'error_code' => 'meituan_target_date_mismatch',
+                'message' => 'Meituan browser capture returned rows outside requested target date ' . $dataDate . ': ' . implode(',', $mismatchedDates),
+                'payload' => $this->compactFailurePayload($payload, $runResult),
+            ];
+        }
+        $unverifiedDates = BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, $dataDate);
+        if ($unverifiedDates !== []) {
+            return [
+                'status' => 'failed',
+                'status_code' => 'meituan_target_date_unverified',
+                'error_code' => 'meituan_target_date_unverified',
+                'message' => 'Meituan browser capture rows do not contain authoritative target-date evidence.',
                 'payload' => $this->compactFailurePayload($payload, $runResult),
             ];
         }
@@ -211,9 +337,11 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $payload['rows'] = $rows;
         $payload['sync_summary'] = [
             'row_count' => count($rows),
+            'dropped_unverified_supplemental_count' => (int)$supplementalFilter['dropped_count'],
             'business_count' => $this->countPayloadSections($payload, ['businessData', 'business_data', 'business', 'overview']),
             'peer_rank_count' => $this->countPayloadSections($payload, ['peerRank', 'peer_rank', 'rankings', 'competitorRank']),
             'flow_analysis_count' => $this->countPayloadSections($payload, ['flowAnalysis', 'flow_analysis', 'trafficAnalysis', 'traffic_analysis']),
+            'order_flow_count' => $this->countPayloadSections($payload, ['order_flow', 'orderFlow', 'orderFlowRows', 'order_flow_rows']),
             'search_keyword_count' => $this->countPayloadSections($payload, ['searchKeywords', 'search_keywords', 'keywords']),
             'traffic_forecast_count' => $this->countPayloadSections($payload, ['trafficForecast', 'traffic_forecast', 'flowForecast', 'flow_forecast']),
             'room_type_count' => $this->countPayloadSections($payload, ['roomTypes', 'room_types', 'products']),
@@ -221,6 +349,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'order_count' => count(is_array($payload['orders'] ?? null) ? $payload['orders'] : []),
             'ads_count' => count(is_array($payload['ads'] ?? null) ? $payload['ads'] : []),
             'review_count' => count(is_array($payload['reviews'] ?? null) ? $payload['reviews'] : []),
+            'read_fallback_summary' => $this->readFallbackSummary($payload),
         ];
 
         return [
@@ -236,12 +365,12 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $platformHotelId): array
     {
         $rows = [];
-        $forcedDataType = $this->forcedResourceDataType($source, $payload);
         $sectionGroups = [
             ['data_type' => 'business', 'keys' => ['businessData', 'business_data', 'business', 'overview']],
             ['data_type' => 'peer_rank', 'keys' => ['peerRank', 'peer_rank', 'competitorRank', 'rankings', 'ranking']],
             ['data_type' => 'traffic_analysis', 'keys' => ['flowAnalysis', 'flow_analysis', 'trafficAnalysis', 'traffic_analysis']],
             ['data_type' => 'traffic', 'keys' => ['flowData', 'flow_data', 'traffic', 'flow']],
+            ['data_type' => 'order_flow', 'keys' => ['order_flow', 'orderFlow', 'orderFlowRows', 'order_flow_rows']],
             ['data_type' => 'search_keyword', 'keys' => ['searchKeywords', 'search_keywords', 'searchKeyWords', 'keywords']],
             ['data_type' => 'traffic_forecast', 'keys' => ['trafficForecast', 'traffic_forecast', 'flowForecast', 'flow_forecast']],
             ['data_type' => 'room_type', 'keys' => ['roomTypes', 'room_types', 'products', 'roomType']],
@@ -253,20 +382,51 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         foreach ($sectionGroups as $sectionGroup) {
             $dataType = (string)$sectionGroup['data_type'];
             $sectionRows = $this->payloadRowsForKeys($payload, $sectionGroup['keys']);
-            if ($forcedDataType !== '' && in_array($dataType, ['business', 'peer_rank', 'traffic', 'search_keyword', 'room_type'], true)) {
-                $dataType = $forcedDataType;
-            }
             foreach ($sectionRows as $row) {
                 if (!is_array($row)) {
                     continue;
                 }
+                $explicitDataDate = $this->normalizeDate((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? ''));
+                $observedPlatformHotelId = $this->firstRowString(
+                    $row,
+                    ['poi_id', 'poiId', 'store_id', 'storeId', 'shop_id', 'shopId'],
+                    ''
+                );
                 $row['source'] = 'meituan';
                 $row['platform'] = $row['platform'] ?? 'meituan';
                 $row['system_hotel_id'] = $row['system_hotel_id'] ?? $systemHotelId;
-                $row['hotel_id'] = $this->firstRowString($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'store_id', 'storeId'], $platformHotelId);
+                $row['poi_id'] = $this->firstRowString(
+                    $row,
+                    ['poi_id', 'poiId', 'store_id', 'storeId', 'shop_id', 'shopId'],
+                    $platformHotelId
+                );
+                $row['hotel_id'] = $this->firstRowString($row, ['hotel_id', 'hotelId'], $row['poi_id']);
                 $row['hotel_name'] = $row['hotel_name'] ?? $row['hotelName'] ?? $row['poi_name'] ?? $row['poiName'] ?? $source['name'] ?? '';
-                $row['data_date'] = $this->normalizeDate((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? '')) ?: $dataDate;
+                $row['data_date'] = $explicitDataDate !== '' ? $explicitDataDate : $dataDate;
+                if (trim((string)($row['date_source'] ?? $row['dateSource'] ?? '')) === '') {
+                    $row['date_source'] = $explicitDataDate !== '' ? 'row' : 'capture_context.default_data_date';
+                }
                 $row['data_type'] = $row['data_type'] ?? $dataType;
+                $compareType = strtolower(trim((string)($row['compare_type'] ?? $row['compareType'] ?? '')));
+                $hasExplicitNonSelfFlag = (array_key_exists('is_self', $row) && $row['is_self'] === false)
+                    || (array_key_exists('isSelf', $row) && $row['isSelf'] === false);
+                $isCompetitorType = in_array(strtolower(trim((string)$row['data_type'])), [
+                    'competitor',
+                    'competitor_avg',
+                    'competition',
+                    'peer',
+                    'peer_rank',
+                ], true);
+                if ($compareType === ''
+                    && !$hasExplicitNonSelfFlag
+                    && !$isCompetitorType
+                    && $observedPlatformHotelId !== ''
+                    && $platformHotelId !== ''
+                    && hash_equals($platformHotelId, $observedPlatformHotelId)
+                ) {
+                    $row['compare_type'] = 'self';
+                    $row['is_self'] = true;
+                }
                 $row['acquisition_method'] = 'browser_profile';
                 $rows[] = $row;
             }
@@ -324,7 +484,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     private function forcedResourceDataType(array $source, array $payload): string
     {
         $sourceType = $this->normalizeResourceDataType((string)($source['data_type'] ?? ''));
-        if (in_array($sourceType, ['peer_rank', 'search_keyword', 'room_type'], true)) {
+        if (in_array($sourceType, ['peer_rank', 'order_flow', 'search_keyword', 'room_type'], true)) {
             return $sourceType;
         }
 
@@ -334,7 +494,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             return '';
         }
         $sectionType = $this->normalizeResourceDataType($sectionText);
-        if (in_array($sectionType, ['business', 'peer_rank', 'traffic', 'search_keyword', 'room_type'], true)) {
+        if (in_array($sectionType, ['business', 'peer_rank', 'traffic', 'order_flow', 'search_keyword', 'room_type'], true)) {
             return $sectionType;
         }
 
@@ -361,6 +521,9 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         if (in_array($value, ['traffic_analysis', 'trafficanalysis', 'flow_analysis', 'flowanalysis'], true)) {
             return 'traffic_analysis';
         }
+        if (in_array($value, ['order_flow', 'orderflow', 'order_loss', 'orderloss', 'loss_order', 'lossorder'], true)) {
+            return 'order_flow';
+        }
         if (in_array($value, ['traffic_forecast', 'trafficforecast', 'flow_forecast', 'flowforecast', 'forecast'], true)) {
             return 'traffic_forecast';
         }
@@ -385,12 +548,124 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         return [
             'auth_status' => $payload['auth_status'] ?? null,
             'capture_gate' => $payload['capture_gate'] ?? null,
+            'platform_identity_validation' => $payload['platform_identity_validation'] ?? null,
             'pages' => $payload['pages'] ?? [],
             'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
+            'read_fallback_summary' => $this->readFallbackSummary($payload),
+            'read_fallbacks' => $this->sanitizeReadFallbackDiagnostics($payload['read_fallbacks'] ?? []),
             'output' => $payload['output'] ?? '',
             'stdout' => $this->trimLog((string)($runResult['stdout'] ?? '')),
             'stderr' => $this->trimLog((string)($runResult['stderr'] ?? '')),
         ];
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function sanitizeReadFallbackDiagnostics(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $result = [];
+        foreach (array_slice($value, 0, 20) as $item) {
+            if (!is_array($item)
+                || ($item['sensitive_values_exposed'] ?? true) !== false
+                || strtolower(trim((string)($item['platform'] ?? ''))) !== 'meituan'
+            ) {
+                continue;
+            }
+            $status = strtolower(trim((string)($item['status'] ?? '')));
+            if (!in_array($status, ['response_observed', 'blocked', 'failed'], true)) {
+                continue;
+            }
+            $safeRoute = strtolower(trim((string)($item['safe_route'] ?? '')));
+            if (preg_match('/^observed-read:[a-z0-9\/_-]{1,100}$/D', $safeRoute) !== 1) {
+                $safeRoute = '';
+            }
+            $fingerprint = strtolower(trim((string)($item['request_fingerprint'] ?? '')));
+            if (preg_match('/^[a-f0-9]{16,64}$/D', $fingerprint) !== 1) {
+                $fingerprint = '';
+            }
+            $diagnostic = [
+                'schema_version' => 1,
+                'platform' => 'meituan',
+                'section' => $this->safeReadFallbackIdentifier($item['section'] ?? ''),
+                'endpoint_id' => $this->safeReadFallbackIdentifier($item['endpoint_id'] ?? ''),
+                'safe_route' => $safeRoute,
+                'request_fingerprint' => $fingerprint,
+                'status' => $status,
+                'reason' => $this->safeReadFallbackIdentifier($item['reason'] ?? ''),
+                'replay_source' => 'observed_request_same_origin',
+                'sensitive_values_exposed' => false,
+            ];
+            $httpStatus = (int)($item['http_status'] ?? 0);
+            if ($httpStatus >= 100 && $httpStatus <= 599) {
+                $diagnostic['http_status'] = $httpStatus;
+            }
+            $result[] = $diagnostic;
+        }
+        return $result;
+    }
+
+    /** @return array<string, mixed> */
+    private function readFallbackSummary(array $payload): array
+    {
+        $diagnostics = $this->sanitizeReadFallbackDiagnostics($payload['read_fallbacks'] ?? []);
+        $counts = [
+            'response_observed' => 0,
+            'blocked' => 0,
+            'failed' => 0,
+        ];
+        foreach ($diagnostics as $diagnostic) {
+            $status = (string)($diagnostic['status'] ?? '');
+            if (isset($counts[$status])) {
+                $counts[$status]++;
+            }
+        }
+        $summaryStatus = $counts['response_observed'] > 0
+            ? (($counts['blocked'] + $counts['failed']) > 0 ? 'partial' : 'response_observed')
+            : ($counts['failed'] > 0 ? 'failed' : ($counts['blocked'] > 0 ? 'blocked' : 'not_needed'));
+        return [
+            'status' => $summaryStatus,
+            'diagnostic_count' => count($diagnostics),
+            'attempted_count' => $counts['response_observed'] + $counts['failed'],
+            'response_observed_count' => $counts['response_observed'],
+            'blocked_count' => $counts['blocked'],
+            'failed_count' => $counts['failed'],
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    private function safeReadFallbackIdentifier(mixed $value): string
+    {
+        return substr((string)preg_replace('/[^a-z0-9_.:-]/', '', strtolower(trim((string)$value))), 0, 100);
+    }
+
+    /** @param array<string, mixed> $identityCheck */
+    private function platformIdentityFailureResult(array $payload, array $runResult, array $identityCheck): array
+    {
+        $statusCode = (string)($identityCheck['status_code'] ?? 'meituan_platform_identity_unverified');
+        return [
+            'status' => 'failed',
+            'status_code' => $statusCode,
+            'error_code' => $statusCode,
+            'message' => $statusCode,
+            'payload' => $this->compactFailurePayload($payload, $runResult),
+        ];
+    }
+
+    private function adsServiceNotOpened(array $payload): bool
+    {
+        foreach (is_array($payload['pages'] ?? null) ? $payload['pages'] : [] as $page) {
+            if (!is_array($page)) {
+                continue;
+            }
+            $url = strtolower(trim((string)($page['url'] ?? '')));
+            if ($url !== '' && (str_contains($url, '/online-sign') || str_contains($url, 'promopoiid/-1'))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function runProcess(array $args, string $cwd, int $timeoutSeconds): array

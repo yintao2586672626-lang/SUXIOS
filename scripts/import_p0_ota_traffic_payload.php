@@ -194,9 +194,18 @@ function p0_import_project_payload_for_import(array $payload): array
         'partner_id',
         'partnerId',
         'default_data_date',
+        'data_period',
+        'snapshot_time',
+        'captured_at',
+        'capture_scope',
+        'live_page_verified',
+        'period_control',
+        'period_control_state',
         'auth_status',
         'capture_gate',
+        'platform_identity_validation',
         'capture_sections',
+        'section_evidence',
         'requested_sections',
         'traffic',
         'standard_rows',
@@ -431,6 +440,157 @@ function p0_import_payload_warnings(array $payload): array
         'failed_check_ids' => $failedCheckIds,
         'blocking_failed_check_ids' => $blockingFailedCheckIds,
     ]];
+}
+
+function p0_import_realtime_evidence_bool(mixed $value): bool
+{
+    if (is_bool($value)) {
+        return $value;
+    }
+    return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'ready', 'verified'], true);
+}
+
+/**
+ * Today's Meituan traffic is cumulative and changes during the day. A target
+ * date plus a previously successful import cannot prove that the current run
+ * refreshed the merchant page. Require a fresh capture timestamp and an exact
+ * "今日实时" selection readback (or the equivalent bounded live-DOM proof).
+ *
+ * @param array<int, array<string, mixed>> $rows
+ * @return array<string, mixed>
+ */
+function p0_import_meituan_today_realtime_freshness(array $payload, array $rows, string $platform, string $date): array
+{
+    $timezone = new DateTimeZone('Asia/Shanghai');
+    $now = new DateTimeImmutable('now', $timezone);
+    $required = strtolower(trim($platform)) === 'meituan' && $date === $now->format('Y-m-d');
+    $result = [
+        'required' => $required,
+        'status' => $required ? 'blocked' : 'not_required',
+        'policy' => 'Same-day Meituan traffic requires evidence from this run: a capture timestamp no older than 30 minutes plus an active 今日实时 period readback.',
+        'max_age_seconds' => 1800,
+        'capture_timestamp_present' => false,
+        'capture_timestamp_valid' => false,
+        'capture_timestamp_fresh' => false,
+        'capture_age_seconds' => null,
+        'today_realtime_period_verified' => false,
+        'period_evidence_source' => '',
+        'issues' => [],
+    ];
+    if (!$required) {
+        return $result;
+    }
+
+    $timestampValue = '';
+    $timestampSource = '';
+    foreach (['captured_at', 'capturedAt', 'snapshot_time', 'snapshotTime'] as $key) {
+        $candidate = trim((string)($payload[$key] ?? ''));
+        if ($candidate !== '') {
+            $timestampValue = $candidate;
+            $timestampSource = 'payload.' . $key;
+            break;
+        }
+    }
+    if ($timestampValue === '') {
+        foreach ($rows as $index => $row) {
+            foreach (['captured_at', 'capturedAt', 'snapshot_time', 'snapshotTime'] as $key) {
+                $candidate = trim((string)($row[$key] ?? ''));
+                if ($candidate !== '') {
+                    $timestampValue = $candidate;
+                    $timestampSource = 'row[' . $index . '].' . $key;
+                    break 2;
+                }
+            }
+        }
+    }
+    $result['capture_timestamp_present'] = $timestampValue !== '';
+    $result['capture_timestamp_source'] = $timestampSource;
+    if ($timestampValue === '') {
+        $result['issues'][] = [
+            'code' => 'meituan_today_realtime_capture_timestamp_missing',
+            'message' => 'Same-day Meituan traffic must carry captured_at or snapshot_time from the current collection run.',
+        ];
+    } else {
+        try {
+            $capturedAt = new DateTimeImmutable($timestampValue, $timezone);
+            $capturedAt = $capturedAt->setTimezone($timezone);
+            $ageSeconds = $now->getTimestamp() - $capturedAt->getTimestamp();
+            $result['capture_timestamp_valid'] = true;
+            $result['capture_age_seconds'] = $ageSeconds;
+            $result['capture_timestamp_fresh'] = $capturedAt->format('Y-m-d') === $date
+                && $ageSeconds >= -300
+                && $ageSeconds <= (int)$result['max_age_seconds'];
+            if (!$result['capture_timestamp_fresh']) {
+                $result['issues'][] = [
+                    'code' => 'meituan_today_realtime_capture_stale',
+                    'message' => 'Same-day Meituan traffic capture is stale or outside the current Shanghai business date; historical success is not current-run evidence.',
+                    'capture_age_seconds' => $ageSeconds,
+                    'max_age_seconds' => (int)$result['max_age_seconds'],
+                ];
+            }
+        } catch (Throwable) {
+            $result['issues'][] = [
+                'code' => 'meituan_today_realtime_capture_timestamp_invalid',
+                'message' => 'Same-day Meituan traffic capture timestamp is invalid.',
+            ];
+        }
+    }
+
+    $dataPeriod = strtolower(trim((string)($payload['data_period'] ?? $payload['dataPeriod'] ?? '')));
+    if ($dataPeriod === '') {
+        foreach ($rows as $row) {
+            $dataPeriod = strtolower(trim((string)($row['data_period'] ?? $row['dataPeriod'] ?? '')));
+            if ($dataPeriod !== '') {
+                break;
+            }
+        }
+    }
+    if (!in_array($dataPeriod, ['realtime_snapshot', 'today_realtime', 'realtime', 'real_time', 'live', 'snapshot'], true)) {
+        $result['issues'][] = [
+            'code' => 'meituan_today_realtime_data_period_missing',
+            'message' => 'Same-day Meituan traffic must explicitly declare a realtime_snapshot data period.',
+        ];
+    }
+
+    $trafficEvidence = is_array($payload['section_evidence']['traffic'] ?? null)
+        ? (array)$payload['section_evidence']['traffic']
+        : [];
+    $sectionReadbackVerified = (string)($trafficEvidence['status'] ?? '') === 'target_date_relative_range_selected'
+        && (string)($trafficEvidence['target_date'] ?? '') === $date
+        && trim((string)($trafficEvidence['relative_range'] ?? '')) === '今日实时'
+        && (string)($trafficEvidence['evidence_source'] ?? '') === 'page.traffic_period_selection.readback'
+        && (string)($trafficEvidence['marker'] ?? '') === 'meituan_traffic_today_realtime_tab';
+
+    $payloadLiveProof = p0_import_realtime_evidence_bool($payload['live_page_verified'] ?? false)
+        && strtolower(trim((string)($payload['period_control'] ?? ''))) === 'today_realtime'
+        && strtolower(trim((string)($payload['period_control_state'] ?? ''))) === 'active';
+    $targetRows = array_values(array_filter(
+        $rows,
+        static fn(array $row): bool => p0_import_row_date($row, $date) === $date
+    ));
+    $liveDomRows = array_values(array_filter(
+        $targetRows,
+        static fn(array $row): bool => p0_import_realtime_evidence_bool($row['live_page_verified'] ?? false)
+            && strtolower(trim((string)($row['period_control'] ?? ''))) === 'today_realtime'
+            && strtolower(trim((string)($row['period_control_state'] ?? ''))) === 'active'
+    ));
+    $rowLiveProof = $targetRows !== [] && count($liveDomRows) === count($targetRows);
+
+    $result['today_realtime_period_verified'] = $sectionReadbackVerified || $payloadLiveProof || $rowLiveProof;
+    $result['period_evidence_source'] = $sectionReadbackVerified
+        ? 'payload.section_evidence.traffic'
+        : (($payloadLiveProof || $rowLiveProof) ? 'bounded_live_dom_readback' : '');
+    if (!$result['today_realtime_period_verified']) {
+        $result['issues'][] = [
+            'code' => 'meituan_today_realtime_period_not_verified',
+            'message' => 'Same-day Meituan traffic must prove that 今日实时 was selected and read back as active in this collection run.',
+        ];
+    }
+
+    if ($result['issues'] === []) {
+        $result['status'] = 'ready';
+    }
+    return $result;
 }
 
 function p0_import_safe_capture_evidence_value(mixed $value): string
@@ -701,6 +861,20 @@ function p0_import_row_date_source_is_context_default(array $row): bool
 }
 
 /**
+ * `rtDataUpdateTime` and the visible update label are refresh timestamps.
+ * They do not prove which independently controlled traffic period was selected.
+ *
+ * @param array<string, mixed> $row
+ */
+function p0_import_row_date_source_is_refresh_timestamp(array $row): bool
+{
+    $source = p0_import_row_date_source($row);
+    return $source === 'response.rtdataupdatetime'
+        || $source === 'page.visible_update_time'
+        || preg_match('/(?:^|\.)cards\.rtdataupdatetime$/', $source) === 1;
+}
+
+/**
  * @param array<string, mixed> $row
  */
 function p0_import_row_date_source(array $row): string
@@ -720,7 +894,9 @@ function p0_import_row_date_source(array $row): string
  */
 function p0_import_explicit_row_date(array $row): string
 {
-    if (p0_import_row_date_source_is_context_default($row)) {
+    if (p0_import_row_date_source_is_context_default($row)
+        || p0_import_row_date_source_is_refresh_timestamp($row)
+    ) {
         return '';
     }
     $value = $row['date'] ?? $row['dataDate'] ?? $row['statDate'] ?? $row['stat_date'] ?? $row['data_date'] ?? $row['reportDate'] ?? $row['day'] ?? '';
@@ -780,9 +956,103 @@ function p0_import_platform_hotel_identifier(array $row, string $platform): stri
     return '';
 }
 
+function p0_import_payload_identity_matches_scope(array $payload, string $platform): bool
+{
+    $validation = is_array($payload['platform_identity_validation'] ?? null)
+        ? $payload['platform_identity_validation']
+        : null;
+    if ($validation === null) {
+        return false;
+    }
+
+    $expectedIdentifier = p0_import_platform_hotel_identifier($payload, $platform);
+    $validatedIdentifier = trim((string)($validation['validated_identifier'] ?? ''));
+    return strtolower(trim((string)($validation['status'] ?? ''))) === 'matched'
+        && ($validation['source_validation'] ?? false) === true
+        && ($validation['sensitive_values_exposed'] ?? false) !== true
+        && $expectedIdentifier !== ''
+        && $validatedIdentifier !== ''
+        && hash_equals($expectedIdentifier, $validatedIdentifier);
+}
+
+/**
+ * A browser Profile can expose rows for several hotels visible to the same
+ * account. Only rows whose OTA hotel identifier matches the top-level
+ * authorized capture scope may be projected into the selected system hotel.
+ *
+ * @param array<int, array<string, mixed>> $rows
+ * @return array{rows:array<int, array<string, mixed>>,metadata:array<string, mixed>}
+ */
+function p0_import_filter_rows_by_payload_hotel_scope(array $rows, array $payload, string $platform): array
+{
+    $metadata = [
+        'applied' => false,
+        'reason' => 'not_browser_capture_payload',
+        'input_row_count' => count($rows),
+        'matched_row_count' => count($rows),
+        'mismatched_row_count' => 0,
+        'missing_identifier_row_count' => 0,
+        'capture_scope_default_identifier_row_count' => 0,
+        'unverified_default_identifier_row_count' => 0,
+        'rejected_row_count' => 0,
+        'raw_identifiers_exposed' => false,
+    ];
+    if (!p0_import_payload_is_browser_capture($payload)) {
+        return ['rows' => $rows, 'metadata' => $metadata];
+    }
+
+    $expectedIdentifier = p0_import_platform_hotel_identifier($payload, $platform);
+    if ($expectedIdentifier === '') {
+        $metadata['reason'] = 'top_level_platform_hotel_identifier_missing';
+        return ['rows' => $rows, 'metadata' => $metadata];
+    }
+
+    $matchedRows = [];
+    $mismatchedRows = 0;
+    $missingIdentifierRows = 0;
+    $captureScopeDefaultRows = 0;
+    $unverifiedDefaultIdentifierRows = 0;
+    $identityMatchesScope = p0_import_payload_identity_matches_scope($payload, $platform);
+    foreach ($rows as $row) {
+        $identifierSource = strtolower(trim((string)($row['_platform_hotel_identifier_source'] ?? '')));
+        if ($identifierSource === 'capture_scope_default') {
+            $captureScopeDefaultRows++;
+            if (!$identityMatchesScope) {
+                $unverifiedDefaultIdentifierRows++;
+                continue;
+            }
+        }
+        $rowIdentifier = p0_import_platform_hotel_identifier($row, $platform);
+        if ($rowIdentifier === '') {
+            $missingIdentifierRows++;
+            continue;
+        }
+        if (!hash_equals($expectedIdentifier, $rowIdentifier)) {
+            $mismatchedRows++;
+            continue;
+        }
+        $matchedRows[] = $row;
+    }
+
+    $metadata = [
+        'applied' => true,
+        'reason' => 'browser_capture_top_level_platform_hotel_scope',
+        'input_row_count' => count($rows),
+        'matched_row_count' => count($matchedRows),
+        'mismatched_row_count' => $mismatchedRows,
+        'missing_identifier_row_count' => $missingIdentifierRows,
+        'capture_scope_default_identifier_row_count' => $captureScopeDefaultRows,
+        'unverified_default_identifier_row_count' => $unverifiedDefaultIdentifierRows,
+        'rejected_row_count' => $mismatchedRows + $missingIdentifierRows + $unverifiedDefaultIdentifierRows,
+        'raw_identifiers_exposed' => false,
+    ];
+
+    return ['rows' => $matchedRows, 'metadata' => $metadata];
+}
+
 /**
  * @param array<string, mixed> $row
- * @return array{list_exposure:int,detail_exposure:int,flow_rate:float,order_filling_num:int,order_submit_num:int}
+ * @return array{list_exposure:int,detail_exposure:int,flow_rate:float,order_filling_num:?int,order_submit_num:?int}
  */
 function p0_import_traffic_metrics(array $row, string $platform): array
 {
@@ -803,15 +1073,15 @@ function p0_import_traffic_metrics(array $row, string $platform): array
 
     $service = new OnlineDailyDataPersistenceService();
     $ref = new ReflectionClass($service);
-    $method = $ref->getMethod('extractGenericTrafficMetrics');
+    $method = $ref->getMethod('extractObservedTrafficMetrics');
     $method->setAccessible(true);
-    $metrics = $method->invoke($service, $row);
+    $metrics = $method->invoke($service, $row, true);
     return is_array($metrics) ? [
         'list_exposure' => (int)($metrics['list_exposure'] ?? 0),
         'detail_exposure' => (int)($metrics['detail_exposure'] ?? 0),
         'flow_rate' => (float)($metrics['flow_rate'] ?? 0.0),
-        'order_filling_num' => (int)($metrics['order_filling_num'] ?? 0),
-        'order_submit_num' => (int)($metrics['order_submit_num'] ?? 0),
+        'order_filling_num' => array_key_exists('order_filling_num', $metrics) ? (int)$metrics['order_filling_num'] : null,
+        'order_submit_num' => array_key_exists('order_submit_num', $metrics) ? (int)$metrics['order_submit_num'] : null,
     ] : [
         'list_exposure' => 0,
         'detail_exposure' => 0,
@@ -824,9 +1094,9 @@ function p0_import_traffic_metrics(array $row, string $platform): array
 /**
  * @param array<string, mixed> $metrics
  */
-function p0_import_has_nonzero_required_traffic_metric(array $metrics): bool
+function p0_import_has_nonzero_required_traffic_metric(array $metrics, string $platform = ''): bool
 {
-    foreach (['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'] as $key) {
+    foreach (array_keys(p0_import_required_traffic_storage_fields($platform)) as $key) {
         if (abs((float)($metrics[$key] ?? 0)) > 0.000001) {
             return true;
         }
@@ -841,7 +1111,7 @@ function p0_import_has_nonzero_required_traffic_metric(array $metrics): bool
  */
 function p0_import_preview_field_facts(array $row, array $metrics, string $platform, int $systemHotelId, string $date): array
 {
-    $requiredStorageFields = p0_import_required_traffic_storage_fields();
+    $requiredStorageFields = p0_import_required_traffic_storage_fields($platform);
     $platformHotelIdentifier = p0_import_platform_hotel_identifier($row, $platform);
     $previewRow = [
         'source' => $platform,
@@ -853,8 +1123,8 @@ function p0_import_preview_field_facts(array $row, array $metrics, string $platf
         'list_exposure' => $metrics['list_exposure'],
         'detail_exposure' => $metrics['detail_exposure'],
         'flow_rate' => $metrics['flow_rate'],
-        'order_filling_num' => $metrics['order_filling_num'],
-        'order_submit_num' => $metrics['order_submit_num'],
+        'order_filling_num' => $metrics['order_filling_num'] ?? null,
+        'order_submit_num' => $metrics['order_submit_num'] ?? null,
         'raw_data' => json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
     ];
     $withFacts = OnlineDataFieldFactService::attachToOnlineDailyRow($previewRow, $row);
@@ -977,9 +1247,9 @@ function p0_import_external_ui_status(array $status): array
  * @param array<string, mixed> $uiStatus
  * @return array<string, array<string, mixed>>
  */
-function p0_import_traffic_closure_chain(array $fieldFacts, array $uiStatus, bool $platformHotelIdentifierPresent, string $platformHotelIdentifierSource): array
+function p0_import_traffic_closure_chain(array $fieldFacts, array $uiStatus, bool $platformHotelIdentifierPresent, string $platformHotelIdentifierSource, string $platform = ''): array
 {
-    $requiredStorageFields = p0_import_required_traffic_storage_fields();
+    $requiredStorageFields = p0_import_required_traffic_storage_fields($platform);
     $requiredMetricKeys = array_keys($requiredStorageFields);
     $factByMetric = [];
     foreach ($fieldFacts as $fact) {
@@ -1054,7 +1324,7 @@ function p0_import_traffic_closure_chain(array $fieldFacts, array $uiStatus, boo
 
 function p0_import_summarize_rows(array $rows, string $platform, int $systemHotelId, string $date, array $payload = []): array
 {
-    $required = ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'];
+    $required = array_keys(p0_import_required_traffic_storage_fields($platform));
     $targetRows = 0;
     $defaultedDateRows = 0;
     $completeRows = 0;
@@ -1064,6 +1334,7 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
     $rowsWithRowLevelCompleteDesensitizedCaptureEvidence = 0;
     $rowsWithBrowserResponseEvidence = 0;
     $rowsWithBrowserDateSourceEvidence = 0;
+    $rowsWithRefreshTimestampDateSource = 0;
     $rowsWithExplicitSourcePath = 0;
     $rowsWithPlatformHotelIdentifier = 0;
     $targetDateNonzeroRequiredMetricRows = 0;
@@ -1086,7 +1357,13 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
             $defaultedDateRows++;
         }
         $dateSource = p0_import_row_date_source($row);
-        $dateSourceProven = $dateSource !== '' && !p0_import_row_date_source_is_context_default($row);
+        $refreshTimestampDateSource = p0_import_row_date_source_is_refresh_timestamp($row);
+        if ($refreshTimestampDateSource) {
+            $rowsWithRefreshTimestampDateSource++;
+        }
+        $dateSourceProven = $dateSource !== ''
+            && !p0_import_row_date_source_is_context_default($row)
+            && !$refreshTimestampDateSource;
         if ($dateSourceProven) {
             $rowsWithBrowserDateSourceEvidence++;
         }
@@ -1118,7 +1395,7 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
             $rowsWithBrowserResponseEvidence++;
         }
         $metrics = p0_import_traffic_metrics($row, $platform);
-        $hasNonzeroRequiredMetric = p0_import_has_nonzero_required_traffic_metric($metrics);
+        $hasNonzeroRequiredMetric = p0_import_has_nonzero_required_traffic_metric($metrics, $platform);
         if ($hasNonzeroRequiredMetric) {
             $targetDateNonzeroRequiredMetricRows++;
         } else {
@@ -1145,6 +1422,7 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
                 'browser_response_evidence_present' => $browserResponseEvidencePresent,
                 'date_source' => $dateSource,
                 'browser_date_source_evidence_present' => $dateSourceProven,
+                'refresh_timestamp_date_source' => $refreshTimestampDateSource,
                 'metrics' => $metrics,
                 'field_fact_preview' => $preview,
             ];
@@ -1170,6 +1448,7 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
         'missing_browser_response_evidence_rows' => max(0, $targetRows - $rowsWithBrowserResponseEvidence),
         'browser_date_source_evidence_rows' => $rowsWithBrowserDateSourceEvidence,
         'missing_browser_date_source_evidence_rows' => max(0, $targetRows - $rowsWithBrowserDateSourceEvidence),
+        'refresh_timestamp_date_source_rows' => $rowsWithRefreshTimestampDateSource,
         'explicit_source_path_rows' => $rowsWithExplicitSourcePath,
         'missing_source_path_rows' => max(0, $targetRows - $rowsWithExplicitSourcePath),
         'platform_hotel_identifier_rows' => $rowsWithPlatformHotelIdentifier,
@@ -1254,7 +1533,7 @@ function p0_import_build_traffic_evidence(array $rows, string $platform, int $sy
             'field_fact_structured_source_path_count' => $fieldFactStructuredSourcePathCount,
             'ui_status' => $uiStatus,
             'field_facts' => $fieldFacts,
-            'traffic_closure_chain' => p0_import_traffic_closure_chain($fieldFacts, $uiStatus, $platformHotelIdentifier !== '', $platformHotelIdentifierSource),
+            'traffic_closure_chain' => p0_import_traffic_closure_chain($fieldFacts, $uiStatus, $platformHotelIdentifier !== '', $platformHotelIdentifierSource, $platform),
             'traffic_closure_chain_policy' => 'External traffic_evidence closure chain is pre-import source proof only; P0 remains incomplete until --execute saves target-date traffic rows and verify:p0-ota-field-loop returns ready.',
         ];
     }
@@ -1282,7 +1561,7 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
         }
 
         $metrics = p0_import_traffic_metrics($row, $platform);
-        if (p0_import_has_nonzero_required_traffic_metric($metrics)) {
+        if (p0_import_has_nonzero_required_traffic_metric($metrics, $platform)) {
             $nonzeroRequiredMetricRows++;
         } else {
             $zeroRequiredMetricRows++;
@@ -1295,8 +1574,8 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
         $row['list_exposure'] = $metrics['list_exposure'];
         $row['detail_exposure'] = $metrics['detail_exposure'];
         $row['flow_rate'] = $metrics['flow_rate'];
-        $row['order_filling_num'] = $metrics['order_filling_num'];
-        $row['order_submit_num'] = $metrics['order_submit_num'];
+        $row['order_filling_num'] = $metrics['order_filling_num'] ?? null;
+        $row['order_submit_num'] = $metrics['order_submit_num'] ?? null;
 
         $explicitSourcePath = p0_import_explicit_source_path($row);
         if ($explicitSourcePath !== '' && trim((string)($row['_source_path'] ?? '')) === '') {
@@ -1348,15 +1627,18 @@ function p0_import_execute_plan(array $prepared): array
 /**
  * @return array<string, string>
  */
-function p0_import_required_traffic_storage_fields(): array
+function p0_import_required_traffic_storage_fields(string $platform = ''): array
 {
-    return [
+    $fields = [
         'list_exposure' => 'online_daily_data.list_exposure',
         'detail_exposure' => 'online_daily_data.detail_exposure',
         'flow_rate' => 'online_daily_data.flow_rate',
         'order_filling_num' => 'online_daily_data.order_filling_num',
         'order_submit_num' => 'online_daily_data.order_submit_num',
     ];
+    return strtolower(trim($platform)) === 'meituan'
+        ? array_slice($fields, 0, 3, true)
+        : $fields;
 }
 
 /**
@@ -1453,7 +1735,7 @@ function p0_import_table_columns(string $table): array
  */
 function p0_import_post_execute_verification(array $options): array
 {
-    $requiredStorageFields = p0_import_required_traffic_storage_fields();
+    $requiredStorageFields = p0_import_required_traffic_storage_fields((string)$options['platform']);
     $requiredMetricKeys = array_keys($requiredStorageFields);
     $base = [
         'status' => 'not_run',
@@ -1562,7 +1844,7 @@ function p0_import_post_execute_verification(array $options): array
             'order_filling_num' => (float)($row['order_filling_num'] ?? 0),
             'order_submit_num' => (float)($row['order_submit_num'] ?? 0),
         ];
-        if (p0_import_has_nonzero_required_traffic_metric($metrics)) {
+        if (p0_import_has_nonzero_required_traffic_metric($metrics, (string)$options['platform'])) {
             $base['nonzero_required_metric_rows']++;
         } else {
             $base['zero_required_metric_rows']++;
@@ -1792,12 +2074,70 @@ try {
     $payloadProjectionMetadata = (array)$payloadProjection['metadata'];
     $sensitiveHits = p0_import_sensitive_hits($payload);
     $rows = p0_import_extract_rows($payload, (string)$options['platform']);
+    $hotelScopeFilter = p0_import_filter_rows_by_payload_hotel_scope($rows, $payload, (string)$options['platform']);
+    $rows = (array)$hotelScopeFilter['rows'];
+    $hotelScopeFilterMetadata = (array)$hotelScopeFilter['metadata'];
     $summary = p0_import_summarize_rows($rows, (string)$options['platform'], (int)$options['system-hotel-id'], (string)$options['date'], $payload);
     $preparedExecute = p0_import_prepare_execute_payload($rows, (string)$options['platform'], (int)$options['system-hotel-id'], (string)$options['date'], $payload);
     $executePlan = p0_import_execute_plan($preparedExecute);
 
     $issues = p0_import_payload_scope_issues($payload, (string)$options['platform'], (int)$options['system-hotel-id']);
     $warnings = p0_import_payload_warnings($payload);
+    $realtimeFreshness = p0_import_meituan_today_realtime_freshness(
+        $payload,
+        $rows,
+        (string)$options['platform'],
+        (string)$options['date']
+    );
+    foreach ((array)($realtimeFreshness['issues'] ?? []) as $freshnessIssue) {
+        if (is_array($freshnessIssue)) {
+            $issues[] = $freshnessIssue;
+        }
+    }
+    $platformIdentityValidation = is_array($payload['platform_identity_validation'] ?? null)
+        ? $payload['platform_identity_validation']
+        : null;
+    if (p0_import_payload_is_browser_capture($payload) && $platformIdentityValidation !== null) {
+        $identityStatus = strtolower(trim((string)($platformIdentityValidation['status'] ?? '')));
+        $validatedIdentifier = trim((string)($platformIdentityValidation['validated_identifier'] ?? ''));
+        $expectedIdentifier = p0_import_platform_hotel_identifier($payload, (string)$options['platform']);
+        $identityMatched = p0_import_payload_identity_matches_scope(
+            $payload,
+            (string)$options['platform']
+        );
+        if (!$identityMatched) {
+            $issues[] = [
+                'code' => 'browser_capture_platform_identity_not_matched',
+                'message' => 'Browser capture platform identity is not an exact verified match for the authorized OTA hotel scope.',
+                'identity_status' => $identityStatus !== '' ? $identityStatus : 'unverified',
+                'source_validation' => ($platformIdentityValidation['source_validation'] ?? false) === true,
+                'validated_identifier_present' => $validatedIdentifier !== '',
+                'sensitive_values_exposed' => false,
+                'raw_identifiers_exposed' => false,
+            ];
+        }
+    }
+    if (($hotelScopeFilterMetadata['applied'] ?? false) === true
+        && (int)($hotelScopeFilterMetadata['input_row_count'] ?? 0) > 0
+        && (int)($hotelScopeFilterMetadata['matched_row_count'] ?? 0) <= 0
+    ) {
+        $issues[] = [
+            'code' => 'browser_capture_row_hotel_scope_mismatch',
+            'message' => 'Browser capture rows do not match the top-level authorized OTA hotel identifier; no row may be projected into the selected system hotel.',
+            'input_row_count' => (int)($hotelScopeFilterMetadata['input_row_count'] ?? 0),
+            'mismatched_row_count' => (int)($hotelScopeFilterMetadata['mismatched_row_count'] ?? 0),
+            'missing_identifier_row_count' => (int)($hotelScopeFilterMetadata['missing_identifier_row_count'] ?? 0),
+            'raw_identifiers_exposed' => false,
+        ];
+    } elseif ((int)($hotelScopeFilterMetadata['rejected_row_count'] ?? 0) > 0) {
+        $warnings[] = [
+            'code' => 'browser_capture_out_of_scope_rows_rejected',
+            'message' => 'Rows outside the top-level authorized OTA hotel scope were rejected before preview or persistence.',
+            'matched_row_count' => (int)($hotelScopeFilterMetadata['matched_row_count'] ?? 0),
+            'rejected_row_count' => (int)($hotelScopeFilterMetadata['rejected_row_count'] ?? 0),
+            'raw_identifiers_exposed' => false,
+        ];
+    }
     if ($sensitiveHits !== []) {
         $issues[] = [
             'code' => 'sensitive_payload_keys_detected',
@@ -1886,6 +2226,13 @@ try {
             'missing_browser_date_source_evidence_rows' => (int)$summary['missing_browser_date_source_evidence_rows'],
         ];
     }
+    if ((int)($summary['refresh_timestamp_date_source_rows'] ?? 0) > 0) {
+        $issues[] = [
+            'code' => 'refresh_timestamp_not_business_date_evidence',
+            'message' => 'Meituan refresh timestamps do not prove the selected business date; require row/request date evidence or a scoped traffic-period selector readback.',
+            'refresh_timestamp_date_source_rows' => (int)$summary['refresh_timestamp_date_source_rows'],
+        ];
+    }
     if (p0_import_payload_is_browser_capture($payload)
         && (int)$summary['target_date_rows'] > 0
         && (int)($summary['missing_browser_response_evidence_rows'] ?? 0) > 0
@@ -1960,6 +2307,8 @@ try {
         'target_storage_table' => 'online_daily_data',
         'target_data_type' => 'traffic',
         'payload_import_projection' => $payloadProjectionMetadata,
+        'payload_hotel_scope_filter' => $hotelScopeFilterMetadata,
+        'realtime_freshness' => $realtimeFreshness,
         'sensitive_values_exposed' => $sensitiveHits !== [],
         'summary' => $summary,
         'execute_plan' => $executePlan,

@@ -14,6 +14,14 @@ function assertContract(condition, message) {
   }
 }
 
+function capabilityBlock(source, capabilityName) {
+  const marker = `                '${capabilityName}' => [`;
+  const start = source.indexOf(marker);
+  assertContract(start >= 0, `${capabilityName} capability must exist`);
+  const next = source.indexOf("\n                '", start + marker.length);
+  return source.slice(start, next >= 0 ? next : source.length);
+}
+
 const route = read('route/app.php');
 const service = read('app/service/ProtectedCapabilityService.php');
 const auth = read('app/middleware/Auth.php');
@@ -33,6 +41,7 @@ const protectedRoutes = [
   'api/ai-daily-reports',
   'api/ota-standard',
   'api/revenue-research',
+  'api/revenue-ai',
   'api/transfer',
   'api/strategy',
   'api/simulation',
@@ -51,9 +60,24 @@ for (const protectedRoute of protectedRoutes) {
   assertContract(service.includes(`'${protectedRoute}'`) || service.includes(`"${protectedRoute}"`), `${protectedRoute} must be classified by ProtectedCapabilityService`);
 }
 
+const revenueAiExecutionCapability = capabilityBlock(service, 'operation_execution');
+const revenueAiDecisionCapability = capabilityBlock(service, 'ai_decision');
 assertContract(
-  !service.includes("'api/revenue-ai'") && !service.includes('"api/revenue-ai"'),
-  'api/revenue-ai must stay outside ProtectedCapabilityService redaction so the manager homepage remains usable'
+  revenueAiExecutionCapability.includes("'permission' => 'operation.execute'")
+    && revenueAiExecutionCapability.includes("'module' => 'operation_decision'")
+    && revenueAiExecutionCapability.includes("'path' => 'api/revenue-ai/price-suggestions/*/execution-intent'")
+    && revenueAiExecutionCapability.includes("'methods' => ['POST']"),
+  'Revenue AI execution-intent POST must map to operation_execution + operation.execute'
+);
+assertContract(
+  revenueAiDecisionCapability.includes("'permission' => 'can_use_ai_decision'")
+    && revenueAiDecisionCapability.includes("'module' => 'ai_decision'")
+    && revenueAiDecisionCapability.includes("'api/revenue-ai'"),
+  'other Revenue AI routes must map to ai_decision + can_use_ai_decision'
+);
+assertContract(
+  service.indexOf("'operation_execution' => [") < service.indexOf("'ai_decision' => ["),
+  'operation_execution must be classified before the broader api/revenue-ai prefix'
 );
 
 for (const basicReadRoute of [
@@ -143,6 +167,8 @@ assertContract(!agent.includes('$roomType->base_price = (float)$suggestion->sugg
 assertContract(!agent.includes("'price_apply'"), 'Agent direct price apply must not log a successful price_apply event in Phase 1B');
 assertContract(route.includes("Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion')"), 'Revenue AI must expose manual review route');
 assertContract(route.includes("Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent')"), 'Revenue AI must expose execution-intent bridge route');
+assertContract(route.includes("Route::get('/overview', 'RevenueAi/overview')"), 'Revenue AI manager homepage overview route must remain available to authorized users');
+assertContract(revenueAi.includes('public function overview(): Response'), 'Revenue AI manager homepage overview action must remain available');
 assertContract(revenueAi.includes('PriceSuggestion::STATUS_PENDING'), 'Revenue AI review route must require pending suggestions before approve/reject');
 assertContract(revenueAi.includes('PriceSuggestion::STATUS_APPROVED'), 'Revenue AI execution-intent route must require approved suggestions');
 assertContract(revenueAi.includes('createExecutionIntent('), 'Revenue AI execution-intent route must use OperationManagementService');

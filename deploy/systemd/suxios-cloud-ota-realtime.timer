@@ -1,0 +1,11 @@
+[Unit]
+Description=Start SUXIOS cloud OTA current-day realtime collection every hour
+
+[Timer]
+OnCalendar=*-*-* *:05:00 Asia/Shanghai
+RandomizedDelaySec=0
+Persistent=false
+Unit=suxios-cloud-ota-realtime.service
+
+[Install]
+WantedBy=timers.target

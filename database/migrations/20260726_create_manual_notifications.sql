@@ -1,0 +1,28 @@
+CREATE TABLE IF NOT EXISTS `manual_notifications` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id` int unsigned NOT NULL,
+  `hotel_id` int unsigned NOT NULL,
+  `notification_type` varchar(40) NOT NULL,
+  `template_type` varchar(40) NOT NULL,
+  `business_date` date NOT NULL,
+  `title` varchar(120) NOT NULL,
+  `body` text NOT NULL,
+  `send_method` varchar(32) NOT NULL DEFAULT 'wecom_test',
+  `trigger_type` varchar(32) NOT NULL DEFAULT 'manual_test',
+  `planned_send_at` datetime DEFAULT NULL,
+  `enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `schedule_status` varchar(32) NOT NULL DEFAULT 'saved_only',
+  `last_test_status` varchar(32) NOT NULL DEFAULT 'never_tested',
+  `last_test_message` varchar(255) DEFAULT NULL,
+  `last_tested_at` datetime DEFAULT NULL,
+  `last_tested_by` int unsigned DEFAULT NULL,
+  `test_robot_id` int unsigned DEFAULT NULL,
+  `test_robot_name` varchar(120) DEFAULT NULL,
+  `created_by` int unsigned NOT NULL,
+  `create_time` datetime NOT NULL,
+  `update_time` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_manual_notification_scope` (`tenant_id`, `hotel_id`, `business_date`, `id`),
+  KEY `idx_manual_notification_schedule` (`enabled`, `schedule_status`, `trigger_type`, `planned_send_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='User-authored hotel notifications; scheduling remains gated until an external scheduler is enabled';

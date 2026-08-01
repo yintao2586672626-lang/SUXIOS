@@ -141,9 +141,17 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
   const notApplicableSections = collectNotApplicableSections(normalizedInputs, options);
   const auditableRequestedSections = [...requestedSections]
     .filter((section) => !notApplicableSections.has(section));
-  const endpointCoverage = buildEndpointCoverage(auditableRequestedSections, capturedEndpoints);
+  const expectedEndpointIds = normalizeExpectedEndpointIds(
+    options.expectedEndpointIds || options.expected_endpoint_ids,
+  );
+  const endpointCoverage = buildEndpointCoverage(
+    auditableRequestedSections,
+    capturedEndpoints,
+    expectedEndpointIds,
+  );
   const fieldCoverage = buildFieldCoverage(auditableRequestedSections, capturedFieldsBySection, {
     allowedFieldKeys: normalizeAllowedFieldKeys(options.allowedFieldKeys || options.allowed_field_keys),
+    expectedEndpointIds,
   });
   const authStatus = buildAuthStatus({
     pageCount,
@@ -211,6 +219,7 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
       endpointCandidates: groupedCandidates,
       p3EvidenceMatrix,
       notApplicableSections,
+      includeEmptyP3EvidenceSections: expectedEndpointIds === null,
     }),
     next_evidence_required: candidateCount > 0 ? [...CTRIP_CAPTURE_AUDIT_EVIDENCE] : [],
   };
@@ -509,6 +518,16 @@ function normalizeAllowedFieldKeys(value) {
   return keys.length > 0 ? new Set(keys) : null;
 }
 
+function normalizeExpectedEndpointIds(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const ids = value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  return ids.length > 0 ? new Set(ids) : null;
+}
+
 function normalizeCoverageFieldKey(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
 }
@@ -572,9 +591,12 @@ function collectNotApplicableSections(inputs, options = {}) {
   return sections;
 }
 
-function buildEndpointCoverage(requestedSections, capturedEndpoints) {
+function buildEndpointCoverage(requestedSections, capturedEndpoints, expectedEndpointIds = null) {
   const selectedSections = [...new Set((requestedSections || []).filter(Boolean))].sort();
-  const expected = CTRIP_CAPTURE_ENDPOINTS.filter((endpoint) => selectedSections.includes(endpoint.section));
+  const expected = CTRIP_CAPTURE_ENDPOINTS.filter((endpoint) => (
+    selectedSections.includes(endpoint.section)
+    && (!expectedEndpointIds || expectedEndpointIds.has(endpoint.id))
+  ));
   const sections = {};
   for (const section of selectedSections) {
     const expectedForSection = expected.filter((endpoint) => endpoint.section === section);
@@ -628,6 +650,7 @@ function isGateRequiredEndpoint(endpoint) {
 function buildFieldCoverage(requestedSections, capturedFieldsBySection, options = {}) {
   const selectedSections = [...new Set((requestedSections || []).filter(Boolean))].sort();
   const allowedFieldKeys = options.allowedFieldKeys instanceof Set ? options.allowedFieldKeys : null;
+  const expectedEndpointIds = options.expectedEndpointIds instanceof Set ? options.expectedEndpointIds : null;
   const sections = {};
   const expectedFieldUnion = new Set();
   const capturedFieldUnion = new Set();
@@ -635,7 +658,10 @@ function buildFieldCoverage(requestedSections, capturedFieldsBySection, options 
 
   for (const section of selectedSections) {
     let expectedFieldIds = uniqueSorted(CTRIP_CAPTURE_ENDPOINTS
-      .filter((endpoint) => endpoint.section === section)
+      .filter((endpoint) => (
+        endpoint.section === section
+        && (!expectedEndpointIds || expectedEndpointIds.has(endpoint.id))
+      ))
       .flatMap((endpoint) => endpoint.fields || [])
       .map((field) => String(field?.id || '').trim())
       .filter((fieldId) => fieldId && !FIELD_COVERAGE_CONTEXT_FIELD_IDS.has(fieldId)));
@@ -719,6 +745,7 @@ function buildCaptureGapReport({
   endpointCandidates = {},
   p3EvidenceMatrix = {},
   notApplicableSections = new Set(),
+  includeEmptyP3EvidenceSections = true,
 } = {}) {
   const blockers = [];
   const nextActions = [];
@@ -824,16 +851,18 @@ function buildCaptureGapReport({
   }
 
   const p3EvidenceSections = {};
-  for (const section of Object.values(p3EvidenceMatrix.sections || {})) {
-    if (!section || section.status === 'ready_for_review') {
-      continue;
+  if (includeEmptyP3EvidenceSections) {
+    for (const section of Object.values(p3EvidenceMatrix.sections || {})) {
+      if (!section || section.status === 'ready_for_review') {
+        continue;
+      }
+      p3EvidenceSections[section.id] = {
+        status: section.status,
+        ready_count: section.ready_count || 0,
+        incomplete_count: section.incomplete_count || 0,
+        missing_evidence: section.missing_evidence || [],
+      };
     }
-    p3EvidenceSections[section.id] = {
-      status: section.status,
-      ready_count: section.ready_count || 0,
-      incomplete_count: section.incomplete_count || 0,
-      missing_evidence: section.missing_evidence || [],
-    };
   }
 
   const needsEvidence = blockers.length > 0

@@ -1,0 +1,153 @@
+                    <div v-if="currentPage === 'system-config'">
+                        <!-- 系统信息卡片 -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                                <div class="flex items-center gap-3 mb-3">
+                                    <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                                        <i class="fas fa-info-circle text-blue-600"></i>
+                                    </div>
+                                    <div class="font-semibold text-gray-800">系统信息</div>
+                                </div>
+                                <div class="text-sm text-gray-600">
+                                    <div class="mb-1"><span class="text-gray-400">名称：</span>宿析OS</div>
+                                    <div><span class="text-gray-400">版本：</span>v2.0.0</div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                                <div class="flex items-center gap-3 mb-3">
+                                    <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
+                                        <i class="fas fa-database text-green-600"></i>
+                                    </div>
+                                    <div class="font-semibold text-gray-800">数据状态</div>
+                                </div>
+                                <div class="text-sm text-gray-600">
+                                    <div class="mb-1"><span class="text-gray-400">酒店数：</span>{{ hotels.length }} 家</div>
+                                    <div><span class="text-gray-400">用户数：</span>{{ users.length }} 人</div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                                <div class="flex items-center gap-3 mb-3">
+                                    <div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                                        <i class="fas fa-clock text-purple-600"></i>
+                                    </div>
+                                    <div class="font-semibold text-gray-800">系统时间</div>
+                                </div>
+                                <div class="text-sm text-gray-600">
+                                    <div class="mb-1">{{ currentTime }}</div>
+                                    <div class="text-gray-400">本地时间已更新</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="p-5 border-b border-gray-100 flex justify-between items-center">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-gray-800">系统配置</h3>
+                                    <p class="text-sm text-gray-400 mt-1">管理系统基本信息和菜单名称</p>
+                                </div>
+                                <button v-if="user?.is_super_admin" @click="openSystemConfigModal()" class="btn-primary">
+                                    <i class="fas fa-edit mr-2"></i>修改配置
+                                </button>
+                                <div v-else="" class="text-sm text-gray-400 flex items-center">
+                                    <i class="fas fa-lock mr-2"></i>仅超级管理员可修改
+                                </div>
+                            </div>
+                            <div class="p-6">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div class="bg-gray-50 rounded-xl p-5">
+                                        <h4 class="font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                                            <i class="fas fa-info-circle text-blue-500"></i>基本信息
+                                        </h4>
+                                        <div class="space-y-3">
+                                            <div class="flex items-center justify-between py-2 border-b border-gray-200">
+                                                <span class="text-gray-500">系统名称</span>
+                                                <span class="font-medium text-gray-800">{{ systemConfig.system_name }}</span>
+                                            </div>
+                                            <div class="flex items-center justify-between py-2">
+                                                <span class="text-gray-500">系统Logo</span>
+                                                <img v-if="systemConfig.logo_url" :src="systemConfig.logo_url" class="h-8 inline-block rounded">
+                                                <span v-else="" class="text-gray-400 text-sm">未设置</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-xl p-5">
+                                        <h4 class="font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                                            <i class="fas fa-menu text-green-500"></i>菜单名称
+                                        </h4>
+                                        <div class="space-y-3">
+                                            <div class="flex items-center justify-between py-2 border-b border-gray-200">
+                                                <span class="text-gray-500">酒店管理</span>
+                                                <span class="font-medium text-gray-800">{{ systemConfig.menu_hotel_name || '酒店管理' }}</span>
+                                            </div>
+                                            <div class="flex items-center justify-between py-2 border-b border-gray-200">
+                                                <span class="text-gray-500">用户管理</span>
+                                                <span class="font-medium text-gray-800">{{ systemConfig.menu_users_name || '用户管理' }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 功能设置卡片 -->
+                        <div class="card mt-6">
+                            <div class="p-5 border-b border-gray-100">
+                                <h3 class="text-lg font-semibold text-gray-800">功能设置</h3>
+                                <p class="text-sm text-gray-400 mt-1">管理系统功能开关</p>
+                            </div>
+                            <div class="p-6">
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div class="bg-gray-50 rounded-xl p-4 flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                                                <i class="fas fa-clipboard-list text-purple-600"></i>
+                                            </div>
+                                            <div>
+                                                <div class="font-medium text-gray-800">操作日志</div>
+                                                <div class="text-xs text-gray-500">记录用户操作</div>
+                                            </div>
+                                        </div>
+                                        <span :class="systemConfig.enable_operation_log === '1' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'" class="px-2 py-1 rounded text-xs font-medium">
+                                            {{ systemConfig.enable_operation_log === '1' ? '已启用' : '已禁用' }}
+                                        </span>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-xl p-4 flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
+                                                <i class="fas fa-cloud-download-alt text-green-600"></i>
+                                            </div>
+                                            <div>
+                                                <div class="font-medium text-gray-800">数据备份</div>
+                                                <div class="text-xs text-gray-500">允许数据备份</div>
+                                            </div>
+                                        </div>
+                                        <span :class="systemConfig.enable_data_backup === '1' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'" class="px-2 py-1 rounded text-xs font-medium">
+                                            {{ systemConfig.enable_data_backup === '1' ? '已启用' : '已禁用' }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 安全设置卡片 -->
+                        <div class="card mt-6">
+                            <div class="p-5 border-b border-gray-100">
+                                <h3 class="text-lg font-semibold text-gray-800">安全设置</h3>
+                                <p class="text-sm text-gray-400 mt-1">管理系统安全策略</p>
+                            </div>
+                            <div class="p-6">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div class="bg-gray-50 rounded-xl p-4 text-center">
+                                        <div class="text-2xl font-bold text-green-600">固定 72 小时</div>
+                                        <div class="text-sm text-gray-500 mt-1">登录与鉴权统一策略</div>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-xl p-4 text-center">
+                                        <div class="text-2xl font-bold text-purple-600">{{ systemConfig.password_min_length || 6 }}位</div>
+                                        <div class="text-sm text-gray-500 mt-1">密码最小长度</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI模型配置页面 -->

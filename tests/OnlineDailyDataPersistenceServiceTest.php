@@ -5,6 +5,7 @@ namespace tests;
 
 use app\service\OnlineDailyDataPersistenceService;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 
 final class OnlineDailyDataPersistenceServiceTest extends TestCase
 {
@@ -29,6 +30,109 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         self::assertSame(0, $row['is_final']);
     }
 
+    public function testCtripTargetDateSearchTrafficCannotBecomeFinalHistoricalData(): void
+    {
+        $columns = [
+            'data_period' => true,
+            'snapshot_time' => true,
+            'snapshot_bucket' => true,
+            'is_final' => true,
+        ];
+        $row = OnlineDailyDataPersistenceService::applyPeriodFields([
+            'data_date' => '2026-07-12',
+            'data_type' => 'traffic',
+            'data_period' => 'historical_daily',
+            'endpoint_id' => 'traffic_search_details',
+            'dimension' => 'catalog:traffic_report:traffic_search_details:future_search:2026-07-14:cumulative:self',
+            'raw_data' => [
+                'endpoint_id' => 'traffic_search_details',
+                'dimension_values' => ['target_date' => '2026-07-14'],
+                'metrics' => [
+                    'future_search_pv' => 84,
+                    'future_search_uv' => 64,
+                    'future_search_order_count' => null,
+                ],
+            ],
+        ], $columns);
+
+        self::assertSame('next_30_days', $row['data_period']);
+        self::assertSame(0, $row['is_final']);
+        self::assertNull($row['snapshot_time']);
+        self::assertSame('', $row['snapshot_bucket']);
+    }
+
+    public function testEmptyNormalizedFieldsCannotHideSourceFutureTargetEvidence(): void
+    {
+        $columns = [
+            'data_period' => true,
+            'snapshot_time' => true,
+            'snapshot_bucket' => true,
+            'is_final' => true,
+        ];
+        $sourceRow = [
+            'endpoint_id' => 'traffic_search_details',
+            'dimension' => 'catalog:traffic_report:traffic_search_details:future_search:2026-08-01:cumulative:self',
+            'raw_data' => [
+                'endpoint_id' => 'traffic_search_details',
+                'dimension_values' => ['target_date' => '2026-08-01'],
+                'metrics' => ['future_search_uv' => 80],
+            ],
+        ];
+        $row = OnlineDailyDataPersistenceService::applyPeriodFields([
+            'data_date' => '2026-07-30',
+            'data_type' => 'traffic',
+            'data_period' => 'historical_daily',
+            'endpoint_id' => '',
+            'dimension' => '',
+            'raw_data' => '',
+        ], $columns, $sourceRow);
+
+        self::assertSame('next_30_days', $row['data_period']);
+        self::assertSame(0, $row['is_final']);
+        self::assertTrue(OnlineDailyDataPersistenceService::isFutureTargetRow(
+            ['endpoint_id' => 'another_endpoint'],
+            $sourceRow
+        ));
+    }
+
+    public function testGenericTrafficTextCannotSelfDeclareFuturePeriod(): void
+    {
+        $row = OnlineDailyDataPersistenceService::applyPeriodFields([
+            'data_date' => '2026-07-12',
+            'data_type' => 'traffic',
+            'data_period' => 'historical_daily',
+            'dimension' => 'future-looking label without endpoint identity',
+        ], [
+            'data_period' => true,
+            'snapshot_time' => true,
+            'snapshot_bucket' => true,
+            'is_final' => true,
+        ]);
+
+        self::assertSame('historical_daily', $row['data_period']);
+        self::assertSame(1, $row['is_final']);
+    }
+
+    public function testRealtimeSnapshotUsesMinuteBucketSoRepeatedChecksRemainReviewable(): void
+    {
+        $row = OnlineDailyDataPersistenceService::applyPeriodFields(
+            [
+                'data_period' => 'realtime_snapshot',
+                'snapshot_time' => '2026-07-15 10:42:33',
+            ],
+            [
+                'data_period' => true,
+                'snapshot_time' => true,
+                'snapshot_bucket' => true,
+                'is_final' => true,
+            ]
+        );
+
+        self::assertSame('2026-07-15 10:42:33', $row['snapshot_time']);
+        self::assertSame('202607151042', $row['snapshot_bucket']);
+        self::assertSame(0, $row['is_final']);
+    }
+
     public function testTrafficForecastPeriodCorrectionMigrationIsNarrowAndRegistered(): void
     {
         $root = dirname(__DIR__);
@@ -48,5 +152,269 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             'SOURCE ./database/migrations/20260710_fix_traffic_forecast_period.sql;',
             $init
         );
+    }
+
+    public function testFutureSearchPeriodRepairIsDryRunFirstAndNeverMintsTrust(): void
+    {
+        $script = (string)file_get_contents(
+            dirname(__DIR__) . '/scripts/repair_future_search_period_roles.php'
+        );
+
+        self::assertStringContainsString("\$argument === '--execute'", $script);
+        self::assertStringContainsString('--hotel-id=<positive system hotel id> is required', $script);
+        self::assertStringContainsString(
+            'OnlineDailyDataPersistenceService::isFutureTargetRow',
+            $script
+        );
+        self::assertStringContainsString("data_period = 'next_30_days'", $script);
+        self::assertStringContainsString('is_final = 0', $script);
+        self::assertStringContainsString('readback_verified = 0', $script);
+        self::assertStringContainsString("'readback_trust_minted' => 0", $script);
+        self::assertStringContainsString("'business_metric_fields_modified' => 0", $script);
+        self::assertStringContainsString("'rows_deleted' => 0", $script);
+        self::assertStringContainsString('older_version_same_canonical_identity', $script);
+        self::assertStringContainsString('remaining_misclassified_future_target_rows', $script);
+        self::assertStringNotContainsString('DELETE FROM online_daily_data', $script);
+    }
+
+    public function testMinuteBucketSchemaChangeLivesInANewMigration(): void
+    {
+        $root = dirname(__DIR__);
+        $legacy = (string)file_get_contents(
+            $root . '/database/migrations/20260606_add_online_daily_data_period_fields.sql'
+        );
+        $repair = (string)file_get_contents(
+            $root . '/database/migrations/20260715_repair_online_data_period_semantics.sql'
+        );
+
+        self::assertStringContainsString('hour bucket, e.g. 2026060613', $legacy);
+        self::assertStringNotContainsString('minute bucket, e.g. 202606061315', $legacy);
+        self::assertStringContainsString('MODIFY COLUMN `snapshot_bucket`', $repair);
+        self::assertStringContainsString('minute bucket, e.g. 202606061315', $repair);
+    }
+
+    public function testMeituanTrafficRequiresTheBoundPlatformHotelIdentity(): void
+    {
+        $service = new OnlineDailyDataPersistenceService();
+        $matching = ['data' => ['list' => [[
+            'poiId' => '1029642156589279',
+            'dataDate' => '2026-07-11',
+            'exposure' => 100,
+        ]]]];
+
+        self::assertSame(
+            ['1029642156589279'],
+            $service->validateGenericTrafficBinding($matching, '1029642156589279')
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $service->validateGenericTrafficBinding($matching, 'wrong-poi');
+    }
+
+    public function testMetricAwarePatchDoesNotOverwriteMissingFactsAndKeepsObservedZero(): void
+    {
+        $fields = ['list_exposure', 'detail_exposure', 'flow_rate'];
+        $update = OnlineDailyDataPersistenceService::buildMetricAwareWriteData(
+            ['source' => 'ctrip', 'detail_exposure' => 0],
+            ['list_exposure' => 0],
+            $fields,
+            false
+        );
+
+        self::assertSame(0, $update['list_exposure']);
+        self::assertArrayNotHasKey('detail_exposure', $update);
+        self::assertSame(88, array_merge(['detail_exposure' => 88], $update)['detail_exposure']);
+
+        $insert = OnlineDailyDataPersistenceService::buildMetricAwareWriteData(
+            ['source' => 'ctrip'],
+            ['list_exposure' => 0],
+            $fields,
+            true
+        );
+        self::assertSame(0, $insert['list_exposure']);
+        self::assertNull($insert['detail_exposure']);
+        self::assertNull($insert['flow_rate']);
+    }
+
+    public function testTrafficExtractionUsesSourcePresenceInsteadOfDefaultZero(): void
+    {
+        $method = new \ReflectionMethod(OnlineDailyDataPersistenceService::class, 'extractObservedTrafficMetrics');
+        $method->setAccessible(true);
+        $metrics = $method->invoke(new OnlineDailyDataPersistenceService(), [
+            'poiId' => '1029642156589279',
+            'listExposure' => 0,
+        ], false);
+
+        self::assertSame(['list_exposure' => 0], $metrics);
+        self::assertArrayNotHasKey('detail_exposure', $metrics);
+        self::assertArrayNotHasKey('flow_rate', $metrics);
+    }
+
+    public function testMetricReadbackMustMatchEveryObservedMetric(): void
+    {
+        $expected = [
+            'source' => 'ctrip',
+            'data_type' => 'traffic',
+            'data_date' => '2026-07-14',
+            'dimension' => 'Ctrip:self',
+            'hotel_id' => '987654',
+            'system_hotel_id' => 7,
+            'list_exposure' => 0,
+            'detail_exposure' => 12,
+        ];
+        $persisted = array_merge($expected, [
+            'system_hotel_id' => '7',
+            'list_exposure' => '0',
+            'detail_exposure' => '12',
+        ]);
+
+        self::assertTrue(OnlineDailyDataPersistenceService::matchesMetricReadback(
+            $persisted,
+            $expected,
+            ['source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
+            ['list_exposure', 'detail_exposure']
+        ));
+
+        $persisted['detail_exposure'] = '11';
+        self::assertFalse(OnlineDailyDataPersistenceService::matchesMetricReadback(
+            $persisted,
+            $expected,
+            ['source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
+            ['list_exposure', 'detail_exposure']
+        ));
+    }
+
+    public function testEveryUpdateClearsAnOldReadbackProofBeforeWriting(): void
+    {
+        $reset = OnlineDailyDataPersistenceService::resetReadbackVerification(
+            [
+                'amount' => 120.5,
+                'readback_verified' => 1,
+                'readback_verified_at' => '2026-07-16 09:00:00',
+            ],
+            [
+                'amount' => true,
+                'readback_verified' => true,
+                'readback_verified_at' => true,
+            ]
+        );
+
+        self::assertSame(0, $reset['readback_verified']);
+        self::assertNull($reset['readback_verified_at']);
+
+        $withoutMigration = OnlineDailyDataPersistenceService::resetReadbackVerification(
+            ['amount' => 120.5],
+            ['amount' => true]
+        );
+        self::assertArrayNotHasKey('readback_verified', $withoutMigration);
+        self::assertArrayNotHasKey('readback_verified_at', $withoutMigration);
+    }
+
+    public function testEveryWriteRecomputesPersistenceIdentityFromFinalDestinationScope(): void
+    {
+        $columns = [
+            'persistence_identity_hash' => true,
+            'readback_verified' => true,
+            'readback_verified_at' => true,
+        ];
+        $row = [
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'data_source_id' => 12,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'hotel_id' => '832085',
+            'data_type' => 'traffic',
+            'data_date' => '2026-07-27',
+            'data_period' => 'historical_daily',
+            'snapshot_bucket' => '',
+            'dimension' => 'Ctrip:self',
+            'compare_type' => 'self',
+            'persistence_identity_hash' => str_repeat('a', 64),
+        ];
+
+        $first = OnlineDailyDataPersistenceService::resetReadbackVerification($row, $columns);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $first['persistence_identity_hash']);
+        self::assertNotSame(str_repeat('a', 64), $first['persistence_identity_hash']);
+
+        $rebound = OnlineDailyDataPersistenceService::resetReadbackVerification(
+            array_merge($row, ['tenant_id' => 81, 'system_hotel_id' => 81]),
+            $columns
+        );
+        self::assertNotSame($first['persistence_identity_hash'], $rebound['persistence_identity_hash']);
+    }
+
+    public function testBusinessReadbackMustMatchIdentityAndActualMetricValuesBeforeTrust(): void
+    {
+        $expected = [
+            'tenant_id' => 44,
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'data_date' => '2026-07-15',
+            'dimension' => '',
+            'hotel_id' => '832085',
+            'system_hotel_id' => 7,
+            'amount' => 1280.5,
+            'quantity' => 10,
+            'raw_data' => '{"amount":1280.5,"quantity":10}',
+        ];
+        $persisted = array_merge($expected, [
+            'system_hotel_id' => '7',
+            'amount' => '1280.50',
+            'quantity' => '10',
+        ]);
+
+        self::assertTrue(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
+
+        $persisted['tenant_id'] = '45';
+        self::assertFalse(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
+
+        $persisted['tenant_id'] = '44';
+        $persisted['amount'] = '1280.49';
+        self::assertFalse(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
+
+        $persisted['amount'] = '1280.50';
+        $persisted['raw_data'] = '{"amount":0,"quantity":10}';
+        self::assertFalse(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
+    }
+
+    public function testPrimaryOtaWritersResetProofAndOnlyMarkAfterReadback(): void
+    {
+        $root = dirname(__DIR__);
+        foreach ([
+            'app/service/OnlineDailyDataPersistenceService.php',
+            'app/service/PlatformNormalizedRowPersistenceService.php',
+            'app/service/MeituanOnlineDataPersistenceService.php',
+            'app/service/MeituanPublicPageEvidenceService.php',
+            'app/service/CtripCompetitionCirclePersistenceService.php',
+            'app/controller/concern/BusinessDisplayConcern.php',
+            'app/controller/concern/MeituanCapturedDataConcern.php',
+            'app/controller/concern/CtripAdsConcern.php',
+            'app/controller/concern/AutoFetchConcern.php',
+        ] as $path) {
+            $source = SourceAggregate::read($root, $path);
+            self::assertStringContainsString('resetReadbackVerification(', $source, $path);
+            self::assertStringContainsString('markRowsReadbackVerified(', $source, $path);
+            self::assertDoesNotMatchRegularExpression(
+                '/markRowsReadbackVerified\(\s*(?:\[\s*)?\$(?:rowId|rowIds)\b/',
+                $source,
+                $path
+            );
+        }
+
+        $scheduled = (string)file_get_contents($root . '/app/command/AutoFetchOnlineData.php');
+        $platformSync = SourceAggregate::read($root, 'app/service/PlatformDataSyncService.php');
+        $normalizedPersistence = (string)file_get_contents(
+            $root . '/app/service/PlatformNormalizedRowPersistenceService.php'
+        );
+        self::assertStringContainsString('$service->syncDataSource(', $scheduled);
+        self::assertStringContainsString('readStoredRowsForCollectionPlan(', $scheduled);
+        self::assertStringNotContainsString("Db::name('online_daily_data')", $scheduled);
+        self::assertStringNotContainsString('resetReadbackVerification(', $scheduled);
+        self::assertStringNotContainsString('markRowsReadbackVerified(', $scheduled);
+        self::assertStringContainsString('normalizedRowPersistence->save(', $platformSync);
+        self::assertStringContainsString("Db::name('online_daily_data')", $normalizedPersistence);
+        $cloudImport = (string)file_get_contents($root . '/app/service/CloudOtaBundleImportService.php');
+        self::assertStringContainsString('resetReadbackVerification(', $cloudImport);
     }
 }

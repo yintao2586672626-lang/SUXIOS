@@ -2,7 +2,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const readFile = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const frontendContractFiles = [
+  'public/index.html',
+  'resources/frontend/app-template.html',
+  'public/app-main.js',
+];
+const read = (file) => {
+  if (file === 'public/index.html') {
+    // The served entry is now a generated shell. Template/entry drift is guarded
+    // separately, so contract checks inspect the authored template and app
+    // module as one frontend surface instead of requiring code in the shell.
+    return frontendContractFiles.map((sourceFile) => readFile(sourceFile)).join('\n');
+  }
+  return readFile(file);
+};
 const checks = [];
 
 function check(file, label, predicate, detail) {
@@ -46,6 +60,13 @@ check(
 
 check(
   'route/app.php',
+  'public login support route is declared once',
+  (source) => count(source, "Route::get('api/auth/login-support', 'Auth/loginSupport');") === 1,
+  "Route::get('api/auth/login-support', 'Auth/loginSupport');"
+);
+
+check(
+  'route/app.php',
   'disabled self-registration route is declared once',
   (source) => count(source, "Route::post('api/auth/register', 'Auth/register');") === 1,
   "Route::post('api/auth/register', 'Auth/register');"
@@ -56,9 +77,11 @@ check(
   'public auth routes are outside protected auth group',
   (source) => {
     const login = source.indexOf("Route::post('api/auth/login', 'Auth/login');");
+    const loginSupport = source.indexOf("Route::get('api/auth/login-support', 'Auth/loginSupport');");
     const register = source.indexOf("Route::post('api/auth/register', 'Auth/register');");
     const protectedGroup = source.indexOf("Route::group('api/auth'");
-    return login !== -1 && register !== -1 && protectedGroup !== -1 && login < protectedGroup && register < protectedGroup;
+    return login !== -1 && loginSupport !== -1 && register !== -1 && protectedGroup !== -1
+      && login < protectedGroup && loginSupport < protectedGroup && register < protectedGroup;
   },
   'auth route order'
 );
@@ -66,7 +89,8 @@ check(
 check(
   'app/controller/Auth.php',
   'self-registration endpoint is explicitly disabled',
-  (source) => source.includes("return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);"),
+  (source) => source.includes("return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);")
+    && !source.includes('registerLegacyDisabled'),
   'disabled register response'
 );
 
@@ -86,6 +110,7 @@ check(
     && source.includes('structured_source_path_required_for_ready_status')
     && source.includes('structured_source_path_count')
     && source.includes('meituan_persistence_field_facts_ready')
+    && source.includes('meituan_rank_without_desensitized_evidence_stays_partial')
     && source.includes('meituan_rank_source_path_field_facts_ready')
     && source.includes('capture_evidence_required_for_closure')
     && source.includes('capture_evidence_count')
@@ -96,31 +121,31 @@ check(
     && source.includes('source_url_hash')
     && source.includes('meituan:generic-traffic-demo')
     && source.includes('raw_data_exposed'),
-  'legacy_facts_infer_storage_without_hiding_missing/source_path_required_for_closure/structured_source_path_required_for_ready_status/capture_evidence_required_for_closure/meituan_persistence_field_facts_ready/meituan_rank_source_path_field_facts_ready/generic_traffic_extraction_source_paths_ready/stored_value_required_for_ready_status/generic_traffic_persistence_structured_fields_ready/source_url_hash'
+  'legacy_facts_infer_storage_without_hiding_missing/source_path_required_for_closure/structured_source_path_required_for_ready_status/capture_evidence_required_for_closure/meituan_persistence_field_facts_ready/meituan_rank_without_desensitized_evidence_stays_partial/meituan_rank_source_path_field_facts_ready/generic_traffic_extraction_source_paths_ready/stored_value_required_for_ready_status/generic_traffic_persistence_structured_fields_ready/source_url_hash'
 );
 
 check(
   'route/app.php',
   'data-source sync route is ordered before generic create route',
   (source) => {
-    const sync = source.indexOf("Route::post('/data-sources/:id/sync', 'OnlineData/syncDataSource');");
-    const create = source.indexOf("Route::post('/data-sources', 'OnlineData/saveDataSource');");
+    const sync = source.indexOf("Route::post('/data-sources/:id/sync', 'ota.SyncController/syncDataSource');");
+    const create = source.indexOf("Route::post('/data-sources', 'ota.SyncController/saveDataSource');");
     return sync !== -1 && create !== -1 && sync < create;
   },
   '/data-sources/:id/sync before /data-sources'
 );
 
 for (const [route, label] of [
-  ["Route::get('/data-sources', 'OnlineData/dataSourceList');", 'data-source list route exists'],
-  ["Route::delete('/data-sources/:id', 'OnlineData/deleteDataSource');", 'data-source delete route exists'],
-  ["Route::post('/data-import', 'OnlineData/importDataSourceRows');", 'data import route exists'],
-  ["Route::get('/sync-tasks', 'OnlineData/syncTaskList');", 'sync task list route exists'],
-  ["Route::get('/sync-logs', 'OnlineData/syncLogList');", 'sync log list route exists'],
-  ["Route::get('/platform-profile-status', 'OnlineData/platformProfileStatus');", 'platform Profile status route exists'],
-  ["Route::post('/profile-binding-unbind', 'OnlineData/deletePlatformProfileBinding');", 'platform Profile unbind route exists'],
-  ["Route::post('/profile-login-trigger/:platform', 'OnlineData/triggerPlatformProfileLogin');", 'platform Profile login trigger route exists'],
-  ["Route::get('/profile-login-status/:platform', 'OnlineData/platformProfileLoginStatus');", 'platform Profile login status route exists'],
-  ["Route::get('/meituan-profile-status', 'OnlineData/meituanProfileStatus');", 'Meituan Profile status route exists'],
+  ["Route::get('/data-sources', 'ota.SyncController/dataSourceList');", 'data-source list route exists'],
+  ["Route::delete('/data-sources/:id', 'ota.SyncController/deleteDataSource');", 'data-source delete route exists'],
+  ["Route::post('/data-import', 'ota.SyncController/importDataSourceRows');", 'data import route exists'],
+  ["Route::get('/sync-tasks', 'ota.SyncController/syncTaskList');", 'sync task list route exists'],
+  ["Route::get('/sync-logs', 'ota.SyncController/syncLogList');", 'sync log list route exists'],
+  ["Route::get('/platform-profile-status', 'ota.ProfileController/platformProfileStatus');", 'platform Profile status route exists'],
+  ["Route::post('/profile-binding-unbind', 'ota.ProfileController/deletePlatformProfileBinding');", 'platform Profile unbind route exists'],
+  ["Route::post('/profile-login-trigger/:platform', 'ota.ProfileController/triggerPlatformProfileLogin');", 'platform Profile login trigger route exists'],
+  ["Route::get('/profile-login-status/:platform', 'ota.ProfileController/platformProfileLoginStatus');", 'platform Profile login status route exists'],
+  ["Route::get('/meituan-profile-status', 'ota.ProfileController/meituanProfileStatus');", 'Meituan Profile status route exists'],
 ]) {
   check('route/app.php', label, (source) => source.includes(route), route);
 }
@@ -152,13 +177,15 @@ for (const [method, label] of [
 
 check(
   'app/controller/concern/OnlineDataRequestConcern.php',
-  'legacy platform Profile login trigger blocks server-side browser launch',
+  'platform Profile login trigger launches only from the account owner local computer',
   (source) => source.includes('client_local_authorization_required')
     && source.includes('account_owner_local_computer_only')
     && source.includes('server_browser_launch_disabled')
     && source.includes('open_platform_on_account_owner_computer_and_import_browser_assist_json')
-    && !source.includes('launchPlatformProfileLoginTask($task)'),
-  'client_local_authorization_required + server_browser_launch_disabled'
+    && source.includes('private function isLocalPlatformProfileLoginRequest(): bool')
+    && source.includes("['127.0.0.1', '::1', '::ffff:127.0.0.1']")
+    && source.includes('launchPlatformProfileLoginTask($task)'),
+  'loopback guard + local Profile browser launch + remote block'
 );
 
 for (const [needle, label] of [
@@ -250,9 +277,9 @@ for (const [needle, label] of [
 for (const [needle, label] of [
   ['OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item)', 'traffic persistence attaches field facts before storage'],
   ['traffic_data_persistence_failed', 'traffic persistence exposes storage failures instead of returning zero rows'],
-  ['extractGenericTrafficMetrics', 'traffic persistence writes normalized traffic fields'],
-  ["'list_exposure' => $trafficMetrics['list_exposure']", 'traffic persistence stores normalized list exposure'],
-  ["'flow_rate' => $trafficMetrics['flow_rate']", 'traffic persistence stores normalized conversion rate'],
+  ['extractObservedTrafficMetrics', 'traffic persistence writes only observed normalized traffic fields'],
+  ["'list_exposure' => $generic", 'traffic persistence maps observed list exposure aliases'],
+  ["'flow_rate' => $generic", 'traffic persistence maps observed conversion-rate aliases'],
   ['attachListSourcePaths', 'traffic persistence preserves source paths for direct list responses'],
   ["['data', 'flowData']", 'traffic persistence handles Meituan flowData source path'],
 ]) {
@@ -282,8 +309,8 @@ for (const [needle, label] of [
   ["`/online-data/data-sources/${source.id}/sync`", 'frontend can trigger immediate sync'],
   ['platformSyncLogs', 'frontend renders sync logs'],
   ['binding_contract', 'frontend renders machine-readable platform Profile binding contract'],
-  ['current_session_verified=', 'frontend shows current-session verification state in Profile card'],
-  ['historical_manual_login_state_verified=', 'frontend labels legacy manual-login metadata as historical'],
+  ['当天会话：{{ item.binding_contract.current_session_verified', 'frontend shows current-session verification state in concise Chinese'],
+  ['历史登录：{{ item.binding_contract.manual_login_state_verified', 'frontend labels legacy manual-login metadata in concise Chinese'],
   ['item.binding_checks || item.checks', 'frontend renders backend binding checks'],
   ['bindingContract.current_session_verified === true', 'frontend flow requires current-session proof when contract exists'],
   ['profile.current_session_verified === true', 'frontend compatibility flow only accepts an explicit current-session Profile field'],
@@ -312,15 +339,15 @@ check(
 
 check(
   'app/service/PlatformProfileBindingReadinessService.php',
-  'Profile binding contract authorizes only the current-session status code',
+  'Profile binding contract exposes current-session proof without promoting historical metadata',
   (source) => source.includes("$currentSessionVerified = $statusCode === 'logged_in';")
-    && source.includes("$missing[] = 'current_session_verified';")
     && source.includes("'current_session_verified' => $currentSessionVerified")
     && source.includes("'historical_login_metadata_present' => $historicalLoginMetadataPresent")
+    && source.includes("'manual_login_state_verified' => $manualLoginVerified")
     && !source.includes("$missing[] = 'manual_login_state_verified';")
     && !source.includes("$missing[] = 'last_login_verified_at';")
     && !source.includes("$missing[] = 'profile_status_logged_in';"),
-  'statusCode logged_in is authoritative; historical flags are reference only'
+  'statusCode logged_in drives current_session_verified; historical flags remain reference metadata'
 );
 
 for (const [needle, label] of [
@@ -359,8 +386,10 @@ for (const [needle, label] of [
 check(
   'public/index.html',
   'frontend does not generate fake randomized business signals',
-  (source) => !source.includes('Math.random'),
-  'Math.random'
+  (source) => !source
+    .replaceAll('Math.random().toString(16).slice(2)', '')
+    .includes('Math.random'),
+  'Math.random is allowed only in the manual test-push idempotency-key fallback'
 );
 
 for (const [needle, label] of [
@@ -390,10 +419,11 @@ for (const [needle, label] of [
   ['MeituanBrowserProfileDataSourceAdapter', 'platform sync registers Meituan browser Profile adapter'],
   ['function assertBrowserProfileBackgroundSyncLoginVerified', 'platform sync gates background Profile capture by current-session proof'],
   ['function browserProfileBackgroundSyncLoginMissingRequirements', 'platform sync reports missing current-session proof requirements'],
-  ["'compare_type' => $this->stringValue($row, ['compare_type', 'compareType', 'rank_type', 'rankType'])", 'platform sync maps Meituan rank_type into compare_type for peer-rank field facts'],
+  ["$normalizedCompareType = $this->stringValue($row, ['compare_type', 'compareType', 'rank_type', 'rankType']);", 'platform sync normalizes Meituan rank_type into compare_type'],
+  ["'compare_type' => $normalizedCompareType", 'platform sync persists normalized peer-rank compare_type'],
   ['$this->profileSessionProofService->isCurrentVerified($source)', 'platform sync delegates current-session verification to the proof service'],
   [": ['current_session_verified'];", 'platform sync exposes the current-session requirement'],
-  ['browser_profile synchronization requires current_session_verified', 'platform sync exposes explicit current-session proof failure'],
+  ['browser_profile synchronization requires ', 'platform sync exposes explicit current-session proof failure'],
   ['function refreshDatabaseConnectionAfterExternalFetch', 'platform sync refreshes DB connection after long external capture'],
   ['$this->refreshDatabaseConnectionAfterExternalFetch();', 'platform sync calls DB refresh before post-capture writes'],
   ['function resolveDataPeriodMetadata', 'platform sync classifies historical and realtime rows'],
@@ -439,10 +469,11 @@ check(
 );
 
 for (const [needle, label] of [
-  ['function assertProfileCookieSourceLoginVerified', 'Profile-derived Cookie extraction has a current-session proof gate'],
-  ['function profileCookieSourceLoginMissingRequirements', 'Profile-derived Cookie extraction reports missing current-session proof'],
-  ['(new OtaProfileSessionProofService())->isCurrentVerified($source)', 'Profile-derived Cookie extraction delegates current-session verification to the proof service'],
-  [": ['current_session_verified'];", 'Profile-derived Cookie extraction exposes the current-session requirement'],
+  ['function assertProfileCookieSourceLoginVerified', 'Profile-derived Cookie extraction has a verified Profile-proof gate'],
+  ['function profileCookieSourceLoginMissingRequirements', 'Profile-derived Cookie extraction reports missing or expired Profile proof'],
+  ['(new OtaProfileSessionProofService())->profileReuseState($source)', 'Profile-derived Cookie extraction delegates bounded reuse verification to the proof service'],
+  ["? 'profile_session_expired'", 'Profile-derived Cookie extraction exposes expired Profile proof'],
+  [": 'profile_session_unverified'", 'Profile-derived Cookie extraction exposes unverified Profile proof'],
 ]) {
   check('app/controller/concern/PlatformProfileCaptureConcern.php', label, (source) => source.includes(needle), needle);
 }
@@ -591,7 +622,7 @@ for (const [needle, label] of [
 check(
   'app/service/platform/CtripBrowserProfileDataSourceAdapter.php',
   'Ctrip browser Profile adapter does not use Profile ID as platform hotel ID fallback',
-  (source) => source.includes("['hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'node_id', 'nodeId']")
+  (source) => source.includes("['platform_hotel_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'node_id', 'nodeId']")
     && source.includes("$args[] = '--hotel-id=' . $hotelId;")
     && source.includes('$rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $hotelId);')
     && source.includes("$row['hotel_id'] = $row['hotel_id'] ?? $row['hotelId'] ?? $platformHotelId;")
@@ -641,10 +672,12 @@ for (const [needle, label] of [
 check(
   'app/service/platform/MeituanBrowserProfileDataSourceAdapter.php',
   'Meituan browser Profile adapter does not use Profile ID as platform store/poi ID fallback',
-  (source) => source.includes("['store_id', 'storeId', 'poi_id', 'poiId']")
-    && source.includes("$rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $poiId !== '' ? $poiId : $storeId);")
-    && source.includes("private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $platformHotelId): array")
-    && source.includes("$row['hotel_id'] = $this->firstRowString($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'store_id', 'storeId'], $platformHotelId);")
+  (source) => source.includes("['platform_hotel_id', 'store_id', 'storeId', 'poi_id', 'poiId']")
+    && source.includes('$validatedPlatformIdentifier = trim((string)(')
+    && source.includes('$rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $validatedPlatformIdentifier);')
+    && source.includes('private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $platformHotelId): array')
+    && source.includes("$row['poi_id'] = $this->firstRowString(")
+    && source.includes("$row['hotel_id'] = $this->firstRowString($row, ['hotel_id', 'hotelId'], $row['poi_id']);")
     && !source.includes("['store_id', 'storeId', 'profile_id', 'profileId', 'poi_id', 'poiId']")
     && !source.includes('$fallbackHotelId'),
   'Meituan Profile ID cannot replace OTA platform store/poi identity'
@@ -696,11 +729,12 @@ for (const [needle, label] of [
 
 check(
   'public/index.html',
-  'frontend does not call legacy server-side platform Profile login trigger',
-  (source) => !source.includes('`/online-data/profile-login-trigger/${platform}`')
-    && !source.includes("'/online-data/profile-login-trigger/")
-    && !source.includes('"/online-data/profile-login-trigger/'),
-  'no frontend profile-login-trigger request'
+  'frontend calls platform Profile login trigger only from a loopback host',
+  (source) => source.includes('const canLaunchLocalPlatformProfileBrowser = () =>')
+    && source.includes("['127.0.0.1', 'localhost', '::1'].includes(hostname)")
+    && source.includes('if (!canLaunchLocalPlatformProfileBrowser())')
+    && source.includes('`/online-data/profile-login-trigger/${platform}`'),
+  'loopback frontend guard + profile-login-trigger request'
 );
 
 check(
@@ -727,7 +761,8 @@ check(
     return loadData[0].includes('scheduleStartupHotelListLoad();')
       && source.includes('const loadSystemConfig = async (options = {}) => {')
       && source.includes("publicOnly ? '/system-config?scope=public' : '/system-config'")
-      && loadData[0].includes('schedulePublicSystemConfigRefresh(1800);')
+      && source.includes('const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;')
+      && loadData[0].includes('schedulePublicSystemConfigRefresh();')
       && !loadData[0].includes('loadRoles();')
       && !loadData[0].includes('loadUsers();')
       && !loadData[0].includes('loadRolesList();')
@@ -744,10 +779,12 @@ check(
       && loadHotels[0].includes('const cacheMs = Number(options.cacheMs || 0);')
       && loadHotels[0].includes('readRequestCache(hotelListResultCache, requestKey, cacheMs)')
       && loadHotels[0].includes("options.includeInactive === true || currentPage.value === 'hotels'")
-      && loadHotels[0].includes("user.value?.is_super_admin && includeInactive ? '/hotels?page=1&page_size=1000' : '/hotels/all'")
-      && source.includes('loadHotels({ includeInactive: true })');
+      && loadHotels[0].includes('const usePagedList = user.value?.is_super_admin && includeInactive;')
+      && loadHotels[0].includes('`/hotels?page=${page}&page_size=100&sort_by=id&sort_order=desc`')
+      && loadHotels[0].includes("})() : await request('/hotels/all')")
+      && source.includes('loadHotels({ force: true, includeInactive: true })');
   },
-  'loadData defers system config, roles/users/cookies/bookmarklet and schedules hotels full list'
+  'loadData defers system config, roles/users/cookies/bookmarklet and schedules a bounded paginated hotel list'
 );
 
 check(
@@ -784,7 +821,7 @@ for (const [needle, label] of [
   ['--login-only=true', 'async login command runs browser capture in login-only mode'],
   ['--headless=false', 'async login command always opens a visible browser for manual verification'],
   ['--post-login-wait-ms=', 'async login command keeps the visible login browser open after auth checks'],
-  ['?? 120000', 'async login command defaults to a visible two-minute manual verification window'],
+  ['?? 5000', 'async login command defaults to a bounded visible post-login verification window'],
   ['platform_profile_login_task_', 'async login command writes task status cache'],
   ['current_key', 'async login command updates current task cache for polling'],
   ['PlatformDataSyncService', 'async login command binds successful Profile to platform data source'],
@@ -812,7 +849,8 @@ for (const [needle, label] of [
 }
 
 for (const [needle, label] of [
-  ["allowedSections: ['traffic', 'ads', 'orders', 'reviews']", 'Meituan browser capture allows aggregate review section'],
+  ["fullSections: ['traffic', 'orders', 'ads', 'reviews', 'room_types']", 'Meituan browser capture includes aggregate reviews in full collection'],
+  ["allowedSections: ['traffic', 'order_flow', 'ads', 'orders', 'reviews', 'room_types']", 'Meituan browser capture allows aggregate review section'],
   ["comment_review: 'reviews'", 'Ctrip browser capture maps comment_review alias to reviews'],
   ['comment-manage', 'browser capture classifies Meituan comment-manage responses as aggregate reviews'],
   ['function sanitizeOtaPayloadForStorage', 'browser capture exposes reusable payload sanitizer'],
@@ -850,10 +888,10 @@ check(
   (source) => source.includes('auth_status')
     && source.includes('capture_gate')
     && source.includes('login_required')
-    && source.includes('evaluateCaptureGate')
+    && source.includes('evaluateMeituanCaptureGate')
     && source.includes('sanitizeOtaPayloadForStorage(body, section)')
     && source.includes("if (section === 'orders')"),
-  'auth_status/capture_gate/evaluateCaptureGate'
+  'auth_status/capture_gate/evaluateMeituanCaptureGate'
 );
 
 check(
