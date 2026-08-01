@@ -1598,6 +1598,46 @@ test('uses masterHotelId as Ctrip platform hotel ownership id', () => {
   assert.equal(rows[0].raw_data.hotel_id_source_key, 'masterHotelId');
 });
 
+test('identifies the generic current-hotel row before a Ctrip hotelId is configured', () => {
+  const url = 'https://ebooking.ctrip.com/restapi/soa2/24588/getCompetingRank';
+  const endpoint = findCtripEndpointByUrl(url);
+  const facts = extractCtripCatalogFacts({
+    data: [{
+      hotelId: 880058,
+      hotelName: '\u6211\u7684\u9152\u5e97',
+      amount: 100,
+      quantity: 2,
+    }, {
+      hotelId: 990099,
+      hotelName: '\u7ade\u4e89\u9152\u5e97',
+      amount: 80,
+      quantity: 1,
+    }],
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '',
+    dataDate: '2026-07-30',
+    capturedAt: '2026-07-31T01:00:00.000Z',
+    url,
+  });
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    systemHotelId: 58,
+    hotelName: '\u6566\u714c\u6f20\u84dd\u65b0',
+    profileId: 'cfg-58',
+    dataDate: '2026-07-30',
+  });
+  const self = rows.find((row) => String(row.hotel_id) === '880058');
+  const competitor = rows.find((row) => String(row.hotel_id) === '990099');
+
+  assert.ok(self);
+  assert.equal(self.compare_type, 'self');
+  assert.ok(competitor);
+  assert.equal(competitor.compare_type, 'competitor');
+});
+
 test('extracts Ctrip metric-pair response items into catalog facts and standard rows', () => {
   const url = 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData';
   const endpoint = findCtripEndpointByUrl(url);

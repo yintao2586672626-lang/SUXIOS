@@ -2,6 +2,8 @@ param(
     [string]$BindHost = "127.0.0.1",
     [int]$Port = 8080,
     [int]$BackendPort = 8081,
+    [ValidateRange(3, 16)]
+    [int]$PhpWorkerCount = 3,
     [string]$DbHost = "127.0.0.1",
     [int]$DbPort = 3306,
     [string]$DbName = "hotelx",
@@ -15,7 +17,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 if ($env:Path) {
-    [System.Environment]::SetEnvironmentVariable("Path", $env:Path, "Process")
+    $ProcessSearchPath = $env:Path
+    # Codex shells may expose both PATH and Path. Start-Process builds a
+    # case-insensitive environment dictionary and fails when both are present.
+    [System.Environment]::SetEnvironmentVariable("PATH", $null, "Process")
+    [System.Environment]::SetEnvironmentVariable("Path", $ProcessSearchPath, "Process")
 }
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -23,10 +29,15 @@ $LogDir = Join-Path $RepoRoot "runtime\codex"
 $BaseUrl = "http://$BindHost`:$Port/"
 $HealthPath = "/api/health"
 $HealthUrl = "http://$BindHost`:$Port$HealthPath"
-$BackendHealthUrl = "http://$BindHost`:$BackendPort$HealthPath"
+$BackendPorts = @($BackendPort..($BackendPort + $PhpWorkerCount - 1))
+$BackendUrls = @($BackendPorts | ForEach-Object { "http://$BindHost`:$($_)" })
 $StaticProbeUrl = "http://$BindHost`:$Port/vue.global.prod.js?v=startup-static-probe"
 $OriginServerPath = Join-Path $RepoRoot "scripts\local_origin_server.mjs"
 $PublicRoot = Join-Path $RepoRoot "public"
+
+if (($BackendPort + $PhpWorkerCount - 1) -gt 65535) {
+    throw "PHP worker port range exceeds 65535."
+}
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 Set-Location $RepoRoot
@@ -255,15 +266,22 @@ function Invoke-OtaRetentionMaintenance {
 function Test-HttpHealth {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $HealthUrl -TimeoutSec 2
-        return $response.StatusCode -eq 200 -and $response.Content -like "*status*" -and $response.Content -like "*ok*"
+        $reportedWorkerCount = [int]([string]$response.Headers["X-SUXIOS-Backend-Pool-Size"] -as [int])
+        return $response.StatusCode -eq 200 `
+            -and $response.Content -like "*status*" `
+            -and $response.Content -like "*ok*" `
+            -and $reportedWorkerCount -eq $PhpWorkerCount
     } catch {
         return $false
     }
 }
 
 function Test-BackendHttpHealth {
+    param([int]$TargetPort)
+
+    $targetHealthUrl = "http://$BindHost`:$TargetPort$HealthPath"
     try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri $BackendHealthUrl -TimeoutSec 2
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $targetHealthUrl -TimeoutSec 2
         return $response.StatusCode -eq 200 -and $response.Content -like "*status*" -and $response.Content -like "*ok*"
     } catch {
         return $false
@@ -291,56 +309,68 @@ function Test-PortListening {
 
 function Start-ThinkPhp {
     if ((Test-HttpHealth) -and (Test-StaticAsset)) {
-        Write-Host "[OK] ThinkPHP is already serving $BaseUrl"
-        return
+        $unhealthyExistingPorts = @($BackendPorts | Where-Object { -not (Test-BackendHttpHealth -TargetPort $_) })
+        if ($unhealthyExistingPorts.Count -eq 0) {
+            Write-Host "[OK] ThinkPHP worker pool is already serving $BaseUrl ($PhpWorkerCount workers)"
+            return
+        }
+        throw "Local origin is already running, but configured PHP workers are not all healthy: $($unhealthyExistingPorts -join ', '). Restart the local stack to apply the worker pool."
     }
 
     if (Test-PortListening -TargetPort $Port) {
         throw "Port $Port is already in use, but $HealthUrl did not pass."
     }
 
-    if (-not (Test-BackendHttpHealth)) {
-        if (Test-PortListening -TargetPort $BackendPort) {
-            throw "Backend port $BackendPort is already in use, but $BackendHealthUrl did not pass."
+    foreach ($workerPort in $BackendPorts) {
+        if (-not (Test-BackendHttpHealth -TargetPort $workerPort) -and (Test-PortListening -TargetPort $workerPort)) {
+            throw "Backend port $workerPort is already in use, but its $HealthPath check did not pass."
+        }
+    }
+
+    foreach ($workerPort in $BackendPorts) {
+        if (Test-BackendHttpHealth -TargetPort $workerPort) {
+            Write-Host "[OK] ThinkPHP worker is already serving http://$BindHost`:$workerPort/"
+            continue
         }
 
-        $backendStdout = Join-Path $LogDir "think-backend-$BackendPort.out.log"
-        $backendStderr = Join-Path $LogDir "think-backend-$BackendPort.err.log"
+        $backendStdout = Join-Path $LogDir "think-backend-$workerPort.out.log"
+        $backendStderr = Join-Path $LogDir "think-backend-$workerPort.err.log"
 
-        Write-Host "[INFO] Starting ThinkPHP backend on http://$BindHost`:$BackendPort/"
+        Write-Host "[INFO] Starting hidden ThinkPHP worker on http://$BindHost`:$workerPort/"
         Start-Process `
             -FilePath $PhpExe `
-            -ArgumentList ($PhpRuntimeArgs + @("-S", "$BindHost`:$BackendPort", "-t", "public", "public/router.php")) `
+            -ArgumentList ($PhpRuntimeArgs + @("-S", "$BindHost`:$workerPort", "-t", "public", "public/router.php")) `
             -WorkingDirectory $RepoRoot `
             -WindowStyle Hidden `
             -RedirectStandardOutput $backendStdout `
             -RedirectStandardError $backendStderr `
             | Out-Null
 
-        for ($i = 0; $i -lt $PhpWaitSeconds; $i++) {
-            if (Test-BackendHttpHealth) {
-                break
-            }
-            Start-Sleep -Seconds 1
-        }
-        if (-not (Test-BackendHttpHealth)) {
-            throw "ThinkPHP backend did not become healthy at $BackendHealthUrl within $PhpWaitSeconds seconds."
-        }
-        Write-Host "[OK] ThinkPHP backend started: http://$BindHost`:$BackendPort/"
-    } else {
-        Write-Host "[OK] ThinkPHP backend is already serving http://$BindHost`:$BackendPort/"
+    }
+
+    for ($i = 0; $i -lt $PhpWaitSeconds; $i++) {
+        $unhealthyPorts = @($BackendPorts | Where-Object { -not (Test-BackendHttpHealth -TargetPort $_) })
+        if ($unhealthyPorts.Count -eq 0) { break }
+        Start-Sleep -Seconds 1
+    }
+    $unhealthyPorts = @($BackendPorts | Where-Object { -not (Test-BackendHttpHealth -TargetPort $_) })
+    if ($unhealthyPorts.Count -gt 0) {
+        throw "ThinkPHP workers did not all become healthy within $PhpWaitSeconds seconds: $($unhealthyPorts -join ', ')."
+    }
+    foreach ($workerPort in $BackendPorts) {
+        Write-Host "[OK] ThinkPHP worker healthy: http://$BindHost`:$workerPort/"
     }
 
     $originStdout = Join-Path $LogDir "local-origin-$Port.out.log"
     $originStderr = Join-Path $LogDir "local-origin-$Port.err.log"
-    Write-Host "[INFO] Starting concurrent local origin on $BaseUrl"
+    Write-Host "[INFO] Starting hidden concurrent local origin on $BaseUrl"
     Start-Process `
         -FilePath $NodeExe `
         -ArgumentList @(
             $OriginServerPath,
             "--host=$BindHost",
             "--port=$Port",
-            "--backend=http://$BindHost`:$BackendPort",
+            "--backends=$($BackendUrls -join ',')",
             "--public-root=$PublicRoot"
         ) `
         -WorkingDirectory $RepoRoot `

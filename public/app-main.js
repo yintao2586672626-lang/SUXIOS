@@ -172,7 +172,7 @@
     const isExpansionStaticPage = requireAppSystemStatic('isExpansionStaticPage');
     const isSimulationStaticPage = requireAppSystemStatic('isSimulationStaticPage');
     const deferUiTask = requireAppSystemStatic('deferUiTask');
-    const scheduleDelayedPageTask = requireAppSystemStatic('scheduleDelayedPageTask');
+    const baseScheduleDelayedPageTask = requireAppSystemStatic('scheduleDelayedPageTask');
     const deferFrameTask = requireAppSystemStatic('deferFrameTask');
     const isCompactViewport = requireAppSystemStatic('isCompactViewport');
     const loadSidebarCollapsedPreference = requireAppSystemStatic('loadSidebarCollapsedPreference');
@@ -1094,6 +1094,9 @@
                 hotelManagementSnapshotReady.value = false;
                 hotelManagementLoadError.value = '';
                 hotelManagementLastRefreshedAt.value = '';
+                hotelManagementLoadingPromise = null;
+                hotelManagementSnapshotLoadedAt = 0;
+                hotelManagementSnapshotScope = '';
                 users.value = [];
                 usersRequestSeq += 1;
                 usersLoading.value = false;
@@ -4436,10 +4439,15 @@
             const loadBackendGlobalNotifications = async (options = {}) => {
                 const notificationSession = captureAuthSession();
                 await ensureNotificationStaticReady();
-                const requestNotifications = () => request('/notifications?page=1&page_size=20');
+                const requestNotifications = () => request('/notifications?page=1&page_size=20', {
+                    requestPolicy: {
+                        scope: 'session',
+                        priority: 'notification',
+                    },
+                });
                 const res = options.startupDedupe === true
                     ? await runSuxiStartupRequestOnce(
-                        `notifications:${notificationSession.token}`,
+                        `notifications:${notificationSession.epoch}`,
                         requestNotifications,
                     )
                     : await requestNotifications();
@@ -6775,8 +6783,14 @@
                 return true;
             };
             const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;
+            let dualOtaWorkbenchAutoFetchTimer = null;
             const scheduleDualOtaWorkbenchAutoFetch = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {
-                scheduleDelayedPageTask(() => {
+                if (dualOtaWorkbenchAutoFetchTimer) {
+                    clearTimeout(dualOtaWorkbenchAutoFetchTimer);
+                    pageLifecycleTimers.delete(dualOtaWorkbenchAutoFetchTimer);
+                }
+                dualOtaWorkbenchAutoFetchTimer = scheduleDelayedPageTask(() => {
+                    dualOtaWorkbenchAutoFetchTimer = null;
                     if (!token.value || !isCompassDataPage()) return null;
                     return refreshDualOtaWorkbenchData({ allowFetch: true, silent: true });
                 }, delayMs);
@@ -7707,7 +7721,7 @@
             const revenueAiExecutionFocus = ref(null);
             let revenueAiOverviewRequestSeq = 0;
             const revenueAiStaticScript = 'revenue-ai-static.js';
-            const revenueAiStaticVersion = '20260730-canonical-gap-hd8d1b7b750';
+            const revenueAiStaticVersion = '20260731-analysis-diagnostics-h3b5a6ffee9';
             const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
             const revenueAiStaticNotLoadedClass = 'border-slate-200 bg-slate-100 text-slate-600';
             const revenueAiStaticReady = ref(!!window.SUXI_REVENUE_AI_STATIC);
@@ -8509,6 +8523,7 @@
             };
             const loadWeatherForCity = async () => {
                 if (currentPage.value !== 'compass') return;
+                const requestPage = currentPage.value;
                 const city = weatherLocationName.value;
                 const sourceCity = extractCityName(compassWeather.value[0]?.location);
                 weatherError.value = '';
@@ -8518,10 +8533,14 @@
                     return;
                 }
                 const requestId = ++weatherRequestId;
+                const isCurrentRequest = () => requestId === weatherRequestId
+                    && currentPage.value === requestPage;
                 weatherLoading.value = true;
                 try {
-                    const res = await request(`/macro-signals/external?type=weather&city=${encodeURIComponent(city)}`);
-                    if (requestId !== weatherRequestId) return;
+                    const res = await request(`/macro-signals/external?type=weather&city=${encodeURIComponent(city)}`, {
+                        requestPolicy: currentPageReadPolicy(requestPage, 'current'),
+                    });
+                    if (!isCurrentRequest()) return;
                     const forecast = res?.data?.forecast;
                     if (res.code === 200 && res.data?.ok === true && Array.isArray(forecast) && forecast.length) {
                         externalWeatherForecast.value = forecast;
@@ -8532,12 +8551,12 @@
                         weatherError.value = weatherApiErrorMessage(res, city);
                     }
                 } catch (e) {
-                    if (requestId !== weatherRequestId) return;
+                    if (!isCurrentRequest()) return;
                     externalWeatherForecast.value = [];
                     externalWeatherCity.value = '';
                     weatherError.value = `${city} 天气接口请求失败，请检查网络或稍后重试。`;
                 } finally {
-                    if (requestId === weatherRequestId) {
+                    if (isCurrentRequest()) {
                         weatherLoading.value = false;
                     }
                 }
@@ -11840,8 +11859,17 @@
                 schedulePlatformCollectionStatusRefresh();
             };
             const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
+            let initialBackendNotificationRefreshTimer = null;
+            const clearInitialBackendNotificationRefreshTimer = () => {
+                if (initialBackendNotificationRefreshTimer) {
+                    clearTimeout(initialBackendNotificationRefreshTimer);
+                    initialBackendNotificationRefreshTimer = null;
+                }
+            };
             const scheduleInitialBackendNotificationRefresh = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {
-                setTimeout(() => {
+                clearInitialBackendNotificationRefreshTimer();
+                initialBackendNotificationRefreshTimer = setTimeout(() => {
+                    initialBackendNotificationRefreshTimer = null;
                     if (!token.value) return;
                     refreshGlobalNotifications({ silent: true, backendOnly: true, startupDedupe: true });
                 }, Math.max(0, Number(delayMs) || 0));
@@ -14101,20 +14129,72 @@
             };
 
             const PAGE_LOAD_DEDUP_MS = 2000;
+            const DASHBOARD_PAGE_CACHE_TTL_MS = 15000;
+            const ADMIN_PAGE_CACHE_TTL_MS = 60000;
             const EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS = 45000;
             let lastLoadedPage = '';
             let lastLoadedPageAt = 0;
             let suppressNextDataHealthTabLoad = false;
             let pendingOnlineDataEntryTab = '';
             const pageLoadRequests = new Map();
+            const pageLifecycleTimers = new Set();
+            let pageRequestGeneration = 0;
+
+            const createRequestAbortError = (message = 'Page request was cancelled') => {
+                if (typeof DOMException === 'function') {
+                    return new DOMException(message, 'AbortError');
+                }
+                const error = new Error(message);
+                error.name = 'AbortError';
+                return error;
+            };
+            const clearPageLifecycleTimers = () => {
+                pageLifecycleTimers.forEach(timer => clearTimeout(timer));
+                pageLifecycleTimers.clear();
+                dualOtaWorkbenchAutoFetchTimer = null;
+            };
+            const scheduleDelayedPageTask = (callback, delay = 0) => {
+                const requestSession = captureAuthSession();
+                const pageKey = String(currentPage.value || '');
+                const generation = pageRequestGeneration;
+                let timer = null;
+                timer = baseScheduleDelayedPageTask(() => {
+                    pageLifecycleTimers.delete(timer);
+                    if (!isAuthSessionCurrent(requestSession)
+                        || pageRequestGeneration !== generation
+                        || String(currentPage.value || '') !== pageKey
+                    ) {
+                        return;
+                    }
+                    try {
+                        const result = callback();
+                        if (result && typeof result.catch === 'function') {
+                            result.catch(error => {
+                                if (error?.name !== 'AbortError') console.warn('deferred page task failed:', error);
+                            });
+                        }
+                    } catch (error) {
+                        if (error?.name !== 'AbortError') console.warn('deferred page task failed:', error);
+                    }
+                }, Math.max(0, Number(delay) || 0));
+                pageLifecycleTimers.add(timer);
+                return timer;
+            };
+            const currentPageReadPolicy = (pageKey = currentPage.value, priority = 'current') => ({
+                scope: 'page',
+                pageKey: String(pageKey || ''),
+                pageGeneration: pageRequestGeneration,
+                priority,
+            });
 
             const runPageLoadOnce = (page, loadingKey, task, options = {}) => {
                 const sessionEpoch = authSessionEpoch;
+                const lifecycleGeneration = pageRequestGeneration;
                 const key = `${sessionEpoch}:${page}:${loadingKey}`;
                 const now = Date.now();
                 const ttl = Number(options.ttlMs ?? PAGE_LOAD_DEDUP_MS);
                 const current = pageLoadRequests.get(key);
-                if (!options.force && current?.promise) {
+                if (current?.promise) {
                     return current.promise;
                 }
                 if (!options.force && lastLoadedPage === key && now - lastLoadedPageAt < ttl) {
@@ -14123,19 +14203,32 @@
                 if (!options.force && current?.loadedAt && now - current.loadedAt < ttl) {
                     return Promise.resolve();
                 }
-                const promise = Promise.resolve()
+                let promise;
+                promise = Promise.resolve()
                     .then(task)
-                    .catch((error) => {
-                        console.error('页面加载失败:', key, error);
-                    })
-                    .finally(() => {
-                        if (sessionEpoch !== authSessionEpoch) {
-                            pageLoadRequests.delete(key);
-                            return;
+                    .then((result) => {
+                        const isCurrentEntry = pageLoadRequests.get(key)?.promise === promise;
+                        const completedCurrentLifecycle = sessionEpoch === authSessionEpoch
+                            && lifecycleGeneration === pageRequestGeneration;
+                        const succeeded = result !== false
+                            && (typeof options.isSuccessful !== 'function' || options.isSuccessful(result) !== false);
+                        if (!isCurrentEntry || !completedCurrentLifecycle || !succeeded) {
+                            if (isCurrentEntry) pageLoadRequests.delete(key);
+                            return result;
                         }
                         lastLoadedPage = key;
                         lastLoadedPageAt = Date.now();
                         pageLoadRequests.set(key, { loadedAt: lastLoadedPageAt, promise: null });
+                        return result;
+                    })
+                    .catch((error) => {
+                        if (pageLoadRequests.get(key)?.promise === promise) {
+                            pageLoadRequests.delete(key);
+                        }
+                        if (error?.name !== 'AbortError') {
+                            console.error('页面加载失败:', key, error);
+                        }
+                        return false;
                     });
                 pageLoadRequests.set(key, { loadedAt: current?.loadedAt || 0, promise });
                 return promise;
@@ -14424,6 +14517,10 @@
                 clearHomeQuickLayoutAutoSaveTimer();
                 clearPlatformProfileLoginTimers();
                 clearManualOnlineFetchConfigPrewarmTimer();
+                clearInitialBackendNotificationRefreshTimer();
+                clearPageLifecycleTimers();
+                clearHotelManagementPrewarmTimer();
+                resetGetRequestCoordinator();
                 if (dataLoadTimer) {
                     clearTimeout(dataLoadTimer);
                     dataLoadTimer = null;
@@ -14578,18 +14675,25 @@
             };
 
             // 监听页面切换
+            let previousPageLifecycleKey = currentPage.value;
             watch(currentPage, (newPage) => {
-                if (requestSuxiFullRenderForPage(newPage)) return;
-                if (!guardSuperAdminPageAccess(newPage)) return;
-                schedulePageControlTestIdObserverStart(520);
-                scheduleFormOperationSupportLoad();
-                deferUiTask(() => runPendingPublicSystemConfigRefresh(), 600);
+                const previousPage = previousPageLifecycleKey;
+                previousPageLifecycleKey = newPage;
+                pageRequestGeneration += 1;
+                clearPageLifecycleTimers();
+                cancelPageGetConsumers(previousPage);
                 if (!isCompassDataPage(newPage)) {
                     clearHomeSecondaryPanelsReadyTimer();
+                    clearDualOtaSystemMetricDrilldownHydrationTimer();
                     homeSecondaryPanelsReady.value = false;
                     destroyHomeTrendChart();
                 }
                 if (newPage !== 'online-data') {
+                    if (dataLoadTimer) {
+                        clearTimeout(dataLoadTimer);
+                        dataLoadTimer = null;
+                    }
+                    clearManualOnlineFetchConfigPrewarmTimer();
                     clearDataHealthSecondaryPanelsReadyTimer();
                     dataHealthSecondaryPanelsReady.value = false;
                     clearDataHealthDetailPanelsReadyTimer();
@@ -14615,12 +14719,22 @@
                     ctripEbookingBusinessDetailsReady.value = false;
                     ctripEbookingDiagnosticsPanelsReady.value = false;
                 }
+                if (requestSuxiFullRenderForPage(newPage)) return;
+                if (!guardSuperAdminPageAccess(newPage)) return;
+                schedulePageControlTestIdObserverStart(520);
+                scheduleFormOperationSupportLoad();
+                deferUiTask(() => runPendingPublicSystemConfigRefresh(), 600);
                 if (isCompassDataPage(newPage)) {
                     homeSecondaryPanelsReady.value = false;
                     scheduleHomeSecondaryPanelsReady();
                     scheduleDualOtaWorkbenchAutoFetch();
                     scheduleDualOtaSystemMetricDrilldownHydration();
-                    runPageLoadOnce(newPage, 'main', () => loadCompassData({ skipOtaBackground: true }));
+                    runPageLoadOnce(
+                        newPage,
+                        'main',
+                        () => loadCompassData({ skipOtaBackground: true }),
+                        { ttlMs: DASHBOARD_PAGE_CACHE_TTL_MS }
+                    );
                 }
                 if (newPage === 'ctrip-ebooking') {
                     setOnlineDataTabFromPage('ctrip-ranking');
@@ -14667,13 +14781,13 @@
                         loadUsers(),
                         !roles.value.length ? loadRoles() : Promise.resolve(),
                         !hotels.value.length ? loadHotels() : Promise.resolve(),
-                    ]));
+                    ]), { ttlMs: ADMIN_PAGE_CACHE_TTL_MS });
                 }
                 if (newPage === 'roles') {
                     runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
                         loadRolesList(),
                         !roles.value.length ? loadRoles() : Promise.resolve(),
-                    ]));
+                    ]), { ttlMs: ADMIN_PAGE_CACHE_TTL_MS });
                 }
                 if (newPage === 'data-config' && user.value?.is_super_admin) {
                     runPageLoadOnce(newPage, 'competitor-device-workbench', () => Promise.all([
@@ -14710,7 +14824,7 @@
                     dataHealthEmployeePanelsReady.value = false;
                     scheduleDataHealthEmployeePanelsReady();
                     // 延迟加载，确保页面渲染完成
-                    setTimeout(() => {
+                    scheduleDelayedPageTask(() => {
                         runPageLoadOnce(newPage, 'main', () => {
                             scheduleDataHealthPanelRefresh('light');
                             return null;
@@ -15511,7 +15625,19 @@
             const hotelManagementSnapshotReady = ref(false);
             const hotelManagementLoadError = ref('');
             const hotelManagementLastRefreshedAt = ref('');
+            const HOTEL_MANAGEMENT_SNAPSHOT_TTL_MS = 60000;
+            const HOTEL_MANAGEMENT_PREWARM_DELAY_MS = 6500;
             let hotelManagementRequestSeq = 0;
+            let hotelManagementLoadingPromise = null;
+            let hotelManagementSnapshotLoadedAt = 0;
+            let hotelManagementSnapshotScope = '';
+            let hotelManagementPrewarmTimer = null;
+            const clearHotelManagementPrewarmTimer = () => {
+                if (hotelManagementPrewarmTimer) {
+                    clearTimeout(hotelManagementPrewarmTimer);
+                    hotelManagementPrewarmTimer = null;
+                }
+            };
             const platformDataSourceHotelOptions = computed(() => {
                 const pool = permittedHotels.value.length ? permittedHotels.value : hotels.value;
                 return (Array.isArray(pool) ? pool : []).filter(item => item && item.id);
@@ -17032,15 +17158,285 @@
                     .filter(item => item.name && item.hotel_id);
             });
 
-            // API 请求
-            const request = async (url, options = {}) => {
-                const requestSession = captureAuthSession();
-                const headers = { 'Content-Type': 'application/json' };
-                if (requestSession.token) headers['Authorization'] = requestSession.token;
-                const contextualRequest = withBusinessRequestContext(url, options);
-                const requestUrl = contextualRequest.url;
-                const requestOptions = contextualRequest.options;
+            // Auth/session-aware GET coordinator. Writes deliberately bypass it so a
+            // navigation, retry, or another consumer can never cancel/replay a mutation.
+            const COORDINATED_GET_MAX_CONCURRENCY = 3;
+            const COORDINATED_GET_PRIORITY = Object.freeze({
+                current: 0,
+                action: 1,
+                prewarm: 2,
+                notification: 3,
+            });
+            const coordinatedGetQueue = [];
+            const coordinatedGetRequests = new Map();
+            const coordinatedGetSuccessCache = new Map();
+            let coordinatedGetActiveCount = 0;
+            let coordinatedGetSequence = 0;
+            let coordinatedGetConsumerSequence = 0;
 
+            const cloneCoordinatedResponse = (value) => {
+                if (value === undefined || value === null) return value;
+                try {
+                    if (typeof structuredClone === 'function') return structuredClone(value);
+                } catch (error) {
+                    // JSON API responses have a safe fallback below.
+                }
+                try {
+                    return JSON.parse(JSON.stringify(value));
+                } catch (error) {
+                    return value;
+                }
+            };
+            const normalizeCoordinatedGetUrl = (requestUrl) => {
+                try {
+                    const parsed = new URL(String(requestUrl || ''), 'http://suxios.local');
+                    const ordered = [...parsed.searchParams.entries()]
+                        .map(([key, value], index) => ({ key, value, index }))
+                        .sort((left, right) => left.key.localeCompare(right.key) || left.index - right.index);
+                    const normalizedParams = new URLSearchParams();
+                    ordered.forEach(({ key, value }) => normalizedParams.append(key, value));
+                    const query = normalizedParams.toString();
+                    return `${parsed.pathname}${query ? `?${query}` : ''}`;
+                } catch (error) {
+                    return String(requestUrl || '');
+                }
+            };
+            const requestHeaderEntries = (headers = {}) => {
+                if (typeof Headers === 'function' && headers instanceof Headers) return [...headers.entries()];
+                if (Array.isArray(headers)) return headers;
+                return Object.entries(headers || {});
+            };
+            const coordinatedGetScopeKey = (requestSession, method, requestUrl, requestOptions, policy) => {
+                const normalizedUrl = normalizeCoordinatedGetUrl(requestUrl);
+                const parsed = new URL(normalizedUrl, 'http://suxios.local');
+                const tenantId = String(
+                    policy.tenantId
+                    || parsed.searchParams.get('tenant_id')
+                    || authContext.value?.tenantId
+                    || authContext.value?.tenant_id
+                    || ''
+                );
+                const hotelId = String(
+                    policy.systemHotelId
+                    || policy.hotelId
+                    || parsed.searchParams.get('system_hotel_id')
+                    || parsed.searchParams.get('hotel_id')
+                    || filterReportHotel.value
+                    || authContext.value?.hotelId
+                    || authContext.value?.hotel_id
+                    || user.value?.hotel_id
+                    || ''
+                );
+                const businessDate = String(
+                    policy.businessDate
+                    || parsed.searchParams.get('business_date')
+                    || parsed.searchParams.get('target_date')
+                    || parsed.searchParams.get('data_date')
+                    || ''
+                );
+                const safeHeaders = requestHeaderEntries(requestOptions.headers)
+                    .map(([key, value]) => [String(key).toLowerCase(), String(value)])
+                    .filter(([key]) => !['authorization', 'cookie', 'proxy-authorization', 'x-api-key'].includes(key))
+                    .sort(([left], [right]) => left.localeCompare(right))
+                    .map(([key, value]) => `${key}:${value}`)
+                    .join('|');
+                const semanticKey = policy.key || `${normalizedUrl}|${requestOptions.credentials || 'same-origin'}|${requestOptions.cache || 'default'}|${safeHeaders}`;
+                return [requestSession.epoch, tenantId, hotelId, businessDate, method, semanticKey].join('::');
+            };
+            const coordinatedGetPriorityRank = (priority) => (
+                Object.prototype.hasOwnProperty.call(COORDINATED_GET_PRIORITY, priority)
+                    ? COORDINATED_GET_PRIORITY[priority]
+                    : COORDINATED_GET_PRIORITY.current
+            );
+            const nativeFetchPriority = (priorityRank) => (
+                priorityRank <= COORDINATED_GET_PRIORITY.action ? 'high' : 'low'
+            );
+            const sortCoordinatedGetQueue = () => {
+                coordinatedGetQueue.sort((left, right) => (
+                    left.entry.priorityRank - right.entry.priorityRank
+                    || left.sequence - right.sequence
+                ));
+            };
+            const pumpCoordinatedGetQueue = () => {
+                sortCoordinatedGetQueue();
+                while (coordinatedGetActiveCount < COORDINATED_GET_MAX_CONCURRENCY && coordinatedGetQueue.length > 0) {
+                    const queued = coordinatedGetQueue.shift();
+                    const { entry } = queued;
+                    if (entry.controller.signal.aborted || entry.consumers.size === 0) {
+                        queued.reject(createRequestAbortError());
+                        continue;
+                    }
+                    entry.started = true;
+                    coordinatedGetActiveCount += 1;
+                    Promise.resolve()
+                        .then(() => queued.execute(entry.controller.signal, nativeFetchPriority(entry.priorityRank)))
+                        .then(queued.resolve, queued.reject)
+                        .finally(() => {
+                            coordinatedGetActiveCount = Math.max(0, coordinatedGetActiveCount - 1);
+                            pumpCoordinatedGetQueue();
+                        });
+                }
+            };
+            const enqueueCoordinatedGet = (entry, execute) => new Promise((resolve, reject) => {
+                coordinatedGetQueue.push({
+                    entry,
+                    execute,
+                    resolve,
+                    reject,
+                    sequence: ++coordinatedGetSequence,
+                });
+                Promise.resolve().then(pumpCoordinatedGetQueue);
+            });
+            const settleCoordinatedGetConsumer = (entry, consumer, status, value) => {
+                if (!consumer || consumer.settled) return;
+                consumer.settled = true;
+                if (consumer.externalSignal && consumer.abortListener) {
+                    consumer.externalSignal.removeEventListener('abort', consumer.abortListener);
+                }
+                entry.consumers.delete(consumer.id);
+                if (status === 'resolve') consumer.resolve(cloneCoordinatedResponse(value));
+                else consumer.reject(value);
+            };
+            const cancelCoordinatedGetConsumer = (entry, consumer, error = createRequestAbortError()) => {
+                settleCoordinatedGetConsumer(entry, consumer, 'reject', error);
+                if (entry.consumers.size === 0) {
+                    entry.controller.abort();
+                    if (coordinatedGetRequests.get(entry.key) === entry) {
+                        coordinatedGetRequests.delete(entry.key);
+                    }
+                    pumpCoordinatedGetQueue();
+                }
+            };
+            const finishCoordinatedGet = (entry, status, value) => {
+                if (coordinatedGetRequests.get(entry.key) === entry) {
+                    coordinatedGetRequests.delete(entry.key);
+                }
+                if (status === 'resolve'
+                    && entry.ttlMs > 0
+                    && value?.code === 200
+                    && !entry.controller.signal.aborted
+                ) {
+                    coordinatedGetSuccessCache.set(entry.cacheKey, {
+                        expiresAt: Date.now() + entry.ttlMs,
+                        value: cloneCoordinatedResponse(value),
+                    });
+                }
+                [...entry.consumers.values()].forEach(consumer => {
+                    if (consumer.scope === 'page'
+                        && (consumer.pageGeneration !== pageRequestGeneration
+                            || consumer.pageKey !== String(currentPage.value || ''))
+                    ) {
+                        settleCoordinatedGetConsumer(entry, consumer, 'reject', createRequestAbortError());
+                        return;
+                    }
+                    settleCoordinatedGetConsumer(entry, consumer, status, value);
+                });
+            };
+            const addCoordinatedGetConsumer = (entry, policy, externalSignal) => {
+                const pageKey = String(policy.pageKey ?? currentPage.value ?? '');
+                const pageGeneration = Number(policy.pageGeneration ?? pageRequestGeneration);
+                return new Promise((resolve, reject) => {
+                    const consumer = {
+                        id: ++coordinatedGetConsumerSequence,
+                        scope: policy.scope === 'page' ? 'page' : 'session',
+                        pageKey,
+                        pageGeneration,
+                        externalSignal,
+                        abortListener: null,
+                        settled: false,
+                        resolve,
+                        reject,
+                    };
+                    entry.consumers.set(consumer.id, consumer);
+                    if (externalSignal) {
+                        consumer.abortListener = () => cancelCoordinatedGetConsumer(entry, consumer);
+                        if (externalSignal.aborted) {
+                            consumer.abortListener();
+                            return;
+                        }
+                        externalSignal.addEventListener('abort', consumer.abortListener, { once: true });
+                    }
+                });
+            };
+            const coordinateGetRequest = ({
+                requestSession,
+                method,
+                requestUrl,
+                requestOptions,
+                requestPolicy,
+                externalSignal,
+                execute,
+            }) => {
+                const policy = requestPolicy && typeof requestPolicy === 'object' ? requestPolicy : {};
+                const priorityRank = coordinatedGetPriorityRank(String(policy.priority || 'current'));
+                const cacheKey = coordinatedGetScopeKey(requestSession, method, requestUrl, requestOptions, policy);
+                const force = policy.force === true;
+                const cacheEntry = coordinatedGetSuccessCache.get(cacheKey);
+                if (!force && cacheEntry?.expiresAt > Date.now()) {
+                    if (externalSignal?.aborted) return Promise.reject(createRequestAbortError());
+                    return Promise.resolve(cloneCoordinatedResponse(cacheEntry.value));
+                }
+                if (cacheEntry) coordinatedGetSuccessCache.delete(cacheKey);
+
+                const hasSensitiveHeaderOverride = requestHeaderEntries(requestOptions.headers)
+                    .some(([key]) => ['authorization', 'cookie', 'proxy-authorization', 'x-api-key'].includes(String(key).toLowerCase()));
+                const dedupe = policy.dedupe !== false && !hasSensitiveHeaderOverride;
+                const requestKey = dedupe ? cacheKey : `${cacheKey}::consumer:${++coordinatedGetSequence}`;
+                let entry = coordinatedGetRequests.get(requestKey);
+                if (entry?.controller.signal.aborted) {
+                    coordinatedGetRequests.delete(requestKey);
+                    entry = null;
+                }
+                if (!entry) {
+                    entry = {
+                        key: requestKey,
+                        cacheKey,
+                        controller: new AbortController(),
+                        consumers: new Map(),
+                        priorityRank,
+                        ttlMs: Math.max(0, Number(policy.ttlMs) || 0),
+                        started: false,
+                        networkPromise: null,
+                    };
+                    coordinatedGetRequests.set(requestKey, entry);
+                    entry.networkPromise = enqueueCoordinatedGet(entry, execute);
+                    entry.networkPromise.then(
+                        value => finishCoordinatedGet(entry, 'resolve', value),
+                        error => finishCoordinatedGet(entry, 'reject', error)
+                    );
+                } else {
+                    entry.priorityRank = Math.min(entry.priorityRank, priorityRank);
+                    entry.ttlMs = Math.max(entry.ttlMs, Math.max(0, Number(policy.ttlMs) || 0));
+                    if (!entry.started) sortCoordinatedGetQueue();
+                }
+                return addCoordinatedGetConsumer(entry, policy, externalSignal);
+            };
+            const cancelPageGetConsumers = (pageKey) => {
+                const normalizedPageKey = String(pageKey || '');
+                coordinatedGetRequests.forEach(entry => {
+                    [...entry.consumers.values()].forEach(consumer => {
+                        if (consumer.scope === 'page'
+                            && (!normalizedPageKey || consumer.pageKey === normalizedPageKey)
+                        ) {
+                            cancelCoordinatedGetConsumer(entry, consumer);
+                        }
+                    });
+                });
+            };
+            const resetGetRequestCoordinator = ({ clearCache = true } = {}) => {
+                const error = createRequestAbortError('Authentication session changed');
+                coordinatedGetRequests.forEach(entry => {
+                    [...entry.consumers.values()].forEach(consumer => {
+                        settleCoordinatedGetConsumer(entry, consumer, 'reject', error);
+                    });
+                    entry.controller.abort();
+                });
+                coordinatedGetRequests.clear();
+                coordinatedGetQueue.splice(0).forEach(queued => queued.reject(error));
+                if (clearCache) coordinatedGetSuccessCache.clear();
+            };
+
+            const executeApiRequest = async ({ requestSession, requestUrl, requestOptions, headers }) => {
                 try {
                     const response = await fetch(API_BASE + requestUrl, {
                         ...requestOptions,
@@ -17097,6 +17493,51 @@
                     }
                     throw error;
                 }
+            };
+
+            // API 请求
+            const request = async (url, options = {}) => {
+                const requestSession = captureAuthSession();
+                const headers = { 'Content-Type': 'application/json' };
+                if (requestSession.token) headers['Authorization'] = requestSession.token;
+                const rawOptions = options && typeof options === 'object' ? { ...options } : {};
+                const requestPolicy = rawOptions.requestPolicy;
+                delete rawOptions.requestPolicy;
+                const contextualRequest = withBusinessRequestContext(url, rawOptions);
+                const requestUrl = contextualRequest.url;
+                const {
+                    requestPolicy: _requestPolicy,
+                    withBusinessContext: _withBusinessContext,
+                    businessContext: _businessContext,
+                    ...requestOptions
+                } = contextualRequest.options || {};
+                const method = String(requestOptions.method || 'GET').toUpperCase();
+                const isSafeRead = method === 'GET' || method === 'HEAD';
+                if (!isSafeRead) {
+                    return executeApiRequest({ requestSession, requestUrl, requestOptions, headers });
+                }
+
+                const externalSignal = requestOptions.signal;
+                const coordinatedOptions = { ...requestOptions };
+                delete coordinatedOptions.signal;
+                return coordinateGetRequest({
+                    requestSession,
+                    method,
+                    requestUrl,
+                    requestOptions: coordinatedOptions,
+                    requestPolicy,
+                    externalSignal,
+                    execute: (signal, priority) => executeApiRequest({
+                        requestSession,
+                        requestUrl,
+                        requestOptions: {
+                            ...coordinatedOptions,
+                            signal,
+                            priority: coordinatedOptions.priority || priority,
+                        },
+                        headers,
+                    }),
+                });
             };
             const apiRequest = request;
 
@@ -19117,7 +19558,10 @@
                         // This list backs multi-hotel account management. The backend still
                         // applies the current user's permitted-hotel scope, so inheriting the
                         // single selected hotel here would hide valid sibling hotel accounts.
-                        const res = await request('/online-data/data-sources', { withBusinessContext: false });
+                        const res = await request('/online-data/data-sources', {
+                            withBusinessContext: false,
+                            requestPolicy: loadOptions.requestPolicy,
+                        });
                         if (!isAuthSessionCurrent(requestSession)) return platformDataSources.value;
                         if (res.code === 200 && Array.isArray(res.data)) {
                             platformDataSources.value = res.data;
@@ -27454,11 +27898,13 @@
                     return;
                 }
                 const requestSession = captureAuthSession();
+                const requestPage = currentPage.value;
                 const hotelId = String(filterReportHotel.value || '').trim();
                 const requestId = ++homeTrendRequestId;
                 const isCurrentRequest = () => requestId === homeTrendRequestId
                     && isAuthSessionCurrent(requestSession)
                     && hotelId === String(filterReportHotel.value || '').trim()
+                    && currentPage.value === requestPage
                     && isCompassDataPage();
                 homeTrendLoading.value = true;
                 try {
@@ -27468,7 +27914,9 @@
                         params.append('start_date', homeTrendCustomRange.value.start_date || '');
                         params.append('end_date', homeTrendCustomRange.value.end_date || '');
                     }
-                    const res = await request(`/macro-signals/trends?${params.toString()}`);
+                    const res = await request(`/macro-signals/trends?${params.toString()}`, {
+                        requestPolicy: currentPageReadPolicy(requestPage, 'current'),
+                    });
                     if (!isCurrentRequest()) return;
                     if (res.code === 200 && res.data) {
                         homeTrendData.value = res.data;
@@ -27503,11 +27951,13 @@
             const loadHomeTemporalInsights = async () => {
                 if (!token.value || !isCompassDataPage()) return;
                 const requestSession = captureAuthSession();
+                const requestPage = currentPage.value;
                 const requestSeq = ++homeTemporalRequestSeq;
                 const hotelId = String(filterReportHotel.value || '').trim();
                 const isCurrentRequest = () => requestSeq === homeTemporalRequestSeq
                     && isAuthSessionCurrent(requestSession)
                     && hotelId === String(filterReportHotel.value || '').trim()
+                    && currentPage.value === requestPage
                     && isCompassDataPage();
                 homeTemporalLoading.value = true;
                 homeTemporalError.value = '';
@@ -27515,7 +27965,9 @@
                 try {
                     const params = new URLSearchParams({ history_days: '30', future_days: '7' });
                     if (hotelId) params.append('hotel_id', hotelId);
-                    const res = await request(`/temporal-insights/overview?${params.toString()}`);
+                    const res = await request(`/temporal-insights/overview?${params.toString()}`, {
+                        requestPolicy: currentPageReadPolicy(requestPage, 'current'),
+                    });
                     if (!isCurrentRequest()) return null;
                     if (res.code === 200 && res.data) {
                         homeTemporalData.value = res.data;
@@ -27623,11 +28075,13 @@
             const loadMacroSignals = async () => {
                 if (!token.value || !isCompassDataPage() || macroSignalLoading.value) return;
                 const requestSession = captureAuthSession();
+                const requestPage = currentPage.value;
                 const hotelId = String(filterReportHotel.value || '').trim();
                 const requestSeq = ++macroSignalRequestSeq;
                 const isCurrentRequest = () => requestSeq === macroSignalRequestSeq
                     && isAuthSessionCurrent(requestSession)
                     && hotelId === String(filterReportHotel.value || '').trim()
+                    && currentPage.value === requestPage
                     && isCompassDataPage();
                 macroSignalLoading.value = true;
                 activeMacroSignal.value = '';
@@ -27636,7 +28090,9 @@
                     const params = new URLSearchParams();
                     if (hotelId) params.append('hotel_id', hotelId);
                     const suffix = params.toString() ? `?${params.toString()}` : '';
-                    const res = await request(`/macro-signals/overview${suffix}`);
+                    const res = await request(`/macro-signals/overview${suffix}`, {
+                        requestPolicy: currentPageReadPolicy(requestPage, 'current'),
+                    });
                     if (!isCurrentRequest()) return;
                     if (res.code === 200 && Array.isArray(res.data)) {
                         macroSignalCards.value = res.data;
@@ -28300,6 +28756,7 @@
                 const includeInactive = options.includeInactive === true || currentPage.value === 'hotels';
                 const cacheMs = Number(options.cacheMs || 0);
                 const force = options.force === true;
+                const requestPolicy = options.requestPolicy;
                 const listScope = user.value?.is_super_admin && includeInactive ? 'paged-with-inactive' : 'all-active';
                 const requestKey = `${requestSession.epoch}:${listScope}`;
                 const requestSeq = ++hotelListRequestSeq;
@@ -28337,7 +28794,7 @@
                             let page = 1;
                             let totalPage = 1;
                             do {
-                                const pageRes = await request(`/hotels?page=${page}&page_size=100&sort_by=id&sort_order=desc`);
+                                const pageRes = await request(`/hotels?page=${page}&page_size=100&sort_by=id&sort_order=desc`, { requestPolicy });
                                 if (!isLatestRequestIntent()) return { code: 499, data: [] };
                                 if (pageRes.code !== 200) return pageRes;
                                 list.push(...(pageRes.data?.list || []));
@@ -28345,7 +28802,7 @@
                                 page += 1;
                             } while (page <= totalPage);
                             return { code: 200, data: list };
-                        })() : await request('/hotels/all');
+                        })() : await request('/hotels/all', { requestPolicy });
                         if (!isCurrentRequest()) return hotels.value;
                         if (res.code === 200) {
                             // 兼容两种响应格式
@@ -29655,80 +30112,138 @@
                 return labels;
             };
 
+            const hotelManagementRequestScope = () => [
+                authSessionEpoch,
+                String(authContext.value?.tenantId || authContext.value?.tenant_id || ''),
+                String(authContext.value?.hotelId || authContext.value?.hotel_id || user.value?.hotel_id || ''),
+            ].join(':');
             const loadHotelManagementSnapshot = async (options = {}) => {
-                if (hotelManagementLoading.value) return false;
                 const requestSession = captureAuthSession();
+                const force = options.force === true;
+                const deep = options.deep === true;
+                const showSuccess = options.showSuccess === true;
+                const requestScope = hotelManagementRequestScope();
+                const requestPolicy = options.requestPolicy || {
+                    scope: 'session',
+                    priority: showSuccess ? 'action' : 'current',
+                };
+                if (!force
+                    && !deep
+                    && hotelManagementSnapshotReady.value
+                    && hotelManagementSnapshotScope === requestScope
+                    && hotelManagementSnapshotLoadedAt > 0
+                    && Date.now() - hotelManagementSnapshotLoadedAt < HOTEL_MANAGEMENT_SNAPSHOT_TTL_MS
+                ) {
+                    return true;
+                }
+                if (hotelManagementLoadingPromise) {
+                    return hotelManagementLoadingPromise;
+                }
                 const requestSeq = ++hotelManagementRequestSeq;
                 const isCurrentRequest = () => (
                     requestSeq === hotelManagementRequestSeq
                     && isAuthSessionCurrent(requestSession)
+                    && requestScope === hotelManagementRequestScope()
                 );
-                const force = options.force === true;
-                const deep = options.deep === true;
-                const showSuccess = options.showSuccess === true;
+                clearHotelManagementPrewarmTimer();
                 clearStartupHotelListLoadTimer();
                 hotelManagementLoading.value = true;
                 hotelManagementLoadError.value = '';
-                try {
-                    const settled = await Promise.allSettled([
-                        loadHotels({ force, includeInactive: true }),
-                    ]);
-                    if (!isCurrentRequest()) return false;
-                    const jobs = [];
-                    if (coreOperationsHasAccessibleHotel.value) {
-                        jobs.push(ensureHotelOtaConfigLists({
-                            force,
+                let run;
+                run = (async () => {
+                    try {
+                        const settled = await Promise.allSettled([
+                            loadHotels({ force, includeInactive: true, requestPolicy }),
+                        ]);
+                        if (!isCurrentRequest()) return false;
+                        const jobs = [];
+                        if (coreOperationsHasAccessibleHotel.value) {
+                            jobs.push(ensureHotelOtaConfigLists({
+                                force,
+                                includeHotels: false,
+                                includeDataSources: true,
+                                requestPolicy,
+                            }));
+                        }
+                        if (deep && coreOperationsHasAccessibleHotel.value) {
+                            jobs.push(
+                                loadPlatformSyncTasks({ force: true }),
+                                loadPlatformSyncLogs({ force: true }),
+                                loadCompetitorSummary({ includeByHotel: true, force: true })
+                            );
+                        }
+                        if (jobs.length) {
+                            settled.push(...await Promise.allSettled(jobs));
+                        }
+                        if (!isCurrentRequest()) return false;
+                        const failures = hotelManagementFailureLabels(deep, coreOperationsHasAccessibleHotel.value);
+                        if (settled.some(result => result.status === 'rejected') && failures.length === 0) {
+                            failures.push('未知请求');
+                        }
+                        if (failures.length > 0) {
+                            const staleNotice = hotelManagementSnapshotReady.value
+                                ? `继续显示${hotelManagementLastRefreshedAt.value ? ` ${hotelManagementLastRefreshedAt.value} ` : '上次'}成功数据。`
+                                : '当前指标尚未验证，不展示统计结果。';
+                            hotelManagementLoadError.value = `加载失败：${failures.join('、')}。${staleNotice}`;
+                            if (options.showError !== false) {
+                                showToast(`门店状态未完整刷新：${failures.join('、')}`, 'error');
+                            }
+                            return false;
+                        }
+
+                        hotelManagementSnapshotReady.value = true;
+                        hotelManagementSnapshotLoadedAt = Date.now();
+                        hotelManagementSnapshotScope = requestScope;
+                        hotelManagementLastRefreshedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+                        if (showSuccess) {
+                            showToast(deep
+                                ? '门店状态已深度刷新（含同步任务、日志和竞对摘要）'
+                                : '门店账号状态已刷新（门店、账号配置和平台数据源）');
+                        }
+                        return true;
+                    } catch (error) {
+                        if (!isCurrentRequest()) return false;
+                        const staleNotice = hotelManagementSnapshotReady.value
+                            ? '继续显示上次成功数据。'
+                            : '当前指标尚未验证，不展示统计结果。';
+                        hotelManagementLoadError.value = `${error.message || '门店状态加载失败'}。${staleNotice}`;
+                        if (options.showError !== false) showToast('门店状态加载失败', 'error');
+                        return false;
+                    } finally {
+                        if (hotelManagementLoadingPromise === run) {
+                            hotelManagementLoadingPromise = null;
+                            hotelManagementLoading.value = false;
+                        }
+                    }
+                })();
+                hotelManagementLoadingPromise = run;
+                return run;
+            };
+            const scheduleHotelManagementPrewarm = (delayMs = HOTEL_MANAGEMENT_PREWARM_DELAY_MS) => {
+                clearHotelManagementPrewarmTimer();
+                if (!isLoggedIn.value || !token.value || currentPage.value === 'hotels') return;
+                const requestSession = captureAuthSession();
+                const requestScope = hotelManagementRequestScope();
+                hotelManagementPrewarmTimer = setTimeout(() => {
+                    hotelManagementPrewarmTimer = null;
+                    if (!isLoggedIn.value
+                        || !isAuthSessionCurrent(requestSession)
+                        || requestScope !== hotelManagementRequestScope()
+                        || currentPage.value === 'hotels'
+                    ) {
+                        return;
+                    }
+                    const requestPolicy = { scope: 'session', priority: 'prewarm' };
+                    deferUiTask(() => Promise.allSettled([
+                        loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS, requestPolicy }),
+                        ensureHotelOtaConfigLists({
+                            force: false,
                             includeHotels: false,
                             includeDataSources: true,
-                        }));
-                    }
-                    if (deep && coreOperationsHasAccessibleHotel.value) {
-                        jobs.push(
-                            loadPlatformSyncTasks({ force: true }),
-                            loadPlatformSyncLogs({ force: true }),
-                            loadCompetitorSummary({ includeByHotel: true, force: true })
-                        );
-                    }
-                    if (jobs.length) {
-                        settled.push(...await Promise.allSettled(jobs));
-                    }
-                    if (!isCurrentRequest()) return false;
-                    const failures = hotelManagementFailureLabels(deep, coreOperationsHasAccessibleHotel.value);
-                    if (settled.some(result => result.status === 'rejected') && failures.length === 0) {
-                        failures.push('未知请求');
-                    }
-                    if (failures.length > 0) {
-                        const staleNotice = hotelManagementSnapshotReady.value
-                            ? `继续显示${hotelManagementLastRefreshedAt.value ? ` ${hotelManagementLastRefreshedAt.value} ` : '上次'}成功数据。`
-                            : '当前指标尚未验证，不展示统计结果。';
-                        hotelManagementLoadError.value = `加载失败：${failures.join('、')}。${staleNotice}`;
-                        if (options.showError !== false) {
-                            showToast(`门店状态未完整刷新：${failures.join('、')}`, 'error');
-                        }
-                        return false;
-                    }
-
-                    hotelManagementSnapshotReady.value = true;
-                    hotelManagementLastRefreshedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-                    if (showSuccess) {
-                        showToast(deep
-                            ? '门店状态已深度刷新（含同步任务、日志和竞对摘要）'
-                            : '门店账号状态已刷新（门店、账号配置和平台数据源）');
-                    }
-                    return true;
-                } catch (error) {
-                    if (!isCurrentRequest()) return false;
-                    const staleNotice = hotelManagementSnapshotReady.value
-                        ? '继续显示上次成功数据。'
-                        : '当前指标尚未验证，不展示统计结果。';
-                    hotelManagementLoadError.value = `${error.message || '门店状态加载失败'}。${staleNotice}`;
-                    if (options.showError !== false) showToast('门店状态加载失败', 'error');
-                    return false;
-                } finally {
-                    if (isCurrentRequest()) {
-                        hotelManagementLoading.value = false;
-                    }
-                }
+                            requestPolicy,
+                        }),
+                    ]), 0);
+                }, Math.max(0, Number(delayMs) || HOTEL_MANAGEMENT_PREWARM_DELAY_MS));
             };
 
             const refreshHotelBindingPanelLight = async () => {
@@ -30146,6 +30661,7 @@
                 const force = options.force === true;
                 const includeHotels = options.includeHotels !== false;
                 const includeDataSources = options.includeDataSources !== false;
+                const requestPolicy = options.requestPolicy;
                 const tasks = [];
                 const shouldLoadCtripConfigList = force || (!ctripConfigListLoaded.value && !ctripConfigList.value.length);
                 if (shouldLoadCtripConfigList) {
@@ -30153,6 +30669,7 @@
                         force,
                         cacheMs: force ? 0 : MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,
                         applySelectedConfig: false,
+                        requestPolicy,
                     }));
                 }
                 const shouldLoadMeituanConfigList = force || (!meituanConfigListLoaded.value && !meituanConfigList.value.length);
@@ -30161,13 +30678,18 @@
                         force,
                         cacheMs: force ? 0 : MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,
                         applySelectedConfig: false,
+                        requestPolicy,
                     }));
                 }
                 if (includeDataSources && (force || platformDataSources.value.length === 0)) {
-                    tasks.push(loadPlatformDataSources(force ? { force: true } : { cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS }));
+                    tasks.push(loadPlatformDataSources(force
+                        ? { force: true, requestPolicy }
+                        : { cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS, requestPolicy }));
                 }
                 if (includeHotels && (force || !hotels.value.length)) {
-                    tasks.push(loadHotels(force ? { force: true } : { cacheMs: HOTEL_LIST_CACHE_TTL_MS }));
+                    tasks.push(loadHotels(force
+                        ? { force: true, requestPolicy }
+                        : { cacheMs: HOTEL_LIST_CACHE_TTL_MS, requestPolicy }));
                 }
                 if (tasks.length > 0) await Promise.all(tasks);
             };
@@ -37637,18 +38159,22 @@
             const loadHolidayRevenueCountdown = async () => {
                 if (!token.value || !isCompassDataPage()) return;
                 const requestSession = captureAuthSession();
+                const requestPage = currentPage.value;
                 const hotelId = String(filterReportHotel.value || '').trim();
                 const requestSeq = ++holidayRevenueRequestSeq;
                 const isCurrentRequest = () => requestSeq === holidayRevenueRequestSeq
                     && isAuthSessionCurrent(requestSession)
                     && hotelId === String(filterReportHotel.value || '').trim()
+                    && currentPage.value === requestPage
                     && isCompassDataPage();
                 holidayRevenueLoading.value = true;
                 try {
                     const params = new URLSearchParams({
                         year: String(new Date().getFullYear())
                     });
-                    const res = await request(`/holiday-revenue/countdown?${params.toString()}`);
+                    const res = await request(`/holiday-revenue/countdown?${params.toString()}`, {
+                        requestPolicy: currentPageReadPolicy(requestPage, 'current'),
+                    });
                     if (!isCurrentRequest()) return;
                     if (res.code === 200) {
                         holidayRevenue.value = res.data || null;
@@ -37720,7 +38246,9 @@
                 competitorSummaryError.value = '';
                 const run = (async () => {
                     try {
-                        const res = await request(`/online-data/competitor-summary${query ? '?' + query : ''}`);
+                        const res = await request(`/online-data/competitor-summary${query ? '?' + query : ''}`, {
+                            requestPolicy: currentPageReadPolicy(requestPage, 'current'),
+                        });
                         if (!isCurrentRequest()) return null;
                         if (res.code === 200) {
                             competitorSummaryLoadFailed.value = false;
@@ -37801,7 +38329,9 @@
                 revenueAiOverviewLoading.value = true;
                 revenueAiOverviewError.value = '';
                 try {
-                    const res = await request(overviewRequest.endpoint);
+                    const res = await request(overviewRequest.endpoint, {
+                        requestPolicy: currentPageReadPolicy(requestPage, 'current'),
+                    });
                     if (!isCurrentRequest()) return revenueAiOverview.value;
                     const overviewResult = revenueAiResolveOverviewResponse({ response: res });
                     revenueAiOverview.value = overviewResult.overview;
@@ -37823,11 +38353,13 @@
             const loadCompassData = async (options = {}) => {
                 if (!token.value) return;
                 const requestSession = captureAuthSession();
+                const requestPage = currentPage.value;
                 const requestSeq = ++compassRequestSeq;
                 const compassHotelId = String(filterReportHotel.value || '').trim();
                 const isCurrentRequest = () => requestSeq === compassRequestSeq
                     && isAuthSessionCurrent(requestSession)
                     && compassHotelId === String(filterReportHotel.value || '').trim()
+                    && currentPage.value === requestPage
                     && isCompassDataPage();
                 if (compassDisplayedHotelId !== compassHotelId) {
                     compassWeather.value = [];
@@ -37842,7 +38374,9 @@
                     const params = new URLSearchParams();
                     if (compassHotelId) params.append('hotel_id', compassHotelId);
                     const suffix = params.toString() ? `?${params.toString()}` : '';
-                    const res = await request(`/compass${suffix}`);
+                    const res = await request(`/compass${suffix}`, {
+                        requestPolicy: currentPageReadPolicy(requestPage, 'current'),
+                    });
                     if (!isCurrentRequest()) return null;
                     if (res.code === 200) {
                         compassLayout.value = mergeStoredHomeQuickLayout(res.data.layout || compassLayout.value);
@@ -37862,7 +38396,6 @@
                     scheduleDelayedPageTask(async () => {
                         if (!isCurrentRequest()) return null;
                         const compassBackgroundJobs = [
-                            () => (revenueAiStaticReady.value ? loadRevenueAiOverview() : null),
                             () => loadHolidayRevenueCountdown(),
                             () => loadMacroSignals(),
                             () => loadHomeTemporalInsights(),
@@ -37873,7 +38406,6 @@
                                 if (String(filterReportHotel.value || '').trim() !== compassHotelId) return null;
                                 return loadLatestCtripData({ silent: true, hotelId: compassHotelId });
                             });
-                            compassBackgroundJobs.push(() => loadCompetitorSummary({ requireCompass: true }));
                         }
                         for (const job of compassBackgroundJobs) {
                             if (!isCurrentRequest()) return null;
@@ -37951,7 +38483,7 @@
                     } else {
                         refreshDualOtaWorkbenchData({ allowFetch: true, silent: false });
                     }
-                    loadCompassData();
+                    loadCompassData({ skipOtaBackground: true });
                 }
             });
 
@@ -39669,17 +40201,10 @@
                 const readiness = buildCtripCookieApiConfigReadiness(config);
                 if (!readiness.ok) return readiness;
                 const platformHotelId = resolveCtripCookieApiRequestHotelId(hotelId, config, { allowForm: false });
-                if (!platformHotelId) {
-                    return {
-                        ...readiness,
-                        ok: false,
-                        reason: 'missing_platform_hotel_id',
-                        message: '缺少携程 hotelId，未发起接口请求；请先在酒店管理中补齐。',
-                    };
-                }
                 return {
                     ...readiness,
                     platformHotelId,
+                    identityDiscovery: !platformHotelId,
                 };
             };
             const buildCtripCompetitionBatchTargets = () => [...hotels.value]
@@ -39873,7 +40398,7 @@
                 state.status_class = statusMeta.className;
                 state.message = String(message || '').trim();
                 if (!state.message && state.executable_count === 0) {
-                    state.message = '没有可执行门店，请先补齐携程授权配置和 hotelId。';
+                    state.message = '没有可执行门店，请先补齐携程授权配置。';
                 } else if (!state.message && status === 'success') {
                     state.message = `全部 ${state.success_count} 家门店竞争圈已完成入库回读。`;
                 } else if (!state.message) {
@@ -40046,6 +40571,9 @@
                     if (workerCount > 0) {
                         await Promise.all(Array.from({ length: workerCount }, () => worker()));
                     }
+                    await Promise.allSettled([
+                        loadCtripConfigList({ force: true, applySelectedConfig: false }),
+                    ]);
                     finishCtripCompetitionBatchState();
                     const state = ctripOverviewCoreFetchState.value;
                     showToast(
@@ -40673,7 +41201,9 @@
                 ctripConfigListLoadFailed.value = false;
                 const run = (async () => {
                     try {
-                        const res = await request('/online-data/get-ctrip-config-list');
+                        const res = await request('/online-data/get-ctrip-config-list', {
+                            requestPolicy: options.requestPolicy,
+                        });
                         if (!isAuthSessionCurrent(requestSession)) return [];
                         if (res && res.code === 200) {
                             const list = res.data || [];
@@ -41213,7 +41743,9 @@
                 meituanConfigListLoadFailed.value = startState.failed;
                 const run = (async () => {
                     try {
-                        const res = await request('/online-data/get-meituan-config-list');
+                        const res = await request('/online-data/get-meituan-config-list', {
+                            requestPolicy: options.requestPolicy,
+                        });
                         if (!isAuthSessionCurrent(requestSession)) return [];
                         const configListResult = resolveMeituanConfigListResponse(res);
                         if (configListResult.ok) {
@@ -42184,6 +42716,7 @@
                 scheduleStartupHotelListLoad();
                 schedulePublicSystemConfigRefresh();
                 scheduleFormOperationSupportLoad();
+                scheduleHotelManagementPrewarm();
                 if (currentPage.value === 'hotels') {
                     void runPageLoadOnce('hotels', 'main', () => loadHotelManagementSnapshot({
                         force: false,

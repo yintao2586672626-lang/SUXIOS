@@ -32,9 +32,10 @@ final class OtaCredentialReadPathTest extends TestCase
         ];
         Config::set($config, 'database');
         Db::connect(null, true);
-        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(100))');
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(100), status INTEGER NOT NULL DEFAULT 1)');
         Db::execute('CREATE TABLE system_configs (id INTEGER PRIMARY KEY AUTOINCREMENT, config_key VARCHAR(100) NOT NULL UNIQUE, config_value TEXT, description VARCHAR(255), create_time DATETIME, update_time DATETIME)');
         Db::execute('CREATE TABLE ota_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id VARCHAR(100) NOT NULL, credential_status VARCHAR(20) NOT NULL)');
+        Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, system_hotel_id INTEGER, hotel_id VARCHAR(100), hotel_name VARCHAR(100), source VARCHAR(20), compare_type VARCHAR(30))');
         Db::name('hotels')->insertAll([
             ['id' => 58, 'tenant_id' => 7, 'name' => 'A'],
             ['id' => 64, 'tenant_id' => 9, 'name' => 'B'],
@@ -53,6 +54,7 @@ final class OtaCredentialReadPathTest extends TestCase
         parent::setUp();
         Db::name('system_configs')->delete(true);
         Db::name('ota_credentials')->delete(true);
+        Db::name('online_daily_data')->delete(true);
     }
 
     private function permittedUser(array $hotelIds = [58]): object
@@ -192,17 +194,30 @@ final class OtaCredentialReadPathTest extends TestCase
                 return $this->resolveCtripManualBusinessIdentityConfig($systemHotelId, $requestData);
             }
 
-            public function persistResolvedIdentity(int $systemHotelId, string $platformHotelId): bool
+            public function persistResolvedIdentity(
+                int $systemHotelId,
+                string $platformHotelId,
+                string $configId = ''
+            ): bool
             {
-                return $this->persistCtripResolvedPlatformHotelIdForSystemHotel($systemHotelId, $platformHotelId);
+                return $this->persistCtripResolvedPlatformHotelIdForSystemHotel(
+                    $systemHotelId,
+                    $platformHotelId,
+                    $configId
+                );
             }
 
-            public function resolveMissingIdentity(array $capturedIds, int $systemHotelId): array
+            public function resolveMissingIdentity(
+                array $capturedIds,
+                int $systemHotelId,
+                string $configId = ''
+            ): array
             {
                 return $this->resolveMissingCtripPlatformHotelIdFromCapturedData(
                     $capturedIds,
                     $systemHotelId,
-                    'A'
+                    'A',
+                    $configId
                 );
             }
 
@@ -1577,7 +1592,7 @@ final class OtaCredentialReadPathTest extends TestCase
         }
     }
 
-    public function testResolvedCtripIdentityContinuesRequestWithoutUpdatingConfigBlob(): void
+    public function testResolvedCtripIdentityAutoBindsTheVerifiedCookieConfig(): void
     {
         $configValue = json_encode([
             'cfg-58' => [
@@ -1587,6 +1602,11 @@ final class OtaCredentialReadPathTest extends TestCase
                 'hotel_id' => '58',
                 'name' => 'Ctrip A',
                 'node_id' => '24588',
+                'credential_ref' => 'vault://ctrip/cfg-58',
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'secret_mask' => '********',
+                'configuration_verified' => false,
             ],
         ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         Db::name('system_configs')->insert([
@@ -1595,14 +1615,96 @@ final class OtaCredentialReadPathTest extends TestCase
         ]);
 
         $harness = $this->identityHarness();
-        self::assertFalse($harness->persistResolvedIdentity(58, '880058'));
-        $resolution = $harness->resolveMissingIdentity(['880058'], 58);
+        $resolution = $harness->resolveMissingIdentity(['880058'], 58, 'cfg-58');
 
         self::assertTrue($resolution['ok']);
-        self::assertSame('request_scoped_platform_hotel_id', $resolution['status']);
+        self::assertSame('auto_bound_platform_hotel_id', $resolution['status']);
         self::assertSame(['880058'], $resolution['expected_hotel_ids']);
-        self::assertFalse($resolution['auto_bound']);
-        self::assertSame($configValue, Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value'));
+        self::assertTrue($resolution['auto_bound']);
+
+        $stored = json_decode(
+            (string)Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertSame('880058', $stored['cfg-58']['ctrip_hotel_id']);
+        self::assertSame('880058', $stored['cfg-58']['ctripHotelId']);
+        self::assertSame('880058', $stored['cfg-58']['ota_hotel_id']);
+        self::assertSame('ctrip_authenticated_response', $stored['cfg-58']['platform_hotel_identity_source']);
+        self::assertTrue($stored['cfg-58']['platform_hotel_identity_auto_bound']);
+        self::assertNotSame('', $stored['cfg-58']['platform_hotel_identity_checked_at']);
+        self::assertSame('vault://ctrip/cfg-58', $stored['cfg-58']['credential_ref']);
+        self::assertSame('ready', $stored['cfg-58']['credential_status']);
+        self::assertTrue($stored['cfg-58']['has_cookies']);
+        self::assertFalse($stored['cfg-58']['configuration_verified']);
+    }
+
+    public function testResolvedCtripIdentityDoesNotAutoBindWhenTheReturnedIdsAreAmbiguous(): void
+    {
+        $configValue = json_encode([
+            'cfg-58' => [
+                'id' => 'cfg-58',
+                'config_id' => 'cfg-58',
+                'system_hotel_id' => 58,
+                'hotel_id' => '58',
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+            ],
+        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => $configValue,
+        ]);
+
+        $resolution = $this->identityHarness()->resolveMissingIdentity(
+            ['880058', '880059'],
+            58,
+            'cfg-58'
+        );
+
+        self::assertFalse($resolution['ok']);
+        self::assertSame('captured_platform_hotel_id_ambiguous', $resolution['status']);
+        self::assertSame(
+            $configValue,
+            Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value')
+        );
+    }
+
+    public function testResolvedCtripIdentityDoesNotOverwriteAnotherHotelsBinding(): void
+    {
+        $configValue = json_encode([
+            'cfg-58' => [
+                'id' => 'cfg-58',
+                'config_id' => 'cfg-58',
+                'system_hotel_id' => 58,
+                'hotel_id' => '58',
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+            ],
+            'cfg-64' => [
+                'id' => 'cfg-64',
+                'config_id' => 'cfg-64',
+                'system_hotel_id' => 64,
+                'hotel_id' => '64',
+                'ctrip_hotel_id' => '880058',
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+            ],
+        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => $configValue,
+        ]);
+
+        $resolution = $this->identityHarness()->resolveMissingIdentity(['880058'], 58, 'cfg-58');
+
+        self::assertFalse($resolution['ok']);
+        self::assertSame('platform_hotel_conflict', $resolution['status']);
+        self::assertSame(
+            $configValue,
+            Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value')
+        );
     }
 
     public function testStaleConfiguredCtripHotelIdBlocksPersistence(): void
@@ -1727,20 +1829,32 @@ final class OtaCredentialReadPathTest extends TestCase
         self::assertStringContainsString('本次未入库', $result['message']);
     }
 
-    public function testCtripIdentitySourceUsesSafeReaderAndHasNoBlobUpdatePath(): void
+    public function testCtripIdentitySourceUsesSafeReaderAndAtomicVerifiedBindingPath(): void
     {
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $configSource = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OtaConfigConcern.php');
         $resolve = $this->methodSource($source, 'private function resolveCtripManualBusinessIdentityConfig', 'private function resolveCtripManualBusinessHotelIdentityFromResponse');
         $find = $this->methodSource($source, 'private function findCtripSystemHotelMatchesByPlatformIds', 'private function appendCtripSystemHotelIdentityMatches');
         $persist = $this->methodSource($source, 'private function persistCtripResolvedPlatformHotelIdForSystemHotel', 'private function readSafeCtripIdentityMetadataList');
+        $verifiedBinding = $this->methodSource(
+            $configSource,
+            'private function persistVerifiedCtripPlatformHotelBinding',
+            'private function persistMeituanConfigMetadata'
+        );
 
         foreach ([$resolve, $find] as $method) {
             self::assertStringContainsString('readSafeCtripIdentityMetadataList()', $method);
             self::assertStringNotContainsString('getStoredCtripConfigList()', $method);
         }
+        self::assertStringContainsString('persistVerifiedCtripPlatformHotelBinding(', $persist);
         foreach (['Db::name(', '->update(', 'config_value', 'json_encode('] as $forbidden) {
             self::assertStringNotContainsString($forbidden, $persist);
         }
+        self::assertStringContainsString('Db::transaction(', $verifiedBinding);
+        self::assertStringContainsString('->lock(true)', $verifiedBinding);
+        self::assertStringContainsString('assertUniqueOtaPlatformHotelBinding(', $verifiedBinding);
+        self::assertStringContainsString('platform_hotel_identity_source', $verifiedBinding);
+        self::assertStringContainsString('Ctrip platform hotel identity readback failed.', $verifiedBinding);
     }
 
     public function testManualFetchRequestSchemasPreserveSupportedScalarAndSafeListFields(): void

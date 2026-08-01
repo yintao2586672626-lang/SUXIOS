@@ -91,6 +91,103 @@ function copyProxyHeaders(headers) {
   return result;
 }
 
+function normalizeBackendUrls(backendUrl, backendUrls) {
+  const candidates = Array.isArray(backendUrls) && backendUrls.length > 0
+    ? backendUrls
+    : [backendUrl];
+  const normalized = [];
+  for (const candidate of candidates.flatMap((value) => String(value || '').split(','))) {
+    const value = candidate.trim();
+    if (!value) continue;
+    const backend = new URL(value);
+    if (backend.protocol !== 'http:') {
+      throw new Error('Local origin backends must use http://');
+    }
+    if (!normalized.some((item) => item.href === backend.href)) {
+      normalized.push(backend);
+    }
+  }
+  if (normalized.length === 0) {
+    throw new Error('Local origin requires at least one backend');
+  }
+  return normalized;
+}
+
+function createBackendPool(backends, {
+  healthPath = '/api/health',
+  healthCheckIntervalMs = 2_000,
+  healthCheckTimeoutMs = 1_500,
+} = {}) {
+  const workers = backends.map((backend) => ({
+    backend,
+    healthy: false,
+    checking: null,
+    agent: new http.Agent({ keepAlive: true, maxSockets: 32 }),
+  }));
+  let cursor = 0;
+
+  const checkWorker = (worker) => {
+    if (worker.checking) return worker.checking;
+    worker.checking = new Promise((resolve) => {
+      const probe = http.request({
+        protocol: worker.backend.protocol,
+        hostname: worker.backend.hostname,
+        port: worker.backend.port,
+        method: 'GET',
+        path: healthPath,
+        agent: worker.agent,
+        headers: { Connection: 'keep-alive' },
+      }, (probeResponse) => {
+        probeResponse.resume();
+        probeResponse.once('end', () => {
+          worker.healthy = probeResponse.statusCode === 200;
+          resolve(worker.healthy);
+        });
+      });
+      probe.setTimeout(healthCheckTimeoutMs, () => probe.destroy(new Error('health check timeout')));
+      probe.once('error', () => {
+        worker.healthy = false;
+        resolve(false);
+      });
+      probe.end();
+    }).finally(() => {
+      worker.checking = null;
+    });
+    return worker.checking;
+  };
+
+  const checkAll = () => Promise.all(workers.map(checkWorker));
+  const interval = setInterval(checkAll, healthCheckIntervalMs);
+  interval.unref();
+  void checkAll();
+
+  return {
+    size: workers.length,
+    async nextHealthy(excludedWorker = null) {
+      let healthyWorkers = workers.filter(
+        (worker) => worker.healthy && worker !== excludedWorker,
+      );
+      if (healthyWorkers.length === 0) {
+        await checkAll();
+        healthyWorkers = workers.filter(
+          (worker) => worker.healthy && worker !== excludedWorker,
+        );
+      }
+      if (healthyWorkers.length === 0) return null;
+      const selected = healthyWorkers[cursor % healthyWorkers.length];
+      cursor = (cursor + 1) % Number.MAX_SAFE_INTEGER;
+      return selected;
+    },
+    markUnhealthy(worker) {
+      worker.healthy = false;
+    },
+    close() {
+      clearInterval(interval);
+      for (const worker of workers) worker.agent.destroy();
+    },
+  };
+}
+
 function staticEtag(stat) {
   return `W/"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}"`;
 }
@@ -130,7 +227,33 @@ function serveStaticFile(request, response, filePath, stat) {
   stream.pipe(response);
 }
 
-function proxyToBackend(request, response, backend, agent) {
+function requestHasBody(request) {
+  if (request.headers['transfer-encoding'] !== undefined) return true;
+  const contentLength = request.headers['content-length'];
+  if (contentLength === undefined) return false;
+  return !/^\s*0\s*$/.test(String(contentLength));
+}
+
+function canRetryReadRequest(request) {
+  return (request.method === 'GET' || request.method === 'HEAD') && !requestHasBody(request);
+}
+
+function respondBackendUnavailable(request, response) {
+  const isApiRequest = requestPathname(request.url).startsWith('/api/');
+  response.writeHead(502, {
+    'Content-Type': isApiRequest
+      ? 'application/json; charset=utf-8'
+      : 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  response.end(isApiRequest
+    ? JSON.stringify({ code: 502, message: '所选本机 PHP worker 已不可用' })
+    : 'Local application backend unavailable');
+}
+
+function proxyToBackend(request, response, worker, backendPool, retriesRemaining = 1) {
+  const { backend, agent } = worker;
+  const retryableRead = canRetryReadRequest(request);
   const headers = copyProxyHeaders(request.headers);
   headers.host = request.headers.host || backend.host;
 
@@ -143,45 +266,80 @@ function proxyToBackend(request, response, backend, agent) {
     headers,
     agent,
   }, (upstreamResponse) => {
+    const responseHeaders = copyProxyHeaders(upstreamResponse.headers);
+    responseHeaders['X-SUXIOS-Backend-Pool-Size'] = String(backendPool.size);
     response.writeHead(
       upstreamResponse.statusCode || 502,
       upstreamResponse.statusMessage,
-      copyProxyHeaders(upstreamResponse.headers),
+      responseHeaders,
     );
     upstreamResponse.pipe(response);
   });
 
   upstream.on('error', (error) => {
+    backendPool.markUnhealthy(worker);
     if (response.headersSent) {
       response.destroy(error);
       return;
     }
-    const isApiRequest = requestPathname(request.url).startsWith('/api/');
-    response.writeHead(502, {
-      'Content-Type': isApiRequest
-        ? 'application/json; charset=utf-8'
-        : 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-store',
-    });
-    response.end(isApiRequest
-      ? JSON.stringify({ code: 502, message: '本机应用服务暂不可用' })
-      : 'Local application backend unavailable');
+    if (retryableRead && retriesRemaining > 0 && !request.aborted && !response.destroyed) {
+      void backendPool.nextHealthy(worker).then((nextWorker) => {
+        if (!nextWorker || request.aborted || response.destroyed) {
+          if (!response.destroyed) respondBackendUnavailable(request, response);
+          return;
+        }
+        proxyToBackend(request, response, nextWorker, backendPool, retriesRemaining - 1);
+      });
+      return;
+    }
+    respondBackendUnavailable(request, response);
   });
 
   request.on('aborted', () => upstream.destroy());
-  request.pipe(upstream);
+  if (retryableRead) {
+    upstream.end();
+  } else {
+    request.pipe(upstream);
+  }
+}
+
+function respondNoHealthyBackend(request, response) {
+  const isApiRequest = requestPathname(request.url).startsWith('/api/');
+  response.writeHead(503, {
+    'Content-Type': isApiRequest
+      ? 'application/json; charset=utf-8'
+      : 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  response.end(isApiRequest
+    ? JSON.stringify({ code: 503, message: '没有可用的本机 PHP worker' })
+    : 'No healthy local PHP worker is available');
 }
 
 export function createLocalOriginServer({
   publicRoot = defaultPublicRoot,
   backendUrl = 'http://127.0.0.1:8081',
+  backendUrls,
+  healthPath = '/api/health',
+  healthCheckIntervalMs = 2_000,
+  healthCheckTimeoutMs = 1_500,
 } = {}) {
   const normalizedPublicRoot = path.resolve(publicRoot);
-  const backend = new URL(backendUrl);
-  if (backend.protocol !== 'http:') {
-    throw new Error('Local origin backend must use http://');
-  }
-  const backendAgent = new http.Agent({ keepAlive: true, maxSockets: 32 });
+  const backends = normalizeBackendUrls(backendUrl, backendUrls);
+  const backendPool = createBackendPool(backends, {
+    healthPath,
+    healthCheckIntervalMs,
+    healthCheckTimeoutMs,
+  });
+
+  const proxyRequest = async (request, response) => {
+    const worker = await backendPool.nextHealthy();
+    if (!worker) {
+      respondNoHealthyBackend(request, response);
+      return;
+    }
+    proxyToBackend(request, response, worker, backendPool);
+  };
 
   const server = http.createServer((request, response) => {
     if (request.method === 'GET' || request.method === 'HEAD') {
@@ -192,19 +350,19 @@ export function createLocalOriginServer({
             serveStaticFile(request, response, filePath, stat);
             return;
           }
-          proxyToBackend(request, response, backend, backendAgent);
+          void proxyRequest(request, response);
         });
         return;
       }
     }
 
-    proxyToBackend(request, response, backend, backendAgent);
+    void proxyRequest(request, response);
   });
 
   server.requestTimeout = 120_000;
   server.headersTimeout = 65_000;
   server.keepAliveTimeout = 5_000;
-  server.on('close', () => backendAgent.destroy());
+  server.on('close', () => backendPool.close());
   return server;
 }
 
@@ -213,8 +371,9 @@ export async function startLocalOriginServer({
   port = 8080,
   publicRoot = defaultPublicRoot,
   backendUrl = 'http://127.0.0.1:8081',
+  backendUrls,
 } = {}) {
-  const server = createLocalOriginServer({ publicRoot, backendUrl });
+  const server = createLocalOriginServer({ publicRoot, backendUrl, backendUrls });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);
@@ -229,9 +388,20 @@ if (invokedDirectly) {
   const host = cliValue(args, 'host', '127.0.0.1');
   const port = parseInteger(cliValue(args, 'port', '8080'), 8080);
   const backendUrl = cliValue(args, 'backend', 'http://127.0.0.1:8081');
+  const backendUrls = cliValue(args, 'backends', '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
   const publicRoot = path.resolve(cliValue(args, 'public-root', defaultPublicRoot));
-  const server = await startLocalOriginServer({ host, port, backendUrl, publicRoot });
-  console.log(`[OK] SUXIOS local origin listening on http://${host}:${port} -> ${backendUrl}`);
+  const server = await startLocalOriginServer({
+    host,
+    port,
+    backendUrl,
+    backendUrls: backendUrls.length > 0 ? backendUrls : undefined,
+    publicRoot,
+  });
+  const backendSummary = backendUrls.length > 0 ? backendUrls.join(', ') : backendUrl;
+  console.log(`[OK] SUXIOS local origin listening on http://${host}:${port} -> ${backendSummary}`);
 
   const stop = () => {
     server.close(() => process.exit(0));

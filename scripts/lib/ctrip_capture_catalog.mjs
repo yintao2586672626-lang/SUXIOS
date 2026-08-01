@@ -4685,6 +4685,10 @@ function compareTypeForFacts(facts, context = {}) {
   if (String(hotelId).trim() === '-1') {
     return 'competitor_avg';
   }
+  const hotelName = ctripFactValue(facts, 'hotel_name');
+  if (isCtripGenericSelfHotelName(hotelName)) {
+    return 'self';
+  }
   const contextHotelIds = new Set([
     context.hotelId,
     context.requestHotelId,

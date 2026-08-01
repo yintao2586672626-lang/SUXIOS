@@ -1290,6 +1290,152 @@ trait OtaConfigConcern
     }
 
     /**
+     * Persist a Ctrip hotel identity observed from an authenticated response.
+     *
+     * The write is deliberately narrower than a normal config save: it keeps
+     * the credential and verification metadata unchanged and only adds the
+     * verified platform identity to the exact current Cookie config.
+     */
+    private function persistVerifiedCtripPlatformHotelBinding(
+        int $systemHotelId,
+        string $platformHotelId,
+        string $configId = ''
+    ): bool {
+        $platformHotelId = trim($platformHotelId);
+        $configId = trim($configId);
+        if ($systemHotelId <= 0 || $platformHotelId === '') {
+            return false;
+        }
+        if ($configId !== '' && preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) !== 1) {
+            return false;
+        }
+
+        try {
+            $saved = Db::transaction(function () use ($systemHotelId, $platformHotelId, $configId): bool {
+                $key = 'ctrip_config_list';
+                $row = Db::name('system_configs')->where('config_key', $key)->lock(true)->find();
+                if (!is_array($row)) {
+                    return false;
+                }
+
+                $list = json_decode((string)($row['config_value'] ?? ''), true, 512, JSON_THROW_ON_ERROR);
+                if (!is_array($list)) {
+                    throw new RuntimeException('Stored Ctrip config list is invalid.');
+                }
+
+                $candidates = [];
+                foreach ($list as $storedKey => $candidate) {
+                    if (!is_array($candidate)
+                        || !$this->isCurrentOtaConfig($candidate)
+                        || $this->otaConfigHasHotelBindingConflict($candidate)
+                        || $this->otaConfigBoundSystemHotelId($candidate) !== $systemHotelId
+                        || (string)($candidate['credential_status'] ?? '') !== 'ready'
+                        || ($candidate['has_cookies'] ?? false) !== true
+                    ) {
+                        continue;
+                    }
+
+                    $candidateConfigId = trim((string)($candidate['config_id'] ?? $candidate['id'] ?? $storedKey));
+                    if (preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $candidateConfigId) !== 1) {
+                        continue;
+                    }
+                    if ($configId !== '' && !hash_equals($configId, $candidateConfigId)) {
+                        continue;
+                    }
+
+                    $candidates[] = [
+                        'stored_key' => $storedKey,
+                        'config_id' => $candidateConfigId,
+                        'config' => $candidate,
+                    ];
+                }
+
+                // Without an exact request config ID, bind only when there is
+                // one unambiguous current Cookie config for the system hotel.
+                if (count($candidates) !== 1) {
+                    return false;
+                }
+
+                $target = $candidates[0];
+                $targetConfig = $target['config'];
+                $targetConfigId = (string)$target['config_id'];
+                $storedPlatformHotelId = $this->otaPlatformHotelIdFromConfig('ctrip', $targetConfig);
+                if ($storedPlatformHotelId !== '' && !hash_equals($storedPlatformHotelId, $platformHotelId)) {
+                    return false;
+                }
+
+                $this->assertUniqueOtaPlatformHotelBinding(
+                    $list,
+                    'ctrip',
+                    $platformHotelId,
+                    $systemHotelId,
+                    $targetConfigId
+                );
+
+                // Never rewrite a legacy blob that still embeds credentials.
+                foreach ($list as $candidate) {
+                    if (!is_array($candidate)) {
+                        throw new RuntimeException('Stored Ctrip sibling config is invalid.');
+                    }
+                    [, $secretPayload] = $this->splitOtaConfigSecrets($candidate);
+                    if ($this->otaSecretPayloadHasNonEmptyScalar($secretPayload)) {
+                        throw new RuntimeException('Legacy Ctrip credential must migrate before identity binding.');
+                    }
+                }
+
+                $now = date('Y-m-d H:i:s');
+                $targetConfig['ctrip_hotel_id'] = $platformHotelId;
+                $targetConfig['ctripHotelId'] = $platformHotelId;
+                $targetConfig['ota_hotel_id'] = $platformHotelId;
+                $targetConfig['platform_hotel_identity_source'] = 'ctrip_authenticated_response';
+                $targetConfig['platform_hotel_identity_checked_at'] = $now;
+                $targetConfig['platform_hotel_identity_auto_bound'] = true;
+                $list[$target['stored_key']] = $targetConfig;
+
+                Db::name('system_configs')->where('config_key', $key)->update([
+                    'config_value' => json_encode(
+                        $list,
+                        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                    ),
+                    'update_time' => $now,
+                ]);
+
+                $readbackRaw = Db::name('system_configs')
+                    ->where('config_key', $key)
+                    ->value('config_value');
+                $readbackList = json_decode((string)$readbackRaw, true, 512, JSON_THROW_ON_ERROR);
+                $readbackConfig = is_array($readbackList)
+                    && array_key_exists($target['stored_key'], $readbackList)
+                    && is_array($readbackList[$target['stored_key']])
+                        ? $readbackList[$target['stored_key']]
+                        : [];
+                if ($readbackConfig === []
+                    || $this->otaConfigHasHotelBindingConflict($readbackConfig)
+                    || $this->otaConfigBoundSystemHotelId($readbackConfig) !== $systemHotelId
+                    || !hash_equals($platformHotelId, trim((string)($readbackConfig['ctrip_hotel_id'] ?? '')))
+                    || !hash_equals($platformHotelId, trim((string)($readbackConfig['ctripHotelId'] ?? '')))
+                    || !hash_equals($platformHotelId, trim((string)($readbackConfig['ota_hotel_id'] ?? '')))
+                ) {
+                    throw new RuntimeException('Ctrip platform hotel identity readback failed.');
+                }
+
+                return true;
+            });
+        } catch (\Throwable $exception) {
+            Log::warning('Ctrip platform hotel identity auto-binding failed', [
+                'system_hotel_id' => $systemHotelId,
+                'exception' => $exception::class,
+            ]);
+            return false;
+        }
+
+        if ($saved) {
+            SystemConfig::clearProtectedOtaCaches();
+        }
+        return $saved;
+    }
+
+    /**
      * Persist one Meituan configuration and its credential in the same database transaction.
      *
      * @param array<string, mixed> $config

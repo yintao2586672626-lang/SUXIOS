@@ -72,6 +72,16 @@ final class RevenueFactLayerServiceTest extends TestCase
         self::assertFalse(
             $layer['aggregation_policy']['ota_data_may_represent_whole_hotel_revenue']
         );
+        self::assertSame(
+            'share_with_caveats',
+            $layer['analysis_diagnostics']['overall_assessment']
+        );
+        self::assertTrue(
+            $layer['analysis_diagnostics']['decision_use']['revenue_analysis']['allowed']
+        );
+        self::assertFalse(
+            $layer['analysis_diagnostics']['decision_use']['ai_manual_review']['allowed']
+        );
     }
 
     public function testMissingOtaSourceStaysNullAndKeepsRevenueAnalysisPartial(): void
@@ -113,6 +123,13 @@ final class RevenueFactLayerServiceTest extends TestCase
         self::assertSame(
             'meituan_ota_not_readback_verified',
             $layer['unique_remaining_gap']['code']
+        );
+        self::assertSame(
+            'needs_revision',
+            $layer['analysis_diagnostics']['overall_assessment']
+        );
+        self::assertNull(
+            $layer['analysis_diagnostics']['metric_diagnostics'][0]['value']
         );
     }
 
@@ -233,6 +250,10 @@ final class RevenueFactLayerServiceTest extends TestCase
         self::assertSame(
             350.0,
             $layer['sources']['pricing_guard']['minimum_floor_price']
+        );
+        self::assertSame(
+            'ready_to_share',
+            $layer['analysis_diagnostics']['overall_assessment']
         );
     }
 

@@ -1217,6 +1217,80 @@ test('Revenue AI keeps verified dual-OTA facts visible while a PMS source gap bl
   assert.doesNotMatch(closure.nextAction, /补齐已验证 OTA/);
 });
 
+test('Revenue AI closure prefers the absorbed validation diagnostic contract', () => {
+  const overview = {
+    scope: 'three_source_layered',
+    revenue_analysis_status: 'ready',
+    metrics: {
+      ota_room_revenue: { value: 1032.39, unit: 'CNY', status: 'ok' },
+      ota_room_nights: { value: 1, unit: 'room_nights', status: 'ok' },
+      ota_adr: { value: 1032.39, unit: 'CNY', status: 'ok' },
+    },
+    three_source_fact_layer: {
+      all_three_sources_readback_verified: true,
+      sources: {
+        dingdandao_pms: { data_status: 'readback_verified' },
+        ctrip_ota: { data_status: 'readback_verified' },
+        meituan_ota: { data_status: 'readback_verified' },
+      },
+      facts: {
+        ota_channel: {
+          combined: { revenue: 1032.39, orders: 1, room_nights: 1 },
+        },
+      },
+      analysis_gaps: [],
+      ai_review_gaps: [{
+        code: 'floor_price_missing',
+        source: 'pricing_guard',
+        status: 'missing',
+      }],
+      analysis_diagnostics: {
+        overall_assessment: 'share_with_caveats',
+        summary: '三源事实可用于收益分析，但需带限制说明：最低保护价缺失。',
+        next_action: '为启用房型配置最低保护价，保存回显后重新进入人工调价审核。',
+        decision_use: {
+          revenue_analysis: { allowed: true },
+        },
+        checks: [{
+          key: 'source_readback',
+          label: '三源保存与精确回读',
+          status: 'passed',
+        }],
+        issues: [{
+          code: 'floor_price_missing',
+          source: 'pricing_guard',
+          status: 'missing',
+          severity: 'medium',
+          message: '最低保护价缺失，不能进入调价审核。',
+          next_action: '为启用房型配置最低保护价。',
+        }],
+      },
+    },
+    p1_revenue_closure: {
+      status: 'ready',
+      calculation_allowed: true,
+      sections: { adr_conversion: { metrics: {} } },
+      anomaly_judgment: { items: [] },
+    },
+  };
+
+  const closure = helpers.buildRevenueAiBusinessClosure({ overview });
+  assert.equal(closure.calculationAllowed, true);
+  assert.equal(closure.validationAssessment, 'share_with_caveats');
+  assert.equal(closure.qualityChecks.length, 1);
+  assert.equal(
+    closure.summary,
+    '三源事实可用于收益分析，但需带限制说明：最低保护价缺失。',
+  );
+  assert.equal(
+    closure.nextAction,
+    '为启用房型配置最低保护价，保存回显后重新进入人工调价审核。',
+  );
+  assert.equal(closure.missingRows.length, 1);
+  assert.equal(closure.missingRows[0].severity, 'medium');
+  assert.equal(closure.missingRows[0].detail, '最低保护价缺失，不能进入调价审核。');
+});
+
 test('Revenue AI metric cards expose the complete four-state truth envelope for each number', () => {
   const cards = helpers.buildRevenueAiMetricCards({
     overview: {

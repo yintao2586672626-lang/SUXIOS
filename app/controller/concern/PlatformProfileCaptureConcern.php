@@ -616,6 +616,9 @@ trait PlatformProfileCaptureConcern
             ?? $requestData['ctripHotelId']
             ?? ''
         ));
+        if (!$this->isMeaningfulCtripPlatformHotelId($hotelId, (int)($systemHotelId ?? 0))) {
+            $hotelId = '';
+        }
         $platformHotelId = trim((string)(
             $requestData['ota_hotel_id']
             ?? $requestData['otaHotelId']

@@ -365,8 +365,9 @@ test('Ctrip overview batch capture runs competition circle only for every ready 
   assert.doesNotMatch(coreActionRunner, /openCtripOverviewFetchTab/);
   assert.doesNotMatch(coreActionRunner, /onlineDataTab\.value\s*=\s*tabName/);
   assert.doesNotMatch(coreActionRunner, /onlineDataTab\.value\s*=\s*'data-health'/);
-  assert.match(html, /reason: 'missing_platform_hotel_id'/);
-  assert.match(html, /缺少携程 hotelId，未发起接口请求/);
+  assert.match(html, /identityDiscovery:\s*!platformHotelId/);
+  assert.doesNotMatch(html, /reason: 'missing_platform_hotel_id'/);
+  assert.match(html, /没有可执行门店，请先补齐携程授权配置。/);
 
   const cookieApiRunner = sliceBetween(
     html,
@@ -406,13 +407,16 @@ test('Ctrip Cookie API save is guarded against cross-store hotel identity confli
   assert.match(cookieApiHandler, /validateCtripPayloadHotelIdentity\(\$payload, \(int\)\$systemHotelId, \$prepared\['config'\] \?\? \[\]\)/);
   assert.match(cookieApiHandler, /reason'\s*=>\s*'hotel_identity_mismatch'/);
   assert.match(cookieApiHandler, /saved_count'\s*=>\s*0/);
-  assert.match(cookieApiHandler, /expected_platform_hotel_id_missing/);
   assert.match(cookieApiHandler, /findStoredCtripExecutionConfig\(\$configId, \$systemHotelId\)/);
   assert.match(cookieApiHandler, /stored_platform_hotel_id_mismatch/);
   assert.match(cookieApiHandler, /\$requestData\['ctrip_hotel_id'\]\s*=\s*\(string\)/);
+  assert.match(cookieApiHandler, /\$requiresPlatformHotelIdDiscovery\s*=\s*true/);
+  assert.match(cookieApiHandler, /count\(\$capturedHotelIds\)\s*!==\s*1/);
+  assert.match(cookieApiHandler, /persistCtripResolvedPlatformHotelIdForSystemHotel\(/);
+  assert.match(cookieApiHandler, /auto_bound_platform_hotel_id/);
+  assert.match(cookieApiHandler, /platform_hotel_id_auto_bind_failed/);
   assert.match(cookieApiHandler, /\$saveBlockedIdentity\s*=\s*\$identityCheck/);
   assert.doesNotMatch(cookieApiHandler, /cookie_only_without_platform_hotel_id/);
-  assert.doesNotMatch(cookieApiHandler, /expected_platform_hotel_id_missing[\s\S]{0,500}\$identityCheck\['ok'\]\s*=\s*true/);
   assert.match(backend, /private function validateCtripPayloadHotelIdentity\(array \$payload, int \$systemHotelId, array \$config = \[\]\): array/);
   assert.match(backend, /private function findCtripPlatformHotelIdConflicts\(array \$platformHotelIds, int \$systemHotelId\): array/);
   assert.match(backend, /private function filterAmbiguousCtripHotelRows\(array \$rows, \?int \$hotelId\): array/);
@@ -441,6 +445,7 @@ test('Ctrip hotel identity safety ignores competitor rows and whitelists configu
     'private function normalizeCtripCookieApiEndpointsFromRequest'
   );
   assert.doesNotMatch(cookieApiConfigBuilder, /requestData\['node_id'\]|requestData\['nodeId'\]/, 'Cookie API hotel_id must not fall back to nodeId');
+  assert.match(cookieApiConfigBuilder, /isMeaningfulCtripPlatformHotelId\(\$hotelId, \(int\)\(\$systemHotelId \?\? 0\)\)/);
 
   const reportBuilder = sliceBetween(
     backend,

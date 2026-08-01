@@ -992,6 +992,29 @@ trait CtripAutoFetchExecutionConcern
     {
         $ids = [];
         $trustedSourceKeys = ['masterhotelid', 'master_hotel_id', 'hotelid', 'hotel_id'];
+        $hasTrustedStandardHotelId = false;
+        foreach (is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : [] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $rawData = is_array($row['raw_data'] ?? null) ? $row['raw_data'] : [];
+            $sourceKey = strtolower(trim((string)($rawData['hotel_id_source_key'] ?? '')));
+            if (!in_array($sourceKey, $trustedSourceKeys, true)) {
+                continue;
+            }
+            $hasTrustedStandardHotelId = true;
+            if (!$this->isCtripCompetitorLikeValue($row)) {
+                $this->addCtripPayloadHotelId($ids, $row['hotel_id'] ?? $row['hotelId'] ?? null);
+            }
+        }
+
+        // Standard rows carry the parser's explicit self/competitor decision.
+        // Once they expose trusted hotel IDs, never re-add competitor IDs from
+        // the lower-level fact list.
+        if ($hasTrustedStandardHotelId) {
+            return array_keys($ids);
+        }
+
         foreach (is_array($payload['catalog_facts'] ?? null) ? $payload['catalog_facts'] : [] as $fact) {
             if (!is_array($fact) || strtolower(trim((string)($fact['metric_key'] ?? ''))) !== 'hotel_id') {
                 continue;
@@ -1001,16 +1024,6 @@ trait CtripAutoFetchExecutionConcern
                 continue;
             }
             $this->addCtripPayloadHotelId($ids, $fact['value'] ?? null);
-        }
-        foreach (is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : [] as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $rawData = is_array($row['raw_data'] ?? null) ? $row['raw_data'] : [];
-            $sourceKey = strtolower(trim((string)($rawData['hotel_id_source_key'] ?? '')));
-            if (!$this->isCtripCompetitorLikeValue($row) && in_array($sourceKey, $trustedSourceKeys, true)) {
-                $this->addCtripPayloadHotelId($ids, $row['hotel_id'] ?? $row['hotelId'] ?? null);
-            }
         }
 
         return array_keys($ids);

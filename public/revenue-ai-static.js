@@ -383,7 +383,7 @@
                 key: `${fallbackType}_${code}_${index}`,
                 code,
                 label: fallbackType === 'anomaly' ? '异常判断' : '缺失项说明',
-                detail: item?.message || revenueAiReasonText(code.split(':').pop()),
+                detail: item?.message || item?.display_reason || revenueAiReasonText(code.split(':').pop()),
                 affected,
                 severity: item?.severity || (fallbackType === 'anomaly' ? 'medium' : 'low'),
             };
@@ -393,8 +393,13 @@
     const revenueAiCanonicalFactLayerGaps = (overview = {}) => {
         const factLayer = overview?.three_source_fact_layer;
         if (!factLayer || typeof factLayer !== 'object') return null;
+        const diagnostics = factLayer.analysis_diagnostics && typeof factLayer.analysis_diagnostics === 'object'
+            ? factLayer.analysis_diagnostics
+            : {};
+        const diagnosticIssues = Array.isArray(diagnostics.issues) ? diagnostics.issues : null;
         const hasGapContract = Array.isArray(factLayer.analysis_gaps)
             || Array.isArray(factLayer.ai_review_gaps)
+            || diagnosticIssues !== null
             || Object.prototype.hasOwnProperty.call(factLayer, 'unique_remaining_gap');
         if (!hasGapContract) return null;
 
@@ -404,7 +409,10 @@
             ? [factLayer.unique_remaining_gap]
             : [];
         const seen = new Set();
-        return [...analysisGaps, ...reviewGaps, ...uniqueGap]
+        const sourceGaps = diagnosticIssues !== null
+            ? diagnosticIssues
+            : [...analysisGaps, ...reviewGaps, ...uniqueGap];
+        return sourceGaps
             .filter((gap) => gap && typeof gap === 'object')
             .map((gap) => {
                 const code = String(gap.code || gap.reason || 'fact_layer_gap');
@@ -558,14 +566,24 @@
         const factLayer = overview.three_source_fact_layer && typeof overview.three_source_fact_layer === 'object'
             ? overview.three_source_fact_layer
             : {};
+        const diagnostics = factLayer.analysis_diagnostics && typeof factLayer.analysis_diagnostics === 'object'
+            ? factLayer.analysis_diagnostics
+            : {};
+        const diagnosticAnalysisAllowed = typeof diagnostics?.decision_use?.revenue_analysis?.allowed === 'boolean'
+            ? diagnostics.decision_use.revenue_analysis.allowed
+            : null;
         const hasFactLayerContract = Object.keys(factLayer).length > 0
             && (
                 Object.prototype.hasOwnProperty.call(factLayer, 'source_completeness')
                 || Object.prototype.hasOwnProperty.call(factLayer, 'analysis_gaps')
                 || Object.prototype.hasOwnProperty.call(factLayer, 'facts')
             );
-        const factLayerReady = overview.revenue_analysis_status === 'ready'
-            && factLayer.all_three_sources_readback_verified === true;
+        const factLayerReady = diagnosticAnalysisAllowed !== null
+            ? diagnosticAnalysisAllowed
+            : (
+                overview.revenue_analysis_status === 'ready'
+                && factLayer.all_three_sources_readback_verified === true
+            );
         const factLayerOtaReady = factLayer.all_three_sources_readback_verified === true
             || (
                 factLayer?.sources?.ctrip_ota?.data_status === 'readback_verified'
@@ -632,17 +650,23 @@
             : null;
         const calculationDetail = hasFactLayerContract
             ? (
-                factLayerReady
+                String(diagnostics.summary || '')
+                || (factLayerReady
                     ? '三源事实已完成同店同日回读。'
                     : String(
                         canonicalBlockingGap?.display_reason
                         || canonicalBlockingGap?.message
                         || '三源事实层仍有必需来源缺口。'
-                    )
+                    ))
             )
             : revenueAiReasonText(revenueUse.status || (calculationAllowed ? '' : 'blocked_by_data_credibility'));
-        const canonicalNextAction = hasFactLayerContract && !factLayerReady
-            ? String(canonicalBlockingGap?.next_action || '补齐唯一三源事实缺口后重新审核。')
+        const canonicalNextAction = hasFactLayerContract
+            ? String(
+                diagnostics.next_action
+                || (!factLayerReady
+                    ? (canonicalBlockingGap?.next_action || '补齐唯一三源事实缺口后重新审核。')
+                    : '')
+            )
             : '';
         const aiDecisionAllowed = hasFactLayerContract ? factLayerReady : aiDecision.allowed === true;
         const metricChips = [
@@ -667,13 +691,15 @@
             statusLabel: revenueAiStatusLabel(closureStatus),
             className: revenueAiStatusClass(closureStatus),
             scopeText: revenueAiScopeLabel(overview.scope || closure.scope || 'ota'),
-            summary: factLayerReady
-                ? 'PMS 仅承载全酒店住宿事实，携程/美团仅承载 OTA 渠道事实；收入不跨口径相加。'
-                : (
-                    factLayerOtaReady
-                        ? '携程、美团 OTA 渠道事实已回读；PMS 全酒店住宿事实仍缺当前来源证据，PMS 与跨源指标保持为空，OTA 不冒充全酒店收入。'
-                        : (closure.scope_statement || '仅基于已验证 OTA 渠道数据，不代表全酒店经营口径。')
-                ),
+            summary: String(diagnostics.summary || '') || (
+                factLayerReady
+                    ? 'PMS 仅承载全酒店住宿事实，携程/美团仅承载 OTA 渠道事实；收入不跨口径相加。'
+                    : (
+                        factLayerOtaReady
+                            ? '携程、美团 OTA 渠道事实已回读；PMS 全酒店住宿事实仍缺当前来源证据，PMS 与跨源指标保持为空，OTA 不冒充全酒店收入。'
+                            : (closure.scope_statement || '仅基于已验证 OTA 渠道数据，不代表全酒店经营口径。')
+                    )
+            ),
             calculationAllowed,
             summaryChips,
             nextAction: canonicalNextAction || revenueAiClosureNextAction({
@@ -733,6 +759,8 @@
             ],
             missingRows,
             anomalyRows,
+            validationAssessment: String(diagnostics.overall_assessment || ''),
+            qualityChecks: Array.isArray(diagnostics.checks) ? diagnostics.checks : [],
         };
     };
 

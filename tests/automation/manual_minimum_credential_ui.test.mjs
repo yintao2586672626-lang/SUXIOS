@@ -3321,7 +3321,7 @@ test('Hotel management saves force-refresh the current management context', () =
 
   assert.match(refreshHotelBindingPanelLight, /loadHotelManagementSnapshot\(\{[\s\S]*force: true,[\s\S]*deep: false,[\s\S]*showSuccess: true/);
   assert.match(refreshHotelBindingPanel, /loadHotelManagementSnapshot\(\{[\s\S]*force: true,[\s\S]*deep: true,[\s\S]*showSuccess: true/);
-  assert.match(loadHotelManagementSnapshot, /loadHotels\(\{ force, includeInactive: true \}\)/);
+  assert.match(loadHotelManagementSnapshot, /loadHotels\(\{ force, includeInactive: true, requestPolicy \}\)/);
   assert.match(loadHotelManagementSnapshot, /ensureHotelOtaConfigLists\(\{[\s\S]*force,[\s\S]*includeHotels: false,[\s\S]*includeDataSources: true/);
   assert.match(loadHotelManagementSnapshot, /if \(deep && coreOperationsHasAccessibleHotel\.value\) \{[\s\S]*loadPlatformSyncTasks\(\{ force: true \}\)[\s\S]*loadPlatformSyncLogs\(\{ force: true \}\)[\s\S]*loadCompetitorSummary\(\{ includeByHotel: true, force: true \}\)/);
   assert.match(loadHotelManagementSnapshot, /hotelManagementFailureLabels\(deep, coreOperationsHasAccessibleHotel\.value\)/);
@@ -3404,8 +3404,8 @@ test('Home lower dashboard panels mount after the first OTA navigation window', 
   assert.match(html, /const COMPASS_WEATHER_REFRESH_DELAY_MS = 3200;/);
   assert.match(html, /const homeSecondaryPanelsReady = ref\(false\);/);
   assert.match(html, /const scheduleHomeSecondaryPanelsReady = \(delayMs = HOME_SECONDARY_PANEL_DELAY_MS\) => \{/);
-  assert.match(currentPageWatcher, /clearHomeSecondaryPanelsReadyTimer\(\);\s*homeSecondaryPanelsReady\.value = false;\s*destroyHomeTrendChart\(\);/);
-  assert.match(currentPageWatcher, /homeSecondaryPanelsReady\.value = false;\s*scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,320}?runPageLoadOnce\(newPage, 'main', \(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true\s*\}\)\);/);
+  assert.match(currentPageWatcher, /clearHomeSecondaryPanelsReadyTimer\(\);\s*clearDualOtaSystemMetricDrilldownHydrationTimer\(\);\s*homeSecondaryPanelsReady\.value = false;\s*destroyHomeTrendChart\(\);/);
+  assert.match(currentPageWatcher, /homeSecondaryPanelsReady\.value = false;\s*scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,520}?runPageLoadOnce\([\s\S]*?newPage,[\s\S]*?'main',[\s\S]*?\(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true\s*\}\),[\s\S]*?ttlMs: DASHBOARD_PAGE_CACHE_TTL_MS/);
   assert.doesNotMatch(currentPageWatcher, /runPageLoadOnce\(newPage, 'auto-fetch-static'/);
   assert.match(html, /v-if="homeSecondaryPanelsReady"[^>]+data-testid="daily-ops-monitor-card"/);
   assert.match(html, /v-if="homeSecondaryPanelsReady"[^>]+data-testid="home-weather-demand-card"/);

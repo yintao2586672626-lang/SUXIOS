@@ -1284,7 +1284,12 @@ trait OnlineDataManualFetchConcern
         $capturedIds = array_values(array_map('strval', array_keys($capturedIds)));
 
         if ($expectedIds === []) {
-            return $this->resolveMissingCtripPlatformHotelIdFromCapturedData($capturedIds, $systemHotelId, $targetHotelName);
+            return $this->resolveMissingCtripPlatformHotelIdFromCapturedData(
+                $capturedIds,
+                $systemHotelId,
+                $targetHotelName,
+                trim((string)($requestData['config_id'] ?? ''))
+            );
         }
 
         if ($capturedIds === []) {
@@ -1343,7 +1348,12 @@ trait OnlineDataManualFetchConcern
         ];
     }
 
-    private function resolveMissingCtripPlatformHotelIdFromCapturedData(array $capturedIds, int $systemHotelId, string $targetHotelName): array
+    private function resolveMissingCtripPlatformHotelIdFromCapturedData(
+        array $capturedIds,
+        int $systemHotelId,
+        string $targetHotelName,
+        string $configId = ''
+    ): array
     {
         $normalizedIds = [];
         foreach ($capturedIds as $capturedId) {
@@ -1440,7 +1450,25 @@ trait OnlineDataManualFetchConcern
         }
 
         $platformHotelId = (string)$capturedIds[0];
-        $this->persistCtripResolvedPlatformHotelIdForSystemHotel($systemHotelId, $platformHotelId);
+        $autoBound = $this->persistCtripResolvedPlatformHotelIdForSystemHotel(
+            $systemHotelId,
+            $platformHotelId,
+            $configId
+        );
+        if ($autoBound) {
+            return [
+                'ok' => true,
+                'status' => 'auto_bound_platform_hotel_id',
+                'warning' => false,
+                'message' => '已从当前 Cookie 的携程授权响应识别并绑定本店 hotelId，后续无需手工填写。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'captured_hotel_ids' => $capturedIds,
+                'expected_hotel_ids' => [$platformHotelId],
+                'conflicts' => [],
+                'auto_bound' => true,
+            ];
+        }
 
         return [
             'ok' => true,
@@ -1575,14 +1603,22 @@ trait OnlineDataManualFetchConcern
         ];
     }
 
-    private function persistCtripResolvedPlatformHotelIdForSystemHotel(int $systemHotelId, string $platformHotelId): bool
+    private function persistCtripResolvedPlatformHotelIdForSystemHotel(
+        int $systemHotelId,
+        string $platformHotelId,
+        string $configId = ''
+    ): bool
     {
         $platformHotelId = trim($platformHotelId);
         if ($systemHotelId <= 0 || !$this->isMeaningfulCtripPlatformHotelId($platformHotelId, $systemHotelId)) {
             return false;
         }
 
-        return false;
+        return $this->persistVerifiedCtripPlatformHotelBinding(
+            $systemHotelId,
+            $platformHotelId,
+            $configId
+        );
     }
 
     /**

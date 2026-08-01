@@ -196,10 +196,10 @@
                                     <option value="ads_pyramid">广告投放</option>
                                 </select>
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">携程门店标识</label>
-                                <input v-model="dataConfigForm.ctrip_hotel_id" type="text" placeholder="由已绑定配置自动带入" class="input-field w-full">
-                            </div>
+                            <details class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                                <summary class="cursor-pointer text-sm text-gray-600">自动识别失败时手动补充 hotelId</summary>
+                                <input v-model="dataConfigForm.ctrip_hotel_id" type="text" placeholder="选填，请勿填写 nodeId" class="input-field mt-2 w-full">
+                            </details>
                         </div>
                     </div>
 

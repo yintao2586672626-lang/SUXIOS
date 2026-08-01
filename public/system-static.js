@@ -686,7 +686,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         setTimeout(runner, delay);
     };
     const scheduleDelayedPageTask = (callback, delay = 0) => {
-        setTimeout(() => {
+        return setTimeout(() => {
             try {
                 const result = callback();
                 if (result && typeof result.catch === 'function') {
@@ -1449,7 +1449,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
     }));
     const knowledgeDocumentTextExtensions = ['txt', 'md', 'markdown', 'csv', 'json', 'log'];
     const knowledgeDocumentHtmlExtensions = ['html', 'htm'];
-    const knowledgeDocumentSupportedExtensions = [...knowledgeDocumentTextExtensions, ...knowledgeDocumentHtmlExtensions, 'docx'];
+    const knowledgeDocumentSupportedExtensions = [...knowledgeDocumentTextExtensions, ...knowledgeDocumentHtmlExtensions, 'docx', 'xlsx'];
     const agentTabs = [
         { key: 'overview', name: '工具箱', icon: 'fas fa-toolbox' },
         { key: 'revenue', name: '收益管理', icon: 'fas fa-chart-line' },

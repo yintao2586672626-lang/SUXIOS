@@ -38,7 +38,12 @@ if (!fs.existsSync(startupScriptPath)) {
     'public/router.php',
     'local_origin_server.mjs',
     'BackendPort',
-    '--backend=',
+    'PhpWorkerCount',
+    'BackendPorts',
+    '--backends=',
+    '-WindowStyle Hidden',
+    'X-SUXIOS-Backend-Pool-Size',
+    'SetEnvironmentVariable("PATH", $null, "Process")',
     'information_schema.SCHEMATA',
     'information_schema.TABLES',
   ];
@@ -56,13 +61,31 @@ if (!fs.existsSync(startupScriptPath)) {
   if (/"think",\s*"run"|public\/index\.php|public\\index\.php/.test(script)) {
     failures.push('startup script must serve PHP through public/router.php so static CSS/JS files are not routed as ThinkPHP controllers');
   }
+
+  if (!/ValidateRange\(3,\s*16\)[\s\S]*\$PhpWorkerCount\s*=\s*3/.test(script)) {
+    failures.push('startup script must default to at least three configurable PHP workers');
+  }
+
+  if (!/foreach \(\$workerPort in \$BackendPorts\)[\s\S]*Test-BackendHttpHealth -TargetPort \$workerPort/.test(script)) {
+    failures.push('startup script must health-check every configured PHP worker');
+  }
 }
 
 if (!fs.existsSync(localOriginServerPath)) {
   failures.push('scripts/local_origin_server.mjs is missing');
 } else {
   const originServer = fs.readFileSync(localOriginServerPath, 'utf8');
-  for (const token of ['createLocalOriginServer', 'fs.createReadStream', 'proxyToBackend', '127.0.0.1']) {
+  for (const token of [
+    'createLocalOriginServer',
+    'fs.createReadStream',
+    'proxyToBackend',
+    'createBackendPool',
+    'nextHealthy',
+    'markUnhealthy',
+    '没有可用的本机 PHP worker',
+    'X-SUXIOS-Backend-Pool-Size',
+    '127.0.0.1',
+  ]) {
     if (!originServer.includes(token)) {
       failures.push(`local origin server must include ${token}`);
     }

@@ -42,6 +42,10 @@ const sliceSystemBetween = (start, end) => {
 
 test('stale authentication responses cannot clear or replace a newer session', () => {
   const sessionHelpers = sliceBetween('let authSessionEpoch = 0;', 'const createDefaultAuthContext');
+  const executeApiRequest = sliceBetween(
+    'const executeApiRequest = async ({ requestSession, requestUrl, requestOptions, headers }) => {',
+    'const request = async (url, options = {}) => {',
+  );
   const apiRequest = sliceBetween('const request = async (url, options = {}) => {', 'const apiRequest = request;');
   const mountedBootstrap = sliceBetween('const bootstrapSession = captureAuthSession();', '\n                }\n            });');
 
@@ -49,10 +53,11 @@ test('stale authentication responses cannot clear or replace a newer session', (
   assert.match(sessionHelpers, /Number\(session\.epoch\) === authSessionEpoch/);
   assert.match(sessionHelpers, /String\(session\.token \|\| ''\) === String\(token\.value \|\| ''\)/);
   assert.match(apiRequest, /const requestSession = captureAuthSession\(\);/);
-  assert.match(apiRequest, /clearAuthSessionIfCurrent\(requestSession, tokenStatus\)/);
-  assert.match(apiRequest, /isTerminalAuthFailureResponse\(response, data\)/);
-  assert.match(apiRequest, /authFailureReason === 'user_disabled'/);
-  assert.match(apiRequest, /data\.code === 403\) && isAuthSessionCurrent\(requestSession\)/);
+  assert.match(apiRequest, /executeApiRequest\(\{ requestSession, requestUrl, requestOptions, headers \}\)/);
+  assert.match(executeApiRequest, /clearAuthSessionIfCurrent\(requestSession, tokenStatus\)/);
+  assert.match(executeApiRequest, /isTerminalAuthFailureResponse\(response, data\)/);
+  assert.match(executeApiRequest, /authFailureReason === 'user_disabled'/);
+  assert.match(executeApiRequest, /data\.code === 403\) && isAuthSessionCurrent\(requestSession\)/);
   assert.match(mountedBootstrap, /if \(!isAuthSessionCurrent\(bootstrapSession\)\) return;/);
   assert.match(mountedBootstrap, /beginAuthSession\(bootstrapSession\.token\);/);
   assert.match(source, /const handleAuthInfoBootstrapUnavailable = \(session\) => \{\s*if \(!isAuthSessionCurrent\(session\)\) return;/);
@@ -164,7 +169,7 @@ test('notification refreshes and no-hotel OTA entry cannot reuse another authent
   assert.match(coreLoopRefresh, /if \(!hotelId \|\| !hotelIsAccessible\)/);
   assert.match(tabLoader, /if \(!coreOperationsHasAccessibleHotel\.value\) return null;[\s\S]*ensureHotelOtaConfigLists/);
   assert.ok(
-    hotelManagementLoader.indexOf("loadHotels({ force, includeInactive: true })")
+    hotelManagementLoader.indexOf("loadHotels({ force, includeInactive: true, requestPolicy })")
       < hotelManagementLoader.indexOf('if (coreOperationsHasAccessibleHotel.value)'),
     'hotel management must resolve the hotel scope before loading protected OTA configuration',
   );
@@ -172,7 +177,7 @@ test('notification refreshes and no-hotel OTA entry cannot reuse another authent
   assert.match(hotelManagementLoader, /const requestSeq = \+\+hotelManagementRequestSeq;/);
   assert.match(hotelManagementLoader, /requestSeq === hotelManagementRequestSeq[\s\S]*isAuthSessionCurrent\(requestSession\)/);
   assert.match(hotelManagementLoader, /await Promise\.allSettled\([\s\S]*if \(!isCurrentRequest\(\)\) return false;/);
-  assert.match(hotelManagementLoader, /finally \{\s*if \(isCurrentRequest\(\)\) \{\s*hotelManagementLoading\.value = false;/);
+  assert.match(hotelManagementLoader, /finally \{\s*if \(hotelManagementLoadingPromise === run\) \{\s*hotelManagementLoadingPromise = null;\s*hotelManagementLoading\.value = false;/);
   assert.match(hotelManagementLoader, /if \(coreOperationsHasAccessibleHotel\.value\) \{[\s\S]*ensureHotelOtaConfigLists/);
   assert.match(hotelManagementLoader, /hotelManagementFailureLabels\(deep, coreOperationsHasAccessibleHotel\.value\)/);
 });
@@ -462,8 +467,14 @@ test('hotel management ignores a delayed response after its auth session and req
     hotelManagementLoadError,
     hotelManagementLastRefreshedAt,
     hotelManagementRequestSeq: 0,
+    hotelManagementLoadingPromise: null,
+    hotelManagementSnapshotLoadedAt: 0,
+    hotelManagementSnapshotScope: '',
+    HOTEL_MANAGEMENT_SNAPSHOT_TTL_MS: 60000,
+    hotelManagementRequestScope: () => `${authState.epoch}:${authState.token}`,
     captureAuthSession: () => ({ ...authState }),
     isAuthSessionCurrent: session => session.epoch === authState.epoch && session.token === authState.token,
+    clearHotelManagementPrewarmTimer: () => {},
     clearStartupHotelListLoadTimer: () => {},
     loadHotels: () => {
       hotelLoadCalls += 1;
@@ -487,6 +498,7 @@ test('hotel management ignores a delayed response after its auth session and req
         authState.epoch += 1;
         authState.token = 'token-b';
         hotelManagementRequestSeq += 1;
+        hotelManagementLoadingPromise = null;
         hotelManagementLoading.value = false;
       },
     };`,
@@ -758,7 +770,8 @@ test('hotel and dashboard loaders reject stale responses and reuse in-flight req
   const clearHotel = sliceBetween('const clearActiveHotelDashboardSnapshots = () => {', 'const beginAuthSession = (nextToken) => {');
 
   assert.match(pageLoadGuard, /const key = `\$\{sessionEpoch\}:\$\{page\}:\$\{loadingKey\}`/);
-  assert.match(pageLoadGuard, /if \(sessionEpoch !== authSessionEpoch\)/);
+  assert.match(pageLoadGuard, /sessionEpoch === authSessionEpoch\s*&& lifecycleGeneration === pageRequestGeneration/);
+  assert.match(pageLoadGuard, /const succeeded = result !== false/);
   assert.match(workbench, /if \(!isLoggedIn\.value \|\| !token\.value \|\| !isCompassDataPage\(\)\) return;/);
   assert.match(workbench, /isAuthSessionCurrent\(requestSession\)/);
   assert.match(workbench, /if \(!isCurrentRequest\(\)\) return null;/);

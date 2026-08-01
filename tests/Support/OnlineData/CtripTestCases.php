@@ -536,7 +536,7 @@ trait CtripTestCases
         self::assertStringContainsString('建议删除', $expired['action_hint']);
     }
 
-    public function testCtripIdentityExtractorRejectsConfiguredFallbackAndPreservesMixedObservedHotelIds(): void
+    public function testCtripIdentityExtractorUsesStandardRowOwnershipBeforeRawCatalogFacts(): void
     {
         $controller = $this->controller();
         $fallbackOnly = $this->invokeNonPublic($controller, 'extractCtripPayloadSelfHotelIds', [[
@@ -557,6 +557,22 @@ trait CtripTestCases
         sort($observedIds);
         self::assertSame(['24588', '99999'], $observedIds);
 
+        $standardOwnership = $this->invokeNonPublic($controller, 'extractCtripPayloadSelfHotelIds', [[
+            'standard_rows' => [[
+                'hotel_id' => '880058',
+                'compare_type' => 'self',
+                'raw_data' => ['hotel_id_source_key' => 'hotelId'],
+            ], [
+                'hotel_id' => '990099',
+                'compare_type' => 'competitor',
+                'raw_data' => ['hotel_id_source_key' => 'hotelId'],
+            ]],
+            'catalog_facts' => [
+                ['metric_key' => 'hotel_id', 'source_key' => 'hotelId', 'value' => '880058'],
+                ['metric_key' => 'hotel_id', 'source_key' => 'hotelId', 'value' => '990099'],
+            ],
+        ]]);
+        self::assertSame(['880058'], array_map('strval', $standardOwnership));
     }
 
     public function testCtripCaptureCatalogHealthSummarizesCatalogAndFailedAudit(): void

@@ -257,7 +257,7 @@ final class RevenueFactLayerService
             $crossSource
         );
 
-        return [
+        $result = [
             'contract_version' => self::CONTRACT_VERSION,
             'status' => $revenueAnalysisStatus,
             'revenue_analysis_status' => $revenueAnalysisStatus,
@@ -309,6 +309,10 @@ final class RevenueFactLayerService
                 'ota_lead_price_may_be_used_as_floor_price' => false,
             ],
         ];
+        $result['analysis_diagnostics'] =
+            (new RevenueAnalysisDiagnosticsService())->build($result);
+
+        return $result;
     }
 
     /** @return array<string,mixed> */
@@ -1134,6 +1138,10 @@ final class RevenueFactLayerService
                 'ota_data_may_represent_whole_hotel_revenue' => false,
             ],
         ];
+        $result['analysis_diagnostics'] =
+            (new RevenueAnalysisDiagnosticsService())->build($result);
+
+        return $result;
     }
 
     /** @return array<string,string> */

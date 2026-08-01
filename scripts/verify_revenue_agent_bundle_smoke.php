@@ -78,8 +78,33 @@ if ($missing !== []) {
     throw new RuntimeException('Revenue Agent bundle is missing sections: ' . implode(', ', $missing));
 }
 if ((int)($data['query_scope']['hotel_id'] ?? 0) !== $hotelId
-    || (string)($data['query_scope']['metric_scope'] ?? '') !== 'ota_channel') {
-    throw new RuntimeException('Revenue Agent bundle query scope does not match the requested OTA hotel scope.');
+    || (string)($data['query_scope']['metric_scope'] ?? '') !== 'three_source_layered') {
+    throw new RuntimeException('Revenue Agent bundle query scope does not match the requested three-source hotel scope.');
+}
+$analysisFactLayer = is_array($data['analysis']['fact_layer'] ?? null)
+    ? $data['analysis']['fact_layer']
+    : [];
+$diagnostics = is_array($analysisFactLayer['analysis_diagnostics'] ?? null)
+    ? $analysisFactLayer['analysis_diagnostics']
+    : [];
+if ((string)($diagnostics['contract_version'] ?? '')
+        !== \app\service\RevenueAnalysisDiagnosticsService::CONTRACT_VERSION
+    || (int)($diagnostics['scope']['system_hotel_id'] ?? 0) !== $hotelId
+    || ($diagnostics['methodology']['external_connector_used'] ?? null) !== false
+    || !is_array($diagnostics['checks'] ?? null)
+    || !is_array($diagnostics['metric_diagnostics'] ?? null)
+    || !is_array($diagnostics['issues'] ?? null)
+) {
+    throw new RuntimeException('Revenue Agent bundle diagnostics contract is missing or out of scope.');
+}
+$overviewDiagnostics = $data['overview']['three_source_fact_layer']['analysis_diagnostics'] ?? null;
+if (!is_array($overviewDiagnostics)
+    || (string)($overviewDiagnostics['contract_version'] ?? '')
+        !== (string)$diagnostics['contract_version']
+    || (string)($overviewDiagnostics['overall_assessment'] ?? '')
+        !== (string)($diagnostics['overall_assessment'] ?? '')
+) {
+    throw new RuntimeException('Revenue Agent overview and analysis diagnostics are not aligned.');
 }
 
 echo json_encode([
@@ -91,4 +116,9 @@ echo json_encode([
     'room_type_rows' => count((array)($data['room_types']['list'] ?? [])),
     'price_suggestion_rows' => count((array)($data['price_suggestions']['list'] ?? [])),
     'metric_scope' => $data['query_scope']['metric_scope'],
+    'diagnostic_assessment' => $diagnostics['overall_assessment'] ?? 'unknown',
+    'diagnostic_verified_sources' => (int)(
+        $diagnostics['evidence_summary']['readback_verified_source_count'] ?? 0
+    ),
+    'diagnostic_issue_count' => count((array)($diagnostics['issues'] ?? [])),
 ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . PHP_EOL;
