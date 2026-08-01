@@ -1,0 +1,4 @@
+interface:
+  display_name: "酒店与房型命名优化"
+  short_description: "根据真实定位、房型事实与截图优化酒店门店和房型名称"
+  default_prompt: "使用 $suxi-hotel-naming，根据已确认事实为酒店或房型生成清晰、可转化且可核验的名称。"

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "skill": "suxi-hotel-naming",
+  "cases": [
+    {"id": "p1", "input": "给这个酒店起个名字", "should_trigger": true, "reason": "酒店命名"},
+    {"id": "p2", "input": "把这几个房型名改得更好卖", "should_trigger": true, "reason": "房型名优化"},
+    {"id": "p3", "input": "看截图帮我优化门店和房型名称", "should_trigger": true, "reason": "截图命名优化"},
+    {"id": "p4", "input": "给我几个类似云栖观山大床房的名字", "should_trigger": true, "reason": "相似名称生成"},
+    {"id": "p5", "input": "这个门店名字你给他梳理一下", "should_trigger": true, "reason": "口语化门店改名"},
+    {"id": "n1", "input": "分析酒店名称字段缺失原因", "should_trigger": false, "reason": "数据诊断而非命名"},
+    {"id": "n2", "input": "修改登录页标题样式", "should_trigger": false, "reason": "前端样式"},
+    {"id": "n3", "input": "导入昨天携程订单", "should_trigger": false, "reason": "订单导入"},
+    {"id": "n4", "input": "统计不同房型转化率", "should_trigger": false, "reason": "指标分析"},
+    {"id": "n5", "input": "给酒店员工写欢迎语", "should_trigger": false, "reason": "文案但非命名"}
+  ]
+}

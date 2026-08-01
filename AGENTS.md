@@ -526,7 +526,7 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 ## Codex Skill 使用与安装规则
 
 1. 先直接理解用户目标和当前代码，只在 Skill 能明显提高正确性或交付效率时加载，不在每轮开始枚举、串联或互相路由全部 Skill。
-2. 自动调用白名单仅包括：`suxi-voice-intent`（保守语音理解）、`suxi-capability-absorption`（外部能力学习、复刻与功能接入）、`suxi-dashboard-ui`（宿析OS UI）、`suxi-test-guard`（明确的缺陷修复）、`scrapling`（授权抓取/解析），以及与当前 OTA 业务对象精确匹配的事实边界 Skill。
+2. 自动调用白名单仅包括：`suxi-voice-intent`（保守语音理解）、`suxi-capability-absorption`（外部能力学习、复刻与功能接入）、`suxi-hotel-naming`（酒店、门店、民宿与房型命名及截图优化）、`suxi-dashboard-ui`（宿析OS UI）、`suxi-test-guard`（明确的缺陷修复）、`scrapling`（授权抓取/解析），以及与当前 OTA 业务对象精确匹配的事实边界 Skill。
 3. 用户提供 Skill/Prompt、源码/SDK、API/MCP、网站/应用/截图/录屏、SQL/数据文件、SOP/PRD、日志/测试/用户反馈、版本差异或成品样例，并要求学习、复刻、吸收、融入或做成可用功能时，自动使用 `.agents/skills/suxi-capability-absorption`。除非用户明确要求只学习或只评估，不得以摘要、方案、能力卡、配置导入或安装 Skill 代替最小可验证功能闭环。
 4. 用户主动发送给当前任务的材料默认包含学习价值；AI负责结合当前语境、宿析OS现有入口和产品链识别一个最高价值点，不反问用户“有什么可学”或要求先列借鉴清单。仅当多个同等合理方向会接入不同业务模块、改变数据口径或写入范围时，才问一个决定性问题。
 5. 从互联网发现或下载的Skill、Prompt、脚本或插件默认不受信任。安装或执行前必须预览完整文件树和脚本，记录来源URL、版本/提交、许可、兼容性、依赖与工具权限，检查同名遮蔽；不得自动继承shell/bash预授权。静态扫描通过不等于安全或功能完成。

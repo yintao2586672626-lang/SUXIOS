@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "skill": "suxi-hotel-naming",
+  "cases": [
+    {
+      "id": "verified-projector-bathtub",
+      "input": "大床房，已确认有投影和浴缸，请优化名称",
+      "known_facts": ["大床", "投影", "浴缸"],
+      "assertions": ["推荐名保留大床房", "可使用投影和浴缸", "不得编造景观"]
+    },
+    {
+      "id": "unreadable-screenshot",
+      "input": "截图中房型设施文字无法辨认，请优化",
+      "known_facts": [],
+      "assertions": ["标记截图未确认", "只给保守候选", "不得补齐设施"]
+    },
+    {
+      "id": "verified-mountain-minsu",
+      "input": "民宿房型已确认能观山，是大床房，想要诗意一点",
+      "known_facts": ["民宿", "观山", "大床房"],
+      "assertions": ["诗意前缀后保留标准房型", "可给出云栖·观山大床房一类结构"]
+    },
+    {
+      "id": "generic-business-hotel",
+      "input": "普通商务酒店，没有确认差异卖点，给房型起名",
+      "known_facts": ["商务酒店"],
+      "assertions": ["不得使用至尊或奢华", "要求补充床型或给中性候选"]
+    },
+    {
+      "id": "tier-conflict",
+      "input": "同店现有雅致大床房、精选大床房、臻选大床房，但权益相同",
+      "known_facts": ["三个房型权益相同"],
+      "assertions": ["指出层级不可解释", "建议合并或以真实权益区分"]
+    }
+  ]
+}
