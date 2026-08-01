@@ -98,7 +98,10 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertSame(1, $command->run($input, $output));
         self::assertStringContainsString('daily-only and realtime-only cannot be used together.', $output->fetch());
 
-        $input = new Input(['--hotel-id=80', '--target-date=2026-07-24', '--realtime-only']);
+        $validHistoricalDate = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->modify('-1 day')
+            ->format('Y-m-d');
+        $input = new Input(['--hotel-id=80', '--target-date=' . $validHistoricalDate, '--realtime-only']);
         $input->setInteractive(false);
         $output = new Output('buffer');
         self::assertSame(1, $command->run($input, $output));
