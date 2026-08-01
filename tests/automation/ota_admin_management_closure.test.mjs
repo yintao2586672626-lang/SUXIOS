@@ -88,7 +88,8 @@ test('Ctrip config panel removes unrelated snapshots and keeps Cookie help reada
   assert.doesNotMatch(ctripForm, /<a[^>]+defaultCtripLoginUrl[^>]*>打开携程 eBooking<\/a>/);
   assert.doesNotMatch(ctripForm, /只粘贴 Request Headers 中的 Cookie 值，不要填写账号密码、验证码或整段请求头/);
   assert.match(ctripForm, /示例：厦门锦江之星 · 门店编码 9436。门店由“门店管理”创建/);
-  assert.match(ctripForm, /示例：707666。登录携程 eBooking 后/);
+  assert.match(ctripForm, /自动识别失败时手动补充 hotelId/);
+  assert.match(ctripForm, /placeholder="选填，请勿填写 nodeId"/);
   assert.doesNotMatch(ctripForm, /3 步获取临时 Cookie/);
   assert.match(ctripForm, /grid grid-cols-1 md:grid-cols-2 gap-4/);
   assert.match(ctripForm, /本店物理客房数/);
