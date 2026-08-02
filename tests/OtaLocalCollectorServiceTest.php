@@ -380,6 +380,186 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame('local_account_profile', $importedRows[0]['source_method']);
     }
 
+    public function testOneHotelCanBeUnboundWithoutChangingOtherHotelOrHistoricalFacts(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $actor = $this->actor();
+        $paired = $service->pairDevice([
+            'pair_code' => $service->createPairCode($actor, ['device_name' => 'Unbind PC'])['pair_code'],
+            'device_name' => 'Unbind PC',
+            'device_platform' => 'windows',
+        ]);
+        $account = $service->createAccount($actor, [
+            'device_id' => $paired['device_id'],
+            'platform' => 'ctrip',
+            'account_alias' => 'Unbind one hotel account',
+            'system_hotel_id' => 101,
+            'platform_hotel_id' => 'CTRIP-UNBIND-101',
+        ]);
+        $secondMapping = $service->bindHotel($actor, $account['account_id'], [
+            'system_hotel_id' => 102,
+            'platform_hotel_id' => 'CTRIP-UNBIND-102',
+        ]);
+        Db::name('ota_local_collector_accounts')->where('id', $account['account_id'])->update([
+            'status' => 'active',
+            'session_status' => 'current_session_verified',
+        ]);
+        $targetMapping = Db::name('ota_local_collector_account_hotels')
+            ->where('account_id', $account['account_id'])
+            ->where('system_hotel_id', 101)
+            ->find();
+        $sourceId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 12,
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'local_collector',
+            'status' => 'success',
+            'enabled' => 1,
+            'config_json' => '{"platform_hotel_id":"CTRIP-UNBIND-101"}',
+            'last_sync_time' => '2026-07-24 09:00:00',
+            'last_sync_status' => 'success',
+            'last_error' => null,
+        ]);
+        Db::name('ota_local_collector_account_hotels')->where('id', (int)$targetMapping['id'])->update([
+            'data_source_id' => $sourceId,
+        ]);
+        Db::name('online_daily_data')->insert([
+            'system_hotel_id' => 101,
+            'data_source_id' => $sourceId,
+            'data_date' => '2026-07-23',
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'data_period' => 'yesterday',
+            'readback_verified' => 1,
+            'validation_status' => 'normal',
+            'amount' => 600,
+        ]);
+
+        $targetCollect = $service->createTask($actor, [
+            'account_id' => $account['account_id'],
+            'system_hotel_id' => 101,
+            'task_type' => 'collect',
+            'data_date' => '2026-07-23',
+        ]);
+        $targetBackfill = $service->createTask($actor, [
+            'account_id' => $account['account_id'],
+            'system_hotel_id' => 101,
+            'task_type' => 'backfill',
+            'data_date' => '2026-07-22',
+            'missing_field_keys' => ['traffic.list_exposure'],
+        ]);
+        $otherCollect = $service->createTask($actor, [
+            'account_id' => $account['account_id'],
+            'system_hotel_id' => 102,
+            'task_type' => 'collect',
+            'data_date' => '2026-07-23',
+        ]);
+        $targetLogin = $service->createTask($actor, [
+            'account_id' => $account['account_id'],
+            'system_hotel_id' => 101,
+            'task_type' => 'login',
+        ]);
+
+        $result = $service->unbindHotel($actor, (int)$account['account_id'], 101);
+
+        self::assertSame('unbound', $result['status']);
+        self::assertTrue($result['readback_verified']);
+        self::assertFalse($result['already_unbound']);
+        self::assertSame('unbound', $result['mapping_status']);
+        self::assertSame(3, $result['cancelled_task_count']);
+        self::assertSame($sourceId, $result['data_source_id']);
+        self::assertSame('disabled', $result['data_source_status']);
+        self::assertSame(1, $result['remaining_active_hotel_count']);
+        self::assertSame('cancelled', Db::name('ota_local_collector_tasks')
+            ->where('id', (int)$targetCollect['task']['id'])->value('status'));
+        self::assertSame('cancelled', Db::name('ota_local_collector_tasks')
+            ->where('id', (int)$targetBackfill['task']['id'])->value('status'));
+        self::assertSame('queued', Db::name('ota_local_collector_tasks')
+            ->where('id', (int)$otherCollect['task']['id'])->value('status'));
+        self::assertSame('cancelled', Db::name('ota_local_collector_tasks')
+            ->where('id', (int)$targetLogin['task']['id'])->value('status'));
+        self::assertSame('active', Db::name('ota_local_collector_account_hotels')
+            ->where('id', (int)$secondMapping['mapping_id'])->value('status'));
+        self::assertSame(0, (int)Db::name('platform_data_sources')->where('id', $sourceId)->value('enabled'));
+        self::assertSame('disabled', Db::name('platform_data_sources')->where('id', $sourceId)->value('status'));
+        self::assertSame('2026-07-24 09:00:00', Db::name('platform_data_sources')->where('id', $sourceId)->value('last_sync_time'));
+        self::assertSame(1, (int)Db::name('online_daily_data')->where('data_source_id', $sourceId)->count());
+
+        $status = $service->status($actor);
+        self::assertCount(1, $status['accounts'][0]['hotels']);
+        self::assertSame(102, (int)$status['accounts'][0]['hotels'][0]['system_hotel_id']);
+        $next = $service->nextTask($paired['device_public_id'], $paired['device_token']);
+        self::assertSame('leased', $next['status']);
+        self::assertSame(102, (int)$next['task']['system_hotel_id']);
+
+        $retry = $service->unbindHotel($actor, (int)$account['account_id'], 101);
+        self::assertSame('unbound', $retry['status']);
+        self::assertTrue($retry['already_unbound']);
+        self::assertSame(0, $retry['cancelled_task_count']);
+        self::assertSame((int)$targetMapping['id'], $retry['mapping_id']);
+        self::assertSame(2, (int)Db::name('ota_local_collector_account_hotels')->count());
+
+        $rebound = $service->bindHotel($actor, (int)$account['account_id'], [
+            'system_hotel_id' => 101,
+            'platform_hotel_id' => 'CTRIP-UNBIND-101',
+        ]);
+        self::assertSame((int)$targetMapping['id'], $rebound['mapping_id']);
+        self::assertSame('active', Db::name('ota_local_collector_account_hotels')
+            ->where('id', (int)$targetMapping['id'])->value('status'));
+        self::assertCount(2, $service->status($actor)['accounts'][0]['hotels']);
+    }
+
+    public function testHotelUnbindRequiresCurrentHotelPermissionAndAccountOwnership(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $actor = $this->actor();
+        $paired = $service->pairDevice([
+            'pair_code' => $service->createPairCode($actor, ['device_name' => 'Unbind scope PC'])['pair_code'],
+            'device_platform' => 'windows',
+        ]);
+        $account = $service->createAccount($actor, [
+            'device_id' => $paired['device_id'],
+            'platform' => 'meituan',
+            'account_alias' => 'Unbind scope account',
+            'system_hotel_id' => 101,
+            'platform_hotel_id' => 'MT-UNBIND-101',
+        ]);
+
+        try {
+            $service->unbindHotel($this->actorWithHotels([102]), (int)$account['account_id'], 101);
+            self::fail('actor without current hotel permission unexpectedly unbound mapping');
+        } catch (RuntimeException $exception) {
+            self::assertSame(403, $exception->getCode());
+        }
+        self::assertSame('active', Db::name('ota_local_collector_account_hotels')
+            ->where('account_id', $account['account_id'])->value('status'));
+
+        $otherOwner = new class {
+            public int $id = 8;
+            public int $tenant_id = 12;
+
+            public function getPermittedHotelIds(): array
+            {
+                return [101, 102];
+            }
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+        };
+        try {
+            $service->unbindHotel($otherOwner, (int)$account['account_id'], 101);
+            self::fail('another account owner unexpectedly unbound mapping');
+        } catch (RuntimeException $exception) {
+            self::assertSame(404, $exception->getCode());
+        }
+        self::assertSame('active', Db::name('ota_local_collector_account_hotels')
+            ->where('account_id', $account['account_id'])->value('status'));
+    }
+
     public function testRevokedAccountCanBeRestoredOnANewOwnedDeviceWithoutDuplicatingMappings(): void
     {
         $service = new OtaLocalCollectorService();

@@ -387,9 +387,143 @@ final class Tc200ImportAtomicityL8Test extends TestCase
         foreach ($stored as $row) {
             self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string)$row['persistence_identity_hash']);
             self::assertStringNotContainsString('TC200-ORDER-', (string)$row['raw_data']);
+            self::assertSame('unverified', $row['validation_status'] ?? null);
+            self::assertContains(
+                'manual_import_provenance_unverified',
+                json_decode((string)($row['validation_flags'] ?? '[]'), true)
+            );
         }
         self::assertSame($userCountBefore, (int)Db::name('users')->count());
         self::assertSame($hotelCountBefore, (int)Db::name('hotels')->count());
+    }
+
+    public function testExecutableOtaSourceSelectionUsesDedicatedUnverifiedManualSource(): void
+    {
+        $cases = [
+            [
+                'platform' => 'ctrip',
+                'method' => 'browser_profile',
+                'platform_hotel_id' => 'CTRIP-TC200-200',
+                'row_identifier_key' => 'hotel_id',
+                'trace_id' => 'tc200-browser-source-manual-import',
+            ],
+            [
+                'platform' => 'meituan',
+                'method' => 'api',
+                'platform_hotel_id' => 'MT-TC200-200',
+                'row_identifier_key' => 'poi_id',
+                'trace_id' => 'tc200-api-source-manual-import',
+            ],
+        ];
+
+        foreach ($cases as $case) {
+            $sourceId = $this->createExecutableOtaSource(
+                $case['platform'],
+                $case['method'],
+                $case['platform_hotel_id']
+            );
+            $manualAdapter = new Tc200ManualImportAdapter('success');
+            $executableAdapter = new Tc200ExecutableSourceTrapAdapter();
+            $service = $this->service($manualAdapter, [$executableAdapter]);
+            $sourceBefore = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+            $sourceCountBefore = (int)Db::name('platform_data_sources')->count();
+            $payload = [
+                'data_source_id' => $sourceId,
+                'rows' => [[
+                    $case['row_identifier_key'] => $case['platform_hotel_id'],
+                    'data_date' => self::FRESH_DATA_DATE,
+                    'amount' => 888.5,
+                    'quantity' => 8,
+                    'book_order_num' => 3,
+                    'dimension' => $case['method'] . '-manual-import',
+                    'source_trace_id' => $case['trace_id'],
+                ]],
+            ];
+
+            $first = $service->importRows($this->authorizedUser(), $payload);
+            $effectiveSourceId = (int)($first['effective_import_source_id'] ?? 0);
+
+            self::assertSame('success', $first['status'] ?? null);
+            self::assertSame($sourceId, (int)($first['selected_data_source_id'] ?? 0));
+            self::assertNotSame($sourceId, $effectiveSourceId);
+            self::assertSame($effectiveSourceId, (int)($first['data_source_id'] ?? 0));
+            self::assertSame('user_provided_unverified', $first['import_provenance_status'] ?? null);
+            self::assertSame(0, (int)($first['analysis_eligible_count'] ?? -1));
+            self::assertTrue(($first['readback_verified'] ?? false) === true);
+            self::assertSame(1, (int)($first['readback_count'] ?? 0));
+            self::assertSame(1, $manualAdapter->calls);
+            self::assertSame(0, $executableAdapter->calls);
+            self::assertSame($sourceCountBefore + 1, (int)Db::name('platform_data_sources')->count());
+
+            $manualSource = Db::name('platform_data_sources')->where('id', $effectiveSourceId)->find();
+            self::assertSame(self::TENANT_ID, (int)($manualSource['tenant_id'] ?? 0));
+            self::assertSame(self::SYSTEM_HOTEL_ID, (int)($manualSource['system_hotel_id'] ?? 0));
+            self::assertSame($case['platform'], $manualSource['platform'] ?? null);
+            self::assertSame('business', $manualSource['data_type'] ?? null);
+            self::assertSame('manual', $manualSource['ingestion_method'] ?? null);
+            self::assertSame('{}', $manualSource['secret_json'] ?? null);
+            self::assertSame([
+                'manual_import_contract' => 'user_provided_unverified.v1',
+                'source_method' => 'manual_import',
+                'platform_hotel_id' => $case['platform_hotel_id'],
+            ], json_decode((string)($manualSource['config_json'] ?? ''), true));
+
+            $sourceAfter = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+            self::assertSame($sourceBefore, $sourceAfter, $case['method'] . ' source state/config changed');
+
+            $stored = Db::name('online_daily_data')
+                ->where('data_source_id', $effectiveSourceId)
+                ->where('source_trace_id', $case['trace_id'])
+                ->find();
+            self::assertIsArray($stored);
+            self::assertSame('manual', $stored['ingestion_method'] ?? null);
+            self::assertSame('unverified', $stored['validation_status'] ?? null);
+            self::assertContains(
+                'manual_import_provenance_unverified',
+                json_decode((string)($stored['validation_flags'] ?? '[]'), true)
+            );
+            self::assertSame(1, (int)($stored['readback_verified'] ?? 0));
+
+            $retry = $service->importRows($this->authorizedUser(), $payload);
+            self::assertSame('success', $retry['status'] ?? null);
+            self::assertSame($effectiveSourceId, (int)($retry['effective_import_source_id'] ?? 0));
+            self::assertSame($sourceCountBefore + 1, (int)Db::name('platform_data_sources')->count());
+            self::assertSame(2, $manualAdapter->calls);
+            self::assertSame(0, $executableAdapter->calls);
+            self::assertSame(1, (int)Db::name('online_daily_data')
+                ->where('data_source_id', $effectiveSourceId)
+                ->where('source_trace_id', $case['trace_id'])
+                ->count());
+            self::assertSame($sourceBefore, Db::name('platform_data_sources')->where('id', $sourceId)->find());
+        }
+    }
+
+    public function testRestrictedActorCannotCreateDedicatedManualSourceFromExecutableSource(): void
+    {
+        $sourceId = $this->createExecutableOtaSource('ctrip', 'browser_profile', 'CTRIP-TC200-RESTRICTED');
+        $manualAdapter = new Tc200ManualImportAdapter('success');
+        $executableAdapter = new Tc200ExecutableSourceTrapAdapter();
+        $service = $this->service($manualAdapter, [$executableAdapter]);
+        $sourceCountBefore = (int)Db::name('platform_data_sources')->count();
+
+        try {
+            $service->importRows($this->restrictedUser(), [
+                'data_source_id' => $sourceId,
+                'rows' => [[
+                    'hotel_id' => 'CTRIP-TC200-RESTRICTED',
+                    'data_date' => self::FRESH_DATA_DATE,
+                    'amount' => 1,
+                ]],
+            ]);
+            self::fail('restricted actor unexpectedly created/imported a manual source');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(403, $exception->getCode());
+        }
+
+        self::assertSame($sourceCountBefore, (int)Db::name('platform_data_sources')->count());
+        self::assertSame(0, $manualAdapter->calls);
+        self::assertSame(0, $executableAdapter->calls);
+        self::assertSame(0, (int)Db::name('online_daily_data')->count());
     }
 
     /**
@@ -461,6 +595,37 @@ final class Tc200ImportAtomicityL8Test extends TestCase
         ]);
     }
 
+    private function createExecutableOtaSource(string $platform, string $method, string $platformHotelId): int
+    {
+        return (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => self::TENANT_ID,
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+            'user_id' => self::AUTHORIZED_USER_ID,
+            'name' => 'TC-200 executable source ' . $method,
+            'platform' => $platform,
+            'data_type' => 'business',
+            'ingestion_method' => $method,
+            'status' => 'ready',
+            'enabled' => 1,
+            'config_json' => json_encode([
+                'platform_hotel_id' => $platformHotelId,
+                'profile_id' => 'must-not-copy-profile-' . $method,
+                'request_url' => 'https://example.invalid/must-not-run-' . $method,
+                'headers' => ['Authorization' => 'must-not-copy-authorization'],
+                'config_id' => 'must-not-copy-config-' . $method,
+                'credential_status' => 'ready',
+            ], JSON_UNESCAPED_SLASHES),
+            'secret_json' => json_encode(['token' => 'must-not-copy-secret-' . $method]),
+            'last_sync_time' => '2026-07-01 08:00:00',
+            'last_sync_status' => 'success',
+            'last_error' => null,
+            'created_by' => self::AUTHORIZED_USER_ID,
+            'updated_by' => self::AUTHORIZED_USER_ID,
+            'create_time' => '2026-07-01 07:00:00',
+            'update_time' => '2026-07-01 08:00:00',
+        ]);
+    }
+
     /**
      * @param array{actor_scope:string,data_completeness:string,freshness:string,upstream_state:string} $factors
      * @return array<int, array<string, mixed>>
@@ -523,9 +688,10 @@ final class Tc200ImportAtomicityL8Test extends TestCase
         return strtolower($caseId) . '-row-' . sprintf('%03d', $rowNumber);
     }
 
-    private function service(Tc200ManualImportAdapter $adapter): PlatformDataSyncService
+    /** @param array<int, DataSourceAdapter> $additionalAdapters */
+    private function service(Tc200ManualImportAdapter $adapter, array $additionalAdapters = []): PlatformDataSyncService
     {
-        $service = new PlatformDataSyncService([$adapter]);
+        $service = new PlatformDataSyncService(array_merge([$adapter], $additionalAdapters));
         $columns = new \ReflectionProperty($service, 'columns');
         $columns->setAccessible(true);
         $columns->setValue($service, [
@@ -644,5 +810,29 @@ final class Tc200ManualImportAdapter implements DataSourceAdapter
         }
 
         return (new ManualImportDataSourceAdapter())->fetch($source, $options);
+    }
+}
+
+final class Tc200ExecutableSourceTrapAdapter implements DataSourceAdapter
+{
+    public int $calls = 0;
+
+    public function supports(array $source): bool
+    {
+        return in_array(
+            strtolower((string)($source['ingestion_method'] ?? '')),
+            ['browser_profile', 'profile_browser', 'api'],
+            true
+        );
+    }
+
+    public function fetch(array $source, array $options = []): array
+    {
+        $this->calls++;
+        return [
+            'status' => 'success',
+            'message' => 'executable source trap invoked',
+            'payload' => is_array($options['payload'] ?? null) ? $options['payload'] : [],
+        ];
     }
 }

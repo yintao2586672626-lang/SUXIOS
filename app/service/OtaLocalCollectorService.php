@@ -299,6 +299,7 @@ final class OtaLocalCollectorService
             : Db::name('ota_local_collector_account_hotels')
                 ->whereIn('account_id', $accountIds)
                 ->whereIn('system_hotel_id', $actor['hotel_ids'])
+                ->where('status', 'active')
                 ->order('id', 'asc')
                 ->select()
                 ->toArray();
@@ -570,6 +571,142 @@ final class OtaLocalCollectorService
             'account_id' => (int)$account['id'],
             'system_hotel_id' => $hotelId,
             'platform' => (string)$account['platform'],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function unbindHotel(mixed $user, int $accountId, int $hotelId): array
+    {
+        $actor = $this->actorContext($user);
+        $account = $this->ownedAccount($actor, $accountId);
+        $this->assertHotelPermission($actor, $hotelId);
+        $now = date('Y-m-d H:i:s');
+
+        $outcome = Db::transaction(function () use ($actor, $account, $hotelId, $now): array {
+            $mapping = Db::name('ota_local_collector_account_hotels')
+                ->where('tenant_id', $actor['tenant_id'])
+                ->where('account_id', (int)$account['id'])
+                ->where('system_hotel_id', $hotelId)
+                ->where('platform', (string)$account['platform'])
+                ->lock(true)
+                ->find();
+            if (!is_array($mapping)) {
+                throw new RuntimeException('该采集账号尚未绑定目标门店。', 404);
+            }
+
+            $alreadyUnbound = (string)($mapping['status'] ?? '') === 'unbound';
+            if (!$alreadyUnbound) {
+                Db::name('ota_local_collector_account_hotels')
+                    ->where('id', (int)$mapping['id'])
+                    ->where('tenant_id', $actor['tenant_id'])
+                    ->where('account_id', (int)$account['id'])
+                    ->update([
+                        'status' => 'unbound',
+                        'update_time' => $now,
+                    ]);
+            }
+
+            $cancelledTaskCount = (int)Db::name('ota_local_collector_tasks')
+                ->where('tenant_id', $actor['tenant_id'])
+                ->where('user_id', $actor['user_id'])
+                ->where('account_id', (int)$account['id'])
+                ->where('system_hotel_id', $hotelId)
+                ->whereIn('status', self::ACTIVE_TASK_STATUSES)
+                ->whereNull('finished_at')
+                ->update([
+                    'status' => 'cancelled',
+                    'error_code' => 'hotel_unbound',
+                    'error_summary' => '门店已从本机采集账号解绑，绑定到该门店的未完成任务已取消。',
+                    'finished_at' => $now,
+                    'update_time' => $now,
+                ]);
+
+            $dataSourceId = (int)($mapping['data_source_id'] ?? 0);
+            $dataSourceStatus = 'not_linked';
+            if ($dataSourceId > 0) {
+                $source = Db::name('platform_data_sources')
+                    ->where('id', $dataSourceId)
+                    ->where('tenant_id', $actor['tenant_id'])
+                    ->where('system_hotel_id', $hotelId)
+                    ->where('platform', (string)$account['platform'])
+                    ->where('ingestion_method', 'local_collector')
+                    ->lock(true)
+                    ->find();
+                if (!is_array($source)) {
+                    $dataSourceStatus = 'scope_mismatch';
+                } else {
+                    Db::name('platform_data_sources')
+                        ->where('id', $dataSourceId)
+                        ->where('tenant_id', $actor['tenant_id'])
+                        ->where('system_hotel_id', $hotelId)
+                        ->where('platform', (string)$account['platform'])
+                        ->where('ingestion_method', 'local_collector')
+                        ->update([
+                            'enabled' => 0,
+                            'status' => 'disabled',
+                            'last_sync_status' => 'disabled',
+                            'last_error' => 'local_collector_hotel_unbound',
+                        ]);
+                    $dataSourceStatus = 'disabled';
+                }
+            }
+
+            return [
+                'mapping_id' => (int)$mapping['id'],
+                'already_unbound' => $alreadyUnbound,
+                'cancelled_task_count' => $cancelledTaskCount,
+                'data_source_id' => $dataSourceId,
+                'data_source_status' => $dataSourceStatus,
+            ];
+        });
+
+        $mappingStatus = (string)Db::name('ota_local_collector_account_hotels')
+            ->where('id', (int)$outcome['mapping_id'])
+            ->where('tenant_id', $actor['tenant_id'])
+            ->where('account_id', (int)$account['id'])
+            ->where('system_hotel_id', $hotelId)
+            ->value('status');
+        $remainingActiveHotelCount = (int)Db::name('ota_local_collector_account_hotels')
+            ->where('tenant_id', $actor['tenant_id'])
+            ->where('account_id', (int)$account['id'])
+            ->where('status', 'active')
+            ->count();
+        $remainingActiveTaskCount = (int)Db::name('ota_local_collector_tasks')
+            ->where('tenant_id', $actor['tenant_id'])
+            ->where('user_id', $actor['user_id'])
+            ->where('account_id', (int)$account['id'])
+            ->where('system_hotel_id', $hotelId)
+            ->whereIn('status', self::ACTIVE_TASK_STATUSES)
+            ->whereNull('finished_at')
+            ->count();
+        $dataSourceReadbackVerified = (int)$outcome['data_source_id'] <= 0
+            || ((string)$outcome['data_source_status'] === 'disabled'
+                && (int)Db::name('platform_data_sources')
+                    ->where('id', (int)$outcome['data_source_id'])
+                    ->where('tenant_id', $actor['tenant_id'])
+                    ->where('system_hotel_id', $hotelId)
+                    ->where('platform', (string)$account['platform'])
+                    ->where('ingestion_method', 'local_collector')
+                    ->where('enabled', 0)
+                    ->where('status', 'disabled')
+                    ->count() === 1);
+        $readbackVerified = $mappingStatus === 'unbound'
+            && $remainingActiveTaskCount === 0
+            && $dataSourceReadbackVerified;
+
+        return [
+            'status' => $readbackVerified ? 'unbound' : 'unbound_with_warning',
+            'mapping_id' => (int)$outcome['mapping_id'],
+            'mapping_status' => $mappingStatus,
+            'account_id' => (int)$account['id'],
+            'system_hotel_id' => $hotelId,
+            'platform' => (string)$account['platform'],
+            'already_unbound' => (bool)$outcome['already_unbound'],
+            'cancelled_task_count' => (int)$outcome['cancelled_task_count'],
+            'data_source_id' => (int)$outcome['data_source_id'],
+            'data_source_status' => (string)$outcome['data_source_status'],
+            'remaining_active_hotel_count' => $remainingActiveHotelCount,
+            'readback_verified' => $readbackVerified,
         ];
     }
 

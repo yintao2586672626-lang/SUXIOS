@@ -219,7 +219,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertTrue($allowed['allowed']);
     }
 
-    public function testBasicReadPathsStayOutsideProtectedCore(): void
+    public function testOnlineHistoryReadPathsRequireOnlineDataViewPermission(): void
     {
         $service = new ProtectedCapabilityService();
 
@@ -228,7 +228,27 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertNull($service->classifyPath('GET', '/api/online-data/daily-data-list?hotel_id=7'));
         self::assertNull($service->classifyPath('GET', '/api/online-data/daily-data-summary?hotel_id=7'));
         self::assertNull($service->classifyPath('GET', '/api/online-data/data-sources?hotel_id=7'));
-        self::assertNull($service->classifyPath('GET', '/api/online-data/history?hotel_id=7'));
+
+        foreach ([
+            '/api/online-data/history?hotel_id=7',
+            '/api/online-data/ctrip/history?hotel_id=7',
+            '/api/online-data/history/9',
+        ] as $path) {
+            $capability = $service->classifyPath('GET', $path);
+            self::assertIsArray($capability, $path);
+            self::assertSame('online_data_history', $capability['key'], $path);
+            self::assertSame('can_view_online_data', $capability['permission'], $path);
+            self::assertTrue($service->authorizeContext(
+                $this->userWithPermissions(['can_view_online_data']),
+                $capability,
+                ['system_hotel_id' => 7]
+            )['allowed'], $path);
+            self::assertFalse($service->authorizeContext(
+                $this->userWithPermissions(['can_view_diagnostics']),
+                $capability,
+                ['system_hotel_id' => 7]
+            )['allowed'], $path);
+        }
     }
 
     public function testOtaConfigReadPathsStayScopedByControllerPermissions(): void
@@ -259,7 +279,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
 
         $historyDetail = $service->classifyPath('GET', '/api/online-data/history/9');
         self::assertIsArray($historyDetail);
-        self::assertSame('collection_health', $historyDetail['key']);
+        self::assertSame('online_data_history', $historyDetail['key']);
     }
 
     public function testOtaCollectPathRequiresCollectPermissionNotReadOnlyPermission(): void

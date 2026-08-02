@@ -484,7 +484,7 @@ trait AgentOtaDiagnosisPersistenceConcern
             return str_starts_with($status, 'blocked_') || ($item['execution_ready'] ?? true) === false;
         }));
         $dataGaps = $this->normalizeOtaDiagnosisDataGaps($result['data_gaps'] ?? []);
-        $blockingDataGaps = $this->blockingOtaDiagnosisDataGaps($dataGaps);
+        $blockingDataGaps = $this->blockingOtaDiagnosisDataGaps($dataGaps, $result);
         $blockingGapCodes = array_values(array_filter(array_map(
             static fn(array $gap): string => trim((string)($gap['code'] ?? '')),
             $blockingDataGaps
@@ -868,7 +868,7 @@ trait AgentOtaDiagnosisPersistenceConcern
                 'end_date' => $endDate,
                 'analysis_type' => $analysisType,
             ],
-            'record_count' => count($rows),
+            'record_count' => 0,
             'date_count' => 0,
             'hotel_names' => [],
             'totals' => [
@@ -971,6 +971,7 @@ trait AgentOtaDiagnosisPersistenceConcern
                 $summary['excluded_non_operating_rows'] = (int)($summary['excluded_non_operating_rows'] ?? 0) + 1;
                 continue;
             }
+            $summary['record_count']++;
 
             if (!isset($summary['daily'][$date])) {
                 $summary['daily'][$date] = [

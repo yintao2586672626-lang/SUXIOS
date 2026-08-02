@@ -757,25 +757,41 @@ final class OperationExecutionLoopTest extends TestCase
             'executed_at' => '2026-05-27 11:00:00',
             'current_value_json' => json_encode(['avg_revenue' => 1000], JSON_UNESCAPED_UNICODE),
             'target_value_json' => json_encode(['budget' => 200], JSON_UNESCAPED_UNICODE),
-        ]], [[
-            'id' => 41,
-            'task_id' => 31,
-            'evidence_type' => 'source_verified_metric_readback',
-            'before_json' => json_encode(['revenue' => 1000], JSON_UNESCAPED_UNICODE),
-            'after_json' => json_encode(['revenue' => 1300, 'cost' => 200], JSON_UNESCAPED_UNICODE),
-            'platform_response_json' => $this->sourceVerifiedPlatformResponse(
-                7,
-                'meituan',
-                'campaign',
-                '2026-05-27',
-                '2026-05-29',
-                'revenue',
-                'operation_metrics#41'
-            ),
-            'remark' => 'updated in OTA backend',
-            'created_by' => 0,
-            'created_at' => '2026-05-27 11:10:00',
-        ]]);
+        ]], [
+            [
+                'id' => 40,
+                'task_id' => 31,
+                'evidence_type' => 'manual_operation_execution',
+                'before_json' => '{}',
+                'after_json' => '{}',
+                'platform_response_json' => json_encode([
+                    'mode' => 'manual_operation_execution',
+                    'completed_action' => 'Promotion was manually applied by the assigned operator.',
+                ], JSON_UNESCAPED_UNICODE),
+                'remark' => 'operator execution receipt',
+                'created_by' => 9,
+                'created_at' => '2026-05-27 11:05:00',
+            ],
+            [
+                'id' => 41,
+                'task_id' => 31,
+                'evidence_type' => 'source_verified_metric_readback',
+                'before_json' => json_encode(['revenue' => 1000], JSON_UNESCAPED_UNICODE),
+                'after_json' => json_encode(['revenue' => 1300, 'cost' => 200], JSON_UNESCAPED_UNICODE),
+                'platform_response_json' => $this->sourceVerifiedPlatformResponse(
+                    7,
+                    'meituan',
+                    'campaign',
+                    '2026-05-27',
+                    '2026-05-29',
+                    'revenue',
+                    'operation_metrics#41'
+                ),
+                'remark' => 'updated in OTA backend',
+                'created_by' => 0,
+                'created_at' => '2026-05-27 11:10:00',
+            ],
+        ]);
 
         self::assertSame('reviewed', $item['stage']);
         self::assertSame('strategy_simulation#22', $item['recommendation']['source']);
@@ -785,10 +801,19 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame(9, $item['assignment']['assignee_id']);
         self::assertSame('2026-05-27 18:00:00', $item['assignment']['due_at']);
         self::assertSame('2026-05-28 10:00:00', $item['assignment']['review_at']);
-        self::assertSame(1, $item['evidence']['count']);
+        self::assertSame(2, $item['evidence']['count']);
         self::assertSame('success', $item['review']['status']);
-        self::assertSame(1, $item['evidence_summary']['count']);
-        self::assertSame(['source_verified_metric_readback'], $item['evidence_summary']['types']);
+        self::assertSame(2, $item['evidence_summary']['count']);
+        self::assertSame(
+            ['source_verified_metric_readback', 'manual_operation_execution'],
+            $item['evidence_summary']['types']
+        );
+        self::assertSame('candidate', $item['sop_candidate']['status']);
+        self::assertSame('pending_approval', $item['sop_candidate']['approval_status']);
+        self::assertSame(['operation_metrics#41'], $item['sop_candidate']['source']['metric_readback_refs']);
+        self::assertFalse($item['sop_candidate']['review']['causality_claimed']);
+        self::assertFalse($item['sop_candidate']['boundaries']['automatic_publish_enabled']);
+        self::assertFalse($item['sop_candidate']['boundaries']['cross_hotel_replication_allowed']);
         self::assertSame('ready', $item['roi']['status']);
         self::assertSame(50.0, $item['roi']['value']);
         self::assertSame(300.0, $item['roi']['incremental_revenue']);

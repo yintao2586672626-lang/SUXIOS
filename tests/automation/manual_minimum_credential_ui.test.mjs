@@ -10,6 +10,7 @@ const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
 const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
 const otaDiagnosisStatic = readFileSync('public/ota-diagnosis-static.js', 'utf8');
 const onlineDataTemplateFragment = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
+const hotelManagementTemplateFragment = readFileSync('resources/frontend/templates/fragments/18-page-hotels.html', 'utf8');
 const platformAutoSettingsPanels = readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8');
 const ctripProfileFieldConfigPanel = readFileSync('public/components/online-data/ctrip-profile-field-config-panel.js', 'utf8');
 const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisplayConcern.php', 'utf8');
@@ -672,9 +673,9 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.match(loadCtripConfigList, /const force = options\.force === true;/);
   assert.match(loadCtripConfigList, /const requestSession = captureAuthSession\(\);/);
   assert.match(loadCtripConfigList, /!force\s*&& ctripConfigListLoaded\.value/);
-  assert.match(loadCtripConfigList, /if \(!force\) \{\s*return ctripConfigListLoadingPromise;\s*\}/);
-  assert.match(loadCtripConfigList, /await ctripConfigListLoadingPromise\.catch\(\(\) => \[\]\);/);
-  assert.match(loadCtripConfigList, /isAuthSessionCurrent\(requestSession\)\s*\? applyCtripHotelConfig\(false, \{/);
+  assert.match(loadCtripConfigList, /incomingPriorityRank >= ctripConfigListLoadingPriorityRank[\s\S]*return ctripConfigListLoadingPromise;/);
+  assert.doesNotMatch(loadCtripConfigList, /await ctripConfigListLoadingPromise/);
+  assert.match(loadCtripConfigList, /isCurrentRequest\(\)\s*\? applyCtripHotelConfig\(false, \{/);
   assert.match(ctripConfigSaveFlow, /afterSave = async \(\) => \{ reloadConfigs\(\); \}/);
   assert.match(ctripConfigSaveFlow, /await afterSave\(\{ response: res, requestBody \}\);/);
   assert.match(ctripManualTabSwitch, /!\['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-quality', 'ctrip-ads', 'ctrip-config'\]\.includes\(tab\)/);
@@ -3342,7 +3343,22 @@ test('Hotel management starts its first snapshot after the deferred full-render 
     '\n\n            // 酒店操作'
   );
 
-  assert.match(loadData, /if \(currentPage\.value === 'hotels'\) \{[\s\S]*runPageLoadOnce\('hotels', 'main', \(\) => loadHotelManagementSnapshot\(\{[\s\S]*force: false,[\s\S]*deep: false,[\s\S]*showSuccess: false/);
+  assert.match(loadData, /if \(currentPage\.value === 'hotels'\) \{[\s\S]*scheduleHotelManagementRowsReady\(\);[\s\S]*runPageLoadOnce\('hotels', 'main', \(\) => loadHotelManagementSnapshot\(\{[\s\S]*force: false,[\s\S]*deep: false,[\s\S]*showSuccess: false/);
+});
+
+test('Hotel management paints its shell before mounting the heavy hotel rows', () => {
+  assert.match(html, /const hotelManagementRowsReady = ref\(false\);/);
+  assert.match(html, /const hotelRowsVisible = computed\(\(\) => \([\s\S]*hotelManagementSnapshotReady\.value && hotelManagementRowsReady\.value/);
+  assert.match(html, /const HOTEL_MANAGEMENT_ROWS_RENDER_DELAY_MS = 120;/);
+  assert.match(html, /const scheduleHotelManagementRowsReady = \(\) => \{[\s\S]*hotelManagementRowsReady\.value = false;[\s\S]*scheduleDelayedPageTask\(\(\) => \{[\s\S]*currentPage\.value !== 'hotels'[\s\S]*hotelManagementRowsReady\.value = true;[\s\S]*HOTEL_MANAGEMENT_ROWS_RENDER_DELAY_MS/);
+  assert.match(html, /const resetHotelManagementRowsReady = \(\) => \{[\s\S]*clearTimeout\(hotelManagementRowsRenderTimer\);[\s\S]*pageLifecycleTimers\.delete\(hotelManagementRowsRenderTimer\);/);
+  assert.match(html, /if \(newPage === 'hotels'\) \{\s*scheduleHotelManagementRowsReady\(\);\s*\} else \{\s*resetHotelManagementRowsReady\(\);/);
+  assert.match(html, /onMounted\(\(\) => \{[\s\S]*if \(currentPage\.value === 'hotels'\) \{\s*scheduleHotelManagementRowsReady\(\);/);
+  assert.match(hotelManagementTemplateFragment, /<template v-if="hotelRowsVisible">/);
+  assert.match(html, /const hotelWide = ref\(typeof window === 'undefined'[\s\S]*matchMedia\('\(min-width: 1280px\)'\)\.matches/);
+  assert.match(html, /const syncSidebarForViewport = \(\) => \{[\s\S]*hotelWide\.value = typeof window === 'undefined'[\s\S]*matchMedia\('\(min-width: 1280px\)'\)\.matches/);
+  assert.match(hotelManagementTemplateFragment, /<div v-if="hotelWide" class="overflow-x-auto">/);
+  assert.match(hotelManagementTemplateFragment, /<div v-else class="hotel-preview-layout">/);
 });
 
 test('FontAwesome stylesheet does not block the core shell first second', () => {
@@ -3405,7 +3421,8 @@ test('Home lower dashboard panels mount after the first OTA navigation window', 
   assert.match(html, /const homeSecondaryPanelsReady = ref\(false\);/);
   assert.match(html, /const scheduleHomeSecondaryPanelsReady = \(delayMs = HOME_SECONDARY_PANEL_DELAY_MS\) => \{/);
   assert.match(currentPageWatcher, /clearHomeSecondaryPanelsReadyTimer\(\);\s*clearDualOtaSystemMetricDrilldownHydrationTimer\(\);\s*homeSecondaryPanelsReady\.value = false;\s*destroyHomeTrendChart\(\);/);
-  assert.match(currentPageWatcher, /homeSecondaryPanelsReady\.value = false;\s*scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,520}?runPageLoadOnce\([\s\S]*?newPage,[\s\S]*?'main',[\s\S]*?\(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true\s*\}\),[\s\S]*?ttlMs: DASHBOARD_PAGE_CACHE_TTL_MS/);
+  assert.match(currentPageWatcher, /homeSecondaryPanelsReady\.value = false;\s*scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,620}?const requestPolicy = currentCompassReadPolicy\(newPage, 'current'\);/);
+  assert.match(currentPageWatcher, /runPageLoadOnce\([\s\S]*?newPage,[\s\S]*?'main',[\s\S]*?\(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true,\s*requestPolicy\s*\}\),[\s\S]*?ttlMs: DASHBOARD_PAGE_CACHE_TTL_MS,[\s\S]*?requestPolicy/);
   assert.doesNotMatch(currentPageWatcher, /runPageLoadOnce\(newPage, 'auto-fetch-static'/);
   assert.match(html, /v-if="homeSecondaryPanelsReady"[^>]+data-testid="daily-ops-monitor-card"/);
   assert.match(html, /v-if="homeSecondaryPanelsReady"[^>]+data-testid="home-weather-demand-card"/);
@@ -3447,7 +3464,7 @@ test('Public system config refresh does not compete with core OTA switching', ()
   const loadData = sliceFrom('const loadData = async () => {', '\n\n            //');
 
   assert.match(systemConfigLoader, /let systemConfigPublicLoadPromise = null;/);
-  assert.match(systemConfigLoader, /if \(publicOnly && systemConfigPublicLoadPromise\) \{/);
+  assert.match(systemConfigLoader, /if \(publicOnly && systemConfigPublicLoadPromise && !options\.force\) \{/);
   assert.match(systemConfigLoader, /systemConfigPublicLoadedAt && Date\.now\(\) - systemConfigPublicLoadedAt < SYSTEM_CONFIG_PUBLIC_CACHE_TTL_MS/);
   assert.match(html, /const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;/);
   assert.match(systemConfigLoader, /const schedulePublicSystemConfigRefresh = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/);
@@ -3898,7 +3915,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
     force: true,
     loadingPromise: pendingMeituanConfigListPromise,
   });
-  assert.equal(awaitMeituanConfigListAction.status, 'await_previous');
+  assert.equal(awaitMeituanConfigListAction.status, 'supersede');
   assert.equal(awaitMeituanConfigListAction.promise, pendingMeituanConfigListPromise);
   assert.deepEqual(JSON.parse(JSON.stringify(meituanStaticApi.resolveMeituanConfigListLoadingAction())), {
     status: 'idle',
@@ -4278,10 +4295,10 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(loadMeituanConfigList, /return cachedResult\.list;/);
   assert.match(loadMeituanConfigList, /const loadingAction = resolveMeituanConfigListLoadingAction\(\{/);
   assert.match(loadMeituanConfigList, /loadingPromise: meituanConfigListLoadingPromise/);
-  assert.match(loadMeituanConfigList, /if \(loadingAction\.status === 'reuse'\) \{/);
+  assert.match(loadMeituanConfigList, /if \(loadingAction\.status === 'reuse'\s*&&/);
   assert.match(loadMeituanConfigList, /return loadingAction\.promise;/);
-  assert.match(loadMeituanConfigList, /if \(loadingAction\.status === 'await_previous'\) \{/);
-  assert.match(loadMeituanConfigList, /await loadingAction\.promise\.catch\(\(\) => \[\]\);/);
+  assert.match(loadMeituanConfigList, /incomingPriorityRank >= meituanConfigListLoadingPriorityRank[\s\S]*return loadingAction\.promise;/);
+  assert.doesNotMatch(loadMeituanConfigList, /await loadingAction\.promise/);
   assert.doesNotMatch(loadMeituanConfigList, /!force\s*&& meituanConfigListLoaded\.value/);
   assert.doesNotMatch(loadMeituanConfigList, /if \(meituanConfigListLoadingPromise\) \{/);
   assert.match(html, /const meituanConfigListLoading = ref\(false\);/);
@@ -4296,7 +4313,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(loadMeituanConfigList, /const shouldApplySelectedConfig = options\.applySelectedConfig === true;/);
   assert.match(loadMeituanConfigList, /const applyAction = resolveMeituanConfigListApplyAction\(\{/);
   assert.match(loadMeituanConfigList, /if \(applyAction\.shouldApply\) \{/);
-  assert.match(loadMeituanConfigList, /deferUiTask\(\(\) => \(\s*isAuthSessionCurrent\(requestSession\)\s*\? applyMeituanHotelConfig\(false, \{ refreshList: false \}\)\s*: null\s*\), 80\);/);
+  assert.match(loadMeituanConfigList, /deferUiTask\(\(\) => \(\s*isCurrentRequest\(\)\s*\? applyMeituanHotelConfig\(false, \{ refreshList: false \}\)\s*: null\s*\), 80\);/);
   assert.match(loadMeituanConfigList, /const failureAction = buildMeituanConfigListFailureAction\(\{\s*type: 'api',\s*message: configListResult\.message,/);
   assert.match(loadMeituanConfigList, /const failureAction = buildMeituanConfigListFailureAction\(\{\s*type: 'exception',\s*error: e,/);
   assert.match(loadMeituanConfigList, /meituanConfigListLoadFailed\.value = failureAction\.failed;/);
@@ -4554,7 +4571,7 @@ test('Platform source panel staggers secondary sync and log reads', () => {
   assert.doesNotMatch(loadPlatformDataSourcePanel, /deferUiTask\(\(\) => \{\s*if \(!shouldRefreshPlatformDataSourcesPanel\(\)\) return null;\s*return Promise\.allSettled\(\[\s*loadPlatformSyncTasks\(\{/);
 });
 
-test('Online data health tab schedules light refresh outside the switch path', () => {
+test('Online data health tab returns the initial light refresh and schedules later tab refreshes', () => {
   const scheduleOnlineDataTabLoad = sliceFrom(
     'const scheduleOnlineDataTabLoad = (newTab, options = {}) => {',
     '\n            const openOnlineDataTab'
@@ -4610,9 +4627,11 @@ test('Online data health tab schedules light refresh outside the switch path', (
   assert.doesNotMatch(scheduleOnlineDataTabLoad, /return runIfCurrent\(\(\) => loadDataHealthPanel\('light'\)\);/);
   assert.match(
     onlineDataDefaultLoader,
-    /runPageLoadOnce\(newPage, 'main', \(\) => \{\s*scheduleDataHealthPanelRefresh\('light'\);\s*return null;\s*\}\);/
+    /runPageLoadOnce\(newPage, 'main', \(\) => loadDataHealthPanel\('light'\)\);/
   );
-  assert.doesNotMatch(onlineDataDefaultLoader, /runPageLoadOnce\(newPage, 'main', \(\) => loadDataHealthPanel\('light'\)\);/);
+  assert.doesNotMatch(onlineDataDefaultLoader, /runPageLoadOnce\(newPage, 'main', \(\) => \{\s*scheduleDataHealthPanelRefresh\('light'\);\s*return null;\s*\}\);/);
+  assert.doesNotMatch(onlineDataDefaultLoader, /loadOnlineDataHotelList\(/);
+  assert.doesNotMatch(onlineDataDefaultLoader, /loadDataHealthPanel\(\s*['"]full['"]/);
   assert.match(openCtripManualTab, /loadDataHealthPanel:\s*scheduleDataHealthPanelRefresh/);
   assert.match(openCtripManualTab, /tab === 'data-health'[\s\S]*ctripEbookingSecondaryPanelsReady\.value = false;[\s\S]*scheduleCtripEbookingSecondaryPanelsReady\(\);[\s\S]*ctripEbookingDeepPanelsReady\.value = false;[\s\S]*scheduleCtripEbookingDeepPanelsReady\(\);[\s\S]*ctripEbookingBusinessDetailsReady\.value = false;[\s\S]*scheduleCtripEbookingBusinessDetailsReady\(\);[\s\S]*ctripEbookingDiagnosticsPanelsReady\.value = false;/);
   assert.match(openCtripManualTab, /clearCtripEbookingSecondaryPanelsReadyTimer\(\);[\s\S]*ctripEbookingSecondaryPanelsReady\.value = false;[\s\S]*clearCtripEbookingDeepPanelsReadyTimer\(\);[\s\S]*ctripEbookingDeepPanelsReady\.value = false;[\s\S]*clearCtripEbookingBusinessDetailsReadyTimer\(\);[\s\S]*ctripEbookingBusinessDetailsReady\.value = false;[\s\S]*ctripEbookingDiagnosticsPanelsReady\.value = false;/);

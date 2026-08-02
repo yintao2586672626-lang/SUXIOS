@@ -44,6 +44,13 @@ final class LocalCollectorController extends Base
         );
     }
 
+    public function unbindHotel(int $accountId, int $hotelId): Response
+    {
+        return $this->run(
+            fn(): array => $this->service()->unbindHotel($this->currentUser, $accountId, $hotelId)
+        );
+    }
+
     public function createTask(): Response
     {
         return $this->run(

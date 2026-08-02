@@ -42,7 +42,7 @@
                             </div>
                         </div>
 
-                        <template v-if="hotelManagementSnapshotReady">
+                        <template v-if="hotelRowsVisible">
                         <div class="xl:sticky xl:top-2 z-20 bg-white rounded-xl p-3 shadow-sm border border-gray-100 space-y-3">
                             <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
                                 <button type="button" @click="applyHotelQuickFilter('', '')" :aria-pressed="filterHotelAccountHealth === '' &amp;&amp; filterHotelStatus === ''" :class="filterHotelAccountHealth === '' &amp;&amp; filterHotelStatus === '' ? 'border-blue-200 bg-blue-50/70 ring-1 ring-blue-100' : 'border-gray-100 bg-gray-50 hover:bg-gray-100'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
@@ -127,7 +127,7 @@
                                 <div class="text-xs text-gray-500">{{ hotelAccountFilterPresentation.note }}</div>
                             </div>
 
-                            <div class="hidden xl:block overflow-x-auto">
+                            <div v-if="hotelWide" class="overflow-x-auto">
                                 <table class="w-full table-fixed text-sm">
                                     <thead class="sticky top-0 z-10 bg-gray-50 text-xs text-gray-500">
                                         <tr>
@@ -264,7 +264,7 @@
                                 </table>
                             </div>
 
-                            <div class="xl:hidden hotel-preview-layout">
+                            <div v-else class="hotel-preview-layout">
                                 <div v-for="(hotel, hotelIndex) in filteredHotels" :key="`mobile-${hotel.id}`" class="hotel-preview-card">
                                     <div class="hotel-preview-card__header">
                                         <div class="min-w-0">

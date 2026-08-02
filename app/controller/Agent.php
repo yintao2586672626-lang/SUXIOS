@@ -1224,20 +1224,38 @@ class Agent extends Base
         $this->assertRevenueHotelPermission((int)$data['hotel_id']);
         $this->assertRevenueRoomTypeScope((int)$data['hotel_id'], (int)$data['room_type_id']);
         
-        $forecast = DemandForecast::createForecast($data['hotel_id'], $data['forecast_date'], $data);
+        $saveResult = DemandForecast::saveManualForecast($data['hotel_id'], $data['forecast_date'], $data);
+        /** @var DemandForecast $forecast */
+        $forecast = $saveResult['forecast'];
+        $writeAction = (string)$saveResult['write_action'];
+        $readbackVerified = (bool)$saveResult['readback_verified'];
+        if (!$readbackVerified) {
+            return $this->error('人工需求预测已写入，但数据库回读校验失败，请重试', 500);
+        }
         
         // 记录日志
         AgentLog::record(
             $data['hotel_id'],
             AgentLog::AGENT_TYPE_REVENUE,
-            'forecast_create',
-            '人工需求预测输入已保存: ' . $data['forecast_date'],
+            'forecast_' . $writeAction,
+            ($writeAction === 'updated' ? '人工需求预测输入已修正: ' : '人工需求预测输入已保存: ') . $data['forecast_date'],
             AgentLog::LEVEL_INFO,
-            ['forecast_id' => $forecast->id],
+            [
+                'forecast_id' => $forecast->id,
+                'write_action' => $writeAction,
+                'readback_verified' => true,
+            ],
             $this->currentUser->id ?? 0
         );
         
-        return $this->success(['id' => $forecast->id], '人工需求预测输入已保存（未代表模型预测已校准）');
+        return $this->success([
+            'id' => (int)$forecast->id,
+            'write_action' => $writeAction,
+            'readback_verified' => true,
+            'forecast' => $forecast->toArray(),
+        ], $writeAction === 'updated'
+            ? '人工需求预测输入已修正并回读验证（未代表模型预测已校准）'
+            : '人工需求预测输入已保存并回读验证（未代表模型预测已校准）');
     }
 
     /**

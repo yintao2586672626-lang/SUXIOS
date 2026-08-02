@@ -65,7 +65,7 @@ class OperationLog extends BaseTenantModel
         $tenantId = self::resolveTenantId($module, $action, $hotelId, $userId, $extraData);
         $requestContext = self::requestAuditContext($sanitizer);
         $outcome = strtolower(trim((string)($extraData['outcome'] ?? '')));
-        if (!in_array($outcome, ['success', 'failed', 'denied', 'partial'], true)) {
+        if (!in_array($outcome, ['success', 'failed', 'denied', 'partial', 'blocked'], true)) {
             $outcome = $errorInfo !== null && trim($errorInfo) !== '' ? 'failed' : 'success';
         }
         $safeExtraData = $sanitizer->sanitizeArray($extraData, 1000);

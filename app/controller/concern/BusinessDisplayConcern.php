@@ -12,6 +12,21 @@ use think\facade\Db;
 
 trait BusinessDisplayConcern
 {
+    /**
+     * The parser keeps returning an integer for legacy callers. This state
+     * preserves the separate stored, readback, and analysis states for an
+     * honest caller response.
+     *
+     * @var array{stored_count:int,readback_verified_count:int,analysis_eligible_count:int,excluded_count:int,exclusion_reasons:array<string,int>}
+     */
+    private array $lastCtripBusinessPersistenceResult = [
+        'stored_count' => 0,
+        'readback_verified_count' => 0,
+        'analysis_eligible_count' => 0,
+        'excluded_count' => 0,
+        'exclusion_reasons' => [],
+    ];
+
     private function sendMeituanRequest(string $url, array $params, string $cookies, array $authData = []): array
     {
         if (!$this->isAllowedOtaRequestUrl($url, ['meituan.com'])) {
@@ -596,6 +611,13 @@ trait BusinessDisplayConcern
         array $persistenceContext = []
     ): int
     {
+        $this->lastCtripBusinessPersistenceResult = [
+            'stored_count' => 0,
+            'readback_verified_count' => 0,
+            'analysis_eligible_count' => 0,
+            'excluded_count' => 0,
+            'exclusion_reasons' => [],
+        ];
         $dataList = $this->extractCtripBusinessDataList($responseData);
 
         if (empty($dataList)) {
@@ -612,12 +634,18 @@ trait BusinessDisplayConcern
             static fn($item): bool => is_array($item)
                 && CtripCompetitionCirclePersistenceService::hasCompetitionCircleSignature($item)
         ));
-        $savedCount = $this->persistCtripCompetitionCircleRowsFromLegacyParser(
-            $competitionRows,
-            (string)($startDate ?: ($endDate ?: date('Y-m-d'))),
-            $systemHotelId,
-            $persistenceContext
-        );
+        $isManualInput = $this->isCtripManualUnverifiedPersistenceContext($persistenceContext);
+        $savedCount = 0;
+        if ($isManualInput && $competitionRows !== []) {
+            $this->recordCtripBusinessAnalysisExclusion('manual_input_unverified', count($competitionRows));
+        } else {
+            $savedCount = $this->persistCtripCompetitionCircleRowsFromLegacyParser(
+                $competitionRows,
+                (string)($startDate ?: ($endDate ?: date('Y-m-d'))),
+                $systemHotelId,
+                $persistenceContext
+            );
+        }
         $dataDate = $startDate ?: ($endDate ?: date('Y-m-d'));
         $columns = $this->getOnlineDailyDataColumns();
         $now = date('Y-m-d H:i:s');
@@ -677,6 +705,12 @@ trait BusinessDisplayConcern
 
             $exists = $query->find();
 
+            $provenance = $this->buildCtripBusinessPersistenceProvenance(
+                $item,
+                $persistenceContext,
+                (string)$hotelId,
+                $systemHotelId
+            );
             $base = [
                 'hotel_id' => (string)$hotelId,
                 'hotel_name' => $hotelName,
@@ -686,8 +720,11 @@ trait BusinessDisplayConcern
                 'data_type' => 'business',
                 'dimension' => '',
                 'compare_type' => trim((string)($item['compare_type'] ?? $item['compareType'] ?? '')) ?: null,
-                'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
+                'raw_data' => json_encode($provenance['raw_data'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
             ];
+            if (isset($columns['ingestion_method']) && $provenance['ingestion_method'] !== '') {
+                $base['ingestion_method'] = $provenance['ingestion_method'];
+            }
 
             if (isset($columns['update_time'])) {
                 $base['update_time'] = $now;
@@ -699,6 +736,13 @@ trait BusinessDisplayConcern
                 !$exists
             );
             $data = $this->applyOnlineDailyDataValidationFields($data, $columns);
+            if ($provenance['force_unverified']) {
+                $data = $this->markCtripBusinessRowUnverified(
+                    $data,
+                    $columns,
+                    $provenance['analysis_exclusion_reason']
+                );
+            }
             $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
 
             if ($exists) {
@@ -712,16 +756,105 @@ trait BusinessDisplayConcern
                 }
                 $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
+            if ($rowId > 0) {
+                $this->lastCtripBusinessPersistenceResult['stored_count']++;
+            }
             $readbackRow = $rowId > 0
                 ? $this->verifiedCtripBusinessMetricReadback($rowId, $data, array_keys($observedMetrics))
                 : null;
             if (is_array($readbackRow)
                 && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$readbackRow], $columns)) {
                 $savedCount++;
+                $this->lastCtripBusinessPersistenceResult['readback_verified_count']++;
+            }
+            if ($provenance['force_unverified']) {
+                $this->recordCtripBusinessAnalysisExclusion($provenance['analysis_exclusion_reason']);
             }
         }
 
         return $savedCount;
+    }
+
+    /** @return array{stored_count:int,readback_verified_count:int,analysis_eligible_count:int,excluded_count:int,exclusion_reasons:array<string,int>} */
+    private function lastCtripBusinessPersistenceResult(): array
+    {
+        return $this->lastCtripBusinessPersistenceResult;
+    }
+
+    private function isCtripManualUnverifiedPersistenceContext(array $context): bool
+    {
+        $ingestionMethod = strtolower(trim((string)($context['ingestion_method'] ?? '')));
+        return ($context['force_unverified'] ?? false) === true
+            || in_array($ingestionMethod, ['manual', 'manual_input', 'user_provided', 'user_provided_unverified'], true);
+    }
+
+    /**
+     * @return array{raw_data:array<string,mixed>,ingestion_method:string,force_unverified:bool,analysis_exclusion_reason:string}
+     */
+    private function buildCtripBusinessPersistenceProvenance(
+        array $item,
+        array $context,
+        string $platformHotelId,
+        ?int $systemHotelId
+    ): array {
+        $ingestionMethod = strtolower(trim((string)($context['ingestion_method'] ?? '')));
+        $manualInput = $this->isCtripManualUnverifiedPersistenceContext($context);
+        if ($manualInput) {
+            $ingestionMethod = 'user_provided_unverified';
+        }
+
+        $rawData = $item;
+        if ($ingestionMethod !== '') {
+            $rawData['ingestion_method'] = $ingestionMethod;
+        }
+        $rawData['provenance'] = [
+            'ingestion_method' => $ingestionMethod !== '' ? $ingestionMethod : 'legacy_parser',
+            'system_hotel_id' => $systemHotelId,
+            'platform_hotel_id' => $platformHotelId,
+            'analysis_eligible' => !$manualInput,
+        ];
+        if ($manualInput) {
+            $rawData['manual_input'] = true;
+            $rawData['analysis_eligibility'] = [
+                'eligible' => false,
+                'reason' => 'manual_input_unverified',
+            ];
+        }
+
+        return [
+            'raw_data' => $rawData,
+            'ingestion_method' => $ingestionMethod,
+            'force_unverified' => $manualInput,
+            'analysis_exclusion_reason' => $manualInput ? 'manual_input_unverified' : '',
+        ];
+    }
+
+    private function markCtripBusinessRowUnverified(array $data, array $columns, string $reason): array
+    {
+        if (isset($columns['validation_status'])) {
+            $data['validation_status'] = 'unverified';
+        }
+        if (isset($columns['validation_flags'])) {
+            $flags = json_decode((string)($data['validation_flags'] ?? '[]'), true);
+            $flags = is_array($flags) ? $flags : [];
+            $flags[] = [
+                'level' => 'warning',
+                'field' => 'provenance',
+                'code' => $reason !== '' ? $reason : 'analysis_excluded',
+                'message' => 'manual input is stored as unverified and excluded from trusted OTA analytics',
+            ];
+            $data['validation_flags'] = json_encode($flags, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        }
+        return $data;
+    }
+
+    private function recordCtripBusinessAnalysisExclusion(string $reason, int $count = 1): void
+    {
+        $count = max(1, $count);
+        $this->lastCtripBusinessPersistenceResult['excluded_count'] += $count;
+        $reason = $reason !== '' ? $reason : 'analysis_excluded';
+        $this->lastCtripBusinessPersistenceResult['exclusion_reasons'][$reason]
+            = ($this->lastCtripBusinessPersistenceResult['exclusion_reasons'][$reason] ?? 0) + $count;
     }
 
     /** @return array<string, int|float> */

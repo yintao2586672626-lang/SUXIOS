@@ -226,6 +226,7 @@ test('server contract exposes paired device endpoints and never accepts central 
   for (const endpoint of [
     '/local-collector/pair-code',
     '/local-collector/accounts',
+    '/local-collector/accounts/:accountId/hotels/:hotelId',
     '/local-collector/tasks',
     '/tasks/next',
     '/tasks/:taskId/result',
@@ -236,6 +237,8 @@ test('server contract exposes paired device endpoints and never accepts central 
   assert.match(service, /assertNoSensitiveMaterial/);
   assert.match(service, /MAX_GAP_TASKS_PER_HEARTBEAT/);
   assert.match(service, /recordCollectionOutcome/);
+  assert.match(service, /function unbindHotel/);
+  assert.match(service, /local_collector_hotel_unbound/);
   assert.match(service, /ordered_collection/);
   assert.match(service, /P0OtaFieldLoopVerifierRunner/);
   assert.match(service, /online_data_historical_executed_/);
@@ -246,6 +249,7 @@ test('server contract exposes paired device endpoints and never accepts central 
   assert.match(adapter, /local_collector_verified/);
   assert.doesNotMatch(adapter, /OtaCredentialVault/);
   assert.match(controller, /Authorization/);
+  assert.match(controller, /function unbindHotel/);
   assert.match(ctrip, /ctrip_account_profile_/);
   assert.match(localAgent, /--sequential-sections=true/);
   assert.match(localAgent, /createLocalConnectServer/);

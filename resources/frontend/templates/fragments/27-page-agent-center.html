@@ -29,10 +29,10 @@
                                 </div>
                             </div>
                             <div class="p-5">
-                                <!-- 概览 -->
                                 <div v-if="agentTab === 'overview'" class="space-y-5">
+                                    <oq></oq>
                                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                                        <section class="lg:col-span-2 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                                        <section class="lg:col-span-2 bg-white rounded-xl border border-gray-100 overflow-hidden">
                                             <div class="px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                                 <div>
                                                     <h3 class="font-semibold text-gray-900">OTA诊断</h3>
@@ -387,7 +387,6 @@
                                     </section>
                                 </div>
 
-                                <!-- 智能员工Agent -->
                                 <div v-if="agentTab === 'revenue'">
                                     <div class="flex flex-wrap gap-2 mb-5">
                                         <button @click="revenueAgentTab = 'config'" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='config' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
@@ -401,7 +400,6 @@
                                         </button>
                                     </div>
 
-                                    <!-- 配置 -->
                                     <div v-if="revenueAgentTab === 'config'" class="max-w-2xl">
                                         <div class="bg-white rounded-xl border border-gray-200 p-6">
                                             <h3 class="font-semibold text-gray-800 mb-4">收益管理Agent配置</h3>
@@ -444,7 +442,6 @@
                                         </div>
                                     </div>
 
-                                    <!-- 定价建议 -->
                                     <div v-if="revenueAgentTab === 'suggestions'">
                                         <div class="flex flex-wrap gap-3 mb-5 items-end">
                                             <div>
@@ -798,7 +795,6 @@
                                         </div>
                                     </div>
 
-                                    <!-- 收益分析 -->
                                     <div v-if="revenueAgentTab === 'analysis'" class="space-y-5">
                                         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                             <div>
@@ -1116,7 +1112,6 @@
                                     </div>
                                 </div>
 
-                                <!-- Agent运行日志 -->
                                 <div v-if="agentTab === 'logs'">
                                     <div class="flex flex-wrap gap-3 mb-5 items-end">
                                         <div>
@@ -1194,5 +1189,3 @@
                             </div>
                         </div>
                     </div>
-
-                    <!-- 操作日志管理 (仅超级管理员) -->

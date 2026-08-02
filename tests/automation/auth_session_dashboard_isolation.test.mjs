@@ -24,6 +24,23 @@ const compileScopedFunction = (functionSource, functionName, context) => {
   return Function(...names, `${functionSource}\nreturn ${functionName};`)(...names.map(name => context[name]));
 };
 
+const createPagePolicyHarness = (currentPage, sessionState) => ({
+  currentPageReadPolicy: (pageKey = currentPage.value, priority = 'current') => ({
+    scope: 'page',
+    pageKey: String(pageKey || ''),
+    pageGeneration: 1,
+    sessionEpoch: Number(sessionState?.epoch || 0),
+    tenantId: '',
+    systemHotelId: '',
+    businessDate: '',
+    priority,
+  }),
+  isPageLoadPolicyCurrent: (policy = {}) => (
+    Number(policy.sessionEpoch ?? sessionState?.epoch ?? 0) === Number(sessionState?.epoch || 0)
+    && (policy.scope !== 'page' || String(policy.pageKey || '') === String(currentPage.value || ''))
+  ),
+});
+
 const sliceBetween = (start, end) => {
   const startIndex = source.indexOf(start);
   const endIndex = source.indexOf(end, startIndex + start.length);
@@ -47,7 +64,7 @@ test('stale authentication responses cannot clear or replace a newer session', (
     'const request = async (url, options = {}) => {',
   );
   const apiRequest = sliceBetween('const request = async (url, options = {}) => {', 'const apiRequest = request;');
-  const mountedBootstrap = sliceBetween('const bootstrapSession = captureAuthSession();', '\n                }\n            });');
+  const mountedBootstrap = sliceBetween('const bootstrapSession = captureAuthSession();', 'onUnmounted(() => {');
 
   assert.match(sessionHelpers, /epoch:\s*authSessionEpoch/);
   assert.match(sessionHelpers, /Number\(session\.epoch\) === authSessionEpoch/);
@@ -98,6 +115,7 @@ test('login, logout, and account switches reset hotel-scoped browser state', () 
     'hotelManagementRequestSeq += 1;',
     'hotelManagementLoading.value = false;',
     'hotelManagementSnapshotReady.value = false;',
+    'resetHotelManagementRowsReady();',
     "hotelManagementLoadError.value = '';",
     "hotelManagementLastRefreshedAt.value = '';",
     "filterReportHotel.value = '';",
@@ -158,7 +176,10 @@ test('notification refreshes and no-hotel OTA entry cannot reuse another authent
 
   assert.match(notificationLoad, /const notificationSession = captureAuthSession\(\);/);
   assert.match(notificationLoad, /if \(!isAuthSessionCurrent\(notificationSession\)\) return;/);
-  assert.match(dataHealthLoad, /if \(!operationHotelOptions\.value\.length \|\| !currentHotelId\) \{[\s\S]*resetCoreOperationsScopedState\(\);[\s\S]*return;/);
+  assert.match(
+    dataHealthLoad,
+    /if \(!operationHotelOptions\.value\.length \|\| !currentHotelId\) \{[\s\S]*resetCoreOperationsScopedState\(\);[\s\S]*if \(!hotelScopeLoadFailed\) \{[\s\S]*return true;[\s\S]*\}[\s\S]*return false;[\s\S]*\}\s*if \(normalizedMode !== 'full'\)/,
+  );
   assert.match(dataHealthLoad, /const hotelScopeLoadFailed = hotelListLoadFailed\.value;/);
   assert.match(dataHealthLoad, /coreOperationsError\.value = hotelScopeLoadFailed[\s\S]*门店列表加载失败，请重试后再读取昨日经营闭环/);
   assert.ok(
@@ -363,7 +384,7 @@ test('OTA hotel scope distinguishes loading, failed, and verified-empty snapshot
   assert.match(loadHotelsFlow, /hotelListLoadFailed\.value = false;/);
   assert.match(loadHotelsFlow, /if \(Array\.isArray\(hotelData\)\) \{[\s\S]*hotelListSnapshotReady\.value = true;/);
   assert.match(loadHotelsFlow, /hotelListSnapshotScope = listScope;/);
-  assert.match(loadHotelsFlow, /hotelListRequestIntentSeqByKey\.get\(requestKey\) === hotelListRequestSeq/);
+  assert.match(loadHotelsFlow, /hotelListRequestIntentSeqByKey\.get\(requestKey\) === requestSeq/);
   assert.match(loadHotelsFlow, /listScope === currentHotelListScope\(\)/);
   assert.match(loadHotelsFlow, /hotelListLoadFailed\.value = true;/);
   assert.match(loadHotelsFlow, /if \(isLatestRequestIntent\(\)\) \{\s*hotelListLoading\.value = false;/);
@@ -409,6 +430,7 @@ test('a delayed active-only hotel response cannot overwrite the newer management
     isAuthSessionCurrent: session => session.epoch === sessionState.epoch && session.token === sessionState.token,
     user,
     currentPage,
+    ...createPagePolicyHarness(currentPage, sessionState),
     hotels,
     hotelListLoading,
     hotelListLoadFailed,
@@ -417,8 +439,10 @@ test('a delayed active-only hotel response cannot overwrite the newer management
     hotelListRequestSeq: 0,
     hotelListSnapshotScope: '',
     loadHotelsRequestPromises: new Map(),
+    loadHotelsRequestPriorityByKey: new Map(),
     hotelListResultCache: new Map(),
     hotelListRequestIntentSeqByKey: new Map(),
+    coordinatedGetPriorityRank: priority => ({ current: 0, action: 1, prewarm: 2, notification: 3 }[priority] ?? 0),
     currentHotelListScope: () => (
       user.value?.is_super_admin && currentPage.value === 'hotels'
         ? 'paged-with-inactive'
@@ -447,6 +471,63 @@ test('a delayed active-only hotel response cannot overwrite the newer management
   );
 });
 
+test('a current hotel load promotes an in-flight prewarm without losing the snapshot', async () => {
+  const loadHotelsFlow = sliceBetween(
+    'const loadHotels = async (options = {}) => {',
+    'let startupHotelListLoadTimer = null;',
+  );
+  const network = deferred();
+  const sessionState = { epoch: 1, token: 'token-a' };
+  const currentPage = { value: 'compass' };
+  const hotels = { value: [] };
+  const hotelListLoading = { value: false };
+  const hotelListLoadFailed = { value: false };
+  const hotelListSnapshotReady = { value: false };
+  const requestPolicies = [];
+  const loadHotels = compileScopedFunction(loadHotelsFlow, 'loadHotels', {
+    captureAuthSession: () => ({ ...sessionState }),
+    isAuthSessionCurrent: session => session.epoch === sessionState.epoch && session.token === sessionState.token,
+    user: { value: { is_super_admin: false } },
+    currentPage,
+    ...createPagePolicyHarness(currentPage, sessionState),
+    hotels,
+    hotelListLoading,
+    hotelListLoadFailed,
+    hotelListSnapshotReady,
+    hotelListPendingCount: 0,
+    hotelListRequestSeq: 0,
+    hotelListSnapshotScope: '',
+    loadHotelsRequestPromises: new Map(),
+    loadHotelsRequestPriorityByKey: new Map(),
+    hotelListResultCache: new Map(),
+    hotelListRequestIntentSeqByKey: new Map(),
+    coordinatedGetPriorityRank: priority => ({ current: 0, action: 1, prewarm: 2, notification: 3 }[priority] ?? 0),
+    currentHotelListScope: () => 'all-active',
+    readRequestCache: () => false,
+    writeRequestCache: () => {},
+    request: (_url, options) => {
+      requestPolicies.push(options.requestPolicy);
+      return network.promise;
+    },
+    dedupeHotels: items => items,
+    showToast: () => {},
+  });
+
+  const prewarmRun = loadHotels({
+    requestPolicy: { scope: 'session', priority: 'prewarm', sessionEpoch: 1 },
+  });
+  const currentRun = loadHotels();
+  assert.equal(requestPolicies.length, 2, 'the current loader must attach a higher-priority coordinator consumer');
+  assert.equal(requestPolicies[0].priority, 'prewarm');
+  assert.equal(requestPolicies[1].priority, 'current');
+
+  network.resolve({ code: 200, data: [{ id: 80, name: '当前门店' }] });
+  await Promise.all([prewarmRun, currentRun]);
+  assert.deepEqual(hotels.value, [{ id: 80, name: '当前门店' }]);
+  assert.equal(hotelListSnapshotReady.value, true);
+  assert.equal(hotelListLoading.value, false);
+});
+
 test('hotel management ignores a delayed response after its auth session and request sequence change', async () => {
   const loaderSource = sliceBetween(
     'const loadHotelManagementSnapshot = async (options = {}) => {',
@@ -458,6 +539,7 @@ test('hotel management ignores a delayed response after its auth session and req
   const hotelManagementSnapshotReady = { value: false };
   const hotelManagementLoadError = { value: '' };
   const hotelManagementLastRefreshedAt = { value: '' };
+  const currentPage = { value: 'hotels' };
   let hotelLoadCalls = 0;
   let failureMode = false;
   const context = {
@@ -474,6 +556,7 @@ test('hotel management ignores a delayed response after its auth session and req
     hotelManagementRequestScope: () => `${authState.epoch}:${authState.token}`,
     captureAuthSession: () => ({ ...authState }),
     isAuthSessionCurrent: session => session.epoch === authState.epoch && session.token === authState.token,
+    ...createPagePolicyHarness(currentPage, authState),
     clearHotelManagementPrewarmTimer: () => {},
     clearStartupHotelListLoadTimer: () => {},
     loadHotels: () => {
@@ -525,6 +608,7 @@ test('platform data sources preserve only a verified snapshot when refresh fails
   );
   const createHarness = (request) => {
     const sessionState = { epoch: 1, token: 'token-a' };
+    const currentPage = { value: 'online-data' };
     const state = {
       platformDataSources: { value: [] },
       platformDataSourceLoading: { value: false },
@@ -536,6 +620,8 @@ test('platform data sources preserve only a verified snapshot when refresh fails
       ...state,
       captureAuthSession: () => ({ ...sessionState }),
       isAuthSessionCurrent: session => session.epoch === sessionState.epoch && session.token === sessionState.token,
+      currentPage,
+      ...createPagePolicyHarness(currentPage, sessionState),
       normalizeRequestCacheOptions: options => options,
       platformDataSourcesRequestPromises: new Map(),
       platformDataSourcesResultCache: new Map(),
@@ -586,6 +672,7 @@ test('employee refresh failure keeps the prior snapshot explicitly stale instead
   const failedRefresh = deferred();
   const responseQueue = [firstResponse.promise, failedRefresh.promise];
   const sessionState = { epoch: 1, token: 'token-a' };
+  const currentPage = { value: 'users' };
   const users = { value: [] };
   const usersLoading = { value: false };
   const usersLoadError = { value: '' };
@@ -593,6 +680,8 @@ test('employee refresh failure keeps the prior snapshot explicitly stale instead
   const loadUsers = compileScopedFunction(loaderSource, 'loadUsers', {
     captureAuthSession: () => ({ ...sessionState }),
     isAuthSessionCurrent: session => session.epoch === sessionState.epoch && session.token === sessionState.token,
+    currentPage,
+    ...createPagePolicyHarness(currentPage, sessionState),
     usersRequestSeq: 0,
     users,
     usersLoading,
@@ -764,13 +853,13 @@ test('revenue loader failures clear old values and expose a persistent failure o
 test('hotel and dashboard loaders reject stale responses and reuse in-flight requests', () => {
   const pageLoadGuard = sliceBetween('const runPageLoadOnce = (page, loadingKey, task, options = {}) => {', 'const activateCoreOperationsAfterLogin = () => {');
   const workbench = sliceBetween('let dualOtaWorkbenchRequestSeq = 0;', 'const setDualOtaPlatform = (platform, options = {}) => {');
-  const competitor = sliceBetween('const loadCompetitorSummary = async (options = {}) => {', 'const loadRevenueAiOverview = async () => {');
+  const competitor = sliceBetween('const loadCompetitorSummary = async (options = {}) => {', 'const loadRevenueAiOverview = async (options = {}) => {');
   const latest = sliceBetween('const loadLatestCtripData = async (', 'const hasVisibleCtripSnapshot = () => {');
   const hotelSwitch = sliceBetween('watch(filterReportHotel, (newHotelId, previousHotelId) => {', 'watch(weatherLocationName, () => {');
   const clearHotel = sliceBetween('const clearActiveHotelDashboardSnapshots = () => {', 'const beginAuthSession = (nextToken) => {');
 
-  assert.match(pageLoadGuard, /const key = `\$\{sessionEpoch\}:\$\{page\}:\$\{loadingKey\}`/);
-  assert.match(pageLoadGuard, /sessionEpoch === authSessionEpoch\s*&& lifecycleGeneration === pageRequestGeneration/);
+  assert.match(pageLoadGuard, /const key = `\$\{sessionEpoch\}:\$\{page\}:\$\{loadingKey\}::\$\{buildPageLoadScopeToken\(requestPolicy\)\}`/);
+  assert.match(pageLoadGuard, /sessionEpoch === authSessionEpoch\s*&& lifecycleGeneration === pageRequestGeneration\s*&& isPageLoadPolicyCurrent\(requestPolicy\)/);
   assert.match(pageLoadGuard, /const succeeded = result !== false/);
   assert.match(workbench, /if \(!isLoggedIn\.value \|\| !token\.value \|\| !isCompassDataPage\(\)\) return;/);
   assert.match(workbench, /isAuthSessionCurrent\(requestSession\)/);
@@ -788,7 +877,7 @@ test('hotel and dashboard loaders reject stale responses and reuse in-flight req
 });
 
 test('hotel data dashboard rejects stale hotel and session responses before mutating diagnostics state', () => {
-  const dashboard = sliceBetween('const loadHotelDataDashboard = async () => {', '\n\n            const dataHealthLightCacheKey');
+  const dashboard = sliceBetween('const loadHotelDataDashboard = async () => {', 'const dataHealthLightCacheKey');
   const responseIndex = dashboard.indexOf('await Promise.all([');
   const responseGuardIndex = dashboard.indexOf('if (!isCurrentRequest()) return null;', responseIndex);
   const firstResponseWriteIndex = dashboard.indexOf('dashboardAccountOverview.value =', responseIndex);

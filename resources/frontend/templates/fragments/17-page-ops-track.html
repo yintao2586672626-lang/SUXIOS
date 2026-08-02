@@ -149,6 +149,7 @@
                                                     <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">录证据</button>
                                                     <button v-if="operationCanReviewExecution(item)" @click="reviewOperationExecutionTask(item)" class="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">复盘</button>
                                                     <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_on || '次日' }} 可复盘</span>
+                                                    <button v-if="canSaveMemo(item)" @click="saveMemo(item)" data-testid="save-operating-memory">沉淀记忆</button>
                                                     <span v-if="!operationExecutionActionAvailable(item)" class="text-xs text-gray-400">-</span>
                                                 </div>
                                             </td>
@@ -162,6 +163,9 @@
                                 <button type="button" @click="setOperationExecutionStageFilter('')" class="ml-1 font-medium text-[#315d50] hover:underline">查看全部阶段</button>
                             </div>
                         </div>
+
+                        <pre data-testid="operating-memory-panel">经营记忆｜分层分级｜不触发OTA/外发
+{{ memoBody || '暂无记忆' }}</pre>
 
                         <div v-if="operationLoading.actions" class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-500">正在加载策略追踪...</div>
                         <div v-if="operationError.actions" class="bg-red-50 border border-red-100 text-red-600 rounded-xl p-4 text-sm">{{ operationError.actions }}</div>

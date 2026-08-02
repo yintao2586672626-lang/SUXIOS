@@ -2651,7 +2651,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
     } = {}) => {
         if (!loadingPromise) return { status: 'idle', promise: null };
         if (!force) return { status: 'reuse', promise: loadingPromise };
-        return { status: 'await_previous', promise: loadingPromise };
+        return { status: 'supersede', promise: loadingPromise };
     };
 
     const buildMeituanConfigListSuccessState = ({

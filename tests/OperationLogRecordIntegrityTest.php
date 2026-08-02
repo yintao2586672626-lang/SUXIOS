@@ -129,4 +129,27 @@ final class OperationLogRecordIntegrityTest extends TestCase
         self::assertSame(42, (int)$row['tenant_id']);
         self::assertSame(118, (int)$row['hotel_id']);
     }
+
+    public function testBlockedOutcomeRemainsBlocked(): void
+    {
+        $log = OperationLog::record(
+            'operating_target',
+            'pms_realtime_sync',
+            'PMS isolated capture session is unavailable',
+            7,
+            118,
+            null,
+            [
+                'tenant_id' => 42,
+                'outcome' => 'blocked',
+                'blocker_code' => 'pms_live_sandbox_not_configured',
+            ]
+        );
+
+        $row = Db::name('operation_logs')->where('id', (int)$log->id)->find();
+        self::assertIsArray($row);
+        $extra = json_decode((string)$row['extra_data'], true);
+        self::assertSame('blocked', $extra['outcome'] ?? null);
+        self::assertSame('pms_live_sandbox_not_configured', $extra['blocker_code'] ?? null);
+    }
 }
