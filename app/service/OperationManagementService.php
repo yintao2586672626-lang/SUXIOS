@@ -1648,6 +1648,102 @@ class OperationManagementService
         return $this->executionTaskDetail($id, $hotelIds);
     }
 
+    /**
+     * Append the scheduled same-scope OTA readback without deciding the human
+     * review result. The task stays observing until an operator confirms the
+     * outcome; repeated runs are idempotent once source truth is present.
+     *
+     * @return array<string, mixed>
+     */
+    public function reconcileScheduledExecutionTask(int $taskId, array $hotelIds): array
+    {
+        $this->ensureExecutionTables();
+        $taskRow = $this->executionTaskRow($taskId, $hotelIds);
+        if ($taskRow === null) {
+            throw new \RuntimeException('execution task not found');
+        }
+        $intentRow = $this->executionIntentRow((int)($taskRow['intent_id'] ?? 0), $hotelIds);
+        if ($intentRow === null) {
+            throw new \RuntimeException('execution intent not found');
+        }
+        $this->assertExecutionTaskIntentIdentity($taskRow, $intentRow);
+
+        if ((string)($taskRow['status'] ?? '') !== 'executed') {
+            throw new \InvalidArgumentException('execution task must be executed before scheduled readback');
+        }
+        $intent = $this->normalizeExecutionIntentRow($intentRow);
+        if (strtolower(trim((string)($intent['source_module'] ?? ''))) !== 'ota_diagnosis_saved') {
+            throw new \InvalidArgumentException('scheduled readback currently supports saved OTA diagnosis tasks only');
+        }
+
+        $task = $this->normalizeExecutionTaskRow($taskRow);
+        $evidenceQuery = Db::name('operation_execution_evidence')
+            ->where('task_id', $taskId)
+            ->whereNull('deleted_at');
+        if (array_key_exists('tenant_id', $taskRow)) {
+            $evidenceQuery->where('tenant_id', (int)$taskRow['tenant_id']);
+        }
+        $evidenceRows = $evidenceQuery
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+        if ($evidenceRows === []) {
+            throw new \InvalidArgumentException('execution evidence is required before scheduled readback');
+        }
+
+        $reviewAt = $this->executionReviewAvailableAt(
+            $intent,
+            array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows)
+        );
+        if ($reviewAt === '') {
+            throw new \InvalidArgumentException('scheduled review time is required before scheduled readback');
+        }
+        $reviewTimestamp = strtotime($reviewAt);
+        if ($reviewTimestamp === false || time() < $reviewTimestamp) {
+            throw new \InvalidArgumentException('execution review is not available before ' . $reviewAt);
+        }
+
+        $terminalStatus = strtolower(trim((string)($task['result_status'] ?? '')));
+        if (in_array($terminalStatus, ['success', 'near_success', 'failed'], true)) {
+            $detail = $this->executionTaskDetail($taskId, $hotelIds);
+            return [
+                'status' => 'already_reviewed',
+                'task_id' => $taskId,
+                'hotel_id' => (int)($task['hotel_id'] ?? 0),
+                'review_at' => $reviewAt,
+                'source_verified' => (bool)($detail['evidence_truth']['source_verified'] ?? false),
+                'outcome_status' => (string)($detail['outcome_truth']['status'] ?? 'unverified'),
+                'result_status' => (string)($detail['result_status'] ?? $terminalStatus),
+                'sop_candidate_status' => (string)($detail['sop_candidate']['status'] ?? 'not_ready'),
+                'next_action' => 'none',
+            ];
+        }
+        if ($terminalStatus !== '' && $terminalStatus !== 'observing') {
+            throw new \InvalidArgumentException('execution task result status is not eligible for scheduled readback');
+        }
+
+        $this->syncSourceVerifiedMetricReadback($task, $intent);
+        $detail = $this->executionTaskDetail($taskId, $hotelIds);
+        $sourceVerified = (bool)($detail['evidence_truth']['source_verified'] ?? false);
+
+        $attemptedAt = date('Y-m-d H:i:s');
+        return [
+            'status' => $sourceVerified ? 'source_readback_verified' : 'source_readback_missing',
+            'task_id' => $taskId,
+            'hotel_id' => (int)($task['hotel_id'] ?? 0),
+            'review_at' => $reviewAt,
+            'attempted_at' => $attemptedAt,
+            'reconciled_at' => $sourceVerified ? $attemptedAt : null,
+            'source_verified' => $sourceVerified,
+            'outcome_status' => (string)($detail['outcome_truth']['status'] ?? 'unverified'),
+            'result_status' => (string)($detail['result_status'] ?? 'observing'),
+            'sop_candidate_status' => (string)($detail['sop_candidate']['status'] ?? 'not_ready'),
+            'next_action' => $sourceVerified
+                ? 'human_confirm_review_result'
+                : 'collect_same_hotel_platform_metric_readback',
+        ];
+    }
+
     public function approveExecutionIntent(int $id, bool $approved, string $remark, int $userId, array $hotelIds): array
     {
         $this->assertExecutionPayloadHasNoCredentialMaterial($remark);
@@ -4771,6 +4867,11 @@ class OperationManagementService
     private function buildExecutionEvidencePlatformResponse(array $evidence): array
     {
         $platformResponse = $this->arrayValue($evidence['platform_response'] ?? []);
+        if (array_key_exists('node_record', $platformResponse)) {
+            $platformResponse['node_record'] = $this->normalizeExecutionNodeRecord(
+                $this->arrayValue($platformResponse['node_record'])
+            );
+        }
         foreach (['operator_execution_evidence', 'operator_roi_evidence'] as $key) {
             $operatorEvidence = $this->arrayValue($evidence[$key] ?? []);
             if ($operatorEvidence !== []) {
@@ -4779,6 +4880,59 @@ class OperationManagementService
         }
 
         return $platformResponse;
+    }
+
+    /** @param array<string, mixed> $record @return array<string, string> */
+    private function normalizeExecutionNodeRecord(array $record): array
+    {
+        if ($record === []) {
+            throw new \InvalidArgumentException('revenue node record is empty');
+        }
+
+        $required = [
+            'recorded_at',
+            'operating_period',
+            'source_scope',
+            'room_status_alignment',
+            'data_quality_status',
+            'metric_definition',
+            'comparison_basis',
+            'progress_status',
+            'judgment_basis',
+            'success_criteria',
+            'stop_condition',
+        ];
+        foreach ($required as $field) {
+            if (trim((string)($record[$field] ?? '')) === '') {
+                throw new \InvalidArgumentException('revenue node record missing required field: ' . $field);
+            }
+        }
+        if (($record['contract_version'] ?? '') !== 'operation_revenue_node.v1') {
+            throw new \InvalidArgumentException('revenue node record contract version is invalid');
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/D', (string)$record['recorded_at']) !== 1) {
+            throw new \InvalidArgumentException('revenue node recorded_at is invalid');
+        }
+
+        $enums = [
+            'operating_period' => ['weekday', 'weekend', 'holiday', 'special_event'],
+            'source_scope' => ['pms_ota_cross_check', 'pms', 'ctrip', 'meituan', 'manual_other'],
+            'room_status_alignment' => ['operator_confirmed', 'mismatch', 'unverified'],
+            'data_quality_status' => ['manual_confirmed', 'unverified', 'mismatch'],
+            'progress_status' => ['normal', 'too_fast', 'too_slow', 'insufficient_evidence'],
+        ];
+        foreach ($enums as $field => $allowed) {
+            if (!in_array((string)$record[$field], $allowed, true)) {
+                throw new \InvalidArgumentException('revenue node record field is invalid: ' . $field);
+            }
+        }
+
+        $normalized = ['contract_version' => 'operation_revenue_node.v1'];
+        foreach (array_merge($required, ['special_event', 'metric_snapshot', 'primary_risk']) as $field) {
+            $normalized[$field] = trim((string)($record[$field] ?? ''));
+        }
+
+        return $normalized;
     }
 
     private function createActionTrackForExecution(array $intent, int $taskId): int

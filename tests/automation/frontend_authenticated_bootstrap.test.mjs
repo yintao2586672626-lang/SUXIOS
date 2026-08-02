@@ -113,6 +113,12 @@ test('login bootstrap delegates remembered passwords to the browser credential s
 });
 
 test('login handoff exposes auth-success to interactive timing after a usable app surface and paint', () => {
+  assert.match(bootstrap, /const AUTHENTICATED_FIRST_PAINT_FALLBACK_MS = 240;/);
+  assert.match(
+    bootstrap,
+    /const waitForFirstAuthenticatedPaint = \(\) => new Promise\(\(resolve\) => \{[\s\S]*timeoutId = window\.setTimeout\(finish, AUTHENTICATED_FIRST_PAINT_FALLBACK_MS\);[\s\S]*window\.requestAnimationFrame\(\(\) => window\.requestAnimationFrame\(finish\)\)/,
+    'background tabs must have a bounded fallback instead of waiting indefinitely for animation frames',
+  );
   assert.match(bootstrap, /window\.SUXI_LOGIN_HANDOFF_METRICS = snapshot/);
   assert.match(bootstrap, /auth_to_interactive_ms:/);
   assert.match(bootstrap, /suxi-login-auth-to-interactive/);

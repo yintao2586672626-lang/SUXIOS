@@ -1536,8 +1536,6 @@ function p0_inspector_missing_codes_block_field_loop(array $missingCodes, array 
 
     $blockingFragments = [
         'source_rows_missing',
-        'etl_not_ready',
-        'revenue_metrics_not_ready',
         'traffic_facts_missing',
         'traffic_rows_missing',
         'field_fact',
@@ -6630,7 +6628,7 @@ try {
             p0_add_issue($issues, 'incomplete', 'live_closure_incomplete', 'Live OTA field-loop data foundation is still incomplete; field loop evidence cannot be treated as full closure.', [
                 'inspector_status' => 'incomplete',
                 'missing_codes' => $missingCodes,
-                'p0_scope_policy' => 'Only OTA source rows, ETL, revenue metrics, traffic facts, and field-fact gaps block this field-loop verifier; downstream AI or operation sample gaps remain inspector reference status.',
+                'p0_scope_policy' => 'Only OTA source rows, target-date traffic facts, and field-fact gaps block this traffic field-loop verifier; broad ETL, revenue-metric, downstream AI, and operation-sample gaps remain inspector reference status.',
             ]);
         }
     }

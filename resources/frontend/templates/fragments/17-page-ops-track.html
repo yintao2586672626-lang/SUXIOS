@@ -4,7 +4,7 @@
                                 <div>
                                     <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">运营自动化中心 · 执行闭环</p>
                                     <h2 class="mt-2 text-2xl font-semibold text-slate-900">任务执行与复盘</h2>
-                                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">把建议或人工动作变成门店任务，经过审批、执行证据、次日同口径复盘后再判断效果；没有证据时不生成收入或 ROI。</p>
+                                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">建议和人工动作统一经过审批、执行证据与同口径复盘；缺证不生成收入或 ROI。</p>
                                 </div>
                                 <label class="w-full lg:w-72">
                                     <span class="mb-1 block text-xs text-slate-500">查看门店</span>
@@ -18,7 +18,7 @@
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <div class="mb-4">
                                 <h3 class="font-bold text-gray-900">人工新建运营任务</h3>
-                                <p class="mt-1 text-sm text-gray-500">用于补录线下已决定的运营动作；系统产生的建议会直接进入下方执行池，不需要重复创建。</p>
+                                <p class="mt-1 text-sm text-gray-500">只补录线下已决定的动作；系统建议直接进入执行池。</p>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-3">
                                 <label class="text-xs text-gray-500">任务名称<input v-model="actionForm.action_title" placeholder="例如：调整今日房价" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
@@ -49,7 +49,6 @@
                             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
                                 <div>
                                     <h3 class="font-bold text-gray-900">决策到执行主流程</h3>
-                                    <p class="text-sm text-gray-500 mt-1">建议动作、审批、执行证据、效果复盘和 ROI 统一进入执行池。</p>
                                 </div>
                                 <button @click="loadOperationActions" :disabled="operationLoading.actions" class="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-60">
                                     <i class="fas fa-sync-alt mr-2" :class="{ 'fa-spin': operationLoading.actions }"></i>刷新
@@ -110,7 +109,7 @@
                                             <th class="px-4 py-3 text-left">执行</th>
                                             <th class="px-4 py-3 text-left">证据</th>
                                             <th class="px-4 py-3 text-left">复盘</th>
-                                            <th class="px-4 py-3 text-left">ROI</th>
+                                            <th class="px-4 py-3 text-left"><term-help term="roi" /></th>
                                             <th class="px-4 py-3 text-left">下一步</th>
                                             <th class="px-4 py-3 text-left">操作</th>
                                         </tr>
@@ -134,7 +133,7 @@
                                                 <div v-if="item.approval?.blocked_reason" class="text-xs text-amber-700 mt-1">{{ item.approval.blocked_reason }}</div>
                                             </td>
                                             <td class="px-4 py-3">{{ operationExecutionStatusLabel(item.execution?.status) }}</td>
-                                            <td class="px-4 py-3">{{ item.evidence_summary?.count || item.evidence?.count || 0 }} 条</td>
+                                            <td class="px-4 py-3">{{ nodeText(item) }}</td>
                                             <td class="px-4 py-3 text-gray-600">{{ operationExecutionReviewText(item) }}</td>
                                             <td class="px-4 py-3">
                                                 <span :class="item.roi?.status === 'ready' ? 'text-green-700 font-semibold' : 'text-gray-400'">{{ operationExecutionRoiText(item.roi) }}</span>
@@ -147,8 +146,8 @@
                                                     <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs hover:bg-green-700">审批</button>
                                                     <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, false)" class="px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">驳回</button>
                                                     <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">录证据</button>
-                                                    <button v-if="operationCanReviewExecution(item)" @click="reviewOperationExecutionTask(item)" class="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">复盘</button>
-                                                    <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_on || '次日' }} 可复盘</span>
+                                                    <button v-if="operationCanReconcileExecution(item) || operationCanReviewExecution(item)" data-testid="operation-review-action" @click="operationCanReconcileExecution(item) ? reconcileOperationExecutionReview(item) : reviewOperationExecutionTask(item)" class="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">{{ operationCanReconcileExecution(item) ? '读取事实' : '复盘' }}</button>
+                                                    <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_at || item.review.available_on || '次日' }} 可读取</span>
                                                     <button v-if="canSaveMemo(item)" @click="saveMemo(item)" data-testid="save-operating-memory">沉淀记忆</button>
                                                     <span v-if="!operationExecutionActionAvailable(item)" class="text-xs text-gray-400">-</span>
                                                 </div>
@@ -244,10 +243,11 @@
                                         <span class="text-xs font-medium text-slate-600">证据类型</span>
                                         <select v-model="operationEvidenceForm.mode" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                             <option value="1">已完成运营动作（效果待观察）</option>
+                                            <option value="3">节点口径</option>
                                             <option value="2">真实收入/成本证据</option>
                                         </select>
                                     </label>
-                                    <template v-if="operationEvidenceForm.mode === '1'">
+                                    <template v-if="['1', '3'].includes(operationEvidenceForm.mode)">
                                         <label class="block">
                                             <span class="text-xs font-medium text-slate-600">实际完成的动作 *</span>
                                             <textarea v-model.trim="operationEvidenceForm.completed_action" rows="4" placeholder="填写已经执行的动作，不要填写计划或预期效果" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>

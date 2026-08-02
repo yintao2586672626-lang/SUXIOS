@@ -208,6 +208,8 @@ test('server contract exposes paired device endpoints and never accepts central 
     starter,
     autoStart,
     template,
+    appMain,
+    reassignmentMigration,
     notifications,
   ] = await Promise.all([
     read('route/app.php'),
@@ -220,6 +222,8 @@ test('server contract exposes paired device endpoints and never accepts central 
     read('scripts/start_local_collector.ps1'),
     read('scripts/register_local_collector_autostart.ps1'),
     read('resources/frontend/templates/fragments/35-page-online-data.html'),
+    read('public/app-main.js'),
+    read('database/migrations/20260802_allow_ota_local_collector_account_reassignment.sql'),
     read('app/service/OtaFailureNotificationService.php'),
   ]);
 
@@ -239,6 +243,10 @@ test('server contract exposes paired device endpoints and never accepts central 
   assert.match(service, /recordCollectionOutcome/);
   assert.match(service, /function unbindHotel/);
   assert.match(service, /local_collector_hotel_unbound/);
+  assert.match(service, /previous_mapping_id/);
+  assert.match(service, /write_action/);
+  assert.match(service, /reassigned/);
+  assert.match(service, /刚刚被其他账户绑定/);
   assert.match(service, /ordered_collection/);
   assert.match(service, /P0OtaFieldLoopVerifierRunner/);
   assert.match(service, /online_data_historical_executed_/);
@@ -259,9 +267,26 @@ test('server contract exposes paired device endpoints and never accepts central 
   assert.match(autoStart, /ONLOGON/);
   assert.match(meituan, /meituan_account_profile_/);
   assert.match(template, /data-testid="local-collector-account-center"/);
+  assert.match(template, /data-testid="local-collector-unbind-hotel"/);
   assert.match(template, /连接此电脑/);
   assert.doesNotMatch(template, /生成 10 分钟配对码/);
   assert.match(template, /联系管理员/);
+  const unbindAction = appMain.slice(
+    appMain.indexOf('const unbindLocalCollectorHotel = async'),
+    appMain.indexOf('const createLocalCollectorTask = async'),
+  );
+  assert.match(unbindAction, /method:\s*'DELETE'/);
+  assert.match(unbindAction, /readback_verified !== true/);
+  assert.match(unbindAction, /mapping_status \|\| ''\) !== 'unbound'/);
+  assert.match(unbindAction, /loadLocalCollectorStatus\(\{ silent: true \}\)/);
+  assert.match(unbindAction, /schedulePlatformDataSourcePanelLoad\(\{ force: true \}\)/);
+  assert.match(reassignmentMigration, /active_system_hotel_id/);
+  assert.match(reassignmentMigration, /active_platform_hotel_id/);
+  assert.match(reassignmentMigration, /uq_ota_local_active_hotel_platform/);
+  assert.match(reassignmentMigration, /uq_ota_local_active_platform_hotel_identity/);
+  assert.match(reassignmentMigration, /DROP INDEX IF EXISTS `uq_ota_local_hotel_platform`/);
+  assert.match(reassignmentMigration, /DROP INDEX IF EXISTS `uq_ota_local_platform_hotel_identity`/);
+  assert.doesNotMatch(reassignmentMigration, /^UPDATE\s/im);
   assert.match(notifications, /buildOtaCollectionFailurePayload/);
   assert.match(notifications, /notify_wecom/);
 });

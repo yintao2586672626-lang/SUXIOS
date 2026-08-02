@@ -645,6 +645,124 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertFalse($result['evidence']['platform_response']['automatic_price_write']);
     }
 
+    public function testManualExecutionCanPersistAValidatedRevenueNodeRecord(): void
+    {
+        $service = new OperationManagementService();
+        $nodeRecord = [
+            'contract_version' => 'operation_revenue_node.v1',
+            'recorded_at' => '2026-08-02 16:00:00',
+            'operating_period' => 'weekend',
+            'special_event' => '',
+            'source_scope' => 'pms_ota_cross_check',
+            'room_status_alignment' => 'operator_confirmed',
+            'data_quality_status' => 'manual_confirmed',
+            'metric_definition' => '16:00 node; fixed sellable-room denominator',
+            'comparison_basis' => 'last four weekend 16:00 nodes with the same channel and room scope',
+            'metric_snapshot' => 'same-day booking rate 12%; ADR 288',
+            'progress_status' => 'normal',
+            'judgment_basis' => 'same-scope booking pace remains inside the comparison band',
+            'primary_risk' => 'late cancellation',
+            'success_criteria' => 'booking pace remains inside the comparison band at 20:00',
+            'stop_condition' => 'stop if PMS and OTA room status no longer match',
+        ];
+
+        $result = $service->buildExecutionTaskUpdate(
+            ['id' => 31, 'status' => 'pending_execute'],
+            ['status' => 'approved', 'source_module' => 'manual'],
+            [
+                'status' => 'executed',
+                'evidence_type' => 'manual_operation_execution',
+                'evidence' => [
+                    'platform_response' => [
+                        'mode' => 'manual_operation_execution',
+                        'node_record' => $nodeRecord,
+                    ],
+                ],
+            ],
+            9
+        );
+
+        self::assertEquals($nodeRecord, $result['evidence']['platform_response']['node_record']);
+    }
+
+    public function testRevenueNodeRecordRejectsMissingComparisonBasis(): void
+    {
+        $service = new OperationManagementService();
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('comparison_basis');
+
+        $service->buildExecutionTaskUpdate(
+            ['id' => 31, 'status' => 'pending_execute'],
+            ['status' => 'approved', 'source_module' => 'manual'],
+            [
+                'status' => 'executed',
+                'evidence' => [
+                    'platform_response' => [
+                        'node_record' => [
+                            'contract_version' => 'operation_revenue_node.v1',
+                            'recorded_at' => '2026-08-02 16:00:00',
+                            'operating_period' => 'weekend',
+                            'source_scope' => 'pms_ota_cross_check',
+                            'room_status_alignment' => 'operator_confirmed',
+                            'data_quality_status' => 'manual_confirmed',
+                            'metric_definition' => 'fixed 16:00 scope',
+                            'progress_status' => 'normal',
+                            'judgment_basis' => 'same-scope comparison',
+                            'success_criteria' => 'review at 20:00',
+                            'stop_condition' => 'stop on scope mismatch',
+                        ],
+                    ],
+                ],
+            ],
+            9
+        );
+    }
+
+    public function testExecutionFlowSafelyReadsBackRevenueNodeSummary(): void
+    {
+        $service = new OperationManagementService();
+        $item = $service->buildExecutionFlowItem(
+            [
+                'id' => 41,
+                'hotel_id' => 7,
+                'status' => 'approved',
+                'source_module' => 'manual',
+                'source_record_id' => 0,
+                'platform' => 'ctrip',
+            ],
+            [[
+                'id' => 51,
+                'intent_id' => 41,
+                'hotel_id' => 7,
+                'status' => 'executed',
+                'result_status' => 'observing',
+            ]],
+            [[
+                'id' => 61,
+                'task_id' => 51,
+                'evidence_type' => 'manual_operation_execution',
+                'platform_response_json' => json_encode([
+                    'node_record' => [
+                        'contract_version' => 'operation_revenue_node.v1',
+                        'recorded_at' => '2026-08-02 16:00:00',
+                        'operating_period' => 'weekend',
+                        'source_scope' => 'pms_ota_cross_check',
+                        'room_status_alignment' => 'operator_confirmed',
+                        'data_quality_status' => 'manual_confirmed',
+                        'progress_status' => 'normal',
+                        'comparison_basis' => 'same weekend node',
+                        'success_criteria' => 'review at 20:00',
+                        'stop_condition' => 'stop on mismatch',
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]]
+        );
+
+        self::assertSame('available', $item['evidence_summary']['node_record']['status']);
+        self::assertSame('weekend', $item['evidence_summary']['node_record']['operating_period']);
+        self::assertSame('2026-08-02 16:00:00', $item['evidence_summary']['node_record']['recorded_at']);
+    }
+
     public function testExecutionRequiresApprovedIntent(): void
     {
         $service = new OperationManagementService();
@@ -1607,6 +1725,54 @@ final class OperationExecutionLoopTest extends TestCase
         ]]);
 
         self::assertSame($nextReviewDate, $item['review']['available_on']);
+        self::assertFalse($item['review']['is_available']);
+    }
+
+    public function testExecutionFlowUsesExactScheduledReviewTime(): void
+    {
+        $service = new OperationManagementService();
+        $reviewAt = date('Y-m-d H:i:s', strtotime('+2 hours'));
+
+        $item = $service->buildExecutionFlowItem([
+            'id' => 17,
+            'source_module' => 'ota_diagnosis_saved',
+            'source_record_id' => 81,
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'action_type' => 'booking_conversion_optimization',
+            'current_value_json' => '{}',
+            'target_value_json' => json_encode([
+                'workflow_schedule' => ['review_at' => $reviewAt],
+            ], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => '{}',
+            'expected_metric' => 'order_rate',
+            'expected_delta' => 1,
+            'risk_level' => 'medium',
+            'status' => 'approved',
+            'blocked_reason' => '',
+        ], [[
+            'id' => 36,
+            'intent_id' => 17,
+            'hotel_id' => 7,
+            'execution_mode' => 'manual',
+            'status' => 'executed',
+            'result_status' => 'observing',
+            'executed_at' => date('Y-m-d H:i:s', strtotime('-1 hour')),
+            'current_value_json' => '{}',
+            'target_value_json' => '{}',
+        ]], [[
+            'id' => 46,
+            'task_id' => 36,
+            'evidence_type' => 'manual_operation_execution',
+            'before_json' => '{}',
+            'after_json' => '{}',
+            'platform_response_json' => '{}',
+            'created_at' => date('Y-m-d H:i:s'),
+        ]]);
+
+        self::assertSame($reviewAt, $item['review']['available_at']);
+        self::assertSame(substr($reviewAt, 0, 10), $item['review']['available_on']);
         self::assertFalse($item['review']['is_available']);
     }
 

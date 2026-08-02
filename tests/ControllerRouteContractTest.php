@@ -215,6 +215,18 @@ final class ControllerRouteContractTest extends TestCase
             $source,
             'Operation execution review must forward manual result_status/result_summary payload'
         );
+        self::assertStringContainsString(
+            '$this->service->reconcileScheduledExecutionTask(',
+            $source,
+            'Scheduled execution readback must use the scoped operation service'
+        );
+
+        $routes = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        self::assertStringContainsString(
+            "Route::post('/execution-tasks/:id/reconcile-review', 'OperationManagement/reconcileExecutionTaskReview')",
+            $routes,
+            'Scheduled execution readback must expose an authenticated operation route'
+        );
     }
 
     public function testStrategyAndQuantRecordsCanCreateExecutionIntentRoutes(): void

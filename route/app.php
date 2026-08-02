@@ -553,6 +553,7 @@ Route::group('api/operation', function () {
     Route::post('/execution-intents/:id/approve', 'OperationManagement/approveExecutionIntent');
     Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
     Route::post('/execution-tasks/:id/evidence', 'OperationManagement/executionTaskEvidence');
+    Route::post('/execution-tasks/:id/reconcile-review', 'OperationManagement/reconcileExecutionTaskReview');
     Route::post('/execution-tasks/:id/review', 'OperationManagement/reviewExecutionTask');
     Route::post('/execution-tasks/:id/operating-memory', 'OperationManagement/saveExecutionTaskOperatingMemory');
     Route::get('/closure-overview', 'OperationManagement/closureOverview');

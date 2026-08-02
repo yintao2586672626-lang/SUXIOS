@@ -415,6 +415,23 @@ class OperationManagement extends Base
         }
     }
 
+    public function reconcileExecutionTaskReview(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution task id is invalid', 422);
+            }
+
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            return $this->success($this->service->reconcileScheduledExecutionTask($id, $hotelIds));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'scheduled execution readback failed'),
+                $this->operationThrowableStatus($e)
+            );
+        }
+    }
+
     private function resolveHotelScope(int $inputHotelId = 0, string $capability = 'operation.view'): array
     {
         if (!$this->currentUser) {

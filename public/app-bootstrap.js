@@ -11,6 +11,7 @@
     const LOGIN_CONNECTION_WARMUP_TIMEOUT_MS = 12000;
     const LOGIN_CONNECTION_WARMUP_MIN_GAP_MS = 15000;
     const LOGIN_PASSWORD_SAVE_TIMEOUT_MS = 1500;
+    const AUTHENTICATED_FIRST_PAINT_FALLBACK_MS = 240;
     const LOGIN_HANDOFF_EVENT = 'suxi:login-handoff-metric';
     const ASSET_PHASE_STARTUP = 'startup';
     const ASSET_PHASE_AFTER_FIRST_PAINT = 'after-first-paint';
@@ -205,11 +206,23 @@
     );
 
     const waitForFirstAuthenticatedPaint = () => new Promise((resolve) => {
+        let settled = false;
+        let timeoutId = null;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            if (timeoutId !== null) window.clearTimeout(timeoutId);
+            resolve();
+        };
+        // Background tabs can throttle requestAnimationFrame for seconds. Keep
+        // the first paint fast when it is available, but do not let deferred
+        // authenticated pages miss their post-login preload window.
+        timeoutId = window.setTimeout(finish, AUTHENTICATED_FIRST_PAINT_FALLBACK_MS);
         if (typeof window.requestAnimationFrame !== 'function') {
-            window.setTimeout(resolve, 0);
+            window.setTimeout(finish, 0);
             return;
         }
-        window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+        window.requestAnimationFrame(() => window.requestAnimationFrame(finish));
     });
 
     const waitForAuthenticatedInteractiveReady = () => new Promise((resolve, reject) => {

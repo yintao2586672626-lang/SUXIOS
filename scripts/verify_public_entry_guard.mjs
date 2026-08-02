@@ -656,7 +656,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes('const revenueAiBusinessDate = computed(() => revenueAiOverview.value?.business_date || formatDate(')
     || !content.includes('revenueAiBuildGapRows({')
     || !content.includes('const overviewRequest = revenueAiResolveOverviewRequest({')
-    || !/await request\(overviewRequest\.endpoint(?:,\s*\{[\s\S]{0,240}?requestPolicy:[\s\S]{0,160}?\})?\);/.test(content)
+    || !/await request\(overviewRequest\.endpoint(?:,\s*\{[\s\S]{0,240}?requestPolicy(?:\s*:|\s*[,}])[\s\S]{0,160}?\})?\);/.test(content)
     || !revenueAiStaticContent.includes('const resolveRevenueAiOverviewResponse = ({ response = null, error = null } = {}) => {')
     || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ response: res });')
     || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ error: e });')
@@ -2089,8 +2089,10 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     content.indexOf('const autoFetchPanelCacheKey = () => ['),
     content.indexOf('const resetAutoFetchPanelCache = () => {')
   );
-  if (!autoFetchPanelCacheKeySource.includes("String(getAutoFetchHotelId() || '')")
-    || !autoFetchPanelCacheKeySource.includes('String(hotels.value?.length || 0)')
+  if (!autoFetchPanelCacheKeySource.includes('String(authSessionEpoch)')
+    || !autoFetchPanelCacheKeySource.includes("String(authContext.value?.tenant_id || authContext.value?.tenantId || '')")
+    || !autoFetchPanelCacheKeySource.includes("String(getAutoFetchHotelId() || '')")
+    || autoFetchPanelCacheKeySource.includes('hotels.value?.length')
     || autoFetchPanelCacheKeySource.includes('ctripConfigList')
     || autoFetchPanelCacheKeySource.includes('meituanConfigList')) {
     failures.push('public/index.html platform-auto panel cache key must not be invalidated by deferred config-list prewarm.');

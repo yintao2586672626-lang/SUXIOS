@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const appMain = fs.readFileSync('public/app-main.js', 'utf8');
 
-test('deferred render remount shares only authenticated startup reads', () => {
+test('deferred render promotion waits for the authenticated startup read', () => {
   assert.match(appMain, /const suxiStartupRequestCache = new Map\(\)/);
   assert.match(appMain, /const runSuxiStartupRequestOnce = \(cacheKey, task, ttlMs = 5000\) =>/);
   assert.match(
@@ -25,6 +25,15 @@ test('deferred render remount shares only authenticated startup reads', () => {
     /onUnmounted\(\(\) => \{\s*authSessionEpoch \+= 1;/,
     'unmounting the startup render must invalidate callbacks from its auth session',
   );
+  const promotion = appMain.slice(
+    appMain.indexOf('const pendingAuthBootstrapRead = () => {'),
+    appMain.indexOf('requestSuxiFullRenderForPage = (page) => {'),
+  );
+  assert.match(promotion, /String\(key\)\.startsWith\('auth-info:'\) && entry\?\.promise/);
+  assert.match(promotion, /const authBootstrapRead = pendingAuthBootstrapRead\(\);/);
+  assert.match(promotion, /Promise\.resolve\(authBootstrapRead\)[\s\S]*\.finally\(\(\) => \{[\s\S]*promoteSuxiFullRender\(\);/);
+  assert.match(promotion, /suxiActiveRender\.value = fullRender;/);
+  assert.match(promotion, /suxiApp\?\.unmount\(\);[\s\S]*mountSuxiApp\(\);/);
 });
 
 test('manual notification refresh and write readback stay uncached', () => {

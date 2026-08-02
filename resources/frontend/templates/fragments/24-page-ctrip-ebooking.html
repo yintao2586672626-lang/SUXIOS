@@ -564,7 +564,7 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-green-50 cursor-pointer hover:bg-green-100" @click="sortCtripTable('amount')">离店销售额 <span v-if="ctripSortField === 'amount'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-yellow-50 cursor-pointer hover:bg-yellow-100" @click="sortCtripTable('quantity')">离店间夜量 <span v-if="ctripSortField === 'quantity'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-blue-50 cursor-pointer hover:bg-blue-100" @click="sortCtripTable('adr')">平均房价 <span v-if="ctripSortField === 'adr'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')"><term-help term="ari" /> <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                             <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程系预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 × 1.15–1.30 稳定情景系数；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
@@ -1042,6 +1042,7 @@
                                             <label class="text-xs font-medium text-slate-600">结束日期
                                                 <input data-testid="ctrip-history-end-date" v-model="ctripTrafficForm.endDate" type="date" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none">
                                             </label>
+                                            <button @click="loadSelectedCtripStoredBusinessDate" class="rounded border px-3 py-2 text-sm sm:col-span-2">读取已保存（不采集）</button>
                                         </div>
                                     </div>
 
@@ -1258,8 +1259,8 @@
                                             <div v-for="metric in ctripTrafficSummaryCards" :key="metric.key" :class="['rounded-lg border p-3', metric.tone]">
                                                 <div class="text-sm font-semibold text-slate-800">{{ metric.label }}</div>
                                                 <div :class="['mt-3 grid grid-cols-2 divide-x text-center', metric.tone]">
-                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ metric.rate ? `${toFixedSafe(ctripTrafficSummary.self[metric.key], 2)}%` : formatNumber(ctripTrafficSummary.self[metric.key]) }}</div></div>
-                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ metric.rate ? `${toFixedSafe(ctripTrafficSummary.avg[metric.key], 2)}%` : formatNumber(ctripTrafficSummary.avg[metric.key]) }}</div></div>
+                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ formatCtripTrafficSummaryMetric('self', metric) }}</div></div>
+                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ formatCtripTrafficSummaryMetric('avg', metric) }}</div></div>
                                                 </div>
                                             </div>
                                         </div>

@@ -560,6 +560,135 @@ final class OtaLocalCollectorServiceTest extends TestCase
             ->where('account_id', $account['account_id'])->value('status'));
     }
 
+    public function testUnboundHotelCanBeReassignedToAnotherOwnedAccountWithoutLosingHistory(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $actor = $this->actor();
+        $paired = $service->pairDevice([
+            'pair_code' => $service->createPairCode($actor, ['device_name' => 'Reassign PC'])['pair_code'],
+            'device_name' => 'Reassign PC',
+            'device_platform' => 'windows',
+        ]);
+        $first = $service->createAccount($actor, [
+            'device_id' => $paired['device_id'],
+            'platform' => 'ctrip',
+            'account_alias' => 'Original Ctrip account',
+            'system_hotel_id' => 101,
+            'platform_hotel_id' => 'CTRIP-REASSIGN-101',
+        ]);
+        $second = $service->createAccount($actor, [
+            'device_id' => $paired['device_id'],
+            'platform' => 'ctrip',
+            'account_alias' => 'Replacement Ctrip account',
+            'system_hotel_id' => 102,
+            'platform_hotel_id' => 'CTRIP-REASSIGN-102',
+        ]);
+        $mapping = Db::name('ota_local_collector_account_hotels')
+            ->where('account_id', $first['account_id'])
+            ->where('system_hotel_id', 101)
+            ->find();
+        $sourceId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 12,
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'local_collector',
+            'status' => 'success',
+            'enabled' => 1,
+            'config_json' => '{"platform_hotel_id":"CTRIP-REASSIGN-101"}',
+            'last_sync_status' => 'success',
+        ]);
+        Db::name('ota_local_collector_account_hotels')->where('id', (int)$mapping['id'])->update([
+            'data_source_id' => $sourceId,
+        ]);
+        Db::name('online_daily_data')->insert([
+            'system_hotel_id' => 101,
+            'data_source_id' => $sourceId,
+            'data_date' => '2026-07-31',
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'data_period' => 'yesterday',
+            'readback_verified' => 1,
+            'validation_status' => 'normal',
+            'amount' => 520,
+        ]);
+
+        $unbound = $service->unbindHotel($actor, (int)$first['account_id'], 101);
+        self::assertSame('unbound', $unbound['status']);
+        self::assertTrue($unbound['readback_verified']);
+
+        try {
+            $service->bindHotel($actor, (int)$second['account_id'], [
+                'system_hotel_id' => 101,
+                'platform_hotel_id' => 'CTRIP-WRONG-IDENTITY',
+            ]);
+            self::fail('Historical OTA identity was silently replaced during reassignment');
+        } catch (RuntimeException $exception) {
+            self::assertSame(409, $exception->getCode());
+            self::assertStringContainsString('必须保持原 OTA 平台门店标识', $exception->getMessage());
+        }
+        self::assertSame(2, (int)Db::name('ota_local_collector_account_hotels')->count());
+
+        $reassigned = $service->bindHotel($actor, (int)$second['account_id'], [
+            'system_hotel_id' => 101,
+            'platform_hotel_id' => 'CTRIP-REASSIGN-101',
+        ]);
+
+        self::assertSame('bound', $reassigned['status']);
+        self::assertSame('reassigned', $reassigned['write_action']);
+        self::assertTrue($reassigned['readback_verified']);
+        self::assertNotSame((int)$mapping['id'], $reassigned['mapping_id']);
+        self::assertSame((int)$mapping['id'], $reassigned['previous_mapping_id']);
+        self::assertSame((int)$first['account_id'], $reassigned['previous_account_id']);
+        self::assertSame((int)$second['account_id'], $reassigned['account_id']);
+        self::assertSame('active', $reassigned['mapping_status']);
+        self::assertSame(0, $reassigned['data_source_id']);
+        self::assertSame(3, (int)Db::name('ota_local_collector_account_hotels')->count());
+
+        $historicalMapping = Db::name('ota_local_collector_account_hotels')
+            ->where('id', (int)$mapping['id'])
+            ->find();
+        self::assertIsArray($historicalMapping);
+        self::assertSame((int)$first['account_id'], (int)$historicalMapping['account_id']);
+        self::assertSame('unbound', $historicalMapping['status']);
+        self::assertSame($sourceId, (int)$historicalMapping['data_source_id']);
+        self::assertSame('CTRIP-REASSIGN-101', $historicalMapping['platform_hotel_id']);
+
+        $activeMapping = Db::name('ota_local_collector_account_hotels')
+            ->where('id', (int)$reassigned['mapping_id'])
+            ->find();
+        self::assertIsArray($activeMapping);
+        self::assertSame((int)$second['account_id'], (int)$activeMapping['account_id']);
+        self::assertSame('active', $activeMapping['status']);
+        self::assertSame(0, (int)$activeMapping['data_source_id']);
+        self::assertSame(1, (int)Db::name('ota_local_collector_account_hotels')
+            ->where('tenant_id', 12)
+            ->where('system_hotel_id', 101)
+            ->where('platform', 'ctrip')
+            ->where('status', 'active')
+            ->count());
+        self::assertSame(1, (int)Db::name('online_daily_data')->where('data_source_id', $sourceId)->count());
+        self::assertSame(0, (int)Db::name('platform_data_sources')->where('id', $sourceId)->value('enabled'));
+        self::assertSame(
+            '{"platform_hotel_id":"CTRIP-REASSIGN-101"}',
+            Db::name('platform_data_sources')->where('id', $sourceId)->value('config_json')
+        );
+
+        $status = $service->status($actor);
+        $accountsById = [];
+        foreach ($status['accounts'] as $account) {
+            $accountsById[(int)$account['id']] = $account;
+        }
+        self::assertCount(0, $accountsById[(int)$first['account_id']]['hotels']);
+        self::assertCount(2, $accountsById[(int)$second['account_id']]['hotels']);
+
+        $repeatedUnbind = $service->unbindHotel($actor, (int)$first['account_id'], 101);
+        self::assertSame('unbound', $repeatedUnbind['status']);
+        self::assertTrue($repeatedUnbind['already_unbound']);
+        self::assertTrue($repeatedUnbind['readback_verified']);
+    }
+
     public function testRevokedAccountCanBeRestoredOnANewOwnedDeviceWithoutDuplicatingMappings(): void
     {
         $service = new OtaLocalCollectorService();
@@ -605,6 +734,53 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame($secondDevice['device_id'], (int)$account['device_id']);
         self::assertSame('login_required', $account['session_status']);
         self::assertStringContainsString('新电脑', $restored['next_action']);
+    }
+
+    public function testActiveHotelMappingCannotBeClaimedByAnotherAccount(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $actor = $this->actor();
+        $paired = $service->pairDevice([
+            'pair_code' => $service->createPairCode($actor, ['device_name' => 'Conflict PC'])['pair_code'],
+            'device_name' => 'Conflict PC',
+            'device_platform' => 'windows',
+        ]);
+        $first = $service->createAccount($actor, [
+            'device_id' => $paired['device_id'],
+            'platform' => 'ctrip',
+            'account_alias' => 'Active owner',
+            'system_hotel_id' => 101,
+            'platform_hotel_id' => 'CTRIP-ACTIVE-101',
+        ]);
+        $second = $service->createAccount($actor, [
+            'device_id' => $paired['device_id'],
+            'platform' => 'ctrip',
+            'account_alias' => 'Competing owner',
+            'system_hotel_id' => 102,
+            'platform_hotel_id' => 'CTRIP-ACTIVE-102',
+        ]);
+
+        try {
+            $service->bindHotel($actor, (int)$second['account_id'], [
+                'system_hotel_id' => 101,
+                'platform_hotel_id' => 'CTRIP-COMPETING-101',
+            ]);
+            self::fail('An active hotel mapping was claimed by another account');
+        } catch (RuntimeException $exception) {
+            self::assertSame(409, $exception->getCode());
+            self::assertStringContainsString('请先解绑原映射', $exception->getMessage());
+        }
+
+        self::assertSame(2, (int)Db::name('ota_local_collector_account_hotels')->count());
+        self::assertSame(1, (int)Db::name('ota_local_collector_account_hotels')
+            ->where('account_id', (int)$first['account_id'])
+            ->where('system_hotel_id', 101)
+            ->where('status', 'active')
+            ->count());
+        self::assertSame(0, (int)Db::name('ota_local_collector_account_hotels')
+            ->where('account_id', (int)$second['account_id'])
+            ->where('system_hotel_id', 101)
+            ->count());
     }
 
     public function testOnePlatformHotelIdentityCannotBeMappedToTwoSystemHotels(): void
@@ -1551,6 +1727,9 @@ final class OtaLocalCollectorServiceTest extends TestCase
             system_hotel_id INTEGER NOT NULL, platform TEXT NOT NULL, platform_hotel_id TEXT NOT NULL,
             platform_hotel_name TEXT, data_source_id INTEGER, status TEXT NOT NULL, create_time TEXT, update_time TEXT
         )');
+        Db::execute('CREATE UNIQUE INDEX uq_ota_local_account_hotel ON ota_local_collector_account_hotels (account_id, system_hotel_id)');
+        Db::execute("CREATE UNIQUE INDEX uq_ota_local_active_hotel_platform ON ota_local_collector_account_hotels (tenant_id, system_hotel_id, platform) WHERE status = 'active'");
+        Db::execute("CREATE UNIQUE INDEX uq_ota_local_active_platform_hotel_identity ON ota_local_collector_account_hotels (tenant_id, platform, platform_hotel_id) WHERE status = 'active'");
         Db::execute('CREATE TABLE ota_local_collector_tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
             device_id INTEGER NOT NULL, account_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL,

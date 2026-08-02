@@ -21,6 +21,7 @@ return [
         'online-data:cleanup-dormant-profiles' => 'app\command\CleanupDormantOtaProfiles',
         'online-data:sync-ctrip-public-profiles' => 'app\command\SyncCtripPublicHotelProfiles',
         'online-data:daily-workbench-patrol' => 'app\command\DailyWorkbenchPatrol',
+        'operation:scheduled-review-once' => 'app\command\ReviewScheduledExecutionOnce',
         'online-data:profile-login' => 'app\command\PlatformProfileLogin',
         'online-data:notify-failure' => 'app\command\NotifyOtaFailure',
         'ai-daily-report:generate-once' => 'app\command\GenerateAiDailyReportOnce',

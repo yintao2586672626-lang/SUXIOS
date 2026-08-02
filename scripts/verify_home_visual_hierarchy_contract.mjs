@@ -76,11 +76,11 @@ const checks = [
   {
     name: 'home first screen separates yesterday facts, today acquisition status, future AI judgement and source scopes',
     pass: publicSource.includes('data-testid="home-yesterday-facts"')
-      && publicSource.includes(':data-testid="stage.testid"')
+      && (publicSource.includes(':data-testid="stage.testid"') || homeStaticSource.includes("'data-testid': stage.testid"))
       && homeStaticSource.includes("testid: 'home-today-acquired-status'")
       && homeStaticSource.includes("testid: 'home-future-ai-judgement'")
       && publicSource.includes('data-testid="home-scope-boundaries"')
-      && publicSource.includes('data-testid="home-competitor-diagnostic-reference"')
+      && (publicSource.includes('data-testid="home-competitor-diagnostic-reference"') || homeStaticSource.includes("'data-testid': 'home-competitor-diagnostic-reference'"))
       && publicSource.includes('v-for="fact in homeBusinessTimeModel.yesterday.facts"')
       && publicSource.includes('v-for="scope in homeBusinessTimeModel.scopeRows"')
       && publicSource.includes("requireHomeStatic('buildHomeBusinessTimeModel')")
@@ -151,15 +151,17 @@ const checks = [
   },
   {
     name: 'home competitor evidence stays a collapsed diagnostic reference',
-    pass: templateSource.includes('data-testid="home-competitor-diagnostic-reference"')
-      && templateSource.includes('竞对异常诊断参考（非首页主线）')
+    pass: templateSource.includes('<home-business-time-axis')
+      && homeStaticSource.includes("'data-testid': 'home-competitor-diagnostic-reference'")
+      && homeStaticSource.includes('竞对异常诊断参考（非首页主线）')
       && !templateSource.includes('data-testid="home-competitor-summary"')
       && !templateSource.includes('data-testid="home-competitor-card-grid"')
       && homeStaticSource.includes("role: 'diagnostic'"),
   },
   {
     name: 'home removes duplicate action panels from the factual landing page',
-    pass: templateSource.includes('data-testid="home-temporal-axis"')
+    pass: templateSource.includes('<home-business-time-axis')
+      && homeStaticSource.includes("'data-testid': 'home-temporal-axis'")
       && !templateSource.includes('data-testid="home-action-panel"')
       && !templateSource.includes('data-testid="home-decision-strip"'),
   },
@@ -224,7 +226,7 @@ const checks = [
 
 const executiveAnswerContractPass = publicSource.includes('data-testid="home-executive-answer"')
   && publicSource.includes('data-testid="home-yesterday-facts"')
-  && publicSource.includes(':data-testid="stage.testid"')
+  && (publicSource.includes(':data-testid="stage.testid"') || homeStaticSource.includes("'data-testid': stage.testid"))
   && homeStaticSource.includes("testid: 'home-today-acquired-status'")
   && homeStaticSource.includes("testid: 'home-future-ai-judgement'")
   && publicSource.includes('v-for="fact in homeBusinessTimeModel.yesterday.facts"')

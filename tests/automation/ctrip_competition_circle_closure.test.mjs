@@ -58,6 +58,42 @@ test('Ctrip UI removes the unsupported all-channel AI room-night estimate', () =
   assert.doesNotMatch(ctripStatic, /field === 'aiEstimatedTotalRoomNights'/);
 });
 
+test('OTA pages can read one exact stored business date without triggering collection', () => {
+  const appMain = fs.readFileSync(path.join(root, 'public/app-main.js'), 'utf8');
+  const ctripTemplate = fs.readFileSync(
+    path.join(root, 'resources/frontend/templates/fragments/24-page-ctrip-ebooking.html'),
+    'utf8',
+  );
+  const meituanTemplate = fs.readFileSync(
+    path.join(root, 'resources/frontend/templates/fragments/26-page-meituan-ebooking.html'),
+    'utf8',
+  );
+
+  assert.match(ctripTemplate, /@click="loadSelectedCtripStoredBusinessDate"/);
+  assert.match(ctripTemplate, /读取已保存（不采集）/);
+  assert.match(appMain, /const loadSelectedCtripStoredBusinessDate = async \(\) => \{/);
+  assert.match(appMain, /if \(selectedHotelId\) \{[\s\S]{0,180}params\.append\('hotel_id', selectedHotelId\);[\s\S]{0,180}params\.append\('system_hotel_id', selectedHotelId\);/);
+  assert.match(appMain, /businessContext: \{ hotelId: selectedHotelId, platform: 'ctrip' \}/);
+  assert.match(appMain, /onlineHistoryFilter\.value\?\.hotel_id[\s\S]{0,500}businessContext: \{ hotelId: scopedHotelId, platform: scopedPlatform \}/);
+  assert.match(appMain, /hydrateDisplay: true,[\s\S]{0,80}range: startDate/);
+  assert.match(appMain, /未使用其他日期填充/);
+  assert.match(appMain, /const targetSelfRows = targetRows\.filter\(row => ctripTrafficRowRole\(row\) === 'self'\)/);
+  assert.match(appMain, /仅回读竞争圈数据，本店携程流量事实未返回/);
+  assert.match(appMain, /const scopedRows = selfRows;/);
+  assert.doesNotMatch(appMain, /const scopedRows = selfRows\.length \? selfRows : rows;/);
+  assert.match(appMain, /const formatCtripTrafficSummaryMetric = \(role, metric\) => \{[\s\S]{0,220}return '未返回'/);
+  assert.match(ctripTemplate, /formatCtripTrafficSummaryMetric\('self', metric\)/);
+  assert.match(ctripTemplate, /formatCtripTrafficSummaryMetric\('avg', metric\)/);
+  assert.match(appMain, /const readStoredOtaTrafficGate = async \(\{ hotelId, platform, businessDate \}\) => \{/);
+  assert.match(appMain, /hotel_id: String\(hotelId\),[\s\S]{0,120}system_hotel_id: String\(hotelId\)/);
+  assert.match(appMain, /p0_traffic_gate_status \|\| 'not_loaded'/);
+  assert.match(appMain, /gate\.status !== 'ready'[\s\S]{0,180}不标记为可信流量事实/);
+
+  assert.match(meituanTemplate, /dateRanges\.includes\('custom'\) \? openMeituanStoredBusinessDate\(\) : switchToMeituanDownloadCenter\(\)/);
+  assert.match(appMain, /const openMeituanStoredBusinessDate = async \(\) => \{/);
+  assert.match(appMain, /onlineDataFilter\.value\.start_date = startDate;[\s\S]{0,120}onlineDataFilter\.value\.end_date = endDate;/);
+});
+
 test('competition-circle selector keeps persistence guidance concise', () => {
   const html = readFrontendContractSource();
 

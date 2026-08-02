@@ -196,7 +196,7 @@
                                         </div>
                                         <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-500">
                                             <div>记录 <span class="font-semibold text-gray-800">{{ signal.record_count || 0 }}</span></div>
-                                            <div>ROI <span class="font-semibold text-gray-800">{{ signal.roi_ready_count || 0 }}</span></div>
+                                                <div><term-help term="roi" /> <span class="font-semibold text-gray-800">{{ signal.roi_ready_count || 0 }}</span></div>
                                             <div>过程 <span class="font-semibold text-gray-800">{{ signal.process_closed_loop ? '已闭环' : '未闭合' }}</span></div>
                                             <div>范围 <span class="font-semibold text-gray-800">{{ signal.source_scope || '-' }}</span></div>
                                         </div>

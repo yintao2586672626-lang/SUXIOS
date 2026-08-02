@@ -11,7 +11,7 @@ const context = { window: {}, console };
 vm.runInNewContext(ctripStaticSource, context, { filename: 'public/ctrip-static.js' });
 const api = context.window.SUXI_CTRIP_STATIC;
 
-test('Ctrip channel orders derive from visitors multiplied by conversion rate', () => {
+test('Ctrip ecosystem orders derive without attributing the residual to Tongcheng', () => {
   const result = api.buildCtripChannelOrderBreakdown({
     bookOrderNum: 74,
     totalDetailNum: 797,
@@ -22,9 +22,12 @@ test('Ctrip channel orders derive from visitors multiplied by conversion rate', 
 
   assert.equal(result.ctripOrders, 44);
   assert.equal(result.qunarOrders, 24);
-  assert.equal(result.tongchengDistributionOrders, 6);
+  assert.equal(result.ctripUndistributedOrders, 6);
   assert.equal(result.status, 'derived');
   assert.match(result.formulas.ctrip, /访客量 × 携程转化率/);
+  assert.match(result.formulas.ctripUndistributed, /携程系预订订单/);
+  assert.match(result.sourceLabel, /未接入同程订单数据源/);
+  assert.equal('tongchengDistributionOrders' in result, false);
 
   const attached = api.attachCtripChannelOrderBreakdown({
     bookOrderNum: 54,
@@ -35,7 +38,8 @@ test('Ctrip channel orders derive from visitors multiplied by conversion rate', 
   });
   assert.equal(attached.ctripOrderEstimate, 21);
   assert.equal(attached.qunarOrderEstimate, 27);
-  assert.equal(attached.tongchengDistributionOrderEstimate, 6);
+  assert.equal(attached.ctripUndistributedOrderEstimate, 6);
+  assert.equal('tongchengDistributionOrderEstimate' in attached, false);
 });
 
 test('Ctrip channel order breakdown preserves missing and conflicting states', () => {
@@ -48,7 +52,7 @@ test('Ctrip channel order breakdown preserves missing and conflicting states', (
   });
   assert.equal(missing.ctripOrders, 44);
   assert.equal(missing.qunarOrders, null);
-  assert.equal(missing.tongchengDistributionOrders, null);
+  assert.equal(missing.ctripUndistributedOrders, null);
   assert.equal(missing.status, 'input_missing');
 
   const conflict = api.buildCtripChannelOrderBreakdown({
@@ -60,10 +64,10 @@ test('Ctrip channel order breakdown preserves missing and conflicting states', (
   });
   assert.equal(conflict.ctripOrders, 9);
   assert.equal(conflict.qunarOrders, 9);
-  assert.equal(conflict.tongchengDistributionOrders, null);
-  assert.equal(conflict.channelEstimateExcessOrders, 8);
-  assert.equal(conflict.status, 'channel_total_conflict');
-  assert.equal(conflict.displayLabel, '渠道推算超出总订单 8 单');
+  assert.equal(conflict.ctripUndistributedOrders, null);
+  assert.equal(conflict.ctripEstimateExcessOrders, 8);
+  assert.equal(conflict.status, 'ctrip_ecosystem_total_conflict');
+  assert.equal(conflict.displayLabel, '携程系推算超出总订单 8 单');
 
   const visibleRowConflict = api.buildCtripChannelOrderBreakdown({
     bookOrderNum: 75,
@@ -74,8 +78,8 @@ test('Ctrip channel order breakdown preserves missing and conflicting states', (
   });
   assert.equal(visibleRowConflict.ctripOrders, 37);
   assert.equal(visibleRowConflict.qunarOrders, 48);
-  assert.equal(visibleRowConflict.channelEstimateExcessOrders, 10);
-  assert.equal(visibleRowConflict.displayLabel, '渠道推算超出总订单 10 单');
+  assert.equal(visibleRowConflict.ctripEstimateExcessOrders, 10);
+  assert.equal(visibleRowConflict.displayLabel, '携程系推算超出总订单 10 单');
 
   const zero = api.buildCtripChannelOrderBreakdown({
     bookOrderNum: 0,
@@ -85,9 +89,21 @@ test('Ctrip channel order breakdown preserves missing and conflicting states', (
     qunarDetailCR: 0,
   });
   assert.deepEqual(
-    [zero.ctripOrders, zero.qunarOrders, zero.tongchengDistributionOrders],
+    [zero.ctripOrders, zero.qunarOrders, zero.ctripUndistributedOrders],
     [0, 0, 0],
   );
+
+  const screenshotLikeRow = api.attachCtripChannelOrderBreakdown({
+    bookOrderNum: 16,
+    totalDetailNum: 0,
+    convertionRate: 0,
+    qunarDetailVisitors: 0,
+    qunarDetailCR: 0,
+  });
+  assert.equal(screenshotLikeRow.ctripOrderEstimate, 0);
+  assert.equal(screenshotLikeRow.qunarOrderEstimate, 0);
+  assert.equal(screenshotLikeRow.ctripUndistributedOrderEstimate, 16);
+  assert.match(screenshotLikeRow.channelOrderBreakdownMeta.sourceLabel, /未接入同程订单数据源/);
 });
 
 test('Ctrip tables expose the renamed total and ordered derived channel columns', () => {
@@ -110,13 +126,16 @@ test('Ctrip tables expose the renamed total and ordered derived channel columns'
   const columnEnd = appMain.indexOf('const ctripTrafficChannelText', columnStart);
   const columnDefinitions = appMain.slice(columnStart, columnEnd);
   previous = -1;
-  ['携程订单', '去哪儿访客', '去哪儿转化率', '去哪儿订单', '同程及分销渠道订单'].forEach((label) => {
+  ['携程订单', '去哪儿访客', '去哪儿转化率', '去哪儿订单', '携程系未拆分订单（推算）'].forEach((label) => {
     const position = columnDefinitions.indexOf(label);
     assert.ok(position > previous, `${label} should follow the preceding derived column`);
     previous = position;
   });
   assert.match(appMain, /channelOrderBreakdownMeta/);
   assert.match(appMain, /attachCtripChannelOrderBreakdown/);
+  assert.doesNotMatch(appMain, /同程及分销渠道订单/);
+  assert.doesNotMatch(appMain, /tongchengDistributionOrderEstimate/);
+  assert.doesNotMatch(ctripStaticSource, /tongchengDistributionOrders/);
   assert.doesNotMatch(appMain, /`≈ \$\{formatOptionalNumber\(value\)\}`/);
 });
 

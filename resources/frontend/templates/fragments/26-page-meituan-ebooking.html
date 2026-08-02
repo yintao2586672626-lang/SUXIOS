@@ -125,7 +125,7 @@
                                         <button aria-label="更新竞争圈" @click="fetchMeituanData" :disabled="fetchingData || !canFetchMeituanRankingData()" :class="fetchingData || !canFetchMeituanRankingData() ? 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed' : 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'" class="inline-flex items-center rounded-lg border px-4 py-3 text-base font-medium transition-colors">
                                             <i class="fas fa-download mr-2"></i>{{ meituanFetchButtonText }}
                                         </button>
-                                        <button type="button" @click="switchToMeituanDownloadCenter" class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50">
+                                        <button type="button" @click="meituanForm.dateRanges.includes('custom') ? openMeituanStoredBusinessDate() : switchToMeituanDownloadCenter()" class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50">
                                             <i class="fas fa-table mr-2"></i>查看已入库数据
                                         </button>
                                     </div>
@@ -1104,7 +1104,7 @@
                                                         <th class="px-4 py-2 text-left border">日期</th>
                                                         <th class="px-4 py-2 text-left border">曝光</th>
                                                         <th class="px-4 py-2 text-left border">点击</th>
-                                                        <th class="px-4 py-2 text-left border">转化率</th>
+                                                        <th class="px-4 py-2 text-left border"><term-help term="conversion_rate" /></th>
                                                         <th class="px-4 py-2 text-left border">维度</th>
                                                         <th class="px-4 py-2 text-left border">创建时间</th>
                                                         <th class="px-4 py-2 text-left border">操作</th>

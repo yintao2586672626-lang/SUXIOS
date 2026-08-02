@@ -2895,22 +2895,22 @@ window.SUXI_CTRIP_STATIC = (() => {
         const hasAllInputs = totalOrders !== null && ctripOrders !== null && qunarOrders !== null;
         const residualOrders = hasAllInputs ? Math.round(totalOrders) - ctripOrders - qunarOrders : null;
         const residualConflict = residualOrders !== null && residualOrders < 0;
-        const channelEstimateExcessOrders = residualConflict ? Math.abs(residualOrders) : 0;
+        const ctripEstimateExcessOrders = residualConflict ? Math.abs(residualOrders) : 0;
 
         return {
             ctripOrders,
             qunarOrders,
-            tongchengDistributionOrders: residualConflict ? null : residualOrders,
-            channelEstimateExcessOrders,
-            status: !hasAllInputs ? 'input_missing' : (residualConflict ? 'channel_total_conflict' : 'derived'),
+            ctripUndistributedOrders: residualConflict ? null : residualOrders,
+            ctripEstimateExcessOrders,
+            status: !hasAllInputs ? 'input_missing' : (residualConflict ? 'ctrip_ecosystem_total_conflict' : 'derived'),
             displayLabel: !hasAllInputs
                 ? '输入缺失'
-                : (residualConflict ? `渠道推算超出总订单 ${channelEstimateExcessOrders} 单` : '推算'),
-            sourceLabel: '流量与转化率向上取整，非平台返回订单明细',
+                : (residualConflict ? `携程系推算超出总订单 ${ctripEstimateExcessOrders} 单` : '携程系内部推算'),
+            sourceLabel: '仅基于携程系预订订单、携程APP和去哪儿流量转化率推算；未接入同程订单数据源',
             formulas: {
                 ctrip: '向上取整（携程APP访客量 × 携程转化率）',
                 qunar: '向上取整（去哪儿访客 × 去哪儿转化率）',
-                tongchengDistribution: '携程系预订订单 − 携程订单 − 去哪儿订单',
+                ctripUndistributed: '携程系预订订单 − 携程APP推算订单 − 去哪儿推算订单',
             },
             inputs: {
                 totalOrders,
@@ -2928,7 +2928,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             ...(row && typeof row === 'object' ? row : {}),
             ctripOrderEstimate: breakdown.ctripOrders,
             qunarOrderEstimate: breakdown.qunarOrders,
-            tongchengDistributionOrderEstimate: breakdown.tongchengDistributionOrders,
+            ctripUndistributedOrderEstimate: breakdown.ctripUndistributedOrders,
             channelOrderBreakdownMeta: breakdown,
         };
     };

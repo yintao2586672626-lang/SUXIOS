@@ -11,6 +11,7 @@ const onlineDataPage = read('resources/frontend/templates/fragments/35-page-onli
 const researchPage = read('resources/frontend/templates/fragments/19-page-revenue-research-center.html');
 const optimizerPage = read('resources/frontend/templates/fragments/19a-page-operation-optimizer.html');
 const appMain = read('public/app-main.js');
+const operationStatic = read('public/operation-static.js');
 const routes = read('route/app.php');
 const manifest = JSON.parse(read('resources/frontend/templates/manifest.json'));
 const templateSource = read('scripts/lib/frontend_template_source.mjs');
@@ -134,12 +135,33 @@ test('non-price execution evidence can be saved without fabricating revenue or R
   assert.match(trackPage, /submitOperationExecutionEvidence/);
 });
 
+test('revenue node scope can be recorded with explicit facts and missing-state boundaries', () => {
+  assert.match(trackPage, /<option value="3">节点口径<\/option>/);
+  assert.match(trackPage, /\['1', '3'\]\.includes\(operationEvidenceForm\.mode\)/);
+  assert.match(operationStatic, /PMS \+ OTA 交叉核对/);
+  assert.match(appMain, /const canSupplementManualEvidence = executionStatus === 'executed'/);
+  assert.match(appMain, /item\?\.next_action\?\.key === 'record_evidence'/);
+  assert.match(appMain, /const executionHotelId = operationExecutionHotelId\(item\)/);
+  assert.match(appMain, /title: '记录收益节点口径'/);
+  assert.match(appMain, /指标快照与风险未知时保持为空/);
+  assert.match(appMain, /fields: operationRevenueNodeDialogFields/);
+  assert.match(appMain, /buildOperationRevenueNodeRecord\(\{ \.\.\.form, \.\.\.nodeValues, record_node: recordNode \}, executedAt\)/);
+  assert.match(appMain, /node_record: nodeRecord/);
+  assert.match(appMain, /\['1', '3'\]\.includes\(evidenceMode\)[\s\S]*?'manual_operation_execution'/);
+  assert.match(appMain, /const nodeText = \(item\) => operationExecutionNodeRecordText\(item\)/);
+});
+
 test('operation execution requests keep the selected hotel identity consistent through readback', () => {
   const loadStart = appMain.indexOf('const loadOperationActions = async');
   const loadEnd = appMain.indexOf('const parseOperationEvidenceNumber', loadStart);
   const loadFlow = appMain.slice(loadStart, loadEnd);
   assert.match(loadFlow, /params\.append\('hotel_id', requestHotelId\)/);
   assert.match(loadFlow, /params\.append\('system_hotel_id', requestHotelId\)/);
+  const memoryStart = appMain.indexOf('const loadOperatingMemories = async');
+  const memoryEnd = appMain.indexOf('const operationMemorySourceIntent', memoryStart);
+  const memoryFlow = appMain.slice(memoryStart, memoryEnd);
+  assert.match(memoryFlow, /params\.set\('hotel_id', requestedHotelId\)/);
+  assert.match(memoryFlow, /params\.set\('system_hotel_id', requestedHotelId\)/);
   assert.match(appMain, /const operationExecutionHotelId = \(item\)/);
   assert.match(appMain, /执行任务与当前酒店身份不一致/);
   assert.match(appMain, /执行任务回读酒店身份不一致/);
