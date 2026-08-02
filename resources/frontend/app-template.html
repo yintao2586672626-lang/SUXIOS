@@ -4815,10 +4815,11 @@
                                             </td>
                                             <td class="px-4 py-3">
                                                 <div class="flex flex-wrap gap-2">
-                                                    <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs hover:bg-green-700">{{ operationApprovalText(item) }}</button>
-                                                    <button v-if="operationCanApproveExecution(item)" @click="rejectOrCancelOperationApproval(item)" class="px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">{{ operationRejectText(item) }}</button>
-                                                    <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">录证据</button>
-                                                    <button v-if="operationCanReconcileExecution(item) || operationCanReviewExecution(item)" data-testid="operation-review-action" @click="operationCanReconcileExecution(item) ? reconcileOperationExecutionReview(item) : reviewOperationExecutionTask(item)" class="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">{{ operationCanReconcileExecution(item) ? '读取事实' : '复盘' }}</button>
+                                                    <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="btn-primary btn-success text-xs">{{ operationApprovalText(item) }}</button>
+                                                    <button v-if="operationCanApproveExecution(item)" @click="rejectOrCancelOperationApproval(item)" class="btn-secondary text-xs">{{ operationRejectText(item) }}</button>
+                                                    <button v-if="operationCanRecordNodeCheck(item)" data-testid="operation-node-check-action" @click="recordOperationRevenueNodeCheck(item)" class="btn-secondary text-xs">{{ item.evidence_summary?.node_record?.status === 'available' ? '更新节点' : '节点检查' }}</button>
+                                                    <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="btn-primary text-xs">录证据</button>
+                                                    <button v-if="operationCanReconcileExecution(item) || operationCanReviewExecution(item)" data-testid="operation-review-action" @click="operationCanReconcileExecution(item) ? reconcileOperationExecutionReview(item) : reviewOperationExecutionTask(item)" class="btn-secondary text-xs">{{ operationCanReconcileExecution(item) ? '读取事实' : '复盘' }}</button>
                                                     <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_at || item.review.available_on || '次日' }} 可读取</span>
                                                     <button v-if="canSaveMemo(item)" @click="saveMemo(item)" data-testid="save-operating-memory">沉淀记忆</button>
                                                     <span v-if="!operationExecutionActionAvailable(item)" class="text-xs text-gray-400">-</span>
@@ -4915,11 +4916,10 @@
                                         <span class="text-xs font-medium text-slate-600">证据类型</span>
                                         <select v-model="operationEvidenceForm.mode" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                             <option value="1">已完成运营动作（效果待观察）</option>
-                                            <option value="3">节点口径</option>
                                             <option value="2">真实收入/成本证据</option>
                                         </select>
                                     </label>
-                                    <template v-if="['1', '3'].includes(operationEvidenceForm.mode)">
+                                    <template v-if="operationEvidenceForm.mode === '1'">
                                         <label class="block">
                                             <span class="text-xs font-medium text-slate-600">实际完成的动作 *</span>
                                             <textarea v-model.trim="operationEvidenceForm.completed_action" rows="4" placeholder="填写已经执行的动作，不要填写计划或预期效果" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>

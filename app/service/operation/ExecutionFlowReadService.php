@@ -558,16 +558,28 @@ final class ExecutionFlowReadService
                     $platformResponse = $this->decodeJson((string)$row['platform_response_json']);
                 }
                 $candidate = $this->arrayValue($platformResponse['node_record'] ?? []);
-                if (($candidate['contract_version'] ?? '') === 'operation_revenue_node.v1') {
+                if (in_array(
+                    (string)($candidate['contract_version'] ?? ''),
+                    ['operation_revenue_node.v1', 'operation_revenue_node.v2'],
+                    true
+                )) {
                     $nodeRecord = [
                         'status' => 'available',
+                        'contract_version' => trim((string)($candidate['contract_version'] ?? '')),
+                        'system_hotel_id' => trim((string)($candidate['system_hotel_id'] ?? '')),
+                        'business_date' => trim((string)($candidate['business_date'] ?? '')),
                         'recorded_at' => trim((string)($candidate['recorded_at'] ?? '')),
                         'operating_period' => trim((string)($candidate['operating_period'] ?? '')),
+                        'special_event' => trim((string)($candidate['special_event'] ?? '')),
                         'source_scope' => trim((string)($candidate['source_scope'] ?? '')),
                         'room_status_alignment' => trim((string)($candidate['room_status_alignment'] ?? '')),
                         'data_quality_status' => trim((string)($candidate['data_quality_status'] ?? '')),
+                        'metric_definition' => trim((string)($candidate['metric_definition'] ?? '')),
+                        'metric_snapshot' => trim((string)($candidate['metric_snapshot'] ?? '')),
                         'progress_status' => trim((string)($candidate['progress_status'] ?? '')),
                         'comparison_basis' => trim((string)($candidate['comparison_basis'] ?? '')),
+                        'judgment_basis' => trim((string)($candidate['judgment_basis'] ?? '')),
+                        'primary_risk' => trim((string)($candidate['primary_risk'] ?? '')),
                         'success_criteria' => trim((string)($candidate['success_criteria'] ?? '')),
                         'stop_condition' => trim((string)($candidate['stop_condition'] ?? '')),
                     ];

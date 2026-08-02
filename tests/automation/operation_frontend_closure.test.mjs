@@ -135,19 +135,48 @@ test('non-price execution evidence can be saved without fabricating revenue or R
   assert.match(trackPage, /submitOperationExecutionEvidence/);
 });
 
-test('revenue node scope can be recorded with explicit facts and missing-state boundaries', () => {
-  assert.match(trackPage, /<option value="3">节点口径<\/option>/);
-  assert.match(trackPage, /\['1', '3'\]\.includes\(operationEvidenceForm\.mode\)/);
+test('revenue node check is independent from completed-action evidence and reads back exact identity', () => {
+  assert.doesNotMatch(trackPage, /<option value="3">节点口径<\/option>/);
+  assert.doesNotMatch(trackPage, /\['1', '3'\]\.includes\(operationEvidenceForm\.mode\)/);
+  assert.match(trackPage, /data-testid="operation-node-check-action"/);
+  assert.match(trackPage, /recordOperationRevenueNodeCheck\(item\)/);
+  assert.match(trackPage, /更新节点.*节点检查/);
   assert.match(operationStatic, /PMS \+ OTA 交叉核对/);
-  assert.match(appMain, /const canSupplementManualEvidence = executionStatus === 'executed'/);
-  assert.match(appMain, /item\?\.next_action\?\.key === 'record_evidence'/);
-  assert.match(appMain, /const executionHotelId = operationExecutionHotelId\(item\)/);
-  assert.match(appMain, /title: '记录收益节点口径'/);
-  assert.match(appMain, /指标快照与风险未知时保持为空/);
-  assert.match(appMain, /fields: operationRevenueNodeDialogFields/);
-  assert.match(appMain, /buildOperationRevenueNodeRecord\(\{ \.\.\.form, \.\.\.nodeValues, record_node: recordNode \}, executedAt\)/);
+  const start = appMain.indexOf('const recordOperationRevenueNodeCheck = async');
+  const end = appMain.indexOf('const recordOperationExecutionEvidence = async', start);
+  const nodeFlow = appMain.slice(start, end);
+  assert.match(nodeFlow, /evidence_type: 'revenue_node_check'/);
+  assert.match(nodeFlow, /`\/operation\/execution-tasks\/\$\{taskId\}\/evidence`/);
+  assert.match(nodeFlow, /system_hotel_id: executionHotelId/);
+  assert.match(nodeFlow, /business_date: businessDate/);
+  assert.match(nodeFlow, /operator_recorded_scope_not_pms_or_ota_verified/);
+  assert.match(nodeFlow, /readOperationExecutionTask\(taskId, executionHotelId\)/);
+  const persistedFieldListMatch = nodeFlow.match(/const revenueNodeV2PersistedStringFields = \[([\s\S]*?)\];/);
+  assert.ok(persistedFieldListMatch, 'missing explicit revenue node v2 persisted field list');
+  const persistedFields = [...persistedFieldListMatch[1].matchAll(/'([^']+)'/g)].map(match => match[1]);
+  assert.deepEqual(persistedFields, [
+    'business_date',
+    'recorded_at',
+    'operating_period',
+    'special_event',
+    'source_scope',
+    'room_status_alignment',
+    'data_quality_status',
+    'metric_definition',
+    'comparison_basis',
+    'metric_snapshot',
+    'progress_status',
+    'judgment_basis',
+    'primary_risk',
+    'success_criteria',
+    'stop_condition',
+  ]);
+  const expectedNode = Object.fromEntries(persistedFields.map(field => [field, 'expected']));
+  const truncatedReadback = { ...expectedNode, metric_snapshot: '' };
+  assert.equal(persistedFields.some(field => String(truncatedReadback[field] ?? '') !== String(expectedNode[field] ?? '')), true);
+  assert.match(nodeFlow, /String\(persistedNode\[field\] \?\? ''\) !== String\(nodeRecord\[field\] \?\? ''\)/);
+  assert.match(nodeFlow, /节点检查未按完整口径精确回读/);
   assert.match(appMain, /node_record: nodeRecord/);
-  assert.match(appMain, /\['1', '3'\]\.includes\(evidenceMode\)[\s\S]*?'manual_operation_execution'/);
   assert.match(appMain, /const nodeText = \(item\) => operationExecutionNodeRecordText\(item\)/);
 });
 

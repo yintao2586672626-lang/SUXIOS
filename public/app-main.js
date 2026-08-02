@@ -22509,6 +22509,8 @@
                 return Number(item?.execution?.task_id || 0) > 0
                     && (canStartExecution || canSupplementManualEvidence);
             };
+            let operationCanRecordNodeCheck = (item) => ['pending_execute', 'executing', 'executed'].includes(item?.execution?.status || '')
+                && Number(item?.execution?.task_id || 0) > 0;
             let operationCanReconcileExecution = (item) => item?.execution?.status === 'executed'
                 && item?.review?.is_available === true
                 && item?.evidence_truth?.source_verified !== true
@@ -22521,6 +22523,7 @@
                 && String(item?.review?.summary || '').trim() !== '';
             let operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
                 || operationCanExecuteWithEvidence(item)
+                || operationCanRecordNodeCheck(item)
                 || operationCanReconcileExecution(item)
                 || operationCanReviewExecution(item)
                 || operationCanSaveOperatingMemory(item);
@@ -22542,7 +22545,7 @@
             let operationExecutionSourceText = () => 'manual';
             let operationExecutionActionTextForItem = () => '动作 · 未知策略';
             let operationExecutionReviewTextForItem = () => '-';
-            let operationRevenueNodeDialogFields = [];
+            let operationRevenueNodeFieldsForItem = () => [];
             let buildOperationRevenueNodeRecord = () => null;
             let operationExecutionNodeRecordText = () => '节点口径未记录';
             const nodeText = (item) => operationExecutionNodeRecordText(item);
@@ -22611,11 +22614,13 @@
                     const staticCanExecuteWithEvidence = requireOperationStatic(staticConfig, 'operationCanExecuteWithEvidence');
                     operationCanExecuteWithEvidence = (item) => staticCanExecuteWithEvidence(item)
                         && (item?.execution?.status === 'executed' || operationExecutionAssignedToCurrentUser(item));
+                    operationCanRecordNodeCheck = requireOperationStatic(staticConfig, 'operationCanRecordNodeCheck');
                     operationCanReconcileExecution = requireOperationStatic(staticConfig, 'operationCanReconcileExecution');
                     operationCanReviewExecution = requireOperationStatic(staticConfig, 'operationCanReviewExecution');
                     requireOperationStatic(staticConfig, 'operationExecutionActionAvailable');
                     operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
                         || operationCanExecuteWithEvidence(item)
+                        || operationCanRecordNodeCheck(item)
                         || operationCanReconcileExecution(item)
                         || operationCanReviewExecution(item)
                         || operationCanSaveOperatingMemory(item);
@@ -22627,7 +22632,7 @@
                     operationExecutionSourceText = requireOperationStatic(staticConfig, 'operationExecutionSourceText');
                     operationExecutionActionTextForItem = requireOperationStatic(staticConfig, 'operationExecutionActionText');
                     operationExecutionReviewTextForItem = requireOperationStatic(staticConfig, 'operationExecutionReviewText');
-                    operationRevenueNodeDialogFields = requireOperationStatic(staticConfig, 'operationRevenueNodeDialogFields');
+                    operationRevenueNodeFieldsForItem = requireOperationStatic(staticConfig, 'operationRevenueNodeFieldsForItem');
                     buildOperationRevenueNodeRecord = requireOperationStatic(staticConfig, 'buildOperationRevenueNodeRecord');
                     operationExecutionNodeRecordText = requireOperationStatic(staticConfig, 'operationExecutionNodeRecordText');
                     operationExecutionRoiTextForRoi = requireOperationStatic(staticConfig, 'operationExecutionRoiText');
@@ -27965,6 +27970,93 @@
                 }
             };
 
+            const recordOperationRevenueNodeCheck = async (item) => {
+                const taskId = Number(item?.execution?.task_id || 0);
+                const executionHotelId = operationExecutionHotelId(item);
+                const businessDate = String(item?.recommendation?.date_start || '').slice(0, 10);
+                if (!operationCanRecordNodeCheck(item) || !taskId) return;
+                if (!executionHotelId || Number(operationFilters.value.hotel_id || 0) !== executionHotelId) {
+                    showToast('节点检查与当前酒店身份不一致', 'error');
+                    return;
+                }
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
+                    showToast('执行任务缺少业务日期，不能记录节点检查', 'error');
+                    return;
+                }
+                const previousNode = item?.evidence_summary?.node_record || {};
+                const values = await openWorkflowFormDialog({
+                    title: previousNode.status === 'available' ? '更新收益节点检查' : '记录收益节点检查',
+                    description: `酒店 #${executionHotelId} · 业务日期 ${businessDate}。仅保存人工节点口径，不会补写PMS/OTA指标或自动执行动作。`,
+                    submitText: previousNode.status === 'available' ? '保存更新' : '保存节点检查',
+                    fields: operationRevenueNodeFieldsForItem(item),
+                });
+                if (values === null) return;
+
+                try {
+                    const recordedAt = operationEvidenceLocalTimestamp();
+                    const nodeRecord = buildOperationRevenueNodeRecord(values, recordedAt, {
+                        system_hotel_id: executionHotelId,
+                        business_date: businessDate,
+                    });
+                    operationLoading.value.actions = true;
+                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/evidence`, {
+                        method: 'POST',
+                        businessContext: { hotelId: executionHotelId },
+                        body: JSON.stringify({
+                            evidence_type: 'revenue_node_check',
+                            evidence: {
+                                before: {},
+                                after: {},
+                                platform_response: {
+                                    mode: 'revenue_node_check',
+                                    node_record: nodeRecord,
+                                    evidence_boundary: 'operator_recorded_scope_not_pms_or_ota_verified',
+                                },
+                                remark: values.judgment_basis,
+                            },
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '节点检查保存失败');
+                    const responseTaskId = Number(res.data?.id || 0);
+                    if (responseTaskId !== taskId) throw new Error('节点检查返回的任务ID不一致');
+                    const persistedTask = await readOperationExecutionTask(taskId, executionHotelId);
+                    const persistedNode = persistedTask?.evidence_summary?.node_record || {};
+                    const revenueNodeV2PersistedStringFields = [
+                        'business_date',
+                        'recorded_at',
+                        'operating_period',
+                        'special_event',
+                        'source_scope',
+                        'room_status_alignment',
+                        'data_quality_status',
+                        'metric_definition',
+                        'comparison_basis',
+                        'metric_snapshot',
+                        'progress_status',
+                        'judgment_basis',
+                        'primary_risk',
+                        'success_criteria',
+                        'stop_condition',
+                    ];
+                    const persistedNodeHasMismatch = revenueNodeV2PersistedStringFields.some(field =>
+                        String(persistedNode[field] ?? '') !== String(nodeRecord[field] ?? '')
+                    );
+                    if (persistedNode.status !== 'available'
+                        || persistedNode.contract_version !== 'operation_revenue_node.v2'
+                        || Number(persistedNode.system_hotel_id || 0) !== executionHotelId
+                        || persistedNodeHasMismatch
+                    ) {
+                        throw new Error('节点检查未按完整口径精确回读');
+                    }
+                    showToast(previousNode.status === 'available' ? '节点检查已更新并精确回读' : '节点检查已保存并精确回读');
+                    await loadOperationActions();
+                } catch (error) {
+                    showToast(operationErrorMessage(error, error.message || '节点检查保存失败'), 'error');
+                } finally {
+                    operationLoading.value.actions = false;
+                }
+            };
+
             const recordOperationExecutionEvidence = async (item) => {
                 const taskId = Number(item?.execution?.task_id || 0);
                 if (!taskId) return;
@@ -28128,7 +28220,7 @@
                 const previousEvidenceCount = operationExecutionEvidenceCount(item);
                 try {
                     let payload;
-                    if (['1', '3'].includes(evidenceMode)) {
+                    if (evidenceMode === '1') {
                         const completedAction = String(form.completed_action || '').trim();
                         if (!completedAction) throw new Error('请填写已实际完成的运营动作');
                         const executedAt = normalizeOperationEvidenceDateTime(form.executed_at);
@@ -28136,20 +28228,7 @@
                         if (nextReviewDate && !/^\d{4}-\d{2}-\d{2}$/.test(nextReviewDate)) {
                             throw new Error('效果复盘日期格式需为 YYYY-MM-DD');
                         }
-                        let nodeValues = {};
-                        const recordNode = evidenceMode === '3';
-                        if (recordNode) {
-                            const values = await openWorkflowFormDialog({
-                                title: '记录收益节点口径',
-                                description: '固定同酒店、同时间节点和同指标口径；指标快照与风险未知时保持为空。',
-                                submitText: '确认节点口径',
-                                fields: operationRevenueNodeDialogFields,
-                            });
-                            if (values === null) return;
-                            nodeValues = values;
-                        }
                         const receiptPath = String(form.receipt_path || '').trim();
-                        const nodeRecord = buildOperationRevenueNodeRecord({ ...form, ...nodeValues, record_node: recordNode }, executedAt);
                         payload = {
                             status: 'executed',
                             evidence_type: 'manual_operation_execution',
@@ -28165,7 +28244,6 @@
                                     executed_by: String(form.executed_by || '').trim(),
                                     executed_at: executedAt,
                                     next_review_date: nextReviewDate,
-                                    node_record: nodeRecord,
                                     effect_status: 'pending_observation',
                                     evidence_boundary: 'local_manual_evidence_no_ota_write',
                                 }),
@@ -28204,7 +28282,7 @@
                         throw new Error('运营执行返回的任务ID不一致');
                     }
                     const persistedTask = await readOperationExecutionTask(responseTaskId, executionHotelId);
-                    const expectedEvidenceType = ['1', '3'].includes(evidenceMode)
+                    const expectedEvidenceType = evidenceMode === '1'
                         ? 'manual_operation_execution'
                         : 'manual_finance';
                     if (persistedTask.status !== 'executed'
@@ -28219,7 +28297,7 @@
                     }
                     operationEvidenceModalOpen.value = false;
                     operationEvidenceModalItem.value = null;
-                    showToast(['1', '3'].includes(evidenceMode)
+                    showToast(evidenceMode === '1'
                         ? '已保存运营动作证据；效果保持待观察，不自动生成收入或ROI'
                         : '执行收入/成本证据已保存');
                     await loadOperationActions();
@@ -47271,8 +47349,8 @@
                     operationExecutionItems, operationExecutionStages, operationExecutionStageFilter, operationExecutionStageFilterLabel, operationExecutionFilteredItems, setOperationExecutionStageFilter, operationExecutionSummaryCards, operationExecutionSourceText, operationExecutionActionText,
                 operationExecutionStatusLabel, operationExecutionStatusClass, operationExecutionReviewText, nodeText, operationExecutionRoiText,
                 operationExecutionBottleneckText, operationExecutionMoneyStatusText, operationExecutionMoneyStatusClass, operationExecutionNextActionClass,
-                operationCanApproveExecution, operationCanExecuteWithEvidence, operationCanReconcileExecution, operationCanReviewExecution, operationCanSaveOperatingMemory, operationExecutionActionAvailable, operationExecutionRowClass, operationExecutionTraceRows,
-                approveOperationExecutionIntent, operationApprovalText, operationRejectText, rejectOrCancelOperationApproval, recordOperationExecutionEvidence, reconcileOperationExecutionReview, reviewOperationExecutionTask, saveOperationExecutionMemory,
+                operationCanApproveExecution, operationCanExecuteWithEvidence, operationCanRecordNodeCheck, operationCanReconcileExecution, operationCanReviewExecution, operationCanSaveOperatingMemory, operationExecutionActionAvailable, operationExecutionRowClass, operationExecutionTraceRows,
+                approveOperationExecutionIntent, operationApprovalText, operationRejectText, rejectOrCancelOperationApproval, recordOperationRevenueNodeCheck, recordOperationExecutionEvidence, reconcileOperationExecutionReview, reviewOperationExecutionTask, saveOperationExecutionMemory,
                 operatingMemoryItems, operatingMemoryDataGapText, operatingMemoryPanelMessage, operatingMemoryPanelTestId, operatingMemoryPanelBody, operatingMemoryDisplayText, operatingMemoryLayerLabel, operatingMemoryQualityLabel, operatingMemoryQualityClass, operatingMemoryUsageLabel, operatingMemoryEvidenceCount, loadOperatingMemories,
                 canSaveMemo, saveMemo, memoBody,
                 openingProjects, selectedOpeningProjectId, selectedOpeningProject, openingExecutionIntentId, openingOverview, openingTasks, openingLoading,

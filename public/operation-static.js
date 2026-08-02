@@ -234,6 +234,8 @@ window.SUXI_OPERATION_STATIC = (() => {
             && item?.next_action?.key === 'record_evidence';
         return (canStartExecution || canSupplementManualEvidence) && Number(item?.execution?.task_id || 0) > 0;
     };
+    const operationCanRecordNodeCheck = (item) => ['pending_execute', 'executing', 'executed'].includes(item?.execution?.status || '')
+        && Number(item?.execution?.task_id || 0) > 0;
     const operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
     const operationCanReconcileExecution = (item) => item?.execution?.status === 'executed'
         && item?.review?.is_available === true
@@ -243,6 +245,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         && Number(item?.execution?.task_id || 0) > 0;
     const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
         || operationCanExecuteWithEvidence(item)
+        || operationCanRecordNodeCheck(item)
         || operationCanReconcileExecution(item)
         || operationCanReviewExecution(item);
     const operationHasDisplayValue = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
@@ -337,15 +340,28 @@ window.SUXI_OPERATION_STATIC = (() => {
         { name: 'success_criteria', label: '成功标准', type: 'textarea', required: true, value: '' },
         { name: 'stop_condition', label: '停止条件', type: 'textarea', required: true, value: '' },
     ];
-    const buildOperationRevenueNodeRecord = (form = {}, recordedAt = '') => {
-        if (form.record_node !== true) return null;
+    const operationRevenueNodeFieldsForItem = (item = {}) => {
+        const node = item?.evidence_summary?.node_record || {};
+        return operationRevenueNodeDialogFields.map(field => ({
+            ...field,
+            options: Array.isArray(field.options) ? field.options.map(option => ({ ...option })) : field.options,
+            value: node.status === 'available' ? String(node[field.name] || '') : String(field.value || ''),
+        }));
+    };
+    const buildOperationRevenueNodeRecord = (form = {}, recordedAt = '', identity = {}) => {
         const requiredText = (field, label) => {
             const value = String(form[field] || '').trim();
             if (!value) throw new Error(`请填写${label}`);
             return value;
         };
+        const systemHotelId = Number(identity.system_hotel_id || 0);
+        if (!Number.isInteger(systemHotelId) || systemHotelId <= 0) throw new Error('节点检查缺少酒店身份');
+        const businessDate = String(identity.business_date || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) throw new Error('节点检查缺少业务日期');
         return {
-            contract_version: 'operation_revenue_node.v1',
+            contract_version: 'operation_revenue_node.v2',
+            system_hotel_id: String(systemHotelId),
+            business_date: businessDate,
             recorded_at: String(recordedAt || '').trim(),
             operating_period: requiredText('operating_period', '经营周期'),
             special_event: String(form.special_event || '').trim(),
@@ -364,7 +380,7 @@ window.SUXI_OPERATION_STATIC = (() => {
     };
     const operationExecutionNodeRecordText = (item = {}) => {
         const node = item?.evidence_summary?.node_record || {};
-        if (node.status !== 'available') return '节点口径未记录';
+        if (node.status !== 'available') return '节点检查未记录';
         const period = ({ weekday: '周内', weekend: '周末', holiday: '节假日', special_event: '特殊事件' }[node.operating_period] || '周期未回读');
         const alignment = ({ operator_confirmed: '房态人工确认一致', mismatch: '房态不一致', unverified: '房态未核验' }[node.room_status_alignment] || '房态状态未回读');
         const progress = ({ normal: '进度正常', too_fast: '进度过快', too_slow: '进度过慢', insufficient_evidence: '证据不足' }[node.progress_status] || '进度未判断');
@@ -1089,6 +1105,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         buildOperationDecisionCards,
         operationCanApproveExecution,
         operationCanExecuteWithEvidence,
+        operationCanRecordNodeCheck,
         operationCanReconcileExecution,
         operationCanReviewExecution,
         operationExecutionActionAvailable,
@@ -1101,6 +1118,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         operationExecutionActionText,
         operationExecutionReviewText,
         operationRevenueNodeDialogFields,
+        operationRevenueNodeFieldsForItem,
         buildOperationRevenueNodeRecord,
         operationExecutionNodeRecordText,
         operationExecutionRoiText,

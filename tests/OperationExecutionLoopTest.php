@@ -718,6 +718,64 @@ final class OperationExecutionLoopTest extends TestCase
         );
     }
 
+    public function testRevenueNodeCheckAllowsPreExecutionStagesWithoutRelaxingOtherEvidence(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'executionEvidenceCanBeAddedAtStatus');
+        $method->setAccessible(true);
+
+        self::assertTrue($method->invoke($service, 'revenue_node_check', 'pending_execute'));
+        self::assertTrue($method->invoke($service, 'revenue_node_check', 'executing'));
+        self::assertTrue($method->invoke($service, 'revenue_node_check', 'executed'));
+        self::assertFalse($method->invoke($service, 'manual_operation_execution', 'pending_execute'));
+        self::assertFalse($method->invoke($service, 'manual_finance', 'executing'));
+        self::assertTrue($method->invoke($service, 'manual_operation_execution', 'executed'));
+    }
+
+    public function testRevenueNodeV2BindsHotelAndBusinessDateToExecutionIntent(): void
+    {
+        $service = new OperationManagementService();
+        $record = $this->revenueNodeRecordV2();
+        $result = $service->buildExecutionTaskUpdate(
+            ['id' => 31, 'hotel_id' => 7, 'status' => 'pending_execute'],
+            ['id' => 41, 'hotel_id' => 7, 'status' => 'approved', 'source_module' => 'manual', 'date_start' => '2026-08-03'],
+            [
+                'status' => 'executed',
+                'evidence_type' => 'manual_operation_execution',
+                'evidence' => ['platform_response' => ['node_record' => $record]],
+            ],
+            9
+        );
+
+        self::assertSame('operation_revenue_node.v2', $result['evidence']['platform_response']['node_record']['contract_version']);
+        self::assertSame('7', $result['evidence']['platform_response']['node_record']['system_hotel_id']);
+        self::assertSame('2026-08-03', $result['evidence']['platform_response']['node_record']['business_date']);
+    }
+
+    public function testRevenueNodeV2RejectsMismatchedHotelOrBusinessDate(): void
+    {
+        $service = new OperationManagementService();
+        foreach ([
+            array_replace($this->revenueNodeRecordV2(), ['system_hotel_id' => '8']),
+            array_replace($this->revenueNodeRecordV2(), ['business_date' => '2026-08-04']),
+        ] as $record) {
+            try {
+                $service->buildExecutionTaskUpdate(
+                    ['id' => 31, 'hotel_id' => 7, 'status' => 'pending_execute'],
+                    ['id' => 41, 'hotel_id' => 7, 'status' => 'approved', 'source_module' => 'manual', 'date_start' => '2026-08-03'],
+                    [
+                        'status' => 'executed',
+                        'evidence' => ['platform_response' => ['node_record' => $record]],
+                    ],
+                    9
+                );
+                self::fail('Revenue node v2 identity mismatch must be rejected.');
+            } catch (InvalidArgumentException $exception) {
+                self::assertStringContainsString('does not match', $exception->getMessage());
+            }
+        }
+    }
+
     public function testExecutionFlowSafelyReadsBackRevenueNodeSummary(): void
     {
         $service = new OperationManagementService();
@@ -761,6 +819,51 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame('available', $item['evidence_summary']['node_record']['status']);
         self::assertSame('weekend', $item['evidence_summary']['node_record']['operating_period']);
         self::assertSame('2026-08-02 16:00:00', $item['evidence_summary']['node_record']['recorded_at']);
+    }
+
+    public function testExecutionFlowReadsBackLatestRevenueNodeUpdateForReopening(): void
+    {
+        $service = new OperationManagementService();
+        $item = $service->buildExecutionFlowItem(
+            ['id' => 41, 'hotel_id' => 7, 'status' => 'approved', 'source_module' => 'manual', 'platform' => 'ctrip', 'date_start' => '2026-08-03'],
+            [['id' => 51, 'intent_id' => 41, 'hotel_id' => 7, 'status' => 'pending_execute']],
+            [
+                [
+                    'id' => 62,
+                    'task_id' => 51,
+                    'evidence_type' => 'revenue_node_check',
+                    'platform_response_json' => json_encode(['node_record' => array_replace(
+                        $this->revenueNodeRecordV2(),
+                        ['comparison_basis' => 'updated same-weekend pace window', 'progress_status' => 'too_slow']
+                    )], JSON_UNESCAPED_UNICODE),
+                ],
+                [
+                    'id' => 61,
+                    'task_id' => 51,
+                    'evidence_type' => 'manual_operation_execution',
+                    'platform_response_json' => json_encode(['node_record' => [
+                        'contract_version' => 'operation_revenue_node.v1',
+                        'recorded_at' => '2026-08-02 16:00:00',
+                        'operating_period' => 'weekend',
+                        'source_scope' => 'ctrip',
+                        'room_status_alignment' => 'unverified',
+                        'data_quality_status' => 'unverified',
+                        'progress_status' => 'insufficient_evidence',
+                        'comparison_basis' => 'legacy basis',
+                        'success_criteria' => 'legacy criterion',
+                        'stop_condition' => 'legacy stop',
+                    ]], JSON_UNESCAPED_UNICODE),
+                ],
+            ]
+        );
+
+        $node = $item['evidence_summary']['node_record'];
+        self::assertSame('operation_revenue_node.v2', $node['contract_version']);
+        self::assertSame('7', $node['system_hotel_id']);
+        self::assertSame('2026-08-03', $node['business_date']);
+        self::assertSame('updated same-weekend pace window', $node['comparison_basis']);
+        self::assertSame('same-scope booking pace', $node['metric_definition']);
+        self::assertSame('too_slow', $node['progress_status']);
     }
 
     public function testExecutionRequiresApprovedIntent(): void
@@ -1828,5 +1931,29 @@ final class OperationExecutionLoopTest extends TestCase
             'readback_at' => $dateEnd . ' 23:59:59',
             'validation_status' => 'verified',
         ], JSON_UNESCAPED_UNICODE);
+    }
+
+    /** @return array<string, string> */
+    private function revenueNodeRecordV2(): array
+    {
+        return [
+            'contract_version' => 'operation_revenue_node.v2',
+            'system_hotel_id' => '7',
+            'business_date' => '2026-08-03',
+            'recorded_at' => '2026-08-03 16:00:00',
+            'operating_period' => 'weekend',
+            'special_event' => '',
+            'source_scope' => 'pms_ota_cross_check',
+            'room_status_alignment' => 'operator_confirmed',
+            'data_quality_status' => 'manual_confirmed',
+            'metric_definition' => 'same-scope booking pace',
+            'comparison_basis' => 'last four weekend 16:00 nodes',
+            'metric_snapshot' => '',
+            'progress_status' => 'normal',
+            'judgment_basis' => 'manual same-scope comparison',
+            'primary_risk' => '',
+            'success_criteria' => 'review the same scope at 20:00',
+            'stop_condition' => 'stop on room-status mismatch',
+        ];
     }
 }

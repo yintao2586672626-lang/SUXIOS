@@ -1183,7 +1183,7 @@ class OperationManagementService
                 'before' => $this->arrayValue($evidence['before'] ?? []),
                 'after' => $this->arrayValue($evidence['after'] ?? []),
                 'attachment_path' => trim((string)($evidence['attachment_path'] ?? '')),
-                'platform_response' => $this->buildExecutionEvidencePlatformResponse($evidence),
+                'platform_response' => $this->buildExecutionEvidencePlatformResponse($evidence, $task, $intent),
                 'remark' => trim((string)($evidence['remark'] ?? '')),
                 'created_by' => $operatorId,
                 'created_at' => $now,
@@ -2254,8 +2254,8 @@ class OperationManagementService
         }
         $evidenceType = strtolower(trim((string)($input['evidence_type'] ?? $evidence['evidence_type'] ?? 'manual')));
         $taskStatus = strtolower(trim((string)($task['status'] ?? '')));
-        $isFailedTaskCompensation = $evidenceType === 'compensation_receipt' && $taskStatus === 'failed';
-        if ($taskStatus !== 'executed' && !$isFailedTaskCompensation) {
+        $isRevenueNodeCheck = $evidenceType === 'revenue_node_check';
+        if (!$this->executionEvidenceCanBeAddedAtStatus($evidenceType, $taskStatus)) {
             throw new \InvalidArgumentException('execution task must be executed before evidence can be added');
         }
 
@@ -2265,7 +2265,7 @@ class OperationManagementService
             'before' => $this->arrayValue($evidence['before'] ?? []),
             'after' => $this->arrayValue($evidence['after'] ?? []),
             'attachment_path' => trim((string)($evidence['attachment_path'] ?? '')),
-            'platform_response' => $this->buildExecutionEvidencePlatformResponse($evidence),
+            'platform_response' => $this->buildExecutionEvidencePlatformResponse($evidence, $task, $intent),
             'remark' => trim((string)($evidence['remark'] ?? '')),
             'created_by' => $userId,
             'created_at' => date('Y-m-d H:i:s'),
@@ -2273,9 +2273,24 @@ class OperationManagementService
         if ($payload['evidence_type'] === 'compensation_receipt') {
             $this->assertCompensationReceiptIsCurrentAndComplete($task, $payload['platform_response']);
         }
+        if ($isRevenueNodeCheck
+            && (($payload['platform_response']['node_record']['contract_version'] ?? '') !== 'operation_revenue_node.v2')
+        ) {
+            throw new \InvalidArgumentException('revenue node check requires operation_revenue_node.v2 identity');
+        }
         $this->insertExecutionEvidence($payload);
 
         return $this->executionTaskDetail($taskId, $hotelIds);
+    }
+
+    private function executionEvidenceCanBeAddedAtStatus(string $evidenceType, string $taskStatus): bool
+    {
+        if ($evidenceType === 'revenue_node_check') {
+            return in_array($taskStatus, ['pending_execute', 'executing', 'executed'], true);
+        }
+
+        return $taskStatus === 'executed'
+            || ($evidenceType === 'compensation_receipt' && $taskStatus === 'failed');
     }
 
     /** @param array<string, mixed> $task @param array<string, mixed> $receipt */
@@ -4864,12 +4879,18 @@ class OperationManagementService
         ], 'operation_execution_evidence', $taskId));
     }
 
-    private function buildExecutionEvidencePlatformResponse(array $evidence): array
+    private function buildExecutionEvidencePlatformResponse(
+        array $evidence,
+        array $task = [],
+        array $intent = []
+    ): array
     {
         $platformResponse = $this->arrayValue($evidence['platform_response'] ?? []);
         if (array_key_exists('node_record', $platformResponse)) {
             $platformResponse['node_record'] = $this->normalizeExecutionNodeRecord(
-                $this->arrayValue($platformResponse['node_record'])
+                $this->arrayValue($platformResponse['node_record']),
+                $task,
+                $intent
             );
         }
         foreach (['operator_execution_evidence', 'operator_roi_evidence'] as $key) {
@@ -4883,7 +4904,7 @@ class OperationManagementService
     }
 
     /** @param array<string, mixed> $record @return array<string, string> */
-    private function normalizeExecutionNodeRecord(array $record): array
+    private function normalizeExecutionNodeRecord(array $record, array $task = [], array $intent = []): array
     {
         if ($record === []) {
             throw new \InvalidArgumentException('revenue node record is empty');
@@ -4907,7 +4928,8 @@ class OperationManagementService
                 throw new \InvalidArgumentException('revenue node record missing required field: ' . $field);
             }
         }
-        if (($record['contract_version'] ?? '') !== 'operation_revenue_node.v1') {
+        $contractVersion = trim((string)($record['contract_version'] ?? ''));
+        if (!in_array($contractVersion, ['operation_revenue_node.v1', 'operation_revenue_node.v2'], true)) {
             throw new \InvalidArgumentException('revenue node record contract version is invalid');
         }
         if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/D', (string)$record['recorded_at']) !== 1) {
@@ -4927,7 +4949,32 @@ class OperationManagementService
             }
         }
 
-        $normalized = ['contract_version' => 'operation_revenue_node.v1'];
+        $normalized = ['contract_version' => $contractVersion];
+        if ($contractVersion === 'operation_revenue_node.v2') {
+            $systemHotelId = (int)($record['system_hotel_id'] ?? 0);
+            $businessDate = trim((string)($record['business_date'] ?? ''));
+            $taskHotelId = (int)($task['hotel_id'] ?? 0);
+            $intentHotelId = (int)($intent['hotel_id'] ?? 0);
+            $intentBusinessDate = substr(trim((string)($intent['date_start'] ?? '')), 0, 10);
+            if ($systemHotelId <= 0) {
+                throw new \InvalidArgumentException('revenue node record system_hotel_id is required');
+            }
+            if ($businessDate === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $businessDate) !== 1) {
+                throw new \InvalidArgumentException('revenue node record business_date is required');
+            }
+            if ($taskHotelId <= 0
+                || $intentHotelId <= 0
+                || $systemHotelId !== $taskHotelId
+                || $systemHotelId !== $intentHotelId
+            ) {
+                throw new \InvalidArgumentException('revenue node record system_hotel_id does not match execution task');
+            }
+            if ($intentBusinessDate === '' || $businessDate !== $intentBusinessDate) {
+                throw new \InvalidArgumentException('revenue node record business_date does not match execution intent');
+            }
+            $normalized['system_hotel_id'] = (string)$systemHotelId;
+            $normalized['business_date'] = $businessDate;
+        }
         foreach (array_merge($required, ['special_event', 'metric_snapshot', 'primary_risk']) as $field) {
             $normalized[$field] = trim((string)($record[$field] ?? ''));
         }
