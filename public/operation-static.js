@@ -226,7 +226,14 @@ window.SUXI_OPERATION_STATIC = (() => {
         ];
     };
     const operationCanApproveExecution = (item) => item?.approval?.status === 'pending_approval';
-    const operationCanExecuteWithEvidence = (item) => ['pending_execute', 'executing'].includes(item?.execution?.status || '') && Number(item?.execution?.task_id || 0) > 0;
+    const operationCanExecuteWithEvidence = (item) => {
+        const status = item?.execution?.status || '';
+        const canStartExecution = ['pending_execute', 'executing'].includes(status);
+        const canSupplementManualEvidence = status === 'executed'
+            && item?.recommendation?.object_type !== 'price'
+            && item?.next_action?.key === 'record_evidence';
+        return (canStartExecution || canSupplementManualEvidence) && Number(item?.execution?.task_id || 0) > 0;
+    };
     const operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
     const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item) || operationCanExecuteWithEvidence(item) || operationCanReviewExecution(item);
     const operationHasDisplayValue = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
@@ -277,13 +284,27 @@ window.SUXI_OPERATION_STATIC = (() => {
     };
     const operationExecutionActionText = (item, helpers = {}) => {
         const recommendation = item?.recommendation || {};
-        const objectText = ({ price: '价格', inventory: '房态', campaign: '活动', data_collection: '证据采集', operation_checklist: '运营核查' }[recommendation.object_type] || recommendation.object_type || '动作');
+        const actionType = String(recommendation.action_type || '');
+        const legacyOperationCheckTypes = [
+            'booking_conversion_optimization',
+            'listing_conversion_optimization',
+            'service_quality_improvement',
+        ];
+        const objectType = recommendation.object_type === 'campaign' && legacyOperationCheckTypes.includes(actionType)
+            ? 'operation_checklist'
+            : recommendation.object_type;
+        const objectText = ({ price: '价格', inventory: '房态', campaign: '活动', data_collection: '证据采集', operation_checklist: '运营核查' }[objectType] || objectType || '动作');
         const strategyTypeLabel = typeof helpers.strategyTypeLabel === 'function' ? helpers.strategyTypeLabel : (type => type || '未知策略');
         const actionText = ({
             complete_public_page_evidence: '补齐公开页证据',
             review_public_page_evidence: '复核公开页证据',
             manual_forecast_review: '预测复核',
-        }[recommendation.action_type] || strategyTypeLabel(recommendation.action_type));
+            booking_conversion_optimization: '下单转化核查',
+            listing_conversion_optimization: '列表转化核查',
+            service_quality_improvement: '服务质量核查',
+            advertising_optimization: '广告优化',
+            ota_operation_follow_up: 'OTA运营跟进',
+        }[actionType] || strategyTypeLabel(actionType));
         return `${objectText} · ${actionText}`;
     };
     const operationExecutionReviewText = (item, helpers = {}) => {

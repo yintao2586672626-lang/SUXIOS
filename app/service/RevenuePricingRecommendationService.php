@@ -1101,10 +1101,7 @@ class RevenuePricingRecommendationService
      */
     private function forecastSignal(int $hotelId, int $roomTypeId, string $targetDate, array $roomType): array
     {
-        $forecast = DemandForecast::where('hotel_id', $hotelId)
-            ->where('room_type_id', $roomTypeId)
-            ->where('forecast_date', $targetDate)
-            ->find();
+        $forecast = DemandForecast::latestForPricing($hotelId, $roomTypeId, $targetDate);
 
         if ($forecast) {
             $sourceMetadata = $this->manualInputMetadata($forecast->historical_data ?? null, 'manual_demand_forecast');

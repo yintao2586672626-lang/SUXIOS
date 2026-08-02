@@ -19,6 +19,10 @@ trait OnlineDataHistoryConcern
         if (!$currentUser) {
             return $this->error('未登录', 401);
         }
+        $viewableHotelIds = $this->onlineHistoryViewableHotelIds($currentUser);
+        if ($viewableHotelIds === []) {
+            return $this->error('无权查看线上数据', 403);
+        }
 
         try {
             $page = max(1, intval($this->request->get('page', 1)));
@@ -30,7 +34,7 @@ trait OnlineDataHistoryConcern
             $keyword = trim((string)$this->request->get('keyword', $this->request->get('search', '')));
 
             $query = Db::name('online_daily_data');
-            $this->applyOnlineHistoryFilters($query, $currentUser);
+            $this->applyOnlineHistoryFilters($query, $currentUser, $viewableHotelIds);
             $this->applyOnlineHistoryKeywordFilter($query, $keyword);
 
             $columns = $this->getOnlineDailyDataColumns();
@@ -87,11 +91,9 @@ trait OnlineDataHistoryConcern
                 return $this->error('历史记录不存在', 404);
             }
 
-            if (!$currentUser->isSuperAdmin()) {
-                $permittedHotelIds = $currentUser->getPermittedHotelIds();
-                if (empty($row['system_hotel_id']) || !in_array((int)$row['system_hotel_id'], $permittedHotelIds, true)) {
-                    return $this->error('无权查看该历史记录', 403);
-                }
+            if (!$currentUser->isSuperAdmin()
+                && !$this->onlineHistoryUserCanViewHotel($currentUser, (int)($row['system_hotel_id'] ?? 0))) {
+                return $this->error('无权查看该历史记录', 403);
             }
 
             $item = $this->normalizeOnlineHistoryRow($row, $this->getConfiguredHotelNameMap());
@@ -144,6 +146,10 @@ trait OnlineDataHistoryConcern
         if (!$currentUser) {
             return $this->error('未登录', 401);
         }
+        $viewableHotelIds = $this->onlineHistoryViewableHotelIds($currentUser);
+        if ($viewableHotelIds === []) {
+            return $this->error('无权查看线上数据', 403);
+        }
 
         try {
             $page = max(1, intval($this->request->get('page', 1)));
@@ -154,7 +160,7 @@ trait OnlineDataHistoryConcern
 
             $query = Db::name('online_daily_data');
             $this->applyCtripStorageFilter($query, $columns);
-            $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
+            $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns, $viewableHotelIds);
             if ($dataType !== '' && $dataType !== 'all') {
                 $this->applyCtripSectionTypeFilter($query, $dataType, $columns);
             }
@@ -585,7 +591,7 @@ trait OnlineDataHistoryConcern
         }
     }
 
-    private function applyCtripHotelScope($query, string $hotelId, $currentUser, array $columns): void
+    private function applyCtripHotelScope($query, string $hotelId, $currentUser, array $columns, ?array $viewableHotelIds = null): void
     {
         if ($hotelId !== '') {
             if (isset($columns['system_hotel_id']) && is_numeric($hotelId)) {
@@ -596,11 +602,11 @@ trait OnlineDataHistoryConcern
         }
 
         if ($currentUser && !$currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $currentUser->getPermittedHotelIds();
-            if (empty($permittedHotelIds) || !isset($columns['system_hotel_id'])) {
+            $viewableHotelIds ??= $this->onlineHistoryViewableHotelIds($currentUser);
+            if ($viewableHotelIds === [] || !isset($columns['system_hotel_id'])) {
                 $query->where('id', 0);
             } else {
-                $query->whereIn('system_hotel_id', $permittedHotelIds);
+                $query->whereIn('system_hotel_id', $viewableHotelIds);
             }
         }
     }
@@ -1223,7 +1229,7 @@ trait OnlineDataHistoryConcern
         return $integer ? (int)$row[$field] : (float)$row[$field];
     }
 
-    private function applyOnlineHistoryFilters($query, $currentUser): void
+    private function applyOnlineHistoryFilters($query, $currentUser, ?array $viewableHotelIds = null): void
     {
         $columns = $this->getOnlineDailyDataColumns();
         $platform = strtolower((string)$this->request->get('platform', $this->request->get('source', '')));
@@ -1340,12 +1346,50 @@ trait OnlineDataHistoryConcern
         }
 
         if (!$currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $currentUser->getPermittedHotelIds();
-            if (empty($permittedHotelIds) || !isset($columns['system_hotel_id'])) {
+            $viewableHotelIds ??= $this->onlineHistoryViewableHotelIds($currentUser);
+            if ($viewableHotelIds === [] || !isset($columns['system_hotel_id'])) {
                 $query->where('id', 0);
             } else {
-                $query->whereIn('system_hotel_id', $permittedHotelIds);
+                $query->whereIn('system_hotel_id', $viewableHotelIds);
             }
+        }
+    }
+
+    /** @return array<int, int>|null null means the super-admin cross-hotel scope */
+    private function onlineHistoryViewableHotelIds($currentUser): ?array
+    {
+        if ($currentUser && $currentUser->isSuperAdmin()) {
+            return null;
+        }
+
+        if (!$currentUser) {
+            return [];
+        }
+
+        try {
+            $hotelIds = array_values(array_unique(array_filter(
+                array_map('intval', $currentUser->getPermittedHotelIds()),
+                static fn(int $hotelId): bool => $hotelId > 0
+            )));
+            return array_values(array_filter(
+                $hotelIds,
+                static fn(int $hotelId): bool => $currentUser->hasHotelPermission($hotelId, 'can_view_online_data')
+            ));
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    private function onlineHistoryUserCanViewHotel($currentUser, int $hotelId): bool
+    {
+        if ($hotelId <= 0 || !$currentUser) {
+            return false;
+        }
+
+        try {
+            return $currentUser->hasHotelPermission($hotelId, 'can_view_online_data');
+        } catch (\Throwable) {
+            return false;
         }
     }
 
@@ -1456,8 +1500,11 @@ trait OnlineDataHistoryConcern
                     if (!isset($columns[$column])) {
                         continue;
                     }
-                    $method = $hasCondition ? 'whereOrBetween' : 'whereBetween';
-                    $q->{$method}($column, [$today . ' 00:00:00', $today . ' 23:59:59']);
+                    $q->whereBetween(
+                        $column,
+                        [$today . ' 00:00:00', $today . ' 23:59:59'],
+                        $hasCondition ? 'OR' : 'AND'
+                    );
                     $hasCondition = true;
                 }
             })->count();
@@ -1933,11 +1980,14 @@ trait OnlineDataHistoryConcern
         }
 
         $projectedStatus = strtolower(trim((string)($row['history_status'] ?? '')));
-        if (in_array($projectedStatus, ['failed', 'unverified', 'partial'], true)) {
+        if (in_array($projectedStatus, ['failed', 'unverified'], true)) {
             return $projectedStatus;
         }
         if ($this->onlineHistorySourceVerificationComplete($row, $rawData)) {
             return 'success';
+        }
+        if ($projectedStatus === 'partial') {
+            return 'partial';
         }
         return array_key_exists('readback_verified', $row)
             && (int)$row['readback_verified'] === 1
@@ -1977,7 +2027,10 @@ trait OnlineDataHistoryConcern
             ?? $raw['source_validation_status']
             ?? ''
         )));
-        if ($validationStatus !== 'verified'
+        // Regular collector rows keep validation_status=normal. They still need
+        // the full identity, source, trace, timestamp, and read-back evidence
+        // below before history may present them as successful.
+        if (!in_array($validationStatus, ['verified', 'normal'], true)
             && !in_array($sourceValidationStatus, ['verified', 'source_verified'], true)
         ) {
             return false;

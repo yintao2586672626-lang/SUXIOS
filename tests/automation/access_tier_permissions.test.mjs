@@ -293,7 +293,7 @@ assert.doesNotMatch(indexHtml, /美团竞对 \{\{ hotelCompetitorReadiness\(hote
 assert.match(indexHtml, /const hotelCompetitorActionMeta = \(hotel = \{\}\) => \{[\s\S]*openHomeQuickEntry\(\{ page: 'meituan-ebooking', tab: 'meituan-ranking' \}\)/, 'competitor readiness should remain reachable through the next-action flow');
 assert.match(indexHtml, /@click="refreshHotelBindingPanelLight\(\)"/, 'top-level status refresh should use the guarded light refresh path');
 assert.match(indexHtml, /门店与平台状态已读取 · 不代表平台来源数据已核验/, 'hotel management should distinguish a successful status read from platform-source verification');
-assert.match(indexHtml, /<template v-if="hotelManagementSnapshotReady">[\s\S]*全部门店/, 'hotel KPIs must remain hidden until a complete verified snapshot is ready');
+assert.match(indexHtml, /<template v-if="hotelRowsVisible">[\s\S]*全部门店/, 'hotel KPIs must remain hidden until a complete verified snapshot and the staged row render are ready');
 assert.match(indexHtml, /const loadHotelManagementSnapshot = async \(options = \{\}\) => \{[\s\S]*hotelManagementFailureLabels[\s\S]*当前指标尚未验证，不展示统计结果/, 'hotel refresh must surface partial failures instead of presenting unverified metrics as success');
 assert.match(indexHtml, /受控操作[\s\S]*深度刷新[\s\S]*数据迁移[\s\S]*用户授权/, 'migration and authorization actions should be grouped as controlled admin operations');
 assert.doesNotMatch(indexHtml, /hotelAccountHealthText\(hotel\)/, 'store identity cell should not repeat account-health summary already shown by platform cards');

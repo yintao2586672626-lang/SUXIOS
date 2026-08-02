@@ -210,6 +210,14 @@ final class OnlineDataHistoryDatabasePaginationTest extends TestCase
             'success',
             $method->invoke($subject, $sourceVerified, (string)$sourceVerified['raw_data'])
         );
+
+        $normalCollectorRow = $sourceVerified;
+        $normalCollectorRow['validation_status'] = 'normal';
+        $normalCollectorRow['history_status'] = 'partial';
+        self::assertSame(
+            'success',
+            $method->invoke($subject, $normalCollectorRow, (string)$normalCollectorRow['raw_data'])
+        );
     }
 
     public function testForwardMigrationNoLongerTreatsReadbackAloneAsHistorySuccess(): void

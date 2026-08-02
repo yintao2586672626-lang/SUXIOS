@@ -94,6 +94,12 @@ trait AgentOtaDiagnosisBuildConcern
             'readback_verified_at',
             'validation_status',
             'source_trace_id',
+            'data_period',
+            'snapshot_time',
+            'snapshot_bucket',
+            'is_final',
+            'ingestion_method',
+            'collected_at',
             'create_time',
             'update_time',
         ], array_keys($columns)));
@@ -267,10 +273,18 @@ trait AgentOtaDiagnosisBuildConcern
             array_column($syncLogs, 'create_time')
         ));
 
-        $decisionEligibleOnlineRows = array_values(array_filter(
+        $qualityEligibleOnlineRows = array_values(array_filter(
             $onlineRows,
             fn(array $row): bool => $this->isOtaDiagnosisDecisionEligibleRow($row)
         ));
+        $canonicalSelection = $this->selectCanonicalOtaDiagnosisTrafficSnapshots(
+            $qualityEligibleOnlineRows,
+            $hotelId,
+            trim((string)($hotel['name'] ?? '')),
+            $platform
+        );
+        $decisionEligibleOnlineRows = $canonicalSelection['rows'];
+        $supersededOnlineRows = $canonicalSelection['superseded_rows'];
         $excludedOnlineRows = array_values(array_filter(
             $onlineRows,
             fn(array $row): bool => !$this->isOtaDiagnosisDecisionEligibleRow($row)
@@ -286,15 +300,18 @@ trait AgentOtaDiagnosisBuildConcern
             'hotel' => $hotel ?: ['id' => $hotelIdRaw, 'name' => ''],
             'online_rows' => $onlineRows,
             'decision_eligible_online_rows' => $decisionEligibleOnlineRows,
+            'superseded_online_rows' => $supersededOnlineRows,
             'excluded_online_rows' => $excludedOnlineRows,
             'decision_quality' => [
                 'visible_row_count' => count($onlineRows),
+                'eligible_before_canonicalization' => count($qualityEligibleOnlineRows),
                 'eligible_row_count' => count($decisionEligibleOnlineRows),
-                'excluded_row_count' => count($excludedOnlineRows),
+                'superseded_snapshot_count' => count($supersededOnlineRows),
+                'excluded_row_count' => count($excludedOnlineRows) + count($supersededOnlineRows),
                 'excluded_quality_statuses' => $excludedQualityStatuses,
                 'gate' => $decisionEligibleOnlineRows === []
                     ? 'insufficient_evidence'
-                    : ($excludedOnlineRows === [] ? 'all_visible_rows_eligible' : 'eligible_rows_only'),
+                    : ($excludedOnlineRows === [] && $supersededOnlineRows === [] ? 'all_visible_rows_eligible' : 'eligible_rows_only'),
             ],
             'daily_reports' => $dailyReports,
             'competitor_prices' => $competitorPrices,
@@ -306,6 +323,165 @@ trait AgentOtaDiagnosisBuildConcern
             'effective_end_date' => $effectiveEndDate,
             'used_latest_available_data' => $usedLatestAvailableData,
         ];
+    }
+
+    /**
+     * OTA traffic rows are cumulative snapshots, not additive events. Keep one
+     * canonical own-hotel snapshot per platform/date: a final historical day
+     * row wins, otherwise the latest realtime snapshot wins. Older snapshots
+     * remain available for audit but must not enter the operating baseline.
+     *
+     * @return array{rows: array<int,array<string,mixed>>, superseded_rows: array<int,array<string,mixed>>}
+     */
+    private function selectCanonicalOtaDiagnosisTrafficSnapshots(
+        array $rows,
+        int $hotelId,
+        string $hotelName,
+        string $platform
+    ): array {
+        $ownHotelNames = array_values(array_filter(
+            [$hotelName],
+            static fn(mixed $value): bool => trim((string)$value) !== ''
+        ));
+        $ownPlatformHotelIds = $this->otaDiagnosisOwnPlatformHotelIds($rows, $hotelId, $platform);
+        $groups = [];
+        $candidateIndexes = [];
+
+        foreach ($rows as $index => $row) {
+            if (!is_array($row)
+                || !$this->isOtaDiagnosisTrafficSnapshotRow($row)
+                || !OtaOperatingScope::isOwnOperatingRow($row, null, $ownHotelNames, $ownPlatformHotelIds)
+            ) {
+                continue;
+            }
+
+            $date = trim((string)($row['data_date'] ?? ''));
+            if ($date === '') {
+                continue;
+            }
+            $source = strtolower(trim((string)($row['source'] ?? $row['platform'] ?? $platform)));
+            $systemHotelId = (int)($row['system_hotel_id'] ?? 0);
+            if ($systemHotelId <= 0) {
+                $systemHotelId = $hotelId;
+            }
+            $groupKey = implode('|', [$source, (string)$systemHotelId, $date, 'self', 'traffic_core']);
+            $groups[$groupKey][] = ['index' => $index, 'row' => $row];
+            $candidateIndexes[$index] = true;
+        }
+
+        $canonicalIndexes = [];
+        foreach ($groups as $candidates) {
+            $selected = null;
+            foreach ($candidates as $candidate) {
+                if ($selected === null || $this->compareOtaDiagnosisTrafficSnapshots(
+                    $candidate['row'],
+                    $selected['row'],
+                    $hotelId,
+                    $hotelName,
+                    $ownPlatformHotelIds
+                ) > 0) {
+                    $selected = $candidate;
+                }
+            }
+            if ($selected !== null) {
+                $canonicalIndexes[$selected['index']] = true;
+            }
+        }
+
+        $selectedRows = [];
+        $supersededRows = [];
+        foreach ($rows as $index => $row) {
+            if (isset($candidateIndexes[$index]) && !isset($canonicalIndexes[$index])) {
+                $supersededRows[] = $row;
+                continue;
+            }
+            $selectedRows[] = $row;
+        }
+
+        return [
+            'rows' => array_values($selectedRows),
+            'superseded_rows' => array_values($supersededRows),
+        ];
+    }
+
+    private function isOtaDiagnosisTrafficSnapshotRow(array $row): bool
+    {
+        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        if ($dataType === 'traffic') {
+            return true;
+        }
+
+        $period = strtolower(trim((string)($row['data_period'] ?? '')));
+        return in_array($dataType, ['business', 'business_overview'], true)
+            && in_array($period, ['historical_daily', 'realtime_snapshot'], true)
+            && $this->hasKnownOtaDiagnosisMetric($row, [
+                'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num',
+            ]);
+    }
+
+    private function compareOtaDiagnosisTrafficSnapshots(
+        array $left,
+        array $right,
+        int $hotelId,
+        string $hotelName,
+        array $ownPlatformHotelIds
+    ): int {
+        $leftScore = $this->otaDiagnosisTrafficSnapshotScore($left, $hotelId, $hotelName, $ownPlatformHotelIds);
+        $rightScore = $this->otaDiagnosisTrafficSnapshotScore($right, $hotelId, $hotelName, $ownPlatformHotelIds);
+        foreach (array_keys($leftScore) as $key) {
+            $comparison = $leftScore[$key] <=> $rightScore[$key];
+            if ($comparison !== 0) {
+                return $comparison;
+            }
+        }
+        return 0;
+    }
+
+    /** @return array{final:int, identity:int, timestamp:int, id:int} */
+    private function otaDiagnosisTrafficSnapshotScore(
+        array $row,
+        int $hotelId,
+        string $hotelName,
+        array $ownPlatformHotelIds
+    ): array {
+        $period = strtolower(trim((string)($row['data_period'] ?? '')));
+        $isFinal = $this->otaDiagnosisTruthy($row['is_final'] ?? null) || $period === 'historical_daily';
+        $compareType = strtolower(trim((string)($row['compare_type'] ?? '')));
+        $rowHotelName = preg_replace('/\s+/u', '', trim((string)($row['hotel_name'] ?? ''))) ?? '';
+        $expectedHotelName = preg_replace('/\s+/u', '', trim($hotelName)) ?? '';
+        $platformHotelId = trim((string)($row['hotel_id'] ?? ''));
+        $hasExplicitIdentity = in_array($compareType, ['self', 'own', 'mine', 'current'], true)
+            || ($hotelId > 0 && (int)($row['system_hotel_id'] ?? 0) === $hotelId)
+            || ($platformHotelId !== '' && in_array($platformHotelId, $ownPlatformHotelIds, true))
+            || ($rowHotelName !== '' && $expectedHotelName !== '' && $rowHotelName === $expectedHotelName);
+
+        $timestamp = 0;
+        foreach (['snapshot_time', 'collected_at', 'readback_verified_at', 'update_time', 'create_time'] as $field) {
+            $value = trim((string)($row[$field] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            $parsed = strtotime($value);
+            if ($parsed !== false) {
+                $timestamp = $parsed;
+                break;
+            }
+        }
+
+        return [
+            'final' => $isFinal ? 1 : 0,
+            'identity' => $hasExplicitIdentity ? 1 : 0,
+            'timestamp' => $timestamp,
+            'id' => (int)($row['id'] ?? 0),
+        ];
+    }
+
+    private function otaDiagnosisTruthy(mixed $value): bool
+    {
+        if ($value === true || $value === 1) {
+            return true;
+        }
+        return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'final'], true);
     }
 
     private function hasOtaDiagnosisData(array $dataSet): bool
@@ -451,9 +627,32 @@ trait AgentOtaDiagnosisBuildConcern
         // Production queryOtaDiagnosisData always provides the gated list.
         // Falling back to the supplied rows keeps this pure builder usable for
         // already-gated in-memory callers and focused unit tests.
-        $rows = array_key_exists('decision_eligible_online_rows', $dataSet)
+        $eligibleRows = array_key_exists('decision_eligible_online_rows', $dataSet)
             ? (is_array($dataSet['decision_eligible_online_rows']) ? $dataSet['decision_eligible_online_rows'] : [])
             : $visibleRows;
+        $canonicalSelection = $this->selectCanonicalOtaDiagnosisTrafficSnapshots(
+            $eligibleRows,
+            $hotelId,
+            $hotelName,
+            $platform
+        );
+        $rows = $canonicalSelection['rows'];
+        $supersededSnapshotCount = count(is_array($dataSet['superseded_online_rows'] ?? null)
+            ? $dataSet['superseded_online_rows']
+            : []) + count($canonicalSelection['superseded_rows']);
+        $decisionQuality = is_array($dataSet['decision_quality'] ?? null)
+            ? $dataSet['decision_quality']
+            : [];
+        $decisionQuality['eligible_before_canonicalization'] = (int)($decisionQuality['eligible_before_canonicalization'] ?? count($eligibleRows));
+        $decisionQuality['eligible_row_count'] = count($rows);
+        $decisionQuality['superseded_snapshot_count'] = $supersededSnapshotCount;
+        $decisionQuality['excluded_row_count'] = max(
+            (int)($decisionQuality['excluded_row_count'] ?? 0),
+            max(0, count($visibleRows) - count($rows))
+        );
+        $decisionQuality['gate'] = $rows === []
+            ? 'insufficient_evidence'
+            : ((int)$decisionQuality['excluded_row_count'] === 0 ? 'all_visible_rows_eligible' : 'eligible_rows_only');
         $dailyReports = $dataSet['daily_reports'] ?? [];
         $competitorPrices = $dataSet['competitor_prices'] ?? [];
         $competitorAnalyses = $dataSet['competitor_analyses'] ?? [];
@@ -501,7 +700,7 @@ trait AgentOtaDiagnosisBuildConcern
         }
 
         $metrics = [
-            'record_count' => count($rows),
+            'record_count' => (int)$summary['record_count'],
             'date_count' => $summary['date_count'],
             'amount' => $totals['amount'] === null ? null : round((float)$totals['amount'], 2),
             'quantity' => $totals['quantity'] === null ? null : (int)$totals['quantity'],
@@ -569,9 +768,12 @@ trait AgentOtaDiagnosisBuildConcern
                 'next_action' => '修复采集或字段校验并完成保存回读后重新诊断。',
             ];
         }
-        $blockingDataGaps = $this->blockingOtaDiagnosisDataGaps($summary['data_gaps'] ?? []);
+        $blockingDataGaps = $this->blockingOtaDiagnosisDataGaps(
+            $summary['data_gaps'] ?? [],
+            ['metrics' => $metrics]
+        );
         $diagnosis = [
-            'summary' => sprintf('已读取%s在%s至%s的历史OTA数据；%d条记录可用于诊断，%d条因质量或回读证据不足仅保留展示，另有%d条日报、%d条竞对价格参考记录。', $displayHotelName, $startDate, $endDate, count($rows), max(0, count($visibleRows) - count($rows)), count($dailyReports), count($competitorPrices)),
+            'summary' => sprintf('已读取%s在%s至%s的历史OTA数据；%d条本店经营记录可用于诊断，%d条旧快照或质量不足记录仅保留展示，另有%d条日报、%d条竞对价格参考记录。', $displayHotelName, $startDate, $endDate, (int)$summary['record_count'], max(0, count($visibleRows) - count($rows)), count($dailyReports), count($competitorPrices)),
             'data_overview' => [
                 'OTA记录数: ' . count($rows),
                 '日期覆盖: ' . $summary['date_count'] . ' 天',
@@ -611,6 +813,7 @@ trait AgentOtaDiagnosisBuildConcern
                     'online_rows' => count($rows),
                     'online_rows_visible' => count($visibleRows),
                     'online_rows_excluded_from_decision' => max(0, count($visibleRows) - count($rows)),
+                    'superseded_traffic_snapshots' => $supersededSnapshotCount,
                     'daily_reports' => count($dailyReports),
                     'competitor_prices' => count($competitorPrices),
                     'competitor_analyses' => count($competitorAnalyses),
@@ -619,13 +822,15 @@ trait AgentOtaDiagnosisBuildConcern
                 ],
             ],
             'metrics' => $metrics,
-            'decision_quality' => $dataSet['decision_quality'] ?? [
+            'decision_quality' => array_merge([
                 'visible_row_count' => count($visibleRows),
+                'eligible_before_canonicalization' => count($eligibleRows),
                 'eligible_row_count' => count($rows),
+                'superseded_snapshot_count' => $supersededSnapshotCount,
                 'excluded_row_count' => max(0, count($visibleRows) - count($rows)),
                 'excluded_quality_statuses' => [],
                 'gate' => $rows === [] ? 'insufficient_evidence' : 'eligible_rows_only',
-            ],
+            ], $decisionQuality),
             'diagnosis' => $diagnosis,
             'diagnosis_sections' => $this->buildOtaDiagnosisSections($diagnosis, array_values(array_unique($missingSections))),
             'missing_sections' => array_values(array_unique($missingSections)),
@@ -636,7 +841,14 @@ trait AgentOtaDiagnosisBuildConcern
                 ? 'none'
                 : (in_array('访问到订单转化偏低', $abnormal, true) || in_array('曝光到访问转化偏低', $abnormal, true) ? 'high' : 'medium'),
             'source_policy' => 'database_only_real_rows_and_derived_metrics',
-            'source_summary' => $summary,
+            'source_summary' => array_merge($summary, [
+                'canonicalization' => [
+                    'policy' => 'final_historical_daily_else_latest_realtime_per_hotel_platform_date',
+                    'eligible_before_canonicalization' => (int)$decisionQuality['eligible_before_canonicalization'],
+                    'selected_row_count' => count($rows),
+                    'superseded_snapshot_count' => $supersededSnapshotCount,
+                ],
+            ]),
         ];
     }
 
@@ -723,12 +935,29 @@ trait AgentOtaDiagnosisBuildConcern
         }));
     }
 
-    private function blockingOtaDiagnosisDataGaps(mixed $dataGaps): array
+    private function blockingOtaDiagnosisDataGaps(mixed $dataGaps, array $context = []): array
     {
+        $revenueMetricFields = ['amount', 'quantity', 'book_order_num'];
+        $trafficMetricFields = ['list_exposure', 'detail_visitors', 'flow_rate', 'order_visitors', 'submit_users'];
+        $coreMetricFields = array_merge($revenueMetricFields, $trafficMetricFields);
         $coreMetricCodes = array_fill_keys(array_map(
             static fn(string $field): string => 'metric_missing:' . $field,
-            ['amount', 'quantity', 'book_order_num', 'list_exposure', 'detail_visitors', 'flow_rate', 'order_visitors', 'submit_users']
+            $coreMetricFields
         ), true);
+        $metrics = is_array($context['metrics'] ?? null) ? $context['metrics'] : [];
+        $hasCompleteMetricGroup = static function (array $fields) use ($metrics): bool {
+            if ($metrics === []) {
+                return false;
+            }
+            foreach ($fields as $field) {
+                if (!array_key_exists($field, $metrics) || $metrics[$field] === null || $metrics[$field] === '') {
+                    return false;
+                }
+            }
+            return true;
+        };
+        $revenueMetricsComplete = $hasCompleteMetricGroup($revenueMetricFields);
+        $trafficMetricsComplete = $hasCompleteMetricGroup($trafficMetricFields);
 
         $blocking = [];
         foreach ($this->normalizeOtaDiagnosisDataGaps($dataGaps) as $gap) {
@@ -736,6 +965,14 @@ trait AgentOtaDiagnosisBuildConcern
             $isMetricGap = str_starts_with($code, 'metric_missing:');
             if (($isMetricGap && !isset($coreMetricCodes[$code])) || $code === '') {
                 continue;
+            }
+            if ($isMetricGap) {
+                $metric = substr($code, strlen('metric_missing:'));
+                $isMissingAlternativePathMetric = ($trafficMetricsComplete && in_array($metric, $revenueMetricFields, true))
+                    || ($revenueMetricsComplete && in_array($metric, $trafficMetricFields, true));
+                if ($isMissingAlternativePathMetric) {
+                    continue;
+                }
             }
             $gap['status'] = 'blocked_by_data_gap';
             $gap['blocking'] = true;
@@ -789,6 +1026,12 @@ trait AgentOtaDiagnosisBuildConcern
         $eligibleRows = array_key_exists('decision_eligible_online_rows', $dataSet)
             ? (is_array($dataSet['decision_eligible_online_rows']) ? $dataSet['decision_eligible_online_rows'] : [])
             : (is_array($dataSet['online_rows'] ?? null) ? $dataSet['online_rows'] : []);
+        $visibleRows = is_array($dataSet['online_rows'] ?? null) ? $dataSet['online_rows'] : $eligibleRows;
+        $systemHotelId = (int)($dataSet['hotel']['id'] ?? 0);
+        $hotelName = trim((string)($dataSet['hotel']['name'] ?? ''));
+        $platform = strtolower(trim((string)($eligibleRows[0]['source'] ?? $eligibleRows[0]['platform'] ?? '')));
+        $ownHotelNames = $hotelName === '' ? [] : [$hotelName];
+        $ownPlatformHotelIds = $this->otaDiagnosisOwnPlatformHotelIds($visibleRows, $systemHotelId, $platform);
         usort($eligibleRows, static function (array $left, array $right): int {
             $dateCompare = strcmp((string)($right['data_date'] ?? ''), (string)($left['data_date'] ?? ''));
             return $dateCompare !== 0 ? $dateCompare : ((int)($right['id'] ?? 0) <=> (int)($left['id'] ?? 0));
@@ -797,15 +1040,52 @@ trait AgentOtaDiagnosisBuildConcern
             if (!is_array($row)) {
                 continue;
             }
+            $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+            $isSupplementalOperatingEvidence = in_array($dataType, ['advertising', 'quality', 'review'], true);
+            $isOwnOperatingRow = OtaOperatingScope::isOwnOperatingRow(
+                $row,
+                null,
+                $ownHotelNames,
+                $ownPlatformHotelIds
+            );
+            $decisionEligible = $isOwnOperatingRow || $isSupplementalOperatingEvidence;
+            $tags = $this->buildOtaEvidenceTags('online_daily_data', $row);
+            if (!$decisionEligible) {
+                $tags = array_values(array_unique([
+                    'online_daily_data',
+                    'competitor',
+                    'competitor_reference',
+                    'excluded_from_own_operation_decision',
+                ]));
+            }
             $sources[] = array_merge([
                 'ref' => 'online_daily_data#' . (string)($row['id'] ?? ''),
                 'table' => 'online_daily_data',
                 'record_id' => $row['id'] ?? null,
                 'date' => (string)($row['data_date'] ?? ''),
-                'tags' => $this->buildOtaEvidenceTags('online_daily_data', $row),
+                'tags' => $tags,
                 'label' => trim(implode(' ', array_filter([(string)($row['source'] ?? ''), (string)($row['data_type'] ?? ''), (string)($row['compare_type'] ?? '')]))),
                 'metrics' => $this->buildOtaEvidenceMetricPreview($row),
-                'decision_eligible' => true,
+                'decision_eligible' => $decisionEligible,
+                'excluded_from_decision' => !$decisionEligible,
+                'comparison_eligible' => !$decisionEligible,
+            ], $this->buildOtaDiagnosisEvidenceMetadata($row));
+        }
+
+        foreach (array_slice(is_array($dataSet['superseded_online_rows'] ?? null) ? $dataSet['superseded_online_rows'] : [], 0, 10) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $sources[] = array_merge([
+                'ref' => 'online_daily_data_superseded#' . (string)($row['id'] ?? ''),
+                'table' => 'online_daily_data',
+                'record_id' => $row['id'] ?? null,
+                'date' => (string)($row['data_date'] ?? ''),
+                'tags' => ['online_daily_data', 'traffic', 'superseded_snapshot', 'excluded_from_decision'],
+                'label' => '已被目标日规范快照替代的流量记录',
+                'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+                'excluded_from_decision' => true,
+                'decision_eligible' => false,
             ], $this->buildOtaDiagnosisEvidenceMetadata($row));
         }
 
@@ -1068,7 +1348,7 @@ trait AgentOtaDiagnosisBuildConcern
     private function buildOtaDiagnosisActionItems(array $actions, array $evidenceSources, array $context = []): array
     {
         $items = [];
-        $blockingDataGaps = $this->blockingOtaDiagnosisDataGaps($context['data_gaps'] ?? []);
+        $blockingDataGaps = $this->blockingOtaDiagnosisDataGaps($context['data_gaps'] ?? [], $context);
         foreach ($actions as $index => $action) {
             $actionText = trim((string)$action);
             if ($actionText === '') {

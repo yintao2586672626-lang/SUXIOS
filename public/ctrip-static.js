@@ -2866,6 +2866,73 @@ window.SUXI_CTRIP_STATIC = (() => {
         };
     };
 
+    const normalizeCtripChannelOrderInput = (value, sourceStatus = '') => {
+        const statusText = String(sourceStatus || '').trim();
+        const missing = value === null
+            || value === undefined
+            || value === ''
+            || typeof value === 'boolean'
+            || /未返回|missing|unavailable|failed|unknown/i.test(statusText);
+        const number = Number(value);
+        return missing || !Number.isFinite(number) || number < 0 ? null : number;
+    };
+
+    const buildCtripChannelOrderBreakdown = (row = {}) => {
+        const metricStatus = row?.metricSourceStatus && typeof row.metricSourceStatus === 'object'
+            ? row.metricSourceStatus
+            : {};
+        const totalOrders = normalizeCtripChannelOrderInput(row?.bookOrderNum, metricStatus.bookOrderNum);
+        const ctripVisitors = normalizeCtripChannelOrderInput(row?.totalDetailNum, metricStatus.totalDetailNum);
+        const ctripRate = normalizeCtripChannelOrderInput(row?.convertionRate, metricStatus.convertionRate);
+        const qunarVisitors = normalizeCtripChannelOrderInput(row?.qunarDetailVisitors, metricStatus.qunarDetailVisitors);
+        const qunarRate = normalizeCtripChannelOrderInput(row?.qunarDetailCR, metricStatus.qunarDetailCR);
+        const ctripOrders = ctripVisitors === null || ctripRate === null
+            ? null
+            : Math.ceil(ctripVisitors * ctripRate / 100);
+        const qunarOrders = qunarVisitors === null || qunarRate === null
+            ? null
+            : Math.ceil(qunarVisitors * qunarRate / 100);
+        const hasAllInputs = totalOrders !== null && ctripOrders !== null && qunarOrders !== null;
+        const residualOrders = hasAllInputs ? Math.round(totalOrders) - ctripOrders - qunarOrders : null;
+        const residualConflict = residualOrders !== null && residualOrders < 0;
+        const channelEstimateExcessOrders = residualConflict ? Math.abs(residualOrders) : 0;
+
+        return {
+            ctripOrders,
+            qunarOrders,
+            tongchengDistributionOrders: residualConflict ? null : residualOrders,
+            channelEstimateExcessOrders,
+            status: !hasAllInputs ? 'input_missing' : (residualConflict ? 'channel_total_conflict' : 'derived'),
+            displayLabel: !hasAllInputs
+                ? '输入缺失'
+                : (residualConflict ? `渠道推算超出总订单 ${channelEstimateExcessOrders} 单` : '推算'),
+            sourceLabel: '流量与转化率向上取整，非平台返回订单明细',
+            formulas: {
+                ctrip: '向上取整（携程APP访客量 × 携程转化率）',
+                qunar: '向上取整（去哪儿访客 × 去哪儿转化率）',
+                tongchengDistribution: '携程系预订订单 − 携程订单 − 去哪儿订单',
+            },
+            inputs: {
+                totalOrders,
+                ctripVisitors,
+                ctripRate,
+                qunarVisitors,
+                qunarRate,
+            },
+        };
+    };
+
+    const attachCtripChannelOrderBreakdown = (row = {}) => {
+        const breakdown = buildCtripChannelOrderBreakdown(row);
+        return {
+            ...(row && typeof row === 'object' ? row : {}),
+            ctripOrderEstimate: breakdown.ctripOrders,
+            qunarOrderEstimate: breakdown.qunarOrders,
+            tongchengDistributionOrderEstimate: breakdown.tongchengDistributionOrders,
+            channelOrderBreakdownMeta: breakdown,
+        };
+    };
+
     const buildTruthfulCtripDisplayModel = (rows = [], summary = null) => {
         const displayRows = Array.isArray(rows) ? rows.map(omitUnsupportedCtripEstimate) : [];
         if (!summary || typeof summary !== 'object') {
@@ -3757,6 +3824,8 @@ window.SUXI_CTRIP_STATIC = (() => {
         deriveCtripFullChannelRoomNightMultiplier,
         buildCtripFullChannelRoomNightScenario,
         attachCtripFullChannelRoomNightScenario,
+        buildCtripChannelOrderBreakdown,
+        attachCtripChannelOrderBreakdown,
         isCtripLatestRequestCurrent,
         buildCtripTrafficFetchRequestBody,
         buildCtripTrafficResponseModel,

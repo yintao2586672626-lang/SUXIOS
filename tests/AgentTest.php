@@ -158,6 +158,12 @@ final class AgentTest extends TestCase
             'source',
             'raw_data',
             'readback_verified',
+            'data_period',
+            'snapshot_time',
+            'snapshot_bucket',
+            'is_final',
+            'ingestion_method',
+            'collected_at',
         ], true);
 
         $fields = $this->invokeNonPublic($controller, 'otaDiagnosisOnlineRowFields', [$columns]);
@@ -165,6 +171,273 @@ final class AgentTest extends TestCase
         self::assertContains('data_source_id', $fields);
         self::assertContains('sync_task_id', $fields);
         self::assertContains('readback_verified', $fields);
+        self::assertContains('data_period', $fields);
+        self::assertContains('snapshot_time', $fields);
+        self::assertContains('snapshot_bucket', $fields);
+        self::assertContains('is_final', $fields);
+        self::assertContains('ingestion_method', $fields);
+        self::assertContains('collected_at', $fields);
+    }
+
+    public function testOtaDiagnosisUsesFinalDailyTrafficSnapshotWithoutSummingRealtimeSnapshots(): void
+    {
+        $controller = $this->controller();
+        $rows = [
+            [
+                'id' => 69531,
+                'source' => 'ctrip',
+                'system_hotel_id' => 80,
+                'hotel_name' => '敦煌漠蓝新',
+                'data_type' => 'traffic',
+                'compare_type' => 'self',
+                'data_date' => '2026-07-31',
+                'data_period' => 'realtime_snapshot',
+                'snapshot_time' => '2026-07-31 00:10:00',
+                'list_exposure' => 380,
+                'detail_exposure' => 65,
+                'order_filling_num' => 0,
+                'order_submit_num' => 0,
+            ],
+            [
+                'id' => 69748,
+                'source' => 'ctrip',
+                'system_hotel_id' => 80,
+                'hotel_name' => '敦煌漠蓝新',
+                'data_type' => 'traffic',
+                'compare_type' => 'self',
+                'data_date' => '2026-07-31',
+                'data_period' => 'realtime_snapshot',
+                'snapshot_time' => '2026-07-31 01:10:00',
+                'list_exposure' => 380,
+                'detail_exposure' => 65,
+                'order_filling_num' => 0,
+                'order_submit_num' => 0,
+            ],
+            [
+                'id' => 70940,
+                'source' => 'ctrip',
+                'system_hotel_id' => 80,
+                'hotel_name' => '敦煌漠蓝新',
+                'data_type' => 'traffic',
+                'compare_type' => 'self',
+                'data_date' => '2026-07-31',
+                'data_period' => 'historical_daily',
+                'is_final' => 1,
+                'snapshot_time' => '2026-08-01 21:35:00',
+                'list_exposure' => 338,
+                'detail_exposure' => 64,
+                'flow_rate' => 18.93,
+                'order_filling_num' => 1,
+                'order_submit_num' => 1,
+            ],
+        ];
+
+        $result = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [[
+            'hotel' => ['id' => 80, 'name' => '敦煌漠蓝新'],
+            'online_rows' => $rows,
+            'daily_reports' => [],
+            'competitor_prices' => [],
+            'competitor_analyses' => [],
+            'price_suggestions' => [],
+            'sync_logs' => [],
+        ], 80, '80', '敦煌漠蓝新', 'ctrip', '2026-07-31', '2026-07-31', 'traffic']);
+
+        self::assertSame(338, $result['metrics']['list_exposure']);
+        self::assertSame(64, $result['metrics']['detail_visitors']);
+        self::assertSame(18.93, $result['metrics']['flow_rate']);
+        self::assertSame(1, $result['metrics']['order_visitors']);
+        self::assertSame(1, $result['metrics']['submit_users']);
+        self::assertSame(18.93, $result['metrics']['detail_rate']);
+        self::assertSame(1.56, $result['metrics']['order_rate']);
+        self::assertSame(100.0, $result['metrics']['submit_rate']);
+        self::assertNotSame(1098, $result['metrics']['list_exposure']);
+        self::assertNotSame(194, $result['metrics']['detail_visitors']);
+        self::assertSame(2, $result['decision_quality']['superseded_snapshot_count']);
+        self::assertSame(1, $result['metrics']['record_count']);
+    }
+
+    public function testOtaDiagnosisUsesLatestRealtimeSnapshotAndDoesNotBackfillFinalGaps(): void
+    {
+        $controller = $this->controller();
+        $base = [
+            'source' => 'ctrip',
+            'system_hotel_id' => 80,
+            'hotel_name' => '敦煌漠蓝新',
+            'data_type' => 'traffic',
+            'compare_type' => 'self',
+            'data_date' => '2026-07-31',
+            'data_period' => 'realtime_snapshot',
+        ];
+        $selection = $this->invokeNonPublic($controller, 'selectCanonicalOtaDiagnosisTrafficSnapshots', [[
+            array_merge($base, ['id' => 1, 'snapshot_time' => '2026-07-31 00:10:00', 'list_exposure' => 100, 'order_filling_num' => 4]),
+            array_merge($base, ['id' => 2, 'snapshot_time' => '2026-07-31 01:10:00', 'list_exposure' => 120, 'order_filling_num' => 5]),
+        ], 80, '敦煌漠蓝新', 'ctrip']);
+
+        self::assertSame([2], array_column($selection['rows'], 'id'));
+        self::assertSame([1], array_column($selection['superseded_rows'], 'id'));
+
+        $finalSelection = $this->invokeNonPublic($controller, 'selectCanonicalOtaDiagnosisTrafficSnapshots', [[
+            array_merge($base, ['id' => 3, 'snapshot_time' => '2026-07-31 02:10:00', 'order_filling_num' => 7]),
+            array_merge($base, [
+                'id' => 4,
+                'data_period' => 'historical_daily',
+                'is_final' => 1,
+                'snapshot_time' => '2026-08-01 20:00:00',
+                'order_filling_num' => null,
+            ]),
+        ], 80, '敦煌漠蓝新', 'ctrip']);
+
+        self::assertSame([4], array_column($finalSelection['rows'], 'id'));
+        self::assertNull($finalSelection['rows'][0]['order_filling_num']);
+
+        $result = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [[
+            'hotel' => ['id' => 80, 'name' => 'test hotel'],
+            'online_rows' => [
+                array_merge($base, ['id' => 3, 'snapshot_time' => '2026-07-31 02:10:00', 'order_filling_num' => 7]),
+                array_merge($base, [
+                    'id' => 4,
+                    'data_period' => 'historical_daily',
+                    'is_final' => 1,
+                    'snapshot_time' => '2026-08-01 20:00:00',
+                    'order_filling_num' => null,
+                ]),
+            ],
+            'daily_reports' => [],
+            'competitor_prices' => [],
+            'competitor_analyses' => [],
+            'price_suggestions' => [],
+            'sync_logs' => [],
+        ], 80, '80', 'test hotel', 'ctrip', '2026-07-31', '2026-07-31', 'traffic']);
+
+        self::assertNull($result['metrics']['order_visitors']);
+        self::assertSame(1, $result['decision_quality']['superseded_snapshot_count']);
+    }
+
+    public function testOtaDiagnosisCanonicalizesEachDayBeforeAggregatingDateRange(): void
+    {
+        $controller = $this->controller();
+        $base = [
+            'source' => 'ctrip',
+            'system_hotel_id' => 80,
+            'hotel_name' => 'test hotel',
+            'data_type' => 'traffic',
+            'compare_type' => 'self',
+        ];
+        $rows = [
+            array_merge($base, [
+                'id' => 10,
+                'data_date' => '2026-07-30',
+                'data_period' => 'realtime_snapshot',
+                'snapshot_bucket' => 'hourly',
+                'snapshot_time' => '2026-07-30 23:00:00',
+                'list_exposure' => 100,
+                'detail_exposure' => 20,
+                'order_filling_num' => 1,
+            ]),
+            array_merge($base, [
+                'id' => 11,
+                'data_date' => '2026-07-30',
+                'data_period' => 'historical_daily',
+                'snapshot_bucket' => 'daily_final',
+                'is_final' => 1,
+                'snapshot_time' => '2026-07-31 08:00:00',
+                'list_exposure' => 90,
+                'detail_exposure' => 18,
+                'order_filling_num' => 2,
+            ]),
+            array_merge($base, [
+                'id' => 12,
+                'data_date' => '2026-07-31',
+                'data_period' => 'realtime_snapshot',
+                'snapshot_bucket' => 'morning',
+                'snapshot_time' => '2026-07-31 09:00:00',
+                'list_exposure' => 200,
+                'detail_exposure' => 40,
+                'order_filling_num' => 3,
+            ]),
+            array_merge($base, [
+                'id' => 13,
+                'data_date' => '2026-07-31',
+                'data_period' => 'realtime_snapshot',
+                'snapshot_bucket' => 'evening',
+                'snapshot_time' => '2026-07-31 21:00:00',
+                'list_exposure' => 220,
+                'detail_exposure' => 44,
+                'order_filling_num' => 4,
+            ]),
+        ];
+
+        $result = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [[
+            'hotel' => ['id' => 80, 'name' => 'test hotel'],
+            'online_rows' => $rows,
+            'daily_reports' => [],
+            'competitor_prices' => [],
+            'competitor_analyses' => [],
+            'price_suggestions' => [],
+            'sync_logs' => [],
+        ], 80, '80', 'test hotel', 'ctrip', '2026-07-30', '2026-07-31', 'traffic']);
+
+        self::assertSame(310, $result['metrics']['list_exposure']);
+        self::assertSame(62, $result['metrics']['detail_visitors']);
+        self::assertSame(6, $result['metrics']['order_visitors']);
+        self::assertSame(9.68, $result['metrics']['order_rate']);
+        self::assertSame(2, $result['metrics']['record_count']);
+        self::assertSame(2, $result['metrics']['date_count']);
+        self::assertSame(2, $result['decision_quality']['superseded_snapshot_count']);
+    }
+
+    public function testOtaDiagnosisExecutionEvidenceUsesCanonicalSelfTrafficRow(): void
+    {
+        $controller = $this->controller();
+        $final = [
+            'id' => 70940,
+            'source' => 'ctrip',
+            'system_hotel_id' => 80,
+            'hotel_name' => '敦煌漠蓝新',
+            'data_type' => 'traffic',
+            'compare_type' => 'self',
+            'data_date' => '2026-07-31',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+            'list_exposure' => 338,
+            'detail_exposure' => 64,
+            'order_filling_num' => 1,
+            'order_submit_num' => 1,
+            'validation_status' => 'normal',
+            'readback_verified' => 1,
+        ];
+        $superseded = array_merge($final, [
+            'id' => 69748,
+            'data_period' => 'realtime_snapshot',
+            'is_final' => 0,
+            'list_exposure' => 380,
+            'detail_exposure' => 65,
+        ]);
+        $competitor = array_merge($final, [
+            'id' => 70942,
+            'hotel_name' => '竞争圈平均',
+            'compare_type' => 'competitor_avg',
+            'list_exposure' => 601,
+            'detail_exposure' => 118,
+            'order_filling_num' => 5,
+            'order_submit_num' => 3,
+        ]);
+        $sources = $this->invokeNonPublic($controller, 'buildOtaDiagnosisEvidenceSources', [[
+            'hotel' => ['id' => 80, 'name' => '敦煌漠蓝新'],
+            'online_rows' => [$superseded, $final, $competitor],
+            'decision_eligible_online_rows' => [$final, $competitor],
+            'superseded_online_rows' => [$superseded],
+        ], ['order_rate' => 1.56]]);
+
+        $byRef = array_column($sources, null, 'ref');
+        self::assertTrue($byRef['online_daily_data#70940']['decision_eligible']);
+        self::assertFalse($byRef['online_daily_data#70942']['decision_eligible']);
+        self::assertFalse($byRef['online_daily_data_superseded#69748']['decision_eligible']);
+        $refs = $this->invokeNonPublic($controller, 'selectOtaEvidenceRefsForAction', [
+            '检查详情页房型和价格阶梯，降低访问后的下单阻力。',
+            $sources,
+        ]);
+        self::assertSame(['online_daily_data#70940'], $refs);
     }
 
     public function testOtaDiagnosisEvidenceUsesLatestEligibleRowsAndCarriesTraceMetadata(): void
@@ -237,6 +510,21 @@ final class AgentTest extends TestCase
             'date_range' => ['start_date' => '2026-05-24', 'end_date' => '2026-05-24'],
             'priority' => 'high',
             'core_conclusion' => 'Ctrip traffic evidence requires a specific conversion review.',
+            'metrics' => [
+                'amount' => null,
+                'quantity' => null,
+                'book_order_num' => null,
+                'list_exposure' => 1000,
+                'detail_visitors' => 40,
+                'flow_rate' => 4.0,
+                'order_visitors' => 2,
+                'submit_users' => 1,
+            ],
+            'data_gaps' => [
+                'metric_missing:amount',
+                'metric_missing:quantity',
+                'metric_missing:book_order_num',
+            ],
         ]]);
         self::assertCount(1, $actions);
         self::assertSame(AiDecisionQualityService::CONTRACT_VERSION, $actions[0]['decision_quality']['contract_version']);
@@ -694,6 +982,43 @@ final class AgentTest extends TestCase
         ]]);
         self::assertSame('blocked_by_data', $final['decision_status']);
         self::assertSame('none', $final['priority']);
+    }
+
+    public function testOtaDiagnosisCompleteTrafficPathMakesRevenueGapsOptional(): void
+    {
+        $controller = $this->controller();
+        $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [[
+            'metrics' => [
+                'amount' => null,
+                'quantity' => null,
+                'book_order_num' => null,
+                'list_exposure' => 338,
+                'detail_visitors' => 64,
+                'flow_rate' => 18.93,
+                'order_visitors' => 1,
+                'submit_users' => 1,
+            ],
+            'action_items' => [[
+                'id' => 'traffic-action',
+                'status' => 'pending_manual_review',
+                'execution_ready' => true,
+            ]],
+            'data_gaps' => [
+                'metric_missing:amount',
+                'metric_missing:quantity',
+                'metric_missing:book_order_num',
+            ],
+            'main_problems' => ['booking conversion requires review'],
+            'data_summary' => ['source_counts' => ['online_rows' => 5]],
+        ]]);
+
+        self::assertSame('action_required', $closure['status']);
+        self::assertSame([], $closure['data_evidence_input']['blocking_data_gaps']);
+        self::assertSame(
+            ['metric_missing:amount', 'metric_missing:quantity', 'metric_missing:book_order_num'],
+            array_column($closure['data_evidence_input']['optional_data_gaps'], 'code')
+        );
+        self::assertTrue($closure['data_evidence_input']['enough_for_executable_actions']);
     }
 
     public function testOtaDiagnosisExecutionIntentUsesSavedEvidenceWithoutInventingTargetDelta(): void

@@ -661,16 +661,69 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         self::assertSame('superseded', $released['record_status'] ?? null);
     }
 
-    public function testSavedOtaDiagnosisReviewUsesLinkedNextDaySourceReadback(): void
+    public function testSavedOtaDiagnosisReviewUsesBusinessDateScheduledWindowAndCanonicalTrafficSnapshot(): void
     {
-        $diagnosisDate = date('Y-m-d', time() - 172800);
-        $baselineDate = date('Y-m-d', time() - 86400);
-        $reviewDate = date('Y-m-d');
-        $executedAt = $baselineDate . ' 12:00:00';
+        $businessDate = date('Y-m-d', strtotime('-3 days'));
+        $executedDate = date('Y-m-d', strtotime('-2 days'));
+        $reviewDate = date('Y-m-d', strtotime('-1 day'));
+        $executedAt = $executedDate . ' 12:00:00';
+        $reviewAt = $reviewDate . ' 10:00:00';
         $actionId = 'action-orders-1';
         $actionText = 'Optimize the Ctrip campaign and observe order lift.';
-        $sourceRefs = ['online_daily_data#baseline'];
         $idempotencyKey = 'ota-diagnosis-test-key';
+
+        $oldRealtimeId = $this->insertOnlineTrafficSnapshot(
+            $businessDate,
+            1098,
+            194,
+            1,
+            $businessDate . ' 10:00:00',
+            'realtime_snapshot',
+            0
+        );
+        $newRealtimeId = $this->insertOnlineTrafficSnapshot(
+            $businessDate,
+            700,
+            100,
+            2,
+            $businessDate . ' 23:00:00',
+            'realtime_snapshot',
+            0
+        );
+        $finalBaselineId = $this->insertOnlineTrafficSnapshot(
+            $businessDate,
+            338,
+            64,
+            1,
+            $businessDate . ' 20:00:00',
+            'historical_daily',
+            1
+        );
+        $competitorId = $this->insertOnlineTrafficSnapshot(
+            $businessDate,
+            601,
+            118,
+            3,
+            $businessDate . ' 21:00:00',
+            'historical_daily',
+            1,
+            'competitor_avg'
+        );
+        $reviewRowId = $this->insertOnlineTrafficSnapshot(
+            $reviewDate,
+            300,
+            60,
+            3,
+            $reviewDate . ' 12:00:00',
+            'historical_daily',
+            1
+        );
+        $sourceRefs = [
+            'online_daily_data#' . $oldRealtimeId,
+            'online_daily_data#' . $newRealtimeId,
+            'online_daily_data#' . $finalBaselineId,
+            'online_daily_data#' . $competitorId,
+        ];
 
         $logId = (int)Db::name('agent_logs')->insertGetId([
             'hotel_id' => 7,
@@ -685,10 +738,19 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'platform' => 'ctrip',
             'object_type' => 'campaign',
             'action_type' => 'campaign_optimization',
-            'date_start' => $diagnosisDate,
-            'date_end' => $diagnosisDate,
-            'current_value_json' => '{}',
-            'target_value_json' => json_encode(['action_text' => $actionText], JSON_UNESCAPED_UNICODE),
+            'date_start' => $businessDate,
+            'date_end' => $businessDate,
+            'current_value_json' => json_encode([
+                'order_rate' => 0.52,
+                'list_exposure' => 1098,
+                'detail_exposure' => 194,
+                'order_submit_num' => 1,
+            ], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode([
+                'action_text' => $actionText,
+                'review_at' => $reviewAt,
+                'workflow_schedule' => ['review_at' => $reviewAt],
+            ], JSON_UNESCAPED_UNICODE),
             'evidence_json' => json_encode([
                 'action_index' => 0,
                 'action_item_id' => $actionId,
@@ -696,7 +758,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
                 'evidence_refs' => $sourceRefs,
                 'expected_delta_status' => 'quantified',
             ], JSON_UNESCAPED_UNICODE),
-            'expected_metric' => 'orders',
+            'expected_metric' => 'order_rate',
             'expected_delta' => 2,
             'risk_level' => 'medium',
             'blocked_reason' => '',
@@ -708,7 +770,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         $diagnosisResult = [
             'hotel' => ['id' => 7],
             'platform' => 'ctrip',
-            'date_range' => ['start_date' => $diagnosisDate, 'end_date' => $diagnosisDate],
+            'date_range' => ['start_date' => $businessDate, 'end_date' => $businessDate],
             'decision_status' => 'action_required',
             'action_items' => [[
                 'id' => $actionId,
@@ -744,8 +806,9 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'created_at' => $executedAt,
             'updated_at' => $executedAt,
         ]);
-        $this->insertTrustedOnlineOrders($baselineDate, 10, $baselineDate . ' 10:00:00');
-        $this->insertTrustedOnlineOrders($reviewDate, 14, date('Y-m-d H:i:s'), 'realtime_snapshot', 0);
+        $originalCurrentValueJson = (string)Db::name('operation_execution_intents')
+            ->where('id', $intentId)
+            ->value('current_value_json');
 
         $service = new OperationManagementService();
         $normalizeIntent = new ReflectionMethod(OperationManagementService::class, 'normalizeExecutionIntentRow');
@@ -778,7 +841,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         $trustedRows = new ReflectionMethod(OperationManagementService::class, 'trustedExecutionReadbackRows');
         $baselineRows = $trustedRows->invoke(
             $service,
-            Db::name('online_daily_data')->where('data_date', $baselineDate)->select()->toArray(),
+            Db::name('online_daily_data')->where('data_date', $businessDate)->select()->toArray(),
             'ctrip'
         );
         $reviewRows = $trustedRows->invoke(
@@ -788,6 +851,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             strtotime($executedAt)
         );
         self::assertCount(1, $baselineRows);
+        self::assertSame($finalBaselineId, (int)$baselineRows[0]['id']);
         $readbackTimestamp = new ReflectionMethod(OperationManagementService::class, 'executionReadbackRowTimestamp');
         $rawReviewRow = Db::name('online_daily_data')->where('data_date', $reviewDate)->find();
         self::assertCount(1, $reviewRows, json_encode([
@@ -796,29 +860,293 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'row' => $rawReviewRow,
         ], JSON_UNESCAPED_UNICODE));
         $metricValue = new ReflectionMethod(OperationManagementService::class, 'executionReadbackMetricValue');
-        self::assertSame(10.0, $metricValue->invoke($service, 'orders', $baselineRows, 7, $baselineDate));
-        self::assertSame(14.0, $metricValue->invoke($service, 'orders', $reviewRows, 7, $reviewDate));
-        $buildReadback = new ReflectionMethod(OperationManagementService::class, 'buildSourceVerifiedMetricReadbackPayload');
-        self::assertNotNull(
-            $buildReadback->invoke($service, $normalizedTask, $normalizedIntent),
-            json_encode(Db::name('online_daily_data')->order('id')->select()->toArray(), JSON_UNESCAPED_UNICODE)
+        self::assertSame(1.56, $metricValue->invoke($service, 'order_rate', $baselineRows, 7, $businessDate));
+        self::assertSame(5.0, $metricValue->invoke($service, 'order_rate', $reviewRows, 7, $reviewDate));
+
+        $canonicalRows = new ReflectionMethod(OperationManagementService::class, 'canonicalExecutionReadbackRows');
+        $canonicalBaseline = $canonicalRows->invoke(
+            $service,
+            Db::name('online_daily_data')
+                ->where('data_date', $businessDate)
+                ->where('compare_type', 'self')
+                ->select()
+                ->toArray(),
+            'order_rate'
         );
+        self::assertCount(1, $canonicalBaseline);
+        self::assertSame($finalBaselineId, (int)$canonicalBaseline[0]['id']);
+
+        $buildReadback = new ReflectionMethod(OperationManagementService::class, 'buildSourceVerifiedMetricReadbackPayload');
+        $payload = $buildReadback->invoke($service, $normalizedTask, $normalizedIntent);
+        self::assertNotNull($payload, json_encode(
+            Db::name('online_daily_data')->order('id')->select()->toArray(),
+            JSON_UNESCAPED_UNICODE
+        ));
+        self::assertSame(['order_rate' => 1.56], $payload['before']);
+        self::assertSame(['order_rate' => 5.0], $payload['after']);
+        self::assertSame($businessDate, $payload['platform_response']['baseline_date']);
+        self::assertSame($reviewDate, $payload['platform_response']['review_date']);
+        self::assertSame($reviewAt, $payload['platform_response']['scheduled_review_at']);
+        self::assertSame(
+            'online_daily_data#' . $finalBaselineId,
+            $payload['platform_response']['baseline_source_ref']
+        );
+        self::assertSame(
+            'online_daily_data#' . $reviewRowId,
+            $payload['platform_response']['followup_source_ref']
+        );
+        self::assertSame(
+            'online_daily_data#' . $finalBaselineId . ',' . $reviewRowId,
+            $payload['platform_response']['source_ref']
+        );
+        self::assertSame(
+            'source_readback_supersedes_intent_snapshot',
+            $payload['platform_response']['baseline_reconciliation_status']
+        );
+        self::assertSame(0.52, $payload['platform_response']['intent_snapshot_value']);
+        self::assertSame(1.56, $payload['platform_response']['source_readback_value']);
+        self::assertSame('declared_refs_match', $payload['platform_response']['baseline_source_reference_status']);
+        self::assertSame([], $payload['platform_response']['newly_verified_baseline_source_refs']);
+        self::assertSame(
+            ['online_daily_data#' . $finalBaselineId],
+            $payload['platform_response']['reconciled_baseline_source_refs']
+        );
+        self::assertTrue($payload['platform_response']['original_intent_evidence_preserved']);
+        self::assertFalse($payload['platform_response']['historical_intent_mutated']);
+        self::assertFalse($payload['platform_response']['causality_claimed']);
+        self::assertNotContains(
+            'online_daily_data#' . $finalBaselineId,
+            $payload['platform_response']['excluded_declared_source_refs']
+        );
+        self::assertContains(
+            'online_daily_data#' . $oldRealtimeId,
+            $payload['platform_response']['excluded_declared_source_refs']
+        );
+        self::assertContains(
+            'online_daily_data#' . $competitorId,
+            $payload['platform_response']['excluded_declared_source_refs']
+        );
+
+        $reconciledRefs = [
+            'online_daily_data#' . $oldRealtimeId,
+            'online_daily_data#' . $newRealtimeId,
+            'online_daily_data#' . $competitorId,
+        ];
+        $reconciledIntent = $normalizedIntent;
+        $reconciledIntent['evidence']['evidence_refs'] = $reconciledRefs;
+        $diagnosisResult['action_items'][0]['evidence_refs'] = $reconciledRefs;
+        Db::name('agent_logs')->where('id', $logId)->update([
+            'context_data' => json_encode(['diagnosis_result' => $diagnosisResult], JSON_UNESCAPED_UNICODE),
+        ]);
+        $reconciledPayload = $buildReadback->invoke($service, $normalizedTask, $reconciledIntent);
+        self::assertNotNull($reconciledPayload);
+        self::assertSame(['order_rate' => 1.56], $reconciledPayload['before']);
+        self::assertSame(
+            'trusted_same_scope_reconciliation',
+            $reconciledPayload['platform_response']['baseline_source_reference_status']
+        );
+        self::assertSame(
+            ['online_daily_data#' . $finalBaselineId],
+            $reconciledPayload['platform_response']['newly_verified_baseline_source_refs']
+        );
+        self::assertTrue($reconciledPayload['platform_response']['original_intent_evidence_preserved']);
+        self::assertFalse($reconciledPayload['platform_response']['historical_intent_mutated']);
+
+        $diagnosisResult['action_items'][0]['evidence_refs'] = $sourceRefs;
+        Db::name('agent_logs')->where('id', $logId)->update([
+            'context_data' => json_encode(['diagnosis_result' => $diagnosisResult], JSON_UNESCAPED_UNICODE),
+        ]);
+
+        $fallbackIntent = $normalizedIntent;
+        unset($fallbackIntent['target_value']['workflow_schedule']);
+        $fallbackPayload = $buildReadback->invoke($service, $normalizedTask, $fallbackIntent);
+        self::assertSame($reviewDate, $fallbackPayload['platform_response']['review_date']);
 
         $reviewed = $service->reviewExecutionTask($taskId, [7], [
             'result_status' => 'success',
-            'result_summary' => 'Next-day Ctrip orders were read back from persisted source facts.',
+            'result_summary' => 'Scheduled Ctrip order rate was read back from the same persisted fact scope.',
         ], 3);
 
         self::assertSame('success', $reviewed['result_status']);
         self::assertTrue($reviewed['evidence_truth']['source_verified']);
+        self::assertSame('candidate', $reviewed['sop_candidate']['status']);
+        self::assertSame('pending_approval', $reviewed['sop_candidate']['approval_status']);
+        self::assertFalse($reviewed['sop_candidate']['boundaries']['automatic_publish_enabled']);
+        self::assertFalse($reviewed['sop_candidate']['boundaries']['cross_hotel_replication_allowed']);
         $sourceEvidence = Db::name('operation_execution_evidence')
             ->where('task_id', $taskId)
             ->where('evidence_type', 'source_verified_metric_readback')
             ->where('created_by', 0)
             ->find();
         self::assertIsArray($sourceEvidence);
-        self::assertSame(['orders' => 10], json_decode((string)$sourceEvidence['before_json'], true));
-        self::assertSame(['orders' => 14], json_decode((string)$sourceEvidence['after_json'], true));
+        self::assertSame(['order_rate' => 1.56], json_decode((string)$sourceEvidence['before_json'], true));
+        self::assertSame(['order_rate' => 5], json_decode((string)$sourceEvidence['after_json'], true));
+        $savedResponse = json_decode((string)$sourceEvidence['platform_response_json'], true);
+        self::assertSame(
+            'source_readback_supersedes_intent_snapshot',
+            $savedResponse['baseline_reconciliation_status'] ?? null
+        );
+        self::assertSame($originalCurrentValueJson, (string)Db::name('operation_execution_intents')
+            ->where('id', $intentId)
+            ->value('current_value_json'));
+    }
+
+    public function testSavedOtaDiagnosisFailedReviewCannotCloseWithoutScheduledSourceReadback(): void
+    {
+        $businessDate = date('Y-m-d', strtotime('-3 days'));
+        $executedAt = date('Y-m-d', strtotime('-2 days')) . ' 12:00:00';
+        $intentId = (int)Db::name('operation_execution_intents')->insertGetId([
+            'source_module' => 'ota_diagnosis_saved',
+            'source_record_id' => 999,
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'action_type' => 'booking_conversion_optimization',
+            'date_start' => $businessDate,
+            'date_end' => $businessDate,
+            'current_value_json' => json_encode(['order_rate' => 1.56], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode([
+                'review_at' => date('Y-m-d', strtotime('-1 day')) . ' 10:00:00',
+            ], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode([
+                'evidence_refs' => ['online_daily_data#999'],
+                'expected_delta_status' => 'quantified',
+            ], JSON_UNESCAPED_UNICODE),
+            'expected_metric' => 'order_rate',
+            'expected_delta' => 1,
+            'risk_level' => 'medium',
+            'blocked_reason' => '',
+            'status' => 'approved',
+            'created_by' => 3,
+            'created_at' => $executedAt,
+            'updated_at' => $executedAt,
+        ]);
+        $taskId = (int)Db::name('operation_execution_tasks')->insertGetId([
+            'intent_id' => $intentId,
+            'hotel_id' => 7,
+            'status' => 'executed',
+            'result_status' => 'observing',
+            'result_summary' => '',
+            'executed_at' => $executedAt,
+            'created_at' => $executedAt,
+            'updated_at' => $executedAt,
+        ]);
+        Db::name('operation_execution_evidence')->insert([
+            'task_id' => $taskId,
+            'evidence_type' => 'manual_operation_execution',
+            'before_json' => '{}',
+            'after_json' => '{}',
+            'platform_response_json' => json_encode([
+                'mode' => 'manual_operation_execution',
+                'completed_action' => 'Manual conversion check completed.',
+            ], JSON_UNESCAPED_UNICODE),
+            'remark' => 'operator execution receipt only',
+            'created_by' => 3,
+            'created_at' => $executedAt,
+            'updated_at' => $executedAt,
+        ]);
+
+        try {
+            (new OperationManagementService())->reviewExecutionTask($taskId, [7], [
+                'result_status' => 'failed',
+                'result_summary' => 'Conversion did not improve.',
+            ], 3);
+            self::fail('A failed diagnosis review must still require scheduled source readback.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('same-metric scheduled OTA readback', $exception->getMessage());
+        }
+
+        self::assertSame('observing', (string)Db::name('operation_execution_tasks')
+            ->where('id', $taskId)
+            ->value('result_status'));
+        self::assertSame(0, (int)Db::name('operation_execution_evidence')
+            ->where('task_id', $taskId)
+            ->where('evidence_type', 'source_verified_metric_readback')
+            ->where('created_by', 0)
+            ->count());
+    }
+
+    public function testSavedOtaDiagnosisReviewLockUsesExactApprovedTime(): void
+    {
+        $businessDate = date('Y-m-d', strtotime('-2 days'));
+        $executedAt = date('Y-m-d', strtotime('-1 day')) . ' 12:00:00';
+        $reviewDate = date('Y-m-d', strtotime('+1 day'));
+        $reviewAt = $reviewDate . ' 10:00:00';
+        $intentId = (int)Db::name('operation_execution_intents')->insertGetId([
+            'source_module' => 'ota_diagnosis_saved',
+            'source_record_id' => 1001,
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'action_type' => 'booking_conversion_optimization',
+            'date_start' => $businessDate,
+            'date_end' => $businessDate,
+            'current_value_json' => json_encode(['order_rate' => 1.56], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode([
+                'review_at' => $reviewAt,
+                'workflow_schedule' => ['review_at' => $reviewAt],
+            ], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode([
+                'evidence_refs' => ['online_daily_data#1001'],
+                'expected_delta_status' => 'quantified',
+            ], JSON_UNESCAPED_UNICODE),
+            'expected_metric' => 'order_rate',
+            'expected_delta' => 1,
+            'risk_level' => 'medium',
+            'blocked_reason' => '',
+            'status' => 'approved',
+            'created_by' => 3,
+            'created_at' => $executedAt,
+            'updated_at' => $executedAt,
+        ]);
+        $taskId = (int)Db::name('operation_execution_tasks')->insertGetId([
+            'intent_id' => $intentId,
+            'hotel_id' => 7,
+            'status' => 'executed',
+            'result_status' => 'observing',
+            'result_summary' => '',
+            'executed_at' => $executedAt,
+            'created_at' => $executedAt,
+            'updated_at' => $executedAt,
+        ]);
+        Db::name('operation_execution_evidence')->insert([
+            'task_id' => $taskId,
+            'evidence_type' => 'manual_operation_execution',
+            'before_json' => '{}',
+            'after_json' => '{}',
+            'platform_response_json' => json_encode([
+                'mode' => 'manual_operation_execution',
+                'completed_action' => 'Manual conversion check completed.',
+                'next_review_date' => $reviewDate,
+            ], JSON_UNESCAPED_UNICODE),
+            'remark' => 'operator execution receipt only',
+            'created_by' => 3,
+            'created_at' => $executedAt,
+            'updated_at' => $executedAt,
+        ]);
+
+        $service = new OperationManagementService();
+        $task = $service->readExecutionTask($taskId, [7]);
+        self::assertSame($reviewAt, $task['review_available_at']);
+        self::assertSame($reviewDate, $task['review_available_on']);
+        self::assertFalse($task['review_is_available']);
+        self::assertSame('not_ready', $task['sop_candidate']['status']);
+        self::assertContains('operator_review_pending', $task['sop_candidate']['reason_codes']);
+        self::assertContains('source_verified_metric_readback_missing', $task['sop_candidate']['reason_codes']);
+        self::assertNotContains('operator_execution_evidence_missing', $task['sop_candidate']['reason_codes']);
+
+        try {
+            $service->reviewExecutionTask($taskId, [7], [
+                'result_status' => 'observing',
+                'result_summary' => 'Too early for the scheduled review window.',
+            ], 3);
+            self::fail('Review must remain locked until the exact approved time.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString($reviewAt, $exception->getMessage());
+        }
+        self::assertSame('observing', (string)Db::name('operation_execution_tasks')
+            ->where('id', $taskId)
+            ->value('result_status'));
     }
 
     /** @return array<string, mixed> */
@@ -913,6 +1241,43 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'is_final' => $isFinal,
             'raw_data' => json_encode([
                 'orders' => $orders,
+                'capture_evidence' => ['captured_at' => $capturedAt],
+            ], JSON_UNESCAPED_UNICODE),
+            'update_time' => $capturedAt,
+        ]);
+    }
+
+    private function insertOnlineTrafficSnapshot(
+        string $date,
+        int $exposure,
+        int $visitors,
+        int $orders,
+        string $capturedAt,
+        string $dataPeriod,
+        int $isFinal,
+        string $compareType = 'self'
+    ): int {
+        return (int)Db::name('online_daily_data')->insertGetId([
+            'system_hotel_id' => 7,
+            'data_source_id' => 11,
+            'hotel_id' => $compareType === 'self' ? '130079194' : 'competitor-average',
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'compare_type' => $compareType,
+            'data_date' => $date,
+            'data_type' => 'traffic',
+            'dimension' => 'catalog:ctrip:business_flow_transform',
+            'validation_status' => 'verified',
+            'readback_verified' => 1,
+            'ingestion_method' => 'browser_profile',
+            'data_period' => $dataPeriod,
+            'is_final' => $isFinal,
+            'snapshot_time' => $capturedAt,
+            'raw_data' => json_encode([
+                'list_exposure' => $exposure,
+                'detail_exposure' => $visitors,
+                'order_filling_num' => $orders,
+                'order_submit_num' => $orders,
                 'capture_evidence' => ['captured_at' => $capturedAt],
             ], JSON_UNESCAPED_UNICODE),
             'update_time' => $capturedAt,

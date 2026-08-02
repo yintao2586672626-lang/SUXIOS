@@ -212,6 +212,52 @@ trait CtripTestCases
         self::assertArrayNotHasKey('book_order_num', $patch);
     }
 
+    public function testManualCtripBusinessInputIsExplicitlyUnverifiedAndExcludedFromAnalytics(): void
+    {
+        $controller = $this->controller();
+        $provenance = $this->invokeNonPublic($controller, 'buildCtripBusinessPersistenceProvenance', [[
+            'hotelId' => 'ctrip-80',
+            'amount' => 123.45,
+        ], [
+            'ingestion_method' => 'user_provided_unverified',
+            'force_unverified' => true,
+        ], 'ctrip-80', 80]);
+
+        self::assertSame('user_provided_unverified', $provenance['ingestion_method']);
+        self::assertTrue($provenance['force_unverified']);
+        self::assertSame('manual_input_unverified', $provenance['analysis_exclusion_reason']);
+        self::assertTrue($provenance['raw_data']['manual_input']);
+        self::assertFalse($provenance['raw_data']['analysis_eligibility']['eligible']);
+
+        $row = $this->invokeNonPublic($controller, 'markCtripBusinessRowUnverified', [[
+            'validation_status' => 'normal',
+            'validation_flags' => '[]',
+        ], [
+            'validation_status' => true,
+            'validation_flags' => true,
+        ], 'manual_input_unverified']);
+        self::assertSame('unverified', $row['validation_status']);
+        self::assertSame(
+            'manual_input_unverified',
+            json_decode((string)$row['validation_flags'], true)[0]['code']
+        );
+    }
+
+    public function testCtripStandardRowsPreserveExplicitZeroButKeepMissingNumericFieldsNull(): void
+    {
+        $controller = $this->controller();
+
+        self::assertNull($this->invokeNonPublic($controller, 'ctripStandardRowFloatMetric', [[], 'amount']));
+        self::assertNull($this->invokeNonPublic($controller, 'ctripStandardRowFloatMetric', [['amount' => null], 'amount']));
+        self::assertNull($this->invokeNonPublic($controller, 'ctripStandardRowFloatMetric', [['amount' => ''], 'amount']));
+        self::assertSame(0.0, $this->invokeNonPublic($controller, 'ctripStandardRowFloatMetric', [['amount' => 0], 'amount']));
+
+        self::assertNull($this->invokeNonPublic($controller, 'ctripStandardRowIntegerMetric', [[], 'quantity']));
+        self::assertNull($this->invokeNonPublic($controller, 'ctripStandardRowIntegerMetric', [['quantity' => null], 'quantity']));
+        self::assertNull($this->invokeNonPublic($controller, 'ctripStandardRowIntegerMetric', [['quantity' => 'not-a-number'], 'quantity']));
+        self::assertSame(0, $this->invokeNonPublic($controller, 'ctripStandardRowIntegerMetric', [['quantity' => 0], 'quantity']));
+    }
+
     /**
      * 覆盖 extractCtripBusinessDataList/buildCtripBusinessFingerprint/extractCtripResponseDates/extractHotelData：
      * 验证多层响应解析、指纹稳定性、日期递归提取。
@@ -2315,7 +2361,7 @@ trait CtripTestCases
         self::assertIsArray($calendarRow);
         self::assertSame('market_calendar', json_decode($calendarRow['raw_data'], true)['capture_section']);
         self::assertStringContainsString('"fact_only":true', $calendarRow['raw_data']);
-        self::assertSame(0.0, $calendarRow['amount']);
+        self::assertNull($calendarRow['amount']);
     }
 
     public function testCtripStandardRowsKeepStableEndpointProvenance(): void

@@ -4821,6 +4821,7 @@
                                                     <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">录证据</button>
                                                     <button v-if="operationCanReviewExecution(item)" @click="reviewOperationExecutionTask(item)" class="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">复盘</button>
                                                     <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_on || '次日' }} 可复盘</span>
+                                                    <button v-if="canSaveMemo(item)" @click="saveMemo(item)" data-testid="save-operating-memory">沉淀记忆</button>
                                                     <span v-if="!operationExecutionActionAvailable(item)" class="text-xs text-gray-400">-</span>
                                                 </div>
                                             </td>
@@ -4834,6 +4835,9 @@
                                 <button type="button" @click="setOperationExecutionStageFilter('')" class="ml-1 font-medium text-[#315d50] hover:underline">查看全部阶段</button>
                             </div>
                         </div>
+
+                        <pre data-testid="operating-memory-panel">经营记忆｜分层分级｜不触发OTA/外发
+{{ memoBody || '暂无记忆' }}</pre>
 
                         <div v-if="operationLoading.actions" class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-500">正在加载策略追踪...</div>
                         <div v-if="operationError.actions" class="bg-red-50 border border-red-100 text-red-600 rounded-xl p-4 text-sm">{{ operationError.actions }}</div>
@@ -5059,7 +5063,7 @@
                             </div>
                         </div>
 
-                        <template v-if="hotelManagementSnapshotReady">
+                        <template v-if="hotelRowsVisible">
                         <div class="xl:sticky xl:top-2 z-20 bg-white rounded-xl p-3 shadow-sm border border-gray-100 space-y-3">
                             <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
                                 <button type="button" @click="applyHotelQuickFilter('', '')" :aria-pressed="filterHotelAccountHealth === '' &amp;&amp; filterHotelStatus === ''" :class="filterHotelAccountHealth === '' &amp;&amp; filterHotelStatus === '' ? 'border-blue-200 bg-blue-50/70 ring-1 ring-blue-100' : 'border-gray-100 bg-gray-50 hover:bg-gray-100'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
@@ -5144,7 +5148,7 @@
                                 <div class="text-xs text-gray-500">{{ hotelAccountFilterPresentation.note }}</div>
                             </div>
 
-                            <div class="hidden xl:block overflow-x-auto">
+                            <div v-if="hotelWide" class="overflow-x-auto">
                                 <table class="w-full table-fixed text-sm">
                                     <thead class="sticky top-0 z-10 bg-gray-50 text-xs text-gray-500">
                                         <tr>
@@ -5281,7 +5285,7 @@
                                 </table>
                             </div>
 
-                            <div class="xl:hidden hotel-preview-layout">
+                            <div v-else class="hotel-preview-layout">
                                 <div v-for="(hotel, hotelIndex) in filteredHotels" :key="`mobile-${hotel.id}`" class="hotel-preview-card">
                                     <div class="hotel-preview-card__header">
                                         <div class="min-w-0">
@@ -8244,7 +8248,7 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-blue-50 cursor-pointer hover:bg-blue-100" @click="sortCtripTable('adr')">平均房价 <span v-if="ctripSortField === 'adr'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                            <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                            <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程系预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 × 1.15–1.30 稳定情景系数；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
                                                             全渠道间夜推算
                                                             <span v-if="ctripSortField === 'fullChannelRoomNightsEstimate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
@@ -8296,8 +8300,7 @@
                                                         <th class="px-3 py-2 text-left border text-xs">酒店名称</th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('totalDetailNum')">携程APP访客量 <span v-if="ctripSortField === 'totalDetailNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-indigo-50 cursor-pointer hover:bg-indigo-100" @click="sortCtripTable('convertionRate')">携程转化率 <span v-if="ctripSortField === 'convertionRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarDetailVisitors')">去哪儿访客 <span v-if="ctripSortField === 'qunarDetailVisitors'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarDetailCR')">去哪儿转化率 <span v-if="ctripSortField === 'qunarDetailCR'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="['px-3 py-2 text-center border text-xs cursor-pointer', column.headerClass]" :title="column.title" @click="sortCtripTable(column.field)">{{ column.label }} <span v-if="ctripSortField === column.field">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookRate')">预订转化率 <span v-if="ctripSortField === 'bookRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
                                                 </thead>
@@ -8317,12 +8320,7 @@
                                                                 {{ formatOptionalPercent(hotel.convertionRate) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarDetailVisitors) }}</td>
-                                                        <td class="px-3 py-2 border text-center">
-                                                            <span :class="(hotel.qunarDetailCR || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ formatOptionalPercent(hotel.qunarDetailCR) }}
-                                                            </span>
-                                                        </td>
+                                                        <td v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="ctripTrafficChannelCellClass(hotel, column)">{{ ctripTrafficChannelText(hotel, column) }}</td>
                                                         <td class="px-3 py-2 border text-center text-gray-500">
                                                             {{ hotel.bookingRateText || '-' }}
                                                         </td>
@@ -9631,7 +9629,7 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-blue-50 cursor-pointer hover:bg-blue-100" @click="sortCtripTable('adr')">平均房价 <span v-if="ctripSortField === 'adr'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                            <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                            <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程系预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 × 1.15–1.30 稳定情景系数；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
                                                             全渠道间夜推算
                                                             <span v-if="ctripSortField === 'fullChannelRoomNightsEstimate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
@@ -9683,8 +9681,7 @@
                                                         <th class="px-3 py-2 text-left border text-xs">酒店名称</th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('totalDetailNum')">携程APP访客量 <span v-if="ctripSortField === 'totalDetailNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-indigo-50 cursor-pointer hover:bg-indigo-100" @click="sortCtripTable('convertionRate')">携程转化率 <span v-if="ctripSortField === 'convertionRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarDetailVisitors')">去哪儿访客 <span v-if="ctripSortField === 'qunarDetailVisitors'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarDetailCR')">去哪儿转化率 <span v-if="ctripSortField === 'qunarDetailCR'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="['px-3 py-2 text-center border text-xs cursor-pointer', column.headerClass]" :title="column.title" @click="sortCtripTable(column.field)">{{ column.label }} <span v-if="ctripSortField === column.field">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookRate')">预订转化率 <span v-if="ctripSortField === 'bookRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
                                                 </thead>
@@ -9704,12 +9701,7 @@
                                                                 {{ formatOptionalPercent(hotel.convertionRate) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarDetailVisitors) }}</td>
-                                                        <td class="px-3 py-2 border text-center">
-                                                            <span :class="(hotel.qunarDetailCR || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ formatOptionalPercent(hotel.qunarDetailCR) }}
-                                                            </span>
-                                                        </td>
+                                                        <td v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="ctripTrafficChannelCellClass(hotel, column)">{{ ctripTrafficChannelText(hotel, column) }}</td>
                                                         <td class="px-3 py-2 border text-center text-gray-500">
                                                             {{ hotel.bookingRateText || '-' }}
                                                         </td>
@@ -12057,10 +12049,10 @@
                                 </div>
                             </div>
                             <div class="p-5">
-                                <!-- 概览 -->
                                 <div v-if="agentTab === 'overview'" class="space-y-5">
+                                    <oq></oq>
                                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                                        <section class="lg:col-span-2 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                                        <section class="lg:col-span-2 bg-white rounded-xl border border-gray-100 overflow-hidden">
                                             <div class="px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                                 <div>
                                                     <h3 class="font-semibold text-gray-900">OTA诊断</h3>
@@ -12415,7 +12407,6 @@
                                     </section>
                                 </div>
 
-                                <!-- 智能员工Agent -->
                                 <div v-if="agentTab === 'revenue'">
                                     <div class="flex flex-wrap gap-2 mb-5">
                                         <button @click="revenueAgentTab = 'config'" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='config' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
@@ -12429,7 +12420,6 @@
                                         </button>
                                     </div>
 
-                                    <!-- 配置 -->
                                     <div v-if="revenueAgentTab === 'config'" class="max-w-2xl">
                                         <div class="bg-white rounded-xl border border-gray-200 p-6">
                                             <h3 class="font-semibold text-gray-800 mb-4">收益管理Agent配置</h3>
@@ -12472,7 +12462,6 @@
                                         </div>
                                     </div>
 
-                                    <!-- 定价建议 -->
                                     <div v-if="revenueAgentTab === 'suggestions'">
                                         <div class="flex flex-wrap gap-3 mb-5 items-end">
                                             <div>
@@ -12826,7 +12815,6 @@
                                         </div>
                                     </div>
 
-                                    <!-- 收益分析 -->
                                     <div v-if="revenueAgentTab === 'analysis'" class="space-y-5">
                                         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                             <div>
@@ -13144,7 +13132,6 @@
                                     </div>
                                 </div>
 
-                                <!-- Agent运行日志 -->
                                 <div v-if="agentTab === 'logs'">
                                     <div class="flex flex-wrap gap-3 mb-5 items-end">
                                         <div>
@@ -13222,8 +13209,6 @@
                             </div>
                         </div>
                     </div>
-
-                    <!-- 操作日志管理 (仅超级管理员) -->
                     <div v-if="currentPage === 'investment-decision'" class="max-w-7xl mx-auto space-y-5">
                         <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
                             <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
@@ -15536,8 +15521,15 @@
                                                          <h5 class="mt-1 text-base font-bold text-slate-900">运营任务与补充数据</h5>
                                                          <p class="mt-1 text-xs leading-5 text-slate-500">把建议转为任务；补充清单只用于补数据，不会自动改价、改库存或写入平台。</p>
                                                     </div>
-                                                    <button v-if="!dailyWorkbenchPatrolLatest &amp;&amp; coreOperationsCanExecute" type="button" @click="runDailyWorkbenchPatrol" :disabled="dailyWorkbenchPatrolRunning || dailyWorkbenchLoading" class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60">
-                                                        <i :class="dailyWorkbenchPatrolRunning ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-list-check mr-2'"></i>{{ dailyWorkbenchPatrolRunning ? '生成中' : '生成行动清单' }}
+                                                    <template v-if="!dailyWorkbenchPatrolLatest &amp;&amp; coreOperationsCanExecute">
+                                                        <button data-testid="core-loop-generate-action-list" @click="runDailyWorkbenchPatrol" :disabled="dailyWorkbenchPatrolRunning || dailyWorkbenchLoading" class="bg-slate-900 text-white">{{ dailyWorkbenchPatrolRunning ? '生成中' : dailyWorkbenchPatrolConfirming ? '确认生成' : '生成清单' }}</button>
+                                                        <div v-if="dailyWorkbenchPatrolConfirming">
+                                                            {{ dailyWorkbenchWriteBoundary.run.confirmText }}
+                                                            <button @click="cancelDailyWorkbenchPatrolConfirmation">取消</button>
+                                                        </div>
+                                                    </template>
+                                                    <button v-if="dailyWorkbenchPatrolLatest" data-testid="core-loop-export-patrol-report" type="button" @click="exportDailyWorkbenchPatrolReport" class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:bg-slate-50">
+                                                        <i class="fas fa-file-arrow-down mr-2"></i>导出巡检报告
                                                     </button>
                                                 </div>
                                                 <div v-if="dailyWorkbenchPatrolError" class="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{{ dailyWorkbenchPatrolError }}</div>
@@ -15598,8 +15590,8 @@
                                                                 <td class="px-4 py-3"><span :class="operationExecutionNextActionClass(item.next_action)" class="rounded-full px-2 py-1 text-[11px]">{{ item.next_action?.label || '-' }}</span></td>
                                                                 <td class="px-4 py-3">
                                                                     <div class="flex flex-wrap gap-2">
-                                                                        <button v-if="coreOperationsCanExecute &amp;&amp; operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">审批</button>
-                                                                        <button v-if="coreOperationsCanExecute &amp;&amp; operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, false)" class="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">驳回</button>
+                                                                        <button v-if="coreOperationsCanExecute &amp;&amp; operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="rounded bg-emerald-600 px-2 py-1 text-xs text-white">{{ operationApprovalText(item) }}</button>
+                                                                        <button v-if="coreOperationsCanExecute &amp;&amp; operationCanApproveExecution(item)" @click="rejectOrCancelOperationApproval(item)" class="rounded border px-2 py-1 text-xs">{{ operationRejectText(item) }}</button>
                                                                         <button v-if="coreOperationsCanExecute &amp;&amp; operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">执行留证</button>
                                                                         <button v-if="coreOperationsCanExecute &amp;&amp; operationCanReviewExecution(item)" @click="reviewOperationExecutionTask(item)" class="rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">次日复盘</button>
                                                                         <span v-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_on || '次日' }} 可复盘</span>

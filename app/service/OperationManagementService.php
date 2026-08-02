@@ -2320,9 +2320,15 @@ class OperationManagementService
         if ($evidenceRows === []) {
             throw new \InvalidArgumentException('execution evidence is required before review');
         }
-        $reviewAvailableOn = $this->executionReviewAvailableOn($evidenceRows);
-        if ($reviewAvailableOn !== '' && date('Y-m-d') < $reviewAvailableOn) {
-            throw new \InvalidArgumentException('execution review is not available before ' . $reviewAvailableOn);
+        $normalizedIntent = $this->normalizeExecutionIntentRow($intentRow);
+        $normalizedTask = $this->normalizeExecutionTaskRow($task);
+        $normalizedEvidenceRows = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
+        $reviewAvailableAt = $this->executionReviewAvailableAt($normalizedIntent, $normalizedEvidenceRows);
+        if ($reviewAvailableAt !== ''
+            && ($reviewAvailableTimestamp = strtotime($reviewAvailableAt)) !== false
+            && time() < $reviewAvailableTimestamp
+        ) {
+            throw new \InvalidArgumentException('execution review is not available before ' . $reviewAvailableAt);
         }
         $reviewReadbackEvidence = $this->normalizeExecutionReviewReadbackEvidence($input, $task, $reviewerId);
         $expectedResultStatus = (string)($task['result_status'] ?? 'observing');
@@ -2334,15 +2340,16 @@ class OperationManagementService
             throw new \InvalidArgumentException('review result_status must be observing, success, near_success, or failed');
         }
 
-        $normalizedIntent = $this->normalizeExecutionIntentRow($intentRow);
-        $normalizedTask = $this->normalizeExecutionTaskRow($task);
         $isOperationOptimizer = strtolower(trim((string)($normalizedIntent['source_module'] ?? '')))
             === OperationOptimizationExecutionBridgeService::SOURCE_MODULE;
         $isTemporalForecast = strtolower(trim((string)($normalizedIntent['source_module'] ?? '')))
             === TemporalInsightService::OPERATION_SOURCE_MODULE;
+        $isSavedOtaDiagnosis = strtolower(trim((string)($normalizedIntent['source_module'] ?? '')))
+            === 'ota_diagnosis_saved';
         if (in_array($manualResultStatus, ['success', 'near_success'], true)
             || $isOperationOptimizer
             || $isTemporalForecast
+            || ($isSavedOtaDiagnosis && $manualResultStatus === 'failed')
         ) {
             $this->syncSourceVerifiedMetricReadback($normalizedTask, $normalizedIntent);
             $evidenceQuery = Db::name('operation_execution_evidence')
@@ -2375,7 +2382,15 @@ class OperationManagementService
                 'same-hotel, same-platform, same-object and same-length OTA readback is required before terminal review'
             );
         }
-        if ($isOperationOptimizer
+        if ($isSavedOtaDiagnosis
+            && in_array($manualResultStatus, ['success', 'near_success', 'failed'], true)
+            && !$hasSourceVerifiedReviewEvidence
+        ) {
+            throw new \InvalidArgumentException(
+                'same-hotel, same-platform and same-metric scheduled OTA readback is required before terminal review'
+            );
+        }
+        if (($isOperationOptimizer || $isSavedOtaDiagnosis)
             && $manualResultStatus === 'failed'
             && !in_array((string)($reviewOutcomeTruth['status'] ?? ''), ['adverse', 'missed'], true)
         ) {
@@ -2555,49 +2570,38 @@ class OperationManagementService
             return null;
         }
 
+        if ($sourceModule === 'ota_diagnosis_saved') {
+            return $this->buildSavedOtaDiagnosisSourceVerifiedReadbackPayload(
+                $task,
+                $intent,
+                $intentPlatform,
+                $platform,
+                $expectedMetric,
+                $objectType,
+                $dateStart,
+                $dateEnd,
+                $executedTimestamp
+            );
+        }
+
         $baselineDate = date('Y-m-d', $executedTimestamp);
         $reviewDate = date('Y-m-d', strtotime($baselineDate . ' +1 day'));
-        if ($isPatrolGapTask) {
-            if ($expectedMetric !== 'ota_operation_closure' || $objectType !== 'data_collection') {
-                return null;
-            }
-            $baselineRows = [];
-            $reviewRows = $this->trustedExecutionReadbackRows(
-                $this->onlineRows([$hotelId], $dateStart, $dateEnd),
-                $platform,
-                $executedTimestamp
-            );
-            if (!$this->trustedExecutionReadbackPlatformCoverage($reviewRows, $platform)) {
-                return null;
-            }
-            $beforeValue = 0.0;
-            $afterValue = (float)count($reviewRows);
-            $baselineDate = $dateStart;
-            $reviewDate = $dateEnd;
-        } else {
-            if (date('Y-m-d') < $reviewDate) {
-                return null;
-            }
-            $baselineRows = $this->trustedExecutionReadbackRows(
-                $this->onlineRows([$hotelId], $baselineDate, $baselineDate),
-                $platform
-            );
-            $reviewRows = $this->trustedExecutionReadbackRows(
-                $this->onlineRows([$hotelId], $reviewDate, $reviewDate),
-                $platform,
-                $executedTimestamp
-            );
-            if (!$this->trustedExecutionReadbackPlatformCoverage($baselineRows, $platform)
-                || !$this->trustedExecutionReadbackPlatformCoverage($reviewRows, $platform)
-            ) {
-                return null;
-            }
-            $beforeValue = $this->executionReadbackMetricValue($expectedMetric, $baselineRows, $hotelId, $baselineDate);
-            $afterValue = $this->executionReadbackMetricValue($expectedMetric, $reviewRows, $hotelId, $reviewDate);
-            if ($beforeValue === null || $afterValue === null) {
-                return null;
-            }
+        if ($expectedMetric !== 'ota_operation_closure' || $objectType !== 'data_collection') {
+            return null;
         }
+        $baselineRows = [];
+        $reviewRows = $this->trustedExecutionReadbackRows(
+            $this->onlineRows([$hotelId], $dateStart, $dateEnd),
+            $platform,
+            $executedTimestamp
+        );
+        if (!$this->trustedExecutionReadbackPlatformCoverage($reviewRows, $platform)) {
+            return null;
+        }
+        $beforeValue = 0.0;
+        $afterValue = (float)count($reviewRows);
+        $baselineDate = $dateStart;
+        $reviewDate = $dateEnd;
 
         $sourceRows = array_values(array_merge($baselineRows, $reviewRows));
         $sourceIds = array_values(array_unique(array_filter(array_map(
@@ -2641,14 +2645,378 @@ class OperationManagementService
                 'validation_status' => 'verified',
                 'failure_reason' => '',
                 'causality_claimed' => false,
-                'measurement_policy' => $isPatrolGapTask
-                    ? 'target_date_gap_closure_verified_after_execution'
-                    : 'execution_date_baseline_to_next_day_follow_up',
+                'measurement_policy' => 'target_date_gap_closure_verified_after_execution',
             ],
             'remark' => 'system-generated readback from persisted and strictly re-read OTA facts',
             'created_by' => 0,
             'created_at' => date('Y-m-d H:i:s'),
         ];
+    }
+
+    /**
+     * A saved OTA diagnosis is a single-business-date decision. Its review must
+     * preserve that business date as the baseline and use the human-approved
+     * review window, rather than silently substituting the execution date and
+     * the following calendar day. Historical intent data stays immutable; a
+     * later source readback records any baseline reconciliation explicitly.
+     *
+     * @param array<string, mixed> $task
+     * @param array<string, mixed> $intent
+     * @return array<string, mixed>|null
+     */
+    private function buildSavedOtaDiagnosisSourceVerifiedReadbackPayload(
+        array $task,
+        array $intent,
+        string $intentPlatform,
+        string $readbackPlatform,
+        string $expectedMetric,
+        string $objectType,
+        string $dateStart,
+        string $dateEnd,
+        int $executedTimestamp
+    ): ?array {
+        $taskId = (int)($task['id'] ?? 0);
+        $hotelId = (int)($intent['hotel_id'] ?? 0);
+        $reviewTimestamp = $this->savedOtaDiagnosisReviewTimestamp($intent);
+        if ($taskId <= 0
+            || $hotelId <= 0
+            || $dateStart !== $dateEnd
+            || $reviewTimestamp === null
+            || $reviewTimestamp <= $executedTimestamp
+            || time() < $reviewTimestamp
+        ) {
+            return null;
+        }
+
+        $baselineDate = $dateStart;
+        $reviewDate = date('Y-m-d', $reviewTimestamp);
+        if ($reviewDate <= $baselineDate) {
+            return null;
+        }
+
+        $baselineRows = $this->trustedExecutionReadbackRows(
+            $this->onlineRows([$hotelId], $baselineDate, $baselineDate),
+            $readbackPlatform
+        );
+        $reviewRows = $this->trustedExecutionReadbackRows(
+            $this->onlineRows([$hotelId], $reviewDate, $reviewDate),
+            $readbackPlatform,
+            $executedTimestamp
+        );
+        $baselineRows = $this->canonicalExecutionReadbackRows($baselineRows, $expectedMetric);
+        $reviewRows = $this->canonicalExecutionReadbackRows($reviewRows, $expectedMetric);
+        if (!$this->trustedExecutionReadbackPlatformCoverage($baselineRows, $readbackPlatform)
+            || !$this->trustedExecutionReadbackPlatformCoverage($reviewRows, $readbackPlatform)
+        ) {
+            return null;
+        }
+
+        $baselineIds = $this->executionReadbackRowIds($baselineRows);
+        $reviewIds = $this->executionReadbackRowIds($reviewRows);
+        $declaredIds = $this->savedOtaDiagnosisDeclaredOnlineRowIds($intent);
+        if ($baselineIds === []
+            || $reviewIds === []
+            || $declaredIds === []
+        ) {
+            return null;
+        }
+
+        $beforeValue = $this->executionReadbackMetricValue(
+            $expectedMetric,
+            $baselineRows,
+            $hotelId,
+            $baselineDate
+        );
+        $afterValue = $this->executionReadbackMetricValue(
+            $expectedMetric,
+            $reviewRows,
+            $hotelId,
+            $reviewDate
+        );
+        if ($beforeValue === null || $afterValue === null) {
+            return null;
+        }
+
+        $readbackTimestamp = 0;
+        foreach ($reviewRows as $row) {
+            $readbackTimestamp = max($readbackTimestamp, $this->executionReadbackRowTimestamp($row));
+        }
+        if ($readbackTimestamp < $reviewTimestamp) {
+            return null;
+        }
+
+        $sourceIds = array_values(array_unique(array_merge($baselineIds, $reviewIds)));
+        sort($sourceIds, SORT_NUMERIC);
+        $declaredRefs = array_map(
+            static fn(int $id): string => 'online_daily_data#' . $id,
+            $declaredIds
+        );
+        $baselineRefs = array_map(
+            static fn(int $id): string => 'online_daily_data#' . $id,
+            $baselineIds
+        );
+        $newlyVerifiedBaselineIds = array_values(array_diff($baselineIds, $declaredIds));
+        $newlyVerifiedBaselineRefs = array_map(
+            static fn(int $id): string => 'online_daily_data#' . $id,
+            $newlyVerifiedBaselineIds
+        );
+        $excludedDeclaredRefs = array_values(array_diff($declaredRefs, $baselineRefs));
+        $baselineReferenceStatus = $newlyVerifiedBaselineRefs === []
+            ? 'declared_refs_match'
+            : 'trusted_same_scope_reconciliation';
+
+        $currentValue = is_array($intent['current_value'] ?? null) ? $intent['current_value'] : [];
+        $intentSnapshotValue = $this->executionIntentMetricSnapshotValue($expectedMetric, $currentValue);
+        $reconciliationStatus = $intentSnapshotValue === null
+            ? 'intent_snapshot_missing'
+            : (abs($intentSnapshotValue - $beforeValue) <= 0.0001
+                ? 'matched_intent_snapshot'
+                : 'source_readback_supersedes_intent_snapshot');
+
+        return [
+            'task_id' => $taskId,
+            'evidence_type' => 'source_verified_metric_readback',
+            'before' => [$expectedMetric => $beforeValue],
+            'after' => [$expectedMetric => $afterValue],
+            'attachment_path' => '',
+            'platform_response' => [
+                'verification_authority' => 'system_readback',
+                'source' => 'online_daily_data',
+                'source_ref' => 'online_daily_data#' . implode(',', $sourceIds),
+                'baseline_source_ref' => 'online_daily_data#' . implode(',', $baselineIds),
+                'followup_source_ref' => 'online_daily_data#' . implode(',', $reviewIds),
+                'declared_baseline_source_refs' => $declaredRefs,
+                'reconciled_baseline_source_refs' => $baselineRefs,
+                'newly_verified_baseline_source_refs' => $newlyVerifiedBaselineRefs,
+                'excluded_declared_source_refs' => $excludedDeclaredRefs,
+                'baseline_source_reference_status' => $baselineReferenceStatus,
+                'system_hotel_id' => $hotelId,
+                'platform' => $intentPlatform,
+                'object_type' => $objectType,
+                'date_start' => $dateStart,
+                'date_end' => $dateEnd,
+                'baseline_date' => $baselineDate,
+                'review_date' => $reviewDate,
+                'scheduled_review_at' => date('Y-m-d H:i:s', $reviewTimestamp),
+                'metric_key' => $expectedMetric,
+                'database_written' => true,
+                'readback_verified' => true,
+                'readback_count' => count($reviewRows),
+                'readback_at' => date('Y-m-d H:i:s', $readbackTimestamp),
+                'validation_status' => 'verified',
+                'source_validation_status' => 'source_verified',
+                'failure_reason' => '',
+                'baseline_reconciliation_status' => $reconciliationStatus,
+                'intent_snapshot_value' => $intentSnapshotValue,
+                'source_readback_value' => $beforeValue,
+                'original_intent_evidence_preserved' => true,
+                'historical_intent_mutated' => false,
+                'causality_claimed' => false,
+                'effect_evidence_status' => 'observed_not_attributed',
+                'measurement_policy' => 'diagnosis_business_date_to_scheduled_same_metric_review',
+            ],
+            'remark' => 'system-generated scheduled same-metric OTA readback; observation only and historical intent remains immutable',
+            'created_by' => 0,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+    }
+
+    /** @param array<string, mixed> $intent */
+    private function savedOtaDiagnosisReviewTimestamp(array $intent): ?int
+    {
+        $targetValue = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
+        $workflowSchedule = is_array($targetValue['workflow_schedule'] ?? null)
+            ? $targetValue['workflow_schedule']
+            : [];
+        $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
+        $evidenceSchedule = is_array($evidence['workflow_schedule'] ?? null)
+            ? $evidence['workflow_schedule']
+            : [];
+        foreach ([
+            $workflowSchedule['review_at'] ?? null,
+            $targetValue['review_at'] ?? null,
+            $evidenceSchedule['review_at'] ?? null,
+            $evidence['review_at'] ?? null,
+        ] as $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $text = trim(str_replace('T', ' ', (string)$value));
+            if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?$/D', $text) !== 1) {
+                continue;
+            }
+            if (strlen($text) === 16) {
+                $text .= ':00';
+            }
+            $date = DateTimeImmutable::createFromFormat(
+                '!Y-m-d H:i:s',
+                $text,
+                new DateTimeZone('Asia/Shanghai')
+            );
+            $errors = DateTimeImmutable::getLastErrors();
+            if ($date !== false
+                && ($errors === false || ((int)$errors['warning_count'] === 0 && (int)$errors['error_count'] === 0))
+                && $date->format('Y-m-d H:i:s') === $text
+            ) {
+                return $date->getTimestamp();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Traffic rows are cumulative snapshots, not additive facts. Keep one row
+     * per hotel/channel/date: a final historical row wins; otherwise use the
+     * newest realtime row. Missing metrics remain missing and are never filled
+     * from a superseded snapshot.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function canonicalExecutionReadbackRows(array $rows, string $metric): array
+    {
+        if (!in_array(strtolower(trim($metric)), [
+            'detail_rate',
+            'view_rate',
+            'flow_rate',
+            'conversion',
+            'conversion_rate',
+            'order_rate',
+        ], true)) {
+            return array_values($rows);
+        }
+
+        $selected = [];
+        foreach ($rows as $row) {
+            $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+            if ($dataType !== '' && !in_array($dataType, ['traffic', 'flow', 'traffic_flow', 'traffic_overview'], true)) {
+                continue;
+            }
+            $endpointId = $this->onlineEndpointIdFromDimension((string)($row['dimension'] ?? ''));
+            if ($endpointId !== '' && !in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)) {
+                continue;
+            }
+            if (!$this->hasOnlineFlowEvidence($row)) {
+                continue;
+            }
+
+            $hotelId = (int)($row['system_hotel_id'] ?? 0);
+            $channel = $this->normalizeOtaChannel((string)($row['source'] ?? $row['platform'] ?? ''));
+            $date = substr(trim((string)($row['data_date'] ?? '')), 0, 10);
+            if ($hotelId <= 0 || $channel === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) !== 1) {
+                continue;
+            }
+
+            $key = $hotelId . '|' . $channel . '|' . $date;
+            $current = $selected[$key] ?? null;
+            if (!is_array($current)
+                || $this->canonicalExecutionReadbackRowRank($row) > $this->canonicalExecutionReadbackRowRank($current)
+            ) {
+                $selected[$key] = $row;
+            }
+        }
+
+        return array_values($selected);
+    }
+
+    /** @param array<string, mixed> $row @return array<int, int> */
+    private function canonicalExecutionReadbackRowRank(array $row): array
+    {
+        $period = strtolower(trim((string)($row['data_period'] ?? '')));
+        $finalRank = (int)($row['is_final'] ?? 0) === 1 || $period === 'historical_daily' ? 2 : 1;
+        $identityRank = strtolower(trim((string)($row['compare_type'] ?? ''))) === 'self' ? 1 : 0;
+        return [
+            $finalRank,
+            $identityRank,
+            $this->canonicalExecutionReadbackTimestamp($row),
+            (int)($row['id'] ?? 0),
+        ];
+    }
+
+    /** @param array<string, mixed> $row */
+    private function canonicalExecutionReadbackTimestamp(array $row): int
+    {
+        $snapshotTime = trim((string)($row['snapshot_time'] ?? ''));
+        if ($snapshotTime !== '' && ($timestamp = strtotime($snapshotTime)) !== false) {
+            return $timestamp;
+        }
+        $collectedTimestamp = $this->trustedOnlineCollectionTimestamp($row);
+        if ($collectedTimestamp > 0) {
+            return $collectedTimestamp;
+        }
+        foreach (['readback_verified_at', 'update_time', 'create_time'] as $field) {
+            $value = trim((string)($row[$field] ?? ''));
+            if ($value !== '' && ($timestamp = strtotime($value)) !== false) {
+                return $timestamp;
+            }
+        }
+        return 0;
+    }
+
+    /** @param array<int, array<string, mixed>> $rows @return array<int, int> */
+    private function executionReadbackRowIds(array $rows): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): int => max(0, (int)($row['id'] ?? 0)),
+            $rows
+        ))));
+        sort($ids, SORT_NUMERIC);
+        return $ids;
+    }
+
+    /** @param array<string, mixed> $intent @return array<int, int> */
+    private function savedOtaDiagnosisDeclaredOnlineRowIds(array $intent): array
+    {
+        $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
+        $ids = [];
+        foreach ((array)($evidence['evidence_refs'] ?? []) as $reference) {
+            if (is_array($reference)) {
+                if (strtolower(trim((string)($reference['table'] ?? ''))) === 'online_daily_data') {
+                    $id = (int)($reference['record_id'] ?? $reference['id'] ?? 0);
+                    if ($id > 0) {
+                        $ids[] = $id;
+                    }
+                }
+                $reference = $reference['source_ref'] ?? $reference['ref'] ?? '';
+            }
+            if (!is_scalar($reference)) {
+                continue;
+            }
+            if (preg_match('/^online_daily_data#([0-9]+(?:,[0-9]+)*)$/D', trim((string)$reference), $matches) !== 1) {
+                continue;
+            }
+            foreach (explode(',', (string)$matches[1]) as $id) {
+                if ((int)$id > 0) {
+                    $ids[] = (int)$id;
+                }
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        sort($ids, SORT_NUMERIC);
+        return $ids;
+    }
+
+    /** @param array<string, mixed> $currentValue */
+    private function executionIntentMetricSnapshotValue(string $metric, array $currentValue): ?float
+    {
+        $keys = match (strtolower(trim($metric))) {
+            'revenue', 'avg_revenue', 'amount', 'income' => ['revenue', 'avg_revenue', 'amount', 'income'],
+            'orders', 'avg_orders', 'order_count', 'book_order_num' => ['orders', 'avg_orders', 'order_count', 'book_order_num'],
+            'room_nights', 'avg_room_nights' => ['room_nights', 'avg_room_nights'],
+            'adr', 'avg_adr' => ['adr', 'avg_adr'],
+            'occ', 'occupancy', 'avg_occ' => ['occ', 'occupancy', 'avg_occ'],
+            'detail_rate', 'view_rate', 'flow_rate' => ['detail_rate', 'view_rate', 'flow_rate'],
+            'conversion', 'conversion_rate', 'order_rate' => ['order_rate', 'conversion_rate', 'conversion'],
+            'avg_psi_score' => ['avg_psi_score'],
+            default => [$metric],
+        };
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $currentValue) && is_numeric($currentValue[$key])) {
+                return (float)$currentValue[$key];
+            }
+        }
+        return null;
     }
 
     /**
@@ -4280,8 +4648,24 @@ class OperationManagementService
             (string)($task['result_status'] ?? 'observing'),
             $task['outcome_truth']
         );
-        $task['review_available_on'] = $this->executionReviewAvailableOn($task['evidence']);
-        $task['review_is_available'] = $task['review_available_on'] === '' || $task['review_available_on'] <= date('Y-m-d');
+        $task['review_available_at'] = $this->executionReviewAvailableAt($intent, $task['evidence']);
+        $task['review_available_on'] = $task['review_available_at'] !== ''
+            ? substr($task['review_available_at'], 0, 10)
+            : $this->executionReviewAvailableOn($task['evidence']);
+        $reviewAvailableTimestamp = $task['review_available_at'] !== ''
+            ? strtotime($task['review_available_at'])
+            : false;
+        $task['review_is_available'] = $task['review_available_on'] === ''
+            || ($reviewAvailableTimestamp !== false
+                ? time() >= $reviewAvailableTimestamp
+                : $task['review_available_on'] <= date('Y-m-d'));
+        $task['sop_candidate'] = $this->executionFlowReadService->buildSopCandidate(
+            $intent,
+            $task,
+            $task['evidence_truth'],
+            $task['outcome_truth'],
+            (string)($task['result_status'] ?? 'observing')
+        );
 
         return $task;
     }
@@ -4289,6 +4673,25 @@ class OperationManagementService
     private function executionReviewAvailableOn(array $evidenceRows): string
     {
         return $this->executionFlowReadService->reviewAvailableOn($evidenceRows);
+    }
+
+    /**
+     * @param array<string, mixed> $intent
+     * @param array<int, array<string, mixed>> $evidenceRows
+     */
+    private function executionReviewAvailableAt(array $intent, array $evidenceRows): string
+    {
+        if (strtolower(trim((string)($intent['source_module'] ?? ''))) === 'ota_diagnosis_saved') {
+            $scheduledTimestamp = $this->savedOtaDiagnosisReviewTimestamp($intent);
+            if ($scheduledTimestamp !== null) {
+                return date('Y-m-d H:i:s', $scheduledTimestamp);
+            }
+        }
+
+        $availableOn = $this->executionReviewAvailableOn($evidenceRows);
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/D', $availableOn) === 1
+            ? $availableOn . ' 00:00:00'
+            : '';
     }
 
     /**

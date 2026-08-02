@@ -566,7 +566,7 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-blue-50 cursor-pointer hover:bg-blue-100" @click="sortCtripTable('adr')">平均房价 <span v-if="ctripSortField === 'adr'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                            <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                            <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程系预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 × 1.15–1.30 稳定情景系数；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
                                                             全渠道间夜推算
                                                             <span v-if="ctripSortField === 'fullChannelRoomNightsEstimate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
@@ -618,8 +618,7 @@
                                                         <th class="px-3 py-2 text-left border text-xs">酒店名称</th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('totalDetailNum')">携程APP访客量 <span v-if="ctripSortField === 'totalDetailNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-indigo-50 cursor-pointer hover:bg-indigo-100" @click="sortCtripTable('convertionRate')">携程转化率 <span v-if="ctripSortField === 'convertionRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarDetailVisitors')">去哪儿访客 <span v-if="ctripSortField === 'qunarDetailVisitors'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarDetailCR')">去哪儿转化率 <span v-if="ctripSortField === 'qunarDetailCR'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="['px-3 py-2 text-center border text-xs cursor-pointer', column.headerClass]" :title="column.title" @click="sortCtripTable(column.field)">{{ column.label }} <span v-if="ctripSortField === column.field">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookRate')">预订转化率 <span v-if="ctripSortField === 'bookRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
                                                 </thead>
@@ -639,12 +638,7 @@
                                                                 {{ formatOptionalPercent(hotel.convertionRate) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarDetailVisitors) }}</td>
-                                                        <td class="px-3 py-2 border text-center">
-                                                            <span :class="(hotel.qunarDetailCR || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ formatOptionalPercent(hotel.qunarDetailCR) }}
-                                                            </span>
-                                                        </td>
+                                                        <td v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="ctripTrafficChannelCellClass(hotel, column)">{{ ctripTrafficChannelText(hotel, column) }}</td>
                                                         <td class="px-3 py-2 border text-center text-gray-500">
                                                             {{ hotel.bookingRateText || '-' }}
                                                         </td>
@@ -1953,7 +1947,7 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-blue-50 cursor-pointer hover:bg-blue-100" @click="sortCtripTable('adr')">平均房价 <span v-if="ctripSortField === 'adr'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                            <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                            <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程系预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 × 1.15–1.30 稳定情景系数；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
                                                             全渠道间夜推算
                                                             <span v-if="ctripSortField === 'fullChannelRoomNightsEstimate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
@@ -2005,8 +1999,7 @@
                                                         <th class="px-3 py-2 text-left border text-xs">酒店名称</th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('totalDetailNum')">携程APP访客量 <span v-if="ctripSortField === 'totalDetailNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-indigo-50 cursor-pointer hover:bg-indigo-100" @click="sortCtripTable('convertionRate')">携程转化率 <span v-if="ctripSortField === 'convertionRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarDetailVisitors')">去哪儿访客 <span v-if="ctripSortField === 'qunarDetailVisitors'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarDetailCR')">去哪儿转化率 <span v-if="ctripSortField === 'qunarDetailCR'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="['px-3 py-2 text-center border text-xs cursor-pointer', column.headerClass]" :title="column.title" @click="sortCtripTable(column.field)">{{ column.label }} <span v-if="ctripSortField === column.field">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookRate')">预订转化率 <span v-if="ctripSortField === 'bookRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
                                                 </thead>
@@ -2026,12 +2019,7 @@
                                                                 {{ formatOptionalPercent(hotel.convertionRate) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarDetailVisitors) }}</td>
-                                                        <td class="px-3 py-2 border text-center">
-                                                            <span :class="(hotel.qunarDetailCR || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ formatOptionalPercent(hotel.qunarDetailCR) }}
-                                                            </span>
-                                                        </td>
+                                                        <td v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="ctripTrafficChannelCellClass(hotel, column)">{{ ctripTrafficChannelText(hotel, column) }}</td>
                                                         <td class="px-3 py-2 border text-center text-gray-500">
                                                             {{ hotel.bookingRateText || '-' }}
                                                         </td>

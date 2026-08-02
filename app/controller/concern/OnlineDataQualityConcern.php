@@ -28,22 +28,67 @@ trait OnlineDataQualityConcern
         }
 
         // 使用统一的解析和保存方法
-        $savedCount = $this->parseAndSaveData(['data' => $dataList], $dataDate, $dataDate, $systemHotelId);
+        $readbackVerifiedCount = $this->parseAndSaveData(
+            ['data' => $dataList],
+            $dataDate,
+            $dataDate,
+            $systemHotelId,
+            [
+                'ingestion_method' => 'user_provided_unverified',
+                'force_unverified' => true,
+                'analysis_exclusion_reason' => 'manual_input_unverified',
+            ]
+        );
+        $persistenceResult = method_exists($this, 'lastCtripBusinessPersistenceResult')
+            ? $this->lastCtripBusinessPersistenceResult()
+            : [
+                'stored_count' => $readbackVerifiedCount,
+                'readback_verified_count' => $readbackVerifiedCount,
+                'analysis_eligible_count' => 0,
+                'excluded_count' => 0,
+                'exclusion_reasons' => ['manual_input_unverified' => $readbackVerifiedCount],
+            ];
+        $storedCount = max(0, (int)($persistenceResult['stored_count'] ?? 0));
+        $readbackVerifiedCount = max(0, (int)($persistenceResult['readback_verified_count'] ?? $readbackVerifiedCount));
 
-        OperationLog::record('online_data', 'save_daily', '保存线上数据: ' . $savedCount . '条', $this->currentUser->id, $systemHotelId);
+        OperationLog::record(
+            'online_data',
+            'save_daily',
+            'manual online data stored: ' . $storedCount
+                . ', readback verified: ' . $readbackVerifiedCount
+                . ', trusted analytics eligible: 0',
+            $this->currentUser->id,
+            $systemHotelId
+        );
 
-        if ($savedCount <= 0) {
+        if ($storedCount <= 0) {
             return json([
                 'code' => 422,
                 'message' => '未确认任何数据入库；请检查字段格式、门店绑定和数据库回读结果。',
                 'data' => [
                     'saved_count' => 0,
+                    'readback_verified_count' => 0,
+                    'analysis_eligible_count' => 0,
+                    'ingestion_method' => 'user_provided_unverified',
                     'persistence_status' => 'not_verified',
                 ],
             ], 422);
         }
 
-        return $this->success(['saved_count' => $savedCount], '保存成功，共保存 ' . $savedCount . ' 条数据');
+        $readbackComplete = $readbackVerifiedCount === $storedCount;
+        return $this->success([
+            'saved_count' => $storedCount,
+            'readback_verified_count' => $readbackVerifiedCount,
+            'analysis_eligible_count' => 0,
+            'analysis_status' => 'excluded_manual_input',
+            'ingestion_method' => 'user_provided_unverified',
+            'persistence_status' => $readbackComplete
+                ? 'saved_readback_verified_manual_unverified'
+                : 'saved_readback_pending_manual_unverified',
+            'exclusion_reasons' => $persistenceResult['exclusion_reasons'] ?? ['manual_input_unverified' => $storedCount],
+        ], $readbackComplete
+            ? '手工录入已保存并完成回读，但未作为可信携程事实进入收益分析。'
+            : '手工录入已保存，但回读尚未完成；未作为可信携程事实进入收益分析。');
     }
 
     /**

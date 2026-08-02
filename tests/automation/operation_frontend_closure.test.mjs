@@ -7,6 +7,7 @@ const sourcePage = read('resources/frontend/templates/fragments/15a-page-ops-sou
 const analysisPage = read('resources/frontend/templates/fragments/15b-page-ops-analysis.html');
 const insightPage = read('resources/frontend/templates/fragments/15c-page-ops-insight.html');
 const trackPage = read('resources/frontend/templates/fragments/17-page-ops-track.html');
+const onlineDataPage = read('resources/frontend/templates/fragments/35-page-online-data.html');
 const researchPage = read('resources/frontend/templates/fragments/19-page-revenue-research-center.html');
 const optimizerPage = read('resources/frontend/templates/fragments/19a-page-operation-optimizer.html');
 const appMain = read('public/app-main.js');
@@ -118,15 +119,43 @@ test('non-price execution evidence can be saved without fabricating revenue or R
   const start = appMain.indexOf('const recordOperationExecutionEvidence = async');
   const end = appMain.indexOf('const recordOperationRoiEvidence = async', start);
   const evidenceFlow = appMain.slice(start, end);
+  assert.match(evidenceFlow, /currentPage\.value !== 'ops-track'/);
+  assert.match(evidenceFlow, /currentPage\.value = 'ops-track'/);
   assert.match(evidenceFlow, /operationEvidenceModalOpen\.value = true/);
   assert.match(evidenceFlow, /evidence_type: 'manual_operation_execution'/);
   assert.match(evidenceFlow, /effect_status: 'pending_observation'/);
   assert.match(evidenceFlow, /evidence_boundary: 'local_manual_evidence_no_ota_write'/);
+  assert.match(evidenceFlow, /businessContext: \{ hotelId: executionHotelId \}/);
+  assert.match(evidenceFlow, /readOperationExecutionTask\(responseTaskId, executionHotelId\)/);
   assert.match(evidenceFlow, /不自动生成收入或ROI/);
   assert.match(trackPage, /data-testid="operation-evidence-modal"/);
   assert.match(trackPage, /已完成运营动作（效果待观察）/);
   assert.match(trackPage, /未观察到的收入、成本和 ROI 保持为空/);
   assert.match(trackPage, /submitOperationExecutionEvidence/);
+});
+
+test('operation execution requests keep the selected hotel identity consistent through readback', () => {
+  const loadStart = appMain.indexOf('const loadOperationActions = async');
+  const loadEnd = appMain.indexOf('const parseOperationEvidenceNumber', loadStart);
+  const loadFlow = appMain.slice(loadStart, loadEnd);
+  assert.match(loadFlow, /params\.append\('hotel_id', requestHotelId\)/);
+  assert.match(loadFlow, /params\.append\('system_hotel_id', requestHotelId\)/);
+  assert.match(appMain, /const operationExecutionHotelId = \(item\)/);
+  assert.match(appMain, /执行任务与当前酒店身份不一致/);
+  assert.match(appMain, /执行任务回读酒店身份不一致/);
+});
+
+test('execution approval uses an in-page two-click confirmation without a native dialog', () => {
+  const start = appMain.indexOf('const operationApprovalConfirming =');
+  const end = appMain.indexOf('const recordOperationExecutionEvidence = async', start);
+  assert.ok(start > 0 && end > start, 'approval confirmation flow must be present');
+  const approvalFlow = appMain.slice(start, end);
+  assert.match(approvalFlow, /operationApprovalConfirmingIntentId\.value = Number\(item\.id\)/);
+  assert.match(approvalFlow, /请再次点击“确认审批”/);
+  assert.match(approvalFlow, /rejectOrCancelOperationApproval/);
+  assert.doesNotMatch(approvalFlow, /\bconfirm\s*\(/);
+  assert.match(onlineDataPage, /operationApprovalText\(item\)/);
+  assert.match(onlineDataPage, /rejectOrCancelOperationApproval\(item\)/);
 });
 
 test('effect review uses an in-page form and preserves the observing state when evidence is pending', () => {

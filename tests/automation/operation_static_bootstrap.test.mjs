@@ -145,3 +145,36 @@ test('execution review action stays unavailable until the recorded review date',
   item.review.is_available = true;
   assert.equal(api.operationCanReviewExecution(item), true);
 });
+
+test('an executed non-price task can add more manual evidence', () => {
+  const api = loadOperationStaticApi();
+  const item = {
+    recommendation: { object_type: 'campaign' },
+    execution: { status: 'executed', task_id: 50 },
+    next_action: { key: 'record_evidence' },
+  };
+
+  assert.equal(api.operationCanExecuteWithEvidence(item), true);
+  item.recommendation.object_type = 'price';
+  assert.equal(api.operationCanExecuteWithEvidence(item), false);
+  item.recommendation.object_type = 'campaign';
+  item.next_action.key = 'none';
+  assert.equal(api.operationCanExecuteWithEvidence(item), false);
+  assert.match(html, /supplementingExecutedTask/);
+  assert.match(html, /`\/operation\/execution-tasks\/\$\{taskId\}\/evidence`/);
+  assert.match(html, /operationExecutionEvidenceCount\(persistedTask\) <= previousEvidenceCount/);
+  assert.match(html, /&& item\?\.next_action\?\.key === 'record_evidence';/);
+  assert.match(html, /item\?\.execution\?\.status === 'executed' \|\| operationExecutionAssignedToCurrentUser\(item\)/);
+});
+
+test('legacy OTA conversion intent is shown as a readable operation check', () => {
+  const api = loadOperationStaticApi();
+  const item = {
+    recommendation: {
+      object_type: 'campaign',
+      action_type: 'booking_conversion_optimization',
+    },
+  };
+
+  assert.equal(api.operationExecutionActionText(item), '运营核查 · 下单转化核查');
+});

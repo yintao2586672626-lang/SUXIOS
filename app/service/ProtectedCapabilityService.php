@@ -97,6 +97,18 @@ class ProtectedCapabilityService
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_field_assets', 'limit' => 30, 'window' => 3600],
                 ],
+                'online_data_history' => [
+                    'label' => 'OTA history read access',
+                    'permission' => 'can_view_online_data',
+                    'module' => 'online_data',
+                    'paths' => [
+                        ['path' => 'api/online-data/history', 'methods' => ['GET']],
+                        ['path' => 'api/online-data/ctrip/history', 'methods' => ['GET']],
+                        ['path' => 'api/online-data/history/*', 'methods' => ['GET']],
+                    ],
+                    'response_mode' => 'summary_only',
+                    'rate_limit' => ['scope' => 'protected_online_data_history', 'limit' => 60, 'window' => 3600],
+                ],
                 'collection_health' => [
                     'label' => 'OTA collection health and evidence',
                     'permission' => 'can_view_diagnostics',
@@ -111,7 +123,6 @@ class ProtectedCapabilityService
                         'api/online-data/cookie-status',
                         'api/online-data/cookies-list',
                         'api/online-data/cookies-detail',
-                        ['path' => 'api/online-data/history/*', 'methods' => ['GET']],
                         'api/online-data/sync-tasks',
                         'api/online-data/sync-logs',
                         'api/online-data/auto-fetch-status',

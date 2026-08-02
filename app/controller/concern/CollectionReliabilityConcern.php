@@ -1466,11 +1466,23 @@ trait CollectionReliabilityConcern
     {
         $this->checkPermission();
 
+        $hotelId = null;
         try {
             [$startDate, $endDate] = $this->resolveDashboardDateRange();
             $hotelId = $this->resolveDashboardHotelId($this->request->get('hotel_id', $this->request->get('system_hotel_id', '')), true);
-            $hotels = $this->loadDashboardHotels($hotelId);
-            $hotel = $hotels[0] ?? ['id' => $hotelId, 'name' => $hotelId ? ('Hotel ID ' . $hotelId) : ''];
+            $hotelTarget = $this->resolveDashboardHotelPortraitTarget($hotelId);
+            $targetStatus = (string)($hotelTarget['status'] ?? 'request_failed');
+            if ($targetStatus !== 'ok') {
+                return $this->error(
+                    $targetStatus === 'hotel_not_found' ? '酒店不存在或已停用' : '单店画像查询失败',
+                    $targetStatus === 'hotel_not_found' ? 404 : 500,
+                    [
+                        'reason' => $targetStatus,
+                        'hotel_id' => $hotelId,
+                    ]
+                );
+            }
+            $hotel = is_array($hotelTarget['hotel'] ?? null) ? $hotelTarget['hotel'] : [];
             $qualityRows = $this->loadCollectionQualityRows($hotelId, $startDate, $endDate, 2000);
             $reliability = $this->buildCollectionReliabilityPayload($hotelId, $startDate, $endDate);
 
@@ -1480,7 +1492,10 @@ trait CollectionReliabilityConcern
         } catch (HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
-            return $this->error('单店画像加载失败: ' . $e->getMessage());
+            return $this->error('单店画像加载失败', 500, [
+                'reason' => 'request_failed',
+                'hotel_id' => $hotelId,
+            ]);
         }
     }
     public function dashboardDataSources(): Response
@@ -1702,24 +1717,41 @@ trait CollectionReliabilityConcern
     }
     private function loadDashboardHotels(?int $hotelId): array
     {
-        try {
-            $query = \app\model\Hotel::field('id,name,status,create_time,update_time')
-                ->where('status', \app\model\Hotel::STATUS_ENABLED);
-            if ($hotelId !== null) {
-                $query->where('id', $hotelId);
-            }
-            if ($this->currentUser && !$this->currentUser->isSuperAdmin()) {
-                $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
-                if (empty($permittedHotelIds)) {
-                    return [];
-                }
-                $query->whereIn('id', $permittedHotelIds);
-            }
-
-            return $query->order('id', 'asc')->select()->toArray();
-        } catch (\Throwable $e) {
-            return $hotelId !== null ? [['id' => $hotelId, 'name' => 'Hotel ID ' . $hotelId, 'status' => 1]] : [];
+        $query = \app\model\Hotel::field('id,name,status,create_time,update_time')
+            ->where('status', \app\model\Hotel::STATUS_ENABLED);
+        if ($hotelId !== null) {
+            $query->where('id', $hotelId);
         }
+        if ($this->currentUser && !$this->currentUser->isSuperAdmin()) {
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if (empty($permittedHotelIds)) {
+                return [];
+            }
+            $query->whereIn('id', $permittedHotelIds);
+        }
+
+        return $query->order('id', 'asc')->select()->toArray();
+    }
+
+    /** @return array{status: string, hotel: array<string, mixed>|null} */
+    private function resolveDashboardHotelPortraitTarget(?int $hotelId): array
+    {
+        if ($hotelId === null || $hotelId <= 0) {
+            return ['status' => 'hotel_not_found', 'hotel' => null];
+        }
+
+        try {
+            $hotels = $this->loadDashboardHotels($hotelId);
+        } catch (\Throwable) {
+            return ['status' => 'request_failed', 'hotel' => null];
+        }
+
+        $hotel = $hotels[0] ?? null;
+        if (!is_array($hotel)) {
+            return ['status' => 'hotel_not_found', 'hotel' => null];
+        }
+
+        return ['status' => 'ok', 'hotel' => $hotel];
     }
     private function dashboardDataStateCatalog(): array
     {

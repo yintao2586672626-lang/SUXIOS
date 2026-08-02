@@ -139,6 +139,13 @@ final class ExecutionFlowReadService
             }
         }
         $stage = $this->stage($intent, $task, $evidenceTruth, $reviewStatus, $outcomeTruth);
+        $sopCandidate = $this->buildSopCandidate(
+            $intent,
+            $task,
+            $evidenceTruth,
+            $outcomeTruth,
+            $reviewStatus
+        );
 
         return [
             'id' => (int)$intent['id'],
@@ -204,6 +211,7 @@ final class ExecutionFlowReadService
                 'available_on' => $reviewAvailableOn,
                 'is_available' => $reviewAvailableOn === '' || $reviewAvailableOn <= date('Y-m-d'),
             ],
+            'sop_candidate' => $sopCandidate,
             'roi' => $this->executionOutcomeService->buildExecutionRoi(
                 $intent,
                 $task,
@@ -212,6 +220,136 @@ final class ExecutionFlowReadService
                 $outcomeTruth
             ),
             'next_action' => $this->buildNextAction($stage, $intent, $task),
+        ];
+    }
+
+    /**
+     * Build a review-backed SOP candidate without publishing or applying it.
+     * Human proof establishes that the action was carried out; persisted OTA
+     * readback separately establishes the observed result. One successful
+     * review may create a candidate, but never an approved SOP or a cross-hotel
+     * replication plan.
+     *
+     * @param array<string, mixed> $intent
+     * @param array<string, mixed> $task
+     * @param array<string, mixed> $evidenceTruth
+     * @param array<string, mixed> $outcomeTruth
+     * @return array<string, mixed>
+     */
+    public function buildSopCandidate(
+        array $intent,
+        array $task,
+        array $evidenceTruth,
+        array $outcomeTruth,
+        string $reviewStatus
+    ): array {
+        $intentId = max(0, (int)($intent['id'] ?? 0));
+        $taskId = max(0, (int)($task['id'] ?? 0));
+        $hotelId = max(0, (int)($intent['hotel_id'] ?? $task['hotel_id'] ?? 0));
+        $reviewStatus = strtolower(trim($reviewStatus));
+        $reasonCodes = [];
+
+        if ((string)($intent['status'] ?? '') !== 'approved') {
+            $reasonCodes[] = 'execution_intent_not_approved';
+        }
+        if ($taskId <= 0 || (string)($task['status'] ?? '') !== 'executed') {
+            $reasonCodes[] = 'execution_not_completed';
+        }
+        if (($evidenceTruth['operator_attested'] ?? false) !== true) {
+            $reasonCodes[] = 'operator_execution_evidence_missing';
+        }
+        if (!in_array($reviewStatus, ['success', 'near_success'], true)) {
+            $reasonCodes[] = $reviewStatus === 'failed'
+                ? 'review_not_positive'
+                : 'operator_review_pending';
+        }
+        if (($evidenceTruth['source_verified'] ?? false) !== true) {
+            $reasonCodes[] = 'source_verified_metric_readback_missing';
+        }
+        if (($outcomeTruth['outcome_verified'] ?? false) !== true) {
+            $reasonCodes[] = 'review_outcome_unverified';
+        }
+        if (($outcomeTruth['positive_outcome_verified'] ?? false) !== true) {
+            $reasonCodes[] = 'positive_outcome_unverified';
+        }
+        $reasonCodes = array_values(array_unique($reasonCodes));
+        $ready = $reasonCodes === [];
+
+        $targetValue = $this->arrayValue($intent['target_value'] ?? []);
+        $actionText = trim((string)(
+            $targetValue['action_text']
+            ?? $targetValue['action']
+            ?? $intent['action_type']
+            ?? ''
+        ));
+        $sourceRefs = [];
+        foreach ((array)($evidenceTruth['assessments'] ?? []) as $assessment) {
+            if (!is_array($assessment) || ($assessment['source_verified'] ?? false) !== true) {
+                continue;
+            }
+            $sourceRef = trim((string)($assessment['source_ref'] ?? ''));
+            if ($sourceRef !== '') {
+                $sourceRefs[$sourceRef] = true;
+            }
+        }
+
+        $candidateIdentity = implode('|', [
+            $intentId,
+            $taskId,
+            $hotelId,
+            strtolower(trim((string)($intent['platform'] ?? ''))),
+            strtolower(trim((string)($intent['action_type'] ?? ''))),
+            substr(trim((string)($intent['date_start'] ?? '')), 0, 10),
+        ]);
+
+        return [
+            'schema_version' => 'operation_sop_candidate.v1',
+            'candidate_id' => $ready
+                ? 'sop_candidate_' . substr(hash('sha256', $candidateIdentity), 0, 24)
+                : null,
+            'status' => $ready ? 'candidate' : 'not_ready',
+            'approval_status' => $ready ? 'pending_approval' : 'not_available',
+            'reason_codes' => $reasonCodes,
+            'source' => [
+                'intent_ref' => $intentId > 0 ? 'operation_execution_intent#' . $intentId : null,
+                'task_ref' => $taskId > 0 ? 'operation_execution_task#' . $taskId : null,
+                'metric_readback_refs' => array_keys($sourceRefs),
+            ],
+            'scope' => [
+                'hotel_id' => $hotelId,
+                'platform' => strtolower(trim((string)($intent['platform'] ?? ''))),
+                'metric_scope' => 'ota_channel',
+                'business_date' => substr(trim((string)($intent['date_start'] ?? '')), 0, 10),
+                'date_end' => substr(trim((string)($intent['date_end'] ?? '')), 0, 10),
+            ],
+            'action' => [
+                'action_type' => strtolower(trim((string)($intent['action_type'] ?? ''))),
+                'action_text' => $actionText,
+                'execution_evidence_status' => ($evidenceTruth['operator_attested'] ?? false) === true
+                    ? 'operator_attested'
+                    : 'missing',
+            ],
+            'review' => [
+                'result_status' => $reviewStatus,
+                'result_summary' => trim((string)($task['result_summary'] ?? '')),
+                'metric_key' => strtolower(trim((string)($outcomeTruth['metric_key'] ?? $intent['expected_metric'] ?? ''))),
+                'before_value' => is_numeric($outcomeTruth['before_value'] ?? null)
+                    ? (float)$outcomeTruth['before_value']
+                    : null,
+                'after_value' => is_numeric($outcomeTruth['after_value'] ?? null)
+                    ? (float)$outcomeTruth['after_value']
+                    : null,
+                'outcome_status' => (string)($outcomeTruth['status'] ?? 'unverified'),
+                'source_verified' => ($evidenceTruth['source_verified'] ?? false) === true,
+                'positive_outcome_verified' => ($outcomeTruth['positive_outcome_verified'] ?? false) === true,
+                'causality_claimed' => false,
+            ],
+            'boundaries' => [
+                'automatic_publish_enabled' => false,
+                'automatic_apply_enabled' => false,
+                'cross_hotel_replication_allowed' => false,
+                'next_stage' => $ready ? 'manual_sop_approval' : 'complete_review_evidence',
+            ],
         ];
     }
 

@@ -1292,18 +1292,24 @@ trait CtripAutoFetchExecutionConcern
 
     private function ctripStandardRowFloatMetric(array $row, string $field): ?float
     {
-        if (array_key_exists($field, $row) && $row[$field] === null) {
+        if (!array_key_exists($field, $row)
+            || $row[$field] === null
+            || (is_string($row[$field]) && trim($row[$field]) === '')
+            || !is_numeric($row[$field])) {
             return null;
         }
-        return (float)($row[$field] ?? 0);
+        return (float)$row[$field];
     }
 
     private function ctripStandardRowIntegerMetric(array $row, string $field): ?int
     {
-        if (array_key_exists($field, $row) && $row[$field] === null) {
+        if (!array_key_exists($field, $row)
+            || $row[$field] === null
+            || (is_string($row[$field]) && trim($row[$field]) === '')
+            || !is_numeric($row[$field])) {
             return null;
         }
-        return (int)round((float)($row[$field] ?? 0));
+        return (int)round((float)$row[$field]);
     }
 
     private function normalizeCtripProfileEnabledFieldKeyMap(array $keys): array

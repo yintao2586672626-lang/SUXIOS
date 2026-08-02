@@ -5,7 +5,10 @@ namespace Tests;
 
 use app\controller\Agent;
 use app\model\AgentConfig;
+use app\model\DemandForecast;
 use app\model\PriceSuggestion;
+use app\service\RevenuePricingRecommendationService;
+use app\service\TrustedOtaFactRepository;
 use PHPUnit\Framework\TestCase;
 use think\App;
 use think\exception\HttpException;
@@ -198,6 +201,173 @@ final class AgentTenantMainlineTest extends TestCase
         self::assertSame($analysisCount, (int)Db::name('competitor_analysis')->count());
     }
 
+    public function testManualDemandForecastCanBeCorrectedAndPricingReadsTheCorrection(): void
+    {
+        $forecastDate = date('Y-m-d', strtotime('+3 days'));
+        $first = $this->responseData($this->controller([], [
+            'hotel_id' => 20,
+            'forecast_date' => $forecastDate,
+            'room_type_id' => 100,
+            'forecast_method' => DemandForecast::METHOD_HYBRID,
+            'predicted_occupancy' => 92,
+            'predicted_demand' => 10,
+            'confidence_score' => 0.88,
+        ], 2)->createForecast());
+
+        self::assertSame('created', $first['write_action']);
+        self::assertTrue($first['readback_verified']);
+
+        $second = $this->responseData($this->controller([], [
+            'hotel_id' => 20,
+            'forecast_date' => $forecastDate,
+            'room_type_id' => 100,
+            'forecast_method' => DemandForecast::METHOD_HYBRID,
+            'predicted_occupancy' => 38,
+            'predicted_demand' => 3,
+            'confidence_score' => 0.64,
+        ], 2)->createForecast());
+
+        self::assertSame('updated', $second['write_action']);
+        self::assertTrue($second['readback_verified']);
+        self::assertSame((int)$first['id'], (int)$second['id']);
+        self::assertSame(1, Db::name('demand_forecasts')
+            ->where('hotel_id', 20)
+            ->where('room_type_id', 100)
+            ->where('forecast_date', $forecastDate)
+            ->count());
+        self::assertSame(38.0, (float)$second['forecast']['predicted_occupancy']);
+        self::assertSame(3, (int)$second['forecast']['predicted_demand']);
+        self::assertSame(0.64, (float)$second['forecast']['confidence_score']);
+        self::assertSame(DemandForecast::MANUAL_INPUT_TYPE, $second['forecast']['historical_data']['input_type']);
+
+        DemandForecast::createForecast(20, $forecastDate, [
+            'room_type_id' => 100,
+            'forecast_method' => DemandForecast::METHOD_ARIMA,
+            'predicted_occupancy' => 96,
+            'predicted_demand' => 12,
+            'confidence_score' => 0.91,
+            'historical_data' => ['input_type' => 'arima_model_forecast'],
+        ]);
+
+        $recommendation = $this->pricingServiceWithoutHistory()->recommend(20, [
+            'id' => 100,
+            'base_price' => 300,
+            'min_price' => 250,
+            'max_price' => 450,
+            'room_count' => 10,
+            'facilities' => [],
+        ], $forecastDate);
+        $signal = $recommendation['factors']['signals']['demand_forecast'];
+
+        self::assertSame((int)$second['id'], (int)$signal['id']);
+        self::assertSame(38.0, (float)$signal['predicted_occupancy']);
+        self::assertSame(3, (int)$signal['predicted_demand']);
+        self::assertSame(0.64, (float)$signal['confidence_score']);
+        self::assertSame(DemandForecast::MANUAL_INPUT_TYPE, $signal['source_metadata']['input_type']);
+        self::assertContains('demand_forecast:occupancy<=45', $recommendation['factor_notes']);
+    }
+
+    public function testLegacyDuplicateManualForecastUpdatesAndReadsTheNewestManualRecord(): void
+    {
+        $forecastDate = date('Y-m-d', strtotime('+4 days'));
+        $manualMetadata = json_encode([
+            'input_type' => DemandForecast::MANUAL_INPUT_TYPE,
+            'input_scope' => 'manual_pricing_configuration',
+            'source_scope' => 'ctrip_ota_channel',
+        ], JSON_THROW_ON_ERROR);
+        $olderId = 501;
+        Db::name('demand_forecasts')->insert([
+            'id' => $olderId,
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'room_type_id' => 100,
+            'forecast_date' => $forecastDate,
+            'forecast_method' => DemandForecast::METHOD_HYBRID,
+            'predicted_occupancy' => 81,
+            'predicted_demand' => 8,
+            'confidence_score' => 0.75,
+            'is_event_driven' => 0,
+            'event_factors' => '[]',
+            'historical_data' => $manualMetadata,
+            'remark' => 'legacy older manual input',
+            'create_time' => '2026-07-01 10:00:00',
+            'update_time' => '2026-07-01 10:00:00',
+        ]);
+        $newerId = 502;
+        Db::name('demand_forecasts')->insert([
+            'id' => $newerId,
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'room_type_id' => 100,
+            'forecast_date' => $forecastDate,
+            'forecast_method' => DemandForecast::METHOD_HYBRID,
+            'predicted_occupancy' => 87,
+            'predicted_demand' => 9,
+            'confidence_score' => 0.8,
+            'is_event_driven' => 0,
+            'event_factors' => '[]',
+            'historical_data' => $manualMetadata,
+            'remark' => 'legacy newer manual input',
+            'create_time' => '2026-07-02 10:00:00',
+            'update_time' => '2026-07-02 10:00:00',
+        ]);
+        $modelId = 503;
+        Db::name('demand_forecasts')->insert([
+            'id' => $modelId,
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'room_type_id' => 100,
+            'forecast_date' => $forecastDate,
+            'forecast_method' => DemandForecast::METHOD_LLM,
+            'predicted_occupancy' => 99,
+            'predicted_demand' => 15,
+            'confidence_score' => 0.95,
+            'is_event_driven' => 0,
+            'event_factors' => '[]',
+            'historical_data' => json_encode(['input_type' => 'llm_model_forecast'], JSON_THROW_ON_ERROR),
+            'remark' => 'model forecast must stay untouched',
+            'create_time' => '2026-07-03 10:00:00',
+            'update_time' => '2026-07-03 10:00:00',
+        ]);
+
+        $saved = $this->responseData($this->controller([], [
+            'hotel_id' => 20,
+            'forecast_date' => $forecastDate,
+            'room_type_id' => 100,
+            'forecast_method' => DemandForecast::METHOD_HYBRID,
+            'predicted_occupancy' => 42,
+            'predicted_demand' => 4,
+            'confidence_score' => 0.68,
+        ], 2)->createForecast());
+
+        self::assertSame('updated', $saved['write_action']);
+        self::assertSame((int)$newerId, (int)$saved['id']);
+        self::assertSame(3, Db::name('demand_forecasts')
+            ->where('hotel_id', 20)
+            ->where('room_type_id', 100)
+            ->where('forecast_date', $forecastDate)
+            ->count());
+        $storedById = [];
+        foreach (Db::name('demand_forecasts')->select()->toArray() as $row) {
+            $storedById[(int)$row['id']] = (float)$row['predicted_occupancy'];
+        }
+        self::assertSame(81.0, $storedById[$olderId], json_encode($storedById, JSON_THROW_ON_ERROR));
+        self::assertSame(99.0, $storedById[$modelId], json_encode($storedById, JSON_THROW_ON_ERROR));
+
+        $recommendation = $this->pricingServiceWithoutHistory()->recommend(20, [
+            'id' => 100,
+            'base_price' => 300,
+            'min_price' => 250,
+            'max_price' => 450,
+            'room_count' => 10,
+            'facilities' => [],
+        ], $forecastDate);
+        $signal = $recommendation['factors']['signals']['demand_forecast'];
+        self::assertSame((int)$newerId, (int)$signal['id']);
+        self::assertSame(42.0, (float)$signal['predicted_occupancy']);
+        self::assertSame(DemandForecast::MANUAL_INPUT_TYPE, $signal['source_metadata']['input_type']);
+    }
+
     private function controller(array $get = [], array $post = [], int $userId = 1): Agent
     {
         $request = new class extends Request {
@@ -235,6 +405,24 @@ final class AgentTenantMainlineTest extends TestCase
         } catch (HttpException $exception) {
             self::assertSame($expectedStatus, $exception->getStatusCode());
         }
+    }
+
+    private function pricingServiceWithoutHistory(): RevenuePricingRecommendationService
+    {
+        $trustedFacts = new class extends TrustedOtaFactRepository {
+            public function pricingHistory(int $systemHotelId, string $startDate, string $endDate): array
+            {
+                return [
+                    'data_status' => 'missing',
+                    'rows' => [],
+                    'data_gaps' => ['test_history_missing'],
+                    'source_policy' => [],
+                    'data_quality' => [],
+                ];
+            }
+        };
+
+        return new RevenuePricingRecommendationService($trustedFacts);
     }
 
     private function seedFixture(): void

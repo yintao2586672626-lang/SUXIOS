@@ -1000,7 +1000,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('let meituanConfigListLoadedAt = 0;')) {
     failures.push('public/index.html manual fetch tab switches must reuse recently loaded Ctrip/Meituan config lists without changing default full refresh behavior.');
   }
-  if (!/let ctripConfigListLoadingPromise = null;[\s\S]*const loadCtripConfigList = async[\s\S]*if \(ctripConfigListLoadingPromise\) \{[\s\S]*if \(!force\) \{[\s\S]*return ctripConfigListLoadingPromise;[\s\S]*await ctripConfigListLoadingPromise\.catch\(\(\) => \[\]\);[\s\S]*finally \{[\s\S]*ctripConfigListLoadingPromise = null;/.test(content)) {
+  if (!/let ctripConfigListLoadingPromise = null;[\s\S]*const loadCtripConfigList = async[\s\S]*if \(ctripConfigListLoadingPromise[\s\S]*incomingPriorityRank >= ctripConfigListLoadingPriorityRank[\s\S]*return ctripConfigListLoadingPromise;[\s\S]*finally \{[\s\S]*ctripConfigListLoadingPromise = null;/.test(content)
+    || content.includes('await ctripConfigListLoadingPromise')) {
     failures.push('public/index.html must deduplicate concurrent Ctrip config-list loads for manual-fetch prewarm and tab switching.');
   }
   const ctripCanFetchStart = content.indexOf('const canFetchCtripManualData = () => {');
@@ -1156,7 +1157,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('const homeSecondaryPanelsReady = ref(false);')
     || !content.includes('const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {')
     || !/clearHomeSecondaryPanelsReadyTimer\(\);[\s\S]{0,200}?homeSecondaryPanelsReady\.value = false;[\s\S]{0,120}?destroyHomeTrendChart\(\);/.test(content)
-    || !/homeSecondaryPanelsReady\.value = false;\s+scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,520}?runPageLoadOnce\(\s*newPage,\s*'main',\s*\(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true\s*\}\)(?:,\s*\{\s*ttlMs:\s*DASHBOARD_PAGE_CACHE_TTL_MS\s*\})?\s*\);/.test(content)
+    || !/homeSecondaryPanelsReady\.value = false;\s+scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,620}?const requestPolicy = currentCompassReadPolicy\(newPage, 'current'\);[\s\S]{0,220}?runPageLoadOnce\(\s*newPage,\s*'main',\s*\(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true,\s*requestPolicy\s*\}\),\s*\{\s*ttlMs:\s*DASHBOARD_PAGE_CACHE_TTL_MS,\s*requestPolicy\s*\}\s*\);/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="daily-ops-monitor-card"/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-weather-demand-card"/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-market-signal-card"/.test(content)
@@ -1287,7 +1288,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   }
   if (!/const \[latestResult, configResult\] = await Promise\.allSettled\(\[[\s\S]{0,700}?loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\),\s*\]\);\s*if \(currentPage\.value !== 'ctrip-ebooking'\) return null;/.test(content)
     || !content.includes('const shouldApplySelectedConfig = options.applySelectedConfig === true;')
-    || !/if \(selectedCtripHotelId\.value && shouldApplySelectedConfig\) \{[\s\S]{0,700}?deferUiTask\(\(\) => \(\s*isAuthSessionCurrent\(requestSession\)\s*\? applyCtripHotelConfig\(false, \{[\s\S]{0,300}?refreshList: false,[\s\S]{0,300}?skipIfAligned: true,/.test(content)
+    || !/if \(selectedCtripHotelId\.value && shouldApplySelectedConfig\) \{[\s\S]{0,700}?deferUiTask\(\(\) => \(\s*isCurrentRequest\(\)\s*\? applyCtripHotelConfig\(false, \{[\s\S]{0,300}?refreshList: false,[\s\S]{0,300}?skipIfAligned: true,/.test(content)
     || content.includes('prewarmSelectedCtripConfigSecret')
     || content.includes("if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;")) {
     failures.push('public/index.html Ctrip config list must return metadata after list data and only apply selected metadata when explicitly requested.');
@@ -1421,17 +1422,19 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || ctripCookieHealthMutationSource.includes("await loadDataHealthPanel('light', { force: true });")) {
     failures.push('public/index.html Ctrip health Cookie save/delete actions must refresh lists and data-health status without waiting on the data-health panel.');
   }
+  const pageWatcherStart = content.indexOf('watch(currentPage, (newPage) => {');
+  const meituanEbookingDefaultLoaderStart = content.indexOf("if (newPage === 'meituan-ebooking'", pageWatcherStart);
   const meituanEbookingDefaultLoader = content.slice(
-    content.indexOf("if (newPage === 'meituan-ebooking'"),
-    content.indexOf("if (newPage === 'hotels'")
+    meituanEbookingDefaultLoaderStart,
+    content.indexOf("if (newPage === 'hotels'", meituanEbookingDefaultLoaderStart)
   );
   const meituanStartupRefreshStart = content.indexOf('const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS = 16;');
   const meituanStartupRefreshMarker = content.indexOf('const scheduleMeituanEbookingDeferredStartupRefresh = () => {');
   const meituanStartupRefreshDefaultEnd = content.indexOf('const scheduleDefaultDashboardDeferredRefresh', meituanStartupRefreshMarker);
   const meituanStartupRefreshFallbackEnd = content.indexOf('const openCtripManualTab', meituanStartupRefreshMarker);
-  const meituanStartupRefreshEnd = meituanStartupRefreshDefaultEnd >= 0
-    ? meituanStartupRefreshDefaultEnd
-    : meituanStartupRefreshFallbackEnd;
+  const meituanStartupRefreshEnd = [meituanStartupRefreshDefaultEnd, meituanStartupRefreshFallbackEnd]
+    .filter(offset => offset >= 0)
+    .reduce((nearest, offset) => Math.min(nearest, offset), content.length);
   const meituanStartupRefreshSource = content.slice(
     meituanStartupRefreshStart,
     meituanStartupRefreshEnd
@@ -1874,10 +1877,11 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('if (cachedResult.hit) {')
     || !content.includes('return cachedResult.list;')
     || !content.includes('const loadingAction = resolveMeituanConfigListLoadingAction({')
-    || !content.includes("if (loadingAction.status === 'reuse') {")
+    || !/if \(loadingAction\.status === 'reuse'\s*&&[\s\S]{0,220}?incomingPriorityRank >= meituanConfigListLoadingPriorityRank/.test(content)
     || !content.includes('return loadingAction.promise;')
-    || !content.includes("if (loadingAction.status === 'await_previous') {")
-    || !content.includes('await loadingAction.promise.catch(() => []);')
+    || !meituanStaticContent.includes("return { status: 'supersede', promise: loadingPromise };")
+    || content.includes("loadingAction.status === 'await_previous'")
+    || content.includes('await loadingAction.promise')
     || !content.includes('const startState = buildMeituanConfigListStartState();')
     || !content.includes('meituanConfigListLoading.value = startState.loading;')
     || !content.includes('meituanConfigListLoadFailed.value = startState.failed;')
@@ -1951,10 +1955,11 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   if (onlineDataDefaultLoader.includes('loadAutoFetchPanel()')) {
     failures.push('public/index.html must not preload the full platform-auto panel from the default online-data page load.');
   }
-  if (!onlineDataDefaultLoader.includes("runPageLoadOnce(newPage, 'main', () => {\n                            scheduleDataHealthPanelRefresh('light');\n                            return null;\n                        });")
-    || onlineDataDefaultLoader.includes("runPageLoadOnce(newPage, 'main', () => loadDataHealthPanel('light'));")
-    || /runPageLoadOnce\(newPage,\s*['"]main['"],\s*\(\)\s*=>\s*Promise\.allSettled\(\[\s*loadOnlineDataHotelList\(\),\s*loadDataHealthPanel\(['"]light['"]\),\s*\]\)\)/.test(onlineDataDefaultLoader)) {
-    failures.push('public/index.html default online-data first paint must schedule only light data-health status and defer hotel-list loading.');
+  if (!onlineDataDefaultLoader.includes("runPageLoadOnce(newPage, 'main', () => loadDataHealthPanel('light'));")
+    || onlineDataDefaultLoader.includes("runPageLoadOnce(newPage, 'main', () => {\n                            scheduleDataHealthPanelRefresh('light');\n                            return null;\n                        });")
+    || onlineDataDefaultLoader.includes('loadOnlineDataHotelList(')
+    || /loadDataHealthPanel\(\s*['"]full['"]/.test(onlineDataDefaultLoader)) {
+    failures.push('public/index.html default online-data first paint must return the real light data-health result and defer hotel-list and full diagnostics loading.');
   }
   if (/onlineDataTab\s*=\s*['"]ctrip-fetch-settings['"][^@]*loadAutoFetchPanel\(\)/.test(content)
     || /tab\s*===\s*['"]traffic['"][\s\S]{0,220}loadAutoFetchPanel\(\)/.test(content)) {

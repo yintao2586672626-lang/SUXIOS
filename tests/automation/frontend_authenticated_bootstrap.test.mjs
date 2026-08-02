@@ -225,13 +225,18 @@ test('authenticated login lands on the today operating dashboard through one ent
   assert(helperStart >= 0 && helperEnd > helperStart, 'core-operations activation helper must exist');
   assert.match(helper, /const landingPage = initialPageOverride \|\| 'ai-workbench';/);
   assert.match(helper, /currentPage\.value = landingPage;/);
-  assert.match(helper, /runPageLoadOnce\([\s\S]*landingPage,[\s\S]*'main',[\s\S]*loadCompassData\(\{ skipOtaBackground: true \}\)/);
+  assert.match(helper, /const requestPolicy = currentCompassReadPolicy\(landingPage, 'current'\);/);
+  assert.match(helper, /runPageLoadOnce\([\s\S]*landingPage,[\s\S]*'main',[\s\S]*loadCompassData\(\{ skipOtaBackground: true, requestPolicy \}\)[\s\S]*\{ ttlMs: DASHBOARD_PAGE_CACHE_TTL_MS, requestPolicy \}/);
   assert.doesNotMatch(helper, /openOnlineDataEntryTab\('data-health'\)/);
 
   const loginStart = appMain.indexOf('const handleLogin = async () => {');
   const loginEnd = appMain.indexOf('\n            const loadLoginSupportContact', loginStart);
   const loginFlow = appMain.slice(loginStart, loginEnd);
-  assert.match(loginFlow, /activateCoreOperationsAfterLogin\(\)/);
+  assert.match(
+    loginFlow,
+    /const primaryPageLoad = activateCoreOperationsAfterLogin\(\);\s*loadData\(\);\s*scheduleHotelManagementPrewarmAfter\(primaryPageLoad\);/,
+    'hotel-management prewarm must wait for the primary dashboard load to settle',
+  );
   assert.match(loginFlow, /applyDefaultReportHotel\(\{ suppressDashboardRefresh: true \}\)/);
   assert.doesNotMatch(loginFlow, /scheduleInitialCompassLoad|scheduleDualOtaWorkbenchAutoFetch/);
 
@@ -239,10 +244,22 @@ test('authenticated login lands on the today operating dashboard through one ent
   const mountedEnd = appMain.indexOf('\n            onUnmounted', mountedStart);
   const mountedFlow = appMain.slice(mountedStart, mountedEnd);
   assert.match(mountedFlow, /if \(token\.value\) \{\s*requestSuxiFullRenderForPage\(currentPage\.value\);/, 'remembered sessions must promote a deferred default page even when currentPage does not change');
-  assert.match(mountedFlow, /if \(isCompassDataPage\(\)\) \{\s*activateCoreOperationsAfterLogin\(\);\s*\}/);
+  assert.match(
+    mountedFlow,
+    /const primaryPageLoad = isCompassDataPage\(\)\s*\? activateCoreOperationsAfterLogin\(\)\s*: nextTick\(\);\s*scheduleHotelManagementPrewarmAfter\(primaryPageLoad\);/,
+    'remembered sessions must also defer hotel-management prewarm until the primary page is ready',
+  );
   assert.match(mountedFlow, /applyDefaultReportHotel\(\{ suppressDashboardRefresh: true \}\)/);
-  assert.match(mountedFlow, /request\('\/auth\/info'\)[\s\S]*handleAuthInfoBootstrapUnavailable\(bootstrapSession\)/, 'transient auth-info failures must retain the current session for retry');
-  assert.doesNotMatch(mountedFlow, /request\('\/auth\/info'\)[\s\S]*clearAuthSession\(\)/, 'auth-info bootstrap must not clear a session after network, 5xx, or malformed-response failures');
+  assert.match(
+    mountedFlow,
+    /request\('\/auth\/info', \{\s*requestPolicy: \{ scope: 'session', priority: 'current' \},\s*\}\)[\s\S]*handleAuthInfoBootstrapUnavailable\(bootstrapSession\)/,
+    'transient auth-info failures must retain the current session for retry',
+  );
+  assert.doesNotMatch(
+    mountedFlow,
+    /request\('\/auth\/info', \{[\s\S]*?\}\)[\s\S]*clearAuthSession\(\)/,
+    'auth-info bootstrap must not clear a session after network, 5xx, or malformed-response failures',
+  );
   assert.match(appMain, /if \(response\.status === 401 \|\| data\.code === 401\)[\s\S]*clearAuthSessionIfCurrent\(requestSession, tokenStatus\)/, 'explicit 401 responses must still clear the matching invalid session');
   assert.match(appMain, /isTerminalAuthFailureResponse\(response, data\)[\s\S]*clearAuthSessionIfCurrent\(requestSession, tokenStatus\)/, 'explicit terminal auth responses, including disabled users, must clear the matching cached session');
   assert.match(appMain, /authFailureReason === 'user_disabled'/, 'disabled-user responses must be distinguished from ordinary permission denials');
@@ -252,7 +269,7 @@ test('authenticated login lands on the today operating dashboard through one ent
   const pageWatcherStart = appMain.indexOf('watch(currentPage, (newPage) => {');
   const pageWatcherEnd = appMain.indexOf('\n            watch(onlineDataTab', pageWatcherStart);
   const pageWatcher = appMain.slice(pageWatcherStart, pageWatcherEnd);
-  assert.match(pageWatcher, /loadCompassData\(\{ skipOtaBackground: true \}\)/);
+  assert.match(pageWatcher, /const requestPolicy = currentCompassReadPolicy\(newPage, 'current'\);[\s\S]*loadCompassData\(\{ skipOtaBackground: true, requestPolicy \}\)/);
   assert.match(appMain, /if \(options\.skipOtaBackground !== true\) \{[\s\S]*?loadLatestCtripData[\s\S]*?loadCompetitorSummary/);
 });
 

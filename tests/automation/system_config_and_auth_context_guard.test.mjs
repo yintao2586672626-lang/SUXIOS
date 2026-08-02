@@ -19,7 +19,21 @@ test('system config modal requires a full readback and only saves changed fields
   const open = methodSlice('const openSystemConfigModal = async () => {', 'const saveSystemConfig = async () => {');
   const save = methodSlice('const saveSystemConfig = async () => {', '// 导出系统配置');
 
-  assert.match(open, /await request\('\/system-config', \{ withBusinessContext: false \}\)/);
+  assert.match(open, /const requestSession = captureAuthSession\(\)/);
+  assert.match(
+    open,
+    /const requestPolicy = currentPageReadPolicy\('system-config', 'action'\);\s*requestPolicy\.force = true;/,
+    'opening the modal must force an action-priority read instead of reusing cached config',
+  );
+  assert.match(
+    open,
+    /await request\('\/system-config', \{\s*withBusinessContext: false,\s*requestPolicy,\s*\}\)/,
+  );
+  assert.match(
+    open,
+    /if \(!isAuthSessionCurrent\(requestSession\)\s*\|\| currentPage\.value !== 'system-config'\s*\|\| !isPageLoadPolicyCurrent\(requestPolicy\)\s*\) \{\s*return;\s*\}/,
+    'stale session, page, or request-policy results must not open the system-config modal',
+  );
   assert.match(open, /systemConfigFormBaseline = \{ \.\.\.systemConfigForm\.value \}/);
   assert.match(open, /showSystemConfigModal\.value = false/);
   assert.match(save, /if \(!systemConfigFormBaseline\)/);

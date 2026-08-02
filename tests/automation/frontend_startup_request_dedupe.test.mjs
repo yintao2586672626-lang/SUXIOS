@@ -9,7 +9,8 @@ test('deferred render remount shares only authenticated startup reads', () => {
   assert.match(appMain, /const runSuxiStartupRequestOnce = \(cacheKey, task, ttlMs = 5000\) =>/);
   assert.match(
     appMain,
-    /runSuxiStartupRequestOnce\(\s*`auth-info:\$\{bootstrapSession\.token\}`,\s*\(\) => request\('\/auth\/info'\)/,
+    /runSuxiStartupRequestOnce\(\s*`auth-info:\$\{bootstrapSession\.token\}`,\s*\(\) => request\('\/auth\/info', \{\s*requestPolicy: \{ scope: 'session', priority: 'current' \},\s*\}\),\s*\)/,
+    'auth bootstrap must keep startup dedupe while using the current-session request lane',
   );
   assert.match(
     appMain,

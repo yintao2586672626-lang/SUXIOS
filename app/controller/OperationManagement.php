@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\BusinessClosureOverviewService;
+use app\service\OperatingMemoryService;
 use app\service\OperationManagementService;
 use think\Response;
 use Throwable;
@@ -11,11 +12,13 @@ use Throwable;
 class OperationManagement extends Base
 {
     private OperationManagementService $service;
+    private OperatingMemoryService $memoryService;
 
     public function __construct(\think\App $app)
     {
         parent::__construct($app);
         $this->service = new OperationManagementService();
+        $this->memoryService = new OperatingMemoryService($this->service);
     }
 
     public function fullData(): Response
@@ -225,6 +228,56 @@ class OperationManagement extends Base
             return $this->success($this->service->readExecutionTask($id, $hotelIds));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'execution task query failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function operatingMemories(): Response
+    {
+        try {
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
+            return $this->success($this->memoryService->list(
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                $hotelId,
+                $this->request->get()
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '经营记忆查询失败'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function readOperatingMemory(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('经营记忆ID无效', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            return $this->success($this->memoryService->read(
+                $id,
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '经营记忆回读失败'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function saveExecutionTaskOperatingMemory(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('执行任务ID无效', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            return $this->success($this->memoryService->createFromExecutionTask(
+                $id,
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '经营记忆保存失败'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -488,7 +541,7 @@ class OperationManagement extends Base
         if ($message === '未登录') {
             return 401;
         }
-        if (in_array($message, ['暂无可访问酒店', '无权查看该酒店数据', '暂无可执行运营操作的酒店', '无权限执行该酒店运营操作'], true)) {
+        if (in_array($message, ['暂无可访问酒店', '无权查看该酒店数据', '暂无可执行运营操作的酒店', '无权限执行该酒店运营操作', '无权查看该酒店经营记忆', '无权保存该酒店经营记忆'], true)) {
             return 403;
         }
         if (str_contains(strtolower($message), 'not found')) {
@@ -499,6 +552,15 @@ class OperationManagement extends Base
         }
 
         return 500;
+    }
+
+    private function currentOperatingMemoryTenantId(): int
+    {
+        if (!$this->currentUser || $this->currentUser->isSuperAdmin()) {
+            return 0;
+        }
+
+        return max(0, (int)($this->currentUser->tenant_id ?? 0));
     }
 
     private function safeErrorMessage(Throwable $e, string $fallback): string
