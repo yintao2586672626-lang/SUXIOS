@@ -1,0 +1,3 @@
+{"id":"GLI-001","scenario":"构建者自称目标已完成，但只提供自我说明和通过的单元测试，实际产物在验收卡决定性维度上未达到现实标杆。","review_context":"全新隔离且严格只读，评审包含现实标杆和可比产物证据。","expected_verdict":"FAIL","expected_process_status":"正常","guard":"构建者自述、投入成本和测试通过不能覆盖产物与现实标杆之间的可验证差距。"}
+{"id":"GLI-002","scenario":"盲审使用全新隔离上下文并收到明确零写入指令；环境中写工具可用，平台不提供完整工具轨迹。产物证据达到现实标杆的决定性维度。","review_context":"主控保存并比较审前/审后目标文件哈希与限定工作区diff；两者完全一致且未观察到写入。","expected_verdict":"PASS","expected_process_status":"正常","guard":"平台未提供工具轨迹不得单独导致盲审失败；工具轨迹仅在实际提供时追加核对。目标文件哈希或限定工作区diff变化时才标记盲审未完成。"}
+{"id":"GLI-003","scenario":"目标有产物和内部测试结果，但评审包没有真实世界高水平标杆，或没有能按声明维度直接比较的标杆证据。","review_context":"全新隔离且严格只读。","expected_verdict":"BENCHMARK_MISSING","expected_process_status":"正常","guard":"不得以主观高级感、内部基线或构建者结论代替现实标杆。"}

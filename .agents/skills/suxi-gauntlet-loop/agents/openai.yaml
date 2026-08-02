@@ -1,0 +1,4 @@
+interface:
+  display_name: "宿析试炼循环"
+  short_description: "用现实高标杆驱动构建者与独立盲审循环，完成可验证交付"
+  default_prompt: "使用 $suxi-gauntlet-loop 自主研究标杆、拆解目标，并以构建者和独立盲审循环交付结果。"
