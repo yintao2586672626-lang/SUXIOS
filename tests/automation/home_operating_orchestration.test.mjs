@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const homeStaticSource = readFileSync('public/home-static.js', 'utf8');
 const appMain = readFileSync('public/app-main.js', 'utf8');
+const operationStatic = readFileSync('public/operation-static.js', 'utf8');
 const template = readFileSync('resources/frontend/templates/fragments/23a-page-compass-summary.html', 'utf8');
 const context = { window: {} };
 vm.runInNewContext(homeStaticSource, context, { filename: 'public/home-static.js' });
@@ -142,11 +143,12 @@ test('home entry opens exact fact or intent and refreshes from execution readbac
   assert.match(homeStaticSource, /今天没有匹配的运营任务/);
   assert.match(homeStaticSource, /这不等于经营已完成/);
   assert.match(appMain, /HomeOperatingOrchestration = window\.SUXI_HOME_STATIC\?\.HomeOperatingOrchestration/);
-  assert.match(appMain, /apiRequest\(`\/operation\/execution-flow\?\$\{params\.toString\(\)\}`\)/);
-  assert.match(appMain, /params\.set\('system_hotel_id', hotelId\)/);
-  assert.match(appMain, /params\.append\('system_hotel_id', requestHotelId\)/);
-  assert.match(appMain, /flow\.list\.find\(item => Number\(item\?\.hotel_id \|\| 0\) !== Number\(scopedHotelId\)\)/);
-  assert.match(appMain, /loadOperationActions\(\{ focusIntentId: intentId \}\)/);
-  assert.match(appMain, /applyHomeOperatingScheduleFlow\(operationExecutionFlow\.value, requestHotelId\)/);
-  assert.match(appMain, /const homeOperatingSchedulePromise = loadHomeOperatingSchedule\(\{ hotelId: compassHotelId \}\)/);
+  assert.match(operationStatic, /apiRequest\(`\/operation\/execution-flow\?\$\{params\.toString\(\)\}`\)/);
+  assert.match(operationStatic, /params\.set\('system_hotel_id', hotelId\)/);
+  assert.match(operationStatic, /params\.append\('system_hotel_id', requestHotelId\)/);
+  assert.match(operationStatic, /flow\.list\.find\(item => Number\(item\?\.hotel_id \|\| 0\) !== Number\(scopedHotelId\)\)/);
+  assert.match(operationStatic, /loadOperationActions\(\{ focusIntentId: intentId \}\)/);
+  assert.match(operationStatic, /applyHomeOperatingScheduleFlow\(operationExecutionFlow\.value, requestHotelId\)/);
+  assert.match(appMain, /const homeOperatingSchedulePromise = force\s*\?\s*loadHomeOperatingSchedule\(\{ hotelId: compassHotelId \}\)/);
+  assert.match(appMain, /scheduleDelayedPageTask\([\s\S]*loadHomeOperatingSchedule\(\{ hotelId: compassHotelId \}\)[\s\S]*HOME_SECONDARY_PANEL_DELAY_MS/);
 });

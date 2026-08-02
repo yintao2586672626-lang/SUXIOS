@@ -16,9 +16,10 @@ const helpers = context.window.SUXI_REVENUE_AI_STATIC;
 const dataHealthHelpers = context.window.SUXI_DATA_HEALTH_STATIC;
 const indexHtml = readFileSync('public/index.html', 'utf8');
 const appMain = readFileSync('public/app-main.js', 'utf8');
+const operationStatic = readFileSync('public/operation-static.js', 'utf8');
 const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
 const aiDailyReportFragment = readFileSync('resources/frontend/templates/fragments/16-page-ai-daily-report.html', 'utf8');
-const html = `${indexHtml}\n${appTemplate}\n${appMain}`;
+const html = `${indexHtml}\n${appTemplate}\n${appMain}\n${operationStatic}`;
 
 const aiDailyTaskHelpersStart = '// AI_DAILY_REPORT_TASK_HELPERS_START';
 const aiDailyTaskHelpersEnd = '// AI_DAILY_REPORT_TASK_HELPERS_END';
@@ -164,14 +165,14 @@ test('Revenue AI entry lazy-loads the versioned helper outside the startup chain
 });
 
 test('AI daily report generation uses background tasks, exact readback, and sync compatibility', () => {
-  assert.match(appMain, /background: true/);
-  assert.match(appMain, /`\/ai-daily-reports\/tasks\/\$\{encodeURIComponent\(taskId\)\}`/);
-  assert.match(appMain, /`\/ai-daily-reports\/\$\{normalizedReportId\}`/);
-  assert.match(appMain, /pollResult\.task\.resultReportId/);
-  assert.match(appMain, /AI经营日报回读酒店范围不一致/);
-  assert.match(appMain, /if \(!responseTaskId\) \{/);
-  assert.match(appMain, /responseData\?\.report \|\| responseData/);
-  assert.doesNotMatch(appMain, /aiDailyReport\.value = res\.data \|\| null;\s*showToast\('AI经营日报已生成'\)/);
+  assert.match(operationStatic, /background: true/);
+  assert.match(operationStatic, /`\/ai-daily-reports\/tasks\/\$\{encodeURIComponent\(taskId\)\}`/);
+  assert.match(operationStatic, /`\/ai-daily-reports\/\$\{normalizedReportId\}`/);
+  assert.match(operationStatic, /pollResult\.task\.resultReportId/);
+  assert.match(operationStatic, /AI经营日报回读酒店范围不一致/);
+  assert.match(operationStatic, /if \(!responseTaskId\) \{/);
+  assert.match(operationStatic, /responseData\?\.report \|\| responseData/);
+  assert.doesNotMatch(html, /aiDailyReport\.value = res\.data \|\| null;\s*showToast\('AI经营日报已生成'\)/);
   assert.match(aiDailyReportFragment, /data-testid="ai-daily-report-generation-task"/);
   assert.match(aiDailyReportFragment, /data-testid="ai-daily-report-generation-progress"/);
   assert.match(aiDailyReportFragment, /不表示 AI 已形成完整经营结论/);

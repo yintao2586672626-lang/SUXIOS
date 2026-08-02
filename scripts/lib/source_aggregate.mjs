@@ -6,6 +6,7 @@ export const SOURCE_CONCERN_PATHS = Object.freeze({
     'app/controller/concern/AgentOtaExecutionIntentConcern.php',
     'app/controller/concern/AgentCapturedOtaAnalysisConcern.php',
     'app/controller/concern/AgentOtaDiagnosisBuildConcern.php',
+    'app/controller/concern/AgentOtaDiagnosisEvidenceQualityConcern.php',
     'app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php',
   ]),
   'app/controller/concern/AutoFetchConcern.php': Object.freeze([
@@ -17,10 +18,12 @@ export const SOURCE_CONCERN_PATHS = Object.freeze({
     'app/service/concern/PlatformDataSourceExecutionConcern.php',
     'app/service/concern/PlatformSyncTaskConcern.php',
     'app/service/concern/PlatformDataPersistenceConcern.php',
+    'app/service/concern/PlatformManualImportSourceConcern.php',
   ]),
   'app/service/OperationManagementService.php': Object.freeze([
     'app/service/operation/OperationSnapshotConcern.php',
     'app/service/operation/OperationAlertConcern.php',
+    'app/service/operation/OperationExecutionIntentConcern.php',
   ]),
 });
 

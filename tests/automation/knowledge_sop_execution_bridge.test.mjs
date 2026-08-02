@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -25,7 +26,7 @@ test('knowledge SOP bridge requires an explicit target and reads the persisted i
 });
 
 test('knowledge SOP bridge is idempotent and remains approval-gated', () => {
-  const service = read('app/service/OperationManagementService.php');
+  const service = readSourceAggregate('app/service/OperationManagementService.php', { repoRoot });
   const controller = read('app/controller/Knowledge.php');
   const route = read('route/app.php');
 

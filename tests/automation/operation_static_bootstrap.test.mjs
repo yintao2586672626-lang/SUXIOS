@@ -4,8 +4,8 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = readFrontendContractSource();
 const operationStatic = fs.readFileSync('public/operation-static.js', 'utf8');
+const html = `${readFrontendContractSource()}\n${operationStatic}`;
 
 const loadOperationStaticApi = () => {
   const context = { window: {}, console };

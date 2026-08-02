@@ -6,6 +6,20 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const appMain = fs.readFileSync(path.join(repoRoot, 'public', 'app-main.js'), 'utf8');
+const revenueAiOverviewStart = appMain.indexOf('const loadRevenueAiOverview = async');
+const revenueAiOverviewEnd = appMain.indexOf('const loadCompassData = async', revenueAiOverviewStart);
+const revenueAiOverviewSource = revenueAiOverviewStart >= 0 && revenueAiOverviewEnd > revenueAiOverviewStart
+  ? appMain.slice(revenueAiOverviewStart, revenueAiOverviewEnd)
+  : '';
+const revenueAiPermissionGateStart = revenueAiOverviewSource.indexOf('if (!canUseRevenueAi()) {');
+const revenueAiPermissionGateEnd = revenueAiOverviewSource.indexOf(
+  'const requestSession = captureAuthSession();',
+  revenueAiPermissionGateStart,
+);
+const revenueAiPermissionGateSource = revenueAiPermissionGateStart >= 0
+  && revenueAiPermissionGateEnd > revenueAiPermissionGateStart
+  ? revenueAiOverviewSource.slice(revenueAiPermissionGateStart, revenueAiPermissionGateEnd)
+  : '';
 const pmsTemplate = fs.readFileSync(
   path.join(repoRoot, 'resources', 'frontend', 'templates', 'fragments', '15aab-page-pms-operating-data.html'),
   'utf8',
@@ -16,9 +30,21 @@ test('home Revenue AI overview is not requested for an account without Revenue A
     appMain,
     /const canUseRevenueAi = \(\) =>[\s\S]*can_use_ai_decision[\s\S]*ai\.view[\s\S]*ai\.execute/,
   );
-  assert.match(
-    appMain,
-    /const loadRevenueAiOverview = async \(\) => \{[\s\S]{0,300}if \(!canUseRevenueAi\(\)\) \{[\s\S]{0,300}return null;/,
+  assert.ok(
+    revenueAiOverviewStart >= 0 && revenueAiOverviewEnd > revenueAiOverviewStart,
+    'Revenue AI overview loader must remain extractable',
+  );
+  assert.ok(
+    revenueAiPermissionGateStart >= 0 && revenueAiPermissionGateEnd > revenueAiPermissionGateStart,
+    'Revenue AI permission gate must run before the request session is captured',
+  );
+  assert.match(revenueAiPermissionGateSource, /return null;/);
+  assert.doesNotMatch(revenueAiPermissionGateSource, /captureAuthSession\(|await request\(/);
+  const staticPreparationStart = revenueAiOverviewSource.indexOf('await ensureRevenueAiStaticReady()');
+  const outboundRequestStart = revenueAiOverviewSource.indexOf('await request(');
+  assert.ok(
+    staticPreparationStart > revenueAiPermissionGateEnd && outboundRequestStart > revenueAiPermissionGateEnd,
+    'Revenue AI static preparation and API request must remain after the permission gate',
   );
 });
 

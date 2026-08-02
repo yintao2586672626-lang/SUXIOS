@@ -4023,6 +4023,7 @@
             const dailyWorkbenchPatrol = ref(null);
             const dailyWorkbenchPatrolLoading = ref(false);
             const dailyWorkbenchPatrolRunning = ref(false);
+            const dailyWorkbenchPatrolConfirming = ref(false);
             const dailyWorkbenchPatrolActionUpdating = ref('');
             const dailyWorkbenchPatrolError = ref('');
             const phase3OperationEffectLoop = ref(null);
@@ -13187,6 +13188,7 @@
                 dailyWorkbenchError.value = '';
                 dailyWorkbenchPatrol.value = null;
                 dailyWorkbenchPatrolError.value = '';
+                dailyWorkbenchPatrolConfirming.value = false;
                 phase3OperationEffectLoop.value = null;
                 phase3OperationEffectLoopLedger.value = null;
                 phase3OperationEffectLoopError.value = '';
@@ -13397,9 +13399,22 @@
                 }
             };
 
+            const cancelDailyWorkbenchPatrolConfirmation = () => {
+                dailyWorkbenchPatrolConfirming.value = false;
+            };
+
+            const openDailyWorkbenchPatrolConfirmation = () => {
+                if (dailyWorkbenchPatrolRunning.value) return;
+                dailyWorkbenchPatrolConfirming.value = true;
+            };
+
             const runDailyWorkbenchPatrol = async () => {
                 if (dailyWorkbenchPatrolRunning.value) return;
-                if (!window.confirm(dailyWorkbenchWriteBoundary.value.run.confirmText)) return;
+                if (!dailyWorkbenchPatrolConfirming.value) {
+                    openDailyWorkbenchPatrolConfirmation();
+                    return;
+                }
+                cancelDailyWorkbenchPatrolConfirmation();
                 dailyWorkbenchPatrolRunning.value = true;
                 dailyWorkbenchPatrolError.value = '';
                 try {
@@ -13435,7 +13450,7 @@
                 }
             };
 
-            const exportDailyWorkbenchPatrolReport = () => {
+            const exportDailyWorkbenchPatrolReport = async () => {
                 const latest = dailyWorkbenchPatrolLatest.value;
                 if (!latest?.run_id) {
                     dailyWorkbenchPatrolError.value = '请先生成巡检快照，再导出报告';
@@ -13445,7 +13460,33 @@
                 const params = new URLSearchParams({ run_id: latest.run_id });
                 const hotelId = String(coreOperationsHotelId.value || latest.scope?.hotel_id || '').trim();
                 if (hotelId) params.append('hotel_id', hotelId);
-                window.open(`/api/online-data/daily-workbench-patrols/report?${params.toString()}`, '_blank', 'noopener,noreferrer');
+                const requestSession = captureAuthSession();
+                if (!requestSession.token) {
+                    dailyWorkbenchPatrolError.value = '登录已过期，请重新登录后导出';
+                    return;
+                }
+                try {
+                    const response = await fetch(API_BASE + `/online-data/daily-workbench-patrols/report?${params.toString()}`, {
+                        headers: {
+                            Accept: 'text/markdown',
+                            Authorization: requestSession.token,
+                        },
+                    });
+                    if (response.status === 401) {
+                        const clearedCurrentSession = clearAuthSessionIfCurrent(requestSession);
+                        if (clearedCurrentSession) showToast('登录已过期，请重新登录', 'error');
+                        return;
+                    }
+                    if (!response.ok) throw new Error(`巡检报告导出失败: ${response.status}`);
+                    const blob = await response.blob();
+                    if (!isAuthSessionCurrent(requestSession)) return;
+                    downloadBlob(blob, `suxios_ota_daily_workbench_patrol_${latest.run_id}.md`);
+                    dailyWorkbenchPatrolError.value = '';
+                } catch (error) {
+                    if (!isAuthSessionCurrent(requestSession)) return;
+                    dailyWorkbenchPatrolError.value = error.message || '巡检报告导出失败';
+                    showToast(dailyWorkbenchPatrolError.value, 'error');
+                }
             };
 
             const dailyWorkbenchPatrolActionKey = (item) => {
@@ -21803,7 +21844,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260719-h7eb502590a';
+            const operationStaticScriptVersion = '20260803-operation-workflow-h6a6588a8f9';
             let operationStaticLoadPromise = null;
             const loadOperationStatic = () => {
                 const currentStatic = window.SUXI_OPERATION_STATIC;
@@ -26699,824 +26740,91 @@
                 manualNotificationError.value = '';
                 manualNotificationValidationActive.value = false;
             };
-            const testManualNotification = async (item) => {
-                if (Number(item?.id || 0) === Number(manualNotificationForm.value?.id || 0)
-                    && manualNotificationHasUnsavedChanges.value
-                ) {
-                    showToast('计划有未保存更改，请先保存再测试。', 'warning');
-                    return;
-                }
-                if (!manualNotificationTestAllowed(item)) {
-                    showToast('请选择当前酒店有权使用且已启用的目标机器人。', 'warning');
-                    return;
-                }
-                const targetRobotId = Number(item?.target_robot_id || item?.test_robot_id || 0);
-                const targetRobotName = String(item?.target_robot_name || item?.test_robot_name || '').trim();
-                if (!window.confirm(`将向“${targetRobotName}”发送一次真实测试消息；测试成功后，未改动的已启用计划会进入定时调度。确认继续吗？`)) {
-                    return;
-                }
-                manualNotificationLoading.value.testId = Number(item.id || 0);
-                manualNotificationError.value = '';
-                try {
-                    const idempotencyKey = typeof crypto?.randomUUID === 'function'
-                        ? `manual-test:${crypto.randomUUID()}`
-                        : `manual-test:${Date.now()}:${Math.random().toString(16).slice(2)}`;
-                    const res = await apiRequest(`/manual-notifications/${encodeURIComponent(item.id)}/test-push`, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            hotel_id: Number(item.hotel_id),
-                            confirmed: true,
-                            target_robot_id: targetRobotId,
-                            target_robot_name: targetRobotName,
-                            idempotency_key: idempotencyKey,
-                        }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '测试推送失败');
-                    const status = String(res.data?.delivery_status || '');
-                    showToast(
-                        status === 'sent' ? `测试消息已送达“${targetRobotName}”。` : (res.data?.message || '测试消息未送达。'),
-                        status === 'sent' ? 'success' : 'warning'
-                    );
-                    if (Number(manualNotificationForm.value.id || 0) === Number(item.id || 0)) {
-                        manualNotificationForm.value.schedule_status = res.data?.schedule_status
-                            || manualNotificationForm.value.schedule_status;
-                    }
-                    await loadManualNotificationHistory();
-                    await loadManualNotificationDispatchHistory();
-                    const refreshed = manualNotificationHistory.value.list.find(
-                        record => Number(record.id || 0) === Number(item.id || 0)
-                    );
-                    if (refreshed && Number(manualNotificationForm.value.id || 0) === Number(item.id || 0)) {
-                        applyManualNotificationRecord(refreshed);
-                    }
-                    if (status === 'sent') {
-                        manualNotificationWorkspaceTab.value = 'records';
-                    }
-                } catch (error) {
-                    manualNotificationError.value = operationErrorMessage(error, '测试推送失败；正式群未触发。');
-                    await Promise.all([
-                        loadManualNotificationHistory(),
-                        loadManualNotificationDispatchHistory(),
-                    ]);
-                } finally {
-                    manualNotificationLoading.value.testId = 0;
-                }
-            };
-            const retryManualNotificationDispatch = async (item) => {
-                if (!item || !manualNotificationDispatchCanRetry(item)) return;
-                const status = String(item.status || '').toLowerCase();
-                const outcomeUnknown = status === 'outcome_unknown';
-                const modeLabel = String(item.delivery_mode || '') === 'formal' ? '正式群' : '测试群';
-                const confirmation = outcomeUnknown
-                    ? `这条${modeLabel}消息的送达结果不明确，可能已经到群。再次发送可能产生重复消息；仅在你已确认接受重复风险时继续。确认重试吗？`
-                    : `仅重试这条明确失败的${modeLabel}发送；已送达消息不会重复发送。确认继续吗？`;
-                if (!window.confirm(confirmation)) {
-                    return;
-                }
-                manualNotificationLoading.value.testId = Number(item.notification_id || 0);
-                manualNotificationError.value = '';
-                try {
-                    const res = await apiRequest(`/manual-notifications/dispatches/${encodeURIComponent(item.id)}/retry`, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            hotel_id: Number(item.hotel_id || manualNotificationForm.value.hotel_id || 0),
-                            confirmed: true,
-                        }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '失败发送重试未送达');
-                    showToast(
-                        `${outcomeUnknown ? '风险确认后的重试' : '失败发送重试'}已送达“${item.robot_name || '目标机器人'}”。`,
-                        'success'
-                    );
-                } catch (error) {
-                    manualNotificationError.value = operationErrorMessage(
-                        error,
-                        outcomeUnknown
-                            ? '风险确认后的重试失败或结果仍不明确。'
-                            : '明确失败消息重试未送达。'
-                    );
-                } finally {
-                    manualNotificationLoading.value.testId = 0;
-                    await Promise.all([
-                        loadManualNotificationHistory(),
-                        loadManualNotificationDispatchHistory(),
-                    ]);
-                }
-            };
-
-            const loadOperationFullData = async () => {
-                await ensureOperationStaticReady();
-                operationLoading.value.fullData = true;
-                operationError.value.fullData = '';
-                try {
-                    const query = operationParams();
-                    if (query === null) return;
-                    const res = await apiRequest(`/operation/full-data${query ? '?' + query : ''}`);
-                    if (res.code !== 200) throw new Error(res.message || '运营数据汇总加载失败');
-                    operationFullData.value = res.data || null;
-                } catch (error) {
-                    operationError.value.fullData = operationErrorMessage(error, '运营数据汇总加载失败');
-                    showToast(operationError.value.fullData, 'error');
-                } finally {
-                    operationLoading.value.fullData = false;
-                }
-            };
-
-            const analyzeOperationRootCause = async () => {
-                await ensureOperationStaticReady();
-                operationLoading.value.rootCause = true;
-                operationError.value.rootCause = '';
-                try {
-                    const hotelId = normalizeOperationHotelSelection(operationFilters, {
-                        errorKey: 'rootCause',
-                        fallbackMessage: '请选择有权限的酒店',
-                    });
-                    if (hotelId === null) return;
-                    const res = await apiRequest('/operation/root-cause', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            hotel_id: hotelId,
-                            date: operationFilters.value.date,
-                            problem_type: 'operation',
-                        }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '可能影响因素分析失败');
-                    operationRootCause.value = res.data || null;
-                } catch (error) {
-                    operationError.value.rootCause = operationErrorMessage(error, '可能影响因素分析失败');
-                    showToast(operationError.value.rootCause, 'error');
-                } finally {
-                    operationLoading.value.rootCause = false;
-                }
-            };
-
-            const loadOperationAlerts = async () => {
-                await ensureOperationStaticReady();
-                operationLoading.value.alerts = true;
-                operationError.value.alerts = '';
-                try {
-                    const params = new URLSearchParams();
-                    const hotelId = normalizeOperationHotelSelection(operationFilters, {
-                        requireHotel: true,
-                        errorKey: 'alerts',
-                        fallbackMessage: '请选择有权限的酒店',
-                    });
-                    if (hotelId === null) return;
-                    if (hotelId) params.append('hotel_id', hotelId);
-                    const res = await apiRequest(`/operation/alerts${params.toString() ? '?' + params.toString() : ''}`);
-                    if (res.code !== 200) throw new Error(res.message || '预警加载失败');
-                    operationAlerts.value = res.data || { list: [], unread_count: 0 };
-                } catch (error) {
-                    operationError.value.alerts = operationErrorMessage(error, '预警加载失败');
-                    showToast(operationError.value.alerts, 'error');
-                } finally {
-                    operationLoading.value.alerts = false;
-                }
-            };
-
-            const markOperationAlertsRead = async (ids) => {
-                const targetIds = (ids || []).filter(Boolean);
-                if (!targetIds.length) {
-                    showToast('暂无需要标记的预警', 'info');
-                    return;
-                }
-                operationLoading.value.alerts = true;
-                try {
-                    const res = await apiRequest('/operation/alerts/read', {
-                        method: 'POST',
-                        body: JSON.stringify({ ids: targetIds }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '标记已读失败');
-                    operationAlerts.value = {
-                        ...operationAlerts.value,
-                        list: (operationAlerts.value.list || []).map(item => targetIds.includes(item.id) ? { ...item, status: 'read' } : item),
-                        unread_count: Math.max(0, (operationAlerts.value.unread_count || 0) - targetIds.length),
-                    };
-                    showToast('预警已标记为已读');
-                } catch (error) {
-                    showToast(operationErrorMessage(error, '标记已读失败'), 'error');
-                } finally {
-                    operationLoading.value.alerts = false;
-                }
-            };
-
-            const openOperationAlertTask = async (alert) => {
-                const intentId = Number(alert?.task_bridge?.intent_id || 0);
-                if (!Number.isInteger(intentId) || intentId <= 0) {
-                    showToast('该预警尚未关联可跟踪任务', 'warning');
-                    return;
-                }
-                const hotelId = String(alert?.hotel_id || '').trim();
-                if (hotelId) operationFilters.value.hotel_id = hotelId;
-                revenueAiExecutionFocus.value = { intentId };
-                currentPage.value = 'ops-track';
-                await loadOperationActions({ focusIntentId: intentId });
-                await nextTick();
-                const row = document.querySelector(`[data-operation-execution-intent-id="${intentId}"]`);
-                if (row) {
-                    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                } else {
-                    showToast('任务已关联，但执行池未返回对应记录，请刷新后重试', 'warning');
-                }
-            };
-
-            const createOperationAlertTask = async (alert) => {
-                const alertId = Number(alert?.id || 0);
-                if (!Number.isInteger(alertId) || alertId <= 0) {
-                    showToast('预警尚未持久化，不能创建可跟踪任务', 'warning');
-                    return;
-                }
-                if (alert?.task_bridge?.linked) {
-                    await openOperationAlertTask(alert);
-                    return;
-                }
-                if (alert?.task_bridge?.can_convert !== true) {
-                    showToast(alert?.task_bridge?.unavailable_reason || '当前预警不能转任务', 'warning');
-                    return;
-                }
-                if (isOperationAlertTaskLoading(alert)) return;
-
-                operationAlertTaskLoadingIds.value = [...operationAlertTaskLoadingIds.value, alertId];
-                try {
-                    const res = await apiRequest(`/operation/alerts/${alertId}/execution-intent`, { method: 'POST' });
-                    if (res.code !== 200) throw new Error(res.message || '预警转任务失败');
-                    const intent = res.data?.execution_intent || {};
-                    const intentId = Number(intent.id || 0);
-                    if (!Number.isInteger(intentId) || intentId <= 0) {
-                        throw new Error('预警转任务结果缺少有效任务ID');
-                    }
-                    const wasUnread = alert.status !== 'read';
-                    operationAlerts.value = {
-                        ...operationAlerts.value,
-                        list: (operationAlerts.value.list || []).map(item => Number(item.id) === alertId ? {
-                            ...item,
-                            status: 'read',
-                            task_bridge: {
-                                can_convert: false,
-                                linked: true,
-                                intent_id: intentId,
-                                intent_status: intent.status || 'pending_approval',
-                                blocked_reason: intent.blocked_reason || '',
-                                unavailable_reason: '',
-                            },
-                        } : item),
-                        unread_count: wasUnread
-                            ? Math.max(0, Number(operationAlerts.value.unread_count || 0) - 1)
-                            : Number(operationAlerts.value.unread_count || 0),
-                    };
-                    showToast(res.data?.reused_existing_intent ? '已关联现有待审批任务' : '已转为待审批运营任务');
-                    await openOperationAlertTask({
-                        ...alert,
-                        status: 'read',
-                        task_bridge: {
-                            linked: true,
-                            intent_id: intentId,
-                            intent_status: intent.status || 'pending_approval',
-                        },
-                    });
-                } catch (error) {
-                    showToast(operationErrorMessage(error, '预警转任务失败'), 'error');
-                } finally {
-                    operationAlertTaskLoadingIds.value = operationAlertTaskLoadingIds.value.filter(id => id !== alertId);
-                }
-            };
-
-            const isBlankStrategyValue = (value) => value === null || value === undefined || String(value).trim() === '';
-            const isValidStrategyDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
-            const failOperationStrategyValidation = (message) => {
-                operationStrategyResult.value = null;
-                operationError.value.strategy = message;
-                showToast(message, 'error');
-                return null;
-            };
-            const buildOperationStrategyPayload = (hotelId) => {
-                const form = strategyForm.value || {};
-                const startDate = String(form.start_date || '').trim();
-                const endDate = String(form.end_date || '').trim();
-                if (!isValidStrategyDate(startDate) || !isValidStrategyDate(endDate)) {
-                    return failOperationStrategyValidation('请选择有效的开始日期和结束日期');
-                }
-                if (startDate > endDate) {
-                    return failOperationStrategyValidation('结束日期不能早于开始日期');
-                }
-
-                const payload = {
-                    hotel_id: hotelId,
-                    strategy_type: form.strategy_type,
-                    start_date: startDate,
-                    end_date: endDate,
-                };
-
-                if (operationStrategyAmountRequired.value) {
-                    const amount = Number(form.adjust_amount);
-                    if (isBlankStrategyValue(form.adjust_amount) || !Number.isFinite(amount) || amount === 0) {
-                        return failOperationStrategyValidation('调价金额必填且不能为 0');
-                    }
-                    payload.adjust_amount = amount;
-                }
-
-                if (operationStrategyDiscountRequired.value) {
-                    const discountRate = Number(form.discount_rate);
-                    if (isBlankStrategyValue(form.discount_rate) || !Number.isFinite(discountRate) || discountRate <= 0 || discountRate > 100) {
-                        return failOperationStrategyValidation('折扣比例必填，范围为 0-100');
-                    }
-                    payload.discount_rate = discountRate;
-                }
-
-                return payload;
-            };
-
-            const simulateOperationStrategy = async () => {
-                await ensureOperationStaticReady();
-                operationError.value.strategy = '';
-                const hotelId = normalizeOperationHotelSelection(strategyForm, {
-                    requireHotel: true,
-                    errorKey: 'strategy',
-                    fallbackMessage: '请选择有权限的酒店后再模拟',
+            let operationWorkflowController = null;
+            const nextAiDailyReportGenerationRequestSeq = () => ++aiDailyReportGenerationRequestSeq;
+            const isAiDailyReportGenerationRequestCurrent = (requestSeq) => requestSeq === aiDailyReportGenerationRequestSeq;
+            const ensureOperationWorkflowController = async () => {
+                if (operationWorkflowController) return operationWorkflowController;
+                const staticConfig = await ensureOperationStaticReady();
+                if (operationWorkflowController) return operationWorkflowController;
+                const createController = requireOperationStatic(staticConfig, 'createOperationWorkflowController');
+                operationWorkflowController = createController({
+                    actionForm, aiDailyFactGateLoading, aiDailyFactGateState, aiDailyReport,
+                    aiDailyReportForm, aiDailyReportGenerationTask, aiDailyReportGenerationTaskPolling, aiDailyReportModelIsLimited,
+                    aiDailyReportTaskPositiveInteger, apiRequest, buildOperationRevenueNodeRecord, currentPage,
+                    ensureOperationStaticReady, ensureRevenueAiStaticReady, filterReportHotel, formatDate,
+                    homeOperatingScheduleError, homeOperatingScheduleFlow, homeOperatingScheduleLastReadAt, homeOperatingScheduleLoading,
+                    homeOperatingScheduleScopeHotelId, isAiDailyReportGenerationRequestCurrent, isOperationAlertTaskLoading, nextAiDailyReportGenerationRequestSeq,
+                    nextTick, normalizeAiDailyReportGenerationTask, normalizeOperationHotelSelection, openOnlineDataEntryTab,
+                    openWorkflowFormDialog, operatingMemories, operatingMemoryError, operatingMemoryLoading,
+                    operatingMemorySavingTaskId, operationActions, operationAlertTaskLoadingIds, operationAlerts,
+                    operationCanRecordNodeCheck, operationCanSaveOperatingMemory, operationClosureOverview, operationEffectValidation,
+                    operationError, operationErrorMessage, operationEvidenceForm, operationEvidenceModalItem,
+                    operationEvidenceModalOpen, operationExecutionFlow, operationExecutionItems, operationExecutionStageFilter,
+                    operationFilters, operationFullData, operationLoading, operationParams,
+                    operationRevenueNodeFieldsForItem, operationReviewForm, operationReviewModalItem, operationReviewModalOpen,
+                    operationRootCause, operationStrategyAmountRequired, operationStrategyDiscountRequired, operationStrategyResult,
+                    operationYesterday, pollAiDailyReportGenerationTask, ref, resolveAiDailyReportGenerationOutcome,
+                    revenueAiDailyReportActionExecutionReady, revenueAiExecutionFocus, revenueAiOverview, showToast,
+                    strategyForm, today, user, manualNotificationForm,
+                    manualNotificationHasUnsavedChanges, manualNotificationTestAllowed, manualNotificationLoading, loadManualNotificationHistory,
+                    loadManualNotificationDispatchHistory, manualNotificationHistory, applyManualNotificationRecord, manualNotificationWorkspaceTab,
+                    manualNotificationError, manualNotificationDispatchCanRetry,
                 });
-                if (hotelId === null) {
-                    operationStrategyResult.value = null;
-                    return;
-                }
-                const payload = buildOperationStrategyPayload(hotelId);
-                if (!payload) return;
-
-                operationLoading.value.strategy = true;
-                try {
-                    const res = await apiRequest('/operation/strategy-simulation', {
-                        method: 'POST',
-                        body: JSON.stringify(payload),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '策略模拟失败');
-                    operationStrategyResult.value = res.data || null;
-                    showToast('策略模拟已完成');
-                } catch (error) {
-                    operationError.value.strategy = operationErrorMessage(error, '策略模拟失败');
-                    showToast(operationError.value.strategy, 'error');
-                } finally {
-                    operationLoading.value.strategy = false;
-                }
+                return operationWorkflowController;
             };
-
-            const createOperationAction = async () => {
-                await ensureOperationStaticReady();
-                if (!actionForm.value.action_title || !actionForm.value.action_type || !actionForm.value.start_date) {
-                    showToast('策略标题、类型和开始日期不能为空', 'error');
-                    return;
-                }
-                operationLoading.value.actions = true;
-                operationError.value.actions = '';
-                try {
-                    const hotelId = normalizeOperationHotelSelection(actionForm, {
-                        requireHotel: true,
-                        errorKey: 'actions',
-                        fallbackMessage: '请选择有权限的酒店后再创建',
-                    });
-                    if (hotelId === null) return;
-                    const res = await apiRequest('/operation/actions', {
-                        method: 'POST',
-                        body: JSON.stringify({ ...actionForm.value, hotel_id: hotelId }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '创建策略动作失败');
-                    showToast('策略动作已创建');
-                    actionForm.value.action_title = '';
-                    actionForm.value.remark = '';
-                    await loadOperationActions();
-                } catch (error) {
-                    operationError.value.actions = operationErrorMessage(error, '创建策略动作失败');
-                    showToast(operationError.value.actions, 'error');
-                } finally {
-                    operationLoading.value.actions = false;
-                }
+            const operationWorkflowCall = async (method, args = []) => {
+                const controller = await ensureOperationWorkflowController();
+                const handler = controller?.[method];
+                if (typeof handler !== 'function') throw new Error(`运营工作流方法缺失：${method}`);
+                return handler(...args);
             };
-
-            let aiDailyFactGateRequestSeq = 0;
-            const loadAiDailyFactGate = async (options = {}) => {
-                await ensureRevenueAiStaticReady();
-                const requestSeq = ++aiDailyFactGateRequestSeq;
-                const explicitHotelId = String(options?.hotelId || '').trim();
-                const hotelId = explicitHotelId || normalizeOperationHotelSelection(aiDailyReportForm, {
-                    requireHotel: true,
-                    fallbackMessage: '请选择有权限的酒店',
-                });
-                const targetDate = String(options?.targetDate || aiDailyReportForm.value.report_date || operationYesterday).trim();
-                if (hotelId === null || !hotelId) {
-                    aiDailyFactGateState.value = {
-                        hotelId: '',
-                        targetDate,
-                        collectionStatus: null,
-                        profileStatus: null,
-                        errors: ['hotel_not_selected'],
-                    };
-                    aiDailyFactGateLoading.value = false;
-                    return;
-                }
-
-                aiDailyFactGateLoading.value = true;
-                try {
-                    const collectionParams = new URLSearchParams({
-                        system_hotel_id: String(hotelId),
-                        platform: 'all',
-                        target_date: targetDate,
-                    });
-                    const profileParams = new URLSearchParams({ system_hotel_id: String(hotelId) });
-                    const [collectionResult, profileResult] = await Promise.allSettled([
-                        apiRequest(`/online-data/collection-status?${collectionParams.toString()}`),
-                        apiRequest(`/online-data/platform-profile-status?${profileParams.toString()}`),
-                    ]);
-                    if (requestSeq !== aiDailyFactGateRequestSeq) return;
-
-                    const errors = [];
-                    let collectionStatus = null;
-                    let profileStatus = null;
-                    if (collectionResult.status === 'fulfilled' && collectionResult.value?.code === 200) {
-                        collectionStatus = collectionResult.value.data || null;
-                    } else {
-                        const message = collectionResult.status === 'fulfilled'
-                            ? collectionResult.value?.message
-                            : collectionResult.reason?.message;
-                        errors.push(`collection_status_failed${message ? `: ${message}` : ''}`);
-                    }
-                    if (profileResult.status === 'fulfilled' && profileResult.value?.code === 200) {
-                        profileStatus = profileResult.value.data || null;
-                    } else {
-                        const message = profileResult.status === 'fulfilled'
-                            ? profileResult.value?.message
-                            : profileResult.reason?.message;
-                        errors.push(`platform_profile_status_failed${message ? `: ${message}` : ''}`);
-                    }
-                    aiDailyFactGateState.value = {
-                        hotelId: String(hotelId),
-                        targetDate,
-                        collectionStatus,
-                        profileStatus,
-                        errors,
-                    };
-                } finally {
-                    if (requestSeq === aiDailyFactGateRequestSeq) {
-                        aiDailyFactGateLoading.value = false;
-                    }
-                }
-            };
-
-            let aiDailyReportRequestSeq = 0;
-            const loadAiDailyReport = async () => {
-                if (aiDailyReportGenerationTaskPolling.value) return;
-                await Promise.all([
-                    ensureOperationStaticReady(),
-                    ensureRevenueAiStaticReady(),
-                ]);
-                const requestSeq = ++aiDailyReportRequestSeq;
-                operationLoading.value.aiDailyReport = true;
-                operationError.value.aiDailyReport = '';
-                try {
-                    const params = new URLSearchParams();
-                    const hotelId = normalizeOperationHotelSelection(aiDailyReportForm, {
-                        requireHotel: true,
-                        errorKey: 'aiDailyReport',
-                        fallbackMessage: '请选择有权限的酒店',
-                    });
-                    if (hotelId === null) return;
-                    operationFilters.value.hotel_id = String(hotelId);
-                    void loadAiDailyFactGate({ hotelId, targetDate: aiDailyReportForm.value.report_date || operationYesterday });
-                    if (hotelId) params.append('hotel_id', hotelId);
-                    const query = params.toString() ? '?' + params.toString() : '';
-                    const res = await apiRequest(`/ai-daily-reports/latest${query}`);
-                    if (requestSeq !== aiDailyReportRequestSeq) return;
-                    if (res.code !== 200) throw new Error(res.message || 'AI经营日报加载失败');
-                    if (res.data?.data_status === 'missing_table') {
-                        aiDailyReport.value = null;
-                        const gap = Array.isArray(res.data?.data_gaps) ? res.data.data_gaps[0] : null;
-                        operationError.value.aiDailyReport = gap?.message || 'AI经营日报表未初始化，请先执行数据库迁移。';
-                        return;
-                    }
-                    aiDailyReport.value = res.data?.report || null;
-                } catch (error) {
-                    if (requestSeq !== aiDailyReportRequestSeq) return;
-                    operationError.value.aiDailyReport = operationErrorMessage(error, 'AI经营日报加载失败');
-                } finally {
-                    if (requestSeq === aiDailyReportRequestSeq) {
-                        operationLoading.value.aiDailyReport = false;
-                    }
-                }
-            };
-
-            const validateAiDailyReportReadback = (payload, expectedReportId, expectedHotelId) => {
-                const report = payload?.report && typeof payload.report === 'object' ? payload.report : payload;
-                if (!report || typeof report !== 'object' || Array.isArray(report)) {
-                    throw new Error('AI经营日报回读响应格式无效');
-                }
-                const reportId = aiDailyReportTaskPositiveInteger(report.id);
-                const hotelId = aiDailyReportTaskPositiveInteger(report.hotel_id);
-                const normalizedExpectedReportId = aiDailyReportTaskPositiveInteger(expectedReportId);
-                const normalizedExpectedHotelId = aiDailyReportTaskPositiveInteger(expectedHotelId);
-                if (!reportId || (normalizedExpectedReportId && reportId !== normalizedExpectedReportId)) {
-                    throw new Error('AI经营日报回读资源ID不一致');
-                }
-                if (!hotelId || (normalizedExpectedHotelId && hotelId !== normalizedExpectedHotelId)) {
-                    throw new Error('AI经营日报回读酒店范围不一致');
-                }
-                return report;
-            };
-
-            const readAiDailyReportById = async (reportId, expectedHotelId) => {
-                const normalizedReportId = aiDailyReportTaskPositiveInteger(reportId);
-                if (!normalizedReportId) throw new Error('AI经营日报任务未返回有效报告ID');
-                const res = await apiRequest(`/ai-daily-reports/${normalizedReportId}`);
-                if (res.code !== 200) throw new Error(res.message || 'AI经营日报精确回读失败');
-                return validateAiDailyReportReadback(res.data, normalizedReportId, expectedHotelId);
-            };
-
-            const generateAiDailyReport = async () => {
-                const requestSeq = ++aiDailyReportGenerationRequestSeq;
-                operationLoading.value.aiDailyReport = true;
-                operationError.value.aiDailyReport = '';
-                aiDailyReportGenerationTaskPolling.value = false;
-                aiDailyReportGenerationTask.value = null;
-                try {
-                    await Promise.all([
-                        ensureOperationStaticReady(),
-                        ensureRevenueAiStaticReady(),
-                    ]);
-                    const hotelId = normalizeOperationHotelSelection(aiDailyReportForm, {
-                        requireHotel: true,
-                        errorKey: 'aiDailyReport',
-                        fallbackMessage: '请选择有权限的酒店',
-                    });
-                    if (hotelId === null) return;
-                    const expectedHotelId = aiDailyReportTaskPositiveInteger(hotelId);
-                    if (!expectedHotelId) throw new Error('请选择有权限的酒店');
-                    const reportDate = aiDailyReportForm.value.report_date || operationYesterday;
-                    operationFilters.value.hotel_id = String(hotelId);
-                    aiDailyReport.value = null;
-                    void loadAiDailyFactGate({ hotelId, targetDate: reportDate });
-                    const res = await apiRequest('/ai-daily-reports/generate', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            hotel_id: hotelId,
-                            report_date: reportDate,
-                            edition: aiDailyReportForm.value.edition || 'lite',
-                            use_llm: aiDailyReportForm.value.use_llm,
-                            background: true,
-                        }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || 'AI经营日报生成失败');
-                    if (requestSeq !== aiDailyReportGenerationRequestSeq) return;
-
-                    const responseData = res.data || null;
-                    const responseTaskId = String(responseData?.task_id || '').trim();
-                    if (!responseTaskId) {
-                        const directReport = validateAiDailyReportReadback(
-                            responseData?.report || responseData,
-                            responseData?.report?.id || responseData?.id,
-                            expectedHotelId
-                        );
-                        aiDailyReport.value = directReport;
-                        if (aiDailyReportModelIsLimited(directReport.model_status)) {
-                            showToast('经营日报规则报告已生成；AI增强受数据质量限制，请查看缺口。', 'warning');
-                        } else {
-                            showToast('AI经营日报已生成并完成酒店范围校验', 'success');
-                        }
-                        void loadOperationActions();
-                        return;
-                    }
-
-                    const initialTask = normalizeAiDailyReportGenerationTask(responseData, expectedHotelId, responseTaskId);
-                    const initialDeduplicated = initialTask.deduplicated;
-                    const updateGenerationTask = (task, patch = {}) => {
-                        const previous = aiDailyReportGenerationTask.value;
-                        aiDailyReportGenerationTask.value = {
-                            ...task,
-                            cacheHit: task.cacheHit || previous?.cacheHit === true,
-                            deduplicated: task.deduplicated || previous?.deduplicated === true || initialDeduplicated,
-                            readbackStatus: previous?.readbackStatus || '',
-                            ...patch,
-                        };
-                    };
-                    updateGenerationTask(initialTask);
-                    aiDailyReportGenerationTaskPolling.value = true;
-
-                    const pollResult = await pollAiDailyReportGenerationTask({
-                        taskId: responseTaskId,
-                        expectedHotelId,
-                        initialTask,
-                        requestTask: (taskId) => apiRequest(`/ai-daily-reports/tasks/${encodeURIComponent(taskId)}`),
-                        wait: (delay) => new Promise(resolve => setTimeout(resolve, delay)),
-                        onProgress: (task) => {
-                            if (requestSeq === aiDailyReportGenerationRequestSeq) updateGenerationTask(task);
-                        },
-                        isCurrent: () => requestSeq === aiDailyReportGenerationRequestSeq,
-                    });
-                    if (requestSeq !== aiDailyReportGenerationRequestSeq || pollResult.outcome.kind === 'cancelled') return;
-                    updateGenerationTask(pollResult.task);
-                    if (pollResult.outcome.kind === 'failed') throw new Error(pollResult.outcome.message);
-
-                    updateGenerationTask(pollResult.task, { readbackStatus: 'reading' });
-                    const report = await readAiDailyReportById(pollResult.task.resultReportId, expectedHotelId);
-                    if (requestSeq !== aiDailyReportGenerationRequestSeq) return;
-                    const verifiedTask = {
-                        ...pollResult.task,
-                        modelStatus: pollResult.task.modelStatus || String(report.model_status || '').trim().toLowerCase(),
-                    };
-                    const verifiedOutcome = resolveAiDailyReportGenerationOutcome(verifiedTask);
-                    updateGenerationTask(verifiedTask, { readbackStatus: 'verified' });
-                    aiDailyReport.value = report;
-
-                    if (verifiedOutcome.kind === 'limited') {
-                        showToast(verifiedOutcome.message || '规则报告已生成并回读，但AI增强受限。', 'warning');
-                    } else if (verifiedOutcome.kind === 'succeeded') {
-                        showToast('AI经营日报已生成并完成精确回读验证', 'success');
-                    } else {
-                        throw new Error(verifiedOutcome.message || 'AI日报任务终态无法确认');
-                    }
-                    void loadOperationActions();
-                } catch (error) {
-                    if (requestSeq !== aiDailyReportGenerationRequestSeq) return;
-                    operationError.value.aiDailyReport = operationErrorMessage(error, 'AI经营日报生成失败');
-                    if (aiDailyReportGenerationTask.value) {
-                        const currentTask = aiDailyReportGenerationTask.value;
-                        const currentOutcome = resolveAiDailyReportGenerationOutcome(currentTask);
-                        aiDailyReportGenerationTask.value = {
-                            ...currentTask,
-                            ...(currentOutcome.kind === 'succeeded' || currentOutcome.kind === 'limited'
-                                ? { readbackStatus: 'failed' }
-                                : { clientError: operationError.value.aiDailyReport }),
-                        };
-                    }
-                    showToast(operationError.value.aiDailyReport, 'error');
-                } finally {
-                    if (requestSeq === aiDailyReportGenerationRequestSeq) {
-                        operationLoading.value.aiDailyReport = false;
-                        aiDailyReportGenerationTaskPolling.value = false;
-                    }
-                }
-            };
-
-            const readOperationExecutionIntent = async (intentId) => {
-                const normalizedId = Number(intentId || 0);
-                if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
-                    throw new Error('执行意图回读ID无效');
-                }
-                const res = await apiRequest(`/operation/execution-intents/${intentId}`);
-                if (res.code !== 200) throw new Error(res.message || '执行意图回读失败');
-                const intent = res.data || {};
-                if (Number(intent.id || 0) !== normalizedId) {
-                    throw new Error('执行意图回读资源不一致');
-                }
-                return intent;
-            };
-
-            const operationExecutionHotelId = (item) => Number(
-                item?.hotel_id
-                || item?.system_hotel_id
-                || item?.execution?.hotel_id
-                || item?.execution?.system_hotel_id
-                || 0
-            );
-
-            const readOperationExecutionTask = async (taskId, expectedHotelId = 0) => {
-                const normalizedId = Number(taskId || 0);
-                if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
-                    throw new Error('执行任务回读ID无效');
-                }
-                const normalizedHotelId = Number(expectedHotelId || 0);
-                const params = new URLSearchParams();
-                if (normalizedHotelId > 0) {
-                    params.set('hotel_id', String(normalizedHotelId));
-                    params.set('system_hotel_id', String(normalizedHotelId));
-                }
-                const query = params.toString() ? `?${params.toString()}` : '';
-                const res = await apiRequest(`/operation/execution-tasks/${taskId}${query}`, normalizedHotelId > 0
-                    ? { businessContext: { hotelId: normalizedHotelId } }
-                    : {});
-                if (res.code !== 200) throw new Error(res.message || '执行任务回读失败');
-                const task = res.data || {};
-                if (Number(task.id || 0) !== normalizedId) {
-                    throw new Error('执行任务回读资源不一致');
-                }
-                if (normalizedHotelId > 0 && operationExecutionHotelId(task) !== normalizedHotelId) {
-                    throw new Error('执行任务回读酒店身份不一致');
-                }
-                return task;
-            };
-
-            const operationExecutionEvidenceCount = (task = {}) => Math.max(
-                Array.isArray(task.evidence) ? task.evidence.length : 0,
-                Number(task?.evidence_summary?.count || 0)
-            );
-
-            const operationExecutionHasEvidenceType = (task = {}, evidenceType = '') => {
-                const expected = String(evidenceType || '').trim();
-                if (!expected) return operationExecutionEvidenceCount(task) > 0;
-                const directTypes = Array.isArray(task.evidence)
-                    ? task.evidence.map(row => String(row?.evidence_type || '').trim())
-                    : [];
-                const summaryTypes = Array.isArray(task?.evidence_summary?.types)
-                    ? task.evidence_summary.types.map(value => String(value || '').trim())
-                    : [];
-                return [...directTypes, ...summaryTypes].includes(expected);
-            };
-
-            const collectPriceExecutionIntentFields = async (item = {}) => {
-                const firstText = (keys = []) => {
-                    for (const key of keys) {
-                        const value = item?.[key];
-                        if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
-                    }
-                    return '';
-                };
-                const defaultPlatform = firstText(['platform', 'channel', 'source_channel']).toLowerCase();
-                const today = formatDate(new Date());
-                const configuredExecutionDate = firstText(['execution_date', 'date_start']);
-                const defaultExecutionDate = configuredExecutionDate >= today ? configuredExecutionDate : today;
-                const formValues = await openWorkflowFormDialog({
-                    title: '创建 OTA 调价执行意图',
-                    description: '这里只创建待审批执行单，不会直接向 OTA 写入价格。',
-                    submitText: '创建待审批执行单',
-                    fields: [
-                        {
-                            name: 'platform',
-                            label: '执行平台',
-                            type: 'select',
-                            required: true,
-                            value: ['ctrip', 'meituan'].includes(defaultPlatform) ? defaultPlatform : '',
-                            options: [
-                                { value: 'ctrip', label: '携程' },
-                                { value: 'meituan', label: '美团' },
-                            ],
-                        },
-                        {
-                            name: 'execution_date',
-                            label: '计划执行日期',
-                            type: 'date',
-                            required: true,
-                            value: defaultExecutionDate,
-                            min: today,
-                        },
-                        { name: 'room_type_key', label: 'OTA 房型标识 room_type_key', required: true, value: firstText(['room_type_key', 'roomTypeKey']) },
-                        { name: 'rate_plan_key', label: 'OTA 价型标识 rate_plan_key', required: true, value: firstText(['rate_plan_key', 'ratePlanKey']) },
-                    ],
-                });
-                if (formValues === null) return null;
-                const fields = {
-                    platform: String(formValues.platform || '').trim().toLowerCase(),
-                    execution_date: String(formValues.execution_date || '').trim(),
-                    room_type_key: String(formValues.room_type_key || '').trim(),
-                    rate_plan_key: String(formValues.rate_plan_key || '').trim(),
-                };
-                const missing = Object.entries(fields).find(([, value]) => !value);
-                if (missing) {
-                    showToast(`${missing[0]} 必填，未创建执行意图`, 'error');
-                    return null;
-                }
-                if (fields.execution_date < today) {
-                    showToast('计划执行日期不能早于今天，未创建执行意图', 'error');
-                    return null;
-                }
-                return fields;
-            };
-
-            const createAiDailyExecutionIntent = async (action, index) => {
-                if (!aiDailyReport.value?.id || !action) return;
-                if (!revenueAiDailyReportActionExecutionReady(action)) {
-                    showToast(action.blocked_reason || '该建议不能转执行单', 'warning');
-                    return;
-                }
-                operationLoading.value.aiDailyReport = true;
-                try {
-                    const res = await apiRequest(`/ai-daily-reports/${aiDailyReport.value.id}/actions/${index}/execution-intent`, {
-                        method: 'POST',
-                        body: JSON.stringify({}),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '执行单创建失败');
-                    const responseIntent = res.data?.execution_intent || {};
-                    const intentId = Number(responseIntent.id || 0);
-                    if (!Number.isInteger(intentId) || intentId <= 0) throw new Error('执行单创建结果缺少有效ID');
-                    const persistedIntent = await readOperationExecutionIntent(intentId);
-                    if (persistedIntent.status !== 'pending_approval'
-                        || String(persistedIntent.blocked_reason || '').trim() !== ''
-                    ) {
-                        throw new Error('执行意图未通过待审批且未阻塞的严格回读');
-                    }
-                    showToast('已生成执行意图，进入审批流程');
-                    const reportHotelId = String(aiDailyReport.value?.hotel_id || aiDailyReportForm.value.hotel_id || '').trim();
-                    if (reportHotelId) operationFilters.value.hotel_id = reportHotelId;
-                    await loadAiDailyReport();
-                    await loadOperationActions();
-                } catch (error) {
-                    showToast(operationErrorMessage(error, '执行单创建失败'), 'error');
-                } finally {
-                    operationLoading.value.aiDailyReport = false;
-                }
-            };
+            const testManualNotification = (...args) => operationWorkflowCall('testManualNotification', args);
+            const retryManualNotificationDispatch = (...args) => operationWorkflowCall('retryManualNotificationDispatch', args);
+            const loadOperationFullData = (...args) => operationWorkflowCall('loadOperationFullData', args);
+            const analyzeOperationRootCause = (...args) => operationWorkflowCall('analyzeOperationRootCause', args);
+            const loadOperationAlerts = (...args) => operationWorkflowCall('loadOperationAlerts', args);
+            const markOperationAlertsRead = (...args) => operationWorkflowCall('markOperationAlertsRead', args);
+            const openOperationAlertTask = (...args) => operationWorkflowCall('openOperationAlertTask', args);
+            const createOperationAlertTask = (...args) => operationWorkflowCall('createOperationAlertTask', args);
+            const simulateOperationStrategy = (...args) => operationWorkflowCall('simulateOperationStrategy', args);
+            const createOperationAction = (...args) => operationWorkflowCall('createOperationAction', args);
+            const loadAiDailyFactGate = (...args) => operationWorkflowCall('loadAiDailyFactGate', args);
+            const loadAiDailyReport = (...args) => operationWorkflowCall('loadAiDailyReport', args);
+            const generateAiDailyReport = (...args) => operationWorkflowCall('generateAiDailyReport', args);
+            const readOperationExecutionIntent = (...args) => operationWorkflowCall('readOperationExecutionIntent', args);
+            const collectPriceExecutionIntentFields = (...args) => operationWorkflowCall('collectPriceExecutionIntentFields', args);
+            const createAiDailyExecutionIntent = (...args) => operationWorkflowCall('createAiDailyExecutionIntent', args);
+            const loadOperatingMemories = (...args) => operationWorkflowCall('loadOperatingMemories', args);
+            const saveOperationExecutionMemory = (...args) => operationWorkflowCall('saveOperationExecutionMemory', args);
+            const loadHomeOperatingSchedule = (...args) => operationWorkflowCall('loadHomeOperatingSchedule', args);
+            const openHomeOperatingScheduleItem = (...args) => operationWorkflowCall('openHomeOperatingScheduleItem', args);
+            const openHomeOperatingScheduleAll = (...args) => operationWorkflowCall('openHomeOperatingScheduleAll', args);
+            const loadOperationActions = (...args) => operationWorkflowCall('loadOperationActions', args);
+            const rejectOrCancelOperationApproval = (...args) => operationWorkflowCall('rejectOrCancelOperationApproval', args);
+            const approveOperationExecutionIntent = (...args) => operationWorkflowCall('approveOperationExecutionIntent', args);
+            const recordOperationRevenueNodeCheck = (...args) => operationWorkflowCall('recordOperationRevenueNodeCheck', args);
+            const recordOperationExecutionEvidence = (...args) => operationWorkflowCall('recordOperationExecutionEvidence', args);
+            const submitOperationExecutionEvidence = (...args) => operationWorkflowCall('submitOperationExecutionEvidence', args);
+            const recordOperationRoiEvidence = (...args) => operationWorkflowCall('recordOperationRoiEvidence', args);
+            const reviewOperationExecutionTask = (...args) => operationWorkflowCall('reviewOperationExecutionTask', args);
+            const reconcileOperationExecutionReview = (...args) => operationWorkflowCall('reconcileOperationExecutionReview', args);
+            const submitOperationExecutionReview = (...args) => operationWorkflowCall('submitOperationExecutionReview', args);
+            const finishOperationAction = (...args) => operationWorkflowCall('finishOperationAction', args);
+            const operationApprovalText = (item) => operationWorkflowController?.operationApprovalText(item) || '审批';
+            const operationRejectText = (item) => operationWorkflowController?.operationRejectText(item) || '驳回';
+            const closeOperationEvidenceModal = () => operationWorkflowController?.closeOperationEvidenceModal();
+            const closeOperationReviewModal = () => operationWorkflowController?.closeOperationReviewModal();
 
             const operatingMemoryItems = computed(() => Array.isArray(operatingMemories.value?.list) ? operatingMemories.value.list : []);
+
             const operatingMemoryDataGapText = computed(() => (Array.isArray(operatingMemories.value?.data_gaps)
                 ? operatingMemories.value.data_gaps
                     .map(gap => String(gap?.message || gap?.code || '').trim())
                     .filter(Boolean)
                     .join('；')
                 : ''));
+
             const operatingMemoryLayerLabel = (layer) => ({
                 fact: '事实记忆',
                 analysis: '分析记忆',
@@ -27524,6 +26832,7 @@
                 execution_review: '执行与复盘',
                 sop: 'SOP记忆',
             }[String(layer || '').trim()] || '未识别层级');
+
             const operatingMemoryQualityLabel = (status) => ({
                 verified: '已核验',
                 partial: '部分核验',
@@ -27531,6 +26840,7 @@
                 conflicted: '存在冲突',
                 expired: '已失效',
             }[String(status || '').trim()] || '状态未知');
+
             const operatingMemoryQualityClass = (status) => ({
                 verified: 'border-emerald-200 bg-emerald-50 text-emerald-700',
                 partial: 'border-amber-200 bg-amber-50 text-amber-700',
@@ -27538,13 +26848,16 @@
                 conflicted: 'border-red-200 bg-red-50 text-red-700',
                 expired: 'border-gray-200 bg-gray-50 text-gray-500',
             }[String(status || '').trim()] || 'border-gray-200 bg-gray-50 text-gray-500');
+
             const operatingMemoryUsageLabel = (level) => ({
                 archive_only: '仅归档',
                 reference: '可参考',
                 decision_support: '决策支持',
                 sop_template: 'SOP模板',
             }[String(level || '').trim()] || '用途未知');
+
             const operatingMemoryEvidenceCount = (memory) => Array.isArray(memory?.evidence_refs) ? memory.evidence_refs.length : 0;
+
             const operatingMemoryPanelMessage = computed(() => {
                 if (operatingMemoryError.value) return operatingMemoryError.value;
                 if (operatingMemoryDataGapText.value) return operatingMemoryDataGapText.value;
@@ -27553,11 +26866,13 @@
                 if (operatingMemories.value?.data_status === 'ok' && !operatingMemoryItems.value.length) return '暂无记忆；完成复盘后点击“沉淀记忆”。';
                 return '';
             });
+
             const operatingMemoryPanelTestId = computed(() => operatingMemoryError.value
                 ? 'operating-memory-readback-error'
                 : (operatingMemoryDataGapText.value || operatingMemories.value?.data_status === 'migration_required'
                     ? 'operating-memory-data-gap'
                     : 'operating-memory-status'));
+
             const operatingMemoryDisplayText = (memory) => [
                 memory?.title || `经营记忆 #${memory?.id || '-'}`,
                 operatingMemoryLayerLabel(memory?.memory_layer),
@@ -27569,948 +26884,15 @@
                 `证据 ${operatingMemoryEvidenceCount(memory)} 条`,
                 memory?.summary || '',
             ].filter(Boolean).join(' · ');
+
             const operatingMemoryPanelBody = computed(() => operatingMemoryPanelMessage.value
                 || operatingMemoryItems.value.map(operatingMemoryDisplayText).join('\n\n'));
 
-            let operatingMemoryRequestSeq = 0;
-            const loadOperatingMemories = async (options = {}) => {
-                const requestSeq = ++operatingMemoryRequestSeq;
-                const requestedHotelId = String(
-                    options?.hotelId !== undefined ? options.hotelId : operationFilters.value.hotel_id || ''
-                ).trim();
-                operatingMemoryLoading.value = true;
-                operatingMemoryError.value = '';
-                try {
-                    const params = new URLSearchParams();
-                    if (requestedHotelId) {
-                        params.set('hotel_id', requestedHotelId);
-                        params.set('system_hotel_id', requestedHotelId);
-                    }
-                    const query = params.toString() ? `?${params.toString()}` : '';
-                    const res = await apiRequest(`/operation/operating-memories${query}`);
-                    if (requestSeq !== operatingMemoryRequestSeq) return null;
-                    if (res.code !== 200) throw new Error(res.message || '经营记忆加载失败');
-                    const payload = res.data && typeof res.data === 'object' ? res.data : null;
-                    if (!payload || !Array.isArray(payload.list) || !Array.isArray(payload.data_gaps)) {
-                        throw new Error('经营记忆回读结构不完整');
-                    }
-                    operatingMemories.value = payload;
-                    return payload;
-                } catch (error) {
-                    if (requestSeq !== operatingMemoryRequestSeq) return null;
-                    operatingMemories.value = { data_status: 'readback_failed', list: [], count: 0, data_gaps: [] };
-                    operatingMemoryError.value = operationErrorMessage(error, '经营记忆加载失败');
-                    return null;
-                } finally {
-                    if (requestSeq === operatingMemoryRequestSeq) operatingMemoryLoading.value = false;
-                }
-            };
-
-            const saveOperationExecutionMemory = async (item) => {
-                const taskId = Number(item?.execution?.task_id || 0);
-                if (!Number.isInteger(taskId) || taskId <= 0) {
-                    showToast('执行任务ID无效，不能沉淀经营记忆', 'error');
-                    return;
-                }
-                if (!operationCanSaveOperatingMemory(item)) {
-                    showToast('请先保存执行结果和复盘说明，再沉淀经营记忆', 'warning');
-                    return;
-                }
-                operatingMemorySavingTaskId.value = taskId;
-                try {
-                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/operating-memory`, {
-                        method: 'POST',
-                        body: JSON.stringify({}),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '经营记忆保存失败');
-                    const saved = res.data?.memory || {};
-                    const memoryId = Number(saved.id || 0);
-                    if (!Number.isInteger(memoryId) || memoryId <= 0
-                        || String(res.data?.persistence_status || '') !== 'readback_verified'
-                        || res.data?.write_boundaries?.ota_write !== false
-                        || res.data?.write_boundaries?.external_message !== false
-                    ) {
-                        throw new Error('经营记忆保存结果未通过边界与回读校验');
-                    }
-                    const readbackRes = await apiRequest(`/operation/operating-memories/${memoryId}`);
-                    if (readbackRes.code !== 200) throw new Error(readbackRes.message || '经营记忆严格回读失败');
-                    const readback = readbackRes.data || {};
-                    if (Number(readback.id || 0) !== memoryId
-                        || Number(readback.hotel_id || 0) !== Number(item?.hotel_id || 0)
-                        || Number(readback.source_record_id || 0) !== taskId
-                        || String(readback.memory_layer || '') !== 'execution_review'
-                        || String(readback.content_digest || '') !== String(saved.content_digest || '')
-                    ) {
-                        throw new Error('经营记忆严格回读身份不一致');
-                    }
-                    showToast(res.data?.created === false ? '相同复盘记忆已存在，已完成回读' : '经营记忆已保存并完成严格回读');
-                    await loadOperatingMemories();
-                } catch (error) {
-                    showToast(operationErrorMessage(error, '经营记忆保存失败'), 'error');
-                } finally {
-                    operatingMemorySavingTaskId.value = 0;
-                }
-            };
             const canSaveMemo = operationCanSaveOperatingMemory;
+
             const saveMemo = saveOperationExecutionMemory;
+
             const memoBody = operatingMemoryPanelBody;
-
-            let homeOperatingScheduleRequestSeq = 0;
-            const applyHomeOperatingScheduleFlow = (flow, hotelId = '') => {
-                const scopedHotelId = String(hotelId || '').trim();
-                if (scopedHotelId) {
-                    const responseHotelId = Number(flow?.capabilities?.hotel_id || 0);
-                    if (!responseHotelId || responseHotelId !== Number(scopedHotelId)) {
-                        throw new Error('今日经营编排返回的酒店身份不一致');
-                    }
-                    const crossHotelItem = Array.isArray(flow?.list)
-                        ? flow.list.find(item => Number(item?.hotel_id || 0) !== Number(scopedHotelId))
-                        : null;
-                    if (crossHotelItem) {
-                        throw new Error('今日经营编排包含其他酒店任务，已拒绝展示');
-                    }
-                }
-                homeOperatingScheduleFlow.value = flow && typeof flow === 'object'
-                    ? flow
-                    : { summary: {}, stages: [], list: [], data_gaps: [], data_status: '' };
-                homeOperatingScheduleScopeHotelId.value = scopedHotelId;
-                homeOperatingScheduleError.value = '';
-                homeOperatingScheduleLastReadAt.value = new Date().toLocaleString('zh-CN', { hour12: false });
-            };
-            const loadHomeOperatingSchedule = async (options = {}) => {
-                const requestSeq = ++homeOperatingScheduleRequestSeq;
-                const hotelId = String(
-                    Object.prototype.hasOwnProperty.call(options, 'hotelId')
-                        ? options.hotelId
-                        : filterReportHotel.value
-                ).trim();
-                const isCurrentRequest = () => requestSeq === homeOperatingScheduleRequestSeq
-                    && hotelId === String(filterReportHotel.value || '').trim();
-                if (hotelId !== homeOperatingScheduleScopeHotelId.value) {
-                    homeOperatingScheduleFlow.value = null;
-                    homeOperatingScheduleScopeHotelId.value = hotelId;
-                    homeOperatingScheduleLastReadAt.value = '';
-                }
-                homeOperatingScheduleLoading.value = true;
-                homeOperatingScheduleError.value = '';
-                try {
-                    await ensureOperationStaticReady();
-                    if (!isCurrentRequest()) return false;
-                    const params = new URLSearchParams({ limit: '100' });
-                    if (hotelId) {
-                        params.set('hotel_id', hotelId);
-                        params.set('system_hotel_id', hotelId);
-                    }
-                    const res = await apiRequest(`/operation/execution-flow?${params.toString()}`);
-                    if (!isCurrentRequest()) return false;
-                    if (res.code !== 200) throw new Error(res.message || '今日经营编排读取失败');
-                    const flow = res.data && typeof res.data === 'object' ? res.data : null;
-                    if (!flow || !Array.isArray(flow.list)) {
-                        throw new Error('今日经营编排未返回任务列表');
-                    }
-                    applyHomeOperatingScheduleFlow(flow, hotelId);
-                    return true;
-                } catch (error) {
-                    if (!isCurrentRequest()) return false;
-                    homeOperatingScheduleError.value = operationErrorMessage(error, '今日经营编排读取失败');
-                    return false;
-                } finally {
-                    if (requestSeq === homeOperatingScheduleRequestSeq) {
-                        homeOperatingScheduleLoading.value = false;
-                    }
-                }
-            };
-            const openHomeOperatingScheduleItem = async (item = {}) => {
-                if (item.kind === 'fact') {
-                    openOnlineDataEntryTab('data-health', { force: true });
-                    return;
-                }
-                const intentId = Number(item.intentId || 0);
-                const hotelId = Number(item.hotelId || 0);
-                if (!intentId || !hotelId) {
-                    showToast('任务缺少酒店或执行意图身份，无法打开', 'warning');
-                    return;
-                }
-                operationFilters.value.hotel_id = String(hotelId);
-                operationExecutionStageFilter.value = '';
-                currentPage.value = 'ops-track';
-                await nextTick();
-                await loadOperationActions({ focusIntentId: intentId });
-                if (!operationExecutionItems.value.some(row => Number(row?.id || 0) === intentId)) {
-                    showToast('对应任务未能按当前酒店权限回读', 'error');
-                    return;
-                }
-                showToast(`已打开 ${item.hotelName || `酒店 #${hotelId}`} 的对应任务`);
-            };
-            const openHomeOperatingScheduleAll = async () => {
-                operationFilters.value.hotel_id = String(filterReportHotel.value || '').trim();
-                operationExecutionStageFilter.value = '';
-                currentPage.value = 'ops-track';
-                await nextTick();
-                await loadOperationActions();
-            };
-
-            let operationActionsRequestSeq = 0;
-            const loadOperationActions = async (options = {}) => {
-                const requestSeq = ++operationActionsRequestSeq;
-                const focusIntentId = Number(options?.focusIntentId || 0);
-                await ensureOperationStaticReady();
-                if (requestSeq !== operationActionsRequestSeq) return;
-                operationLoading.value.actions = true;
-                operationError.value.actions = '';
-                let requestHotelId = '';
-                const isCurrentRequest = () => (
-                    requestSeq === operationActionsRequestSeq
-                    && requestHotelId === String(operationFilters.value.hotel_id || '').trim()
-                );
-                try {
-                    const params = new URLSearchParams();
-                    const hotelId = normalizeOperationHotelSelection(operationFilters, {
-                        errorKey: 'actions',
-                        fallbackMessage: '请选择有权限的酒店',
-                    });
-                    if (hotelId === null) return;
-                    requestHotelId = String(hotelId || '').trim();
-                    if (requestHotelId) {
-                        params.append('hotel_id', requestHotelId);
-                        params.append('system_hotel_id', requestHotelId);
-                    }
-                    const query = params.toString() ? '?' + params.toString() : '';
-                    const flowParams = new URLSearchParams(params);
-                    if (Number.isInteger(focusIntentId) && focusIntentId > 0) {
-                        flowParams.set('intent_id', String(focusIntentId));
-                    }
-                    const flowQuery = flowParams.toString() ? '?' + flowParams.toString() : '';
-                    const [res, flowRes, closureRes] = await Promise.all([
-                        apiRequest(`/operation/action-tracking${query}`),
-                        apiRequest(`/operation/execution-flow${flowQuery}`),
-                        apiRequest(`/operation/closure-overview${query}`),
-                        loadOperatingMemories({ hotelId: requestHotelId }),
-                    ]);
-                    if (!isCurrentRequest()) return;
-                    if (res.code !== 200) throw new Error(res.message || '策略追踪加载失败');
-                    if (flowRes.code !== 200) throw new Error(flowRes.message || '执行闭环加载失败');
-                    if (closureRes.code !== 200) throw new Error(closureRes.message || '闭环总览加载失败');
-                    operationActions.value = res.data?.actions || [];
-                    operationExecutionFlow.value = flowRes.data || { summary: {}, stages: [], list: [], data_gaps: [], data_status: '' };
-                    if (focusIntentId === 0
-                        && requestHotelId === String(filterReportHotel.value || '').trim()
-                    ) {
-                        applyHomeOperatingScheduleFlow(operationExecutionFlow.value, requestHotelId);
-                    }
-                    operationClosureOverview.value = closureRes.data || { summary: {}, modules: [], weak_modules: [], data_gaps: [], data_status: '' };
-                    operationEffectValidation.value = res.data?.effect_validation || { status: 'data_gap', metrics: [], data_gaps: [], action_counts: {} };
-                } catch (error) {
-                    if (!isCurrentRequest()) return;
-                    operationError.value.actions = operationErrorMessage(error, '策略追踪加载失败');
-                    if (focusIntentId === 0
-                        && requestHotelId === String(filterReportHotel.value || '').trim()
-                    ) {
-                        homeOperatingScheduleError.value = operationError.value.actions;
-                    }
-                    showToast(operationError.value.actions, 'error');
-                } finally {
-                    if (requestSeq === operationActionsRequestSeq) {
-                        operationLoading.value.actions = false;
-                    }
-                }
-            };
-
-            const parseOperationEvidenceNumber = (value, label) => {
-                const text = String(value ?? '').trim();
-                if (!text) throw new Error(`${label}不能为空`);
-                const number = Number(text.replace(/[,，]/g, ''));
-                if (!Number.isFinite(number)) throw new Error(`${label}必须是数字`);
-                return number;
-            };
-            const parseOptionalOperationEvidenceNumber = (value, label) => {
-                const text = String(value ?? '').trim();
-                if (!text) return null;
-                return parseOperationEvidenceNumber(text, label);
-            };
-            const operationEvidenceFirstText = (sources = [], keys = []) => {
-                const list = Array.isArray(sources) ? sources : [sources];
-                for (const source of list) {
-                    if (!source || typeof source !== 'object') continue;
-                    for (const key of keys) {
-                        const value = source[key];
-                        if (value !== undefined && value !== null && String(value).trim() !== '') {
-                            return String(value);
-                        }
-                    }
-                }
-                return '';
-            };
-            const operationEvidenceCleanObject = (value = {}) => Object.fromEntries(
-                Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== null && String(entry).trim() !== '')
-            );
-            const operationEvidenceLocalTimestamp = () => {
-                const date = new Date();
-                const pad = (number) => String(number).padStart(2, '0');
-                return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-            };
-            const normalizeOperationEvidenceDateTime = (value) => {
-                const text = String(value ?? '').trim().replace('T', ' ');
-                if (!text) return operationEvidenceLocalTimestamp();
-                if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(text)) {
-                    throw new Error('执行时间格式需为 YYYY-MM-DD HH:mm:ss');
-                }
-                return text.length === 16 ? `${text}:00` : text;
-            };
-            const normalizeOperationReviewStatus = (value) => {
-                const text = String(value ?? '').trim().toLowerCase();
-                const map = {
-                    '1': 'success',
-                    '2': 'near_success',
-                    '3': 'failed',
-                    '4': 'observing',
-                    ok: 'success',
-                    success: 'success',
-                    near: 'near_success',
-                    near_success: 'near_success',
-                    failed: 'failed',
-                    fail: 'failed',
-                    observing: 'observing',
-                    wait: 'observing',
-                    '达成': 'success',
-                    '成功': 'success',
-                    '接近达成': 'near_success',
-                    '接近': 'near_success',
-                    '未达成': 'failed',
-                    '失败': 'failed',
-                    '观察': 'observing',
-                    '继续观察': 'observing',
-                };
-                const status = map[text] || '';
-                if (!status) {
-                    throw new Error('复盘结论必须是 success、near_success、failed 或 observing');
-                }
-                return status;
-            };
-
-            const operationApprovalConfirming = ref(false);
-            const operationApprovalConfirmingIntentId = ref(0);
-            const clearOperationApprovalConfirmation = () => {
-                operationApprovalConfirming.value = false;
-                operationApprovalConfirmingIntentId.value = 0;
-            };
-            const operationApprovalText = (item) => (
-                operationApprovalConfirming.value
-                && operationApprovalConfirmingIntentId.value === Number(item?.id || 0)
-                    ? '确认审批'
-                    : '审批'
-            );
-            const operationRejectText = (item) => (
-                operationApprovalConfirming.value
-                && operationApprovalConfirmingIntentId.value === Number(item?.id || 0)
-                    ? '取消确认'
-                    : '驳回'
-            );
-            const rejectOrCancelOperationApproval = async (item) => {
-                if (operationApprovalConfirming.value
-                    && operationApprovalConfirmingIntentId.value === Number(item?.id || 0)
-                ) {
-                    clearOperationApprovalConfirmation();
-                    showToast('已取消审批确认', 'info');
-                    return;
-                }
-                await approveOperationExecutionIntent(item, false);
-            };
-            const approveOperationExecutionIntent = async (item, approved = true) => {
-                if (!item?.id) return;
-                let remark = '';
-                if (!approved) {
-                    clearOperationApprovalConfirmation();
-                    const formValues = await openWorkflowFormDialog({
-                        title: '驳回执行意图',
-                        description: '驳回原因会写入本地审批记录，供后续复核。',
-                        submitText: '确认驳回',
-                        fields: [{ name: 'remark', label: '驳回原因', type: 'textarea', required: true, value: '' }],
-                    });
-                    if (formValues === null) return;
-                    remark = String(formValues.remark || '').trim();
-                }
-                if (approved && (
-                    !operationApprovalConfirming.value
-                    || operationApprovalConfirmingIntentId.value !== Number(item.id)
-                )) {
-                    operationApprovalConfirming.value = true;
-                    operationApprovalConfirmingIntentId.value = Number(item.id);
-                    showToast('请再次点击“确认审批”完成操作', 'info');
-                    return;
-                }
-                if (approved) clearOperationApprovalConfirmation();
-                operationLoading.value.actions = true;
-                try {
-                    const res = await apiRequest(`/operation/execution-intents/${item.id}/approve`, {
-                        method: 'POST',
-                        body: JSON.stringify({ approved, remark }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '执行意图审批失败');
-                    const responseIntentId = Number(res.data?.id || 0);
-                    if (!Number.isInteger(responseIntentId) || responseIntentId !== Number(item.id)) {
-                        throw new Error('执行意图审批返回的资源ID不一致');
-                    }
-                    const persistedIntent = await readOperationExecutionIntent(responseIntentId);
-                    const expectedStatus = approved ? 'approved' : 'rejected';
-                    if (persistedIntent.status !== expectedStatus) {
-                        throw new Error(`执行意图回读状态不一致：应为 ${expectedStatus}`);
-                    }
-                    if (approved && (!Array.isArray(persistedIntent.tasks)
-                        || !persistedIntent.tasks.some(task => Number(task?.id || 0) > 0)
-                    )) {
-                        throw new Error('执行意图已审批但未回读到执行任务');
-                    }
-                    showToast(approved ? '执行意图已审批' : '执行意图已驳回');
-                    await loadOperationActions();
-                } catch (error) {
-                    showToast(operationErrorMessage(error, '执行意图审批失败'), 'error');
-                } finally {
-                    operationLoading.value.actions = false;
-                }
-            };
-
-            const recordOperationRevenueNodeCheck = async (item) => {
-                const taskId = Number(item?.execution?.task_id || 0);
-                const executionHotelId = operationExecutionHotelId(item);
-                const businessDate = String(item?.recommendation?.date_start || '').slice(0, 10);
-                if (!operationCanRecordNodeCheck(item) || !taskId) return;
-                if (!executionHotelId || Number(operationFilters.value.hotel_id || 0) !== executionHotelId) {
-                    showToast('节点检查与当前酒店身份不一致', 'error');
-                    return;
-                }
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
-                    showToast('执行任务缺少业务日期，不能记录节点检查', 'error');
-                    return;
-                }
-                const previousNode = item?.evidence_summary?.node_record || {};
-                const values = await openWorkflowFormDialog({
-                    title: previousNode.status === 'available' ? '更新收益节点检查' : '记录收益节点检查',
-                    description: `酒店 #${executionHotelId} · 业务日期 ${businessDate}。仅保存人工节点口径，不会补写PMS/OTA指标或自动执行动作。`,
-                    submitText: previousNode.status === 'available' ? '保存更新' : '保存节点检查',
-                    fields: operationRevenueNodeFieldsForItem(item),
-                });
-                if (values === null) return;
-
-                try {
-                    const recordedAt = operationEvidenceLocalTimestamp();
-                    const nodeRecord = buildOperationRevenueNodeRecord(values, recordedAt, {
-                        system_hotel_id: executionHotelId,
-                        business_date: businessDate,
-                    });
-                    operationLoading.value.actions = true;
-                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/evidence`, {
-                        method: 'POST',
-                        businessContext: { hotelId: executionHotelId },
-                        body: JSON.stringify({
-                            evidence_type: 'revenue_node_check',
-                            evidence: {
-                                before: {},
-                                after: {},
-                                platform_response: {
-                                    mode: 'revenue_node_check',
-                                    node_record: nodeRecord,
-                                    evidence_boundary: 'operator_recorded_scope_not_pms_or_ota_verified',
-                                },
-                                remark: values.judgment_basis,
-                            },
-                        }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '节点检查保存失败');
-                    const responseTaskId = Number(res.data?.id || 0);
-                    if (responseTaskId !== taskId) throw new Error('节点检查返回的任务ID不一致');
-                    const persistedTask = await readOperationExecutionTask(taskId, executionHotelId);
-                    const persistedNode = persistedTask?.evidence_summary?.node_record || {};
-                    const revenueNodeV2PersistedStringFields = [
-                        'business_date',
-                        'recorded_at',
-                        'operating_period',
-                        'special_event',
-                        'source_scope',
-                        'room_status_alignment',
-                        'data_quality_status',
-                        'metric_definition',
-                        'comparison_basis',
-                        'metric_snapshot',
-                        'progress_status',
-                        'judgment_basis',
-                        'primary_risk',
-                        'success_criteria',
-                        'stop_condition',
-                    ];
-                    const persistedNodeHasMismatch = revenueNodeV2PersistedStringFields.some(field =>
-                        String(persistedNode[field] ?? '') !== String(nodeRecord[field] ?? '')
-                    );
-                    if (persistedNode.status !== 'available'
-                        || persistedNode.contract_version !== 'operation_revenue_node.v2'
-                        || Number(persistedNode.system_hotel_id || 0) !== executionHotelId
-                        || persistedNodeHasMismatch
-                    ) {
-                        throw new Error('节点检查未按完整口径精确回读');
-                    }
-                    showToast(previousNode.status === 'available' ? '节点检查已更新并精确回读' : '节点检查已保存并精确回读');
-                    await loadOperationActions();
-                } catch (error) {
-                    showToast(operationErrorMessage(error, error.message || '节点检查保存失败'), 'error');
-                } finally {
-                    operationLoading.value.actions = false;
-                }
-            };
-
-            const recordOperationExecutionEvidence = async (item) => {
-                const taskId = Number(item?.execution?.task_id || 0);
-                if (!taskId) return;
-                const executionHotelId = operationExecutionHotelId(item);
-                if (!executionHotelId) {
-                    showToast('执行任务未返回酒店身份，无法保存证据', 'error');
-                    return;
-                }
-                if (currentPage.value !== 'ops-track') {
-                    operationFilters.value.hotel_id = String(executionHotelId);
-                    currentPage.value = 'ops-track';
-                    await nextTick();
-                    await loadOperationActions({ focusIntentId: Number(item?.id || 0) });
-                    showToast('已打开对应酒店任务，请再次确认执行证据', 'info');
-                    return;
-                }
-                if (Number(operationFilters.value.hotel_id || 0) !== executionHotelId) {
-                    showToast('执行任务与当前酒店身份不一致', 'error');
-                    return;
-                }
-                const recommendation = item?.recommendation && typeof item.recommendation === 'object' ? item.recommendation : {};
-                const isPriceExecution = recommendation.object_type === 'price';
-                if (isPriceExecution) {
-                    const currentValue = recommendation.current_value && typeof recommendation.current_value === 'object' ? recommendation.current_value : {};
-                    const targetValue = recommendation.target_value && typeof recommendation.target_value === 'object' ? recommendation.target_value : {};
-                    const beforePriceDefault = operationEvidenceFirstText([currentValue, targetValue], ['current_price', 'before_price', 'price', 'public_price']);
-                    const afterPriceDefault = operationEvidenceFirstText([targetValue, currentValue], ['approved_price', 'target_price', 'suggested_price', 'after_price', 'price']);
-                    const platformDefault = operationEvidenceFirstText([recommendation, targetValue, currentValue], ['platform', 'source_channel', 'channel']);
-                    const roomTypeDefault = operationEvidenceFirstText([targetValue, currentValue], ['room_type_key', 'room_type_id', 'room_type', 'product_id', 'rate_plan_key']);
-                    const formValues = await openWorkflowFormDialog({
-                        title: '登记人工调价执行证据',
-                        description: '仅保存本地人工证据，不会向携程或美团自动改价。执行前后收入必须同时填写或同时留空。',
-                        submitText: '保存执行证据',
-                        fields: [
-                            { name: 'before_price', label: '执行前公开价 / 原价', type: 'number', value: beforePriceDefault },
-                            { name: 'after_price', label: '执行后公开价 / 实际执行价', type: 'number', required: true, value: afterPriceDefault },
-                            { name: 'before_revenue', label: '执行前收入（用于 ROI 复盘）', type: 'number', value: '' },
-                            { name: 'after_revenue', label: '执行后收入（用于 ROI 复盘）', type: 'number', value: '' },
-                            { name: 'platform', label: '执行平台', value: platformDefault, placeholder: 'ctrip / meituan / 手工' },
-                            { name: 'room_type', label: '房型 / 产品标识', value: roomTypeDefault },
-                            { name: 'receipt_path', label: '截图 / 回执路径或备注编号', value: '' },
-                            { name: 'executed_by', label: '执行人', value: user.value?.realname || user.value?.username || '' },
-                            { name: 'executed_at', label: '执行时间', value: operationEvidenceLocalTimestamp(), placeholder: 'YYYY-MM-DD HH:mm:ss' },
-                            { name: 'remark', label: '执行证据备注', type: 'textarea', value: '' },
-                        ],
-                    });
-                    if (formValues === null) return;
-                    const beforePriceText = formValues.before_price;
-                    const afterPriceText = formValues.after_price;
-                    const beforeRevenueText = formValues.before_revenue;
-                    const afterRevenueText = formValues.after_revenue;
-                    const platformText = formValues.platform;
-                    const roomTypeText = formValues.room_type;
-                    const receiptPathText = formValues.receipt_path;
-                    const operatorText = formValues.executed_by;
-                    const executedAtText = formValues.executed_at;
-                    const remarkText = formValues.remark;
-
-                    try {
-                        const beforePrice = parseOptionalOperationEvidenceNumber(beforePriceText, '执行前公开价');
-                        const afterPrice = parseOperationEvidenceNumber(afterPriceText, '执行后公开价');
-                        const beforeRevenue = parseOptionalOperationEvidenceNumber(beforeRevenueText, '执行前收入');
-                        const afterRevenue = parseOptionalOperationEvidenceNumber(afterRevenueText, '执行后收入');
-                        if ((beforeRevenue === null) !== (afterRevenue === null)) {
-                            throw new Error('执行前后收入需同时填写或都留空');
-                        }
-                        const platform = String(platformText || '').trim();
-                        const roomType = String(roomTypeText || '').trim();
-                        const receiptPath = String(receiptPathText || '').trim();
-                        const executedBy = String(operatorText || '').trim();
-                        const executedAt = normalizeOperationEvidenceDateTime(executedAtText);
-                        const remark = String(remarkText || '').trim();
-                        const before = {};
-                        if (beforePrice !== null) before.price = beforePrice;
-                        if (beforeRevenue !== null) before.revenue = beforeRevenue;
-                        const after = { price: afterPrice };
-                        if (afterRevenue !== null) after.revenue = afterRevenue;
-                        operationLoading.value.actions = true;
-                        const res = await apiRequest(`/operation/execution-tasks/${taskId}/execute`, {
-                            method: 'POST',
-                            businessContext: { hotelId: executionHotelId },
-                            body: JSON.stringify({
-                                status: 'executed',
-                                evidence_type: 'manual_price_execution',
-                                current_value: operationEvidenceCleanObject({ ...currentValue, executed_before_price: beforePrice }),
-                                target_value: operationEvidenceCleanObject({ ...targetValue, executed_after_price: afterPrice }),
-                                evidence: {
-                                    before,
-                                    after,
-                                    attachment_path: receiptPath,
-                                    platform_response: operationEvidenceCleanObject({
-                                        mode: 'manual',
-                                        scope: 'ota_channel_manual_execution',
-                                        platform,
-                                        room_type: roomType,
-                                        executed_by: executedBy,
-                                        executed_at: executedAt,
-                                        receipt_path: receiptPath,
-                                        evidence_boundary: 'local_manual_evidence_no_ota_write',
-                                    }),
-                                    remark,
-                                },
-                            }),
-                        });
-                        if (res.code !== 200) throw new Error(res.message || '执行证据保存失败');
-                        const responseTaskId = Number(res.data?.id || 0);
-                        if (!Number.isInteger(responseTaskId) || responseTaskId !== taskId) {
-                            throw new Error('调价执行返回的任务ID不一致');
-                        }
-                        const persistedTask = await readOperationExecutionTask(responseTaskId, executionHotelId);
-                        if (persistedTask.status !== 'executed'
-                            || !operationExecutionHasEvidenceType(persistedTask, 'manual_price_execution')
-                        ) {
-                            throw new Error('调价任务未回读到 executed 状态及对应 evidence');
-                        }
-                        showToast('调价执行证据已保存；收入未填写时仍需后续补 ROI 验证');
-                        await loadOperationActions();
-                    } catch (error) {
-                        showToast(operationErrorMessage(error, error.message || '执行证据保存失败'), 'error');
-                    } finally {
-                        operationLoading.value.actions = false;
-                    }
-                    return;
-                }
-                operationEvidenceModalItem.value = item;
-                operationEvidenceForm.value = {
-                    mode: '1',
-                    completed_action: '',
-                    receipt_path: '',
-                    executed_by: user.value?.realname || user.value?.username || '',
-                    executed_at: operationEvidenceLocalTimestamp(),
-                    next_review_date: formatDate(new Date(Date.now() + 24 * 60 * 60 * 1000)),
-                    before_revenue: '',
-                    after_revenue: '',
-                    cost: '',
-                    remark: '',
-                };
-                operationEvidenceModalOpen.value = true;
-            };
-
-            const closeOperationEvidenceModal = () => {
-                if (operationLoading.value.actions) return;
-                operationEvidenceModalOpen.value = false;
-                operationEvidenceModalItem.value = null;
-            };
-
-            const submitOperationExecutionEvidence = async () => {
-                const item = operationEvidenceModalItem.value;
-                const taskId = Number(item?.execution?.task_id || 0);
-                if (!taskId) return;
-                const executionHotelId = operationExecutionHotelId(item);
-                if (!executionHotelId || Number(operationFilters.value.hotel_id || 0) !== executionHotelId) {
-                    showToast('执行任务与当前酒店身份不一致', 'error');
-                    return;
-                }
-                const recommendation = item?.recommendation && typeof item.recommendation === 'object' ? item.recommendation : {};
-                const form = operationEvidenceForm.value || {};
-                const evidenceMode = String(form.mode || '1').trim();
-                const supplementingExecutedTask = item?.execution?.status === 'executed'
-                    && item?.next_action?.key === 'record_evidence';
-                const previousEvidenceCount = operationExecutionEvidenceCount(item);
-                try {
-                    let payload;
-                    if (evidenceMode === '1') {
-                        const completedAction = String(form.completed_action || '').trim();
-                        if (!completedAction) throw new Error('请填写已实际完成的运营动作');
-                        const executedAt = normalizeOperationEvidenceDateTime(form.executed_at);
-                        const nextReviewDate = String(form.next_review_date || '').trim();
-                        if (nextReviewDate && !/^\d{4}-\d{2}-\d{2}$/.test(nextReviewDate)) {
-                            throw new Error('效果复盘日期格式需为 YYYY-MM-DD');
-                        }
-                        const receiptPath = String(form.receipt_path || '').trim();
-                        payload = {
-                            status: 'executed',
-                            evidence_type: 'manual_operation_execution',
-                            evidence: {
-                                before: {},
-                                after: {},
-                                attachment_path: receiptPath,
-                                platform_response: operationEvidenceCleanObject({
-                                    mode: 'manual_operation_execution',
-                                    scope: 'ota_channel_operation',
-                                    completed_action: completedAction,
-                                    expected_metric: recommendation.expected_metric || item?.expected_metric || '',
-                                    executed_by: String(form.executed_by || '').trim(),
-                                    executed_at: executedAt,
-                                    next_review_date: nextReviewDate,
-                                    effect_status: 'pending_observation',
-                                    evidence_boundary: 'local_manual_evidence_no_ota_write',
-                                }),
-                                remark: completedAction,
-                            },
-                        };
-                    } else if (evidenceMode === '2') {
-                        const beforeRevenue = parseOperationEvidenceNumber(form.before_revenue, '执行前收入');
-                        const afterRevenue = parseOperationEvidenceNumber(form.after_revenue, '执行后收入');
-                        const cost = parseOperationEvidenceNumber(form.cost, '执行成本');
-                        payload = {
-                            status: 'executed',
-                            evidence_type: 'manual_finance',
-                            evidence: {
-                                before: { revenue: beforeRevenue },
-                                after: { revenue: afterRevenue, cost },
-                                platform_response: { mode: 'manual' },
-                                remark: String(form.remark || '').trim(),
-                            },
-                        };
-                    } else {
-                        throw new Error('执行证据模式无效');
-                    }
-                    operationLoading.value.actions = true;
-                    const evidenceEndpoint = supplementingExecutedTask
-                        ? `/operation/execution-tasks/${taskId}/evidence`
-                        : `/operation/execution-tasks/${taskId}/execute`;
-                    const res = await apiRequest(evidenceEndpoint, {
-                        method: 'POST',
-                        businessContext: { hotelId: executionHotelId },
-                        body: JSON.stringify(payload),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '执行证据保存失败');
-                    const responseTaskId = Number(res.data?.id || 0);
-                    if (!Number.isInteger(responseTaskId) || responseTaskId !== taskId) {
-                        throw new Error('运营执行返回的任务ID不一致');
-                    }
-                    const persistedTask = await readOperationExecutionTask(responseTaskId, executionHotelId);
-                    const expectedEvidenceType = evidenceMode === '1'
-                        ? 'manual_operation_execution'
-                        : 'manual_finance';
-                    if (persistedTask.status !== 'executed'
-                        || !operationExecutionHasEvidenceType(persistedTask, expectedEvidenceType)
-                    ) {
-                        throw new Error('运营任务未回读到 executed 状态及对应 evidence');
-                    }
-                    if (supplementingExecutedTask
-                        && operationExecutionEvidenceCount(persistedTask) <= previousEvidenceCount
-                    ) {
-                        throw new Error('运营任务补充证据未在回读中增加');
-                    }
-                    operationEvidenceModalOpen.value = false;
-                    operationEvidenceModalItem.value = null;
-                    showToast(evidenceMode === '1'
-                        ? '已保存运营动作证据；效果保持待观察，不自动生成收入或ROI'
-                        : '执行收入/成本证据已保存');
-                    await loadOperationActions();
-                } catch (error) {
-                    showToast(operationErrorMessage(error, error.message || '执行证据保存失败'), 'error');
-                } finally {
-                    operationLoading.value.actions = false;
-                }
-            };
-
-            const recordOperationRoiEvidence = async (item) => {
-                const taskId = Number(item?.execution?.task_id || 0);
-                if (!taskId) return;
-                const recommendation = item?.recommendation && typeof item.recommendation === 'object' ? item.recommendation : {};
-                const isPriceExecution = recommendation.object_type === 'price';
-                const formValues = await openWorkflowFormDialog({
-                    title: '登记 ROI / 增量收入证据',
-                    description: '数据由人工录入并保留本地来源边界；保存后仍需按证据来源复核。',
-                    submitText: '保存 ROI 证据',
-                    fields: [
-                        { name: 'before_revenue', label: '执行前收入', type: 'number', required: true, value: '' },
-                        { name: 'after_revenue', label: '执行后收入', type: 'number', required: true, value: '' },
-                        { name: 'cost', label: isPriceExecution ? '执行成本（价格调整可留空）' : '执行成本或投放成本', type: 'number', required: !isPriceExecution, value: '' },
-                        { name: 'attachment_path', label: '截图 / 回执路径或数据来源说明', value: '' },
-                        { name: 'remark', label: 'ROI 证据备注', type: 'textarea', value: '', placeholder: '日期口径、数据来源或缺口说明' },
-                    ],
-                });
-                if (formValues === null) return;
-                const beforeText = formValues.before_revenue;
-                const afterText = formValues.after_revenue;
-                const costText = formValues.cost;
-                const attachmentPathText = formValues.attachment_path;
-                const remarkText = formValues.remark;
-
-                try {
-                    const beforeRevenue = parseOperationEvidenceNumber(beforeText, '执行前收入');
-                    const afterRevenue = parseOperationEvidenceNumber(afterText, '执行后收入');
-                    const cost = isPriceExecution
-                        ? parseOptionalOperationEvidenceNumber(costText, '执行成本')
-                        : parseOperationEvidenceNumber(costText, '执行成本');
-                    const attachmentPath = String(attachmentPathText || '').trim();
-                    const remark = String(remarkText || '').trim();
-                    const after = { revenue: afterRevenue };
-                    if (cost !== null) after.cost = cost;
-                    operationLoading.value.actions = true;
-                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/evidence`, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            evidence_type: 'manual_roi_evidence',
-                            evidence: {
-                                before: { revenue: beforeRevenue },
-                                after,
-                                attachment_path: attachmentPath,
-                                platform_response: operationEvidenceCleanObject({
-                                    mode: 'manual_roi_evidence',
-                                    scope: isPriceExecution ? 'price_execution_incremental_revenue' : 'operation_execution_roi',
-                                    source: 'revenue_ai_effect_review_input',
-                                    business_date: revenueAiOverview.value?.business_date || '',
-                                    evidence_boundary: 'local_manual_roi_evidence_no_ota_write',
-                                }),
-                                remark,
-                            },
-                        }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || 'ROI证据保存失败');
-                    const responseTaskId = Number(res.data?.id || 0);
-                    if (!Number.isInteger(responseTaskId) || responseTaskId !== taskId) {
-                        throw new Error('ROI证据返回的任务ID不一致');
-                    }
-                    const persistedTask = await readOperationExecutionTask(responseTaskId);
-                    if (!operationExecutionHasEvidenceType(persistedTask, 'manual_roi_evidence')) {
-                        throw new Error('ROI evidence 严格回读失败');
-                    }
-                    showToast('人工录入的 ROI 数据已保存；Revenue AI 将按所填收入/成本重新判断，来源仍需复核');
-                    await loadOperationActions();
-                } catch (error) {
-                    showToast(operationErrorMessage(error, error.message || 'ROI证据保存失败'), 'error');
-                } finally {
-                    operationLoading.value.actions = false;
-                }
-            };
-
-            const reviewOperationExecutionTask = async (item) => {
-                const taskId = Number(item?.execution?.task_id || 0);
-                if (!taskId) return;
-                const defaultStatus = ['success', 'near_success', 'failed', 'observing'].includes(String(item?.review?.status || ''))
-                    ? String(item.review.status)
-                    : 'observing';
-                operationReviewModalItem.value = item;
-                operationReviewForm.value = {
-                    status: defaultStatus,
-                    summary: '',
-                    operator_attested: false,
-                    source_ref: '',
-                    operator_attested_at: operationEvidenceLocalTimestamp(),
-                };
-                operationReviewModalOpen.value = true;
-            };
-
-            const reconcileOperationExecutionReview = async (item) => {
-                const taskId = Number(item?.execution?.task_id || 0);
-                if (!taskId) return;
-                operationLoading.value.actions = true;
-                try {
-                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/reconcile-review`, {
-                        method: 'POST',
-                        body: JSON.stringify({}),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '到期复盘事实读取失败');
-                    const result = res.data || {};
-                    if (Number(result.task_id || 0) !== taskId) {
-                        throw new Error('到期复盘事实返回的任务ID不一致');
-                    }
-                    const persistedTask = await readOperationExecutionTask(taskId);
-                    if (result.status === 'source_readback_verified') {
-                        if (persistedTask?.evidence_truth?.source_verified !== true
-                            || !operationExecutionHasEvidenceType(persistedTask, 'source_verified_metric_readback')
-                        ) {
-                            throw new Error('来源核验复盘事实严格回读失败');
-                        }
-                        showToast('同酒店、同渠道、同指标复盘事实已读取；请人工确认复盘结论', 'success');
-                    } else if (result.status === 'source_readback_missing') {
-                        if (persistedTask?.evidence_truth?.source_verified === true) {
-                            throw new Error('复盘事实缺失状态与任务回读不一致');
-                        }
-                        showToast('约定窗口暂无同口径可信事实，任务继续观察', 'warning');
-                    } else if (result.status === 'already_reviewed') {
-                        showToast('该任务已完成复盘，无需重复读取', 'info');
-                    } else {
-                        throw new Error('到期复盘事实返回未知状态');
-                    }
-                    await loadOperationActions();
-                } catch (error) {
-                    showToast(operationErrorMessage(error, error.message || '到期复盘事实读取失败'), 'error');
-                } finally {
-                    operationLoading.value.actions = false;
-                }
-            };
-
-            const closeOperationReviewModal = () => {
-                if (operationLoading.value.actions) return;
-                operationReviewModalOpen.value = false;
-                operationReviewModalItem.value = null;
-            };
-
-            const submitOperationExecutionReview = async () => {
-                const item = operationReviewModalItem.value;
-                const taskId = Number(item?.execution?.task_id || 0);
-                if (!taskId) return;
-                try {
-                    const resultStatus = normalizeOperationReviewStatus(operationReviewForm.value?.status);
-                    const resultSummary = String(operationReviewForm.value?.summary || '').trim();
-                    if (['success', 'near_success', 'failed'].includes(resultStatus) && !resultSummary) {
-                        throw new Error('复盘结论为达成/接近达成/未达成时必须填写说明');
-                    }
-                    const positiveResult = ['success', 'near_success'].includes(resultStatus);
-                    const operatorAttested = operationReviewForm.value?.operator_attested === true;
-                    const sourceRef = String(operationReviewForm.value?.source_ref || '').trim();
-                    const operatorAttestedAt = String(operationReviewForm.value?.operator_attested_at || '').trim();
-                    if (positiveResult && (!operatorAttested || !sourceRef || !operatorAttestedAt)) {
-                        throw new Error('判定达成或接近达成前，必须提交人工平台复查声明、来源记录和声明时间');
-                    }
-                    operationLoading.value.actions = true;
-                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/review`, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            result_status: resultStatus,
-                            result_summary: resultSummary || '继续观察，等待次日收益或ROI证据',
-                            ...(positiveResult ? {
-                                readback_evidence: {
-                                    operator_attested: true,
-                                    operator_attested_at: operatorAttestedAt,
-                                    source_ref: sourceRef,
-                                    verification_status: 'operator_attested',
-                                    remark: '操作者声明已在 OTA 平台人工复查；该声明不等于来源已验证',
-                                },
-                            } : {}),
-                        }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '执行复盘失败');
-                    const responseTaskId = Number(res.data?.id || 0);
-                    if (!Number.isInteger(responseTaskId) || responseTaskId !== taskId) {
-                        throw new Error('执行复盘返回的任务ID不一致');
-                    }
-                    const persistedTask = await readOperationExecutionTask(responseTaskId);
-                    if (String(persistedTask.result_status || '') !== resultStatus) {
-                        throw new Error('执行复盘 result_status 严格回读不一致');
-                    }
-                    operationReviewModalOpen.value = false;
-                    operationReviewModalItem.value = null;
-                    showToast(resultStatus === 'observing' ? '执行复盘已记录为继续观察' : '执行复盘结论已保存');
-                    await loadOperationActions();
-                } catch (error) {
-                    showToast(operationErrorMessage(error, error.message || '执行复盘失败'), 'error');
-                } finally {
-                    operationLoading.value.actions = false;
-                }
-            };
-
-            const finishOperationAction = async (id) => {
-                if (!id) return;
-                operationLoading.value.actions = true;
-                try {
-                    const res = await apiRequest(`/operation/actions/${id}/finish`, { method: 'POST', body: JSON.stringify({}) });
-                    if (res.code !== 200) throw new Error(res.message || '结束策略动作失败');
-                    showToast('策略动作已结束');
-                    await loadOperationActions();
-                } catch (error) {
-                    showToast(operationErrorMessage(error, '结束策略动作失败'), 'error');
-                } finally {
-                    operationLoading.value.actions = false;
-                }
-            };
 
             const openingProjects = ref([]);
             const selectedOpeningProjectId = ref('');
@@ -39673,7 +38055,9 @@
                         ? { ...options.requestPolicy }
                         : currentCompassReadPolicy(requestPage, force ? 'action' : 'current');
                     if (force) requestPolicy.force = true;
-                    const homeOperatingSchedulePromise = loadHomeOperatingSchedule({ hotelId: compassHotelId });
+                    const homeOperatingSchedulePromise = force
+                        ? loadHomeOperatingSchedule({ hotelId: compassHotelId })
+                        : Promise.resolve(null);
                     const res = await request(`/compass${suffix}`, {
                         requestPolicy,
                     });
@@ -39688,7 +38072,15 @@
                     compassAlerts.value = res.data.alerts || [];
                     compassHolidays.value = res.data.holidays || [];
                     compassDisplayedHotelId = compassHotelId;
-                    await homeOperatingSchedulePromise;
+                    if (force) {
+                        await homeOperatingSchedulePromise;
+                    } else {
+                        scheduleDelayedPageTask(async () => {
+                            if (!isCurrentRequest()) return null;
+                            await loadHomeOperatingSchedule({ hotelId: compassHotelId });
+                            return null;
+                        }, HOME_SECONDARY_PANEL_DELAY_MS);
+                    }
                     scheduleDelayedPageTask(() => {
                         if (!isCurrentRequest()) return null;
                         loadWeatherForCity();
@@ -47180,25 +45572,25 @@
                 operationRootCause.value = null;
                 operationAlerts.value = { list: [], unread_count: 0, data_status: '' };
                 operationStrategyResult.value = null;
-                operationActionsRequestSeq += 1;
+                operationWorkflowController?.invalidateRequests();
                 operationActions.value = [];
                 operationExecutionFlow.value = { summary: {}, stages: [], list: [], data_gaps: [], data_status: '' };
-                homeOperatingScheduleRequestSeq += 1;
+
                 homeOperatingScheduleFlow.value = null;
                 homeOperatingScheduleLoading.value = false;
                 homeOperatingScheduleError.value = '';
                 homeOperatingScheduleScopeHotelId.value = '';
                 homeOperatingScheduleLastReadAt.value = '';
                 operationClosureOverview.value = { summary: {}, modules: [], weak_modules: [], data_gaps: [], data_status: '' };
-                operatingMemoryRequestSeq += 1;
+
                 operatingMemories.value = { data_status: '', list: [], count: 0, data_gaps: [] };
                 operatingMemoryLoading.value = false;
                 operatingMemoryError.value = '';
                 operatingMemorySavingTaskId.value = 0;
                 operationEffectValidation.value = { status: 'data_gap', metrics: [], data_gaps: [], action_counts: {} };
 
-                aiDailyFactGateRequestSeq += 1;
-                aiDailyReportRequestSeq += 1;
+
+
                 aiDailyReportGenerationRequestSeq += 1;
                 aiDailyReport.value = null;
                 aiDailyReportGenerationTask.value = null;
@@ -47488,7 +45880,7 @@
                 dualOtaContinuousPlatformLabel, dualOtaContinuousStepRows, dualOtaContinuousSummaryText,
                 coreOperationsProfileSessionRows, coreOperationsProfileSessionBlockedRows, prepareCoreOperationsProfileSession, coreOperationsCanExecute, coreOperationsCanGenerateDiagnosis, coreOperationsCanCollect, coreOperationsDiagnosisGenerating, coreOperationsDiagnosisGenerationMessage, generateCoreOperationsDiagnoses,
                 otaConfigOverviewPageSize, otaConfigOverviewPages, otaConfigOverviewRefreshing, otaConfigOverviewProbeState, otaConfigOverviewSelectedCount, otaConfigOverviewHiddenSelectedCount, otaConfigOverviewPageCount, otaConfigOverviewPageNumber, otaConfigOverviewPageSummary, changeOtaConfigOverviewPage, isOtaConfigOverviewRowSelected, toggleOtaConfigOverviewRow, isOtaConfigOverviewPageSelected, toggleSelectOtaConfigOverviewPage, clearOtaConfigOverviewSelection, refreshOtaConfigOverviewStatus, probeOtaConfigOverviewRow, probeSelectedOtaConfigOverviewRows, runOtaConfigOverviewRowCollection, runSelectedOtaConfigOverviewCollection, deleteOtaConfigOverviewRow,
-                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, coreOperationsTargetDate, coreOperationsMaxDate, coreOperationsHotelId, coreOperationsLoading, coreOperationsError, coreOperationsMetrics, coreOperationsDiagnoses, coreOperationsDiagnosisIntentLoading, coreOperationsSourceFetchVisibleState, coreOperationsSourceFetchRunning, coreOperationsSourceFetchActionText, coreOperationsSourceFetchStatusClass, coreOperationsSourceFetchModeText, coreOperationsSelectedWorkbenchRow, coreOperationsPlatformCards, coreOperationsCompetitorRows, coreOperationsCompetitorError, coreOperationsAnomalyRows, coreOperationsAiSuggestions, coreOperationsActionRows, coreOperationsExecutionItems, coreOperationsStepRows, coreOperationsEvidenceStatusText, coreOperationsEvidenceStatusClass, refreshCoreOperationsLoop, runCoreOperationsYesterdayFetch, createCoreOperationsDiagnosisIntent, openCoreOperationsHotelOnboarding, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchPagedRows, manualOneClickFetchPagination, manualOneClickFetchPage, manualOneClickFetchPageSize, setManualOneClickFetchStatusFilter, changeManualOneClickFetchPage, changeManualOneClickFetchPageSize, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
+                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolConfirming, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, coreOperationsTargetDate, coreOperationsMaxDate, coreOperationsHotelId, coreOperationsLoading, coreOperationsError, coreOperationsMetrics, coreOperationsDiagnoses, coreOperationsDiagnosisIntentLoading, coreOperationsSourceFetchVisibleState, coreOperationsSourceFetchRunning, coreOperationsSourceFetchActionText, coreOperationsSourceFetchStatusClass, coreOperationsSourceFetchModeText, coreOperationsSelectedWorkbenchRow, coreOperationsPlatformCards, coreOperationsCompetitorRows, coreOperationsCompetitorError, coreOperationsAnomalyRows, coreOperationsAiSuggestions, coreOperationsActionRows, coreOperationsExecutionItems, coreOperationsStepRows, coreOperationsEvidenceStatusText, coreOperationsEvidenceStatusClass, refreshCoreOperationsLoop, runCoreOperationsYesterdayFetch, createCoreOperationsDiagnosisIntent, openCoreOperationsHotelOnboarding, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchPagedRows, manualOneClickFetchPagination, manualOneClickFetchPage, manualOneClickFetchPageSize, setManualOneClickFetchStatusFilter, changeManualOneClickFetchPage, changeManualOneClickFetchPageSize, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
                 dashboardAccountSummaryCards, dashboardCoreKpis, dashboardRiskAlerts, dashboardTodayActions, dashboardPortraitSections, dashboardDataSourceDiagnostics,
@@ -47517,7 +45909,7 @@
                 collectionHealthCtripEffectivenessClass,
                 collectionHealthFieldRows, collectionHealthSummaryCards, collectionHealthStatusText, collectionHealthStatusClass,
                 phase1EmployeeQuestionRows, phase1EmployeeRequiredActions, phase1EmployeeClosureSummary, phase1EmployeeCollectionSourceRows, phase1EmployeeFieldTrustRows, phase1EmployeeMissingFieldRows, phase1EmployeeMissingFieldOverflowText, dataHealthFieldGapActionRows, dataHealthFieldGapActionSummary, phase1EmployeeMetricDomainRows, phase1EmployeeAiEvidenceSummary, phase1EmployeeOperationSummary, phase1EmployeeQuestionStatusText, phase1EmployeeQuestionStatusClass,
-                loadCollectionReliability, loadDailyWorkbench, loadDailyWorkbenchPatrols, loadPhase3OperationEffectLoop, loadPhase3OperationEffectLoopLedger, publishPhase3OperationSop, createPhase3ReplicationPlan, runDailyWorkbenchPatrol, exportDailyWorkbenchPatrolReport, updateDailyWorkbenchPatrolAction, reviewDailyWorkbenchPatrolAction, loadHotelDataDashboard, loadDataHealthPanel,
+                loadCollectionReliability, loadDailyWorkbench, loadDailyWorkbenchPatrols, loadPhase3OperationEffectLoop, loadPhase3OperationEffectLoopLedger, publishPhase3OperationSop, createPhase3ReplicationPlan, openDailyWorkbenchPatrolConfirmation, cancelDailyWorkbenchPatrolConfirmation, runDailyWorkbenchPatrol, exportDailyWorkbenchPatrolReport, updateDailyWorkbenchPatrolAction, reviewDailyWorkbenchPatrolAction, loadHotelDataDashboard, loadDataHealthPanel,
                 onlineHistoryFilter, onlineHistoryList, onlineHistoryPagination, onlineHistoryPage, onlineHistorySummary, onlineHistoryLoading, onlineHistoryCurrentError, onlineHistoryHasCurrentSnapshot, onlineHistoryRefreshNotice, onlineHistoryHotelList,
                 onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
                 resetOnlineHistoryFilter, changeOnlineHistoryPage, applyOnlineHistoryDatePreset, toggleOnlineHistoryDetail, toggleOnlineHistoryRaw, formatOnlineHistoryRaw,

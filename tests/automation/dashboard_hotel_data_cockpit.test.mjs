@@ -29,7 +29,22 @@ const dataHealthPage = dataHealthStart >= 0 && dataHealthEnd > dataHealthStart
   : '';
 const diagnosisGenerationStart = appMain.indexOf('const generateCoreOperationsDiagnoses = async');
 const diagnosisGenerationEnd = appMain.indexOf('const coreOperationsOffsetDate =', diagnosisGenerationStart);
-const diagnosisGenerationSource = appMain.slice(diagnosisGenerationStart, diagnosisGenerationEnd);
+const diagnosisGenerationSource = diagnosisGenerationStart >= 0 && diagnosisGenerationEnd > diagnosisGenerationStart
+  ? appMain.slice(diagnosisGenerationStart, diagnosisGenerationEnd)
+  : '';
+const diagnosisBatchStart = diagnosisGenerationSource.indexOf('const settled = await Promise.allSettled');
+const diagnosisBatchEnd = diagnosisGenerationSource.indexOf('const responses = settled', diagnosisBatchStart);
+const diagnosisBatchSource = diagnosisBatchStart >= 0 && diagnosisBatchEnd > diagnosisBatchStart
+  ? diagnosisGenerationSource.slice(diagnosisBatchStart, diagnosisBatchEnd)
+  : '';
+const diagnosisSavedCountStart = diagnosisGenerationSource.indexOf('const savedCount =');
+const diagnosisSavedCountEnd = diagnosisGenerationSource.indexOf(
+  'const requestFailureCount =',
+  diagnosisSavedCountStart,
+);
+const diagnosisSavedCountSource = diagnosisSavedCountStart >= 0 && diagnosisSavedCountEnd > diagnosisSavedCountStart
+  ? diagnosisGenerationSource.slice(diagnosisSavedCountStart, diagnosisSavedCountEnd)
+  : '';
 const patrolRunStart = appMain.indexOf('const openDailyWorkbenchPatrolConfirmation =');
 const patrolRunEnd = appMain.indexOf('const exportDailyWorkbenchPatrolReport =', patrolRunStart);
 const patrolRunSource = appMain.slice(patrolRunStart, patrolRunEnd);
@@ -153,9 +168,26 @@ test('online-data surface exposes the six-step operating loop and retains collec
   assert.match(appMain, /return request\(`\/agent\/ota-diagnosis\?\$\{params\.toString\(\)\}`\)/);
   assert.match(appMain, /const generateCoreOperationsDiagnoses = async/);
   assert.match(appMain, /analysis_mode: 'rules_only'/);
-  assert.ok(diagnosisGenerationStart >= 0 && diagnosisGenerationEnd > diagnosisGenerationStart);
-  assert.match(diagnosisGenerationSource, /for \(const platform of \['ctrip', 'meituan'\]\)/);
-  assert.doesNotMatch(diagnosisGenerationSource, /Promise\.allSettled/);
+  assert.ok(
+    diagnosisGenerationStart >= 0 && diagnosisGenerationEnd > diagnosisGenerationStart,
+    'dual-platform diagnosis generation function must remain extractable',
+  );
+  assert.ok(
+    diagnosisBatchStart >= 0 && diagnosisBatchEnd > diagnosisBatchStart,
+    'dual-platform diagnosis requests must remain inside one settled batch',
+  );
+  assert.match(
+    diagnosisBatchSource,
+    /\[\s*'ctrip'\s*,\s*'meituan'\s*\]\s*\.map\s*\(\s*platform\s*=>\s*requestOtaDiagnosis\s*\(\s*\{/,
+  );
+  assert.ok(
+    diagnosisSavedCountStart >= 0 && diagnosisSavedCountEnd > diagnosisSavedCountStart,
+    'diagnosis success count must remain bounded to persisted readback evidence',
+  );
+  assert.match(
+    diagnosisSavedCountSource,
+    /saved_record\?\.saved\s*===\s*true[\s\S]*&&[\s\S]*saved_record\?\.readback_verified\s*===\s*true/,
+  );
   assert.ok(patrolRunStart >= 0 && patrolRunEnd > patrolRunStart);
   assert.match(patrolRunSource, /dailyWorkbenchPatrolConfirming\.value = true/);
   assert.match(patrolRunSource, /if \(!dailyWorkbenchPatrolConfirming\.value\)/);
@@ -229,7 +261,7 @@ test('online-data surface exposes the six-step operating loop and retains collec
   assert.match(appMain, /keepCurrentSurface: true/);
   assert.equal((onlineDataFragment.match(/refreshCoreOperationsLoop\(\{ resetScope: true \}\)/g) || []).length, 2);
   assert.match(appMain, /options\.resetScope === true/);
-  assert.match(diagnosisGenerationSource, /for \(const platform of \['ctrip', 'meituan'\]\)/);
+  assert.match(diagnosisBatchSource, /requestOtaDiagnosis\s*\(\s*\{/);
   assert.match(appMain, /const currentPage = ref\(initialPageOverride \|\| 'ai-workbench'\)/);
   assert.match(appMain, /testid: 'nav-core-operations-loop'/);
   assert.match(operationStatic, /OTA诊断行动/);

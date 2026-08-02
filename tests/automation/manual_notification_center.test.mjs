@@ -6,6 +6,15 @@ import vm from 'node:vm';
 
 const systemStaticSource = fs.readFileSync('public/system-static.js', 'utf8');
 const appMainSource = fs.readFileSync('public/app-main.js', 'utf8');
+const operationStaticSource = fs.readFileSync('public/operation-static.js', 'utf8');
+const testManualNotificationSource = operationStaticSource.slice(
+  operationStaticSource.indexOf('const testManualNotification = async'),
+  operationStaticSource.indexOf('const retryManualNotificationDispatch = async'),
+);
+const retryManualNotificationDispatchSource = operationStaticSource.slice(
+  operationStaticSource.indexOf('const retryManualNotificationDispatch = async'),
+  operationStaticSource.indexOf('const loadOperationFullData = async'),
+);
 const serviceSource = fs.readFileSync('app/service/ManualNotificationService.php', 'utf8');
 const fragmentSource = fs.readFileSync(
   'resources/frontend/templates/fragments/15ab-page-manual-notifications.html',
@@ -166,7 +175,7 @@ test('notification plans expose persisted schedule rules and truthful runtime st
   );
   const saveRecord = appMainSource.slice(
     appMainSource.indexOf('const saveManualNotification = async'),
-    appMainSource.indexOf('const testManualNotification = async'),
+    appMainSource.indexOf('const openManualNotificationRecord = (item) =>'),
   );
   assert.doesNotMatch(previewRecord, /effective_(?:from|to):\s*''/);
   assert.doesNotMatch(saveRecord, /effective_(?:from|to):\s*''/);
@@ -326,7 +335,7 @@ test('dynamic operating-target template supports save then immediate test withou
   assert.match(fragmentSource, /testManualNotification\(manualNotificationForm\)/);
   assert.match(fragmentSource, /manualNotificationHasUnsavedChanges/);
   assert.match(fragmentSource, /请先保存更改/);
-  assert.match(appMainSource, /计划有未保存更改，请先保存再测试/);
+  assert.match(testManualNotificationSource, /计划有未保存更改，请先保存再测试/);
   assert.match(appMainSource, /manualNotificationComparablePlan/);
   assert.match(fragmentSource, /预览 · 未发送/);
   assert.doesNotMatch(fragmentSource, /后端预览已验证/);
@@ -391,16 +400,16 @@ test('dispatch history is independent and never treats missing receipts as deliv
   assert.match(appMainSource, /\/manual-notifications\/dispatch-history/);
   assert.match(appMainSource, /manualNotificationDispatchCanRetry/);
   assert.match(appMainSource, /\['failed', 'outcome_unknown'\]\.includes\(status\)/);
-  assert.match(appMainSource, /再次发送可能产生重复消息/);
+  assert.match(retryManualNotificationDispatchSource, /再次发送可能产生重复消息/);
   assert.match(appMainSource, /manualNotificationWorkspaceTab\.value = 'plans'/);
-  assert.match(appMainSource, /status === 'sent'[\s\S]*manualNotificationWorkspaceTab\.value = 'records'/);
+  assert.match(testManualNotificationSource, /status === 'sent'[\s\S]*manualNotificationWorkspaceTab\.value = 'records'/);
 });
 
 test('test push remains explicit and uses the persisted authorized plan robot', () => {
-  assert.match(appMainSource, /将向“\$\{targetRobotName\}”发送一次真实测试消息/);
-  assert.match(appMainSource, /confirmed:\s*true/);
-  assert.match(appMainSource, /target_robot_id:\s*targetRobotId/);
-  assert.match(appMainSource, /target_robot_name:\s*targetRobotName/);
+  assert.match(testManualNotificationSource, /将向“\$\{targetRobotName\}”发送一次真实测试消息/);
+  assert.match(testManualNotificationSource, /confirmed:\s*true/);
+  assert.match(testManualNotificationSource, /target_robot_id:\s*targetRobotId/);
+  assert.match(testManualNotificationSource, /target_robot_name:\s*targetRobotName/);
   assert.match(appMainSource, /\['wecom_test', 'wecom_formal'\]\.includes/);
   assert.match(appMainSource, /scope_label: '当前酒店通道'/);
   assert.match(appMainSource, /applyCurrentHotelNotificationChannel/);

@@ -3,6 +3,7 @@ import path from 'node:path';
 
 export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'public/app-main.js', max_lines: 46_282, boundary: 'request lifecycle coordinator plus deferred frontend helpers; zero-growth until the next extraction' },
+  { path: 'public/operation-static.js', max_lines: 3_100, boundary: 'lazy-loaded operation workflow helpers and static models' },
   { path: 'tests/OnlineDataTest.php', max_lines: 2_800, boundary: 'platform test-case traits' },
   { path: 'app/controller/Agent.php', max_lines: 2_700, boundary: 'Agent OTA concern traits' },
   { path: 'app/controller/concern/AutoFetchConcern.php', max_lines: 5_200, boundary: 'platform execution concern traits' },
@@ -15,6 +16,7 @@ export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'app/controller/concern/AgentOtaExecutionIntentConcern.php', max_lines: 250, boundary: 'Agent execution intents' },
   { path: 'app/controller/concern/AgentCapturedOtaAnalysisConcern.php', max_lines: 2_450, boundary: 'captured OTA analysis' },
   { path: 'app/controller/concern/AgentOtaDiagnosisBuildConcern.php', max_lines: 1_500, boundary: 'OTA diagnosis build' },
+  { path: 'app/controller/concern/AgentOtaDiagnosisEvidenceQualityConcern.php', max_lines: 250, boundary: 'OTA diagnosis canonical evidence quality' },
   { path: 'app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php', max_lines: 1_750, boundary: 'OTA diagnosis persistence' },
   { path: 'app/controller/concern/AutoFetchProfileSyncConcern.php', max_lines: 300, boundary: 'Profile sync readback' },
   { path: 'app/controller/concern/CtripAutoFetchExecutionConcern.php', max_lines: 1_700, boundary: 'Ctrip auto-fetch execution' },
@@ -22,8 +24,10 @@ export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'app/service/concern/PlatformDataSourceExecutionConcern.php', max_lines: 1_100, boundary: 'platform source execution' },
   { path: 'app/service/concern/PlatformSyncTaskConcern.php', max_lines: 1_900, boundary: 'platform sync tasks' },
   { path: 'app/service/concern/PlatformDataPersistenceConcern.php', max_lines: 1_700, boundary: 'platform persistence' },
+  { path: 'app/service/concern/PlatformManualImportSourceConcern.php', max_lines: 250, boundary: 'manual import source identity and readback' },
   { path: 'app/service/operation/OperationSnapshotConcern.php', max_lines: 2_300, boundary: 'operation snapshots' },
   { path: 'app/service/operation/OperationAlertConcern.php', max_lines: 1_000, boundary: 'operation alerts' },
+  { path: 'app/service/operation/OperationExecutionIntentConcern.php', max_lines: 600, boundary: 'operation execution intent validation and replay' },
 ]);
 
 export function sourceLineCount(source) {

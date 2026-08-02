@@ -11,6 +11,8 @@ vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context,
 
 const helpers = context.window.SUXI_REVENUE_AI_STATIC;
 const appMain = readFileSync('public/app-main.js', 'utf8');
+const operationStatic = readFileSync('public/operation-static.js', 'utf8');
+const operationFrontend = `${operationStatic}\n${appMain}`;
 const alertPage = readFileSync('resources/frontend/templates/fragments/15c-page-ops-insight.html', 'utf8');
 const competitorPage = readFileSync('resources/frontend/templates/fragments/27-page-agent-center.html', 'utf8');
 const routes = readFileSync('route/app.php', 'utf8');
@@ -26,9 +28,9 @@ test('threshold alerts expose an idempotent pending-task bridge without automati
   assert.match(service, /pending_human_approval_no_automatic_ota_write/);
   assert.match(service, /'object_type' => 'operation_checklist'/);
   assert.match(service, /'auto_write_ota' => false/);
-  assert.match(appMain, /apiRequest\(`\/operation\/alerts\/\$\{alertId\}\/execution-intent`/);
-  assert.match(appMain, /loadOperationActions\(\{ focusIntentId: intentId \}\)/);
-  assert.match(appMain, /data-operation-execution-intent-id="\$\{intentId\}"/);
+  assert.match(operationFrontend, /apiRequest\(`\/operation\/alerts\/\$\{alertId\}\/execution-intent`/);
+  assert.match(operationFrontend, /loadOperationActions\(\{ focusIntentId: intentId \}\)/);
+  assert.match(operationFrontend, /data-operation-execution-intent-id="\$\{intentId\}"/);
   assert.match(alertPage, /data-testid="operation-alert-create-task"/);
   assert.match(alertPage, /直接转任务/);
   assert.match(alertPage, /查看任务 #/);

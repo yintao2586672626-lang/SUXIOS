@@ -20,9 +20,14 @@ assert.match(
 );
 
 assert.match(
-  indexHtml,
-  /class="xl:hidden hotel-preview-layout"/,
-  'compact hotel management view must expose an intrinsic responsive grid'
+  hotelPage,
+  /<div v-if="hotelWide" class="overflow-x-auto">/,
+  'wide hotel management view must render the desktop table branch'
+);
+assert.match(
+  hotelPage,
+  /<div v-else class="hotel-preview-layout">/,
+  'non-wide hotel management view must render the intrinsic responsive card grid'
 );
 assert.match(
   indexHtml,

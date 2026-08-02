@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const appMain = readFileSync('public/app-main.js', 'utf8');
+const appMain = readFileSync('public/operation-static.js', 'utf8');
 const revenueAiController = readFileSync('app/controller/RevenueAi.php', 'utf8');
 const agentController = readFileSync('app/controller/Agent.php', 'utf8');
 const workflowDialog = readFileSync('resources/frontend/templates/fragments/46-global-toast.html', 'utf8');

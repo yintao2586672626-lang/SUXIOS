@@ -9,6 +9,7 @@ const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
 const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
 const otaDiagnosisStatic = readFileSync('public/ota-diagnosis-static.js', 'utf8');
+const operationStatic = readFileSync('public/operation-static.js', 'utf8');
 const onlineDataTemplateFragment = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
 const hotelManagementTemplateFragment = readFileSync('resources/frontend/templates/fragments/18-page-hotels.html', 'utf8');
 const platformAutoSettingsPanels = readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8');
@@ -4740,7 +4741,7 @@ test('Download center defers hotel filter loading after primary data', () => {
   assert.ok(hotelFilterIndex < secondarySourceIndex, 'secondary platform sources must not block hotel-filter scheduling');
   assert.doesNotMatch(downloadCenterScheduler, /await loadPlatformDataSources\(\{ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS \}\);/);
   assert.match(html, /const meituanDownloadData = computed\(\(\) => buildMeituanDownloadData\(onlineDataList\.value\)\);/);
-  assert.match(html, /switchToMeituanDownloadCenter, openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData,/);
+  assert.match(html, /switchToMeituanDownloadCenter, openMeituanStoredBusinessDate, openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData,/);
   assert.doesNotMatch(downloadCenterScheduler, /await refreshOnlineHistory\(\);\s*return null;/);
   assert.doesNotMatch(
     downloadCenterScheduler,
@@ -4813,10 +4814,10 @@ test('Core six-step state requires both platforms, AI-linked tasks, and a due te
 });
 
 test('Operation action loads reject stale request and hotel responses', () => {
-  const operationActionsLoader = sliceFrom(
-    'let operationActionsRequestSeq = 0;',
-    '\n            const parseOperationEvidenceNumber'
-  );
+  const operationActionsStart = operationStatic.indexOf('let operationActionsRequestSeq = 0;');
+  const operationActionsEnd = operationStatic.indexOf('\n    const parseOperationEvidenceNumber', operationActionsStart);
+  assert.ok(operationActionsStart >= 0 && operationActionsEnd > operationActionsStart, 'operation action loader slice missing');
+  const operationActionsLoader = operationStatic.slice(operationActionsStart, operationActionsEnd);
 
   assert.match(operationActionsLoader, /const requestSeq = \+\+operationActionsRequestSeq;/);
   assert.match(operationActionsLoader, /requestSeq === operationActionsRequestSeq\s*&& requestHotelId === String\(operationFilters\.value\.hotel_id \|\| ''\)\.trim\(\)/);

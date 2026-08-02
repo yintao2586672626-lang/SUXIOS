@@ -189,17 +189,16 @@ test('notification refreshes and no-hotel OTA entry cannot reuse another authent
   assert.match(coreLoopRefresh, /const hotelIsAccessible = operationHotelOptions\.value\.some/);
   assert.match(coreLoopRefresh, /if \(!hotelId \|\| !hotelIsAccessible\)/);
   assert.match(tabLoader, /if \(!coreOperationsHasAccessibleHotel\.value\) return null;[\s\S]*ensureHotelOtaConfigLists/);
-  assert.ok(
-    hotelManagementLoader.indexOf("loadHotels({ force, includeInactive: true, requestPolicy })")
-      < hotelManagementLoader.indexOf('if (coreOperationsHasAccessibleHotel.value)'),
-    'hotel management must resolve the hotel scope before loading protected OTA configuration',
-  );
+  const hotelScopeLoadIndex = hotelManagementLoader.indexOf("loadHotels({ force, includeInactive: true, requestPolicy })");
+  const protectedOtaLoadIndex = hotelManagementLoader.indexOf('ensureHotelOtaConfigLists({');
+  assert.ok(hotelScopeLoadIndex >= 0 && protectedOtaLoadIndex > hotelScopeLoadIndex,
+    'hotel management must resolve the hotel scope before loading protected OTA configuration');
   assert.match(hotelManagementLoader, /const requestSession = captureAuthSession\(\);/);
   assert.match(hotelManagementLoader, /const requestSeq = \+\+hotelManagementRequestSeq;/);
   assert.match(hotelManagementLoader, /requestSeq === hotelManagementRequestSeq[\s\S]*isAuthSessionCurrent\(requestSession\)/);
   assert.match(hotelManagementLoader, /await Promise\.allSettled\([\s\S]*if \(!isCurrentRequest\(\)\) return false;/);
   assert.match(hotelManagementLoader, /finally \{\s*if \(hotelManagementLoadingPromise === run\) \{\s*hotelManagementLoadingPromise = null;\s*hotelManagementLoading\.value = false;/);
-  assert.match(hotelManagementLoader, /if \(coreOperationsHasAccessibleHotel\.value\) \{[\s\S]*ensureHotelOtaConfigLists/);
+  assert.match(hotelManagementLoader, /coreOperationsHasAccessibleHotel\.value\s*\?\s*ensureHotelOtaConfigLists/);
   assert.match(hotelManagementLoader, /hotelManagementFailureLabels\(deep, coreOperationsHasAccessibleHotel\.value\)/);
 });
 

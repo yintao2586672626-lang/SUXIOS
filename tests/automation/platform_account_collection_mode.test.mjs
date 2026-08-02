@@ -148,7 +148,11 @@ test('platform account UI names manual and automatic paths and routes them separ
 test('multi-hotel account center loads all permitted data sources instead of inheriting the selected hotel', () => {
   assert.match(
     html,
-    /request\('\/online-data\/data-sources', \{\s*withBusinessContext: false,\s*requestPolicy: loadOptions\.requestPolicy,\s*\}\)/,
+    /const requestPolicy = loadOptions\.requestPolicy && typeof loadOptions\.requestPolicy === 'object'[\s\S]*?currentPageReadPolicy\(currentPage\.value, force \? 'action' : 'current'\)/,
+  );
+  assert.match(
+    html,
+    /request\('\/online-data\/data-sources', \{\s*withBusinessContext: false,\s*requestPolicy,\s*\}\)/,
   );
 });
 

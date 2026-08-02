@@ -108,18 +108,18 @@ test('revenue research execution bridge creates only an intent then opens ops-tr
 });
 
 test('AI daily report keeps execution tracking on the selected hotel', () => {
-  const start = appMain.indexOf('const loadAiDailyReport = async');
-  const end = appMain.indexOf('const loadOperationActions = async', start);
-  const bridge = appMain.slice(start, end);
+  const start = operationStatic.indexOf('const loadAiDailyReport = async');
+  const end = operationStatic.indexOf('const loadOperationActions = async', start);
+  const bridge = operationStatic.slice(start, end);
   assert.match(bridge, /operationFilters\.value\.hotel_id = String\(hotelId\)/);
   assert.match(bridge, /reportHotelId/);
   assert.match(bridge, /operationFilters\.value\.hotel_id = reportHotelId/);
 });
 
 test('non-price execution evidence can be saved without fabricating revenue or ROI', () => {
-  const start = appMain.indexOf('const recordOperationExecutionEvidence = async');
-  const end = appMain.indexOf('const recordOperationRoiEvidence = async', start);
-  const evidenceFlow = appMain.slice(start, end);
+  const start = operationStatic.indexOf('const recordOperationExecutionEvidence = async');
+  const end = operationStatic.indexOf('const recordOperationRoiEvidence = async', start);
+  const evidenceFlow = operationStatic.slice(start, end);
   assert.match(evidenceFlow, /currentPage\.value !== 'ops-track'/);
   assert.match(evidenceFlow, /currentPage\.value = 'ops-track'/);
   assert.match(evidenceFlow, /operationEvidenceModalOpen\.value = true/);
@@ -142,9 +142,9 @@ test('revenue node check is independent from completed-action evidence and reads
   assert.match(trackPage, /recordOperationRevenueNodeCheck\(item\)/);
   assert.match(trackPage, /更新节点.*节点检查/);
   assert.match(operationStatic, /PMS \+ OTA 交叉核对/);
-  const start = appMain.indexOf('const recordOperationRevenueNodeCheck = async');
-  const end = appMain.indexOf('const recordOperationExecutionEvidence = async', start);
-  const nodeFlow = appMain.slice(start, end);
+  const start = operationStatic.indexOf('const recordOperationRevenueNodeCheck = async');
+  const end = operationStatic.indexOf('const recordOperationExecutionEvidence = async', start);
+  const nodeFlow = operationStatic.slice(start, end);
   assert.match(nodeFlow, /evidence_type: 'revenue_node_check'/);
   assert.match(nodeFlow, /`\/operation\/execution-tasks\/\$\{taskId\}\/evidence`/);
   assert.match(nodeFlow, /system_hotel_id: executionHotelId/);
@@ -176,31 +176,31 @@ test('revenue node check is independent from completed-action evidence and reads
   assert.equal(persistedFields.some(field => String(truncatedReadback[field] ?? '') !== String(expectedNode[field] ?? '')), true);
   assert.match(nodeFlow, /String\(persistedNode\[field\] \?\? ''\) !== String\(nodeRecord\[field\] \?\? ''\)/);
   assert.match(nodeFlow, /节点检查未按完整口径精确回读/);
-  assert.match(appMain, /node_record: nodeRecord/);
+  assert.match(operationStatic, /node_record: nodeRecord/);
   assert.match(appMain, /const nodeText = \(item\) => operationExecutionNodeRecordText\(item\)/);
 });
 
 test('operation execution requests keep the selected hotel identity consistent through readback', () => {
-  const loadStart = appMain.indexOf('const loadOperationActions = async');
-  const loadEnd = appMain.indexOf('const parseOperationEvidenceNumber', loadStart);
-  const loadFlow = appMain.slice(loadStart, loadEnd);
+  const loadStart = operationStatic.indexOf('const loadOperationActions = async');
+  const loadEnd = operationStatic.indexOf('const parseOperationEvidenceNumber', loadStart);
+  const loadFlow = operationStatic.slice(loadStart, loadEnd);
   assert.match(loadFlow, /params\.append\('hotel_id', requestHotelId\)/);
   assert.match(loadFlow, /params\.append\('system_hotel_id', requestHotelId\)/);
-  const memoryStart = appMain.indexOf('const loadOperatingMemories = async');
-  const memoryEnd = appMain.indexOf('const operationMemorySourceIntent', memoryStart);
-  const memoryFlow = appMain.slice(memoryStart, memoryEnd);
+  const memoryStart = operationStatic.indexOf('const loadOperatingMemories = async');
+  const memoryEnd = operationStatic.indexOf('const saveOperationExecutionMemory = async', memoryStart);
+  const memoryFlow = operationStatic.slice(memoryStart, memoryEnd);
   assert.match(memoryFlow, /params\.set\('hotel_id', requestedHotelId\)/);
   assert.match(memoryFlow, /params\.set\('system_hotel_id', requestedHotelId\)/);
-  assert.match(appMain, /const operationExecutionHotelId = \(item\)/);
-  assert.match(appMain, /执行任务与当前酒店身份不一致/);
-  assert.match(appMain, /执行任务回读酒店身份不一致/);
+  assert.match(operationStatic, /const operationExecutionHotelId = \(item\)/);
+  assert.match(operationStatic, /执行任务与当前酒店身份不一致/);
+  assert.match(operationStatic, /执行任务回读酒店身份不一致/);
 });
 
 test('execution approval uses an in-page two-click confirmation without a native dialog', () => {
-  const start = appMain.indexOf('const operationApprovalConfirming =');
-  const end = appMain.indexOf('const recordOperationExecutionEvidence = async', start);
+  const start = operationStatic.indexOf('const operationApprovalConfirming =');
+  const end = operationStatic.indexOf('const recordOperationExecutionEvidence = async', start);
   assert.ok(start > 0 && end > start, 'approval confirmation flow must be present');
-  const approvalFlow = appMain.slice(start, end);
+  const approvalFlow = operationStatic.slice(start, end);
   assert.match(approvalFlow, /operationApprovalConfirmingIntentId\.value = Number\(item\.id\)/);
   assert.match(approvalFlow, /请再次点击“确认审批”/);
   assert.match(approvalFlow, /rejectOrCancelOperationApproval/);
@@ -215,9 +215,9 @@ test('effect review uses an in-page form and preserves the observing state when 
   assert.match(trackPage, /<option value="observing">继续观察<\/option>/);
   assert.match(trackPage, /submitOperationExecutionReview/);
 
-  const start = appMain.indexOf('const reviewOperationExecutionTask = async');
-  const end = appMain.indexOf('const finishOperationAction = async', start);
-  const reviewFlow = appMain.slice(start, end);
+  const start = operationStatic.indexOf('const reviewOperationExecutionTask = async');
+  const end = operationStatic.indexOf('const finishOperationAction = async', start);
+  const reviewFlow = operationStatic.slice(start, end);
   assert.match(reviewFlow, /operationReviewModalOpen\.value = true/);
   assert.match(reviewFlow, /result_summary: resultSummary \|\| '继续观察，等待次日收益或ROI证据'/);
   assert.match(reviewFlow, /readback_evidence:/);
