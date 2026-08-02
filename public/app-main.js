@@ -7822,7 +7822,7 @@
             let revenueAiOverviewRequestSeq = 0;
             const revenueAiOverviewRequestPromises = new Map();
             const revenueAiStaticScript = 'revenue-ai-static.js';
-            const revenueAiStaticVersion = '20260731-analysis-diagnostics-hc2a2db7779';
+            const revenueAiStaticVersion = '20260731-analysis-diagnostics-h3b5a6ffee9';
             const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
             const revenueAiStaticNotLoadedClass = 'border-slate-200 bg-slate-100 text-slate-600';
             const revenueAiStaticReady = ref(!!window.SUXI_REVENUE_AI_STATIC);
@@ -27883,10 +27883,39 @@
                 return status;
             };
 
+            const operationApprovalConfirming = ref(false);
+            const operationApprovalConfirmingIntentId = ref(0);
+            const clearOperationApprovalConfirmation = () => {
+                operationApprovalConfirming.value = false;
+                operationApprovalConfirmingIntentId.value = 0;
+            };
+            const operationApprovalText = (item) => (
+                operationApprovalConfirming.value
+                && operationApprovalConfirmingIntentId.value === Number(item?.id || 0)
+                    ? '确认审批'
+                    : '审批'
+            );
+            const operationRejectText = (item) => (
+                operationApprovalConfirming.value
+                && operationApprovalConfirmingIntentId.value === Number(item?.id || 0)
+                    ? '取消确认'
+                    : '驳回'
+            );
+            const rejectOrCancelOperationApproval = async (item) => {
+                if (operationApprovalConfirming.value
+                    && operationApprovalConfirmingIntentId.value === Number(item?.id || 0)
+                ) {
+                    clearOperationApprovalConfirmation();
+                    showToast('已取消审批确认', 'info');
+                    return;
+                }
+                await approveOperationExecutionIntent(item, false);
+            };
             const approveOperationExecutionIntent = async (item, approved = true) => {
                 if (!item?.id) return;
                 let remark = '';
                 if (!approved) {
+                    clearOperationApprovalConfirmation();
                     const formValues = await openWorkflowFormDialog({
                         title: '驳回执行意图',
                         description: '驳回原因会写入本地审批记录，供后续复核。',
@@ -27896,7 +27925,16 @@
                     if (formValues === null) return;
                     remark = String(formValues.remark || '').trim();
                 }
-                if (approved && !confirm('确认审批该执行意图？')) return;
+                if (approved && (
+                    !operationApprovalConfirming.value
+                    || operationApprovalConfirmingIntentId.value !== Number(item.id)
+                )) {
+                    operationApprovalConfirming.value = true;
+                    operationApprovalConfirmingIntentId.value = Number(item.id);
+                    showToast('请再次点击“确认审批”完成操作', 'info');
+                    return;
+                }
+                if (approved) clearOperationApprovalConfirmation();
                 operationLoading.value.actions = true;
                 try {
                     const res = await apiRequest(`/operation/execution-intents/${item.id}/approve`, {
@@ -39801,7 +39839,7 @@
                 }
                 clearCtripRankingDisplayState();
                 try {
-                    return await runCtripFetchDataFlow({
+                    const runFetchAttempt = () => runCtripFetchDataFlow({
                         isLoggedIn: () => isLoggedIn.value,
                         getSelectedCtripHotelId: () => selectedCtripHotelId.value,
                         notify: showToast,
@@ -39843,6 +39881,34 @@
                         background: options?.background === true,
                         suppressPostFetchRefresh: options?.suppressPostFetchRefresh === true,
                     });
+                    let result = await runFetchAttempt();
+                    if (options?.background === true) return result;
+
+                    let normalizedQuality = summarizeManualOneClickFetchQunarVisitorQuality(ctripHotelsList.value);
+                    let retryCount = 0;
+                    while (manualOneClickFetchQunarVisitorNeedsRetry(normalizedQuality)) {
+                        if (!manualOneClickFetchQunarAutoRetryAllowedAt()) {
+                            showToast('00:00–05:59 去哪儿数据正常待更新时段，本次保留字段缺口，不自动补抓。', 'warning');
+                            break;
+                        }
+                        if (retryCount >= CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT) break;
+                        retryCount += 1;
+                        showToast(
+                            `去哪儿数据为 0，正在自动补抓（${retryCount}/${CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT}）`,
+                            'info',
+                        );
+                        await new Promise(resolve => window.setTimeout(
+                            resolve,
+                            Math.min(1800, 600 * retryCount),
+                        ));
+                        result = await runFetchAttempt();
+                        normalizedQuality = summarizeManualOneClickFetchQunarVisitorQuality(ctripHotelsList.value);
+                    }
+                    return {
+                        ...result,
+                        qunarVisitorQuality: normalizedQuality,
+                        qunarRetryCount: retryCount,
+                    };
                 } finally {
                     if (preparingConfig) {
                         fetchingData.value = false;
@@ -47206,7 +47272,7 @@
                 operationExecutionStatusLabel, operationExecutionStatusClass, operationExecutionReviewText, nodeText, operationExecutionRoiText,
                 operationExecutionBottleneckText, operationExecutionMoneyStatusText, operationExecutionMoneyStatusClass, operationExecutionNextActionClass,
                 operationCanApproveExecution, operationCanExecuteWithEvidence, operationCanReconcileExecution, operationCanReviewExecution, operationCanSaveOperatingMemory, operationExecutionActionAvailable, operationExecutionRowClass, operationExecutionTraceRows,
-                approveOperationExecutionIntent, recordOperationExecutionEvidence, reconcileOperationExecutionReview, reviewOperationExecutionTask, saveOperationExecutionMemory,
+                approveOperationExecutionIntent, operationApprovalText, operationRejectText, rejectOrCancelOperationApproval, recordOperationExecutionEvidence, reconcileOperationExecutionReview, reviewOperationExecutionTask, saveOperationExecutionMemory,
                 operatingMemoryItems, operatingMemoryDataGapText, operatingMemoryPanelMessage, operatingMemoryPanelTestId, operatingMemoryPanelBody, operatingMemoryDisplayText, operatingMemoryLayerLabel, operatingMemoryQualityLabel, operatingMemoryQualityClass, operatingMemoryUsageLabel, operatingMemoryEvidenceCount, loadOperatingMemories,
                 canSaveMemo, saveMemo, memoBody,
                 openingProjects, selectedOpeningProjectId, selectedOpeningProject, openingExecutionIntentId, openingOverview, openingTasks, openingLoading,

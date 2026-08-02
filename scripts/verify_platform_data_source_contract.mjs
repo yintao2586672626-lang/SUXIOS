@@ -8,6 +8,12 @@ const frontendContractFiles = [
   'resources/frontend/app-template.html',
   'public/app-main.js',
 ];
+const platformSyncImplementationFiles = [
+  'app/service/PlatformDataSyncService.php',
+  'app/service/concern/PlatformDataPersistenceConcern.php',
+  'app/service/concern/PlatformDataSourceExecutionConcern.php',
+  'app/service/concern/PlatformSyncTaskConcern.php',
+];
 const read = (file) => {
   if (file === 'public/index.html') {
     // The served entry is now a generated shell. Template/entry drift is guarded
@@ -37,6 +43,11 @@ function sourceSection(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
   const end = start === -1 ? -1 : source.indexOf(endNeedle, start + startNeedle.length);
   return start !== -1 && end !== -1 ? source.slice(start, end) : '';
+}
+
+function sourceTail(source, startNeedle) {
+  const start = source.indexOf(startNeedle);
+  return start === -1 ? '' : source.slice(start);
 }
 
 const reusableOtaSecretTaskField = /['"](?:cookies?|auth_data|authorization|token|access_token|refresh_token|spidertoken|spider_token|spiderkey|spider_key|mtgsig|headers|headers_json|password|api_key)['"]\s*=>/i;
@@ -454,7 +465,7 @@ for (const [needle, label] of [
   ['desensitized_capture_evidence_count', 'platform sync summarizes P0-grade desensitized evidence'],
   ['fieldFactHasDesensitizedCaptureEvidence', 'platform sync requires trace and source hash for strict evidence'],
 ]) {
-  check('app/service/PlatformDataSyncService.php', label, (source) => source.includes(needle), needle);
+  checkSources(platformSyncImplementationFiles, label, (source) => source.includes(needle), needle);
 }
 
 check(
@@ -478,14 +489,16 @@ for (const [needle, label] of [
   check('app/controller/concern/PlatformProfileCaptureConcern.php', label, (source) => source.includes(needle), needle);
 }
 
-check(
-  'app/controller/concern/AutoFetchConcern.php',
+checkSources(
+  [
+    'app/controller/concern/AutoFetchConcern.php',
+    'app/controller/concern/CtripAutoFetchExecutionConcern.php',
+  ],
   'Ctrip Cookie/API tasks require a metadata-ready vault locator and keep reusable secrets out of task bodies',
   (source) => {
-    const taskPlan = sourceSection(
-      source,
-      'private function buildAutoFetchConfigTaskPlan',
-      'private function syncCtripBrowserProfileDataSourcesForAutoFetch'
+    const taskPlan = sourceTail(
+      readFile('app/controller/concern/AutoFetchConcern.php'),
+      'private function buildAutoFetchConfigTaskPlan'
     );
     const ctripPlan = sourceSection(taskPlan, '$ctripConfigId =', '$meituanConfigId =');
     const executor = sourceSection(
@@ -503,14 +516,16 @@ check(
   'metadata readiness + config_id/system_hotel_id + vault execution; no reusable secret task fields'
 );
 
-check(
-  'app/controller/concern/AutoFetchConcern.php',
+checkSources(
+  [
+    'app/controller/concern/AutoFetchConcern.php',
+    'app/controller/concern/MeituanAutoFetchExecutionConcern.php',
+  ],
   'Meituan ranking tasks require a metadata-ready vault locator and keep reusable secrets out of task bodies',
   (source) => {
-    const taskPlan = sourceSection(
-      source,
-      'private function buildAutoFetchConfigTaskPlan',
-      'private function syncCtripBrowserProfileDataSourcesForAutoFetch'
+    const taskPlan = sourceTail(
+      readFile('app/controller/concern/AutoFetchConcern.php'),
+      'private function buildAutoFetchConfigTaskPlan'
     );
     const meituanPlan = sourceSection(taskPlan, '$meituanConfigId =', 'return $tasks;');
     const executor = sourceSection(
@@ -529,14 +544,17 @@ check(
   'metadata readiness + config_id/system_hotel_id + vault execution; no reusable secret task fields'
 );
 
-check(
-  'app/controller/concern/AutoFetchConcern.php',
+checkSources(
+  [
+    'app/controller/concern/AutoFetchConcern.php',
+    'app/controller/concern/CtripAutoFetchExecutionConcern.php',
+    'app/controller/concern/MeituanAutoFetchExecutionConcern.php',
+  ],
   'Meituan traffic execution requires the full vault locator and task planning excludes reusable secrets',
   (source) => {
-    const taskPlan = sourceSection(
-      source,
-      'private function buildAutoFetchConfigTaskPlan',
-      'private function syncCtripBrowserProfileDataSourcesForAutoFetch'
+    const taskPlan = sourceTail(
+      readFile('app/controller/concern/AutoFetchConcern.php'),
+      'private function buildAutoFetchConfigTaskPlan'
     );
     const locatorGate = sourceSection(
       source,
@@ -635,6 +653,7 @@ checkSources(
   [
     'app/controller/OnlineData.php',
     'app/controller/concern/AutoFetchConcern.php',
+    'app/controller/concern/CtripAutoFetchExecutionConcern.php',
     'app/controller/concern/OnlineDataRequestConcern.php',
   ],
   'Ctrip browser Profile save paths do not use Profile ID as request hotel ID fallback',
@@ -770,7 +789,10 @@ check(
       && !loadData[0].includes('loadBookmarklet();')
       && source.includes("if (newPage === 'users')")
       && source.includes("if (newPage === 'roles')")
-      && source.includes('loadBookmarklet()')
+      && (source.includes('loadBookmarklet()') || (
+        source.includes('const loadBookmarklet = async () => {')
+        && source.includes('旧版 Cookie 书签已禁用')
+      ))
       && loadHotels
       && source.includes('const HOTEL_LIST_CACHE_TTL_MS = 30000;')
       && source.includes('const scheduleStartupHotelListLoad = (delayMs = null) => {')
@@ -781,7 +803,7 @@ check(
       && loadHotels[0].includes("options.includeInactive === true || currentPage.value === 'hotels'")
       && loadHotels[0].includes('const usePagedList = user.value?.is_super_admin && includeInactive;')
       && loadHotels[0].includes('`/hotels?page=${page}&page_size=100&sort_by=id&sort_order=desc`')
-      && loadHotels[0].includes("})() : await request('/hotels/all')")
+      && loadHotels[0].includes("})() : await request('/hotels/all', { requestPolicy })")
       && source.includes('loadHotels({ force: true, includeInactive: true })');
   },
   'loadData defers system config, roles/users/cookies/bookmarklet and schedules a bounded paginated hotel list'
