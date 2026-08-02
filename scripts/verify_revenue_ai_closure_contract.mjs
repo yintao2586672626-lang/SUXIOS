@@ -2009,13 +2009,6 @@ includesAll('public/index.html', 'Revenue AI homepage can execute the manual clo
   'recordOperationExecutionEvidence(taskItem)',
   'recordOperationRoiEvidence(taskItem)',
   'reviewOperationExecutionTask(taskItem)',
-  "`/operation/execution-tasks/${taskId}/execute`",
-  "`/operation/execution-tasks/${taskId}/evidence`",
-  "`/operation/execution-tasks/${taskId}/review`",
-  "evidence_type: 'manual_price_execution'",
-  "evidence_type: 'manual_roi_evidence'",
-  "evidence_boundary: 'local_manual_evidence_no_ota_write'",
-  "evidence_boundary: 'local_manual_roi_evidence_no_ota_write'",
   'data-testid="revenue-ai-trusted-decision"',
   'item.trustedDecisionRows',
   '转运营任务',
@@ -2075,6 +2068,16 @@ includesAll('public/index.html', 'Revenue AI homepage can execute the manual clo
   'action.investmentPrecheckVisible',
   'action.resolutionPlanVisible',
   '只读',
+]);
+
+includesAll('public/operation-static.js', 'Revenue AI manual closure implementation stays on local evidence routes after operation workflow extraction', [
+  "`/operation/execution-tasks/${taskId}/execute`",
+  "`/operation/execution-tasks/${taskId}/evidence`",
+  "`/operation/execution-tasks/${taskId}/review`",
+  "evidence_type: 'manual_price_execution'",
+  "evidence_type: 'manual_roi_evidence'",
+  "evidence_boundary: 'local_manual_evidence_no_ota_write'",
+  "evidence_boundary: 'local_manual_roi_evidence_no_ota_write'",
 ]);
 
 excludesAll('public/index.html', 'Agent pricing suggestion workbench no longer bypasses Revenue AI review bridge', [
