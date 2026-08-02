@@ -219,7 +219,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertTrue($allowed['allowed']);
     }
 
-    public function testOnlineHistoryReadPathsRequireOnlineDataViewPermission(): void
+    public function testOnlineHistoryDetailPathsRequireOnlineDataViewPermission(): void
     {
         $service = new ProtectedCapabilityService();
 
@@ -228,9 +228,9 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertNull($service->classifyPath('GET', '/api/online-data/daily-data-list?hotel_id=7'));
         self::assertNull($service->classifyPath('GET', '/api/online-data/daily-data-summary?hotel_id=7'));
         self::assertNull($service->classifyPath('GET', '/api/online-data/data-sources?hotel_id=7'));
+        self::assertNull($service->classifyPath('GET', '/api/online-data/history?hotel_id=7'));
 
         foreach ([
-            '/api/online-data/history?hotel_id=7',
             '/api/online-data/ctrip/history?hotel_id=7',
             '/api/online-data/history/9',
         ] as $path) {

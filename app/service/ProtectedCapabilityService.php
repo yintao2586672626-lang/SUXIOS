@@ -102,7 +102,6 @@ class ProtectedCapabilityService
                     'permission' => 'can_view_online_data',
                     'module' => 'online_data',
                     'paths' => [
-                        ['path' => 'api/online-data/history', 'methods' => ['GET']],
                         ['path' => 'api/online-data/ctrip/history', 'methods' => ['GET']],
                         ['path' => 'api/online-data/history/*', 'methods' => ['GET']],
                     ],
