@@ -47,6 +47,23 @@ final class KnowledgeChunkGateSummaryService
                 $content = is_array($decoded) ? $decoded : [];
             }
             $content = is_array($content) ? $content : [];
+            $isFormal = strtolower(trim((string)($chunk['type'] ?? ''))) === 'formal_operating_sop'
+                || strtolower(trim((string)($content['formal_record_type'] ?? ''))) === 'operating_sop'
+                || (int)($chunk['promotion_candidate_id'] ?? 0) > 0
+                || (int)($chunk['operating_sop_version_id'] ?? 0) > 0;
+            if ($isFormal) {
+                $databaseLifecycle = strtolower(trim((string)($chunk['lifecycle_status'] ?? '')));
+                $integrityValid = (new KnowledgeContentDigestService())->matches(
+                    (string)($chunk['content_digest'] ?? ''),
+                    $content
+                );
+                $content['lifecycle_status'] = $databaseLifecycle;
+                $currentChunkId = (int)($unitsById[$unitId]['current_chunk_id'] ?? 0);
+                $chunkId = (int)($chunk['chunk_id'] ?? 0);
+                if (!$integrityValid || ($databaseLifecycle === 'active' && $currentChunkId !== $chunkId)) {
+                    $content['lifecycle_status'] = 'tampered';
+                }
+            }
             $summaries[$unitId]['total_count']++;
             $entriesByUnit[$unitId][] = [
                 'chunk_id' => (int)($chunk['chunk_id'] ?? 0),

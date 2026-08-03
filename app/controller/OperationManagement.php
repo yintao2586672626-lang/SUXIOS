@@ -246,6 +246,82 @@ class OperationManagement extends Base
         }
     }
 
+    public function growthArchiveTimeline(): Response
+    {
+        try {
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
+            if ($hotelId === null || $hotelId <= 0) {
+                throw new \InvalidArgumentException('请选择单个酒店查看经营成长档案');
+            }
+            return $this->success($this->memoryService->growthTimeline(
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                $hotelId,
+                $this->request->get()
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '经营成长档案查询失败'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function createGrowthArchiveEvent(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0), 'operation.execute');
+            if ($hotelId === null || $hotelId <= 0) {
+                throw new \InvalidArgumentException('请选择单个酒店记录经营事件');
+            }
+            return $this->success($this->memoryService->createManualGrowthEvent(
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                $hotelId,
+                $input,
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '经营事件保存失败'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function addGrowthArchiveAnnotation(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('经营档案ID无效', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            return $this->success($this->memoryService->addOwnerAnnotation(
+                $id,
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                $this->requestData(),
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '老板批注保存失败'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function markGrowthArchiveMilestone(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('经营档案ID无效', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            return $this->success($this->memoryService->markMilestone(
+                $id,
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                $this->requestData(),
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '经营里程碑保存失败'), $this->operationThrowableStatus($e));
+        }
+    }
+
     public function readOperatingMemory(int $id): Response
     {
         try {
@@ -415,6 +491,23 @@ class OperationManagement extends Base
         }
     }
 
+    public function reconcileExecutionTaskReview(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution task id is invalid', 422);
+            }
+
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            return $this->success($this->service->reconcileScheduledExecutionTask($id, $hotelIds));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'scheduled execution readback failed'),
+                $this->operationThrowableStatus($e)
+            );
+        }
+    }
+
     private function resolveHotelScope(int $inputHotelId = 0, string $capability = 'operation.view'): array
     {
         if (!$this->currentUser) {
@@ -541,7 +634,18 @@ class OperationManagement extends Base
         if ($message === '未登录') {
             return 401;
         }
-        if (in_array($message, ['暂无可访问酒店', '无权查看该酒店数据', '暂无可执行运营操作的酒店', '无权限执行该酒店运营操作', '无权查看该酒店经营记忆', '无权保存该酒店经营记忆'], true)) {
+        if (in_array($message, [
+            '暂无可访问酒店',
+            '无权查看该酒店数据',
+            '暂无可执行运营操作的酒店',
+            '无权限执行该酒店运营操作',
+            '无权查看该酒店经营记忆',
+            '无权保存该酒店经营记忆',
+            '无权查看该酒店经营成长档案',
+            '无权保存该酒店经营档案',
+            '无权批注该酒店经营档案',
+            '无权设置该酒店经营里程碑',
+        ], true)) {
             return 403;
         }
         if (str_contains(strtolower($message), 'not found')) {

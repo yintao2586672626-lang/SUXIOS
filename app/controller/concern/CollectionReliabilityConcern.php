@@ -1549,6 +1549,7 @@ trait CollectionReliabilityConcern
         }
 
         return 'collection_reliability:' . md5(implode('|', [
+            'hotel_scoped_p0_v3',
             (string)($hotelId ?? 'all'),
             $startDate,
             $endDate,
@@ -1602,6 +1603,7 @@ trait CollectionReliabilityConcern
     private function buildCollectionReliabilityLightPayload(?int $hotelId, string $startDate, string $endDate): array
     {
         $periodDays = (int)floor((strtotime($endDate) - strtotime($startDate)) / 86400) + 1;
+        $tenantId = $this->collectionReliabilityTenantId($hotelId);
         $authorizationRows = $this->filterCollectionAuthorizationRows($this->buildCookieStatusRows(), $hotelId);
         $alerts = $this->filterCollectionAlertsByHotel($this->getCookieAlerts(), $hotelId);
         $collectionLogs = $this->buildCollectionLogRows($hotelId, $startDate, $endDate, 10);
@@ -1614,6 +1616,7 @@ trait CollectionReliabilityConcern
                 'days' => $periodDays,
             ],
             'hotel_id' => $hotelId,
+            'tenant_id' => $tenantId > 0 ? $tenantId : null,
             'status_catalog' => $this->collectionReliabilityStatusCatalog(),
             'collection_lifecycle_catalog' => $this->collectionLifecycleCatalog(),
             'authorization' => [
@@ -1646,6 +1649,7 @@ trait CollectionReliabilityConcern
     private function buildCollectionReliabilityPayload(?int $hotelId, string $startDate, string $endDate): array
     {
         $periodDays = (int)floor((strtotime($endDate) - strtotime($startDate)) / 86400) + 1;
+        $tenantId = $this->collectionReliabilityTenantId($hotelId);
         $authorizationRows = $this->filterCollectionAuthorizationRows($this->buildCookieStatusRows(), $hotelId);
         $alerts = $this->filterCollectionAlertsByHotel($this->getCookieAlerts(), $hotelId);
         $collectionLogs = $this->buildCollectionLogRows($hotelId, $startDate, $endDate, 30);
@@ -1661,6 +1665,7 @@ trait CollectionReliabilityConcern
                 'days' => $periodDays,
             ],
             'hotel_id' => $hotelId,
+            'tenant_id' => $tenantId > 0 ? $tenantId : null,
             'status_catalog' => $this->collectionReliabilityStatusCatalog(),
             'ctrip_capture_catalog' => $this->readCtripCaptureCatalogHealth(),
             'ctrip_latest_capture' => $this->readCtripLatestCaptureDashboard(),
@@ -1682,6 +1687,23 @@ trait CollectionReliabilityConcern
             'data_quality' => $this->buildCollectionQualitySnapshot($qualityRows),
             'pending_actions' => $this->buildCollectionPendingActions($authorizationRows, $alerts, $collectionLogs, $qualityRows),
         ];
+    }
+
+    private function collectionReliabilityTenantId(?int $hotelId): int
+    {
+        if ($hotelId !== null && $hotelId > 0) {
+            try {
+                $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+                if ($tenantId > 0) {
+                    return $tenantId;
+                }
+            } catch (\Throwable) {
+                // An explicit hotel without authoritative tenant scope must fail closed.
+            }
+            return 0;
+        }
+
+        return max(0, (int)($this->currentUser->tenant_id ?? 0));
     }
     private function resolveDashboardHotelId($input, bool $required): ?int
     {

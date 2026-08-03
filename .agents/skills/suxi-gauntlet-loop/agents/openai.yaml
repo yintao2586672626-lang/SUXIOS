@@ -1,0 +1,4 @@
+interface:
+  display_name: "宿析证据试炼循环"
+  short_description: "审计标杆，以确定性门禁、隔离盲审和有界返工完成可信交付"
+  default_prompt: "使用 $suxi-gauntlet-loop 接管标杆与边界，按证据校准的构建、盲审和有界返工流程交付结果。"

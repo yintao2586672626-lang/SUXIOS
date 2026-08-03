@@ -7,6 +7,7 @@ use app\service\OperatingMemoryService;
 use app\service\OperationManagementService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
@@ -49,7 +50,13 @@ final class OperatingMemoryServiceTest extends TestCase
 
     protected function setUp(): void
     {
+        Db::execute('DROP TABLE IF EXISTS hotels');
         Db::execute('DROP TABLE IF EXISTS hotel_operating_memories');
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
+        Db::name('hotels')->insertAll([
+            ['id' => 20, 'tenant_id' => 10],
+            ['id' => 21, 'tenant_id' => 11],
+        ]);
         Db::execute(
             'CREATE TABLE hotel_operating_memories ('
             . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, '
@@ -168,6 +175,127 @@ final class OperatingMemoryServiceTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('请先执行数据库迁移');
         $service->createFromExecutionTask(301, 10, [20], 7);
+    }
+
+    public function testManualGrowthEventIsUnverifiedIdempotentAndStrictlyReadBack(): void
+    {
+        $service = new OperatingMemoryService($this->operationSource());
+        $input = [
+            'event_kind' => 'manual_background',
+            'title' => '当地会议临时取消',
+            'summary' => '确认会议取消后，暂不立即降价。',
+            'owner_judgement' => '先观察同口径渠道数据一天。',
+            'occurred_at' => '2026-08-03T10:30',
+            'business_date' => '2026-08-03',
+            'platform' => 'manual',
+            'source_scope' => 'manual_background',
+            'client_request_id' => 'growth-event-20260803-001',
+        ];
+
+        $saved = $service->createManualGrowthEvent(10, [20], 20, $input, 7);
+        self::assertTrue($saved['created']);
+        self::assertSame('readback_verified', $saved['persistence_status']);
+        self::assertFalse($saved['write_boundaries']['ota_write']);
+        self::assertFalse($saved['write_boundaries']['external_message']);
+        self::assertSame('unverified', $saved['memory']['quality_status']);
+        self::assertSame('archive_only', $saved['memory']['usage_level']);
+        self::assertSame('manual_background', $saved['memory']['event_kind']);
+        self::assertSame('2026-08-03 10:30:00', $saved['memory']['occurred_at']);
+        self::assertSame('先观察同口径渠道数据一天。', $saved['memory']['context']['owner_judgement']);
+
+        $same = $service->createManualGrowthEvent(10, [20], 20, $input, 7);
+        self::assertFalse($same['created']);
+        self::assertSame($saved['memory']['id'], $same['memory']['id']);
+
+        try {
+            $service->createManualGrowthEvent(10, [20], 20, array_merge($input, [
+                'client_request_id' => 'growth-event-20260803-002',
+                'platform' => 'ctrip',
+                'source_scope' => 'whole_hotel',
+            ]), 7);
+            self::fail('OTA channel input must not be elevated to whole-hotel scope.');
+        } catch (InvalidArgumentException $e) {
+            self::assertStringContainsString('不能升级', $e->getMessage());
+        }
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('无权保存该酒店经营档案');
+        $service->createManualGrowthEvent(10, [21], 21, $input, 7);
+    }
+
+    public function testOwnerAnnotationAndMilestoneKeepOriginalAndVersionHistory(): void
+    {
+        $service = new OperatingMemoryService($this->operationSource());
+        $base = $service->createManualGrowthEvent(10, [20], 20, [
+            'event_kind' => 'decision',
+            'title' => '周末价格保持不变',
+            'summary' => '决定先观察竞品两天。',
+            'occurred_at' => '2026-08-01 09:00:00',
+            'platform' => 'ctrip',
+            'source_scope' => 'ota_channel',
+        ], 7)['memory'];
+
+        $annotation = $service->addOwnerAnnotation((int)$base['id'], 10, [20], [
+            'annotation' => '结果变好，但不能证明一定由价格动作造成。',
+        ], 7);
+        self::assertSame('readback_verified', $annotation['persistence_status']);
+        self::assertSame('judgement', $annotation['memory']['memory_layer']);
+        self::assertSame((int)$base['id'], $annotation['memory']['previous_memory_id']);
+        self::assertTrue($annotation['memory']['is_owner_annotation']);
+
+        $milestone = $service->markMilestone((int)$base['id'], 10, [20], ['note' => '首次保留完整判断链'], 7);
+        self::assertSame('milestone', $milestone['memory']['event_kind']);
+        self::assertSame(7, $milestone['memory']['context']['marked_by']);
+        $milestoneV2 = $service->markMilestone((int)$base['id'], 10, [20], ['note' => '首次完成判断与批注闭环'], 7);
+        self::assertSame((int)$milestone['memory']['id'], $milestoneV2['memory']['previous_memory_id']);
+        self::assertSame('superseded', (string)Db::name(OperatingMemoryService::TABLE)
+            ->where('id', (int)$milestone['memory']['id'])->value('lifecycle_status'));
+
+        $baseReadback = $service->read((int)$base['id'], 10, [20]);
+        self::assertSame('周末价格保持不变', $baseReadback['title']);
+        self::assertSame('决定先观察竞品两天。', $baseReadback['summary']);
+        self::assertSame('active', $baseReadback['lifecycle_status']);
+    }
+
+    public function testGrowthTimelineFiltersExactHotelDateLayerAndEventKind(): void
+    {
+        $service = new OperatingMemoryService($this->operationSource());
+        $service->createManualGrowthEvent(10, [20], 20, [
+            'event_kind' => 'judgement',
+            'title' => '先观察',
+            'summary' => '暂不调整活动。',
+            'occurred_at' => '2026-08-03 08:00:00',
+            'platform' => 'meituan',
+            'source_scope' => 'ota_channel',
+        ], 7);
+        $service->createManualGrowthEvent(10, [20], 20, [
+            'event_kind' => 'fact',
+            'title' => '线下停房',
+            'summary' => '装修停用一间客房。',
+            'occurred_at' => '2026-08-02 08:00:00',
+            'platform' => 'manual',
+            'source_scope' => 'whole_hotel',
+        ], 7);
+
+        $timeline = $service->growthTimeline(10, [20], 20, [
+            'date_start' => '2026-08-03',
+            'date_end' => '2026-08-03',
+            'memory_layer' => 'judgement',
+            'event_kind' => 'judgement',
+        ]);
+        self::assertSame('ok', $timeline['data_status']);
+        self::assertSame(20, $timeline['hotel_id']);
+        self::assertCount(1, $timeline['list']);
+        self::assertSame('先观察', $timeline['list'][0]['title']);
+        self::assertNull($timeline['overview']['repeated_problem_count']);
+        self::assertSame('not_available', $timeline['overview']['repeated_problem_status']);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('结束日期不能早于开始日期');
+        $service->growthTimeline(10, [20], 20, [
+            'date_start' => '2026-08-04',
+            'date_end' => '2026-08-03',
+        ]);
     }
 
     private function operationSource(bool $tableExists = true): OperationManagementService

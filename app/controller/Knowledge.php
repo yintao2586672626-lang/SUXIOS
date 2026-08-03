@@ -9,6 +9,7 @@ use app\model\KnowledgeUnit;
 use app\service\KnowledgeDocumentTextExtractor;
 use app\service\KnowledgeDecisionGateService;
 use app\service\KnowledgeChunkGateSummaryService;
+use app\service\KnowledgeContentDigestService;
 use app\service\KnowledgeDistillationService;
 use app\service\KnowledgeMaterialIngestionService;
 use app\service\KnowledgePayloadMapper;
@@ -91,7 +92,7 @@ class Knowledge extends Base
             $chunkGateSummaries = [];
             if ($ids) {
                 $chunkRows = KnowledgeChunk::whereIn('unit_id', $ids)
-                    ->field('chunk_id,unit_id,content')
+                    ->field($this->knowledgeChunkGateFields())
                     ->select()
                     ->toArray();
                 $chunkGateSummaries = $this->knowledgeChunkGateSummaries($rows, $chunkRows);
@@ -132,10 +133,27 @@ class Knowledge extends Base
             $chunks = KnowledgeChunk::where('unit_id', $unit_id)->order('chunk_id', 'asc')->select()->toArray();
             $unitRow = $unit->toArray();
             $gateSummary = $this->knowledgeChunkGateSummaries([$unitRow], $chunks)[$unit_id] ?? null;
+            $currentChunkId = (int)($unitRow['current_chunk_id'] ?? 0);
+            $formattedChunks = array_map(function (array $row) use ($currentChunkId): array {
+                $row['_is_current'] = $currentChunkId > 0
+                    && (int)($row['chunk_id'] ?? 0) === $currentChunkId;
+                return $this->formatChunkRow($row);
+            }, $chunks);
+            $currentChunk = null;
+            $historyChunks = [];
+            foreach ($formattedChunks as $formattedChunk) {
+                if (($formattedChunk['is_current'] ?? false) === true) {
+                    $currentChunk = $formattedChunk;
+                } else {
+                    $historyChunks[] = $formattedChunk;
+                }
+            }
 
             return $this->ok([
                 'unit' => $this->formatUnitRow($unitRow, count($chunks), $gateSummary),
-                'chunks' => array_map(fn(array $row): array => $this->formatChunkRow($row), $chunks),
+                'chunks' => $formattedChunks,
+                'current_chunk' => $currentChunk,
+                'history_chunks' => $historyChunks,
             ]);
         } catch (\Throwable $e) {
             return $this->fail('Failed to load knowledge unit: ' . $e->getMessage(), 500);
@@ -172,6 +190,23 @@ class Knowledge extends Base
             $raw = trim((string)($data['raw'] ?? ''));
             $modelKey = trim((string)($data['model_key'] ?? 'deepseek_chat'));
             $tags = $this->normalizeTags($data['tags'] ?? []);
+            $importContext = [];
+
+            $uploadedFile = $this->request->file('file') ?: $this->request->file('document');
+            if ($uploadedFile) {
+                $extracted = $this->extractUploadedXlsxImport($uploadedFile);
+                $mode = 'xlsx';
+                $source = 'manual_template';
+                $raw = (string)$extracted['text'];
+                $importContext = [
+                    'source_document' => $extracted['source_document'],
+                    'material_classification' => 'manual_template',
+                    'knowledge_scope' => 'industry_general',
+                    'verification_status' => 'unverified',
+                    'container_scope' => 'authorized_hotel_container_only',
+                ];
+                $tags = $this->mergeKnowledgeTags($tags, ['人工模板', '行业通用', '未核验']);
+            }
 
             if ($mode === '') {
                 $mode = 'link';
@@ -185,12 +220,15 @@ class Knowledge extends Base
             if ($raw === '') {
                 return $this->fail('请输入需要导入的门店资料', 422);
             }
+            if (!$this->knowledgeUnitHasHotelColumn()) {
+                throw new ValidateException('knowledge hotel scope is unavailable');
+            }
 
             $hotelId = $this->resolveKnowledgeImportHotelId((int)($data['hotel_id'] ?? 0));
             $hotelName = $this->resolveKnowledgeHotelName($hotelId);
             $userId = $this->currentUserId();
             $service = new KnowledgeMaterialIngestionService();
-            $materials = $service->splitRawMaterials($raw, $mode);
+            $materials = $uploadedFile ? [$raw] : $service->splitRawMaterials($raw, $mode);
             if (empty($materials)) {
                 return $this->fail('没有可导入的资料内容', 422);
             }
@@ -202,14 +240,14 @@ class Knowledge extends Base
             $errors = [];
             foreach ($materials as $material) {
                 try {
-                    $distilled = $service->distillMaterial([
+                    $distilled = $service->distillMaterial(array_merge([
                         'mode' => $mode,
                         'source' => $source,
                         'content' => $material,
                         'hotel_id' => $hotelId,
                         'hotel_name' => $hotelName,
                         'model_key' => $modelKey,
-                    ]);
+                    ], $importContext));
                     $created[] = $this->persistImportedKnowledgeMaterial(
                         $distilled,
                         $material,
@@ -221,7 +259,8 @@ class Knowledge extends Base
                         $userId,
                         $modelKey,
                         'done',
-                        ''
+                        '',
+                        $importContext
                     );
                 } catch (\Throwable $e) {
                     $message = $this->shortErrorMessage($e->getMessage());
@@ -237,7 +276,8 @@ class Knowledge extends Base
                         $userId,
                         $modelKey,
                         'error',
-                        $message
+                        $message,
+                        $importContext
                     );
                 }
             }
@@ -246,6 +286,7 @@ class Knowledge extends Base
                 'hotel_id' => $hotelId,
                 'hotel_name' => $hotelName,
                 'model_key' => $modelKey,
+                'import_context' => $importContext,
                 'created' => $created,
                 'success_count' => count(array_filter($created, static fn(array $item): bool => ($item['unit']['status'] ?? '') === 'done')),
                 'error_count' => count($errors),
@@ -283,6 +324,46 @@ class Knowledge extends Base
         } catch (\Throwable $e) {
             return $this->fail('读取文档失败: ' . $e->getMessage(), 500);
         }
+    }
+
+    /**
+     * The import endpoint must derive text and provenance from the uploaded bytes.
+     * Client-provided raw text, filename metadata and fingerprints are ignored.
+     *
+     * @param mixed $file
+     * @return array<string, mixed>
+     */
+    private function extractUploadedXlsxImport($file): array
+    {
+        if (!is_object($file)) {
+            throw new ValidateException('请选择单个 xlsx 文件');
+        }
+        $size = method_exists($file, 'getSize') ? (int)$file->getSize() : 0;
+        if ($size > self::MAX_DOCUMENT_BYTES) {
+            throw new ValidateException('文档不能超过 5MB');
+        }
+
+        $filename = method_exists($file, 'getOriginalName')
+            ? trim((string)$file->getOriginalName())
+            : '';
+        if (strtolower((string)pathinfo($filename, PATHINFO_EXTENSION)) !== 'xlsx') {
+            throw new ValidateException('知识导入上传目前仅支持 xlsx 文件');
+        }
+
+        $path = method_exists($file, 'getPathname') ? (string)$file->getPathname() : '';
+        $result = (new KnowledgeDocumentTextExtractor())->extractFromPath($path, $filename);
+        $sourceDocument = is_array($result['source_document'] ?? null)
+            ? $result['source_document']
+            : [];
+        if (($result['extension'] ?? '') !== 'xlsx'
+            || trim((string)($result['text'] ?? '')) === ''
+            || preg_match('/^[a-f0-9]{64}$/', (string)($sourceDocument['sha256'] ?? '')) !== 1
+            || !is_array($sourceDocument['sheets'] ?? null)
+        ) {
+            throw new ValidateException('xlsx 服务端解析结果缺少可验证的来源元数据');
+        }
+
+        return $result;
     }
 
     public function addChunk(int $unit_id): Response
@@ -567,7 +648,8 @@ class Knowledge extends Base
     /**
      * @param array<string, mixed> $distilled
      * @param array<int, string> $baseTags
-     * @return array<string, array<string, mixed>>
+     * @param array<string, mixed> $importContext
+     * @return array<string, mixed>
      */
     private function persistImportedKnowledgeMaterial(
         array $distilled,
@@ -580,9 +662,13 @@ class Knowledge extends Base
         int $userId,
         string $modelKey,
         string $status,
-        string $errorMessage
+        string $errorMessage,
+        array $importContext = []
     ): array {
         $isDone = $status === 'done';
+        $isGenericManualTemplate = ($importContext['material_classification'] ?? '') === 'manual_template'
+            && ($importContext['knowledge_scope'] ?? '') === 'industry_general'
+            && ($importContext['verification_status'] ?? '') === 'unverified';
         $title = $isDone
             ? mb_substr(trim((string)($distilled['title'] ?? '')), 0, 255)
             : $this->defaultImportedKnowledgeTitle($mode, $material);
@@ -594,7 +680,10 @@ class Knowledge extends Base
             ? trim((string)($distilled['summary'] ?? ''))
             : 'AI读取失败：' . $errorMessage;
         $keywords = is_array($distilled['keywords'] ?? null) ? $distilled['keywords'] : [];
-        $tags = $this->mergeKnowledgeTags($baseTags, $keywords, ['AI资料蒸馏', $hotelName]);
+        $scopeTags = $isGenericManualTemplate
+            ? ['AI资料蒸馏', '人工模板', '行业通用', '未核验']
+            : ['AI资料蒸馏', $hotelName];
+        $tags = $this->mergeKnowledgeTags($baseTags, $keywords, $scopeTags);
         $content = [
             'material_type' => $mode,
             'hotel_id' => $hotelId,
@@ -604,6 +693,26 @@ class Knowledge extends Base
             'model_key' => (string)($distilled['model_key'] ?? $modelKey),
             'imported_at' => date('Y-m-d H:i:s'),
         ];
+        if ($isGenericManualTemplate) {
+            $content['material_classification'] = 'manual_template';
+            $content['knowledge_scope'] = 'industry_general';
+            $content['verification_status'] = 'unverified';
+            $content['facts_scope'] = 'document_reference_not_hotel_fact';
+            $content['container_scope'] = 'authorized_hotel_container_only';
+            $content['evidence_level'] = 'user_provided_unverified';
+            $content['requires_current_verification'] = true;
+            $content['decision_policy'] = 'reference_only_until_separate_hotel_and_platform_verification';
+            $content['blocked_uses'] = [
+                'hotel_fact_claim',
+                'ota_fact_claim',
+                'business_date_fact_claim',
+                'operation_task_creation',
+                'automatic_ota_write',
+            ];
+        }
+        if (is_array($importContext['source_document'] ?? null)) {
+            $content['source_document'] = $importContext['source_document'];
+        }
         if ($isDone) {
             $content['ai_distilled'] = $distilled;
             $content['distilled_at'] = (string)($distilled['distilled_at'] ?? '');
@@ -611,9 +720,10 @@ class Knowledge extends Base
             $content['ai_error'] = $errorMessage;
         }
 
-        $unit = null;
-        $chunk = null;
-        Db::transaction(function () use (&$unit, &$chunk, $title, $source, $status, $description, $tags, $hotelId, $userId, $content): void {
+        $unitSnapshot = null;
+        $chunkSnapshot = null;
+        $readback = null;
+        Db::transaction(function () use (&$unitSnapshot, &$chunkSnapshot, &$readback, $title, $source, $status, $description, $tags, $hotelId, $userId, $content): void {
             $unitData = [
                 'name' => $title,
                 'source' => $source,
@@ -627,22 +737,137 @@ class Knowledge extends Base
             }
 
             $unit = KnowledgeUnit::create($unitData);
-            $chunk = KnowledgeChunk::create([
+            $chunkData = [
                 'unit_id' => (int)$unit->unit_id,
                 'type' => 'AI资料蒸馏',
                 'content' => $content,
                 'created_by' => $userId,
-            ]);
+            ];
+            $chunk = KnowledgeChunk::create($chunkData);
+
+            $unitReadback = KnowledgeUnit::where('unit_id', (int)$unit->unit_id)->find();
+            $chunkReadback = KnowledgeChunk::where('unit_id', (int)$unit->unit_id)
+                ->where('chunk_id', (int)$chunk->chunk_id)
+                ->find();
+            if (!$unitReadback || !$chunkReadback) {
+                throw new \RuntimeException('Imported knowledge exact readback is missing');
+            }
+
+            $unitSnapshot = $unitReadback->toArray();
+            $chunkSnapshot = $chunkReadback->toArray();
+            $readback = $this->verifyImportedKnowledgeReadbackRows(
+                array_merge($unitData, ['unit_id' => (int)$unit->unit_id]),
+                array_merge($chunkData, ['chunk_id' => (int)$chunk->chunk_id]),
+                $unitSnapshot,
+                $chunkSnapshot
+            );
         });
 
-        if (!$unit || !$chunk) {
+        if (!is_array($unitSnapshot) || !is_array($chunkSnapshot) || !is_array($readback)) {
             throw new \RuntimeException('Failed to persist imported knowledge material');
         }
 
         return [
-            'unit' => $this->formatUnitRow($unit->toArray(), 1),
-            'chunk' => $this->formatChunkRow($chunk->toArray()),
+            'unit' => $this->formatUnitRow($unitSnapshot, 1),
+            'chunk' => $this->formatChunkRow($chunkSnapshot),
+            'readback_verified' => true,
+            'readback' => array_merge($readback, [
+                'unit_snapshot' => $this->formatUnitRow($unitSnapshot, 1),
+                'chunk_snapshot' => $this->formatChunkRow($chunkSnapshot),
+            ]),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $expectedUnit
+     * @param array<string, mixed> $expectedChunk
+     * @param array<string, mixed> $actualUnit
+     * @param array<string, mixed> $actualChunk
+     * @return array<string, mixed>
+     */
+    private function verifyImportedKnowledgeReadbackRows(
+        array $expectedUnit,
+        array $expectedChunk,
+        array $actualUnit,
+        array $actualChunk
+    ): array {
+        $unitFields = [
+            'unit_id',
+            'hotel_id',
+            'name',
+            'source',
+            'status',
+            'description',
+            'tags',
+            'created_by',
+        ];
+        foreach ($unitFields as $field) {
+            if (!array_key_exists($field, $expectedUnit)
+                || !array_key_exists($field, $actualUnit)
+                || $this->importedValueHash($expectedUnit[$field]) !== $this->importedValueHash($actualUnit[$field])
+            ) {
+                throw new \RuntimeException('Imported knowledge unit readback mismatch: ' . $field);
+            }
+        }
+
+        $chunkFields = ['chunk_id', 'unit_id', 'type', 'content', 'created_by'];
+        foreach ($chunkFields as $field) {
+            if (!array_key_exists($field, $expectedChunk)
+                || !array_key_exists($field, $actualChunk)
+                || $this->importedValueHash($expectedChunk[$field]) !== $this->importedValueHash($actualChunk[$field])
+            ) {
+                throw new \RuntimeException('Imported knowledge chunk readback mismatch: ' . $field);
+            }
+        }
+
+        return [
+            'unit_id' => (int)$actualUnit['unit_id'],
+            'chunk_id' => (int)$actualChunk['chunk_id'],
+            'unit_snapshot_sha256' => $this->importedValueHash(array_intersect_key(
+                $actualUnit,
+                array_fill_keys($unitFields, true)
+            )),
+            'chunk_content_sha256' => $this->importedValueHash($actualChunk['content']),
+            'verified_fields' => [
+                'unit' => $unitFields,
+                'chunk' => $chunkFields,
+            ],
+        ];
+    }
+
+    /** @param mixed $value */
+    private function importedValueHash($value): string
+    {
+        $encoded = json_encode(
+            $this->canonicalizeImportedValue($value),
+            JSON_UNESCAPED_UNICODE
+                | JSON_UNESCAPED_SLASHES
+                | JSON_PRESERVE_ZERO_FRACTION
+                | JSON_THROW_ON_ERROR
+        );
+
+        return hash('sha256', $encoded);
+    }
+
+    /** @param mixed $value @return mixed */
+    private function canonicalizeImportedValue($value)
+    {
+        if (is_float($value) && is_finite($value) && floor($value) === $value) {
+            return (int)$value;
+        }
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        $isList = $value === [] || array_keys($value) === range(0, count($value) - 1);
+        if (!$isList) {
+            ksort($value, SORT_STRING);
+        }
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalizeImportedValue($item);
+        }
+
+        return $value;
     }
 
     private function resolveKnowledgeImportHotelId(int $requestedHotelId): int
@@ -747,6 +972,13 @@ class Knowledge extends Base
                         ->where('hotel_id', 0)
                         ->where('status', 'done');
                 });
+                if ($permittedHotelIds !== []) {
+                    $scope->whereOr(function ($formal) use ($permittedHotelIds): void {
+                        $formal->where('source', 'formal_operating_sop')
+                            ->whereIn('hotel_id', $permittedHotelIds)
+                            ->where('status', 'done');
+                    });
+                }
             }
         });
     }
@@ -755,6 +987,10 @@ class Knowledge extends Base
     {
         if ($this->isSuperAdmin() || $this->isGlobalSystemKnowledgeRow($row)) {
             return true;
+        }
+        if ($this->isFormalKnowledgeUnitRow($row)) {
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            return $hotelId > 0 && in_array($hotelId, $this->permittedKnowledgeHotelIds(), true);
         }
         if ((int)($row['created_by'] ?? 0) !== $this->currentUserId()) {
             return false;
@@ -766,7 +1002,7 @@ class Knowledge extends Base
 
     private function canModifyOwnedRow(array $row): bool
     {
-        if ($this->isGlobalSystemKnowledgeRow($row)) {
+        if ($this->isGlobalSystemKnowledgeRow($row) || $this->isFormalKnowledgeUnitRow($row)) {
             return false;
         }
 
@@ -816,6 +1052,12 @@ class Knowledge extends Base
             && (string)($row['status'] ?? '') === 'done';
     }
 
+    private function isFormalKnowledgeUnitRow(array $row): bool
+    {
+        return strtolower(trim((string)($row['source'] ?? ''))) === 'formal_operating_sop'
+            || trim((string)($row['stable_key'] ?? '')) !== '';
+    }
+
     private function currentUserId(): int
     {
         $userId = (int)($this->currentUser->id ?? 0);
@@ -860,7 +1102,13 @@ class Knowledge extends Base
      */
     private function knowledgeChunkMatchingUnitIds(string $keyword, array $filters): array
     {
-        $query = KnowledgeChunk::field('unit_id')->distinct(true);
+        $query = KnowledgeChunk::field($this->knowledgeChunkGateFields());
+        if ($this->knowledgeChunkFormalColumnsReady()) {
+            $query->where(function ($lifecycle): void {
+                $lifecycle->whereNull('lifecycle_status')
+                    ->whereOr('lifecycle_status', 'active');
+            });
+        }
         if ($keyword !== '') {
             $query->whereLike('content', '%' . $keyword . '%');
         }
@@ -894,10 +1142,47 @@ class Knowledge extends Base
             );
         }
 
-        return array_values(array_unique(array_filter(array_map(
-            'intval',
-            $query->column('unit_id')
+        $rows = $query->select()->toArray();
+        $unitIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): int => (int)($row['unit_id'] ?? 0),
+            $rows
         ), static fn(int $id): bool => $id > 0)));
+        $unitsById = [];
+        if ($unitIds !== []) {
+            foreach (KnowledgeUnit::whereIn('unit_id', $unitIds)->select()->toArray() as $unit) {
+                $unitsById[(int)($unit['unit_id'] ?? 0)] = $unit;
+            }
+        }
+        $eligibleUnitIds = [];
+        $digestService = new KnowledgeContentDigestService();
+        foreach ($rows as $row) {
+            $unitId = (int)($row['unit_id'] ?? 0);
+            if ($unitId <= 0) {
+                continue;
+            }
+            $content = $row['content'] ?? [];
+            if (is_string($content)) {
+                $decoded = json_decode($content, true);
+                $content = is_array($decoded) ? $decoded : [];
+            }
+            $content = is_array($content) ? $content : [];
+            $isFormal = strtolower(trim((string)($row['type'] ?? ''))) === 'formal_operating_sop'
+                || strtolower(trim((string)($content['formal_record_type'] ?? ''))) === 'operating_sop'
+                || (int)($row['promotion_candidate_id'] ?? 0) > 0
+                || (int)($row['operating_sop_version_id'] ?? 0) > 0;
+            if ($isFormal) {
+                $unit = $unitsById[$unitId] ?? [];
+                if (($row['lifecycle_status'] ?? '') !== 'active'
+                    || ($unit['lifecycle_status'] ?? '') !== 'active'
+                    || (int)($unit['current_chunk_id'] ?? 0) !== (int)($row['chunk_id'] ?? 0)
+                    || !$digestService->matches((string)($row['content_digest'] ?? ''), $content)
+                ) {
+                    continue;
+                }
+            }
+            $eligibleUnitIds[$unitId] = $unitId;
+        }
+        return array_values($eligibleUnitIds);
     }
 
     private function formatUnitRow(
@@ -912,7 +1197,7 @@ class Knowledge extends Base
             && ($chunkCount === null || $chunkCount > 0)
         ) {
             $chunks = KnowledgeChunk::where('unit_id', $unitId)
-                ->field('chunk_id,unit_id,content')
+                ->field($this->knowledgeChunkGateFields())
                 ->select()
                 ->toArray();
             $chunkGateSummary = $this->knowledgeChunkGateSummaries([$row], $chunks)[$unitId] ?? null;
@@ -947,6 +1232,44 @@ class Knowledge extends Base
     private function payloadMapper(): KnowledgePayloadMapper
     {
         return $this->payloadMapper ??= new KnowledgePayloadMapper();
+    }
+
+    private function knowledgeChunkFormalColumnsReady(): bool
+    {
+        $columns = $this->tableColumns('knowledge_chunks');
+        foreach ([
+            'promotion_candidate_id',
+            'operating_sop_version_id',
+            'version_no',
+            'lifecycle_status',
+            'content_digest',
+            'superseded_by_chunk_id',
+            'published_at',
+            'retired_at',
+        ] as $column) {
+            if (!isset($columns[$column])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function knowledgeChunkGateFields(): string
+    {
+        $fields = ['chunk_id', 'unit_id', 'type', 'content'];
+        if ($this->knowledgeChunkFormalColumnsReady()) {
+            $fields = array_merge($fields, [
+                'promotion_candidate_id',
+                'operating_sop_version_id',
+                'version_no',
+                'lifecycle_status',
+                'content_digest',
+                'superseded_by_chunk_id',
+                'published_at',
+                'retired_at',
+            ]);
+        }
+        return implode(',', $fields);
     }
 
     private function knowledgeUnitHasHotelColumn(): bool

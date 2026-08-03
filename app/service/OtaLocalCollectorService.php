@@ -555,7 +555,7 @@ final class OtaLocalCollectorService
         if ($platformHotelId === '') {
             throw new RuntimeException('请填写 OTA 平台门店标识。', 422);
         }
-        $mappingId = $this->upsertHotelMapping(
+        $mapping = Db::transaction(fn(): array => $this->upsertHotelMapping(
             $actor,
             (int)$account['id'],
             (string)$account['platform'],
@@ -563,14 +563,21 @@ final class OtaLocalCollectorService
             $platformHotelId,
             $platformHotelName,
             date('Y-m-d H:i:s')
-        );
+        ));
 
         return [
             'status' => 'bound',
-            'mapping_id' => $mappingId,
+            'write_action' => (string)$mapping['write_action'],
+            'mapping_id' => (int)$mapping['mapping_id'],
             'account_id' => (int)$account['id'],
+            'previous_mapping_id' => (int)$mapping['previous_mapping_id'],
+            'previous_account_id' => (int)$mapping['previous_account_id'],
             'system_hotel_id' => $hotelId,
             'platform' => (string)$account['platform'],
+            'platform_hotel_id' => $platformHotelId,
+            'mapping_status' => (string)$mapping['mapping_status'],
+            'data_source_id' => (int)$mapping['data_source_id'],
+            'readback_verified' => (bool)$mapping['readback_verified'],
         ];
     }
 
@@ -1938,6 +1945,17 @@ final class OtaLocalCollectorService
         return is_array($row) ? $row : null;
     }
 
+    /**
+     * @return array{
+     *   mapping_id:int,
+     *   previous_mapping_id:int,
+     *   previous_account_id:int,
+     *   write_action:string,
+     *   mapping_status:string,
+     *   data_source_id:int,
+     *   readback_verified:bool
+     * }
+     */
     private function upsertHotelMapping(
         array $actor,
         int $accountId,
@@ -1946,55 +1964,189 @@ final class OtaLocalCollectorService
         string $platformHotelId,
         string $platformHotelName,
         string $now
-    ): int {
-        $identityConflict = Db::name('ota_local_collector_account_hotels')
+    ): array {
+        $ownedMapping = Db::name('ota_local_collector_account_hotels')
+            ->where('tenant_id', $actor['tenant_id'])
+            ->where('account_id', $accountId)
+            ->where('system_hotel_id', $hotelId)
+            ->lock(true)
+            ->find();
+        if (is_array($ownedMapping)
+            && (string)($ownedMapping['platform'] ?? '') !== $platform
+        ) {
+            throw new RuntimeException('该本机账户已存在其他平台的门店映射，无法覆盖。', 409);
+        }
+
+        $activeScopeMapping = Db::name('ota_local_collector_account_hotels')
+            ->where('tenant_id', $actor['tenant_id'])
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->where('status', 'active')
+            ->lock(true)
+            ->find();
+        if (is_array($activeScopeMapping)
+            && (!is_array($ownedMapping)
+                || (int)$activeScopeMapping['id'] !== (int)$ownedMapping['id'])
+        ) {
+            throw new RuntimeException('该门店平台已绑定到另一个本机账户，请先解绑原映射。', 409);
+        }
+
+        $activeIdentityMapping = Db::name('ota_local_collector_account_hotels')
             ->where('tenant_id', $actor['tenant_id'])
             ->where('platform', $platform)
             ->where('platform_hotel_id', $platformHotelId)
             ->where('status', 'active')
-            ->where(function ($query) use ($accountId, $hotelId): void {
-                $query->where('account_id', '<>', $accountId)
-                    ->whereOr('system_hotel_id', '<>', $hotelId);
-            })
+            ->lock(true)
             ->find();
-        if (is_array($identityConflict)) {
+        if (is_array($activeIdentityMapping)
+            && (!is_array($ownedMapping)
+                || (int)$activeIdentityMapping['id'] !== (int)$ownedMapping['id'])
+        ) {
             throw new RuntimeException('该 OTA 平台门店标识已映射到其他宿析门店，已阻止重复绑定。', 409);
         }
-        $conflict = Db::name('ota_local_collector_account_hotels')
+
+        $historicalIdentityConflict = Db::name('ota_local_collector_account_hotels')
             ->where('tenant_id', $actor['tenant_id'])
-            ->where('system_hotel_id', $hotelId)
             ->where('platform', $platform)
-            ->where('status', 'active')
-            ->where('account_id', '<>', $accountId)
+            ->where('platform_hotel_id', $platformHotelId)
+            ->where('system_hotel_id', '<>', $hotelId)
+            ->lock(true)
             ->find();
-        if (is_array($conflict)) {
-            throw new RuntimeException('该门店平台已绑定到另一个本机账户，请先调整原映射。', 409);
+        if (is_array($historicalIdentityConflict)) {
+            throw new RuntimeException('该 OTA 平台门店标识曾映射到其他宿析门店，不能跨酒店重新认领。', 409);
         }
-        $existing = Db::name('ota_local_collector_account_hotels')
-            ->where('account_id', $accountId)
-            ->where('system_hotel_id', $hotelId)
-            ->find();
-        if (is_array($existing)) {
-            Db::name('ota_local_collector_account_hotels')->where('id', (int)$existing['id'])->update([
+
+        if (is_array($ownedMapping)) {
+            $mappingId = (int)$ownedMapping['id'];
+            $previousPlatformHotelId = (string)($ownedMapping['platform_hotel_id'] ?? '');
+            if ((int)($ownedMapping['data_source_id'] ?? 0) > 0
+                && $previousPlatformHotelId !== $platformHotelId
+            ) {
+                throw new RuntimeException('该映射已有历史采集数据源，重新启用时必须保持原 OTA 平台门店标识。', 409);
+            }
+            $writeAction = (string)($ownedMapping['status'] ?? '') === 'active'
+                ? 'updated'
+                : 'reactivated';
+
+            Db::name('ota_local_collector_account_hotels')->where('id', $mappingId)->update([
                 'platform_hotel_id' => $platformHotelId,
                 'platform_hotel_name' => $platformHotelName,
                 'status' => 'active',
                 'update_time' => $now,
             ]);
-            return (int)$existing['id'];
+
+            $readback = Db::name('ota_local_collector_account_hotels')
+                ->where('id', $mappingId)
+                ->where('tenant_id', $actor['tenant_id'])
+                ->where('account_id', $accountId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('platform', $platform)
+                ->where('platform_hotel_id', $platformHotelId)
+                ->where('status', 'active')
+                ->find();
+            if (!is_array($readback)) {
+                throw new RuntimeException('本机采集门店映射恢复后精确回读失败。', 500);
+            }
+
+            return [
+                'mapping_id' => $mappingId,
+                'previous_mapping_id' => $mappingId,
+                'previous_account_id' => $accountId,
+                'write_action' => $writeAction,
+                'mapping_status' => 'active',
+                'data_source_id' => (int)($readback['data_source_id'] ?? 0),
+                'readback_verified' => true,
+            ];
         }
-        return (int)Db::name('ota_local_collector_account_hotels')->insertGetId([
-            'tenant_id' => $actor['tenant_id'],
-            'account_id' => $accountId,
-            'system_hotel_id' => $hotelId,
-            'platform' => $platform,
-            'platform_hotel_id' => $platformHotelId,
-            'platform_hotel_name' => $platformHotelName,
+
+        $previousMapping = Db::name('ota_local_collector_account_hotels')
+            ->where('tenant_id', $actor['tenant_id'])
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->where('status', '<>', 'active')
+            ->order('id', 'desc')
+            ->lock(true)
+            ->find();
+
+        $historicalSourceIdentityConflict = Db::name('ota_local_collector_account_hotels')
+            ->where('tenant_id', $actor['tenant_id'])
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->where('status', '<>', 'active')
+            ->where('data_source_id', '>', 0)
+            ->where('platform_hotel_id', '<>', $platformHotelId)
+            ->lock(true)
+            ->find();
+        if (is_array($historicalSourceIdentityConflict)) {
+            throw new RuntimeException(
+                '该门店已有历史采集数据源，跨账户换绑时必须保持原 OTA 平台门店标识。',
+                409
+            );
+        }
+
+        try {
+            $mappingId = (int)Db::name('ota_local_collector_account_hotels')->insertGetId([
+                'tenant_id' => $actor['tenant_id'],
+                'account_id' => $accountId,
+                'system_hotel_id' => $hotelId,
+                'platform' => $platform,
+                'platform_hotel_id' => $platformHotelId,
+                'platform_hotel_name' => $platformHotelName,
+                'data_source_id' => 0,
+                'status' => 'active',
+                'create_time' => $now,
+                'update_time' => $now,
+            ]);
+        } catch (Throwable $exception) {
+            if ($this->isUniqueConstraintViolation($exception)) {
+                throw new RuntimeException(
+                    '该门店或 OTA 平台门店标识刚刚被其他账户绑定，请刷新后重试。',
+                    409,
+                    $exception
+                );
+            }
+            throw $exception;
+        }
+        $readbackVerified = (int)Db::name('ota_local_collector_account_hotels')
+            ->where('id', $mappingId)
+            ->where('tenant_id', $actor['tenant_id'])
+            ->where('account_id', $accountId)
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->where('platform_hotel_id', $platformHotelId)
+            ->where('status', 'active')
+            ->count() === 1;
+        if (!$readbackVerified) {
+            throw new RuntimeException('本机采集门店绑定后精确回读失败。', 500);
+        }
+
+        return [
+            'mapping_id' => $mappingId,
+            'previous_mapping_id' => (int)($previousMapping['id'] ?? 0),
+            'previous_account_id' => (int)($previousMapping['account_id'] ?? 0),
+            'write_action' => is_array($previousMapping) ? 'reassigned' : 'created',
+            'mapping_status' => 'active',
             'data_source_id' => 0,
-            'status' => 'active',
-            'create_time' => $now,
-            'update_time' => $now,
-        ]);
+            'readback_verified' => true,
+        ];
+    }
+
+    private function isUniqueConstraintViolation(Throwable $exception): bool
+    {
+        $current = $exception;
+        do {
+            $message = strtolower($current->getMessage());
+            if (str_contains($message, 'duplicate entry')
+                || str_contains($message, 'unique constraint')
+                || str_contains($message, 'unique violation')
+                || str_contains($message, 'constraint failed')
+            ) {
+                return true;
+            }
+            $current = $current->getPrevious();
+        } while ($current instanceof Throwable);
+
+        return false;
     }
 
     /** @return array<string, mixed> */

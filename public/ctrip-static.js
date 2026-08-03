@@ -1978,7 +1978,11 @@ window.SUXI_CTRIP_STATIC = (() => {
             if (res.code === 200) {
                 const data = res.data || {};
                 setOnlineDataResult(selectCtripFetchResponsePayload(data));
-                const allHotels = useDisplayHotels(data.display_hotels || [], data.display_summary || null);
+                const allHotels = useDisplayHotels(data.display_hotels || [], data.display_summary || null, {
+                    orderEstimateDataDate: endDate,
+                    orderEstimateTargetDataDate: endDate,
+                    orderEstimateFetchedAt: data.fetched_at || '',
+                });
                 setOnlineDataFilterDates({ startDate, endDate });
                 const persistenceOutcome = buildCtripPersistenceOutcome(data);
                 const savedCount = persistenceOutcome.savedCount;
@@ -2099,6 +2103,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             rankDisplaySummary: rank.display_summary || null,
             rankTotal: rank.total || 0,
             rankDataDate: rank.data_date || '',
+            rankFetchedAt: rank.fetched_at || '',
             trafficRows,
             displayTrafficRows,
             trafficDisplaySummary: traffic.display_traffic_summary || null,
@@ -2877,7 +2882,85 @@ window.SUXI_CTRIP_STATIC = (() => {
         return missing || !Number.isFinite(number) || number < 0 ? null : number;
     };
 
-    const buildCtripChannelOrderBreakdown = (row = {}) => {
+    const normalizeCtripChannelOrderDate = (value) => {
+        const match = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+        return match ? match[1] : '';
+    };
+
+    const ctripChannelOrderClockParts = (value = new Date(), timeZone = 'Asia/Shanghai') => {
+        const date = value && typeof value.getTime === 'function'
+            ? new Date(value.getTime())
+            : new Date(value);
+        if (!Number.isFinite(date.getTime())) {
+            return { dataDate: '', hour: null };
+        }
+        try {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone,
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                hourCycle: 'h23',
+            }).formatToParts(date);
+            const part = type => String(parts.find(item => item.type === type)?.value || '');
+            const hour = Number(part('hour'));
+            return {
+                dataDate: `${part('year')}-${part('month')}-${part('day')}`,
+                hour: Number.isInteger(hour) ? hour : null,
+            };
+        } catch (error) {
+            return {
+                dataDate: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+                hour: date.getHours(),
+            };
+        }
+    };
+
+    const resolveCtripChannelOrderEstimateAvailability = (row = {}, options = {}) => {
+        const timeZone = String(options.timeZone || 'Asia/Shanghai');
+        const current = ctripChannelOrderClockParts(options.now === undefined ? new Date() : options.now, timeZone);
+        const fetchedAt = String(options.fetchedAt || row?._channelOrderFetchedAt || row?._fetch_time || '').trim();
+        const fetched = fetchedAt ? ctripChannelOrderClockParts(fetchedAt, timeZone) : { dataDate: '', hour: null };
+        const dataDate = normalizeCtripChannelOrderDate(
+            options.dataDate || row?._channelOrderDataDate || row?._data_date || row?.data_date || row?.dataDate || row?.date
+        );
+        const targetDataDate = normalizeCtripChannelOrderDate(
+            options.targetDataDate || row?._channelOrderTargetDataDate || row?.target_data_date || row?.targetDataDate
+        );
+        const effectiveDataDate = targetDataDate || dataDate;
+        const enforceUpdateWindow = options.enforceUpdateWindow === true;
+        const isCurrentDate = effectiveDataDate !== '' && effectiveDataDate === current.dataDate;
+        const currentWindowPending = isCurrentDate
+            && Number.isInteger(current.hour)
+            && current.hour >= 0
+            && current.hour < 8;
+        const captureReady = fetched.dataDate === current.dataDate
+            && Number.isInteger(fetched.hour)
+            && fetched.hour >= 8;
+        const pending = enforceUpdateWindow && isCurrentDate && (currentWindowPending || !captureReady);
+        let reason = '';
+        if (pending) {
+            reason = currentWindowPending
+                ? 'current_update_window'
+                : (fetchedAt ? 'snapshot_captured_before_08' : 'snapshot_fetch_time_missing');
+        }
+        return {
+            status: pending ? 'traffic_pending_window' : 'ready',
+            pending,
+            reason,
+            window: '00:00–08:00',
+            dataDate,
+            targetDataDate,
+            fetchedAt,
+            currentDataDate: current.dataDate,
+            currentHour: current.hour,
+            fetchedDataDate: fetched.dataDate,
+            fetchedHour: fetched.hour,
+        };
+    };
+
+    const buildCtripChannelOrderBreakdown = (row = {}, options = {}) => {
         const metricStatus = row?.metricSourceStatus && typeof row.metricSourceStatus === 'object'
             ? row.metricSourceStatus
             : {};
@@ -2886,6 +2969,33 @@ window.SUXI_CTRIP_STATIC = (() => {
         const ctripRate = normalizeCtripChannelOrderInput(row?.convertionRate, metricStatus.convertionRate);
         const qunarVisitors = normalizeCtripChannelOrderInput(row?.qunarDetailVisitors, metricStatus.qunarDetailVisitors);
         const qunarRate = normalizeCtripChannelOrderInput(row?.qunarDetailCR, metricStatus.qunarDetailCR);
+        const estimateAvailability = resolveCtripChannelOrderEstimateAvailability(row, options);
+        const formulas = {
+            ctrip: '向上取整（携程APP访客量 × 携程转化率）',
+            qunar: '向上取整（去哪儿访客 × 去哪儿转化率）',
+            ctripUndistributed: '携程系预订订单 − 携程APP推算订单 − 去哪儿推算订单',
+        };
+        const inputs = {
+            totalOrders,
+            ctripVisitors,
+            ctripRate,
+            qunarVisitors,
+            qunarRate,
+        };
+        if (estimateAvailability.pending) {
+            return {
+                ctripOrders: null,
+                qunarOrders: null,
+                ctripUndistributedOrders: null,
+                ctripEstimateExcessOrders: null,
+                status: 'traffic_pending_window',
+                displayLabel: '0–8点数据待更新，暂不可推算',
+                sourceLabel: '00:00–08:00 为携程与去哪儿订单数据更新窗口；当前不推算渠道订单、不生成携程系余数，同程订单仍需独立数据源',
+                formulas,
+                inputs,
+                estimateAvailability,
+            };
+        }
         const ctripOrders = ctripVisitors === null || ctripRate === null
             ? null
             : Math.ceil(ctripVisitors * ctripRate / 100);
@@ -2895,40 +3005,31 @@ window.SUXI_CTRIP_STATIC = (() => {
         const hasAllInputs = totalOrders !== null && ctripOrders !== null && qunarOrders !== null;
         const residualOrders = hasAllInputs ? Math.round(totalOrders) - ctripOrders - qunarOrders : null;
         const residualConflict = residualOrders !== null && residualOrders < 0;
-        const channelEstimateExcessOrders = residualConflict ? Math.abs(residualOrders) : 0;
+        const ctripEstimateExcessOrders = residualConflict ? Math.abs(residualOrders) : 0;
 
         return {
             ctripOrders,
             qunarOrders,
-            tongchengDistributionOrders: residualConflict ? null : residualOrders,
-            channelEstimateExcessOrders,
-            status: !hasAllInputs ? 'input_missing' : (residualConflict ? 'channel_total_conflict' : 'derived'),
+            ctripUndistributedOrders: residualConflict ? null : residualOrders,
+            ctripEstimateExcessOrders,
+            status: !hasAllInputs ? 'input_missing' : (residualConflict ? 'ctrip_ecosystem_total_conflict' : 'derived'),
             displayLabel: !hasAllInputs
                 ? '输入缺失'
-                : (residualConflict ? `渠道推算超出总订单 ${channelEstimateExcessOrders} 单` : '推算'),
-            sourceLabel: '流量与转化率向上取整，非平台返回订单明细',
-            formulas: {
-                ctrip: '向上取整（携程APP访客量 × 携程转化率）',
-                qunar: '向上取整（去哪儿访客 × 去哪儿转化率）',
-                tongchengDistribution: '携程系预订订单 − 携程订单 − 去哪儿订单',
-            },
-            inputs: {
-                totalOrders,
-                ctripVisitors,
-                ctripRate,
-                qunarVisitors,
-                qunarRate,
-            },
+                : (residualConflict ? `携程系推算超出总订单 ${ctripEstimateExcessOrders} 单` : '携程系内部推算'),
+            sourceLabel: '仅基于携程系预订订单、携程APP和去哪儿流量转化率推算；未接入同程订单数据源',
+            formulas,
+            inputs,
+            estimateAvailability,
         };
     };
 
-    const attachCtripChannelOrderBreakdown = (row = {}) => {
-        const breakdown = buildCtripChannelOrderBreakdown(row);
+    const attachCtripChannelOrderBreakdown = (row = {}, options = {}) => {
+        const breakdown = buildCtripChannelOrderBreakdown(row, options);
         return {
             ...(row && typeof row === 'object' ? row : {}),
             ctripOrderEstimate: breakdown.ctripOrders,
             qunarOrderEstimate: breakdown.qunarOrders,
-            tongchengDistributionOrderEstimate: breakdown.tongchengDistributionOrders,
+            ctripUndistributedOrderEstimate: breakdown.ctripUndistributedOrders,
             channelOrderBreakdownMeta: breakdown,
         };
     };
@@ -3824,6 +3925,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         deriveCtripFullChannelRoomNightMultiplier,
         buildCtripFullChannelRoomNightScenario,
         attachCtripFullChannelRoomNightScenario,
+        resolveCtripChannelOrderEstimateAvailability,
         buildCtripChannelOrderBreakdown,
         attachCtripChannelOrderBreakdown,
         isCtripLatestRequestCurrent,

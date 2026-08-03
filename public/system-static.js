@@ -264,6 +264,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
                 { name: '企业微信推送', path: 'wechat-notification', icon: 'fas fa-comment-dots', requireSuper: false, permissions: ['can_fill_daily_report'] },
                 { name: '自动化运行监控', path: 'automation-monitor', icon: 'fas fa-heartbeat', requireSuper: false, permissions: ['can_view_report'] },
                 { name: '任务执行与复盘', path: 'ops-track', icon: 'fas fa-play-circle' },
+                { name: '经营成长档案', path: 'operating-growth-archive', icon: 'fas fa-seedling' },
             ],
         },
         {
@@ -603,6 +604,221 @@ window.SUXI_SYSTEM_STATIC = (() => {
         const number = displayNumberOrNull(value);
         return number === null ? '--' : `${aiRound(number, 2)}万元`;
     };
+    const suxiTermHelpGlossary = Object.freeze({
+        adr: {
+            label: 'ADR',
+            definition: '平均房价，表示每个已售房晚带来的平均房费收入。',
+            formula: '房费收入 ÷ 出租间夜；任一项缺失时不可计算。',
+        },
+        occ: {
+            label: 'OCC',
+            definition: '入住率（或出租率），表示可售房夜中已经售出的比例。',
+            formula: '出租间夜 ÷ 可售房夜 × 100%；缺少可售房夜时不可计算。',
+        },
+        revpar: {
+            label: 'RevPAR',
+            definition: '每间可售房收入，用于同时观察房价与入住率的综合表现。',
+            formula: '房费收入 ÷ 可售房夜，也可由同口径 ADR × OCC 得出；缺项时不可计算。',
+        },
+        roi: {
+            label: 'ROI',
+            definition: '投资回报率，用于衡量投入带来的净收益比例。',
+            formula: '净收益 ÷ 投入成本 × 100%；投入、收益和统计周期必须同口径。',
+        },
+        roas: {
+            label: 'ROAS',
+            definition: '广告支出回报，用于衡量广告花费带来的归因收入。',
+            formula: '广告归因收入 ÷ 广告花费；缺少归因收入或花费时不可计算。',
+        },
+        pv: {
+            label: 'PV',
+            definition: '页面浏览次数，同一访客多次浏览会重复计数。',
+            formula: '使用平台返回的浏览次数；不可与 UV（访客人数）互相替代。',
+        },
+        uv: {
+            label: 'UV',
+            definition: '去重访客人数，表示统计周期内访问页面的独立用户量。',
+            formula: '使用平台去重口径；不同平台、页面和周期的 UV 不直接拼接。',
+        },
+        revenue: {
+            label: '营业收入',
+            definition: '所选报告范围内已核验的营业收入。来源范围不同的收入不会自动拼接。',
+            formula: '使用来源值或同口径汇总；缺少来源、日期或范围证据时保持缺失。',
+        },
+        orders: {
+            label: '订单数',
+            definition: '所选报告范围内的订单数量，以来源返回的订单状态口径为准。',
+            formula: '只汇总同酒店、同日期、同范围的订单，不用间夜或收入反推。',
+        },
+        room_nights: {
+            label: '间夜数',
+            definition: '已售出的房晚数量，一间房住一晚计 1 间夜。',
+            formula: '同酒店、同日期、同范围的有效间夜合计。',
+        },
+        exposure: {
+            label: '曝光量',
+            definition: '酒店或房型在 OTA 指定入口被展示的次数，以平台原始字段定义为准。',
+            formula: '不同平台、页面或模块的曝光口径不互相替代。',
+        },
+        visitors: {
+            label: '访客量',
+            definition: '进入 OTA 详情等指定页面的访问量，以平台原始字段定义为准。',
+            formula: '人数与次数不混用，且必须与曝光属于同平台、同日期和同模块。',
+        },
+        flow_rate: {
+            label: '流量转化率',
+            definition: '从 OTA 曝光进入详情的转化比例，用于观察列表到详情环节。',
+            formula: '平台来源值，或详情访客 ÷ 曝光量 × 100%；分母缺失时不可计算。',
+        },
+        order_filling: {
+            label: '填单人数',
+            definition: '进入订单填写环节的人数，以平台返回字段为准。',
+            formula: '不等同于已提交、已支付或已入住订单。',
+        },
+        order_submit: {
+            label: '提交人数',
+            definition: '完成订单提交环节的人数，以平台返回字段为准。',
+            formula: '不自动等同于已支付、未取消或已入住订单。',
+        },
+        conversion_rate: {
+            label: '转化率',
+            definition: '从一个业务环节进入下一环节的比例。',
+            formula: '下游人数 ÷ 上游人数 × 100%；具体分子、分母以当前页面标注为准。',
+        },
+        exposure_detail_rate: {
+            label: '曝光→详情',
+            definition: '从 OTA 列表等入口曝光后进入酒店或房型详情页的比例。',
+            formula: '详情访客 ÷ 曝光量 × 100%；必须属于同平台、同日期和同入口。',
+        },
+        fill_submit_rate: {
+            label: '填单→提交',
+            definition: '从开始填写订单到完成订单提交的比例。',
+            formula: '提交人数 ÷ 填单人数 × 100%；不等同于已支付或已入住订单。',
+        },
+        ota: {
+            label: 'OTA',
+            definition: '在线旅游平台渠道，例如携程、美团。页面中的 OTA 数据只代表对应渠道。',
+            formula: '不得自动扩大为全酒店收入、房态或经营结论。',
+        },
+        pms: {
+            label: 'PMS',
+            definition: '酒店管理系统，用于管理房态、订单、入住和经营数据。',
+            formula: '只使用当前门店明确绑定且身份、日期、来源与回读均通过的数据。',
+        },
+        crs: {
+            label: 'CRS',
+            definition: '中央预订系统，用于统一管理多个渠道的房价、库存和预订。',
+            formula: 'CRS、PMS 与 OTA 的字段范围不同，不能在来源不明时相互替代。',
+        },
+        ari: {
+            label: '平均房价指数(ARI)',
+            definition: '平均房价指数，用于比较本店与竞争圈的平均房价水平。',
+            formula: '本店 ADR ÷ 竞争圈 ADR × 100；必须使用同日期、同范围和同币种口径。',
+        },
+        mpi: {
+            label: 'MPI',
+            definition: '市场渗透指数，用于比较本店与竞争圈的入住率表现。',
+            formula: '本店 OCC ÷ 竞争圈 OCC × 100；必须使用同日期和同范围口径。',
+        },
+        rgi: {
+            label: 'RGI',
+            definition: '收益生成指数，用于比较本店与竞争圈的 RevPAR 表现。',
+            formula: '本店 RevPAR ÷ 竞争圈 RevPAR × 100；必须使用同日期和同范围口径。',
+        },
+        hhi: {
+            label: 'HHI',
+            definition: '集中度指数，用于观察收入或流量是否过度集中在少数来源。',
+            formula: '各来源占比平方后求和；只比较同周期、同范围的完整来源集合。',
+        },
+        source_fact: {
+            label: '来源事实',
+            definition: '由指定来源直接返回，并保留酒店、日期、来源和回读证据的数据。',
+            formula: '采集成功、保存成功与精确回读是分开的证据层。',
+        },
+        derived_metric: {
+            label: '派生指标',
+            definition: '根据一个或多个来源事实计算得到的指标，不是平台直接返回值。',
+            formula: '必须显示计算口径；输入缺失时保持不可计算，不用 0 或旧数据补位。',
+        },
+    });
+    const suxiTermHelpAliases = Object.freeze({
+        '平均房价': 'adr',
+        '加权adr': 'adr',
+        '预期adr': 'adr',
+        '入住率': 'occ',
+        '出租率': 'occ',
+        '综合入住率': 'occ',
+        '预期occ': 'occ',
+        '每间可售房收入': 'revpar',
+        '投资回报率': 'roi',
+        '广告支出回报': 'roas',
+        '浏览量': 'pv',
+        '访客数': 'uv',
+        '访客量': 'uv',
+        '携程转化率': 'conversion_rate',
+        '预订转化率': 'conversion_rate',
+        '平均转化率': 'conversion_rate',
+        '曝光转化率': 'exposure_detail_rate',
+        '填单提交率': 'fill_submit_rate',
+        '酒店管理系统': 'pms',
+        '在线旅游平台': 'ota',
+        '平均房价指数': 'ari',
+        '市场渗透指数': 'mpi',
+        '收益生成指数': 'rgi',
+        '集中度指数': 'hhi',
+    });
+    const normalizeSuxiTermHelpKey = (value) => String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[（）()\s%：:·/\\-]+/g, '');
+    const resolveSuxiTermHelp = (term, options = {}) => {
+        const normalized = normalizeSuxiTermHelpKey(term);
+        const key = Object.prototype.hasOwnProperty.call(suxiTermHelpGlossary, normalized)
+            ? normalized
+            : suxiTermHelpAliases[normalized];
+        const entry = key ? suxiTermHelpGlossary[key] : null;
+        if (!entry) return null;
+        const scope = String(options.scope || '').trim();
+        return {
+            key,
+            ...entry,
+            scope: scope || null,
+            text: [
+                entry.definition,
+                `口径：${entry.formula}`,
+                scope ? `范围：${scope}` : '',
+            ].filter(Boolean).join('\n\n'),
+        };
+    };
+    const createSuxiTermHelpComponent = (h) => ({
+        name: 'SuxiTermHelp',
+        inheritAttrs: false,
+        props: {
+            term: { type: String, default: '' },
+            label: { type: String, default: '' },
+            scope: { type: String, default: '' },
+        },
+        setup(props, { attrs }) {
+            return () => {
+                const help = resolveSuxiTermHelp(props.term || props.label, { scope: props.scope });
+                const label = String(props.label || help?.label || props.term || '').trim();
+                const { class: className, ...restAttrs } = attrs;
+                if (!help) return h('span', { ...restAttrs, class: className }, label);
+                return h('span', {
+                    ...restAttrs,
+                    class: ['suxi-term-help', className],
+                    role: 'button',
+                    tabindex: '0',
+                    'data-help': help.text,
+                    title: help.text.replace(/\n+/g, ' '),
+                    'aria-label': `${label}：${help.definition} 口径：${help.formula}${help.scope ? ` 范围：${help.scope}` : ''}`,
+                }, [
+                    h('span', label),
+                    h('span', { class: 'suxi-term-help-mark', 'aria-hidden': 'true' }, '?'),
+                ]);
+            };
+        },
+    });
     const calculateHhi = (items, valueGetter) => {
         const values = (items || []).map(item => Math.max(0, toNumber(valueGetter(item), 0)));
         const total = values.reduce((sum, value) => sum + value, 0);
@@ -2192,6 +2408,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
         formatMoney,
         formatPercent,
         formatWan,
+        suxiTermHelpGlossary,
+        resolveSuxiTermHelp,
+        createSuxiTermHelpComponent,
         calculateHhi,
         revenueConcentration,
         visitConcentration,

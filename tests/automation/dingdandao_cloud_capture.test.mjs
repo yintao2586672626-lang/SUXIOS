@@ -182,7 +182,23 @@ function responseData(path, type, targetDate) {
       list: [{
         roomTypeId: 'room-type-1',
         roomTypeName: '\u666f\u89c2\u5927\u5e8a\u623f',
-        roomList: [{ sum: type === 0 ? 6450.14 : 10 }],
+        roomList: [
+          {
+            roomId: 'room-1',
+            roomName: 'V21',
+            sum: type === 0 ? 6450.14 : 10,
+          },
+          {
+            roomId: 'room-2',
+            roomName: 'V22',
+            sum: 0,
+          },
+          {
+            roomId: null,
+            roomName: '\u666f\u89c2\u5927\u5e8a\u623f\u5c0f\u8ba1',
+            sum: type === 0 ? 6450.14 : 10,
+          },
+        ],
       }],
     };
   }
@@ -1044,8 +1060,12 @@ test('precise direct collector reads operating indicators, reconciles room fee, 
     ).single_day_total,
     -0.2,
   );
-  assert.equal(capture.room_fee_summary_rows.length, 1);
+  assert.equal(capture.room_fee_summary_rows.length, 2);
   assert.equal(capture.room_fee_summary_rows[0].room_fee, 6450.14);
+  assert.equal(capture.room_fee_summary_rows.reduce(
+    (sum, row) => sum + row.room_fee,
+    0,
+  ), 6450.14);
   assert.equal(capture.room_fee_details.filter(
     (row) => ['room', 'unassigned'].includes(row.row_kind),
   ).reduce((sum, row) => sum + row.room_fee, 0), 6450.14);

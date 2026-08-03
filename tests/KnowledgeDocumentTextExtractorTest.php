@@ -109,6 +109,16 @@ final class KnowledgeDocumentTextExtractorTest extends TestCase
             self::assertStringContainsString('合并单元格：A1:B1', $result['text']);
             self::assertStringContainsString('第 1 行：A1：房型 | B1：大床房', $result['text']);
             self::assertStringContainsString('第 2 行：A2：景观 | B2：20', $result['text']);
+            self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $result['sha256']);
+            self::assertSame($result['sha256'], $result['source_document']['sha256']);
+            self::assertSame('房型知识.xlsx', $result['source_document']['filename']);
+            self::assertSame('xlsx', $result['source_document']['extension']);
+            self::assertSame(hash('sha256', $result['text']), $result['source_document']['text_sha256']);
+            self::assertCount(1, $result['source_document']['sheets']);
+            self::assertSame('房型知识', $result['source_document']['sheets'][0]['name']);
+            self::assertSame(['A1', 'B1', 'A2', 'B2'], $result['source_document']['sheets'][0]['cell_refs']);
+            self::assertSame(['A1:B1'], $result['source_document']['sheets'][0]['merged_ranges']);
+            self::assertFalse($result['source_document']['sheets'][0]['cell_refs_truncated']);
         } finally {
             @unlink($path);
         }

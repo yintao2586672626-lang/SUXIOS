@@ -72,6 +72,21 @@ const hotelAccountSummary = sliceBetween(
   'data-testid="hotel-account-summary-table"',
   '<!-- 空状态 -->'
 );
+const manualImportPanel = sliceBetween(
+  html,
+  '<h4 class="font-medium text-gray-800 mb-3">手工 / 文件内容导入</h4>',
+  'data-testid="browser-assist-import-panel"'
+);
+const manualImportAction = sliceBetween(
+  html,
+  'const importPlatformDataRowsFromText = async () => {',
+  'const readBrowserAssistCaptureFile = (event) => {'
+);
+const manualImportSummary = sliceBetween(
+  html,
+  'const platformImportResultSummaryText = computed(() => {',
+  'const browserAssistImporting = ref(false);'
+);
 
 test('OTA platform status page exposes the P0 Profile login flow without credential custody', () => {
   assert.match(flowPanel, /Profile 主线，不托管 OTA 账号密码/);
@@ -106,6 +121,29 @@ test('browser assist import panel posts supplemental captures through the contra
   assert.match(browserAssistImportAction, /schedulePlatformCollectionStatusRefresh\(\)/);
   assert.match(browserAssistImportAction, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
   assert.doesNotMatch(browserAssistImportAction, /bottomPrice|confirmed_revenue|revenue_amount/);
+});
+
+test('manual OTA import keeps persistence separate from verified-source analysis eligibility', () => {
+  assert.match(manualImportPanel, /data-testid="manual-import-truth-result"/);
+  assert.match(manualImportPanel, /已入库，但不等于已验证 OTA 事实/);
+  assert.match(manualImportPanel, /platformImportResultSummaryText/);
+  assert.match(manualImportPanel, /当前不进入可信收益分析/);
+  assert.match(manualImportSummary, /实际隔离源/);
+  assert.match(manualImportSummary, /可信分析可用/);
+  for (const field of [
+    'saved_count',
+    'selected_data_source_id',
+    'effective_import_source_id',
+    'import_provenance_status',
+    'analysis_eligible_count',
+    'readback_verified',
+  ]) {
+    assert.match(manualImportAction, new RegExp(field), `manual import result must expose ${field}`);
+  }
+  assert.match(manualImportAction, /user_provided_unverified/);
+  assert.match(manualImportAction, /来源为用户提供且未验证，不进入可信收益分析/);
+  assert.match(manualImportAction, /来源资格状态未返回，请勿作为已验证 OTA 事实/);
+  assert.doesNotMatch(manualImportAction, /saved_count\s*\|\|\s*0/);
 });
 
 test('Ctrip review order advanced panel does not expose main-token page assist scripts', () => {

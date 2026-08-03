@@ -1382,15 +1382,60 @@ trait OnlineDataRequestConcern
         $this->checkActionPermission('can_fetch_online_data');
 
         $requestData = array_merge($this->request->get(), $this->requestData());
-        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
-            $requestData['system_hotel_id']
-            ?? $requestData['systemHotelId']
-            ?? null
-        );
+        $requestedDataSourceId = $this->ctripProfileStatusRequestedDataSourceId($requestData);
         $probeCookie = $this->isTruthyRequestValue($requestData['probe_cookie'] ?? $requestData['probeCookie'] ?? false);
         $probeLogin = $this->isTruthyRequestValue($requestData['probe_login'] ?? $requestData['probeLogin'] ?? false);
+        $systemHotelId = null;
         try {
+            if ($requestedDataSourceId > 0) {
+                $requestData = $this->applyPlatformProfileLoginDataSourceRequest('ctrip', $requestData);
+            }
+            $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+                $requestData['system_hotel_id']
+                ?? $requestData['systemHotelId']
+                ?? null
+            );
             $status = $this->buildCtripProfileStatus($requestData, $systemHotelId, $probeCookie, $probeLogin);
+            if ($probeLogin
+                && $requestedDataSourceId > 0
+                && $systemHotelId !== null
+                && $this->ctripProfileStatusProbeEligibleForBinding($status)
+            ) {
+                $profileId = trim((string)($status['profile_id'] ?? ''));
+                $matchedDataSourceId = $profileId !== ''
+                    ? $this->findBrowserProfileDataSourceId((int)$systemHotelId, 'ctrip', $profileId)
+                    : 0;
+                if ($matchedDataSourceId !== $requestedDataSourceId) {
+                    throw new \RuntimeException('Ctrip Profile probe data source scope mismatch.', 409);
+                }
+
+                $boundSource = $this->bindVerifiedBrowserProfileDataSource(
+                    'ctrip',
+                    (int)$systemHotelId,
+                    $profileId,
+                    $requestData,
+                    [
+                        'auth_status' => is_array($status['auth_status'] ?? null) ? $status['auth_status'] : [],
+                        'session_probe' => is_array($status['session_probe'] ?? null) ? $status['session_probe'] : [],
+                        'capture_gate' => $status['capture_gate'] ?? null,
+                    ],
+                    $requestedDataSourceId
+                );
+                $boundDataSourceId = (int)($boundSource['id'] ?? 0);
+                $boundStatus = strtolower(trim((string)($boundSource['status'] ?? '')));
+                if ($boundDataSourceId !== $requestedDataSourceId
+                    || !in_array($boundStatus, ['ready', 'success'], true)
+                    || empty($boundSource['current_session_verified'])
+                ) {
+                    throw new \RuntimeException('Ctrip Profile verified proof readback failed.', 409);
+                }
+                $status['data_source_binding'] = [
+                    'id' => $boundDataSourceId,
+                    'status' => $boundStatus,
+                    'current_session_verified' => true,
+                    'sensitive_values_exposed' => false,
+                ];
+            }
         } catch (\RuntimeException $e) {
             return $this->error($e->getMessage(), $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409, [
                 'status_code' => 'ota_profile_binding_blocked',
@@ -1420,6 +1465,25 @@ trait OnlineDataRequestConcern
             $status,
             !empty($status['exists']) ? '携程 Profile 状态已读取' : '未找到携程 Profile'
         );
+    }
+
+    /** @param array<string, mixed> $status */
+    private function ctripProfileStatusProbeEligibleForBinding(array $status): bool
+    {
+        $authStatus = is_array($status['auth_status'] ?? null) ? $status['auth_status'] : [];
+        $sessionProbe = is_array($status['session_probe'] ?? null) ? $status['session_probe'] : [];
+        $authStatusCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+
+        return ($status['status_code'] ?? '') === 'logged_in'
+            && ($authStatus['ok'] ?? null) === true
+            && in_array($authStatusCode, ['logged_in', 'authorized'], true)
+            && (new OtaProfileSessionProofService())->isStrongProfileLoginSessionProbe($sessionProbe);
+    }
+
+    /** @param array<string, mixed> $requestData */
+    private function ctripProfileStatusRequestedDataSourceId(array $requestData): int
+    {
+        return max(0, (int)($requestData['data_source_id'] ?? 0));
     }
 
     public function meituanProfileStatus(): Response
@@ -3504,13 +3568,12 @@ trait OnlineDataRequestConcern
         int $systemHotelId,
         string $profileKey,
         array $requestData,
-        array $payload
+        array $payload,
+        int $expectedDataSourceId = 0
     ): array {
         $source = $this->bindBrowserProfileDataSource($platform, $systemHotelId, $requestData, $payload);
         $sourceId = (int)($source['id'] ?? 0);
-        if ($sourceId <= 0) {
-            throw new \RuntimeException('Profile data source was saved without an id.', 500);
-        }
+        $this->assertExpectedBrowserProfileDataSourceId($expectedDataSourceId, $sourceId);
         $proof = (new OtaProfileSessionProofService())->recordProfileLoginVerified(
             $sourceId,
             $systemHotelId,
@@ -3523,6 +3586,16 @@ trait OnlineDataRequestConcern
         $source['current_session_verified'] = (bool)($proof['current_session_verified'] ?? false);
         $source['sensitive_values_exposed'] = false;
         return $source;
+    }
+
+    private function assertExpectedBrowserProfileDataSourceId(int $expectedDataSourceId, int $actualDataSourceId): void
+    {
+        if ($actualDataSourceId <= 0) {
+            throw new \RuntimeException('Profile data source was saved without an id.', 500);
+        }
+        if ($expectedDataSourceId > 0 && $actualDataSourceId !== $expectedDataSourceId) {
+            throw new \RuntimeException('Profile data source changed before verified proof write.', 409);
+        }
     }
 
     /** @param array<string, mixed> $authStatus */

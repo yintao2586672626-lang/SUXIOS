@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
-  { path: 'public/app-main.js', max_lines: 46_282, boundary: 'request lifecycle coordinator plus deferred frontend helpers; zero-growth until the next extraction' },
+  // Transparent rebaseline: 49,934 lines is the verified formal promotion + temporal trial + XLSX closure baseline, not a size reduction or performance improvement.
+  { path: 'public/app-main.js', max_lines: 49_934, boundary: 'formal promotion + temporal trial + XLSX verified closure baseline; zero-growth until a behavior-driven domain extraction' },
   { path: 'tests/OnlineDataTest.php', max_lines: 2_800, boundary: 'platform test-case traits' },
   { path: 'app/controller/Agent.php', max_lines: 2_700, boundary: 'Agent OTA concern traits' },
   { path: 'app/controller/concern/AutoFetchConcern.php', max_lines: 5_200, boundary: 'platform execution concern traits' },

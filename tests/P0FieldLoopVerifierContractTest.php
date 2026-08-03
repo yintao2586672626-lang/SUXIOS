@@ -795,6 +795,66 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         );
     }
 
+    public function testLiveClosureTreatsExplicitlyMissingStoredValuesAsMissingFacts(): void
+    {
+        foreach ([
+            'inspect_phase1_ota_live_closure.php',
+            'build_phase1_ota_live_closure_evidence.php',
+        ] as $script) {
+            $source = (string)file_get_contents(
+                dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . $script
+            );
+            $definition = $this->extractFunctionDefinition($source, 'field_fact_closure_summary');
+
+            self::assertNotSame('', $definition, 'Missing field fact closure helper in ' . $script);
+            self::assertStringContainsString(
+                '$explicitMissing = $storedValueMissing',
+                $definition,
+                'A field that explicitly has no stored value must stay missing instead of becoming an incomplete captured fact.'
+            );
+        }
+    }
+
+    public function testLiveClosureCliAcceptsHyphenatedHotelScopeOptions(): void
+    {
+        foreach ([
+            'inspect_phase1_ota_live_closure.php',
+            'build_phase1_ota_live_closure_evidence.php',
+        ] as $script) {
+            $source = (string)file_get_contents(
+                dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . $script
+            );
+
+            self::assertStringContainsString(
+                '$key = str_replace(\'-\', \'_\', $key);',
+                $source,
+                'The documented --system-hotel-id form must not be silently ignored by ' . $script
+            );
+        }
+    }
+
+    public function testTrafficFieldLoopDoesNotRequirePlatformRevenueMetrics(): void
+    {
+        $verifier = (string)file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php'
+        );
+        if (!function_exists(__NAMESPACE__ . '\\p0_inspector_missing_codes_block_field_loop')) {
+            $definition = $this->extractFunctionDefinition($verifier, 'p0_inspector_missing_codes_block_field_loop');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        self::assertFalse(p0_inspector_missing_codes_block_field_loop([
+            'ctrip_etl_not_ready',
+            'ctrip_revenue_metrics_not_ready',
+            'ai_diagnosis_action_items_blocked',
+            'operation_execution_sample_missing',
+        ], ['ctrip', 'meituan']));
+        self::assertTrue(p0_inspector_missing_codes_block_field_loop([
+            'ctrip_traffic_facts_missing',
+        ], ['ctrip', 'meituan']));
+    }
+
     public function testLiveClosureInspectorAcceptsExactRootJsonPropertyPaths(): void
     {
         $inspector = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'inspect_phase1_ota_live_closure.php');

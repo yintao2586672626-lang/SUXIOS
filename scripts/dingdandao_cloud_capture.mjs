@@ -1935,10 +1935,18 @@ function roomFeeSummaryRowsFromResponse(sumDetail) {
     const providerRoomTypeId = normalizeText(roomType?.roomTypeId);
     const roomTypeName = normalizeText(roomType?.roomTypeName);
     if (!providerRoomTypeId || !roomTypeName) continue;
-    for (const [index, valueRow] of (Array.isArray(roomType?.roomList)
-      ? roomType.roomList.slice(0, 500).entries()
-      : []
-    )) {
+    const roomRows = Array.isArray(roomType?.roomList)
+      ? roomType.roomList.slice(0, 500)
+      : [];
+    const hasProviderRoomIds = roomRows.some(
+      (valueRow) => normalizeText(valueRow?.roomId) !== '',
+    );
+    for (const [index, valueRow] of roomRows.entries()) {
+      // Current Dingdandao responses append room-type subtotal and hotel-total
+      // rows without roomId. When room-level identifiers are present, retain
+      // only room/unassigned rows so subtotals are not counted a second time.
+      // Older responses without roomId keep their legacy single summary row.
+      if (hasProviderRoomIds && normalizeText(valueRow?.roomId) === '') continue;
       const roomFee = numberFromText(valueRow?.sum);
       if (roomFee === null || roomFee < 0) continue;
       rows.push({

@@ -391,7 +391,7 @@ final class OtaProfileSessionProofServiceTest extends TestCase
         $config['auth_error'] = 'captcha slider risk control';
         Db::name('platform_data_sources')->where('id', $sourceId)->update([
             'last_sync_status' => 'failed',
-            'last_error' => 'captcha slider risk control',
+            'last_error' => 'credential_execution_failed',
             'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
         ]);
 

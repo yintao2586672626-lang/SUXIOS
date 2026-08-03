@@ -29,12 +29,20 @@ class KnowledgeDocumentTextExtractor
     private const XLSX_MAX_XML_COMPRESSION_RATIO = 100;
     private const XLSX_MAX_CELL_TEXT_CHARS = 10000;
     private const XLSX_MAX_EXTRACTED_TEXT_CHARS = 200000;
+    private const XLSX_MAX_METADATA_CELL_REFERENCES = 5000;
     private const SPREADSHEET_NAMESPACE = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
     private const OFFICE_RELATIONSHIP_NAMESPACE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
     private const PACKAGE_RELATIONSHIP_NAMESPACE = 'http://schemas.openxmlformats.org/package/2006/relationships';
 
     /**
-     * @return array{filename:string, extension:string, text:string, char_count:int}
+     * @return array{
+     *     filename:string,
+     *     extension:string,
+     *     text:string,
+     *     char_count:int,
+     *     sha256:string,
+     *     source_document:array<string,mixed>
+     * }
      */
     public function extractFromPath(string $path, string $filename): array
     {
@@ -47,11 +55,17 @@ class KnowledgeDocumentTextExtractor
             throw new InvalidArgumentException('无法识别文档类型，请使用 txt、md、csv、json、html、docx 或 xlsx 文件');
         }
 
+        $sha256 = hash_file('sha256', $path);
+        if (!is_string($sha256) || $sha256 === '') {
+            throw new RuntimeException('文档来源指纹计算失败');
+        }
+
+        $xlsxMetadata = [];
         $text = match (true) {
             in_array($extension, self::TEXT_EXTENSIONS, true) => $this->readUtf8TextFile($path),
             in_array($extension, self::HTML_EXTENSIONS, true) => $this->extractHtmlText($this->readUtf8TextFile($path)),
             $extension === 'docx' => $this->extractDocxText($path),
-            $extension === 'xlsx' => $this->extractXlsxText($path, $filename),
+            $extension === 'xlsx' => $this->extractXlsxText($path, $filename, $sha256, $xlsxMetadata),
             default => throw new InvalidArgumentException('暂不支持该文档类型：' . $extension),
         };
 
@@ -60,11 +74,28 @@ class KnowledgeDocumentTextExtractor
             throw new InvalidArgumentException('文档未解析到可导入的文字内容');
         }
 
+        $safeFilename = trim(str_replace(["\r", "\n"], ' ', basename($filename)));
+        if ($safeFilename === '') {
+            $safeFilename = 'document.' . $extension;
+        }
+        $sourceDocument = [
+            'filename' => $safeFilename,
+            'extension' => $extension,
+            'sha256' => $sha256,
+            'text_sha256' => hash('sha256', $text),
+            'char_count' => mb_strlen($text),
+        ];
+        if ($extension === 'xlsx') {
+            $sourceDocument['sheets'] = array_values((array)($xlsxMetadata['sheets'] ?? []));
+        }
+
         return [
-            'filename' => $filename,
+            'filename' => $safeFilename,
             'extension' => $extension,
             'text' => $text,
             'char_count' => mb_strlen($text),
+            'sha256' => $sha256,
+            'source_document' => $sourceDocument,
         ];
     }
 
@@ -123,13 +154,20 @@ class KnowledgeDocumentTextExtractor
         return implode("\n\n", array_filter($parts, static fn(string $part): bool => trim($part) !== ''));
     }
 
-    private function extractXlsxText(string $path, string $filename): string
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    private function extractXlsxText(
+        string $path,
+        string $filename,
+        string $fingerprint,
+        array &$metadata
+    ): string
     {
         if (!class_exists(ZipArchive::class)) {
             throw new RuntimeException('服务器未启用 ZipArchive，无法读取 xlsx 文档');
         }
 
-        $fingerprint = hash_file('sha256', $path);
         $zip = new ZipArchive();
         if ($zip->open($path, ZipArchive::CHECKCONS) !== true) {
             throw new InvalidArgumentException('xlsx 文档无法打开，请确认文件未损坏');
@@ -143,12 +181,14 @@ class KnowledgeDocumentTextExtractor
             $sheets = $this->resolveXlsxWorksheets($workbook, $relationships);
 
             $sections = [];
+            $sheetMetadata = [];
             foreach ($sheets as $sheet) {
                 $worksheet = $this->readXlsxXmlEntry($zip, $sheet['path'], 'worksheet ' . $sheet['name']);
-                $section = $this->renderXlsxWorksheet($worksheet, $sharedStrings, $sheet['name']);
-                if ($section !== '') {
-                    $sections[] = $section;
+                $rendered = $this->renderXlsxWorksheet($worksheet, $sharedStrings, $sheet['name']);
+                if ($rendered['text'] !== '') {
+                    $sections[] = $rendered['text'];
                 }
+                $sheetMetadata[] = $rendered['metadata'];
             }
         } finally {
             $zip->close();
@@ -160,14 +200,14 @@ class KnowledgeDocumentTextExtractor
 
         $safeFilename = trim(str_replace(["\r", "\n"], ' ', basename($filename)));
         $parts = ['Excel 工作簿：' . ($safeFilename !== '' ? $safeFilename : 'workbook.xlsx')];
-        if (is_string($fingerprint) && $fingerprint !== '') {
-            $parts[] = '来源指纹：sha256:' . $fingerprint;
-        }
+        $parts[] = '来源指纹：sha256:' . $fingerprint;
         $parts = array_merge($parts, $sections);
         $text = implode("\n\n", $parts);
         if (mb_strlen($text) > self::XLSX_MAX_EXTRACTED_TEXT_CHARS) {
             throw new InvalidArgumentException('xlsx 文档可导入文字内容超过 200000 字限制');
         }
+
+        $metadata = ['sheets' => $sheetMetadata];
 
         return $text;
     }
@@ -360,8 +400,9 @@ class KnowledgeDocumentTextExtractor
 
     /**
      * @param array<int, string> $sharedStrings
+     * @return array{text:string,metadata:array<string,mixed>}
      */
-    private function renderXlsxWorksheet(SimpleXMLElement $worksheet, array $sharedStrings, string $sheetName): string
+    private function renderXlsxWorksheet(SimpleXMLElement $worksheet, array $sharedStrings, string $sheetName): array
     {
         $worksheet->registerXPathNamespace('m', self::SPREADSHEET_NAMESPACE);
         $rowNodes = $worksheet->xpath('/m:worksheet/m:sheetData/m:row') ?: [];
@@ -372,6 +413,8 @@ class KnowledgeDocumentTextExtractor
         $lines = [];
         $seenRows = [];
         $cellCount = 0;
+        $cellReferences = [];
+        $cellReferencesTruncated = false;
         foreach ($rowNodes as $rowNode) {
             $rowNode->registerXPathNamespace('m', self::SPREADSHEET_NAMESPACE);
             $rowAttributes = $rowNode->attributes();
@@ -396,6 +439,11 @@ class KnowledgeDocumentTextExtractor
                 if ($cellCount > self::XLSX_MAX_CELLS_PER_SHEET) {
                     throw new InvalidArgumentException('xlsx 工作表 ' . $sheetName . ' 超过 200000 个单元格限制');
                 }
+                if (count($cellReferences) < self::XLSX_MAX_METADATA_CELL_REFERENCES) {
+                    $cellReferences[] = $reference;
+                } else {
+                    $cellReferencesTruncated = true;
+                }
 
                 $value = $this->readXlsxCellValue($cellNode, $sharedStrings);
                 if ($value !== '') {
@@ -405,10 +453,6 @@ class KnowledgeDocumentTextExtractor
             if ($cells !== []) {
                 $lines[] = '第 ' . (int)$rowNumber . ' 行：' . implode(' | ', $cells);
             }
-        }
-
-        if ($lines === []) {
-            return '';
         }
 
         $mergedRanges = [];
@@ -428,7 +472,17 @@ class KnowledgeDocumentTextExtractor
             $header .= "\n合并单元格：" . implode('、', $mergedRanges);
         }
 
-        return $header . "\n" . implode("\n", $lines);
+        return [
+            'text' => $lines !== [] ? $header . "\n" . implode("\n", $lines) : '',
+            'metadata' => [
+                'name' => $sheetName,
+                'row_count' => count($rowNodes),
+                'cell_count' => $cellCount,
+                'cell_refs' => $cellReferences,
+                'cell_refs_truncated' => $cellReferencesTruncated,
+                'merged_ranges' => $mergedRanges,
+            ],
+        ];
     }
 
     /** @param array<int, string> $sharedStrings */

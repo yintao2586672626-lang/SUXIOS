@@ -67,6 +67,52 @@ final class OtaTrafficAttributionServiceTest extends TestCase
         ], 'ctrip'));
     }
 
+    public function testAuthoritativeCtripTrafficKeepsCanonicalAndLegacyCoreRowsOnly(): void
+    {
+        self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => 'self',
+            'dimension' => 'catalog:business_overview:business_flow_transform:list_exposure',
+            'raw_data' => json_encode(['endpoint_id' => 'business_flow_transform']),
+        ], 'ctrip'));
+
+        self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => '',
+            'dimension' => '',
+            'raw_data' => '{}',
+        ], 'ctrip'));
+
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => 'self',
+            'dimension' => 'catalog:business_overview:traffic_rank_snapshot:rank',
+            'raw_data' => json_encode(['endpoint_id' => 'traffic_rank_snapshot']),
+        ], 'ctrip'));
+
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => 'competitor_avg',
+            'dimension' => '',
+            'raw_data' => '{}',
+        ], 'ctrip'));
+    }
+
+    public function testMeituanRefreshTimestampCannotBecomeBusinessDateEvidence(): void
+    {
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'meituan',
+            'compare_type' => 'self',
+            'raw_data' => json_encode(['date_source' => 'response.rtDataUpdateTime']),
+        ], 'meituan'));
+
+        self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'meituan',
+            'compare_type' => 'self',
+            'raw_data' => json_encode(['date_source' => 'page.traffic_period_selection.readback']),
+        ], 'meituan'));
+    }
+
     public function testP0HotelScopeIncludesSourcesBindingsAndStoredOwnTraffic(): void
     {
         self::assertSame(

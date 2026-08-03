@@ -561,6 +561,424 @@ window.SUXI_HOME_STATIC = (() => {
         };
     };
 
+    const homeOperatingScheduleDatePart = (value) => String(value || '').trim().slice(0, 10);
+    const homeOperatingScheduleTimePart = (value) => {
+        const text = String(value || '').trim();
+        return /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(text) ? text.slice(11, 16) : '';
+    };
+    const homeOperatingScheduleDateInRange = (today, start, end) => {
+        const target = homeOperatingScheduleDatePart(today);
+        const startDate = homeOperatingScheduleDatePart(start);
+        const endDate = homeOperatingScheduleDatePart(end);
+        if (!target || !startDate) return false;
+        return startDate <= target && (!endDate || endDate === '0000-00-00' || target <= endDate);
+    };
+    const homeOperatingScheduleSourceLabel = (item = {}) => {
+        const recommendation = item?.recommendation || {};
+        const sourceModule = String(recommendation.source_module || '').trim();
+        const platform = String(recommendation.platform || '').trim().toLowerCase();
+        const moduleLabel = {
+            manual: '人工创建',
+            ota_diagnosis: '历史 OTA 诊断',
+            ota_diagnosis_saved: 'OTA 诊断',
+            daily_workbench_patrol: '经营巡检',
+            ai_daily_report: 'AI 经营日报',
+            price_suggestion: '收益调价建议',
+            temporal_forecast_recommendation: '趋势预测建议',
+            operation_optimizer: '运营优化器',
+            strategy_simulation: '策略模拟',
+        }[sourceModule] || sourceModule || '来源未返回';
+        const platformLabel = { ctrip: '携程', meituan: '美团', pms: 'PMS' }[platform] || platform;
+        return platformLabel ? `${platformLabel} · ${moduleLabel}` : moduleLabel;
+    };
+    const homeOperatingScheduleActionTitle = (item = {}, helpers = {}) => {
+        if (typeof helpers.actionText === 'function') {
+            const resolved = String(helpers.actionText(item) || '').trim();
+            if (resolved) return resolved;
+        }
+        const recommendation = item?.recommendation || {};
+        const actionType = String(recommendation.action_type || '').trim();
+        const objectType = String(recommendation.object_type || '').trim();
+        const actionLabel = {
+            complete_public_page_evidence: '补齐公开页证据',
+            review_public_page_evidence: '复核公开页证据',
+            manual_forecast_review: '预测复核',
+            booking_conversion_optimization: '下单转化核查',
+            listing_conversion_optimization: '列表转化核查',
+            service_quality_improvement: '服务质量核查',
+            advertising_optimization: '广告优化',
+            ota_operation_follow_up: 'OTA 运营跟进',
+        }[actionType] || actionType;
+        const objectLabel = {
+            price: '价格',
+            inventory: '房态',
+            campaign: '活动',
+            data_collection: '证据采集',
+            operation_checklist: '运营核查',
+        }[objectType] || objectType;
+        return [objectLabel, actionLabel].filter(Boolean).join(' · ') || '未命名运营任务';
+    };
+    const homeOperatingScheduleStatus = (item = {}, today = '') => {
+        const stage = String(item?.stage || '').trim().toLowerCase();
+        const reviewAvailableAt = String(item?.review?.available_at || item?.review?.available_on || '').trim();
+        const reviewDate = homeOperatingScheduleDatePart(reviewAvailableAt);
+        const reviewDue = !!reviewDate && reviewDate <= homeOperatingScheduleDatePart(today);
+        if (stage === 'blocked') {
+            return { code: 'blocked', label: '已阻塞', rank: 0, toneClass: 'border-red-200 bg-red-50 text-red-700', accentClass: 'border-l-red-400' };
+        }
+        if (stage === 'failed') {
+            return { code: 'failed', label: '执行失败', rank: 0, toneClass: 'border-red-200 bg-red-50 text-red-700', accentClass: 'border-l-red-400' };
+        }
+        if (stage === 'rejected') {
+            return { code: 'rejected', label: '已驳回', rank: 0, toneClass: 'border-orange-200 bg-orange-50 text-orange-700', accentClass: 'border-l-orange-400' };
+        }
+        if (stage === 'approval') {
+            return { code: 'approval', label: '待审批', rank: 1, toneClass: 'border-amber-200 bg-amber-50 text-amber-700', accentClass: 'border-l-amber-400' };
+        }
+        if (stage === 'execution') {
+            return { code: 'execution', label: '待执行', rank: 2, toneClass: 'border-blue-200 bg-blue-50 text-blue-700', accentClass: 'border-l-blue-400' };
+        }
+        if (stage === 'evidence') {
+            return { code: 'evidence', label: '待补来源事实', rank: 3, toneClass: 'border-orange-200 bg-orange-50 text-orange-700', accentClass: 'border-l-orange-400' };
+        }
+        if (stage === 'review') {
+            return reviewDue
+                ? { code: 'review', label: '待复盘', rank: 4, toneClass: 'border-violet-200 bg-violet-50 text-violet-700', accentClass: 'border-l-violet-400' }
+                : { code: 'waiting_review', label: '等待复盘', rank: 5, toneClass: 'border-slate-200 bg-slate-50 text-slate-600', accentClass: 'border-l-slate-300' };
+        }
+        if (stage === 'reviewed') {
+            return { code: 'reviewed', label: '已复盘', rank: 8, toneClass: 'border-emerald-200 bg-emerald-50 text-emerald-700', accentClass: 'border-l-emerald-400' };
+        }
+        return { code: 'unknown', label: '状态未返回', rank: 6, toneClass: 'border-slate-200 bg-slate-50 text-slate-600', accentClass: 'border-l-slate-300' };
+    };
+    const homeOperatingScheduleMoment = (item = {}, status = {}, today = '') => {
+        const candidates = status.code === 'review' || status.code === 'waiting_review'
+            ? [item?.review?.available_at, item?.assignment?.review_at, item?.execution?.executed_at]
+            : (status.code === 'execution'
+                ? [item?.assignment?.due_at, item?.approval?.approved_at, item?.recommendation?.date_start]
+                : (status.code === 'approval'
+                    ? [item?.assignment?.due_at, item?.recommendation?.created_at, item?.recommendation?.date_start]
+                    : [item?.execution?.executed_at, item?.review?.available_at, item?.assignment?.due_at, item?.recommendation?.created_at]));
+        const value = candidates.map(candidate => String(candidate || '').trim()).find(Boolean) || '';
+        const date = homeOperatingScheduleDatePart(value);
+        const time = homeOperatingScheduleTimePart(value);
+        const target = homeOperatingScheduleDatePart(today);
+        if (!date) return { value: '', date: '', timeText: '未排期', fullText: '未返回排期时间' };
+        if (date < target && !['reviewed', 'failed', 'rejected'].includes(status.code)) {
+            return { value, date, timeText: '已逾期', fullText: value };
+        }
+        if (date === target) return { value, date, timeText: time || '今日', fullText: value };
+        return { value, date, timeText: date.slice(5), fullText: value };
+    };
+    const homeOperatingScheduleRelevant = (item = {}, today = '', status = {}) => {
+        const recommendation = item?.recommendation || {};
+        const dates = [
+            recommendation.created_at,
+            item?.approval?.approved_at,
+            item?.execution?.executed_at,
+            item?.assignment?.due_at,
+            item?.assignment?.review_at,
+            item?.review?.available_at,
+            item?.review?.available_on,
+        ].map(homeOperatingScheduleDatePart).filter(Boolean);
+        const exactToday = homeOperatingScheduleDatePart(today);
+        const active = !['reviewed', 'failed', 'rejected', 'blocked'].includes(status.code);
+        const dueDate = homeOperatingScheduleDatePart(item?.assignment?.due_at);
+        const reviewDate = homeOperatingScheduleDatePart(item?.review?.available_at || item?.review?.available_on);
+        const scheduledToday = homeOperatingScheduleDateInRange(exactToday, recommendation.date_start, recommendation.date_end);
+        const eventToday = dates.includes(exactToday);
+        const overdueActive = active && ((dueDate && dueDate < exactToday) || (reviewDate && reviewDate < exactToday));
+        const unscheduledActive = active && !recommendation.date_start && !dueDate && !reviewDate;
+        return scheduledToday || eventToday || overdueActive || unscheduledActive;
+    };
+    const buildHomeOperatingScheduleModel = ({
+        flow = {},
+        today = '',
+        scopeHotelName = '',
+        selectedHotelId = '',
+        yesterday = {},
+        loading = false,
+        error = '',
+        lastReadAt = '',
+        maxItems = 7,
+        helpers = {},
+    } = {}) => {
+        const safeFlow = flow && typeof flow === 'object' ? flow : {};
+        const allItems = Array.isArray(safeFlow.list) ? safeFlow.list : [];
+        const targetDate = homeOperatingScheduleDatePart(today) || '日期未返回';
+        const hotelNameForId = typeof helpers.hotelNameForId === 'function' ? helpers.hotelNameForId : () => '';
+        const rows = allItems.map((item) => {
+            const status = homeOperatingScheduleStatus(item, targetDate);
+            if (!homeOperatingScheduleRelevant(item, targetDate, status)) return null;
+            const recommendation = item?.recommendation || {};
+            const hotelId = Number(item?.hotel_id || 0);
+            const hotelName = String(hotelNameForId(hotelId) || '').trim() || (hotelId > 0 ? `酒店 #${hotelId}（名称未返回）` : '酒店身份未返回');
+            const startDate = homeOperatingScheduleDatePart(recommendation.date_start);
+            const endDate = homeOperatingScheduleDatePart(recommendation.date_end);
+            const dateText = startDate
+                ? (endDate && endDate !== startDate && endDate !== '0000-00-00' ? `${startDate} 至 ${endDate}` : startDate)
+                : '业务日期未返回';
+            const sourceRef = String(recommendation.source || '').trim() || '来源记录未返回';
+            const moment = homeOperatingScheduleMoment(item, status, targetDate);
+            return {
+                kind: 'task',
+                key: `task-${Number(item?.id || 0)}`,
+                intentId: Number(item?.id || 0),
+                hotelId,
+                hotelName,
+                businessDateText: dateText,
+                title: homeOperatingScheduleActionTitle(item, helpers),
+                sourceLabel: typeof helpers.sourceText === 'function'
+                    ? String(helpers.sourceText(item) || '').trim() || homeOperatingScheduleSourceLabel(item)
+                    : homeOperatingScheduleSourceLabel(item),
+                sourceRef,
+                statusCode: status.code,
+                statusLabel: status.label,
+                statusClass: status.toneClass,
+                accentClass: status.accentClass,
+                stage: String(item?.stage || ''),
+                timeText: moment.timeText,
+                timeFullText: moment.fullText,
+                sortRank: status.rank,
+                sortValue: moment.value || '9999-12-31 23:59:59',
+                nextAction: String(item?.next_action?.label || item?.next_action?.key || '').trim(),
+                blockedReason: String(item?.approval?.blocked_reason || item?.execution?.blocked_reason || item?.review?.failure_reason || '').trim(),
+            };
+        }).filter(Boolean).sort((left, right) => (
+            left.sortRank - right.sortRank
+            || String(left.sortValue).localeCompare(String(right.sortValue))
+            || right.intentId - left.intentId
+        ));
+        const counts = rows.reduce((result, row) => {
+            result[row.statusCode] = (result[row.statusCode] || 0) + 1;
+            return result;
+        }, {});
+        const visibleRows = rows.slice(0, Math.max(1, Number(maxItems || 7)));
+        const dataStatus = String(safeFlow.data_status || '').trim();
+        const hasReadback = dataStatus !== '' || Object.prototype.hasOwnProperty.call(safeFlow, 'list');
+        let stateCode = 'ready';
+        let stateLabel = rows.length ? `已读取 ${rows.length} 项` : '今日暂无任务';
+        let notice = '';
+        if (String(error || '').trim()) {
+            stateCode = hasReadback ? 'refresh_failed' : 'failed';
+            stateLabel = '读取失败';
+            notice = hasReadback
+                ? `刷新失败：${String(error).trim()}。下方保留上次成功回读，不能视为当前最新状态。`
+                : `读取失败：${String(error).trim()}。`;
+        } else if (loading) {
+            stateCode = hasReadback ? 'refreshing' : 'loading';
+            stateLabel = hasReadback ? '正在刷新' : '正在读取';
+            notice = hasReadback ? '正在刷新今日编排；下方为上次成功回读。' : '正在读取今日编排。';
+        } else if (dataStatus === '待接入真实数据') {
+            stateCode = 'waiting';
+            stateLabel = '等待数据';
+            notice = '执行意图数据尚未接入；当前不显示为无任务或已完成。';
+        } else if (dataStatus === 'partial' || (Array.isArray(safeFlow.data_gaps) && safeFlow.data_gaps.length)) {
+            stateCode = 'partial';
+            stateLabel = `部分读取 · ${rows.length} 项`;
+            notice = '部分任务、执行证据或复盘数据未完整返回；已显示项仍按各自真实状态呈现。';
+        }
+        const stateClass = {
+            ready: 'border-blue-200 bg-blue-50 text-blue-700',
+            refreshing: 'border-blue-200 bg-blue-50 text-blue-700',
+            loading: 'border-blue-200 bg-blue-50 text-blue-700',
+            partial: 'border-amber-200 bg-amber-50 text-amber-700',
+            waiting: 'border-slate-200 bg-slate-50 text-slate-600',
+            refresh_failed: 'border-red-200 bg-red-50 text-red-700',
+            failed: 'border-red-200 bg-red-50 text-red-700',
+        }[stateCode] || 'border-slate-200 bg-slate-50 text-slate-600';
+        const yesterdayStatus = String(yesterday?.status || '未取得');
+        const fact = {
+            kind: 'fact',
+            key: 'yesterday-fact',
+            hotelName: String(scopeHotelName || '').trim() || '酒店范围未返回',
+            businessDateText: String(yesterday?.date || '目标日待确认'),
+            title: yesterdayStatus === '已取得'
+                ? '昨日经营事实已读取'
+                : (yesterdayStatus === '读取失败' ? '昨日经营事实读取失败' : '昨日经营事实尚未完整取得'),
+            sourceLabel: String(yesterday?.sourceText || '来源未返回'),
+            sourceRef: '数据健康 · OTA 渠道事实',
+            statusCode: yesterdayStatus === '已取得' ? 'fact_ready' : (yesterdayStatus === '读取失败' ? 'failed' : 'fact_waiting'),
+            statusLabel: yesterdayStatus,
+            statusClass: String(yesterday?.statusClass || 'border-slate-200 bg-slate-50 text-slate-600'),
+            accentClass: yesterdayStatus === '已取得' ? 'border-l-sky-400' : (yesterdayStatus === '读取失败' ? 'border-l-red-400' : 'border-l-slate-300'),
+            timeText: '事实',
+            timeFullText: String(yesterday?.date || '目标日待确认'),
+        };
+        return {
+            date: targetDate,
+            scopeHotelId: String(selectedHotelId || ''),
+            scopeHotelName: String(scopeHotelName || '').trim() || '酒店范围未返回',
+            stateCode,
+            stateLabel,
+            stateClass,
+            notice,
+            fact,
+            items: visibleRows,
+            total: rows.length,
+            hiddenCount: Math.max(0, rows.length - visibleRows.length),
+            counts,
+            lastReadAt: String(lastReadAt || '').trim(),
+            isInitialLoading: stateCode === 'loading',
+            isEmpty: stateCode === 'ready' && rows.length === 0,
+        };
+    };
+    const HomeOperatingOrchestration = {
+        name: 'HomeOperatingOrchestration',
+        props: {
+            model: { type: Object, default: () => ({}) },
+            loading: { type: Boolean, default: false },
+            currentClockText: { type: String, default: '' },
+        },
+        emits: ['refresh', 'open', 'openAll'],
+        render() {
+            const h = window.Vue?.h;
+            if (typeof h !== 'function') return null;
+            const model = this.model || {};
+            const pill = (label, className) => h('span', {
+                class: ['rounded-full border px-2 py-0.5 text-[11px]', className],
+            }, label || '状态未返回');
+            const entry = (item = {}, fact = false) => h('button', {
+                type: 'button',
+                class: ['home-orchestration-entry', fact ? 'is-fact' : '', item.accentClass || 'border-l-slate-300'],
+                'data-testid': fact ? 'home-operating-fact-entry' : undefined,
+                'data-intent-id': fact ? undefined : item.intentId,
+                onClick: () => this.$emit('open', item),
+            }, [
+                h('div', { class: 'home-orchestration-time' }, [
+                    h('strong', null, item.timeText || '未排期'),
+                    h('span', { title: item.timeFullText || '' }, fact
+                        ? (item.businessDateText || '目标日待确认')
+                        : (item.businessDateText === model.date ? '今日' : String(item.businessDateText || '').slice(5) || '日期未返回')),
+                ]),
+                h('div', { class: 'home-orchestration-content' }, [
+                    h('div', { class: 'home-orchestration-entry-heading' }, [
+                        h('strong', null, item.title || '未命名任务'),
+                        pill(item.statusLabel, item.statusClass),
+                    ]),
+                    h('p', null, `酒店 ${item.hotelName || '身份未返回'} · 业务日 ${item.businessDateText || '未返回'}`),
+                    h('small', { title: [item.sourceLabel, item.sourceRef].filter(Boolean).join(' · ') },
+                        `来源 ${item.sourceLabel || '未返回'}${item.sourceRef ? ` · ${item.sourceRef}` : ''}`),
+                    item.blockedReason
+                        ? h('em', { class: 'is-error' }, item.blockedReason)
+                        : (item.nextAction ? h('em', null, `下一步 ${item.nextAction}`) : null),
+                ]),
+            ]);
+            const taskItems = Array.isArray(model.items) ? model.items : [];
+            const body = model.isInitialLoading
+                ? h('div', {
+                    class: 'home-orchestration-body',
+                    'data-testid': 'home-operating-orchestration-loading',
+                }, [1, 2, 3].map(index => h('div', {
+                    key: index,
+                    class: 'mb-3 h-20 animate-pulse rounded-xl border border-slate-100 bg-slate-50',
+                })))
+                : h('div', { class: 'home-orchestration-body' }, [
+                    entry(model.fact || {}, true),
+                    h('div', { class: 'home-orchestration-now', 'aria-hidden': 'true' }, [
+                        h('span'), h('b', null, '现在'), h('span'),
+                    ]),
+                    taskItems.length
+                        ? h('div', { class: 'space-y-3', 'data-testid': 'home-operating-task-list' }, taskItems.map(item => entry(item)))
+                        : h('div', { class: 'home-orchestration-empty', 'data-testid': 'home-operating-orchestration-empty' }, [
+                            h('strong', null, model.stateCode === 'waiting' ? '任务数据仍在等待接入' : '今天没有匹配的运营任务'),
+                            h('p', null, '这不等于经营已完成；可进入任务执行与复盘查看其他日期或补建人工动作。'),
+                            h('button', { type: 'button', onClick: () => this.$emit('openAll') }, '进入任务执行与复盘'),
+                        ]),
+                    Number(model.hiddenCount || 0) > 0
+                        ? h('button', {
+                            type: 'button',
+                            class: 'home-orchestration-more',
+                            onClick: () => this.$emit('openAll'),
+                        }, `另有 ${model.hiddenCount} 项，进入任务执行与复盘查看`)
+                        : null,
+                ]);
+            return h('section', {
+                class: 'home-orchestration',
+                'data-testid': 'home-operating-orchestration',
+            }, [
+                h('div', { class: 'home-orchestration-header' }, [
+                    h('div', { class: 'home-orchestration-copy' }, [
+                        h('div', { class: 'home-orchestration-heading-row' }, [
+                            h('p', { class: 'home-orchestration-eyebrow' }, 'TODAY · OPERATING ORCHESTRATION'),
+                            pill(model.stateLabel, model.stateClass),
+                        ]),
+                        h('h2', null, '今日经营编排'),
+                        h('p', null, `${model.scopeHotelName || '酒店范围未返回'} · ${model.date || '日期未返回'} · 每项均标明酒店、业务日期、来源与回读状态`),
+                        model.lastReadAt ? h('small', null, `最近回读 ${model.lastReadAt}`) : null,
+                    ]),
+                    h('div', { class: 'home-orchestration-actions' }, [
+                        h('span', { class: 'home-orchestration-clock' }, `现在 ${this.currentClockText || '--:--'}`),
+                        h('button', {
+                            type: 'button',
+                            class: 'home-orchestration-secondary',
+                            disabled: this.loading,
+                            onClick: () => this.$emit('refresh'),
+                        }, this.loading ? '刷新中' : '刷新编排'),
+                        h('button', {
+                            type: 'button',
+                            class: 'home-orchestration-primary',
+                            onClick: () => this.$emit('openAll'),
+                        }, '查看全部 →'),
+                    ]),
+                ]),
+                model.notice ? h('div', {
+                    class: ['home-orchestration-notice', model.stateClass],
+                    'data-testid': 'home-operating-orchestration-notice',
+                }, model.notice) : null,
+                body,
+            ]);
+        },
+    };
+    const HomeBusinessTimeAxis = {
+        name: 'HomeBusinessTimeAxis',
+        props: {
+            model: { type: Object, default: () => ({}) },
+            competitorReadiness: { type: Object, default: () => ({}) },
+            generating: { type: Boolean, default: false },
+            selectedHotelId: { type: [String, Number], default: '' },
+        },
+        emits: ['generate'],
+        render() {
+            const h = window.Vue?.h;
+            if (typeof h !== 'function') return null;
+            const stages = Array.isArray(this.model?.timeline) ? this.model.timeline : [];
+            return h(window.Vue.Fragment, null, [
+                h('details', {
+                    open: true,
+                    class: 'compass-temporal-fold',
+                    'data-testid': 'home-temporal-axis',
+                }, [
+                    h('summary', { class: 'compass-temporal-summary', 'data-testid': 'home-temporal-toggle' }, [
+                        h('span', { class: 'compass-temporal-summary-title' }, [h('span', { 'aria-hidden': 'true' }, '时'), '昨天事实 / 今天状态 / 未来 AI 研判']),
+                        h('span', { class: 'compass-temporal-summary-note' }, '今天不写成日终，预测不写成事实'),
+                    ]),
+                    h('div', { class: 'home-temporal-grid' }, stages.map(stage => h('article', {
+                        key: stage.key,
+                        class: 'home-temporal-stage',
+                        'data-testid': stage.testid,
+                    }, [
+                        h('div', null, [
+                            h('span', null, stage.label),
+                            h('span', { class: ['rounded-full border px-2 py-0.5 text-[10px]', stage.statusClass] }, stage.status),
+                        ]),
+                        h('strong', null, stage.value),
+                        h('p', null, stage.detail),
+                        stage.key === 'future' ? h('button', {
+                            type: 'button',
+                            disabled: this.generating || !this.selectedHotelId,
+                            onClick: () => this.$emit('generate'),
+                        }, this.generating ? '正在生成研判' : (this.selectedHotelId ? '生成未来研判' : '先选择一家门店')) : null,
+                    ]))),
+                ]),
+                h('details', { class: 'home-competitor-reference', 'data-testid': 'home-competitor-diagnostic-reference' }, [
+                    h('summary', null, `竞对异常诊断参考（非首页主线） · ${this.competitorReadiness?.label || '未取得'}`),
+                    h('p', null, '仅在本店事实异常且同平台、同日期、同口径可比时参考；不替代本店事实，不自动决定价格。'),
+                ]),
+            ]);
+        },
+    };
+
     const isHomeSignalReady = (signal) => !!signal && !['pending', 'unknown'].includes(String(signal.status || 'pending'));
 
     const buildHomeDataSources = ({
@@ -1084,6 +1502,9 @@ window.SUXI_HOME_STATIC = (() => {
         buildHomeTrendChartConfig,
         buildHomeBoardActionRows,
         buildHomeBusinessTimeModel,
+        buildHomeOperatingScheduleModel,
+        HomeOperatingOrchestration,
+        HomeBusinessTimeAxis,
         buildHomeDataSources,
         buildCompassDataReadiness,
         buildHomeDecisionSummaryRows,

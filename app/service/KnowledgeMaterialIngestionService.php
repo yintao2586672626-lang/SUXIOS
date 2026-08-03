@@ -8,7 +8,7 @@ use RuntimeException;
 class KnowledgeMaterialIngestionService
 {
     private const LINK_LIKE_MODES = ['video', 'link', 'url'];
-    private const SINGLE_DOCUMENT_MODES = ['document', 'doc', 'docx'];
+    private const SINGLE_DOCUMENT_MODES = ['document', 'doc', 'docx', 'xlsx'];
 
     public function __construct(private ?LlmClient $llmClient = null)
     {
@@ -57,6 +57,12 @@ class KnowledgeMaterialIngestionService
         $hotelId = (int)($material['hotel_id'] ?? 0);
         $hotelName = trim((string)($material['hotel_name'] ?? ''));
         $modelKey = trim((string)($material['model_key'] ?? 'deepseek_chat'));
+        $materialClassification = trim((string)($material['material_classification'] ?? ''));
+        $knowledgeScope = trim((string)($material['knowledge_scope'] ?? ''));
+        $verificationStatus = trim((string)($material['verification_status'] ?? ''));
+        $isGenericManualTemplate = $materialClassification === 'manual_template'
+            && $knowledgeScope === 'industry_general'
+            && $verificationStatus === 'unverified';
 
         if ($mode === '') {
             $mode = 'text';
@@ -81,17 +87,29 @@ class KnowledgeMaterialIngestionService
                     '你是宿析OS的门店知识蒸馏助手。',
                     '只读取用户提交的资料，蒸馏成可被 OTA 数据分析、收益分析和运营复盘引用的门店知识。',
                     '不要编造资料未写明的门店事实；资料未说明的房价、库存、早餐、设施、评分、政策等必须写入 boundaries。',
+                    '不得把知识资料绑定的授权门店容器当作资料中已经出现的门店事实。',
+                    '不得推断资料未明确写出的酒店、OTA平台、业务日期、指标口径或线上执行结果。',
                     '区分事实、分析提示和行动建议，结论必须可追溯到原文。',
                     '输出必须是 JSON，不要输出 Markdown。',
+                    $isGenericManualTemplate
+                        ? '当前资料是行业通用、人工模板、未验证资料；只能总结为通用参考，不能产出酒店事实、OTA事实或特定业务日事实，并必须在 boundaries 中明确该边界。'
+                        : '',
                 ]),
             ],
             [
                 'role' => 'user',
                 'content' => implode("\n", [
-                    '门店ID：' . $hotelId,
-                    '门店名称：' . ($hotelName !== '' ? $hotelName : '未填写'),
+                    '门店ID：' . ($isGenericManualTemplate
+                        ? '已完成授权校验，仅作数据容器，未作为资料事实提供'
+                        : (string)$hotelId),
+                    '门店名称：' . ($isGenericManualTemplate
+                        ? '仅作授权容器，未作为资料事实提供'
+                        : ($hotelName !== '' ? $hotelName : '未填写')),
                     '资料类型：' . $mode,
                     '资料来源：' . $source,
+                    '资料分类：' . ($materialClassification !== '' ? $materialClassification : '未声明'),
+                    '知识范围：' . ($knowledgeScope !== '' ? $knowledgeScope : '未声明'),
+                    '核验状态：' . ($verificationStatus !== '' ? $verificationStatus : '未声明'),
                     '原始资料：',
                     $content,
                 ]),
@@ -106,10 +124,19 @@ class KnowledgeMaterialIngestionService
             $title = $this->defaultTitle($mode, $content);
         }
         if ($summary === '') {
-            $summary = 'AI 已读取资料，但未返回摘要。';
+            throw new RuntimeException('AI summary is empty; knowledge material was not distilled');
         }
 
-        return [
+        $boundaries = $this->normalizeStringList($data['boundaries'] ?? []);
+        if ($isGenericManualTemplate) {
+            $boundaries = $this->mergeStringLists($boundaries, [
+                '该资料是行业通用人工模板，尚未核验，不能作为任何酒店的已验证经营事实。',
+                '该资料未提供可核验的OTA平台身份和业务日期，不能作为携程、美团或特定业务日事实。',
+                '门店ID仅用于授权容器与数据隔离，不代表资料内容属于该门店。',
+            ]);
+        }
+
+        $result = [
             'title' => $title,
             'summary' => $summary,
             'hotel_id' => $hotelId,
@@ -117,16 +144,28 @@ class KnowledgeMaterialIngestionService
             'material_type' => $mode,
             'source' => $source,
             'raw_text' => $content,
-            'hotel_profile' => is_array($data['hotel_profile'] ?? null) ? $data['hotel_profile'] : [],
             'facts' => $this->normalizeStringList($data['facts'] ?? []),
             'analysis_hints' => $this->normalizeStringList($data['analysis_hints'] ?? []),
             'actions' => $this->normalizeStringList($data['actions'] ?? []),
-            'boundaries' => $this->normalizeStringList($data['boundaries'] ?? []),
+            'boundaries' => $boundaries,
             'keywords' => $this->normalizeStringList($data['keywords'] ?? [], 12),
             'confidence_score' => $this->normalizeScore($data['confidence_score'] ?? null),
             'model_key' => $modelKey,
             'distilled_at' => date('Y-m-d H:i:s'),
         ];
+        if ($isGenericManualTemplate) {
+            $result['material_classification'] = 'manual_template';
+            $result['knowledge_scope'] = 'industry_general';
+            $result['verification_status'] = 'unverified';
+            $result['facts_scope'] = 'document_reference_not_hotel_fact';
+            $result['hotel_binding_semantics'] = 'authorization_container_not_document_fact';
+            $result['hotel_profile_status'] = 'not_applicable_industry_general';
+            $result['hotel_profile_discarded_by_scope'] = !empty($data['hotel_profile']);
+        } else {
+            $result['hotel_profile'] = is_array($data['hotel_profile'] ?? null) ? $data['hotel_profile'] : [];
+        }
+
+        return $result;
     }
 
     /**
@@ -196,5 +235,27 @@ class KnowledgeMaterialIngestionService
         }
 
         return max(0.0, min(1.0, (float)$value));
+    }
+
+    /**
+     * @param array<int, string> ...$lists
+     * @return array<int, string>
+     */
+    private function mergeStringLists(array ...$lists): array
+    {
+        $merged = [];
+        foreach ($lists as $list) {
+            foreach ($list as $item) {
+                $text = mb_substr(trim((string)$item), 0, 160);
+                if ($text !== '') {
+                    $merged[$text] = $text;
+                }
+                if (count($merged) >= 20) {
+                    break 2;
+                }
+            }
+        }
+
+        return array_values($merged);
     }
 }

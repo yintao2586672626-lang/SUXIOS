@@ -807,6 +807,66 @@ trait ProfileTestCases
         self::assertArrayNotHasKey('cookies', $request);
     }
 
+    public function testCtripProfileStatusBindingRequiresStrongMatchedProbe(): void
+    {
+        $controller = $this->controller();
+        self::assertSame(25, $this->invokeNonPublic($controller, 'ctripProfileStatusRequestedDataSourceId', [[
+            'data_source_id' => 25,
+            'source_id' => 99,
+        ]]));
+        self::assertSame(0, $this->invokeNonPublic($controller, 'ctripProfileStatusRequestedDataSourceId', [[
+            'source_id' => 25,
+        ]]));
+        $this->invokeNonPublic($controller, 'assertExpectedBrowserProfileDataSourceId', [25, 25]);
+        try {
+            $this->invokeNonPublic($controller, 'assertExpectedBrowserProfileDataSourceId', [25, 26]);
+            self::fail('Mismatched source id must fail before verified proof write.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('Profile data source changed before verified proof write.', $exception->getMessage());
+        }
+
+        $strongProbe = [
+            'schema_version' => 1,
+            'contract_version' => '2026-07-19.1',
+            'performed' => true,
+            'verified' => true,
+            'status' => 'collectable',
+            'collectable' => true,
+            'proof_eligible' => true,
+            'evidence_type' => 'recognized_business_response_2xx_plus_session_cookie',
+            'evidence_level' => 'strong',
+            'sensitive_values_exposed' => false,
+            'signals' => [
+                'auth' => ['status' => 'pass'],
+                'url' => ['trusted_host' => true, 'business_path' => true],
+                'page' => [
+                    'risk_control_present' => false,
+                    'session_expired_present' => false,
+                    'challenge_present' => false,
+                ],
+                'session_state' => ['session_state_count' => 1],
+                'api' => ['successful_response_count' => 1],
+                'identity' => ['status' => 'matched', 'hotel_scope_verified' => true],
+            ],
+        ];
+        $status = [
+            'status_code' => 'logged_in',
+            'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+            'session_probe' => $strongProbe,
+        ];
+
+        self::assertTrue($this->invokeNonPublic($controller, 'ctripProfileStatusProbeEligibleForBinding', [$status]));
+
+        $status['session_probe']['signals']['identity'] = [
+            'status' => 'mismatch',
+            'hotel_scope_verified' => false,
+        ];
+        self::assertFalse($this->invokeNonPublic($controller, 'ctripProfileStatusProbeEligibleForBinding', [$status]));
+
+        $status['status_code'] = 'login_expired';
+        self::assertFalse($this->invokeNonPublic($controller, 'ctripProfileStatusProbeEligibleForBinding', [$status]));
+    }
+
     public function testPlatformProfileStatusItemExposesMachineReadableBindingContract(): void
     {
         $source = SourceAggregate::read(

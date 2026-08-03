@@ -119,6 +119,7 @@ final class ExecutionFlowReadService
         }
         $sourceModule = (string)($intent['source_module'] ?? 'manual');
         $sourceRecordId = (int)($intent['source_record_id'] ?? 0);
+        $assignment = $this->buildWorkflowAssignment($intent);
         $reviewAvailableOn = $this->reviewAvailableOn($taskEvidence);
         if (strtolower(trim($sourceModule)) === 'operation_optimizer'
             && trim((string)($task['executed_at'] ?? '')) !== ''
@@ -138,6 +139,24 @@ final class ExecutionFlowReadService
                 }
             }
         }
+        $reviewAvailableAt = '';
+        $scheduledReviewAt = trim((string)($assignment['review_at'] ?? ''));
+        $scheduledReviewTimestamp = $scheduledReviewAt !== '' ? strtotime($scheduledReviewAt) : false;
+        if ($scheduledReviewTimestamp !== false) {
+            $reviewAvailableAt = date('Y-m-d H:i:s', $scheduledReviewTimestamp);
+        }
+        if ($reviewAvailableOn !== '') {
+            $dateFallback = $reviewAvailableOn . ' 00:00:00';
+            if ($reviewAvailableAt === '' || substr($reviewAvailableAt, 0, 10) < $reviewAvailableOn) {
+                $reviewAvailableAt = $dateFallback;
+            }
+        }
+        if ($reviewAvailableAt !== '') {
+            $reviewAvailableOn = substr($reviewAvailableAt, 0, 10);
+        }
+        $reviewAvailableTimestamp = $reviewAvailableAt !== '' ? strtotime($reviewAvailableAt) : false;
+        $reviewIsAvailable = $reviewAvailableAt === ''
+            || ($reviewAvailableTimestamp !== false && time() >= $reviewAvailableTimestamp);
         $stage = $this->stage($intent, $task, $evidenceTruth, $reviewStatus, $outcomeTruth);
         $sopCandidate = $this->buildSopCandidate(
             $intent,
@@ -189,7 +208,7 @@ final class ExecutionFlowReadService
                 'target_value' => $task['target_value'] ?? [],
                 'current_value' => $task['current_value'] ?? [],
             ],
-            'assignment' => $this->buildWorkflowAssignment($intent),
+            'assignment' => $assignment,
             'evidence' => [
                 'count' => count($taskEvidence),
                 'operator_attested_count' => (int)($evidenceTruth['operator_attested_count'] ?? 0),
@@ -208,8 +227,9 @@ final class ExecutionFlowReadService
                 'failure_reason' => $truthContext['failure_reason'] ?? null,
                 'summary' => (string)($task['result_summary'] ?? ''),
                 'action_track_id' => (int)($task['action_track_id'] ?? 0),
+                'available_at' => $reviewAvailableAt,
                 'available_on' => $reviewAvailableOn,
-                'is_available' => $reviewAvailableOn === '' || $reviewAvailableOn <= date('Y-m-d'),
+                'is_available' => $reviewIsAvailable,
             ],
             'sop_candidate' => $sopCandidate,
             'roi' => $this->executionOutcomeService->buildExecutionRoi(
@@ -526,10 +546,44 @@ final class ExecutionFlowReadService
     public function buildSafeEvidenceSummary(array $rows): array
     {
         $types = [];
+        $nodeRecord = [];
         foreach ($rows as $row) {
             $type = trim((string)($row['evidence_type'] ?? ''));
             if ($type !== '') {
                 $types[] = $type;
+            }
+            if ($nodeRecord === []) {
+                $platformResponse = $this->arrayValue($row['platform_response'] ?? []);
+                if ($platformResponse === [] && isset($row['platform_response_json'])) {
+                    $platformResponse = $this->decodeJson((string)$row['platform_response_json']);
+                }
+                $candidate = $this->arrayValue($platformResponse['node_record'] ?? []);
+                if (in_array(
+                    (string)($candidate['contract_version'] ?? ''),
+                    ['operation_revenue_node.v1', 'operation_revenue_node.v2'],
+                    true
+                )) {
+                    $nodeRecord = [
+                        'status' => 'available',
+                        'contract_version' => trim((string)($candidate['contract_version'] ?? '')),
+                        'system_hotel_id' => trim((string)($candidate['system_hotel_id'] ?? '')),
+                        'business_date' => trim((string)($candidate['business_date'] ?? '')),
+                        'recorded_at' => trim((string)($candidate['recorded_at'] ?? '')),
+                        'operating_period' => trim((string)($candidate['operating_period'] ?? '')),
+                        'special_event' => trim((string)($candidate['special_event'] ?? '')),
+                        'source_scope' => trim((string)($candidate['source_scope'] ?? '')),
+                        'room_status_alignment' => trim((string)($candidate['room_status_alignment'] ?? '')),
+                        'data_quality_status' => trim((string)($candidate['data_quality_status'] ?? '')),
+                        'metric_definition' => trim((string)($candidate['metric_definition'] ?? '')),
+                        'metric_snapshot' => trim((string)($candidate['metric_snapshot'] ?? '')),
+                        'progress_status' => trim((string)($candidate['progress_status'] ?? '')),
+                        'comparison_basis' => trim((string)($candidate['comparison_basis'] ?? '')),
+                        'judgment_basis' => trim((string)($candidate['judgment_basis'] ?? '')),
+                        'primary_risk' => trim((string)($candidate['primary_risk'] ?? '')),
+                        'success_criteria' => trim((string)($candidate['success_criteria'] ?? '')),
+                        'stop_condition' => trim((string)($candidate['stop_condition'] ?? '')),
+                    ];
+                }
             }
         }
         $types = array_values(array_unique($types));
@@ -540,6 +594,7 @@ final class ExecutionFlowReadService
             'types' => $types,
             'latest_type' => trim((string)($latest['evidence_type'] ?? '')),
             'latest_at' => trim((string)($latest['created_at'] ?? '')),
+            'node_record' => $nodeRecord === [] ? ['status' => 'missing'] : $nodeRecord,
         ];
     }
 

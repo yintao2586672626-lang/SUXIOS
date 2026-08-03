@@ -962,6 +962,17 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         $fallbackPayload = $buildReadback->invoke($service, $normalizedTask, $fallbackIntent);
         self::assertSame($reviewDate, $fallbackPayload['platform_response']['review_date']);
 
+        $reconciled = $service->reconcileScheduledExecutionTask($taskId, [7]);
+        self::assertSame('source_readback_verified', $reconciled['status']);
+        self::assertTrue($reconciled['source_verified']);
+        self::assertSame('observing', $reconciled['result_status']);
+        self::assertSame('human_confirm_review_result', $reconciled['next_action']);
+        self::assertSame(1, (int)Db::name('operation_execution_evidence')
+            ->where('task_id', $taskId)
+            ->where('evidence_type', 'source_verified_metric_readback')
+            ->where('created_by', 0)
+            ->count());
+
         $reviewed = $service->reviewExecutionTask($taskId, [7], [
             'result_status' => 'success',
             'result_summary' => 'Scheduled Ctrip order rate was read back from the same persisted fact scope.',
@@ -1045,6 +1056,11 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'created_at' => $executedAt,
             'updated_at' => $executedAt,
         ]);
+
+        $reconciled = (new OperationManagementService())->reconcileScheduledExecutionTask($taskId, [7]);
+        self::assertSame('source_readback_missing', $reconciled['status']);
+        self::assertFalse($reconciled['source_verified']);
+        self::assertSame('observing', $reconciled['result_status']);
 
         try {
             (new OperationManagementService())->reviewExecutionTask($taskId, [7], [
@@ -1134,6 +1150,13 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         self::assertContains('operator_review_pending', $task['sop_candidate']['reason_codes']);
         self::assertContains('source_verified_metric_readback_missing', $task['sop_candidate']['reason_codes']);
         self::assertNotContains('operator_execution_evidence_missing', $task['sop_candidate']['reason_codes']);
+
+        try {
+            $service->reconcileScheduledExecutionTask($taskId, [7]);
+            self::fail('Scheduled readback must remain locked until the exact approved time.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString($reviewAt, $exception->getMessage());
+        }
 
         try {
             $service->reviewExecutionTask($taskId, [7], [

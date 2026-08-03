@@ -77,6 +77,95 @@
                                                 {{ homeTemporalOperationSubmitting ? '正在送审' : '送人工审核' }}
                                             </button>
                                         </div>
+                                        <section v-if="!dualOtaPmsSelected" class="mt-3 rounded-xl border border-slate-200 bg-white p-4" data-testid="home-temporal-forecast-trial">
+                                            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                <div class="min-w-0">
+                                                    <div class="flex flex-wrap items-center gap-2">
+                                                        <strong class="text-sm text-slate-900">14 天收益预测限定试运营</strong>
+                                                        <span class="rounded-full border px-2 py-0.5 text-xs font-medium" :class="homeTemporalTrialStatus.className">
+                                                            {{ homeTemporalTrialStatus.label }}
+                                                        </span>
+                                                        <span v-if="homeTemporalTrialLoading" class="text-xs text-slate-400"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i> 正在精确回读</span>
+                                                    </div>
+                                                    <p class="mt-1 text-xs leading-5 text-slate-600">{{ homeTemporalTrialStatus.detail }}</p>
+                                                    <p class="mt-1 text-xs text-slate-400">只覆盖 all_ota 渠道收入、订单、间夜；预测版本不可变；只可人工审批与人工执行；不自动写价。</p>
+                                                </div>
+                                                <span class="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-500">已有 {{ homeTemporalTrialList.length }} 个批次</span>
+                                            </div>
+
+                                            <div class="mt-3 grid gap-2 sm:grid-cols-3" data-testid="home-temporal-trial-history-coverage">
+                                                <div v-for="row in homeTemporalPilotHistoryCoverage" :key="row.metric_key" class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <strong class="text-slate-700">{{ row.metric_label }}</strong>
+                                                        <span :class="Number.isFinite(Number(row.trusted_days)) &amp;&amp; row.trusted_days !== null &amp;&amp; Number(row.trusted_days) &gt;= 14 ? 'text-emerald-700' : 'text-amber-700'">{{ row.trusted_days === null || row.trusted_days === undefined ? '未返回' : `${row.trusted_days}/14 可信日` }}</span>
+                                                    </div>
+                                                    <p class="mt-1 text-slate-400">最新可信日：{{ row.latest_trusted_date || '未返回' }}</p>
+                                                </div>
+                                            </div>
+
+                                            <div v-if="homeTemporalTrialError" class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700" data-testid="home-temporal-trial-error">
+                                                {{ homeTemporalTrialError }}
+                                            </div>
+
+                                            <div v-if="!homeTemporalTrial" class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                                <p class="text-xs text-slate-500">点击后先生成并回读一个 14 天预测版本，再由服务端校验 42 个核心预测点、连续目标日和来源身份。</p>
+                                                <button type="button" class="shrink-0 rounded-lg border border-[#9b7a43] bg-[#7c6136] px-3 py-2 text-xs font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-200 disabled:text-slate-500" :disabled="!homeTemporalTrialCanCreate || !!homeTemporalTrialAction" @click="createHomeTemporalTrial" data-testid="home-temporal-trial-create">
+                                                    <i :class="homeTemporalTrialAction === 'create' ? 'fas fa-spinner fa-spin' : 'fas fa-flask'" aria-hidden="true"></i>
+                                                    {{ homeTemporalTrialAction === 'create' ? '正在锁定版本' : '创建 14 天限定试运营' }}
+                                                </button>
+                                            </div>
+
+                                            <template v-else="">
+                                                <div class="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4" data-testid="home-temporal-trial-readback">
+                                                    <div class="rounded-lg border border-slate-100 px-3 py-2"><span class="text-slate-400">预测版本</span><p class="mt-1 break-all font-medium text-slate-700">{{ homeTemporalTrial.forecast_run_id }}</p></div>
+                                                    <div class="rounded-lg border border-slate-100 px-3 py-2"><span class="text-slate-400">不可变摘要</span><p class="mt-1 break-all font-medium text-slate-700">{{ String(homeTemporalTrial.immutable_digest || '').slice(0, 16) || '未返回' }}</p></div>
+                                                    <div class="rounded-lg border border-slate-100 px-3 py-2"><span class="text-slate-400">实际值回读</span><p class="mt-1 font-medium text-slate-700">{{ homeTemporalTrialActualSummary.ready_points === null || homeTemporalTrialActualSummary.total_points === null ? '回读缺失' : `${homeTemporalTrialActualSummary.ready_points}/${homeTemporalTrialActualSummary.total_points} 点` }}</p></div>
+                                                    <div class="rounded-lg border border-slate-100 px-3 py-2"><span class="text-slate-400">成熟目标日</span><p class="mt-1 font-medium text-slate-700">{{ homeTemporalTrialActualSummary.matured_target_days === null || homeTemporalTrialActualSummary.required_target_days === null ? '未返回' : `${homeTemporalTrialActualSummary.matured_target_days}/${homeTemporalTrialActualSummary.required_target_days} 天` }}</p></div>
+                                                </div>
+
+                                                <div v-if="homeTemporalTrialAccuracyRows.length" class="mt-3 grid gap-2 sm:grid-cols-3" data-testid="home-temporal-trial-accuracy">
+                                                    <div v-for="row in homeTemporalTrialAccuracyRows" :key="row.metric_key" class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
+                                                        <strong class="text-slate-700">{{ row.metric_label }}</strong>
+                                                        <p class="mt-1 text-slate-500">MAE {{ row.mae_text }} · WAPE {{ row.wape_text }} · 区间命中 {{ row.range_hit_text }}</p>
+                                                    </div>
+                                                </div>
+                                                <p class="mt-2 text-xs text-slate-400">这些指标只作到期描述；当前未定义试运营准确率通过阈值，不会据此伪造“达标”结论，成熟运营仍沿用原 21 日 / 10 样本 / 60% 门槛。</p>
+
+                                                <div class="mt-3 flex flex-wrap gap-2">
+                                                    <button v-if="homeTemporalTrialCanSubmit" type="button" class="rounded-lg border border-[#9b7a43] bg-[#7c6136] px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" :disabled="!!homeTemporalTrialAction" @click="submitHomeTemporalTrialForReview" data-testid="home-temporal-trial-submit">
+                                                        <i :class="homeTemporalTrialAction === 'submit' ? 'fas fa-spinner fa-spin' : 'fas fa-user-check'" aria-hidden="true"></i>
+                                                        {{ homeTemporalTrialAction === 'submit' ? '正在送审' : '送人工审批' }}
+                                                    </button>
+                                                    <button v-if="Number(homeTemporalTrial.operation_intent_id || 0) &gt; 0" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700" @click="openHomeTemporalTrialOperation" data-testid="home-temporal-trial-open-operation">
+                                                        查看审批与运营任务
+                                                    </button>
+                                                    <button v-if="String(homeTemporalTrial.status || '') === 'running'" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50" :disabled="!!homeTemporalTrialAction" @click="refreshHomeTemporalTrialActuals" data-testid="home-temporal-trial-refresh">
+                                                        <i :class="homeTemporalTrialAction === 'refresh' ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" aria-hidden="true"></i>
+                                                        {{ homeTemporalTrialAction === 'refresh' ? '正在回读' : '回读到期实际值' }}
+                                                    </button>
+                                                    <button v-if="homeTemporalTrialCanCreate" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50" :disabled="!!homeTemporalTrialAction" @click="createHomeTemporalTrial">
+                                                        创建新一轮限定试运营
+                                                    </button>
+                                                </div>
+
+                                                <div v-if="homeTemporalTrialCanFinalize" class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid="home-temporal-trial-final-review">
+                                                    <strong class="text-xs text-slate-700">到期最终复盘</strong>
+                                                    <div class="mt-2 grid gap-2 sm:grid-cols-[minmax(0,220px)_minmax(0,1fr)_auto]">
+                                                        <select v-model="homeTemporalTrialReviewDecision" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">
+                                                            <option value="">选择复盘决定</option>
+                                                            <option value="continue_limited_pilot">继续限定试运营</option>
+                                                            <option value="revise">修订后再试</option>
+                                                            <option value="stop">停止</option>
+                                                            <option value="insufficient_evidence">证据不足</option>
+                                                        </select>
+                                                        <input v-model.trim="homeTemporalTrialReviewNote" type="text" maxlength="1000" placeholder="复盘说明（不把运营结果归因给预测）" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">
+                                                        <button type="button" class="rounded-lg border border-[#9b7a43] bg-[#7c6136] px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" :disabled="!homeTemporalTrialReviewDecision || !!homeTemporalTrialAction" @click="finalizeHomeTemporalTrialReview">
+                                                            {{ homeTemporalTrialAction === 'finalize' ? '正在保存' : '保存最终复盘' }}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </section>
                                     </section>
 
                                     <div v-if="dualOtaDashboard.principle && !dualOtaPmsSelected" class="dual-ota-principle" data-testid="dual-ota-design-principle">

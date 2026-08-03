@@ -806,7 +806,7 @@ final class OtaProfileSessionProofService
     {
         $text = trim(is_scalar($message) ? (string)$message : '');
         return $text !== '' && preg_match(
-            '/(?:login[_\s-]?required|session[_\s-]?expired|login[_\s-]?expired|auth(?:entication)?[_\s-]?failed|not[_\s-]?logged[_\s-]?in|unauthori[sz]ed|permission[_\s-]?denied|forbidden|anti[_\s-]?bot|captcha|verification[_\s-]?code|slider|risk\s*control|\b40[13]\b|登录(?:态|状态|会话)?(?:已)?(?:失效|过期)|请重新登录|需要重新登录|无权限|权限不足|验证码|滑块|风控)/iu',
+            '/(?:credential[_\s-]?execution[_\s-]?failed|login[_\s-]?required|session[_\s-]?expired|login[_\s-]?expired|auth(?:entication)?[_\s-]?failed|not[_\s-]?logged[_\s-]?in|unauthori[sz]ed|permission[_\s-]?denied|forbidden|anti[_\s-]?bot|captcha|verification[_\s-]?code|slider|risk\s*control|\b40[13]\b|登录(?:态|状态|会话)?(?:已)?(?:失效|过期)|请重新登录|需要重新登录|无权限|权限不足|验证码|滑块|风控)/iu',
             $text
         ) === 1;
     }

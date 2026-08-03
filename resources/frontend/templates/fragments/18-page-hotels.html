@@ -138,7 +138,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-100">
-                                        <tr v-for="(hotel, hotelIndex) in filteredHotels" :key="hotel.id" class="hover:bg-gray-50/70 transition-colors align-top">
+                                        <tr v-for="(hotel, hotelIndex) in hotelRowsForDisplay" :key="hotel.id" class="hover:bg-gray-50/70 transition-colors align-top">
                                             <td class="px-4 py-4 w-[28%]">
                                                 <div class="min-w-0">
                                                     <div class="flex items-center gap-2 min-w-0">
@@ -265,7 +265,7 @@
                             </div>
 
                             <div v-else class="hotel-preview-layout">
-                                <div v-for="(hotel, hotelIndex) in filteredHotels" :key="`mobile-${hotel.id}`" class="hotel-preview-card">
+                                <div v-for="(hotel, hotelIndex) in hotelRowsForDisplay" :key="`mobile-${hotel.id}`" class="hotel-preview-card">
                                     <div class="hotel-preview-card__header">
                                         <div class="min-w-0">
                                             <div class="flex flex-wrap items-center gap-2">

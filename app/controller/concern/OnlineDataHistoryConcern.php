@@ -199,12 +199,16 @@ trait OnlineDataHistoryConcern
             'review' => '点评数据',
         ];
 
+        $targetDate = $this->resolveCtripLatestTargetDate($range);
+        $isExactDateTraffic = $section === 'traffic'
+            && preg_match('/^\d{4}-\d{2}-\d{2}$/D', $targetDate) === 1
+            && isset($columns['compare_type']);
+
         $query = Db::name('online_daily_data');
         $this->applyCtripStorageFilter($query, $columns);
-        $this->applyCtripSectionTypeFilter($query, $section, $columns);
+        $this->applyCtripSectionTypeFilter($query, $section, $columns, $isExactDateTraffic);
         $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
         $this->applyCtripLatestPeriodScope($query, $columns, $range);
-        $targetDate = $this->resolveCtripLatestTargetDate($range);
         if ($targetDate !== '' && isset($columns['data_date'])) {
             $query->where('data_date', $targetDate);
         }
@@ -216,17 +220,26 @@ trait OnlineDataHistoryConcern
 
         $rowsQuery = Db::name('online_daily_data');
         $this->applyCtripStorageFilter($rowsQuery, $columns);
-        $this->applyCtripSectionTypeFilter($rowsQuery, $section, $columns);
+        $this->applyCtripSectionTypeFilter($rowsQuery, $section, $columns, $isExactDateTraffic);
         $this->applyCtripHotelScope($rowsQuery, $hotelId, $currentUser, $columns);
         $this->applyCtripLatestPeriodScope($rowsQuery, $columns, $range);
         if (isset($columns['data_date']) && !empty($latest['data_date'])) {
             $rowsQuery->where('data_date', $latest['data_date']);
         }
-        $this->applyCtripLatestBatchScope($rowsQuery, $latest, $hotelId, $columns);
-
-        $rows = $this->orderOnlineDataByFetchTime($rowsQuery, $columns, 'asc')
-            ->select()
-            ->toArray();
+        if ($isExactDateTraffic) {
+            $rows = $this->orderOnlineDataByFetchTime($rowsQuery, $columns)
+                ->select()
+                ->toArray();
+            $rows = $this->selectLatestCtripExactDateTrafficRoleRows($rows);
+            if (empty($rows)) {
+                return $this->emptyCtripLatestSection($section, $labelMap[$section] ?? $section, $targetDate);
+            }
+        } else {
+            $this->applyCtripLatestBatchScope($rowsQuery, $latest, $hotelId, $columns);
+            $rows = $this->orderOnlineDataByFetchTime($rowsQuery, $columns, 'asc')
+                ->select()
+                ->toArray();
+        }
 
         $fetchedAt = $this->maxOnlineRowsFetchedAt($rows, $columns);
 
@@ -286,6 +299,11 @@ trait OnlineDataHistoryConcern
     private function normalizeCtripLatestRange(string $range): string
     {
         $range = strtolower(trim($range));
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $range, $matches) === 1
+            && checkdate((int)$matches[2], (int)$matches[3], (int)$matches[1])) {
+            return $range;
+        }
+
         return match ($range) {
             'yesterday', 'last_day', '1' => 'yesterday',
             'realtime', 'real_time', 'today_realtime', 'today', '0' => 'realtime',
@@ -295,6 +313,10 @@ trait OnlineDataHistoryConcern
 
     private function resolveCtripLatestTargetDate(string $range): string
     {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $range) === 1) {
+            return $range;
+        }
+
         return match ($range) {
             'yesterday' => date('Y-m-d', strtotime('-1 day')),
             'realtime' => date('Y-m-d'),
@@ -304,7 +326,7 @@ trait OnlineDataHistoryConcern
 
     private function applyCtripLatestPeriodScope($query, array $columns, string $range): void
     {
-        if ($range === 'yesterday') {
+        if ($range === 'yesterday' || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $range) === 1) {
             if (isset($columns['data_period'])) {
                 $query->where('data_period', 'historical_daily');
             }
@@ -556,7 +578,12 @@ trait OnlineDataHistoryConcern
         }
     }
 
-    private function applyCtripSectionTypeFilter($query, string $section, array $columns): void
+    private function applyCtripSectionTypeFilter(
+        $query,
+        string $section,
+        array $columns,
+        bool $includeExactDateTrafficComparison = false
+    ): void
     {
         if (!isset($columns['data_type'])) {
             return;
@@ -578,7 +605,43 @@ trait OnlineDataHistoryConcern
             });
             return;
         }
+        if ($section === 'traffic' && $includeExactDateTrafficComparison && isset($columns['compare_type'])) {
+            $query->where('data_type', 'traffic');
+            $query->whereIn('compare_type', ['self', 'competitor_avg']);
+            return;
+        }
         $query->where('data_type', $section);
+    }
+
+    /**
+     * Exact-date traffic facts can be stored as two adjacent, independently
+     * read-back batches (self and competitor average). Keep only the newest
+     * row for each explicit role without borrowing another date or hotel.
+     * Input rows must be ordered newest first.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function selectLatestCtripExactDateTrafficRoleRows(array $rows): array
+    {
+        $selected = [];
+        foreach ($rows as $row) {
+            $compareType = strtolower(trim((string)($row['compare_type'] ?? '')));
+            $role = match ($compareType) {
+                'self', 'mine', 'hotel' => 'self',
+                'competitor_avg', 'competition_avg', 'average', 'avg' => 'competitor_avg',
+                default => '',
+            };
+            if ($role === '' || isset($selected[$role])) {
+                continue;
+            }
+            $selected[$role] = $row;
+        }
+
+        return array_values(array_filter([
+            $selected['self'] ?? null,
+            $selected['competitor_avg'] ?? null,
+        ]));
     }
 
     private function applyCtripCompetitionCircleFilter($query, array $columns): void

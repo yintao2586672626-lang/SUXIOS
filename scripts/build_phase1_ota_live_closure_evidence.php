@@ -45,6 +45,7 @@ function parse_args(array $argv): array
             continue;
         }
         [$key, $value] = explode('=', substr($arg, 2), 2);
+        $key = str_replace('-', '_', $key);
         if (!array_key_exists($key, $options)) {
             continue;
         }
@@ -404,7 +405,8 @@ function field_fact_closure_summary(array $rows): array
                 $summary['stored_value_missing_count']++;
             }
 
-            $explicitMissing = in_array($status, ['missing', 'not_loaded', 'failed', 'error'], true)
+            $explicitMissing = $storedValueMissing
+                || in_array($status, ['missing', 'not_loaded', 'failed', 'error'], true)
                 || (
                     $missingState !== ''
                     && !$storedValuePresent

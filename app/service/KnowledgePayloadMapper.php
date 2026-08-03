@@ -188,6 +188,12 @@ final class KnowledgePayloadMapper
         return [
             'unit_id' => (int)($row['unit_id'] ?? 0),
             'hotel_id' => (int)($row['hotel_id'] ?? 0),
+            'stable_key' => isset($row['stable_key']) && trim((string)$row['stable_key']) !== ''
+                ? (string)$row['stable_key']
+                : null,
+            'current_chunk_id' => isset($row['current_chunk_id'])
+                ? (int)$row['current_chunk_id']
+                : null,
             'name' => (string)($row['name'] ?? ''),
             'source' => (string)($row['source'] ?? ''),
             'status' => (string)($row['status'] ?? 'pending'),
@@ -281,11 +287,42 @@ final class KnowledgePayloadMapper
             $content = is_array($decoded) ? $decoded : ['text' => $content];
         }
 
+        $content = is_array($content) ? $content : [];
+        $storedDigest = strtolower(trim((string)($row['content_digest'] ?? '')));
+        $isFormal = strtolower(trim((string)($row['type'] ?? ''))) === 'formal_operating_sop'
+            || strtolower(trim((string)($content['formal_record_type'] ?? ''))) === 'operating_sop'
+            || (int)($row['promotion_candidate_id'] ?? 0) > 0
+            || (int)($row['operating_sop_version_id'] ?? 0) > 0;
+        $integrityStatus = 'not_applicable';
+        if ($isFormal) {
+            $integrityStatus = (new KnowledgeContentDigestService())->matches($storedDigest, $content)
+                ? 'verified'
+                : 'tampered';
+        }
+
         return [
             'chunk_id' => (int)($row['chunk_id'] ?? 0),
             'unit_id' => (int)($row['unit_id'] ?? 0),
             'type' => (string)($row['type'] ?? ''),
-            'content' => is_array($content) ? $content : [],
+            'promotion_candidate_id' => isset($row['promotion_candidate_id'])
+                ? (int)$row['promotion_candidate_id']
+                : null,
+            'operating_sop_version_id' => isset($row['operating_sop_version_id'])
+                ? (int)$row['operating_sop_version_id']
+                : null,
+            'version_no' => isset($row['version_no']) ? (int)$row['version_no'] : null,
+            'lifecycle_status' => isset($row['lifecycle_status'])
+                ? (string)$row['lifecycle_status']
+                : null,
+            'content_digest' => $storedDigest !== '' ? $storedDigest : null,
+            'superseded_by_chunk_id' => isset($row['superseded_by_chunk_id'])
+                ? (int)$row['superseded_by_chunk_id']
+                : null,
+            'published_at' => isset($row['published_at']) ? (string)$row['published_at'] : null,
+            'retired_at' => isset($row['retired_at']) ? (string)$row['retired_at'] : null,
+            'is_current' => ($row['_is_current'] ?? false) === true,
+            'integrity_status' => $integrityStatus,
+            'content' => $content,
             'created_by' => (int)($row['created_by'] ?? 0),
             'created_at' => (string)($row['created_at'] ?? ''),
         ];

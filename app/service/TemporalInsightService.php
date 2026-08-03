@@ -1215,6 +1215,29 @@ final class TemporalInsightService
         ];
     }
 
+    /**
+     * Public read-only policy snapshot for a bounded pilot. The pilot service
+     * may display this mature gate, but cannot lower or replace it.
+     *
+     * @return array<string, mixed>
+     */
+    public function matureOperationalPolicy(): array
+    {
+        return $this->operationalPolicy();
+    }
+
+    /**
+     * Reuse the same strict source identity contract for pilot admission.
+     * Fourteen history days are checked by the pilot service; this method only
+     * verifies timing, all-OTA coverage, freshness, provenance and digest.
+     *
+     * @param array<string, mixed> $forecast
+     */
+    public function forecastSourceIdentityVerifiedForPilot(array $forecast): bool
+    {
+        return $this->forecastSourceRefsOperationallyVerified($forecast, true);
+    }
+
     private function backtestCohortKey(string $metricKey, int $horizonDays): string
     {
         return $metricKey . '|T+' . $horizonDays;

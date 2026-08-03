@@ -3323,6 +3323,9 @@ test('Hotel management saves force-refresh the current management context', () =
   assert.match(refreshHotelBindingPanelLight, /loadHotelManagementSnapshot\(\{[\s\S]*force: true,[\s\S]*deep: false,[\s\S]*showSuccess: true/);
   assert.match(refreshHotelBindingPanel, /loadHotelManagementSnapshot\(\{[\s\S]*force: true,[\s\S]*deep: true,[\s\S]*showSuccess: true/);
   assert.match(loadHotelManagementSnapshot, /loadHotels\(\{ force, includeInactive: true, requestPolicy \}\)/);
+  assert.match(loadHotelManagementSnapshot, /const hotelLoad = loadHotels\(\{ force, includeInactive: true, requestPolicy \}\);/);
+  assert.match(loadHotelManagementSnapshot, /const otaConfigLoad = coreOperationsHasAccessibleHotel\.value[\s\S]*ensureHotelOtaConfigLists\(\{[\s\S]*includeHotels: false,[\s\S]*includeDataSources: true,[\s\S]*requestPolicy/);
+  assert.match(loadHotelManagementSnapshot, /await Promise\.allSettled\(\[hotelLoad, otaConfigLoad\]\)/);
   assert.match(loadHotelManagementSnapshot, /ensureHotelOtaConfigLists\(\{[\s\S]*force,[\s\S]*includeHotels: false,[\s\S]*includeDataSources: true/);
   assert.match(loadHotelManagementSnapshot, /if \(deep && coreOperationsHasAccessibleHotel\.value\) \{[\s\S]*loadPlatformSyncTasks\(\{ force: true \}\)[\s\S]*loadPlatformSyncLogs\(\{ force: true \}\)[\s\S]*loadCompetitorSummary\(\{ includeByHotel: true, force: true \}\)/);
   assert.match(loadHotelManagementSnapshot, /hotelManagementFailureLabels\(deep, coreOperationsHasAccessibleHotel\.value\)/);
@@ -3348,10 +3351,16 @@ test('Hotel management starts its first snapshot after the deferred full-render 
 
 test('Hotel management paints its shell before mounting the heavy hotel rows', () => {
   assert.match(html, /const hotelManagementRowsReady = ref\(false\);/);
+  assert.match(html, /const hotelManagementVisibleRowLimit = ref\(0\);/);
   assert.match(html, /const hotelRowsVisible = computed\(\(\) => \([\s\S]*hotelManagementSnapshotReady\.value && hotelManagementRowsReady\.value/);
   assert.match(html, /const HOTEL_MANAGEMENT_ROWS_RENDER_DELAY_MS = 120;/);
+  assert.match(html, /const HOTEL_MANAGEMENT_INITIAL_ROW_COUNT = 4;/);
+  assert.match(html, /const HOTEL_MANAGEMENT_ROW_BATCH_SIZE = 4;/);
+  assert.match(html, /const HOTEL_MANAGEMENT_ROW_BATCH_DELAY_MS = 48;/);
+  assert.match(html, /const hotelRowsForDisplay = computed\(\(\) => filteredHotels\.value\.slice/);
+  assert.match(html, /const scheduleHotelManagementRowsBatch = \(\) => \{[\s\S]*!hotelManagementSnapshotReady\.value[\s\S]*hotelManagementVisibleRowLimit\.value \+ HOTEL_MANAGEMENT_ROW_BATCH_SIZE[\s\S]*HOTEL_MANAGEMENT_ROW_BATCH_DELAY_MS/);
   assert.match(html, /const scheduleHotelManagementRowsReady = \(\) => \{[\s\S]*hotelManagementRowsReady\.value = false;[\s\S]*scheduleDelayedPageTask\(\(\) => \{[\s\S]*currentPage\.value !== 'hotels'[\s\S]*hotelManagementRowsReady\.value = true;[\s\S]*HOTEL_MANAGEMENT_ROWS_RENDER_DELAY_MS/);
-  assert.match(html, /const resetHotelManagementRowsReady = \(\) => \{[\s\S]*clearTimeout\(hotelManagementRowsRenderTimer\);[\s\S]*pageLifecycleTimers\.delete\(hotelManagementRowsRenderTimer\);/);
+  assert.match(html, /const resetHotelManagementRowsReady = \(\) => \{[\s\S]*hotelManagementVisibleRowLimit\.value = 0;[\s\S]*clearTimeout\(hotelManagementRowsRenderTimer\);[\s\S]*clearTimeout\(hotelManagementRowsBatchTimer\);/);
   assert.match(html, /if \(newPage === 'hotels'\) \{\s*scheduleHotelManagementRowsReady\(\);\s*\} else \{\s*resetHotelManagementRowsReady\(\);/);
   assert.match(html, /onMounted\(\(\) => \{[\s\S]*if \(currentPage\.value === 'hotels'\) \{\s*scheduleHotelManagementRowsReady\(\);/);
   assert.match(hotelManagementTemplateFragment, /<template v-if="hotelRowsVisible">/);
@@ -3359,6 +3368,7 @@ test('Hotel management paints its shell before mounting the heavy hotel rows', (
   assert.match(html, /const syncSidebarForViewport = \(\) => \{[\s\S]*hotelWide\.value = typeof window === 'undefined'[\s\S]*matchMedia\('\(min-width: 1280px\)'\)\.matches/);
   assert.match(hotelManagementTemplateFragment, /<div v-if="hotelWide" class="overflow-x-auto">/);
   assert.match(hotelManagementTemplateFragment, /<div v-else class="hotel-preview-layout">/);
+  assert.equal((hotelManagementTemplateFragment.match(/v-for="\(hotel, hotelIndex\) in hotelRowsForDisplay"/g) || []).length, 2);
 });
 
 test('FontAwesome stylesheet does not block the core shell first second', () => {
@@ -4462,6 +4472,11 @@ test('Platform auto-fetch panel prewarms static helper without blocking first pa
   assert.match(html, /const staticReadyPromise = loadAutoFetchStatic\(\)\.catch\(error => \{/);
   assert.match(html, /void staticReadyPromise;/);
   assert.match(autoFetchPanelArea, /const PLATFORM_AUTO_PANEL_START_DELAY_MS = 16;/);
+  assert.match(
+    autoFetchPanelArea,
+    /const autoFetchPanelCacheKey = \(\) => \[\s*String\(authSessionEpoch\),\s*String\(authContext\.value\?\.tenant_id \|\| authContext\.value\?\.tenantId \|\| ''\),\s*String\(getAutoFetchHotelId\(\) \|\| ''\),\s*\]\.join\('\|'\);/
+  );
+  assert.doesNotMatch(autoFetchPanelArea, /autoFetchPanelCacheKey[\s\S]*?hotels\.value\?\.length/);
   assert.match(html, /const AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS = AUTO_FETCH_PANEL_CACHE_TTL_MS;/);
   assert.match(html, /const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;/);
   assert.match(html, /const platformAutoSettingsPanelsReady = ref\(false\);/);

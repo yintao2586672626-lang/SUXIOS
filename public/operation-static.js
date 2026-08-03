@@ -234,8 +234,20 @@ window.SUXI_OPERATION_STATIC = (() => {
             && item?.next_action?.key === 'record_evidence';
         return (canStartExecution || canSupplementManualEvidence) && Number(item?.execution?.task_id || 0) > 0;
     };
+    const operationCanRecordNodeCheck = (item) => ['pending_execute', 'executing', 'executed'].includes(item?.execution?.status || '')
+        && Number(item?.execution?.task_id || 0) > 0;
     const operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
-    const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item) || operationCanExecuteWithEvidence(item) || operationCanReviewExecution(item);
+    const operationCanReconcileExecution = (item) => item?.execution?.status === 'executed'
+        && item?.review?.is_available === true
+        && item?.evidence_truth?.source_verified !== true
+        && item?.recommendation?.source_module === 'ota_diagnosis_saved'
+        && !['success', 'near_success', 'failed'].includes(item?.review?.status || '')
+        && Number(item?.execution?.task_id || 0) > 0;
+    const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
+        || operationCanExecuteWithEvidence(item)
+        || operationCanRecordNodeCheck(item)
+        || operationCanReconcileExecution(item)
+        || operationCanReviewExecution(item);
     const operationHasDisplayValue = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
     const operationExecutionRateText = (value) => operationHasDisplayValue(value) ? `${Number(value).toFixed(0)}%` : '-';
     const buildOperationExecutionSummaryCards = (summary = {}, formatters = {}) => {
@@ -312,6 +324,67 @@ window.SUXI_OPERATION_STATIC = (() => {
         const statusLabel = typeof helpers.statusLabel === 'function' ? helpers.statusLabel : (status => status || '-');
         const label = statusLabel(review.status);
         return review.summary ? `${label} · ${review.summary}` : label;
+    };
+    const operationRevenueNodeDialogFields = [
+        { name: 'operating_period', label: '经营周期', type: 'select', required: true, value: '', options: [{ value: 'weekday', label: '周内' }, { value: 'weekend', label: '周末' }, { value: 'holiday', label: '节假日' }, { value: 'special_event', label: '特殊事件' }] },
+        { name: 'special_event', label: '特殊事件（无则留空）', value: '', placeholder: '如考试、会展' },
+        { name: 'source_scope', label: '数据范围', type: 'select', required: true, value: '', options: [{ value: 'pms_ota_cross_check', label: 'PMS + OTA 交叉核对' }, { value: 'pms', label: '仅 PMS' }, { value: 'ctrip', label: '仅携程' }, { value: 'meituan', label: '仅美团' }, { value: 'manual_other', label: '人工盘点 / 其他' }] },
+        { name: 'room_status_alignment', label: 'PMS 与 OTA 房态', type: 'select', required: true, value: '', options: [{ value: 'operator_confirmed', label: '人工确认一致' }, { value: 'mismatch', label: '不一致' }, { value: 'unverified', label: '未核验' }] },
+        { name: 'data_quality_status', label: '节点数据质量', type: 'select', required: true, value: '', options: [{ value: 'manual_confirmed', label: '人工确认' }, { value: 'unverified', label: '未验证' }, { value: 'mismatch', label: '来源不一致' }] },
+        { name: 'metric_definition', label: '指标口径', type: 'textarea', required: true, value: '', placeholder: '统计时间、分子、分母及取消/维修房处理' },
+        { name: 'comparison_basis', label: '同节点比较基准', type: 'textarea', required: true, value: '', placeholder: '例如最近 4 个周末 16:00，同房型与同渠道范围' },
+        { name: 'metric_snapshot', label: '五率 / ADR / RevPAR / 流量快照（缺失留空）', type: 'textarea', value: '' },
+        { name: 'progress_status', label: '当前进度', type: 'select', required: true, value: '', options: [{ value: 'normal', label: '正常' }, { value: 'too_fast', label: '过快' }, { value: 'too_slow', label: '过慢' }, { value: 'insufficient_evidence', label: '证据不足' }] },
+        { name: 'judgment_basis', label: '判断依据', type: 'textarea', required: true, value: '' },
+        { name: 'primary_risk', label: '主要风险（未知可留空）', type: 'textarea', value: '' },
+        { name: 'success_criteria', label: '成功标准', type: 'textarea', required: true, value: '' },
+        { name: 'stop_condition', label: '停止条件', type: 'textarea', required: true, value: '' },
+    ];
+    const operationRevenueNodeFieldsForItem = (item = {}) => {
+        const node = item?.evidence_summary?.node_record || {};
+        return operationRevenueNodeDialogFields.map(field => ({
+            ...field,
+            options: Array.isArray(field.options) ? field.options.map(option => ({ ...option })) : field.options,
+            value: node.status === 'available' ? String(node[field.name] || '') : String(field.value || ''),
+        }));
+    };
+    const buildOperationRevenueNodeRecord = (form = {}, recordedAt = '', identity = {}) => {
+        const requiredText = (field, label) => {
+            const value = String(form[field] || '').trim();
+            if (!value) throw new Error(`请填写${label}`);
+            return value;
+        };
+        const systemHotelId = Number(identity.system_hotel_id || 0);
+        if (!Number.isInteger(systemHotelId) || systemHotelId <= 0) throw new Error('节点检查缺少酒店身份');
+        const businessDate = String(identity.business_date || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) throw new Error('节点检查缺少业务日期');
+        return {
+            contract_version: 'operation_revenue_node.v2',
+            system_hotel_id: String(systemHotelId),
+            business_date: businessDate,
+            recorded_at: String(recordedAt || '').trim(),
+            operating_period: requiredText('operating_period', '经营周期'),
+            special_event: String(form.special_event || '').trim(),
+            source_scope: requiredText('source_scope', '数据范围'),
+            room_status_alignment: requiredText('room_status_alignment', 'PMS与OTA房态核对结果'),
+            data_quality_status: requiredText('data_quality_status', '节点数据质量'),
+            metric_definition: requiredText('metric_definition', '指标口径'),
+            comparison_basis: requiredText('comparison_basis', '同节点比较基准'),
+            metric_snapshot: String(form.metric_snapshot || '').trim(),
+            progress_status: requiredText('progress_status', '当前进度判断'),
+            judgment_basis: requiredText('judgment_basis', '判断依据'),
+            primary_risk: String(form.primary_risk || '').trim(),
+            success_criteria: requiredText('success_criteria', '成功标准'),
+            stop_condition: requiredText('stop_condition', '停止条件'),
+        };
+    };
+    const operationExecutionNodeRecordText = (item = {}) => {
+        const node = item?.evidence_summary?.node_record || {};
+        if (node.status !== 'available') return '节点检查未记录';
+        const period = ({ weekday: '周内', weekend: '周末', holiday: '节假日', special_event: '特殊事件' }[node.operating_period] || '周期未回读');
+        const alignment = ({ operator_confirmed: '房态人工确认一致', mismatch: '房态不一致', unverified: '房态未核验' }[node.room_status_alignment] || '房态状态未回读');
+        const progress = ({ normal: '进度正常', too_fast: '进度过快', too_slow: '进度过慢', insufficient_evidence: '证据不足' }[node.progress_status] || '进度未判断');
+        return `${period} · ${alignment} · ${progress}`;
     };
     const operationExecutionRoiText = (roi, formatters = {}) => {
         const formatter = operationFormatters(formatters);
@@ -1032,6 +1105,8 @@ window.SUXI_OPERATION_STATIC = (() => {
         buildOperationDecisionCards,
         operationCanApproveExecution,
         operationCanExecuteWithEvidence,
+        operationCanRecordNodeCheck,
+        operationCanReconcileExecution,
         operationCanReviewExecution,
         operationExecutionActionAvailable,
         operationExecutionRateText,
@@ -1042,6 +1117,10 @@ window.SUXI_OPERATION_STATIC = (() => {
         operationExecutionSourceText,
         operationExecutionActionText,
         operationExecutionReviewText,
+        operationRevenueNodeDialogFields,
+        operationRevenueNodeFieldsForItem,
+        buildOperationRevenueNodeRecord,
+        operationExecutionNodeRecordText,
         operationExecutionRoiText,
         buildOperationExecutionTraceRows,
         buildOperationClosureSummaryBadge,

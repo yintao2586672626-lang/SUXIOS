@@ -146,6 +146,25 @@ test('execution review action stays unavailable until the recorded review date',
   assert.equal(api.operationCanReviewExecution(item), true);
 });
 
+test('saved OTA task exposes source readback only after the exact review window', () => {
+  const api = loadOperationStaticApi();
+  const item = {
+    recommendation: { source_module: 'ota_diagnosis_saved' },
+    execution: { status: 'executed', task_id: 50 },
+    evidence_truth: { source_verified: false },
+    review: { status: 'observing', is_available: false },
+  };
+
+  assert.equal(api.operationCanReconcileExecution(item), false);
+  item.review.is_available = true;
+  assert.equal(api.operationCanReconcileExecution(item), true);
+  assert.equal(api.operationExecutionActionAvailable(item), true);
+  item.evidence_truth.source_verified = true;
+  assert.equal(api.operationCanReconcileExecution(item), false);
+  assert.match(html, /reconcileOperationExecutionReview/);
+  assert.match(html, /execution-tasks\/\$\{taskId\}\/reconcile-review/);
+});
+
 test('an executed non-price task can add more manual evidence', () => {
   const api = loadOperationStaticApi();
   const item = {
@@ -177,4 +196,45 @@ test('legacy OTA conversion intent is shown as a readable operation check', () =
   };
 
   assert.equal(api.operationExecutionActionText(item), '运营核查 · 下单转化核查');
+});
+
+test('revenue node record keeps one fixed scope and explicit missing-state validation', () => {
+  const api = loadOperationStaticApi();
+  const sourceScope = api.operationRevenueNodeDialogFields.find(field => field.name === 'source_scope');
+  assert.ok(sourceScope.options.some(option => option.value === 'pms_ota_cross_check'));
+  assert.equal(api.operationCanRecordNodeCheck({ execution: { status: 'pending_execute', task_id: 31 } }), true);
+  assert.equal(api.operationCanRecordNodeCheck({ execution: { status: 'executing', task_id: 31 } }), true);
+  assert.equal(api.operationCanRecordNodeCheck({ execution: { status: 'executed', task_id: 31 } }), true);
+  assert.equal(api.operationCanRecordNodeCheck({ execution: { status: 'pending_create', task_id: 31 } }), false);
+
+  const form = {
+    operating_period: 'weekend',
+    source_scope: 'pms_ota_cross_check',
+    room_status_alignment: 'operator_confirmed',
+    data_quality_status: 'manual_confirmed',
+    metric_definition: 'fixed 16:00 denominator',
+    comparison_basis: 'same weekend node',
+    progress_status: 'normal',
+    judgment_basis: 'same-scope pace comparison',
+    success_criteria: 'review again at 20:00',
+    stop_condition: 'stop on PMS/OTA mismatch',
+  };
+  const identity = { system_hotel_id: 7, business_date: '2026-08-03' };
+  const record = api.buildOperationRevenueNodeRecord(form, '2026-08-03 16:00:00', identity);
+  assert.equal(record.contract_version, 'operation_revenue_node.v2');
+  assert.equal(record.system_hotel_id, '7');
+  assert.equal(record.business_date, '2026-08-03');
+  assert.equal(record.comparison_basis, 'same weekend node');
+  assert.equal(record.metric_snapshot, '');
+
+  assert.throws(
+    () => api.buildOperationRevenueNodeRecord({ ...form, comparison_basis: '' }, '2026-08-03 16:00:00', identity),
+    /同节点比较基准/
+  );
+  assert.throws(() => api.buildOperationRevenueNodeRecord(form, '2026-08-03 16:00:00', {}), /酒店身份/);
+  assert.equal(api.operationExecutionNodeRecordText({ evidence_summary: { node_record: { status: 'missing' } } }), '节点检查未记录');
+  assert.match(api.operationExecutionNodeRecordText({ evidence_summary: { node_record: { status: 'available', operating_period: 'weekend', room_status_alignment: 'operator_confirmed', progress_status: 'normal' } } }), /周末.*房态人工确认一致.*进度正常/);
+
+  const fields = api.operationRevenueNodeFieldsForItem({ evidence_summary: { node_record: { status: 'available', comparison_basis: 'saved basis' } } });
+  assert.equal(fields.find(field => field.name === 'comparison_basis').value, 'saved basis');
 });

@@ -46,6 +46,26 @@ final class KnowledgeOwnerScopeTest extends TestCase
         ]));
     }
 
+    public function testFormalKnowledgeIsSharedWithinHotelButReadOnlyForEveryRole(): void
+    {
+        $hotelUser = $this->controllerWithUser(7, false, [11]);
+        $otherHotelUser = $this->controllerWithUser(8, false, [12]);
+        $superAdmin = $this->controllerWithUser(9, true);
+        $formal = [
+            'created_by' => 99,
+            'hotel_id' => 11,
+            'source' => 'formal_operating_sop',
+            'stable_key' => 'formal-operating-sop:one',
+            'status' => 'done',
+        ];
+
+        self::assertTrue($this->invokeNonPublic($hotelUser, 'canAccessOwnedRow', [$formal]));
+        self::assertFalse($this->invokeNonPublic($otherHotelUser, 'canAccessOwnedRow', [$formal]));
+        self::assertTrue($this->invokeNonPublic($superAdmin, 'canAccessOwnedRow', [$formal]));
+        self::assertFalse($this->invokeNonPublic($hotelUser, 'canModifyOwnedRow', [$formal]));
+        self::assertFalse($this->invokeNonPublic($superAdmin, 'canModifyOwnedRow', [$formal]));
+    }
+
     public function testResolveKnowledgeImportHotelRequiresExplicitHotelForMultiHotelUser(): void
     {
         $controller = $this->controllerWithUser(7, false, [11, 12]);

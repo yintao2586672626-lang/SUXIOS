@@ -27,6 +27,7 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'page-ops-plan', domain: 'operations', path: 'fragments/15-page-ops-plan.html', anchor: '<div v-if="currentPage === \'ops-plan\'" class="max-w-7xl mx-auto space-y-6">' },
   { id: 'page-ai-daily-report', domain: 'operations', path: 'fragments/16-page-ai-daily-report.html', anchor: '<div v-if="currentPage === \'ai-daily-report\'" class="max-w-7xl mx-auto space-y-6">' },
   { id: 'page-ops-track', domain: 'operations', path: 'fragments/17-page-ops-track.html', anchor: '<div v-if="currentPage === \'ops-track\'" class="max-w-7xl mx-auto space-y-6">' },
+  { id: 'page-operating-growth-archive', domain: 'operations', path: 'fragments/17a-page-operating-growth-archive.html', anchor: '<component v-if="currentPage === \'operating-growth-archive\'" :is="operatingGrowthArchiveBody"' },
   { id: 'page-hotels', domain: 'hotel-admin', path: 'fragments/18-page-hotels.html', anchor: '<div v-if="currentPage === \'hotels\'" class="space-y-5">' },
   { id: 'page-revenue-research-center', domain: 'revenue', path: 'fragments/19-page-revenue-research-center.html', anchor: '<div v-if="currentPage === \'revenue-research-center\'" class="max-w-7xl mx-auto space-y-4">' },
   { id: 'page-operation-optimizer', domain: 'revenue', path: 'fragments/19a-page-operation-optimizer.html', anchor: '<div v-if="currentPage === \'operation-optimizer\'" class="max-w-7xl mx-auto space-y-5" data-testid="page-operation-optimizer">' },

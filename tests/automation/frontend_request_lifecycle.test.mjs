@@ -549,7 +549,7 @@ test('runPageLoadOnce caches only successful work', async () => {
   assert.equal(lifecycleRuns, 2);
 });
 
-test('compass page cache survives navigation and Revenue AI date hydration but stays isolated by hotel', async () => {
+test('compass page cache survives navigation and Revenue AI date hydration, allows force, and stays isolated by hotel', async () => {
   const harness = compilePageLoadHarness();
   let runs = 0;
   const initialPolicy = harness.currentCompassReadPolicy('compass', 'current');
@@ -571,13 +571,20 @@ test('compass page cache survives navigation and Revenue AI date hydration but s
   }, { ttlMs: 60_000, requestPolicy: revisitPolicy });
   assert.equal(runs, 1, 'cached revisit should ignore the unrelated Revenue AI date and old page generation');
 
+  const forcedPolicy = harness.currentCompassReadPolicy('compass', 'action');
+  await harness.runPageLoadOnce('compass', 'main', async () => {
+    runs += 1;
+    return true;
+  }, { force: true, ttlMs: 60_000, requestPolicy: forcedPolicy });
+  assert.equal(runs, 2, 'a forced dashboard refresh must bypass the successful page cache');
+
   harness.setHotel('81');
   const otherHotelPolicy = harness.currentCompassReadPolicy('compass', 'current');
   await harness.runPageLoadOnce('compass', 'main', async () => {
     runs += 1;
     return true;
   }, { ttlMs: 60_000, requestPolicy: otherHotelPolicy });
-  assert.equal(runs, 2, 'a different selected hotel must use a different page cache scope');
+  assert.equal(runs, 3, 'a different selected hotel must use a different page cache scope');
 });
 
 test('runPageLoadOnce force supersedes in-flight work and a failure preserves loadedAt', async () => {
@@ -621,10 +628,15 @@ test('compass background queue excludes Revenue AI and competitor summary reads'
 });
 
 test('compass cache and GET share a date-independent policy while manual refresh stays forced', () => {
+  const compassLoader = sliceBetween(
+    'const loadCompassData = async (options = {}) => {',
+    'const refreshCompassDashboard = async () => {',
+  );
   assert.match(source, /const currentCompassReadPolicy = \(pageKey = currentPage\.value, priority = 'current'\) => \(\{[\s\S]*?businessDate: '',[\s\S]*?\}\);/);
   assert.match(source, /const requestPolicy = currentCompassReadPolicy\(landingPage, 'current'\);[\s\S]*?loadCompassData\(\{ skipOtaBackground: true, requestPolicy \}\)[\s\S]*?\{ ttlMs: DASHBOARD_PAGE_CACHE_TTL_MS, requestPolicy \}/);
   assert.match(source, /const requestPolicy = currentCompassReadPolicy\(newPage, 'current'\);[\s\S]*?loadCompassData\(\{ skipOtaBackground: true, requestPolicy \}\)[\s\S]*?\{ ttlMs: DASHBOARD_PAGE_CACHE_TTL_MS, requestPolicy \}/);
-  assert.match(source, /const requestPolicy = options\.requestPolicy && typeof options\.requestPolicy === 'object'[\s\S]*?: currentCompassReadPolicy\(requestPage, force \? 'action' : 'current'\);/);
+  assert.match(compassLoader, /const requestPolicy = options\.requestPolicy && typeof options\.requestPolicy === 'object'[\s\S]*?: currentCompassReadPolicy\(requestPage, force \? 'action' : 'current'\);/);
+  assert.match(compassLoader, /if \(force\) requestPolicy\.force = true;/);
   assert.match(source, /const refreshCompassDashboard = async \(\) => \{\s*await loadCompassData\(\{ notify: true, force: true \}\);\s*\};/);
 });
 

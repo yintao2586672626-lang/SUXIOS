@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\KnowledgePayloadMapper;
+use app\service\KnowledgeContentDigestService;
 use PHPUnit\Framework\TestCase;
 use think\exception\ValidateException;
 
@@ -155,5 +156,37 @@ final class KnowledgePayloadMapperTest extends TestCase
             $mapper->mergeTags(['运营', '前台'], ['前台'], ['敦煌漠蓝新'])
         );
         self::assertSame('连接失败 请重试', $mapper->shortErrorMessage("连接失败\n请重试"));
+    }
+
+    public function testFormalChunkFormattingExposesVersionLifecycleAndIntegrity(): void
+    {
+        $content = [
+            'formal_record_type' => 'operating_sop',
+            'content_type' => 'sop_card',
+            'title' => 'approved SOP',
+        ];
+        $digest = (new KnowledgeContentDigestService())->digest($content);
+        $chunk = (new KnowledgePayloadMapper())->formatChunkRow([
+            'chunk_id' => 12,
+            'unit_id' => 7,
+            'type' => 'formal_operating_sop',
+            'promotion_candidate_id' => 21,
+            'operating_sop_version_id' => 31,
+            'version_no' => 2,
+            'lifecycle_status' => 'active',
+            'content_digest' => $digest,
+            'superseded_by_chunk_id' => null,
+            'published_at' => '2026-08-03 10:00:00',
+            'retired_at' => null,
+            '_is_current' => true,
+            'content' => $content,
+            'created_by' => 8,
+        ]);
+
+        self::assertSame(2, $chunk['version_no']);
+        self::assertSame('active', $chunk['lifecycle_status']);
+        self::assertSame($digest, $chunk['content_digest']);
+        self::assertTrue($chunk['is_current']);
+        self::assertSame('verified', $chunk['integrity_status']);
     }
 }

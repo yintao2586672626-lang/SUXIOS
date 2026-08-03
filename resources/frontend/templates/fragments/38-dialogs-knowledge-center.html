@@ -58,7 +58,7 @@
             <div class="bg-white rounded-lg shadow-xl w-full max-w-xl mx-4 max-h-[90vh] overflow-y-auto">
                 <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
                     <h3 class="text-lg font-semibold">复制粘贴门店文档</h3>
-                    <button @click="showKnowledgeCenterImportModal = false" class="text-gray-500 hover:text-gray-700">
+                    <button type="button" @click="closeKnowledgeImportModal" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading" class="text-gray-500 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
@@ -66,21 +66,21 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">绑定门店 *</label>
-                            <select v-model="knowledgeCenterImportForm.hotel_id" required="" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <select v-model="knowledgeCenterImportForm.hotel_id" required="" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-70">
                                 <option value="">请选择门店</option>
                                 <option v-for="hotel in knowledgeCenterHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name }}</option>
                             </select>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">读取模型</label>
-                            <select v-model="knowledgeCenterImportForm.model_key" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <select v-model="knowledgeCenterImportForm.model_key" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-70">
                                 <option v-for="model in availableAiModelOptions" :key="model.value" :value="model.value">{{ model.label }}</option>
                             </select>
                         </div>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">标签</label>
-                        <input v-model="knowledgeCenterImportForm.tags" type="text" placeholder="逗号分隔，如 点评SOP,卫生整改" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <input v-model="knowledgeCenterImportForm.tags" type="text" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading" placeholder="逗号分隔，如 点评SOP,卫生整改" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-70">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">文档内容 *</label>
@@ -92,20 +92,26 @@
                                 <span v-else-if="knowledgeCenterImportDocumentNotice" class="truncate">{{ knowledgeCenterImportDocumentNotice }}</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <button type="button" @click="focusKnowledgeDocumentTextarea" class="px-3 py-1.5 border rounded-lg text-sm hover:bg-white">
+                                <button type="button" @click="focusKnowledgeDocumentTextarea" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading || !!knowledgeCenterImportSelectedFile" class="px-3 py-1.5 border rounded-lg text-sm hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">
                                     <i class="fas fa-paste mr-1"></i>粘贴正文
                                 </button>
-                                <button type="button" @click="openKnowledgeDocumentFilePicker" :disabled="knowledgeCenterImportReading" class="px-3 py-1.5 border rounded-lg text-sm hover:bg-white disabled:opacity-60">
+                                <button type="button" @click="openKnowledgeDocumentFilePicker" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading" class="px-3 py-1.5 border rounded-lg text-sm hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">
                                     <i class="fas fa-file-import mr-1"></i>选择文档
                                 </button>
                             </div>
-                            <input ref="knowledgeDocumentFileInput" type="file" class="hidden" accept=".txt,.md,.markdown,.csv,.json,.html,.htm,.docx" multiple="" @change="handleKnowledgeDocumentFileSelect">
+                            <input ref="knowledgeDocumentFileInput" type="file" class="hidden" accept=".txt,.md,.markdown,.csv,.json,.html,.htm,.docx,.xlsx" multiple="" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading" @change="handleKnowledgeDocumentFileSelect">
                         </div>
                         <p v-if="knowledgeCenterImportDocumentError" class="text-xs text-red-600 mb-2">{{ knowledgeCenterImportDocumentError }}</p>
-                        <textarea v-model="knowledgeCenterImportForm.raw" rows="10" ref="knowledgeDocumentTextarea" @paste="handleKnowledgeDocumentPaste" @dragover.prevent="" @drop.prevent="handleKnowledgeDocumentDrop" placeholder="从 Word、飞书、微信、会议纪要、SOP 或复盘文档中复制内容，直接粘贴到这里。多个文档可用空行分隔。" class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm leading-6 resize-y"></textarea>
+                        <div v-if="knowledgeCenterImportSourceDocument" class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                            <div class="font-semibold">XLSX 来源已锁定，提交时由服务端重新解析</div>
+                            <div class="break-all">{{ knowledgeCenterImportSourceDocument.filename }} · SHA-256 {{ knowledgeCenterImportSourceDocument.sha256 }}</div>
+                            <div>{{ (knowledgeCenterImportSourceDocument.sheets || []).map(sheet => sheet.name).join('、') || '工作表未知' }}</div>
+                            <div class="text-amber-800">按“人工模板 / 行业通用 / 未核验”保存；所选门店仅用于授权隔离，不代表表格内容是该店事实。</div>
+                        </div>
+                        <textarea v-model="knowledgeCenterImportForm.raw" rows="10" ref="knowledgeDocumentTextarea" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading" :readonly="!!knowledgeCenterImportSelectedFile" @paste="handleKnowledgeDocumentPaste" @dragover.prevent="" @drop.prevent="handleKnowledgeDocumentDrop" placeholder="从 Word、飞书、微信、会议纪要、SOP 或复盘文档中复制内容，直接粘贴到这里。多个文档可用空行分隔。" class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm leading-6 resize-y read-only:bg-amber-50 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-70"></textarea>
                     </div>
                     <div class="flex justify-end space-x-3 pt-4">
-                        <button type="button" @click="showKnowledgeCenterImportModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                        <button type="button" @click="closeKnowledgeImportModal" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading" class="px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">取消</button>
                         <button type="submit" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-60">
                             {{ knowledgeCenterImporting ? '读取中...' : (knowledgeCenterImportReading ? '文档读取中...' : '让 AI 读取') }}
                         </button>

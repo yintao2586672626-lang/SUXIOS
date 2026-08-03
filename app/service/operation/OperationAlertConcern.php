@@ -260,7 +260,10 @@ trait OperationAlertConcern
         $metric = $metricMap[$targetMetric] ?? $targetMetric;
         $beforeValue = (float)($before[$metric] ?? 0);
         $afterValue = (float)($after[$metric] ?? 0);
-        $targetRate = (float)($row['target_change_rate'] ?? 0);
+        if (($row['target_change_rate'] ?? null) === null) {
+            return ['status' => 'observing', 'message' => '目标变化率尚未量化'];
+        }
+        $targetRate = (float)$row['target_change_rate'];
         if ($beforeValue <= 0 || $targetRate <= 0) {
             return ['status' => 'observing', 'message' => '目标或执行前数据不足'];
         }

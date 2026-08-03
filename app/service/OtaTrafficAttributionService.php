@@ -63,6 +63,48 @@ final class OtaTrafficAttributionService
         return $compareType === '' || $compareType === 'self';
     }
 
+    /**
+     * P0 closure accepts only the selected OTA's own canonical traffic rows.
+     * Auxiliary endpoints remain available for diagnostics, but cannot make
+     * the canonical field-loop gate pass or fail.
+     *
+     * @param array<string, mixed> $row
+     */
+    public static function rowBelongsToAuthoritativeP0Traffic(array $row, string $platform): bool
+    {
+        $platform = strtolower(trim($platform));
+        if (!self::rowBelongsToOwnPlatformTraffic($row, $platform)
+            || !self::rowDateScopeIsAuthoritative($row, $platform)
+        ) {
+            return false;
+        }
+
+        if ($platform !== 'ctrip') {
+            return true;
+        }
+
+        $endpointId = self::trafficRowEndpointId($row);
+        if ($endpointId === '') {
+            return trim((string)($row['dimension'] ?? '')) === '';
+        }
+
+        return in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true);
+    }
+
+    /** @param array<string, mixed> $row */
+    public static function rowDateScopeIsAuthoritative(array $row, string $platform): bool
+    {
+        if (strtolower(trim($platform)) !== 'meituan') {
+            return true;
+        }
+
+        $raw = self::decodeRawData($row['raw_data'] ?? null);
+        $dateSource = strtolower(trim((string)($raw['date_source'] ?? $raw['dateSource'] ?? '')));
+        return $dateSource !== 'response.rtdataupdatetime'
+            && $dateSource !== 'page.visible_update_time'
+            && preg_match('/(?:^|\.)cards\.rtdataupdatetime$/', $dateSource) !== 1;
+    }
+
     private static function dimensionChannel(string $dimension): string
     {
         $dimension = strtolower(trim($dimension));
@@ -80,6 +122,44 @@ final class OtaTrafficAttributionService
         }
 
         return '';
+    }
+
+    /** @param array<string, mixed> $row */
+    private static function trafficRowEndpointId(array $row): string
+    {
+        $dimension = trim((string)($row['dimension'] ?? ''));
+        if (preg_match('/^catalog:[^:]+:([^:]+)/', $dimension, $matches) === 1) {
+            return strtolower(trim((string)($matches[1] ?? '')));
+        }
+
+        $raw = self::decodeRawData($row['raw_data'] ?? null);
+        foreach ([
+            $raw['endpoint_id'] ?? null,
+            $raw['endpointId'] ?? null,
+            $raw['capture']['endpoint_id'] ?? null,
+            $raw['capture']['endpointId'] ?? null,
+        ] as $candidate) {
+            $endpointId = strtolower(trim((string)$candidate));
+            if ($endpointId !== '') {
+                return $endpointId;
+            }
+        }
+
+        return '';
+    }
+
+    /** @return array<string, mixed> */
+    private static function decodeRawData(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     /**

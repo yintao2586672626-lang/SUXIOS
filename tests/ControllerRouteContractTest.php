@@ -215,6 +215,46 @@ final class ControllerRouteContractTest extends TestCase
             $source,
             'Operation execution review must forward manual result_status/result_summary payload'
         );
+        self::assertStringContainsString(
+            '$this->service->reconcileScheduledExecutionTask(',
+            $source,
+            'Scheduled execution readback must use the scoped operation service'
+        );
+
+        $routes = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        self::assertStringContainsString(
+            "Route::post('/execution-tasks/:id/reconcile-review', 'OperationManagement/reconcileExecutionTaskReview')",
+            $routes,
+            'Scheduled execution readback must expose an authenticated operation route'
+        );
+    }
+
+    public function testOperatingGrowthArchiveRoutesStayBehindScopedOperationController(): void
+    {
+        $controller = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/OperationManagement.php');
+        self::assertStringContainsString('$this->memoryService->growthTimeline(', $controller);
+        self::assertStringContainsString('$this->memoryService->createManualGrowthEvent(', $controller);
+        self::assertStringContainsString('$this->memoryService->addOwnerAnnotation(', $controller);
+        self::assertStringContainsString('$this->memoryService->markMilestone(', $controller);
+        self::assertStringContainsString("'operation.execute'", $controller);
+
+        $routes = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        self::assertStringContainsString(
+            "Route::get('/growth-archive/timeline', 'OperationManagement/growthArchiveTimeline')",
+            $routes
+        );
+        self::assertStringContainsString(
+            "Route::post('/growth-archive/events', 'OperationManagement/createGrowthArchiveEvent')",
+            $routes
+        );
+        self::assertStringContainsString(
+            "Route::post('/growth-archive/:id/annotations', 'OperationManagement/addGrowthArchiveAnnotation')",
+            $routes
+        );
+        self::assertStringContainsString(
+            "Route::post('/growth-archive/:id/milestone', 'OperationManagement/markGrowthArchiveMilestone')",
+            $routes
+        );
     }
 
     public function testStrategyAndQuantRecordsCanCreateExecutionIntentRoutes(): void

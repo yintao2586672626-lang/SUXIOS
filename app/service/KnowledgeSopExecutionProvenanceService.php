@@ -50,6 +50,12 @@ final class KnowledgeSopExecutionProvenanceService
         }
 
         $content = $this->content($chunk['content'] ?? []);
+        $formalAuthority = $this->assertFormalKnowledgeCurrent(
+            $unit,
+            $chunk,
+            $content,
+            $targetHotelId
+        );
         $template = is_array($content['task_template'] ?? null) ? $content['task_template'] : [];
         if (strtolower(trim((string)($content['content_type'] ?? ''))) !== 'sop_card') {
             throw new \InvalidArgumentException('knowledge chunk is not a taskable SOP card');
@@ -76,6 +82,9 @@ final class KnowledgeSopExecutionProvenanceService
             'knowledge_chunk_id' => $chunkId,
             'content_digest' => $this->digest($content),
             'unit_authority_digest' => $this->digest($this->unitAuthority($unit)),
+            'formal_authority_digest' => $formalAuthority === null
+                ? ''
+                : $this->digest($formalAuthority),
             'target_hotel_id' => $targetHotelId,
             'unit_hotel_id' => $unitHotelId,
             'resolved_platform' => $platform,
@@ -154,7 +163,13 @@ final class KnowledgeSopExecutionProvenanceService
             (string)($intent['platform'] ?? ''),
             $asOf
         );
-        foreach (['content_digest', 'unit_authority_digest'] as $field) {
+        $digestFields = ['content_digest', 'unit_authority_digest'];
+        if (trim((string)($current['formal_authority_digest'] ?? '')) !== ''
+            || trim((string)($stored['formal_authority_digest'] ?? '')) !== ''
+        ) {
+            $digestFields[] = 'formal_authority_digest';
+        }
+        foreach ($digestFields as $field) {
             $storedDigest = strtolower(trim((string)($stored[$field] ?? '')));
             $currentDigest = strtolower(trim((string)($current[$field] ?? '')));
             if (preg_match('/^[a-f0-9]{64}$/D', $storedDigest) !== 1
@@ -236,6 +251,198 @@ final class KnowledgeSopExecutionProvenanceService
         );
     }
 
+    /**
+     * Formal knowledge is managed only by the promotion/version workflow. A
+     * historical or retired chunk remains readable for audit, but can never be
+     * used to create, approve, or execute a task.
+     *
+     * @param array<string, mixed> $unit
+     * @param array<string, mixed> $chunk
+     * @param array<string, mixed> $content
+     * @return array<string, mixed>|null
+     */
+    private function assertFormalKnowledgeCurrent(
+        array $unit,
+        array $chunk,
+        array $content,
+        int $targetHotelId
+    ): ?array {
+        $candidateId = (int)($chunk['promotion_candidate_id'] ?? $content['promotion_candidate_id'] ?? 0);
+        $versionId = (int)($chunk['operating_sop_version_id'] ?? $content['operating_sop_version_id'] ?? 0);
+        $formal = strtolower(trim((string)($unit['source'] ?? ''))) === 'formal_operating_sop'
+            || strtolower(trim((string)($chunk['type'] ?? ''))) === 'formal_operating_sop'
+            || strtolower(trim((string)($content['formal_record_type'] ?? ''))) === 'operating_sop'
+            || $candidateId > 0
+            || $versionId > 0;
+        if (!$formal) {
+            return null;
+        }
+
+        $unitId = (int)($unit['unit_id'] ?? 0);
+        $chunkId = (int)($chunk['chunk_id'] ?? 0);
+        $revisionId = (int)($content['promotion_revision_id'] ?? 0);
+        $digestService = new KnowledgeContentDigestService();
+        if ($candidateId <= 0 || $versionId <= 0 || $revisionId <= 0
+            || (int)($content['promotion_candidate_id'] ?? 0) !== $candidateId
+            || (int)($content['operating_sop_version_id'] ?? 0) !== $versionId
+            || (int)($content['knowledge_unit_id'] ?? 0) !== $unitId
+            || (int)($unit['hotel_id'] ?? 0) !== $targetHotelId
+            || strtolower(trim((string)($unit['source'] ?? ''))) !== 'formal_operating_sop'
+            || strtolower(trim((string)($unit['lifecycle_status'] ?? ''))) !== 'active'
+            || (int)($unit['current_chunk_id'] ?? 0) !== $chunkId
+            || strtolower(trim((string)($chunk['type'] ?? ''))) !== 'formal_operating_sop'
+            || strtolower(trim((string)($chunk['lifecycle_status'] ?? ''))) !== 'active'
+            || strtolower(trim((string)($content['lifecycle_status'] ?? ''))) !== 'active'
+            || !$digestService->matches((string)($chunk['content_digest'] ?? ''), $content)
+        ) {
+            throw new \InvalidArgumentException(
+                'formal knowledge is not the current active verified content; create a new execution intent'
+            );
+        }
+
+        $candidate = Db::name(KnowledgePromotionService::CANDIDATE_TABLE)
+            ->where('id', $candidateId)
+            ->where('hotel_id', $targetHotelId)
+            ->where('workflow_status', 'approved')
+            ->where('promoted_sop_version_id', $versionId)
+            ->where('promoted_knowledge_unit_id', $unitId)
+            ->where('promoted_knowledge_chunk_id', $chunkId)
+            ->whereNull('deleted_at')
+            ->find();
+        if (!is_array($candidate)) {
+            throw new \InvalidArgumentException(
+                'formal knowledge approval record is no longer current; create a new execution intent'
+            );
+        }
+        $tenantId = (int)($candidate['tenant_id'] ?? 0);
+        if ($tenantId <= 0 || (int)($candidate['current_revision_id'] ?? 0) !== $revisionId) {
+            throw new \InvalidArgumentException('formal knowledge approval identity is invalid');
+        }
+
+        $revision = Db::name(KnowledgePromotionService::REVISION_TABLE)
+            ->where('id', $revisionId)
+            ->where('candidate_id', $candidateId)
+            ->find();
+        $version = Db::name(OperatingSopService::VERSION_TABLE)
+            ->where('id', $versionId)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $targetHotelId)
+            ->where('validation_status', 'verified')
+            ->where('lifecycle_status', 'active')
+            ->whereNull('deleted_at')
+            ->find();
+        if (!is_array($revision) || !is_array($version)) {
+            throw new \InvalidArgumentException(
+                'formal knowledge revision or verified SOP version is no longer active'
+            );
+        }
+
+        $revisionContent = [
+            'title' => (string)($revision['title'] ?? ''),
+            'objective' => (string)($revision['objective'] ?? ''),
+            'steps' => $this->content($revision['steps_json'] ?? []),
+            'stop_conditions' => $this->content($revision['stop_conditions_json'] ?? []),
+            'applicability' => $this->content($revision['applicability_json'] ?? []),
+            'scope' => $this->content($revision['scope_json'] ?? []),
+            'evidence_refs' => $this->content($revision['evidence_refs_json'] ?? []),
+            'outcome_refs' => $this->content($revision['outcome_refs_json'] ?? []),
+            'conflict_refs' => $this->content($revision['conflict_refs_json'] ?? []),
+        ];
+        $versionContent = [
+            'tenant_id' => (int)($version['tenant_id'] ?? 0),
+            'hotel_id' => (int)($version['hotel_id'] ?? 0),
+            'sop_key' => (string)($version['sop_key'] ?? ''),
+            'title' => (string)($version['title'] ?? ''),
+            'objective' => (string)($version['objective'] ?? ''),
+            'steps' => $this->content($version['steps_json'] ?? []),
+            'stop_conditions' => $this->content($version['stop_conditions_json'] ?? []),
+            'scope' => $this->content($version['scope_json'] ?? []),
+            'source_memory_ids' => array_values(array_unique(array_filter(array_map(
+                'intval',
+                $this->content($version['source_memory_ids_json'] ?? [])
+            ), static fn(int $id): bool => $id > 0))),
+            'evidence_refs' => array_values($this->content($version['evidence_refs_json'] ?? [])),
+            'validation_status' => (string)($version['validation_status'] ?? ''),
+            'validation_note' => (string)($version['validation_note'] ?? ''),
+            'created_by' => (int)($version['created_by'] ?? 0),
+            'validated_by' => (int)($version['validated_by'] ?? 0),
+            'validated_at' => $version['validated_at'] ?? null,
+        ];
+        if (!$digestService->matches((string)($revision['content_digest'] ?? ''), $revisionContent)
+            || !$digestService->matches((string)($version['content_digest'] ?? ''), $versionContent)
+            || !hash_equals(
+                (string)($revision['content_digest'] ?? ''),
+                (string)($content['promotion_revision_digest'] ?? '')
+            )
+            || !hash_equals(
+                (string)($version['content_digest'] ?? ''),
+                (string)($content['operating_sop_content_digest'] ?? '')
+            )
+        ) {
+            throw new \InvalidArgumentException(
+                'formal knowledge approval content failed immutable digest verification'
+            );
+        }
+        $applicability = is_array($revisionContent['applicability'] ?? null)
+            ? $revisionContent['applicability']
+            : [];
+        $versionScope = is_array($versionContent['scope'] ?? null) ? $versionContent['scope'] : [];
+        $reviewedBusiness = [
+            'title' => $revisionContent['title'],
+            'objective' => $revisionContent['objective'],
+            'steps' => $revisionContent['steps'],
+            'stop_conditions' => $revisionContent['stop_conditions'],
+            'platform' => strtolower(trim((string)($applicability['platform'] ?? ''))),
+            'source_scope' => strtolower(trim((string)($applicability['source_scope'] ?? ''))),
+            'applicable_data_types' => array_values((array)($applicability['applicable_data_types'] ?? [])),
+            'metric_definitions' => array_values((array)($applicability['metric_definitions'] ?? [])),
+            'replication_scope' => (string)($applicability['replication_scope'] ?? ''),
+        ];
+        $versionBusiness = [
+            'title' => $versionContent['title'],
+            'objective' => $versionContent['objective'],
+            'steps' => $versionContent['steps'],
+            'stop_conditions' => $versionContent['stop_conditions'],
+            'platform' => strtolower(trim((string)($versionScope['platform'] ?? ''))),
+            'source_scope' => strtolower(trim((string)($versionScope['source_scope'] ?? ''))),
+            'applicable_data_types' => array_values((array)($versionScope['applicable_data_types'] ?? [])),
+            'metric_definitions' => array_values((array)($versionScope['metric_definitions'] ?? [])),
+            'replication_scope' => (string)($versionScope['replication_scope'] ?? ''),
+        ];
+        $projectedBusiness = [
+            'title' => (string)($content['title'] ?? ''),
+            'objective' => (string)($content['objective'] ?? ''),
+            'steps' => array_values((array)($content['steps'] ?? [])),
+            'stop_conditions' => array_values((array)($content['stop_conditions'] ?? [])),
+            'platform' => strtolower(trim((string)($content['platform'] ?? ''))),
+            'source_scope' => strtolower(trim((string)($content['source_scope'] ?? ''))),
+            'applicable_data_types' => array_values((array)($content['scope_details']['applicable_data_types'] ?? [])),
+            'metric_definitions' => array_values((array)($content['scope_details']['metric_definitions'] ?? [])),
+            'replication_scope' => (string)($content['scope_details']['replication_scope'] ?? ''),
+        ];
+        if (!hash_equals($digestService->digest($reviewedBusiness), $digestService->digest($versionBusiness))
+            || !hash_equals($digestService->digest($versionBusiness), $digestService->digest($projectedBusiness))
+        ) {
+            throw new \InvalidArgumentException(
+                'formal knowledge business content differs from its reviewed SOP revision'
+            );
+        }
+
+        return [
+            'tenant_id' => $tenantId,
+            'hotel_id' => $targetHotelId,
+            'candidate_id' => $candidateId,
+            'revision_id' => $revisionId,
+            'revision_digest' => (string)$revision['content_digest'],
+            'sop_version_id' => $versionId,
+            'sop_version_digest' => (string)$version['content_digest'],
+            'knowledge_unit_id' => $unitId,
+            'knowledge_chunk_id' => $chunkId,
+            'knowledge_content_digest' => (string)$chunk['content_digest'],
+            'lifecycle_status' => 'active',
+        ];
+    }
+
     /** @return array<int, string> */
     private function platforms(mixed $value): array
     {
@@ -296,9 +503,13 @@ final class KnowledgeSopExecutionProvenanceService
         foreach ([
             'unit_id',
             'hotel_id',
+            'stable_key',
+            'current_chunk_id',
+            'source',
             'created_by',
             'status',
             'lifecycle_status',
+            'lifecycle_reason',
             'reviewed_at',
             'review_due_at',
             'truth_profile_version',
@@ -312,28 +523,6 @@ final class KnowledgeSopExecutionProvenanceService
 
     private function digest(mixed $value): string
     {
-        $json = json_encode(
-            $this->canonicalize($value),
-            JSON_UNESCAPED_UNICODE
-                | JSON_UNESCAPED_SLASHES
-                | JSON_PRESERVE_ZERO_FRACTION
-                | JSON_THROW_ON_ERROR
-        );
-        return hash('sha256', $json);
-    }
-
-    private function canonicalize(mixed $value): mixed
-    {
-        if (!is_array($value)) {
-            return $value;
-        }
-        if (array_is_list($value)) {
-            return array_map(fn(mixed $item): mixed => $this->canonicalize($item), $value);
-        }
-        ksort($value, SORT_STRING);
-        foreach ($value as $key => $item) {
-            $value[$key] = $this->canonicalize($item);
-        }
-        return $value;
+        return (new KnowledgeContentDigestService())->digest($value);
     }
 }

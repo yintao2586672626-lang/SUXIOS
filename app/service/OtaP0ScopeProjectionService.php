@@ -110,18 +110,28 @@ final class OtaP0ScopeProjectionService
      *
      * @return array{status:string,own_traffic_row_count:int,stored_traffic_hotel_ids:array<int,int>,profile_binding_hotel_ids:array<int,int>,sensitive_values_exposed:bool}
      */
-    public function project(string $platform, string $targetDate): array
+    public function project(
+        string $platform,
+        string $targetDate,
+        ?int $systemHotelId = null,
+        ?int $tenantId = null
+    ): array
     {
         $platform = strtolower(trim($platform));
+        $systemHotelId = $systemHotelId !== null ? max(0, $systemHotelId) : 0;
+        $tenantId = $tenantId !== null ? max(0, $tenantId) : 0;
         if (!in_array($platform, ['ctrip', 'meituan'], true)
             || preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) !== 1
         ) {
             return $this->emptyProjection('invalid_scope');
         }
+        if ($systemHotelId > 0 && $tenantId <= 0) {
+            return $this->emptyProjection('scope_unavailable');
+        }
 
         try {
-            $trafficRows = Db::name('online_daily_data')
-                ->field('platform,compare_type,system_hotel_id,raw_data')
+            $trafficQuery = Db::name('online_daily_data')
+                ->field('platform,compare_type,dimension,system_hotel_id,raw_data')
                 ->where('source', $platform)
                 ->where('data_date', $targetDate)
                 ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
@@ -129,13 +139,17 @@ final class OtaP0ScopeProjectionService
                     $query
                         ->whereNull('data_period')
                         ->whereOr('data_period', 'not in', ['next_7_days', 'next_30_days', 'forecast', 'future_forecast']);
-                })
-                ->select()
-                ->toArray();
+                });
+            if ($systemHotelId > 0) {
+                $trafficQuery->where('system_hotel_id', $systemHotelId);
+            }
+            if ($tenantId > 0) {
+                $trafficQuery->where('tenant_id', $tenantId);
+            }
+            $trafficRows = $trafficQuery->select()->toArray();
             $ownTrafficRows = array_values(array_filter(
                 $trafficRows,
-                fn(array $row): bool => OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic($row, $platform)
-                    && $this->rowDateScopeIsAuthoritative($row, $platform)
+                fn(array $row): bool => OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic($row, $platform)
             ));
             $storedTrafficHotelIds = array_values(array_unique(array_filter(array_map(
                 static fn(array $row): int => (int)($row['system_hotel_id'] ?? 0),
@@ -143,22 +157,32 @@ final class OtaP0ScopeProjectionService
             ), static fn(int $hotelId): bool => $hotelId > 0)));
             sort($storedTrafficHotelIds, SORT_NUMERIC);
 
+            $activeHotelsQuery = Db::name('hotels')
+                ->where('status', 1);
+            if ($tenantId > 0) {
+                $activeHotelsQuery->where('tenant_id', $tenantId);
+            } else {
+                $activeHotelsQuery->where('tenant_id', '>', 0);
+            }
+            if ($systemHotelId > 0) {
+                $activeHotelsQuery->where('id', $systemHotelId);
+            }
             $activeHotelIds = array_values(array_filter(array_map(
                 'intval',
-                Db::name('hotels')
-                    ->where('tenant_id', '>', 0)
-                    ->where('status', 1)
-                    ->column('id')
+                $activeHotelsQuery->column('id')
             ), static fn(int $hotelId): bool => $hotelId > 0));
             $profileBindingHotelIds = [];
             if ($activeHotelIds !== []) {
+                $profileBindingQuery = Db::name('ota_profile_bindings')
+                    ->where('platform', $platform)
+                    ->where('binding_status', 'active')
+                    ->whereIn('system_hotel_id', $activeHotelIds);
+                if ($tenantId > 0) {
+                    $profileBindingQuery->where('tenant_id', $tenantId);
+                }
                 $profileBindingHotelIds = array_values(array_unique(array_filter(array_map(
                     'intval',
-                    Db::name('ota_profile_bindings')
-                        ->where('platform', $platform)
-                        ->where('binding_status', 'active')
-                        ->whereIn('system_hotel_id', $activeHotelIds)
-                        ->column('system_hotel_id')
+                    $profileBindingQuery->column('system_hotel_id')
                 ), static fn(int $hotelId): bool => $hotelId > 0)));
                 sort($profileBindingHotelIds, SORT_NUMERIC);
             }
@@ -178,21 +202,7 @@ final class OtaP0ScopeProjectionService
     /** @param array<string, mixed> $row */
     private function rowDateScopeIsAuthoritative(array $row, string $platform): bool
     {
-        if ($platform !== 'meituan') {
-            return true;
-        }
-        $raw = $row['raw_data'] ?? null;
-        if (is_string($raw) && trim($raw) !== '') {
-            $decoded = json_decode($raw, true);
-            $raw = is_array($decoded) ? $decoded : [];
-        }
-        if (!is_array($raw)) {
-            return true;
-        }
-        $source = strtolower(trim((string)($raw['date_source'] ?? $raw['dateSource'] ?? '')));
-        return $source !== 'response.rtdataupdatetime'
-            && $source !== 'page.visible_update_time'
-            && preg_match('/(?:^|\.)cards\.rtdataupdatetime$/', $source) !== 1;
+        return OtaTrafficAttributionService::rowDateScopeIsAuthoritative($row, $platform);
     }
 
     /** @return array{status:string,own_traffic_row_count:int,stored_traffic_hotel_ids:array<int,int>,profile_binding_hotel_ids:array<int,int>,sensitive_values_exposed:bool} */

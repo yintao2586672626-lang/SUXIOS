@@ -782,7 +782,7 @@
                                                     <div class="font-semibold text-gray-800">{{ priceSuggestionReviewMetricText(priceSuggestionReview.delta?.quantity) }}</div>
                                                 </div>
                                                 <div class="rounded-lg bg-white p-3 border border-purple-100">
-                                                    <div class="text-gray-500">ADR变化</div>
+                                                <div class="text-gray-500">ADR变化</div>
                                                     <div class="font-semibold text-gray-800">{{ priceSuggestionReviewMetricText(priceSuggestionReview.delta?.adr, '¥') }}</div>
                                                 </div>
                                             </div>
@@ -799,7 +799,7 @@
                                         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                             <div>
                                                 <h3 class="font-semibold text-gray-900">收益分析看板</h3>
-                                                <p class="text-sm text-gray-500 mt-1">汇总定价建议、需求预测、RevPAR与竞对价格信号</p>
+                                                <p class="text-sm text-gray-500 mt-1">汇总定价建议、需求预测、RevPAR 与竞对价格信号</p>
                                             </div>
                                             <button @click="loadRevenueAnalysisBundle" class="btn-primary">
                                                 <i class="fas fa-sync-alt mr-2"></i>刷新分析
@@ -893,7 +893,7 @@
                                                 <div class="text-2xl font-bold text-green-700">{{ revenueDashboard.pending_count || 0 }}</div>
                                             </div>
                                             <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                                                <div class="text-sm text-gray-400 mb-1">本周RevPAR预测</div>
+                                                <term-help term="revpar" label="本周RevPAR预测" class="text-sm text-gray-400 mb-1" />
                                                 <div class="text-2xl font-bold text-gray-800">{{ revenueDashboard.week_revpar_forecast !== null &amp;&amp; revenueDashboard.week_revpar_forecast !== undefined ? '¥' + revenueDashboard.week_revpar_forecast : '—' }}</div>
                                             </div>
                                             <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
@@ -979,7 +979,7 @@
                                                             <tr>
                                                                 <th class="px-3 py-2 text-left">日期</th>
                                                                 <th class="px-3 py-2 text-right">入住率</th>
-                                                                <th class="px-3 py-2 text-right">RevPAR</th>
+                                                            <th class="px-3 py-2 text-right">RevPAR</th>
                                                                 <th class="px-3 py-2 text-right">置信度</th>
                                                                 <th class="px-3 py-2 text-left">闭环</th>
                                                             </tr>

@@ -441,6 +441,14 @@ Route::group('api/knowledge', function () {
     Route::post('/add', 'Knowledge/add');
     Route::post('/import', 'Knowledge/importMaterials');
     Route::post('/document-text', 'Knowledge/extractDocumentText');
+    Route::get('/promotions', 'KnowledgePromotion/candidates');
+    Route::post('/promotions/from-sop-candidate', 'KnowledgePromotion/createCandidate');
+    Route::get('/promotions/:id/events', 'KnowledgePromotion/events');
+    Route::post('/promotions/:id/revisions', 'KnowledgePromotion/createRevision');
+    Route::post('/promotions/:id/submit', 'KnowledgePromotion/submit');
+    Route::post('/promotions/:id/review', 'KnowledgePromotion/review');
+    Route::post('/promotions/:id/withdraw', 'KnowledgePromotion/withdraw');
+    Route::get('/promotions/:id', 'KnowledgePromotion/readCandidate');
     Route::post('/:unit_id/add-chunk', 'Knowledge/addChunk');
     Route::post('/:unit_id/chunks/:chunk_id/execution-intent', 'Knowledge/createExecutionIntent');
     Route::post('/:unit_id/update', 'Knowledge/update');
@@ -514,6 +522,12 @@ Route::group('api/macro-signals', function () {
 // ==================== Unified past / present / future API ====================
 Route::group('api/temporal-insights', function () {
     Route::get('/overview', 'TemporalInsight/overview');
+    Route::get('/forecast-trials', 'TemporalInsight/trialList');
+    Route::post('/forecast-trials', 'TemporalInsight/createTrial');
+    Route::get('/forecast-trials/:id', 'TemporalInsight/trialDetail');
+    Route::post('/forecast-trials/:id/execution-intent', 'TemporalInsight/createTrialOperationIntent');
+    Route::post('/forecast-trials/:id/actual-readback', 'TemporalInsight/refreshTrialActuals');
+    Route::post('/forecast-trials/:id/final-review', 'TemporalInsight/finalizeTrialReview');
     Route::post('/forecasts', 'TemporalInsight/generateForecast');
     Route::post('/forecasts/:id/execution-intent', 'TemporalInsight/createOperationReviewIntent');
 })->middleware(\app\middleware\Auth::class);
@@ -553,10 +567,15 @@ Route::group('api/operation', function () {
     Route::post('/execution-intents/:id/approve', 'OperationManagement/approveExecutionIntent');
     Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
     Route::post('/execution-tasks/:id/evidence', 'OperationManagement/executionTaskEvidence');
+    Route::post('/execution-tasks/:id/reconcile-review', 'OperationManagement/reconcileExecutionTaskReview');
     Route::post('/execution-tasks/:id/review', 'OperationManagement/reviewExecutionTask');
     Route::post('/execution-tasks/:id/operating-memory', 'OperationManagement/saveExecutionTaskOperatingMemory');
     Route::get('/closure-overview', 'OperationManagement/closureOverview');
     Route::get('/execution-flow', 'OperationManagement/executionFlow');
+    Route::get('/growth-archive/timeline', 'OperationManagement/growthArchiveTimeline');
+    Route::post('/growth-archive/events', 'OperationManagement/createGrowthArchiveEvent');
+    Route::post('/growth-archive/:id/annotations', 'OperationManagement/addGrowthArchiveAnnotation');
+    Route::post('/growth-archive/:id/milestone', 'OperationManagement/markGrowthArchiveMilestone');
     Route::get('/operating-memories/:id', 'OperationManagement/readOperatingMemory');
     Route::get('/operating-memories', 'OperationManagement/operatingMemories');
     Route::post('/operating-sops/:id/replications', 'OperatingIntelligence/replicateSop');

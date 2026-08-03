@@ -846,22 +846,7 @@ final class OperatingSopService
 
     private function digest(mixed $value): string
     {
-        return hash('sha256', $this->encode($this->canonicalize($value)));
-    }
-
-    private function canonicalize(mixed $value): mixed
-    {
-        if (!is_array($value)) {
-            return $value;
-        }
-        if (array_is_list($value)) {
-            return array_map(fn(mixed $item): mixed => $this->canonicalize($item), $value);
-        }
-        ksort($value, SORT_STRING);
-        foreach ($value as $key => $item) {
-            $value[$key] = $this->canonicalize($item);
-        }
-        return $value;
+        return (new KnowledgeContentDigestService())->digest($value);
     }
 
     private function encode(mixed $value): string

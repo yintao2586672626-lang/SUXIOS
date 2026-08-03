@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "2013197065ac8d0730c637d102008c821d3a3bbf5cda956c7b058e0419d47c97",
-  "source_snapshot_bytes": 2172007,
+  "source_snapshot_sha256": "3a1cd8737de3ddb9483a4abf5ada5374ca0d615ddb02ee1478bcf00a6df448b2",
+  "source_snapshot_bytes": 2209871,
   "fragments": [
     {
       "id": "app-shell",
@@ -153,6 +153,12 @@
       "domain": "operations",
       "path": "fragments/17-page-ops-track.html",
       "anchor": "<div v-if=\"currentPage === 'ops-track'\" class=\"max-w-7xl mx-auto space-y-6\">"
+    },
+    {
+      "id": "page-operating-growth-archive",
+      "domain": "operations",
+      "path": "fragments/17a-page-operating-growth-archive.html",
+      "anchor": "<component v-if=\"currentPage === 'operating-growth-archive'\" :is=\"operatingGrowthArchiveBody\""
     },
     {
       "id": "page-hotels",
