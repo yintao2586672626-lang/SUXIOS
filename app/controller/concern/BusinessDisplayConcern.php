@@ -649,6 +649,7 @@ trait BusinessDisplayConcern
         $dataDate = $startDate ?: ($endDate ?: date('Y-m-d'));
         $columns = $this->getOnlineDailyDataColumns();
         $now = date('Y-m-d H:i:s');
+        $businessDimension = $this->ctripBusinessPersistenceDimension($persistenceContext);
 
         foreach ($dataList as $item) {
             if (!is_array($item)) continue;
@@ -685,14 +686,14 @@ trait BusinessDisplayConcern
                 'data_date' => $itemDate,
                 'data_type' => 'business',
                 'source' => 'ctrip',
-                'dimension' => '',
+                'dimension' => $businessDimension,
             ], $columns, $item);
 
             // 检查是否已存在（按来源、系统酒店、平台酒店、日期去重）
             $query = Db::name('online_daily_data')
                 ->where('source', 'ctrip')
                 ->where('data_type', 'business')
-                ->where('dimension', '')
+                ->where('dimension', $businessDimension)
                 ->where('hotel_id', (string)$hotelId)
                 ->where('data_date', $itemDate);
             $this->applyOnlineDailyDataPeriodQuery($query, $periodFilter, $columns);
@@ -709,7 +710,8 @@ trait BusinessDisplayConcern
                 $item,
                 $persistenceContext,
                 (string)$hotelId,
-                $systemHotelId
+                $systemHotelId,
+                (string)$itemDate
             );
             $base = [
                 'hotel_id' => (string)$hotelId,
@@ -718,7 +720,7 @@ trait BusinessDisplayConcern
                 'data_date' => $itemDate,
                 'source' => 'ctrip',
                 'data_type' => 'business',
-                'dimension' => '',
+                'dimension' => $businessDimension,
                 'compare_type' => trim((string)($item['compare_type'] ?? $item['compareType'] ?? '')) ?: null,
                 'raw_data' => json_encode($provenance['raw_data'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
             ];
@@ -788,6 +790,13 @@ trait BusinessDisplayConcern
             || in_array($ingestionMethod, ['manual', 'manual_input', 'user_provided', 'user_provided_unverified'], true);
     }
 
+    private function ctripBusinessPersistenceDimension(array $context): string
+    {
+        return $this->isCtripManualUnverifiedPersistenceContext($context)
+            ? 'manual_input_unverified'
+            : '';
+    }
+
     /**
      * @return array{raw_data:array<string,mixed>,ingestion_method:string,force_unverified:bool,analysis_exclusion_reason:string}
      */
@@ -795,7 +804,8 @@ trait BusinessDisplayConcern
         array $item,
         array $context,
         string $platformHotelId,
-        ?int $systemHotelId
+        ?int $systemHotelId,
+        string $businessDate = ''
     ): array {
         $ingestionMethod = strtolower(trim((string)($context['ingestion_method'] ?? '')));
         $manualInput = $this->isCtripManualUnverifiedPersistenceContext($context);
@@ -809,8 +819,27 @@ trait BusinessDisplayConcern
         }
         $rawData['provenance'] = [
             'ingestion_method' => $ingestionMethod !== '' ? $ingestionMethod : 'legacy_parser',
+            'source' => 'ctrip',
             'system_hotel_id' => $systemHotelId,
             'platform_hotel_id' => $platformHotelId,
+            'business_date' => $businessDate !== '' ? $businessDate : null,
+            'capture_id' => trim((string)(
+                $context['capture_id']
+                ?? $context['captureId']
+                ?? $item['capture_id']
+                ?? $item['captureId']
+                ?? $item['source_trace_id']
+                ?? ''
+            )) ?: null,
+            'fetched_at' => trim((string)(
+                $context['fetched_at']
+                ?? $context['fetchedAt']
+                ?? $item['fetched_at']
+                ?? $item['fetchedAt']
+                ?? $item['_fetch_time']
+                ?? ''
+            )) ?: null,
+            'verification_status' => $manualInput ? 'manual_unverified' : 'source_response',
             'analysis_eligible' => !$manualInput,
         ];
         if ($manualInput) {
@@ -1198,6 +1227,7 @@ trait BusinessDisplayConcern
             'convertionRate' => $this->numberFromKeys($item, ['convertionRate', 'convertion_rate', 'conversionRate']),
             'qunarDetailCR' => $this->numberFromKeys($item, ['qunarDetailCR', 'qunar_detail_cr']),
             'amountRank' => (int)$this->numberFromKeys($item, ['amountRank', 'amount_rank'], 0),
+            'bookOrderNumRank' => (int)$this->numberFromKeys($item, ['bookOrderNumRank', 'book_order_num_rank'], 0),
             'quantityRank' => (int)$this->numberFromKeys($item, ['quantityRank', 'quantity_rank'], 0),
             'commentScoreRank' => (int)$this->numberFromKeys($item, ['commentScoreRank', 'comment_score_rank'], 0),
             'qunarDetailCRRank' => (int)$this->numberFromKeys($item, ['qunarDetailCRRank', 'qunar_detail_cr_rank'], 0),
@@ -1237,7 +1267,7 @@ trait BusinessDisplayConcern
         foreach (['commentScore', 'qunarCommentScore', 'convertionRate', 'qunarDetailCR'] as $field) {
             $hotelMap[$key][$field] = max((float)($hotelMap[$key][$field] ?? 0), (float)($hotel[$field] ?? 0));
         }
-        foreach (['amountRank', 'quantityRank', 'commentScoreRank', 'qunarDetailCRRank'] as $field) {
+        foreach (['amountRank', 'bookOrderNumRank', 'quantityRank', 'commentScoreRank', 'qunarDetailCRRank'] as $field) {
             $existing = (int)($hotelMap[$key][$field] ?? 0);
             $incoming = (int)($hotel[$field] ?? 0);
             if ($incoming > 0) {
@@ -1275,6 +1305,7 @@ trait BusinessDisplayConcern
             'convertionRate' => ['convertionRate', 'convertion_rate', 'conversionRate'],
             'qunarDetailCR' => ['qunarDetailCR', 'qunar_detail_cr'],
             'amountRank' => ['amountRank', 'amount_rank'],
+            'bookOrderNumRank' => ['bookOrderNumRank', 'book_order_num_rank'],
             'quantityRank' => ['quantityRank', 'quantity_rank'],
             'commentScoreRank' => ['commentScoreRank', 'comment_score_rank'],
             'qunarDetailCRRank' => ['qunarDetailCRRank', 'qunar_detail_cr_rank'],
@@ -3487,7 +3518,7 @@ trait BusinessDisplayConcern
                 $this->ctripBusinessSummaryCard('avgAri', '平均房价指数(ARI)', $avgAri > 0 ? number_format($avgAri, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200', $ariLevel),
                 $this->ctripBusinessSummaryCard('avgSci', '商圈综合竞争力指数(SCI)', $avgSci > 0 ? number_format($avgSci, 0, '.', ',') : '-', 'text-cyan-600', 'bg-cyan-50 border border-cyan-200', $sciLevel),
                 $this->ctripBusinessSummaryCard('totalDetailNum', '携程APP总访客量', $totalDetailNumReturned ? number_format($totalDetailNum) : '未返回', 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
-                $this->ctripBusinessSummaryCard('totalQunarDetailVisitors', '去哪儿总访客量', $totalQunarDetailVisitorsReturned ? number_format($totalQunarDetailVisitors) : '未返回', 'text-teal-600', 'bg-teal-50 border border-teal-200'),
+                $this->ctripBusinessSummaryCard('totalQunarDetailVisitors', '去哪儿总访客量', $totalQunarDetailVisitorsReturned && $totalQunarDetailVisitors > 0 ? number_format($totalQunarDetailVisitors) : '数据不足', 'text-teal-600', 'bg-teal-50 border border-teal-200'),
                 $this->ctripBusinessSummaryCard('trafficValue', '流量价值效率', $trafficInputReturned && $trafficValue > 0 ? '¥' . number_format($trafficValue, 2, '.', ',') : '数据不足', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->ctripBusinessSummaryCard('revenueConcentration', '收益集中度', number_format($revenueHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $revenueLevel),
                 $this->ctripBusinessSummaryCard('visitConcentration', '浏览/访客集中度', $totalDetailNumReturned && $totalDetailNum > 0 ? number_format($visitHhi, 2, '.', '') : '数据不足', 'text-orange-600', 'bg-orange-50 border border-orange-200', $totalDetailNumReturned && $totalDetailNum > 0 ? $visitLevel : []),

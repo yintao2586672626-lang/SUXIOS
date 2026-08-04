@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
@@ -16,6 +17,17 @@ function listen(server) {
 function close(server) {
   return new Promise((resolve) => server.close(resolve));
 }
+
+const waitForStreamClose = async (stream, timeoutMs = 1000) => {
+  if (stream?.closed) return true;
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(false), timeoutMs);
+    stream.once('close', () => {
+      clearTimeout(timeout);
+      resolve(true);
+    });
+  });
+};
 
 test('local origin serves static files concurrently and proxies dynamic requests', async () => {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'suxios-local-origin-'));
@@ -90,6 +102,55 @@ test('local origin serves static files concurrently and proxies dynamic requests
     largeRequest?.destroy();
     await close(origin);
     await close(backend);
+    await fs.rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test('local origin releases a static file stream when the client disconnects', async () => {
+  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'suxios-local-origin-abort-'));
+  const publicRoot = path.join(temporaryRoot, 'public');
+  await fs.mkdir(publicRoot);
+  await fs.writeFile(path.join(publicRoot, 'abort.js'), Buffer.alloc(32 * 1024 * 1024, 65));
+
+  const originalCreateReadStream = fsSync.createReadStream;
+  let servedStream = null;
+  fsSync.createReadStream = (...args) => {
+    const stream = originalCreateReadStream(...args);
+    if (path.basename(String(args[0] || '')) === 'abort.js') servedStream = stream;
+    return stream;
+  };
+
+  const origin = createLocalOriginServer({
+    publicRoot,
+    backendUrl: 'http://127.0.0.1:1',
+    healthCheckIntervalMs: 60_000,
+    healthCheckTimeoutMs: 50,
+  });
+  const originPort = await listen(origin);
+  let request;
+  let response;
+
+  try {
+    response = await new Promise((resolve, reject) => {
+      request = http.get(`http://127.0.0.1:${originPort}/abort.js`, (incoming) => {
+        incoming.once('data', () => {
+          incoming.pause();
+          resolve(incoming);
+        });
+      });
+      request.once('error', reject);
+    });
+
+    assert.ok(servedStream, 'the test must observe the server-side static stream');
+    response.destroy();
+    request.destroy();
+    assert.equal(await waitForStreamClose(servedStream), true, 'server-side static stream stayed open after disconnect');
+  } finally {
+    response?.destroy();
+    request?.destroy();
+    servedStream?.destroy();
+    fsSync.createReadStream = originalCreateReadStream;
+    await close(origin);
     await fs.rm(temporaryRoot, { recursive: true, force: true });
   }
 });

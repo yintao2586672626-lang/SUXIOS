@@ -824,6 +824,27 @@ trait OnlineDataManualFetchConcern
                 $readbackVerified
             );
             $persistenceOutcome = $this->buildCtripManualFetchPersistenceOutcome($autoSave, $persistenceState);
+            $earlyMorningFallback = null;
+            if ($startDate === $endDate && (int)$systemHotelId > 0) {
+                $earlyMorningResult = $this->hydrateCtripEarlyMorningTrafficFallback(
+                    $displayHotels,
+                    [
+                        'data_date' => $endDate,
+                        'update_time' => $fetchedAt,
+                    ],
+                    (string)$systemHotelId,
+                    $this->currentUser,
+                    $this->getOnlineDailyDataColumns(),
+                    $endDate
+                );
+                $displayHotels = $earlyMorningResult['display_hotels'];
+                $earlyMorningFallback = $earlyMorningResult['fallback'];
+                if ($earlyMorningFallback !== null) {
+                    $displaySummary = $this->buildCtripBusinessDisplaySummary($displayHotels);
+                    $displaySummary['early_morning_fallback'] = $earlyMorningFallback;
+                    $displaySummary['source_notice'] = (string)($earlyMorningFallback['message'] ?? $displaySummary['source_notice']);
+                }
+            }
             if ($systemHotelId > 0 && $persistenceState['persisted']) {
                 $this->updateCtripLatestFetchStatus($systemHotelId, $fetchedAt, $displayDataDate, $savedCount);
                 if (!$this->isTruthyRequestValue($requestData['background_task'] ?? false)) {
@@ -891,6 +912,7 @@ trait OnlineDataManualFetchConcern
                     'display_hotels' => $displayHotels,
                     'display_hotel_count' => count($displayHotels),
                     'display_summary' => $displaySummary,
+                    'early_morning_fallback' => $earlyMorningFallback,
                     'qunar_visitor_quality' => $qunarVisitorQuality,
                     'save_status' => $persistenceOutcome['save_status'] !== ''
                         ? $persistenceOutcome['save_status']

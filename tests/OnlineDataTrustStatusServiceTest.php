@@ -92,6 +92,19 @@ final class OnlineDataTrustStatusServiceTest extends TestCase
         self::assertStringContainsString('明确标记为未验证', $truth['failure_reason']);
     }
 
+    public function testQuarantinedValidationIsBlockedAsCollectionFailure(): void
+    {
+        self::assertContains('quarantined', OnlineDataTrustStatusService::blockingValidationStatuses());
+
+        $row = $this->readyRow();
+        $row['validation_status'] = 'quarantined';
+
+        $truth = OnlineDataTrustStatusService::truthEnvelope($row, $this->readyFieldFacts());
+
+        self::assertSame('collection_failed', $truth['status']);
+        self::assertSame('failed', OnlineDataTrustStatusService::storageStatus($row)['code']);
+    }
+
     public function testValidationFailureExposesSafeFailureReasonWithoutRawPayload(): void
     {
         $row = $this->readyRow();

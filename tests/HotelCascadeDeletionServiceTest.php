@@ -69,6 +69,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         self::assertSame(1, $preview['tables']['competitor_price_log'] ?? 0);
         self::assertSame(2, $preview['config_entries']);
         self::assertSame(1, $preview['preserved_audit_rows']);
+        self::assertSame(1, $preview['default_preferences_cleared']);
         self::assertArrayNotHasKey('encrypted_payload', $preview);
 
         $result = $service->delete(10);
@@ -76,9 +77,12 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         self::assertSame(0, Db::name('hotels')->where('id', 10)->count());
         self::assertSame(2, Db::name('users')->count());
         self::assertNull(Db::name('users')->where('id', 1)->value('hotel_id'));
-        self::assertNull(Db::name('users')->where('id', 1)->value('tenant_id'));
+        self::assertNull(Db::name('users')->where('id', 1)->value('default_hotel_id'));
+        self::assertSame(10, (int)Db::name('users')->where('id', 1)->value('tenant_id'));
         self::assertSame(20, (int)Db::name('users')->where('id', 2)->value('hotel_id'));
+        self::assertSame(20, (int)Db::name('users')->where('id', 2)->value('default_hotel_id'));
         self::assertSame(0, Db::name('user_hotel_permissions')->where('hotel_id', 10)->count());
+        self::assertSame(1, Db::name('user_hotel_permissions')->where('user_id', 1)->where('hotel_id', 11)->count());
         self::assertSame(0, Db::name('online_daily_data')->where('system_hotel_id', 10)->count());
         self::assertSame(0, Db::name('temporal_forecast_snapshots')->where('system_hotel_id', 10)->count());
         self::assertSame(0, Db::name('ota_credentials')->where('system_hotel_id', 10)->count());
@@ -92,6 +96,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         self::assertSame(1, Db::name('competitor_price_log')->where('store_id', 20)->where('hotel_id', 10)->count(), 'A competitor id collision in another store must not be deleted.');
         self::assertSame(2, $result['config_entries_deleted']);
         self::assertSame(1, $result['preserved_audit_rows']);
+        self::assertSame(1, $result['default_preferences_cleared']);
         self::assertGreaterThanOrEqual(8, $result['deleted_rows']);
 
         foreach (['ctrip_config_list', 'meituan_config_list'] as $key) {
@@ -114,7 +119,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
     {
         foreach ([
             'CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NULL, name TEXT NOT NULL, status INTEGER NOT NULL DEFAULT 1)',
-            'CREATE TABLE users (id INTEGER PRIMARY KEY, hotel_id INTEGER NULL, tenant_id INTEGER NULL)',
+            'CREATE TABLE users (id INTEGER PRIMARY KEY, hotel_id INTEGER NULL, default_hotel_id INTEGER NULL, tenant_id INTEGER NULL)',
             'CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL)',
             'CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY, system_hotel_id INTEGER NOT NULL, hotel_id TEXT NULL)',
             'CREATE TABLE temporal_forecast_snapshots (id INTEGER PRIMARY KEY, system_hotel_id INTEGER NOT NULL)',
@@ -138,15 +143,17 @@ final class HotelCascadeDeletionServiceTest extends TestCase
     {
         Db::name('hotels')->insertAll([
             ['id' => 10, 'tenant_id' => 10, 'name' => '待归档酒店', 'status' => 1],
+            ['id' => 11, 'tenant_id' => 10, 'name' => '保留同租户酒店', 'status' => 1],
             ['id' => 20, 'tenant_id' => 20, 'name' => '保留酒店', 'status' => 1],
         ]);
         Db::name('users')->insertAll([
-            ['id' => 1, 'hotel_id' => 10, 'tenant_id' => 10],
-            ['id' => 2, 'hotel_id' => 20, 'tenant_id' => 20],
+            ['id' => 1, 'hotel_id' => 10, 'default_hotel_id' => 10, 'tenant_id' => 10],
+            ['id' => 2, 'hotel_id' => 20, 'default_hotel_id' => 20, 'tenant_id' => 20],
         ]);
         Db::name('user_hotel_permissions')->insertAll([
             ['id' => 1, 'user_id' => 1, 'hotel_id' => 10],
             ['id' => 2, 'user_id' => 2, 'hotel_id' => 20],
+            ['id' => 3, 'user_id' => 1, 'hotel_id' => 11],
         ]);
         Db::name('online_daily_data')->insert(['id' => 1, 'system_hotel_id' => 10, 'hotel_id' => '6866634']);
         Db::name('temporal_forecast_snapshots')->insert(['id' => 1, 'system_hotel_id' => 10]);

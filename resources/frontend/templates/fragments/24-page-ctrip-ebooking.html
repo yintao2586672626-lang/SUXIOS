@@ -3,69 +3,68 @@
                             <div class="p-4 border-b">
                                 <h3 class="font-medium">携程 eBooking 数据基石</h3>
                             </div>
-                            <div class="p-6">
+                            <div class="p-4 lg:p-5">
                                 <!-- Tabs -->
-                                <div class="flex flex-wrap border-b mb-6">
-                                    <button @click="openCtripManualTab('data-health')" :class="['px-6 py-3 font-medium', onlineDataTab === 'data-health' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                <div class="ctrip-workspace-tabs mb-4 flex flex-nowrap gap-1 overflow-x-auto rounded-lg border border-slate-200 p-1">
+                                    <button @click="openCtripManualTab('data-health')" :class="['shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'data-health' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         门店数据总览
                                     </button>
-                                    <button @click="openCtripManualTab('ctrip-ranking')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ranking' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                    <button @click="openCtripManualTab('ctrip-ranking')" :class="['shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'ctrip-ranking' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         竞争圈数据
                                     </button>
-                                    <button data-testid="ctrip-market-competition-tab" @click="openCtripManualTab('ctrip-market-competition')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-market-competition' ? 'text-amber-700 border-b-2 border-amber-600' : 'text-gray-500']">
+                                    <button data-testid="ctrip-market-competition-tab" @click="openCtripManualTab('ctrip-market-competition')" :class="['shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'ctrip-market-competition' ? 'text-amber-700 border-b-2 border-amber-600' : 'text-gray-500']">
                                         市场与竞对
                                     </button>
-                                    <button data-testid="ctrip-public-profile-tab" @click="openCtripManualTab('ctrip-public-profiles')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-public-profiles' ? 'text-amber-700 border-b-2 border-amber-600' : 'text-gray-500']">
+                                    <button data-testid="ctrip-public-profile-tab" @click="openCtripManualTab('ctrip-public-profiles')" :class="['shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'ctrip-public-profiles' ? 'text-amber-700 border-b-2 border-amber-600' : 'text-gray-500']">
                                         公开档案
                                     </button>
-                                    <button @click="openCtripManualTab('ctrip-flow-overview')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-flow-overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                    <button @click="openCtripManualTab('ctrip-flow-overview')" :class="['shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'ctrip-flow-overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         流量概览
                                     </button>
-                                    <button @click="openCtripManualTab('ctrip-traffic')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                    <button @click="openCtripManualTab('ctrip-traffic')" :class="['shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'ctrip-traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         流量数据
                                     </button>
-                                    <button data-testid="ctrip-quality-tab" @click="openCtripManualTab('ctrip-quality')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-quality' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                    <button data-testid="ctrip-quality-tab" @click="openCtripManualTab('ctrip-quality')" :class="['shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'ctrip-quality' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         服务质量
                                     </button>
-                                    <button @click="openCtripManualTab('ctrip-ads')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                    <button @click="openCtripManualTab('ctrip-ads')" :class="['shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'ctrip-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         广告数据
                                     </button>
-                                    <button type="button" data-testid="ctrip-review-order-evidence-tab" @click="openCtripManualTab('ctrip-review-match')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-review-match' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']" title="只匹配授权订单证据，不反查匿名住客身份。">
+                                    <button type="button" data-testid="ctrip-review-order-evidence-tab" @click="openCtripManualTab('ctrip-review-match')" :class="['shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'ctrip-review-match' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']" title="只匹配授权订单证据，不反查匿名住客身份。">
                                         点评订单证据
                                     </button>
-                                    <button @click="switchToDownloadCenter" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                    <button @click="switchToDownloadCenter" :class="['ml-2 shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'ctrip-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         入库记录
                                     </button>
-                                    <button @click="openHotelManagementForOta" class="px-6 py-3 font-medium text-gray-500 hover:text-blue-600">
+                                    <button @click="openHotelManagementForOta" class="shrink-0 rounded-md px-3 py-2 text-sm font-medium text-gray-500 hover:text-blue-600">
                                         酒店管理
                                     </button>
-                                    <button @click="openCtripManualTab('ctrip-fetch-settings')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-fetch-settings' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                    <button @click="openCtripManualTab('ctrip-fetch-settings')" :class="['shrink-0 rounded-md px-3 py-2 text-sm font-medium', onlineDataTab === 'ctrip-fetch-settings' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                             数据采集设置
                                     </button>
                                 </div>
 
-                                <div v-if="!['data-health', 'ctrip-public-profiles', 'ctrip-config'].includes(onlineDataTab)" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-                                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                <div v-if="!['data-health', 'ctrip-public-profiles', 'ctrip-config'].includes(onlineDataTab)" class="ctrip-workspace-status mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 xl:grid-cols-4">
+                                    <div class="bg-gray-50 px-3 py-2">
                                         <div class="text-xs text-gray-500 mb-1">采集时间</div>
                                         <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.fetched_at || '暂无' }}</div>
                                     </div>
-                                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                    <div class="bg-gray-50 px-3 py-2">
                                         <div class="text-xs text-gray-500 mb-1">数据日期</div>
                                         <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.data_date || '暂无' }}</div>
                                     </div>
-                                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                    <div class="bg-gray-50 px-3 py-2">
                                         <div class="text-xs text-gray-500 mb-1">保存记录数</div>
                                         <div class="text-sm font-medium text-gray-800">{{ ctripHeaderRecordCount ? ctripHeaderRecordCount + ' 条' : '暂无' }}</div>
                                     </div>
-                                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                    <div class="bg-gray-50 px-3 py-2">
                                         <div class="text-xs text-gray-500 mb-1">入库状态</div>
                                         <div :class="['text-sm font-medium', ctripLatestSnapshotClass]">
                                             {{ ctripLatestSnapshotText }}
                                         </div>
-                                        <div v-if="ctripLatestMeta?.status === 'success'" class="text-xs text-gray-400 mt-1">目标日期数据已保存</div>
                                     </div>
                                 </div>
-                                <div v-if="!['data-health', 'ctrip-public-profiles', 'ctrip-config'].includes(onlineDataTab) &amp;&amp; ctripLatestDisplayStatusText" :class="['-mt-3 mb-6 rounded-lg border px-3 py-2 text-xs', ctripLatestDisplayStatusClass]">
+                                <div v-if="!['data-health', 'ctrip-public-profiles', 'ctrip-config'].includes(onlineDataTab) &amp;&amp; ctripLatestDisplayStatusText" :class="['-mt-2 mb-4 rounded-lg border px-3 py-2 text-xs', ctripLatestDisplayStatusClass]">
                                     {{ ctripLatestDisplayStatusText }}
                                 </div>
 
@@ -74,10 +73,6 @@
                                         <div class="p-3 border-b flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
                                             <h4 class="text-base font-semibold text-gray-900">数据采集</h4>
                                             <div class="flex flex-wrap items-center xl:justify-end gap-2">
-                                                <select v-model="autoFetchHotelId" @change="handleCtripOverviewHotelChange" :disabled="ctripOverviewCoreFetchRunning || !!ctripOverviewFetchActionLoading" class="px-3 py-2 border rounded-lg text-sm min-w-[180px] bg-white disabled:bg-gray-100 disabled:text-gray-400">
-                                                    <option value="">选择目标门店</option>
-                                                    <option v-for="h in hotels" :key="h.id" :value="h.id">{{ h.name }}</option>
-                                                </select>
                                                 <button @click="loadDataHealthPanel('light', { force: true, source: '手动刷新' })" :disabled="collectionReliabilityLoading" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50 disabled:text-gray-400 whitespace-nowrap">
                                                     <i class="fas fa-sync-alt mr-1"></i>{{ collectionReliabilityLoading ? '刷新中' : '刷新' }}
                                                 </button>
@@ -456,28 +451,32 @@
                                 <div v-if="onlineDataTab === 'ctrip-ranking'">
                                     <input type="hidden" v-model="ctripForm.url">
 
-                                    <!-- 可选归属门店 -->
-                                    <div class="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                                        <div class="text-base font-semibold text-gray-800 mb-3">选择门店</div>
-                                        <div class="flex gap-2">
-                                            <select v-model="selectedCtripHotelId" @change="handleCtripTrafficHotelChange" data-testid="ctrip-ranking-hotel-select" class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                <option value="">请选择门店</option>
-                                                <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">
-                                                    {{ hotel.name }}
-                                                </option>
-                                            </select>
-                                            <button @click="refreshCtripHotelConfigOptions" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
-                                                <i class="fas fa-sync-alt"></i>
+                                    <!-- 当前门店由携程项目顶栏统一选择；状态与主操作合并呈现 -->
+                                    <div class="ctrip-ranking-command-bar mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
+                                        <div class="min-w-0">
+                                            <div class="text-xs font-medium text-slate-500">当前酒店</div>
+                                            <div v-if="selectedCtripHotelId &amp;&amp; selectedCtripHotelConfig" :class="['mt-1 text-sm', selectedCtripManualCredentialState.canFetch ? 'text-green-700' : 'text-amber-700']">
+                                                <span class="font-medium text-slate-900">{{ getHotelNameById(selectedCtripHotelId) }}</span>
+                                                <span class="ml-2">{{ selectedCtripManualCredentialState.label }}</span>
+                                                <div v-if="!selectedCtripManualCredentialState.canFetch" class="mt-1 text-xs">{{ selectedCtripManualCredentialState.detail }}</div>
+                                            </div>
+                                            <div v-else-if="selectedCtripHotelId" class="mt-1 flex flex-wrap items-center gap-2 text-sm text-amber-700">
+                                                <span>当前酒店未配置携程数据源</span>
+                                                <button type="button" @click="goConfigureCtripForSelectedHotel" class="rounded bg-yellow-500 px-3 py-1 text-xs text-white hover:bg-yellow-600 whitespace-nowrap">去配置</button>
+                                            </div>
+                                            <div v-else class="mt-1 text-sm text-slate-500">请先在顶栏选择酒店</div>
+                                        </div>
+                                        <div v-if="ctripFetchSuccess" data-testid="ctrip-ranking-fetch-status" aria-live="polite" class="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 lg:ml-auto lg:shrink-0">
+                                            <i class="fas fa-check-circle text-green-500"></i>
+                                            <span class="font-medium text-green-800">获取成功</span>
+                                            <span v-if="ctripSavedCount &gt; 0">已保存 {{ ctripSavedCount }} 条数据到数据库</span>
+                                        </div>
+                                        <div class="flex flex-wrap gap-2 lg:shrink-0">
+                                            <button @click="fetchCtripData" data-testid="ctrip-ranking-fetch-button" :disabled="fetchingData || !canFetchCtripManualData()" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
+                                                <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '重新获取' }}
                                             </button>
-                                        </div>
-                                        <div v-if="selectedCtripHotelId &amp;&amp; selectedCtripHotelConfig" :class="['mt-1 text-xs', selectedCtripManualCredentialState.canFetch ? 'text-green-600' : 'text-amber-700']">
-                                            <div>{{ getHotelNameById(selectedCtripHotelId) }}｜{{ selectedCtripManualCredentialState.label }}</div>
-                                            <div v-if="!selectedCtripManualCredentialState.canFetch" class="mt-1">{{ selectedCtripManualCredentialState.detail }}</div>
-                                        </div>
-                                        <div v-if="selectedCtripHotelId &amp;&amp; !selectedCtripHotelConfig" class="mt-2 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-3 py-2 text-sm flex items-center justify-between gap-3">
-                                            <span>当前酒店未配置携程数据源</span>
-                                            <button type="button" @click="goConfigureCtripForSelectedHotel" class="px-3 py-1 bg-yellow-500 text-white rounded text-xs hover:bg-yellow-600 whitespace-nowrap">
-                                                去配置
+                                            <button @click="openTargetSite(defaultCtripLoginUrl)" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
+                                                <i class="fas fa-external-link-alt mr-2"></i>打开携程ebooking
                                             </button>
                                         </div>
                                     </div>
@@ -493,117 +492,87 @@
                                         </div>
                                     </div>
 
-                                    <!-- 操作按钮 -->
-                                    <div class="flex gap-3 mb-4">
-                                        <button @click="fetchCtripData" data-testid="ctrip-ranking-fetch-button" :disabled="fetchingData || !canFetchCtripManualData()" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
-                                            <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '获取数据' }}
-                                        </button>
-                                        <button @click="openTargetSite(defaultCtripLoginUrl)" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
-                                            <i class="fas fa-external-link-alt mr-2"></i>打开携程ebooking
-                                        </button>
-                                    </div>
-
                                     <div v-if="!ctripRankingDisplayActivated" class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                                        <div class="font-medium text-slate-800">未执行本次获取，暂不展示历史竞争圈数据。</div>
-                                        <div class="mt-1 text-xs text-slate-500">顶部只显示最近入库快照状态；选择门店并点击“获取数据”后，才展示本次返回的竞争圈表格。</div>
-                                    </div>
-
-                                    <!-- 获取成功提示 -->
-                                    <div v-if="ctripFetchSuccess" class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-                                        <div class="flex items-center justify-between">
-                                            <div class="flex items-center">
-                                                <i class="fas fa-check-circle text-green-500 text-xl mr-3"></i>
-                                                <div>
-                                                    <span class="font-medium text-green-800">获取成功</span>
-                                                    <span v-if="ctripSavedCount &gt; 0" class="text-green-600 ml-2">
-                                                        已保存 {{ ctripSavedCount }} 条数据到数据库
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div class="flex gap-2">
-                                                <button @click="downloadCtripBusinessDataImage" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
-                                                    <i class="fas fa-download mr-2"></i>数据下载
-                                                </button>
-                                            </div>
-                                        </div>
+                                        <div class="font-medium text-slate-800">{{ fetchingData ? '正在获取本次竞争圈数据…' : '本次获取尚未返回可展示数据。' }}</div>
+                                        <div class="mt-1 text-xs text-slate-500">进入本页后会自动获取当前门店；未开始或失败时，请检查携程数据源后点击“重新获取”。</div>
                                     </div>
 
                                     <!-- 详细数据表格 -->
                                     <div v-if="ctripRankingDisplayActivated &amp;&amp; ctripHotelsList &amp;&amp; ctripHotelsList.length &gt; 0" class="mt-4" data-download-target="ctrip-business">
                                         <!-- backend display summary -->
                                         <div class="mb-4">
-                                            <div class="responsive-metric-grid">
+                                            <div class="responsive-metric-grid ctrip-business-summary-grid">
                                                 <div v-for="card in ctripBusinessSummaryCards" :key="card.key" :class="['rounded-lg p-3 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200']">
                                                     <div :class="['text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value || '-' }}</div>
                                                     <div class="text-xs text-gray-500">{{ card.label }}</div>
                                                     <div v-if="card.level" :class="['text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
                                                 </div>
                                             </div>
+                                            <div v-if="ctripEarlyMorningSourceNotice" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                                <i class="fas fa-clock mr-1"></i>{{ ctripEarlyMorningSourceNotice }}
+                                            </div>
                                         </div>
 
-                                        <div class="flex border-b mb-4">
-                                            <button @click="ctripTableTab = 'sales'" :class="['px-4 py-2 text-sm font-medium', ctripTableTab === 'sales' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                                销售与订单
-                                            </button>
-                                            <button @click="ctripTableTab = 'traffic'" :class="['px-4 py-2 text-sm font-medium', ctripTableTab === 'traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                                流量与转化
-                                            </button>
-                                            <button @click="ctripTableTab = 'rank'" :class="['px-4 py-2 text-sm font-medium', ctripTableTab === 'rank' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                                榜单排名
+                                        <div data-testid="ctrip-business-table-toolbar" class="mb-4 flex flex-wrap items-center justify-between gap-2 border-b">
+                                            <div data-testid="ctrip-business-table-tabs" class="flex">
+                                                <button @click="ctripTableTab = 'sales'" :class="['px-4 py-2 text-sm font-medium', ctripTableTab === 'sales' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                                    销售与订单
+                                                </button>
+                                                <button @click="ctripTableTab = 'traffic'" :class="['px-4 py-2 text-sm font-medium', ctripTableTab === 'traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                                    流量与转化
+                                                </button>
+                                                <button @click="ctripTableTab = 'rank'" :class="['px-4 py-2 text-sm font-medium', ctripTableTab === 'rank' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                                    榜单与排名
+                                                </button>
+                                            </div>
+                                            <button v-if="ctripFetchSuccess" data-testid="ctrip-business-download-button" @click="downloadCtripBusinessDataImage" class="mb-1 ml-auto rounded-lg bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700">
+                                                <i class="fas fa-download mr-2"></i>数据下载
                                             </button>
                                         </div>
 
                                         <!-- 销售与订单表格 -->
-                                        <div v-if="ctripTableTab === 'sales'" class="overflow-x-auto table-container">
-                                            <table class="min-w-full bg-white border text-sm table-striped">
+                                        <div v-if="ctripTableTab === 'sales'" class="ctrip-sales-table-wrap table-container">
+                                            <table class="ctrip-sales-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
                                                 <thead>
-                                                    <tr class="bg-gray-50">
-                                                        <th class="px-3 py-2 text-center border text-xs">排名</th>
-                                                        <th class="px-3 py-2 text-left border text-xs">酒店名称</th>
-                                                        <th class="px-3 py-2 text-center border text-xs">酒店ID</th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-green-50 cursor-pointer hover:bg-green-100" @click="sortCtripTable('amount')">离店销售额 <span v-if="ctripSortField === 'amount'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-yellow-50 cursor-pointer hover:bg-yellow-100" @click="sortCtripTable('quantity')">离店间夜量 <span v-if="ctripSortField === 'quantity'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-blue-50 cursor-pointer hover:bg-blue-100" @click="sortCtripTable('adr')">平均房价 <span v-if="ctripSortField === 'adr'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')"><term-help term="ari" /> <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                            <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程系预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 × 1.15–1.30 稳定情景系数；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
-                                                            全渠道间夜推算
-                                                            <span v-if="ctripSortField === 'fullChannelRoomNightsEstimate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                    <tr class="ctrip-sales-groups">
+                                                        <th rowspan="2" style="position:sticky;left:0;width:54px;z-index:5">排名</th>
+                                                        <th rowspan="2" style="position:sticky;left:54px;width:248px;z-index:5">酒店名称</th>
+                                                        <th rowspan="2" style="width:96px">酒店ID</th>
+                                                        <th v-for="group in ctripSalesColumnGroups" :key="group.label" :colspan="group.span">{{ group.label }}</th>
+                                                    </tr>
+                                                    <tr class="ctrip-sales-head">
+                                                        <th v-for="column in ctripSalesMetricColumns" :key="column.field" :title="column.title || null" @click="sortCtripTable(column.field)">
+                                                            <term-help v-if="column.help" :term="column.help" :label="column.label" />
+                                                            <span v-else>{{ column.label }}</span>
+                                                            <span v-if="ctripSortField === column.field">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('commentScore')">携程点评分 <span v-if="ctripSortField === 'commentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarCommentScore')">去哪儿点评分 <span v-if="ctripSortField === 'qunarCommentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     <tr v-for="(hotel, index) in pagedCtripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
-                                                        <td class="px-3 py-2 border text-center">
+                                                        <td class="px-3 py-2 border text-center" style="position:sticky;left:0;width:54px;z-index:2;background:inherit">
                                                             <span :class="['px-2 py-1 rounded text-xs', (ctripTableRankOffset + index) &lt; 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
                                                                 {{ ctripTableRankOffset + index + 1 }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-left font-medium">
-                                                            <div>{{ hotel.hotelName }}</div>
+                                                        <td class="px-3 py-2 border text-left font-medium" style="position:sticky;left:54px;width:248px;z-index:2;background:inherit">
+                                                            <div :title="hotel.hotelName">{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-mono text-xs text-gray-500">{{ hotel.hotelId }}</td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-green-600">¥{{ formatNumber(hotel.amount) }}</td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-yellow-600">{{ hotel.quantity }}</td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-blue-600">{{ hotel.adrText !== '-' ? '¥' + hotel.adrText : '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
-                                                        <td class="px-3 py-2 border text-center" :title="hotel.fullChannelRoomNightsEstimateMeta?.formulaText || '携程间夜缺失，无法推算'">
-                                                            <div v-if="hotel.fullChannelRoomNightsEstimate !== null &amp;&amp; hotel.fullChannelRoomNightsEstimate !== undefined" class="font-semibold text-amber-700">
-                                                                {{ formatOptionalNumber(hotel.fullChannelRoomNightsEstimate) }}
+                                                        <td class="px-3 py-2 border text-center font-mono text-xs font-semibold text-gray-500" style="width:96px">{{ hotel.hotelId }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-green-600">{{ hasDisplayValue(hotel.amount) ? formatNumber(Math.round(Number(hotel.amount))) : '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-yellow-600">{{ hotel.quantity }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? formatNumber(Math.round(Number(hotel.adr))) : '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
+                                                            <div v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined" class="font-semibold text-blue-600">
+                                                                {{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}
                                                             </div>
-                                                            <div v-else class="text-xs font-medium text-amber-700">{{ hotel.fullChannelRoomNightsEstimateMeta?.displayLabel || '携程间夜缺失' }}</div>
+                                                            <div v-else class="ctrip-sales-state">缺来源</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">
-                                                            <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ formatOptionalNumber(hotel.commentScore) }}
-                                                            </span>
+                                                        <td v-for="column in ctripSalesOrderColumns" :key="column.field" :class="[ctripTrafficChannelCellClass(hotel, column), 'font-semibold']" :title="ctripTrafficChannelCellTitle(hotel, column)">
+                                                            <div>{{ ctripTrafficChannelText(hotel, column) }}</div>
+                                                            <div v-if="ctripTrafficChannelSecondaryText(hotel, column)" class="text-xs font-normal leading-tight opacity-80">{{ ctripTrafficChannelSecondaryText(hotel, column) }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarCommentScore) }}</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -620,6 +589,8 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-indigo-50 cursor-pointer hover:bg-indigo-100" @click="sortCtripTable('convertionRate')">携程转化率 <span v-if="ctripSortField === 'convertionRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="['px-3 py-2 text-center border text-xs cursor-pointer', column.headerClass]" :title="column.title" @click="sortCtripTable(column.field)">{{ column.label }} <span v-if="ctripSortField === column.field">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookRate')">预订转化率 <span v-if="ctripSortField === 'bookRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('commentScore')">携程点评分 <span v-if="ctripSortField === 'commentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarCommentScore')">去哪儿点评分 <span v-if="ctripSortField === 'qunarCommentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -632,29 +603,46 @@
                                                         <td class="px-3 py-2 border text-left font-medium">
                                                             <div>{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ formatOptionalNumber(hotel.totalDetailNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">
+                                                            <div>{{ ctripEarlyMorningTrafficText(hotel, 'totalDetailNum') }}</div>
+                                                        </td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.convertionRate || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ formatOptionalPercent(hotel.convertionRate) }}
+                                                                {{ ctripEarlyMorningTrafficText(hotel, 'convertionRate', true) }}
                                                             </span>
                                                         </td>
-                                                        <td v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="ctripTrafficChannelCellClass(hotel, column)">{{ ctripTrafficChannelText(hotel, column) }}</td>
-                                                        <td class="px-3 py-2 border text-center text-gray-500">
-                                                            {{ hotel.bookingRateText || '-' }}
+                                                        <td v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="ctripTrafficChannelCellClass(hotel, column)">
+                                                            <div>{{ ctripTrafficChannelText(hotel, column) }}</div>
                                                         </td>
+                                                        <td class="px-3 py-2 border text-center text-gray-500">
+                                                            {{ hotel.bookingRateText || '待更新' }}
+                                                        </td>
+                                                        <td class="px-3 py-2 border text-center">
+                                                            <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
+                                                                {{ formatOptionalNumber(hotel.commentScore) }}
+                                                            </span>
+                                                        </td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarCommentScore) }}</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
                                         </div>
 
-                                        <!-- 榜单排名表格 -->
+                                        <!-- 榜单与排名表格 -->
                                         <div v-if="ctripTableTab === 'rank'" class="overflow-x-auto table-container">
-                                            <table class="min-w-full bg-white border text-sm table-striped">
+                                            <table class="ctrip-rank-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
                                                 <thead>
-                                                    <tr class="bg-gray-50">
-                                                        <th class="px-3 py-2 text-center border text-xs">排名</th>
-                                                        <th class="px-3 py-2 text-left border text-xs">酒店名称</th>
+                                                    <tr class="ctrip-rank-groups">
+                                                        <th rowspan="2" style="width:54px">排名</th>
+                                                        <th rowspan="2" style="width:220px">酒店名称</th>
+                                                        <th colspan="2">竞争力</th>
+                                                        <th colspan="6">榜单排名</th>
+                                                    </tr>
+                                                    <tr class="ctrip-rank-head">
+                                                        <th title="平均房价指数，用于比较本店与竞争圈的平均房价水平" @click="sortCtripTable('ari')"><term-help term="ari" label="平均房价指数(ARI)" /> <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th title="综合竞争力指数，仅用于当前竞争圈同范围比较" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-green-50 cursor-pointer hover:bg-green-100" @click="sortCtripTable('amountRank')">销售额排名 <span v-if="ctripSortField === 'amountRank'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs bg-green-50 cursor-pointer hover:bg-green-100" @click="sortCtripTable('bookOrderNumRank')">预订订单排名 <span v-if="ctripSortField === 'bookOrderNumRank'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-yellow-50 cursor-pointer hover:bg-yellow-100" @click="sortCtripTable('quantityRank')">间夜量排名 <span v-if="ctripSortField === 'quantityRank'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-blue-50 cursor-pointer hover:bg-blue-100" @click="sortCtripTable('commentScoreRank')">点评排名 <span v-if="ctripSortField === 'commentScoreRank'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                             <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarDetailCRRank')">去哪儿转化排名 <span v-if="ctripSortField === 'qunarDetailCRRank'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
@@ -671,9 +659,16 @@
                                                         <td class="px-3 py-2 border text-left font-medium">
                                                             <div>{{ hotel.hotelName }}</div>
                                                         </td>
+                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.amountRank || 999) &lt;= 10 ? 'text-green-600 font-medium' : ''">
                                                                 {{ hotel.amountRank ? '第' + hotel.amountRank + '名' : '-' }}
+                                                            </span>
+                                                        </td>
+                                                        <td class="px-3 py-2 border text-center">
+                                                            <span :class="(hotel.bookOrderNumRank || 999) &lt;= 10 ? 'text-green-600 font-medium' : ''">
+                                                                {{ hotel.bookOrderNumRank ? '第' + hotel.bookOrderNumRank + '名' : '-' }}
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-center">
@@ -727,7 +722,6 @@
                                     <section v-if="ctripPublicProfileMaintenanceOpen" data-testid="ctrip-public-profile-maintenance" class="suxi-cpp-panel">
                                         <header class="suxi-cpp-section-head"><div><h5>档案维护</h5><p>本店只保留一个主绑定；竞品可连续添加。同一 ID 只更新，不重复建档。</p></div><span v-if="ctripPublicProfileOwnBinding?.status === 'bound'" class="suxi-cpp-binding is-bound">本店携程 ID {{ ctripPublicProfileOwnBinding.ota_hotel_id }}</span><span v-else-if="selectedCtripHotelId" class="suxi-cpp-binding">本店携程 ID 待绑定</span></header>
                                         <div class="suxi-cpp-form">
-                                            <label>系统门店 *<select v-model="selectedCtripHotelId" @change="handleCtripPublicProfileHotelChange" data-testid="ctrip-public-profile-hotel-select" :disabled="ctripPublicProfileBusy || otaPublicPageDiagnosisExecutionLoading"><option value="">请选择门店</option><option v-for="hotel in ctripPublicProfileHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option></select></label>
                                             <label>档案角色<select v-model="ctripPublicProfileForm.role" data-testid="ctrip-public-profile-role" :disabled="ctripPublicProfileBusy"><option value="competitor">竞品酒店</option><option value="self">本店</option></select></label>
                                             <label class="is-wide">携程公开酒店 ID 或公开页链接 *<input v-model.trim="ctripPublicProfileForm.ota_hotel_id" @keyup.enter="addCtripPublicProfileById" data-testid="ctrip-public-profile-id-input" type="text" inputmode="numeric" autocomplete="off" :disabled="ctripPublicProfileBusy" placeholder="例如 3456814，或携程公开页链接"></label>
                                             <button type="button" data-testid="ctrip-public-profile-add" @click="addCtripPublicProfileById" :disabled="!selectedCtripHotelId || ctripPublicProfileBusy || !canMaintainOtaConfig()" class="suxi-cpp-dark-button"><i :class="ctripPublicProfileSaving ? 'fas fa-spinner fa-spin' : 'fas fa-plus'"></i>{{ ctripPublicProfileSaving ? '添加并抓取中' : '添加并自动补全' }}</button>
@@ -744,7 +738,7 @@
                                     </section>
 
                                     <div v-if="ctripPublicProfileLoading" data-testid="ctrip-public-profile-loading" class="suxi-cpp-empty"><i class="fas fa-spinner fa-spin"></i>正在读取公开档案，当前状态不会被占位数据覆盖</div>
-                                    <div v-else-if="!selectedCtripHotelId" class="suxi-cpp-empty">请选择系统门店后查看或添加携程公开档案。</div>
+                                    <div v-else-if="!selectedCtripHotelId" class="suxi-cpp-empty">请先在顶栏选择携程当前酒店，再查看或添加公开档案。</div>
                                     <div v-else-if="!ctripPublicProfilesSorted.length" data-testid="ctrip-public-profile-empty" class="suxi-cpp-empty"><b>还没有公开酒店档案</b><p>请在“档案维护”中输入本店或竞品携程 ID，系统会抓取静态资料并完成数据库回读。</p></div>
 
                                     <section v-else data-testid="ctrip-public-profile-comparison" class="suxi-cpp-compare">
@@ -785,7 +779,7 @@
 
                                         <div v-if="otaPublicPageDiagnosisError" data-testid="ota-public-page-diagnosis-error" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ otaPublicPageDiagnosisError }}</div>
                                         <div v-if="otaPublicPageDiagnosisLoading" data-testid="ota-public-page-diagnosis-loading" class="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">正在按所选日期回读公开页证据</div>
-                                        <div v-else-if="!selectedCtripHotelId" data-testid="ota-public-page-diagnosis-empty" class="mt-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">请先在本页上方选择系统门店。</div>
+                                        <div v-else-if="!selectedCtripHotelId" data-testid="ota-public-page-diagnosis-empty" class="mt-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">请先在顶栏选择携程当前酒店。</div>
                                         <div v-else-if="otaPublicPageDiagnosisPayload" class="mt-4 space-y-4">
                                             <div class="flex flex-wrap gap-x-5 gap-y-1 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
                                                 <span>维度 {{ otaPublicPageDiagnosisCoverage.observed_dimension_count || 0 }} / {{ otaPublicPageDiagnosisCoverage.dimension_count || 12 }}</span>
@@ -829,13 +823,7 @@
                                                     <h4 class="mt-2 text-xl font-semibold">市场与竞对</h4>
                                                     <p class="mt-2 text-sm leading-6 text-slate-300">用已入库的携程竞争圈经营、流量、排名和价格事件，回答“本店与竞圈差在哪里、哪些变化需要今天核对”。不把竞品库存变化推算成真实销量，不把 OTA 渠道证据扩大为全酒店事实。</p>
                                                 </div>
-                                                <div class="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-[220px_auto]">
-                                                    <label class="text-xs text-slate-300">系统门店
-                                                        <select v-model="selectedCtripHotelId" data-testid="ctrip-market-competition-hotel" :disabled="ctripCompetitiveOperationsLoading || competitorEventFeedLoading" class="mt-1 w-full rounded-lg border border-white/20 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60">
-                                                            <option value="">请选择门店</option>
-                                                            <option v-for="hotel in ctripPublicProfileHotelOptions" :key="'market-competitor-' + hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                        </select>
-                                                    </label>
+                                                <div class="shrink-0">
                                                     <button type="button" @click="openCtripManualTab('ctrip-public-profiles')" class="self-end rounded-lg border border-[#dcc591]/60 bg-white/5 px-4 py-2 text-sm font-medium text-[#f4e7c6] hover:bg-white/10">
                                                         管理竞对档案
                                                     </button>
@@ -913,29 +901,7 @@
                                     </div>
 
                                     <div class="bg-white border border-cyan-200 rounded-lg p-4 mb-4">
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
-                                                <div class="flex gap-2">
-                                                    <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply" class="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                                                        <option value="">请选择目标酒店</option>
-                                                        <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                    </select>
-                                                    <button @click="refreshCtripHotelConfigOptions" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
-                                                        <i class="fas fa-sync-alt"></i>
-                                                    </button>
-                                                </div>
-                                                <div v-if="selectedCtripHotelId &amp;&amp; selectedCtripHotelConfig" :class="['mt-1 text-xs', selectedCtripManualCredentialState.canFetch ? 'text-green-600' : 'text-amber-700']">
-                                                    <div>{{ getHotelNameById(selectedCtripHotelId) }}｜{{ selectedCtripManualCredentialState.label }}</div>
-                                                    <div v-if="!selectedCtripManualCredentialState.canFetch" class="mt-1">{{ selectedCtripManualCredentialState.detail }}</div>
-                                                </div>
-                                                <div v-if="selectedCtripHotelId &amp;&amp; !selectedCtripHotelConfig" class="mt-2 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-3 py-2 text-sm flex items-center justify-between gap-3">
-                                                    <span>当前酒店未配置携程数据源</span>
-                                                    <button type="button" @click="goConfigureCtripForSelectedHotel" class="px-3 py-1 bg-yellow-500 text-white rounded text-xs hover:bg-yellow-600 whitespace-nowrap">
-                                                        去配置
-                                                    </button>
-                                                </div>
-                                            </div>
+                                        <div class="grid grid-cols-1 gap-4 mb-4">
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">数据日期</label>
                                                 <input v-model="ctripFlowOverviewForm.dataDate" type="date" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500">
@@ -999,16 +965,6 @@
                                             <div class="mt-1 text-xs text-indigo-700">未来30天累计/昨日搜索的 PV、UV、转化率及本店与竞争圈差距。</div>
                                         </div>
                                         <p class="text-xs text-slate-500 lg:col-span-3">推送只展示已取得字段；采集超过 1 小时才提示数据过期。实时起价为 ¥0.00 时标记“携程疑似满房/无房可售”；仅取实时起价，不采集其他价格，竞争圈排名不进入播报。</p>
-                                    </div>
-
-                                    <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-xs text-gray-400">仅显示已配置酒店</span></label>
-                                        <select v-model="selectedCtripHotelId" @change="handleCtripTrafficHotelChange" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                            <option value="">请选择目标酒店</option>
-                                            <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">
-                                                {{ hotel.name }}
-                                            </option>
-                                        </select>
                                     </div>
 
                                     <div class="mb-4">
@@ -1125,7 +1081,7 @@
                                             {{ ctripSearchOpportunityError }}
                                         </div>
                                         <div v-else-if="!selectedCtripHotelId" class="m-4 p-5 rounded-lg border border-dashed border-slate-300 text-center text-sm text-slate-500">
-                                            请选择目标酒店后读取未来搜索数据。
+                                            请先在顶栏选择携程当前酒店，再读取未来搜索数据。
                                         </div>
                                         <div v-else-if="!ctripSearchOpportunityLoading &amp;&amp; ctripSearchOpportunityView?.status === 'not_collected'" class="m-4 p-5 rounded-lg border border-dashed border-amber-300 bg-amber-50 text-center">
                                             <div class="font-medium text-amber-800">尚未采集未来30天搜索数据</div>
@@ -1314,10 +1270,6 @@
                                     </div>
                                     <div class="bg-white border border-cyan-200 rounded-lg p-4">
                                         <div class="flex flex-col md:flex-row gap-3 mb-4">
-                                            <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply" class="flex-1 px-3 py-2 border rounded-lg">
-                                                <option value="">请选择目标酒店</option>
-                                                <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                            </select>
                                             <button type="button" @click="runCtripOverviewFetchAction('ctrip-quality')" :disabled="fetchingData || !!ctripOverviewFetchActionLoading || ctripOverviewCoreFetchRunning" class="px-4 py-2 bg-cyan-700 text-white rounded-lg disabled:bg-gray-400">
                                                 {{ ctripOverviewFetchActionLoading === 'ctrip-quality' ? '获取中...' : '获取服务质量' }}
                                             </button>
@@ -1360,14 +1312,7 @@
                                         </div>
                                     </div>
                                     <div class="bg-white border border-indigo-200 rounded-lg p-4 mb-4">
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
-                                                <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                                    <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                            </div>
+                                        <div class="grid grid-cols-1 gap-4 mb-4">
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">接口类型</label>
                                                 <div class="w-full px-3 py-2 border rounded-lg bg-gray-50 text-sm text-gray-800">
@@ -1475,13 +1420,6 @@
                                         </div>
 
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
-                                                <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500">
-                                                    <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                            </div>
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">浏览器 Profile 标识</label>
                                                 <input v-model="ctripBrowserCaptureForm.profileId" type="text" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500" placeholder="默认使用 OTA酒店ID 或系统酒店ID">
@@ -1616,12 +1554,10 @@
                                                     <span class="px-2 py-1 rounded border border-amber-100 bg-amber-50 text-amber-700">异常待核</span>
                                                 </div>
                                             </div>
-                                            <div class="w-full xl:w-80">
-                                                <label class="block text-xs text-gray-500 mb-1">归属门店</label>
-                                                <select v-model="ctripReviewMatchForm.systemHotelId" class="w-full px-3 py-2 border rounded-lg bg-white">
-                                                    <option value="">使用当前携程门店 / 当前账号门店</option>
-                                                    <option v-for="h in hotels" :key="'ctrip-review-match-hotel-' + h.id" :value="h.id">{{ h.name }}</option>
-                                                </select>
+                                            <div data-testid="ctrip-review-current-hotel" class="w-full xl:w-80 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                                                <span class="block text-xs text-blue-600">当前携程酒店</span>
+                                                <strong class="block mt-1 text-sm text-blue-900">{{ getHotelNameById(selectedCtripHotelId) || '未选择' }}</strong>
+                                                <span class="block mt-1 text-xs text-blue-700">跟随顶部选择，订单证据只写入该酒店。</span>
                                             </div>
                                         </div>
                                     </div>
@@ -1914,12 +1850,15 @@
                                         <div v-else="">
                                         <!-- backend display summary -->
                                         <div class="mb-4">
-                                            <div class="responsive-metric-grid">
+                                            <div class="responsive-metric-grid ctrip-business-summary-grid">
                                                 <div v-for="card in ctripBusinessSummaryCards" :key="card.key" :class="['rounded-lg p-3 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200']">
                                                     <div :class="['text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value || '-' }}</div>
                                                     <div class="text-xs text-gray-500">{{ card.label }}</div>
                                                     <div v-if="card.level" :class="['text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
                                                 </div>
+                                            </div>
+                                            <div v-if="ctripEarlyMorningSourceNotice" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                                <i class="fas fa-clock mr-1"></i>{{ ctripEarlyMorningSourceNotice }}
                                             </div>
                                         </div>
 
@@ -1931,61 +1870,53 @@
                                                 流量与转化
                                             </button>
                                             <button @click="ctripTableTab = 'rank'" :class="['px-4 py-2 text-sm font-medium', ctripTableTab === 'rank' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                                榜单排名
+                                                榜单与排名
                                             </button>
                                         </div>
 
                                         <!-- 销售与订单表格 -->
-                                        <div v-if="ctripTableTab === 'sales'" class="overflow-x-auto table-container">
-                                            <table class="min-w-full bg-white border text-sm table-striped">
+                                        <div v-if="ctripTableTab === 'sales'" class="ctrip-sales-table-wrap table-container">
+                                            <table class="ctrip-sales-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
                                                 <thead>
-                                                    <tr class="bg-gray-50">
-                                                        <th class="px-3 py-2 text-center border text-xs">排名</th>
-                                                        <th class="px-3 py-2 text-left border text-xs">酒店名称</th>
-                                                        <th class="px-3 py-2 text-center border text-xs">酒店ID</th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-green-50 cursor-pointer hover:bg-green-100" @click="sortCtripTable('amount')">离店销售额 <span v-if="ctripSortField === 'amount'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-yellow-50 cursor-pointer hover:bg-yellow-100" @click="sortCtripTable('quantity')">离店间夜量 <span v-if="ctripSortField === 'quantity'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-blue-50 cursor-pointer hover:bg-blue-100" @click="sortCtripTable('adr')">平均房价 <span v-if="ctripSortField === 'adr'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                            <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程系预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 × 1.15–1.30 稳定情景系数；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
-                                                            全渠道间夜推算
-                                                            <span v-if="ctripSortField === 'fullChannelRoomNightsEstimate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                    <tr class="ctrip-sales-groups">
+                                                        <th rowspan="2" style="position:sticky;left:0;width:54px;z-index:5">排名</th>
+                                                        <th rowspan="2" style="position:sticky;left:54px;width:248px;z-index:5">酒店名称</th>
+                                                        <th rowspan="2" style="width:96px">酒店ID</th>
+                                                        <th v-for="group in ctripSalesColumnGroups" :key="group.label" :colspan="group.span">{{ group.label }}</th>
+                                                    </tr>
+                                                    <tr class="ctrip-sales-head">
+                                                        <th v-for="column in ctripSalesMetricColumns" :key="column.field" :title="column.title || null" @click="sortCtripTable(column.field)">
+                                                            <term-help v-if="column.help" :term="column.help" :label="column.label" />
+                                                            <span v-else>{{ column.label }}</span>
+                                                            <span v-if="ctripSortField === column.field">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('commentScore')">携程点评分 <span v-if="ctripSortField === 'commentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarCommentScore')">去哪儿点评分 <span v-if="ctripSortField === 'qunarCommentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     <tr v-for="(hotel, index) in pagedCtripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
-                                                        <td class="px-3 py-2 border text-center">
+                                                        <td class="px-3 py-2 border text-center" style="position:sticky;left:0;width:54px;z-index:2;background:inherit">
                                                             <span :class="['px-2 py-1 rounded text-xs', (ctripTableRankOffset + index) &lt; 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
                                                                 {{ ctripTableRankOffset + index + 1 }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-left font-medium">
-                                                            <div>{{ hotel.hotelName }}</div>
+                                                        <td class="px-3 py-2 border text-left font-medium" style="position:sticky;left:54px;width:248px;z-index:2;background:inherit">
+                                                            <div :title="hotel.hotelName">{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-mono text-xs text-gray-500">{{ hotel.hotelId }}</td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-green-600">¥{{ formatNumber(hotel.amount) }}</td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-yellow-600">{{ hotel.quantity }}</td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-blue-600">{{ hotel.adrText !== '-' ? '¥' + hotel.adrText : '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
-                                                        <td class="px-3 py-2 border text-center" :title="hotel.fullChannelRoomNightsEstimateMeta?.formulaText || '携程间夜缺失，无法推算'">
-                                                            <div v-if="hotel.fullChannelRoomNightsEstimate !== null &amp;&amp; hotel.fullChannelRoomNightsEstimate !== undefined" class="font-semibold text-amber-700">
-                                                                {{ formatOptionalNumber(hotel.fullChannelRoomNightsEstimate) }}
+                                                        <td class="px-3 py-2 border text-center font-mono text-xs font-semibold text-gray-500" style="width:96px">{{ hotel.hotelId }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-green-600">{{ hasDisplayValue(hotel.amount) ? formatNumber(Math.round(Number(hotel.amount))) : '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-yellow-600">{{ hotel.quantity }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? formatNumber(Math.round(Number(hotel.adr))) : '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
+                                                            <div v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined" class="font-semibold text-blue-600">
+                                                                {{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}
                                                             </div>
-                                                            <div v-else class="text-xs font-medium text-amber-700">{{ hotel.fullChannelRoomNightsEstimateMeta?.displayLabel || '携程间夜缺失' }}</div>
+                                                            <div v-else class="ctrip-sales-state">缺来源</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">
-                                                            <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ formatOptionalNumber(hotel.commentScore) }}
-                                                            </span>
+                                                        <td v-for="column in ctripSalesOrderColumns" :key="column.field" :class="[ctripTrafficChannelCellClass(hotel, column), 'font-semibold']" :title="ctripTrafficChannelCellTitle(hotel, column)">
+                                                            <div>{{ ctripTrafficChannelText(hotel, column) }}</div>
+                                                            <div v-if="ctripTrafficChannelSecondaryText(hotel, column)" class="text-xs font-normal leading-tight opacity-80">{{ ctripTrafficChannelSecondaryText(hotel, column) }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarCommentScore) }}</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -2002,6 +1933,8 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-indigo-50 cursor-pointer hover:bg-indigo-100" @click="sortCtripTable('convertionRate')">携程转化率 <span v-if="ctripSortField === 'convertionRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="['px-3 py-2 text-center border text-xs cursor-pointer', column.headerClass]" :title="column.title" @click="sortCtripTable(column.field)">{{ column.label }} <span v-if="ctripSortField === column.field">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookRate')">预订转化率 <span v-if="ctripSortField === 'bookRate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('commentScore')">携程点评分 <span v-if="ctripSortField === 'commentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarCommentScore')">去哪儿点评分 <span v-if="ctripSortField === 'qunarCommentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -2014,29 +1947,46 @@
                                                         <td class="px-3 py-2 border text-left font-medium">
                                                             <div>{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ formatOptionalNumber(hotel.totalDetailNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">
+                                                            <div>{{ ctripEarlyMorningTrafficText(hotel, 'totalDetailNum') }}</div>
+                                                        </td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.convertionRate || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ formatOptionalPercent(hotel.convertionRate) }}
+                                                                {{ ctripEarlyMorningTrafficText(hotel, 'convertionRate', true) }}
                                                             </span>
                                                         </td>
-                                                        <td v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="ctripTrafficChannelCellClass(hotel, column)">{{ ctripTrafficChannelText(hotel, column) }}</td>
-                                                        <td class="px-3 py-2 border text-center text-gray-500">
-                                                            {{ hotel.bookingRateText || '-' }}
+                                                        <td v-for="column in ctripTrafficChannelColumns" :key="column.field" :class="ctripTrafficChannelCellClass(hotel, column)">
+                                                            <div>{{ ctripTrafficChannelText(hotel, column) }}</div>
                                                         </td>
+                                                        <td class="px-3 py-2 border text-center text-gray-500">
+                                                            {{ hotel.bookingRateText || '待更新' }}
+                                                        </td>
+                                                        <td class="px-3 py-2 border text-center">
+                                                            <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
+                                                                {{ formatOptionalNumber(hotel.commentScore) }}
+                                                            </span>
+                                                        </td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarCommentScore) }}</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
                                         </div>
 
-                                        <!-- 榜单排名表格 -->
+                                        <!-- 榜单与排名表格 -->
                                         <div v-if="ctripTableTab === 'rank'" class="overflow-x-auto table-container">
-                                            <table class="min-w-full bg-white border text-sm table-striped">
+                                            <table class="ctrip-rank-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
                                                 <thead>
-                                                    <tr class="bg-gray-50">
-                                                        <th class="px-3 py-2 text-center border text-xs">排名</th>
-                                                        <th class="px-3 py-2 text-left border text-xs">酒店名称</th>
+                                                    <tr class="ctrip-rank-groups">
+                                                        <th rowspan="2" style="width:54px">排名</th>
+                                                        <th rowspan="2" style="width:220px">酒店名称</th>
+                                                        <th colspan="2">竞争力</th>
+                                                        <th colspan="6">榜单排名</th>
+                                                    </tr>
+                                                    <tr class="ctrip-rank-head">
+                                                        <th title="平均房价指数，用于比较本店与竞争圈的平均房价水平" @click="sortCtripTable('ari')"><term-help term="ari" label="平均房价指数(ARI)" /> <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th title="综合竞争力指数，仅用于当前竞争圈同范围比较" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-green-50 cursor-pointer hover:bg-green-100" @click="sortCtripTable('amountRank')">销售额排名 <span v-if="ctripSortField === 'amountRank'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs bg-green-50 cursor-pointer hover:bg-green-100" @click="sortCtripTable('bookOrderNumRank')">预订订单排名 <span v-if="ctripSortField === 'bookOrderNumRank'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-yellow-50 cursor-pointer hover:bg-yellow-100" @click="sortCtripTable('quantityRank')">间夜量排名 <span v-if="ctripSortField === 'quantityRank'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-blue-50 cursor-pointer hover:bg-blue-100" @click="sortCtripTable('commentScoreRank')">点评排名 <span v-if="ctripSortField === 'commentScoreRank'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                             <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarDetailCRRank')">去哪儿转化排名 <span v-if="ctripSortField === 'qunarDetailCRRank'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
@@ -2053,9 +2003,16 @@
                                                         <td class="px-3 py-2 border text-left font-medium">
                                                             <div>{{ hotel.hotelName }}</div>
                                                         </td>
+                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.amountRank || 999) &lt;= 10 ? 'text-green-600 font-medium' : ''">
                                                                 {{ hotel.amountRank ? '第' + hotel.amountRank + '名' : '-' }}
+                                                            </span>
+                                                        </td>
+                                                        <td class="px-3 py-2 border text-center">
+                                                            <span :class="(hotel.bookOrderNumRank || 999) &lt;= 10 ? 'text-green-600 font-medium' : ''">
+                                                                {{ hotel.bookOrderNumRank ? '第' + hotel.bookOrderNumRank + '名' : '-' }}
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-center">

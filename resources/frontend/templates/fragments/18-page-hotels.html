@@ -40,6 +40,15 @@
                                 <span v-else><i class="fas fa-circle-notch fa-spin mr-1.5"></i>正在准备门店状态...</span>
                                 <button v-if="hotelManagementLoadError" type="button" @click="refreshHotelBindingPanelLight()" :disabled="hotelManagementLoading" class="rounded-md border border-red-200 bg-white px-2.5 py-1 font-medium text-red-700 hover:bg-red-100 disabled:opacity-50">重试</button>
                             </div>
+                            <div data-testid="default-main-hotel-summary" class="mt-3 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2.5 text-xs text-amber-950">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="rounded-md border border-amber-200 bg-white px-2 py-0.5 font-semibold text-amber-700">我的主门店</span>
+                                    <strong class="text-sm text-gray-900">{{ defaultMainHotel?.name || '未设置' }}</strong>
+                                </div>
+                                <p v-if="defaultMainHotel" class="mt-1.5 leading-5 text-amber-800">普通板块首次进入时默认使用主门店；之后仍可临时切换。携程、美团仅在该门店已配置对应平台时继承，各平台的门店选择互不覆盖。</p>
+                                <p v-else class="mt-1.5 leading-5 text-red-700" role="alert">尚未设置可用主门店，普通板块将保持未选择；请在下方选择一家运营中门店并设为主门店。携程、美团仍分别使用各自已配置的门店。</p>
+                                <p v-if="defaultMainHotelError" class="mt-1.5 text-red-700" role="alert">{{ defaultMainHotelError }}</p>
+                            </div>
                         </div>
 
                         <template v-if="hotelRowsVisible">
@@ -143,6 +152,7 @@
                                                 <div class="min-w-0">
                                                     <div class="flex items-center gap-2 min-w-0">
                                                         <span class="font-semibold text-gray-900 truncate max-w-[220px]" :title="hotel.name">{{ hotel.name }}</span>
+                                                        <span v-if="isDefaultMainHotel(hotel)" data-testid="default-main-hotel-badge" class="px-2 py-0.5 rounded-md border border-amber-200 bg-amber-50 text-xs font-semibold text-amber-700 whitespace-nowrap">主门店</span>
                                                         <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                             {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
                                                         </span>
@@ -252,6 +262,7 @@
                                             <td class="px-4 py-4 w-[22%] text-right">
                                                 <div class="space-y-2">
                                                     <div v-if="canManageOwnHotels()" class="flex flex-wrap justify-end gap-1.5">
+                                                        <button v-if="String(hotel.status) === '1' &amp;&amp; !isDefaultMainHotel(hotel)" type="button" @click="setDefaultMainHotel(hotel)" :disabled="!!defaultMainHotelSavingId" data-testid="set-default-main-hotel" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60">{{ String(defaultMainHotelSavingId) === String(hotel.id) ? '设置中...' : '设为主门店' }}</button>
                                                         <button type="button" @click="toggleHotelDetails(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ isHotelDetailsExpanded(hotel) ? '收起详情' : '展开详情' }}</button>
                                                         <button v-if="user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)" :disabled="hotelUserAuthorizationLoading" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60">{{ hotelUserAuthorizationLoading ? '读取中...' : '授权用户' }}</button>
                                                         <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">编辑</button>
@@ -270,6 +281,7 @@
                                         <div class="min-w-0">
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <h3 class="font-semibold text-gray-900 truncate" :title="hotel.name">{{ hotel.name }}</h3>
+                                                <span v-if="isDefaultMainHotel(hotel)" data-testid="default-main-hotel-badge" class="px-2 py-0.5 rounded-md border border-amber-200 bg-amber-50 text-xs font-semibold text-amber-700 whitespace-nowrap">主门店</span>
                                                 <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                     {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
                                                 </span>
@@ -292,6 +304,9 @@
                                             </div>
                                         </div>
                                         <div class="hotel-preview-card__actions">
+                                            <button v-if="canManageOwnHotels() &amp;&amp; String(hotel.status) === '1' &amp;&amp; !isDefaultMainHotel(hotel)" type="button" @click="setDefaultMainHotel(hotel)" :disabled="!!defaultMainHotelSavingId" data-testid="set-default-main-hotel" class="whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-xs font-medium text-amber-800 disabled:cursor-wait disabled:opacity-60">
+                                                {{ String(defaultMainHotelSavingId) === String(hotel.id) ? '设置中...' : '设为主门店' }}
+                                            </button>
                                             <button v-if="canManageOwnHotels() &amp;&amp; user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)" :disabled="hotelUserAuthorizationLoading" class="whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-white text-xs font-medium text-blue-700 disabled:cursor-wait disabled:opacity-60">
                                                 {{ hotelUserAuthorizationLoading ? '读取中...' : '授权用户' }}
                                             </button>

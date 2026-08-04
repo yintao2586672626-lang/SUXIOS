@@ -522,7 +522,7 @@ final class DingdandaoOperatingTargetCaptureService
         }
         if ($verifiedOnly) {
             $expectedProviderHotelId = $this->textOrNull($expectedProviderHotelId, 120);
-            $capturedTimestamp = strtotime($capturedAt);
+            $capturedTimestamp = $this->timestampInShanghai($capturedAt);
             $captureAgeSeconds = $capturedTimestamp === false
                 ? PHP_INT_MAX
                 : $observedNow->getTimestamp() - $capturedTimestamp;
@@ -539,7 +539,7 @@ final class DingdandaoOperatingTargetCaptureService
                 || !$dateScopeMatches
                 || (
                     $sourceScope === self::SOURCE_SCOPE
-                    && date('Y-m-d', $capturedTimestamp) !== $businessDate
+                    && $this->timestampDateInShanghai($capturedTimestamp) !== $businessDate
                 )
                 || (
                     $sourceScope === self::HISTORICAL_SOURCE_SCOPE
@@ -585,6 +585,7 @@ final class DingdandaoOperatingTargetCaptureService
             'detail_room_fee_total' => $assessment['detail_room_fee_total'],
             'detail_fingerprint' => hash('sha256', $this->json($details)),
             'reconciliation_status' => $assessment['reconciliation_status'],
+            'reconciliation_basis' => $assessment['reconciliation_basis'],
             'trend' => $trend,
             'auxiliary_query_status' => $auxiliaryQueryStatus,
             'county_context' => $countyContext,
@@ -1155,6 +1156,7 @@ final class DingdandaoOperatingTargetCaptureService
             'detail_row_count' => (int)($row['detail_row_count'] ?? 0),
             'room_fee_details' => $details,
             'reconciliation_status' => (string)$row['reconciliation_status'],
+            'reconciliation_basis' => (string)($snapshot['reconciliation_basis'] ?? 'unverified'),
             'capture_status' => (string)$row['capture_status'],
             'quality_status' => (string)$row['quality_status'],
             'quality_reason' => $row['quality_reason'] ?? null,
@@ -1209,6 +1211,7 @@ final class DingdandaoOperatingTargetCaptureService
                 'capture_status' => (string)$capture['capture_status'],
                 'quality_status' => (string)$capture['quality_status'],
                 'reconciliation_status' => (string)$capture['reconciliation_status'],
+                'reconciliation_basis' => (string)($capture['reconciliation_basis'] ?? 'unverified'),
             ],
             ($capture['evidence_compatibility'] ?? '')
                 === 'persisted_network_response_v2'
@@ -1344,10 +1347,6 @@ final class DingdandaoOperatingTargetCaptureService
         if ($details === []) {
             $gaps[] = $this->gap('dingdandao_room_fee_details_missing');
         }
-        if ($roomFeeSummaryRows === []) {
-            $gaps[] = $this->gap('dingdandao_room_fee_summary_missing');
-        }
-
         $roomRows = array_values(array_filter(
             $details,
             static fn(array $row): bool => in_array($row['row_kind'], ['room', 'unassigned'], true)
@@ -1364,10 +1363,20 @@ final class DingdandaoOperatingTargetCaptureService
         $summaryTotal = $summary['total_room_fee'];
         $grandTotal = $grandTotals === [] ? null : round((float)end($grandTotals)['room_fee'], 2);
         $reconciliationStatus = 'unverified';
+        $reconciliationBasis = 'unverified';
+        $detailsCanProvideDailySummary = $roomRows !== []
+            && count($grandTotals) === 1
+            && array_filter(
+                $roomRows,
+                static fn(array $row): bool =>
+                    abs((float)($row['room_fee'] ?? 0)) > 0.000001
+                    && trim((string)($row['room_type'] ?? '')) === ''
+            ) === [];
         if ($summaryTotal !== null
             && $roomRows !== []
             && $roomFeeSummaryRows !== []
         ) {
+            $reconciliationBasis = 'details_summary_and_room_type_summary';
             $reconciliationStatus = abs($detailRoomFeeTotal - $summaryTotal) <= 0.01
                 && abs($summaryRowsRoomFeeTotal - $summaryTotal) <= 0.01
                 && ($grandTotal === null || abs($grandTotal - $summaryTotal) <= 0.01)
@@ -1376,6 +1385,18 @@ final class DingdandaoOperatingTargetCaptureService
             if ($reconciliationStatus !== 'matched') {
                 $gaps[] = $this->gap('dingdandao_room_fee_reconciliation_mismatch');
             }
+        } elseif ($summaryTotal !== null && $detailsCanProvideDailySummary) {
+            $reconciliationBasis = 'details_to_summary_with_grand_total';
+            $reconciliationStatus = abs($detailRoomFeeTotal - $summaryTotal) <= 0.01
+                && $grandTotal !== null
+                && abs($grandTotal - $summaryTotal) <= 0.01
+                ? 'matched'
+                : 'mismatch';
+            if ($reconciliationStatus !== 'matched') {
+                $gaps[] = $this->gap('dingdandao_room_fee_reconciliation_mismatch');
+            }
+        } elseif ($roomFeeSummaryRows === []) {
+            $gaps[] = $this->gap('dingdandao_room_fee_summary_missing');
         }
 
         if ($summaryTotal !== null && $summary['sold_room_nights'] !== null
@@ -1447,6 +1468,7 @@ final class DingdandaoOperatingTargetCaptureService
             'detail_room_fee_total' => $detailRoomFeeTotal,
             'derived_sellable_room_nights' => $derivedSellable,
             'reconciliation_status' => $reconciliationStatus,
+            'reconciliation_basis' => $reconciliationBasis,
         ];
     }
 
@@ -2472,8 +2494,13 @@ final class DingdandaoOperatingTargetCaptureService
         if ($detailRowCount <= 0) {
             $coreGaps[] = 'dingdandao_operating_core_details_missing';
         }
+        $detailSummaryReconciliation =
+            ($assessment['reconciliation_basis'] ?? '')
+                === 'details_to_summary_with_grand_total'
+            && ($assessment['reconciliation_status'] ?? '') === 'matched';
         if ($roomFeeSummaryRowCount <= 0
             && !$legacyRoomFeeSummaryEvidence
+            && !$detailSummaryReconciliation
         ) {
             $coreGaps[] = 'dingdandao_operating_core_sum_detail_missing';
         }
@@ -2505,7 +2532,9 @@ final class DingdandaoOperatingTargetCaptureService
                     ? 'readback_verified'
                     : ($legacyRoomFeeSummaryEvidence
                         ? 'legacy_v2_endpoint_trace_verified'
-                        : 'missing'),
+                        : ($detailSummaryReconciliation
+                            ? 'derived_from_room_details_with_grand_total'
+                            : 'missing')),
             'gap_codes' => array_values(array_unique($coreGaps)),
         ];
 
@@ -3129,11 +3158,43 @@ final class DingdandaoOperatingTargetCaptureService
     private function dateTime(string $value): string
     {
         $value = trim($value);
-        $timestamp = strtotime($value);
-        if ($value === '' || $timestamp === false) {
+        if ($value === '') {
             throw new \InvalidArgumentException('dingdandao_capture_time_invalid');
         }
-        return date('Y-m-d H:i:s', $timestamp);
+        try {
+            // Capture timestamps are business evidence. Treat timezone-less
+            // values as Asia/Shanghai and normalize offset-bearing values into
+            // the same business timezone before persisting or comparing them.
+            $dateTime = new DateTimeImmutable($value, new DateTimeZone('Asia/Shanghai'));
+        } catch (\Throwable) {
+            throw new \InvalidArgumentException('dingdandao_capture_time_invalid');
+        }
+        return $dateTime
+            ->setTimezone(new DateTimeZone('Asia/Shanghai'))
+            ->format('Y-m-d H:i:s');
+    }
+
+    private function timestampDateInShanghai(int $timestamp): string
+    {
+        return (new DateTimeImmutable('@' . $timestamp))
+            ->setTimezone(new DateTimeZone('Asia/Shanghai'))
+            ->format('Y-m-d');
+    }
+
+    private function timestampInShanghai(string $value): int|false
+    {
+        $value = trim($value);
+        $dateTime = DateTimeImmutable::createFromFormat(
+            '!Y-m-d H:i:s',
+            $value,
+            new DateTimeZone('Asia/Shanghai')
+        );
+        if (!$dateTime instanceof DateTimeImmutable
+            || $dateTime->format('Y-m-d H:i:s') !== $value
+        ) {
+            return false;
+        }
+        return $dateTime->getTimestamp();
     }
 
     private function decimalOrNull(mixed $value): ?float

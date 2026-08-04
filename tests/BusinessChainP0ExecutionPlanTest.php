@@ -274,6 +274,45 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
         );
     }
 
+    public function testNextRequiredGateDoesNotHideMultipleSourceGapsBehindOneRevenueMetric(): void
+    {
+        $gate = \business_chain_next_required_gate(
+            [
+                'status' => 'ready',
+                'current_upstream_status' => 'ready',
+                'required_upstream_status' => 'ready',
+            ],
+            [
+                'status' => 'blocked',
+                'unique_remaining_gap' => null,
+                'analysis_gaps' => [
+                    ['code' => 'dingdandao_pms_not_readback_verified'],
+                    ['code' => 'ctrip_ota_not_readback_verified'],
+                ],
+            ],
+            [
+                'ctrip_chain_action_queue' => [
+                    'items' => [[
+                        'code' => 'resolve_revenue_metric_gap',
+                        'status' => 'blocked',
+                        'blocking' => true,
+                        'evidence_code' => 'available_room_nights_missing',
+                    ]],
+                ],
+            ]
+        );
+
+        self::assertSame('data_gaps', $gate['type']);
+        self::assertSame('resolve_three_source_fact_gaps', $gate['code']);
+        self::assertSame('multiple_three_source_fact_gaps', $gate['evidence_code']);
+        self::assertSame(
+            ['dingdandao_pms_not_readback_verified', 'ctrip_ota_not_readback_verified'],
+            $gate['evidence_codes']
+        );
+        self::assertSame('all_three_sources_readback_verified', $gate['required_gate']);
+        self::assertSame('source_collection', $gate['stage']);
+    }
+
     public function testHistoricalPmsGapRoutesToAuthorizedSingleDateRecollection(): void
     {
         $gate = \business_chain_next_required_gate(

@@ -95,10 +95,10 @@ test('only terminal authentication responses clear a cached session', () => {
   assert.equal(helpers.isTerminalAuthFailureResponse({ status: 503 }, { code: 503, message: 'temporary outage' }), false);
 });
 
-test('login, logout, and account switches reset hotel-scoped browser state', () => {
+test('login, logout, and account switches isolate hotel-scoped browser state', () => {
   const resetState = sliceBetween('const resetHotelScopedClientState = (', 'const clearActiveHotelDashboardSnapshots = () => {');
   const loginFlow = sliceBetween('const handleLogin = async () => {', 'const loadLoginSupportContact = async () => {');
-  const logoutFlow = sliceBetween('const handleLogout = async () => {', 'const dedupeHotels = (items = []) => {');
+  const logoutFlow = sliceBetween('const handleLogout = () => {', 'const dedupeHotels = (items = []) => {');
 
   for (const expected of [
     'pageLoadRequests.clear();',
@@ -147,9 +147,43 @@ test('login, logout, and account switches reset hotel-scoped browser state', () 
     assert.ok(resetState.includes(expected), `account reset must include: ${expected}`);
   }
   assert.match(loginFlow, /beginAuthSession\(res\.data\.token\);[\s\S]*permittedHotels\.value = dedupeHotels[\s\S]*hotels\.value = \[\.\.\.permittedHotels\.value\]/);
-  assert.ok(logoutFlow.indexOf('clearAuthSession();') < logoutFlow.indexOf('await logoutRequest;'));
-  assert.match(logoutFlow, /const logoutRequest = request\('\/auth\/logout', \{ method: 'POST' \}\);/);
-  assert.match(logoutFlow, /catch \(error\)/);
+  assert.match(logoutFlow, /request\('\/auth\/logout', \{[\s\S]*method: 'POST',[\s\S]*keepalive: true,/);
+  assert.match(logoutFlow, /clearAuthToken\(\);[\s\S]*clearCachedAuthUser\(\);[\s\S]*window\.location\.reload\(\);/);
+  assert.ok(logoutFlow.indexOf("request('/auth/logout'") < logoutFlow.indexOf('clearAuthToken();'));
+  assert.doesNotMatch(logoutFlow, /resetHotelScopedClientState|clearAuthSession\(\)/);
+});
+
+test('logout starts a keepalive revoke and reloads without synchronous dashboard teardown', () => {
+  const logoutFlow = sliceBetween('const handleLogout = () => {', 'const dedupeHotels = (items = []) => {');
+  const requestCalls = [];
+  let reloads = 0;
+  let tokenClears = 0;
+  let userClears = 0;
+  const { handleLogout } = Function(
+    'request',
+    'window',
+    'clearAuthToken',
+    'clearCachedAuthUser',
+    `${logoutFlow}\nreturn { handleLogout };`,
+  )(
+    (url, options) => {
+      requestCalls.push({ url, options });
+      return Promise.resolve({ code: 200 });
+    },
+    { location: { reload: () => { reloads += 1; } } },
+    () => { tokenClears += 1; },
+    () => { userClears += 1; },
+  );
+
+  handleLogout();
+
+  assert.deepEqual(requestCalls, [{
+    url: '/auth/logout',
+    options: { method: 'POST', keepalive: true },
+  }]);
+  assert.equal(reloads, 1);
+  assert.equal(tokenClears, 1);
+  assert.equal(userClears, 1);
 });
 
 test('notification refreshes and no-hotel OTA entry cannot reuse another authentication session', () => {
@@ -189,17 +223,17 @@ test('notification refreshes and no-hotel OTA entry cannot reuse another authent
   assert.match(coreLoopRefresh, /const hotelIsAccessible = operationHotelOptions\.value\.some/);
   assert.match(coreLoopRefresh, /if \(!hotelId \|\| !hotelIsAccessible\)/);
   assert.match(tabLoader, /if \(!coreOperationsHasAccessibleHotel\.value\) return null;[\s\S]*ensureHotelOtaConfigLists/);
-  assert.ok(
-    hotelManagementLoader.indexOf("loadHotels({ force, includeInactive: true, requestPolicy })")
-      < hotelManagementLoader.indexOf('if (coreOperationsHasAccessibleHotel.value)'),
-    'hotel management must resolve the hotel scope before loading protected OTA configuration',
+  assert.match(
+    hotelManagementLoader,
+    /const hotelLoad = loadHotels\(\{ force, includeInactive: true, requestPolicy \}\);[\s\S]*const otaConfigLoad = coreOperationsHasAccessibleHotel\.value[\s\S]*: Promise\.resolve\(hotelLoad\)\.then\(\(\) => \([\s\S]*coreOperationsHasAccessibleHotel\.value[\s\S]*ensureHotelOtaConfigLists/,
+    'hotel management may reuse a verified current-session hotel snapshot, but otherwise must wait for hotel scope before protected OTA configuration',
   );
   assert.match(hotelManagementLoader, /const requestSession = captureAuthSession\(\);/);
   assert.match(hotelManagementLoader, /const requestSeq = \+\+hotelManagementRequestSeq;/);
   assert.match(hotelManagementLoader, /requestSeq === hotelManagementRequestSeq[\s\S]*isAuthSessionCurrent\(requestSession\)/);
   assert.match(hotelManagementLoader, /await Promise\.allSettled\([\s\S]*if \(!isCurrentRequest\(\)\) return false;/);
   assert.match(hotelManagementLoader, /finally \{\s*if \(hotelManagementLoadingPromise === run\) \{\s*hotelManagementLoadingPromise = null;\s*hotelManagementLoading\.value = false;/);
-  assert.match(hotelManagementLoader, /if \(coreOperationsHasAccessibleHotel\.value\) \{[\s\S]*ensureHotelOtaConfigLists/);
+  assert.match(hotelManagementLoader, /const otaConfigLoad = coreOperationsHasAccessibleHotel\.value[\s\S]*\? ensureHotelOtaConfigLists/);
   assert.match(hotelManagementLoader, /hotelManagementFailureLabels\(deep, coreOperationsHasAccessibleHotel\.value\)/);
 });
 
@@ -371,7 +405,7 @@ test('OTA hotel scope distinguishes loading, failed, and verified-empty snapshot
   );
   const scopeState = sliceBetween(
     'const coreOperationsHasAccessibleHotel = computed',
-    'const firstOperationHotelId = () => {',
+    'const isOperationHotelPermitted = (hotelId) => {',
   );
   const resourceLoad = sliceBetween(
     'const loadPlatformCollectionResources = async (options = {}) => {',
@@ -887,7 +921,8 @@ test('hotel data dashboard rejects stale hotel and session responses before muta
   assert.match(dashboard, /const requestSeq = \+\+hotelDashboardRequestSeq;/);
   assert.match(dashboard, /requestSeq === hotelDashboardRequestSeq/);
   assert.match(dashboard, /isAuthSessionCurrent\(requestSession\)/);
-  assert.match(dashboard, /String\(dashboardHotelId\.value \|\| filterReportHotel\.value \|\| getAutoFetchHotelId\(\) \|\| ''\)\.trim\(\) === selectedHotelId/);
+  assert.match(dashboard, /String\(dashboardHotelId\.value \|\| filterReportHotel\.value \|\| ''\)\.trim\(\) === selectedHotelId/);
+  assert.doesNotMatch(dashboard, /getAutoFetchHotelId\(\)/);
   assert.match(dashboard, /dataHealthFullDiagnosticsLoaded\.value = false;/);
   assert.ok(responseIndex >= 0 && responseGuardIndex > responseIndex, 'dashboard response must be checked after the requests settle');
   assert.ok(firstResponseWriteIndex > responseGuardIndex, 'stale dashboard responses must be rejected before the first state write');

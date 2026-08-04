@@ -1986,7 +1986,9 @@ function roomFeeDetailsFromResponses(sumDetail, dailyDetail, targetDate) {
     }
     const detail = {
       row_kind: rowKind,
-      room_type: typeNameById.get(roomTypeId) || null,
+      room_type: typeNameById.get(roomTypeId)
+        || normalizeText(row?.roomTypeName || row?.roomTypeShortName)
+        || null,
       room_number: ['room', 'unassigned'].includes(rowKind) ? (roomName || null) : null,
       room_fee: rate.price,
     };
@@ -2327,21 +2329,32 @@ function dingdandaoCaptureMathReconciles(capture, targetDate) {
     (row) => ['room', 'unassigned'].includes(row.row_kind),
   );
   if (roomRows.length === 0) return false;
+  const grandTotals = capture.room_fee_details.filter(
+    (row) => row.row_kind === 'grand_total',
+  );
   const summaryRows = Array.isArray(capture.room_fee_summary_rows)
     ? capture.room_fee_summary_rows
     : [];
-  if (summaryRows.length === 0) return false;
-  const summaryRowsTotal = Math.round(
-    summaryRows.reduce((sum, row) => sum + row.room_fee, 0) * 100,
-  ) / 100;
-  if (Math.abs(summaryRowsTotal - total) > 0.01) return false;
+  if (summaryRows.length > 0) {
+    const summaryRowsTotal = Math.round(
+      summaryRows.reduce((sum, row) => sum + row.room_fee, 0) * 100,
+    ) / 100;
+    if (Math.abs(summaryRowsTotal - total) > 0.01) return false;
+  } else {
+    // Some verified daily-detail responses omit the provider's room-type
+    // summary. In that shape the daily rows remain sufficient only when every
+    // non-zero room row keeps its room-type identity and one exact grand total
+    // independently reconciles the operating summary.
+    if (grandTotals.length !== 1) return false;
+    if (roomRows.some((row) => (
+      Math.abs(Number(row.room_fee || 0)) > 0.000001
+      && String(row.room_type || '').trim() === ''
+    ))) return false;
+  }
   const roomTotal = Math.round(
     roomRows.reduce((sum, row) => sum + row.room_fee, 0) * 100,
   ) / 100;
   if (Math.abs(roomTotal - total) > 0.01) return false;
-  const grandTotals = capture.room_fee_details.filter(
-    (row) => row.row_kind === 'grand_total',
-  );
   if (grandTotals.length > 0
     && Math.abs(grandTotals.at(-1).room_fee - total) > 0.01
   ) return false;

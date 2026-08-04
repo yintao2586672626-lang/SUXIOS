@@ -119,7 +119,7 @@ $expectedProviderHotelId = trim(
         ?? latestLocalProviderHotelId($tenantId, $hotelId)
         ?? '')
 );
-if ($expectedProviderHotelName === '' || $expectedProviderHotelId === '') {
+if ($expectedProviderHotelName === '') {
     localFail('dingdandao_local_provider_identity_incomplete');
 }
 
@@ -166,6 +166,20 @@ try {
             ))
     ) {
         throw new RuntimeException('dingdandao_local_collection_payload_invalid');
+    }
+    if ($expectedProviderHotelId === '') {
+        // The trusted identity recipe has already matched the configured hotel
+        // name in this exact browser session. Allow the first verified capture
+        // to establish the provider ID; prefill below persists it only after
+        // save, reconciliation, contract validation and readback all succeed.
+        $expectedProviderHotelId = trim(
+            (string)($collector['capture']['provider_hotel_id'] ?? '')
+        );
+    }
+    if ($expectedProviderHotelId === '') {
+        throw new RuntimeException(
+            'dingdandao_local_provider_identity_incomplete'
+        );
     }
 
     $failureStage = 'persistence';

@@ -21,14 +21,15 @@ import {
 
 const EMPTY_V_IF_ANCHOR_SOURCE = '_createCommentVNode("v-if", true)';
 const EMPTY_V_IF_ANCHOR_RUNTIME = '_createCommentVNode("", true)';
-// Transparent rebaseline: the deterministic render is 1,452,253 bytes; 1,455,000 leaves only 2,747 bytes and is not a size reduction or performance improvement.
-const FRONTEND_RENDER_RAW_MAX_BYTES = 1_455_000;
+const FRONTEND_RENDER_RAW_MAX_BYTES = 1_425_000;
 const FRONTEND_RENDER_TO_TEMPLATE_MAX_RATIO = 0.66;
 const FRONTEND_STARTUP_RENDER_RAW_MAX_BYTES = 180_000;
 
 export const DATA_CONFIG_DIALOGS_TEMPLATE_RELATIVE_PATH = 'resources/frontend/templates/components/data-config-dialogs.html';
 export const DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH = 'public/components/system/data-config-dialogs.js';
 export const DATA_CONFIG_DIALOGS_COMPONENT_KEY = 'DataConfigDialogsBody';
+export const BUSINESS_CLOSURE_VIEWS_ARTIFACT_RELATIVE_PATH = 'public/components/system/business-closure-views.js';
+export const BUSINESS_CLOSURE_LOADER_RELATIVE_PATH = 'public/components/system/business-closure-loader.js';
 
 export const FRONTEND_TEMPLATE_MINIFY_OPTIONS = Object.freeze({
   ecma: 2020,
@@ -103,6 +104,29 @@ export async function buildDataConfigDialogsComponent(template) {
   return result.code;
 }
 
+export async function buildBusinessClosureViewsComponent(views) {
+  if (!Array.isArray(views) || views.length !== 3) {
+    throw new Error('Business closure component build requires exactly three extracted views.');
+  }
+  const componentKeys = new Set();
+  const definitions = views.map((view) => {
+    const componentKey = String(view?.componentKey || '');
+    if (!/^[A-Z][A-Za-z0-9]+$/.test(componentKey) || componentKeys.has(componentKey)) {
+      throw new Error(`Invalid or duplicate business closure component key: ${componentKey}`);
+    }
+    componentKeys.add(componentKey);
+    const compiled = compileFrontendTemplate(view.template);
+    return `components[${JSON.stringify(componentKey)}]={name:${JSON.stringify(componentKey)},props:{ctx:{type:Object,required:true}},setup(props){return new Proxy({},{get(target,key){if(key==="ctx")return props.ctx;return props.ctx?.[key]??target[key]},set(target,key,value){if(props.ctx){props.ctx[key]=value;return true}target[key]=value;return true},has(target,key){return key in target||!!props.ctx},ownKeys(target){return Reflect.ownKeys(target)},getOwnPropertyDescriptor(){return{enumerable:true,configurable:true}}})},render:(function(Vue){${compiled}})(Vue)};`;
+  }).join('');
+  const wrapped = `(()=>{const components=window.SUXI_SYSTEM_COMPONENTS||(window.SUXI_SYSTEM_COMPONENTS={});${definitions}})();`;
+  const result = await minify(
+    { 'business-closure-views.js': wrapped },
+    structuredClone(FRONTEND_TEMPLATE_MINIFY_OPTIONS),
+  );
+  if (!result.code) throw new Error('Terser returned an empty business closure component artifact.');
+  return result.code;
+}
+
 const readText = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
 
 async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
@@ -116,6 +140,8 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   const appMainPath = path.join(repoRoot, 'public/app-main.js');
   const dataConfigDialogsTemplatePath = path.join(repoRoot, DATA_CONFIG_DIALOGS_TEMPLATE_RELATIVE_PATH);
   const dataConfigDialogsArtifactPath = path.join(repoRoot, DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH);
+  const businessClosureViewsArtifactPath = path.join(repoRoot, BUSINESS_CLOSURE_VIEWS_ARTIFACT_RELATIVE_PATH);
+  const businessClosureLoaderPath = path.join(repoRoot, BUSINESS_CLOSURE_LOADER_RELATIVE_PATH);
   const templateSnapshotBuffer = fs.existsSync(templatePath) ? fs.readFileSync(templatePath) : Buffer.alloc(0);
   const templateSnapshot = templateSnapshotBuffer.toString('utf8');
   const artifact = readText(renderPath);
@@ -127,6 +153,8 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   const appMain = readText(appMainPath);
   const dataConfigDialogsTemplate = readText(dataConfigDialogsTemplatePath);
   const dataConfigDialogsArtifact = readText(dataConfigDialogsArtifactPath);
+  const businessClosureViewsArtifact = readText(businessClosureViewsArtifactPath);
+  const businessClosureLoader = readText(businessClosureLoaderPath);
   const failures = [];
   let fragmentSource = null;
   let startupFragmentSource = null;
@@ -134,6 +162,7 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   let rebuilt = '';
   let startupRebuilt = '';
   let dataConfigDialogsRebuilt = '';
+  let businessClosureViewsRebuilt = '';
 
   if (!templateSnapshotBuffer.length) failures.push('resources/frontend/app-template.html is missing or empty.');
   try {
@@ -183,6 +212,15 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
       failures.push(error.message);
     }
   }
+  if (fragmentSource?.businessClosureViews) {
+    try {
+      businessClosureViewsRebuilt = await buildBusinessClosureViewsComponent(
+        fragmentSource.businessClosureViews,
+      );
+    } catch (error) {
+      failures.push(error.message);
+    }
+  }
   if (!artifact) failures.push('public/app-render.min.js is missing or empty.');
   else if (rebuilt && artifact !== rebuilt) failures.push('public/app-render.min.js is stale or not generated by the pinned build contract.');
   if (!startupArtifact) failures.push('public/app-startup-render.min.js is missing or empty.');
@@ -190,6 +228,31 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   if (!dataConfigDialogsArtifact) failures.push(`${DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH} is missing or empty.`);
   else if (dataConfigDialogsRebuilt && dataConfigDialogsArtifact !== dataConfigDialogsRebuilt) {
     failures.push(`${DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH} is stale or not generated by the pinned template build contract.`);
+  }
+  if (!businessClosureViewsArtifact) {
+    failures.push(`${BUSINESS_CLOSURE_VIEWS_ARTIFACT_RELATIVE_PATH} is missing or empty.`);
+  } else if (businessClosureViewsRebuilt && businessClosureViewsArtifact !== businessClosureViewsRebuilt) {
+    failures.push(`${BUSINESS_CLOSURE_VIEWS_ARTIFACT_RELATIVE_PATH} is stale or not generated by the pinned template build contract.`);
+  }
+  const businessClosureViewsArtifactHash = businessClosureViewsArtifact
+    ? crypto.createHash('sha256').update(businessClosureViewsArtifact).digest('hex').slice(0, 10)
+    : '';
+  let businessClosureViewsVersion = null;
+  if (!businessClosureLoader) {
+    failures.push(`${BUSINESS_CLOSURE_LOADER_RELATIVE_PATH} is missing or empty.`);
+  } else {
+    try {
+      businessClosureViewsVersion = readFrontendAssetVersion(
+        businessClosureLoader,
+        'business-closure-views.js',
+      );
+    } catch (error) {
+      failures.push(error.message);
+    }
+    if (businessClosureViewsArtifactHash
+      && businessClosureViewsVersion?.hash !== businessClosureViewsArtifactHash) {
+      failures.push('The business closure loader must reference the current business closure views content hash.');
+    }
   }
   if (!runtimeVue) failures.push('public/vue.runtime.global.prod.js is missing or empty.');
   else if (runtimeVue !== pinnedRuntimeVue) failures.push('The runtime-only Vue artifact must exactly match pinned vue@3.5.32.');
@@ -212,6 +275,30 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
     || !dataConfigDialogsTemplate.includes('v-if="showDataConfigModal"')) {
     failures.push('The data-config dialogs component template is missing the preserved modal body.');
   }
+  for (const wrapper of [
+    '<knowledge-promotion-workbench-view :ctx="$root"></knowledge-promotion-workbench-view>',
+    '<home-temporal-trial-view v-if="!dualOtaPmsSelected" :ctx="$root"></home-temporal-trial-view>',
+    '<knowledge-xlsx-import-dialog-view v-if="showKnowledgeCenterImportModal" :ctx="$root"></knowledge-xlsx-import-dialog-view>',
+  ]) {
+    if (!templateSnapshot.includes(wrapper)) {
+      failures.push(`The root render is missing the extracted business closure wrapper: ${wrapper}.`);
+    }
+  }
+  for (const componentKey of [
+    'KnowledgePromotionWorkbenchBody',
+    'HomeTemporalTrialBody',
+    'KnowledgeXlsxImportDialogBody',
+  ]) {
+    if (!businessClosureViewsArtifact.includes(componentKey)) {
+      failures.push(`The business closure component artifact is missing ${componentKey}.`);
+    }
+    if (!businessClosureLoader.includes(componentKey)) {
+      failures.push(`The business closure lazy loader is missing ${componentKey}.`);
+    }
+  }
+  if (!appMain.includes('DataConfigDialogs, ...systemComponents')) {
+    failures.push('The authenticated entry must register the lazy business closure component loader.');
+  }
 
   let runtimeAssetReferences = [];
   let runtimeAssetEntries = [];
@@ -224,6 +311,7 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
     requireUniqueFrontendRuntimeAssetReference(html, 'app-render.min.js');
     requireUniqueFrontendRuntimeAssetReference(html, 'app-startup-render.min.js');
     requireUniqueFrontendRuntimeAssetReference(html, 'vue.runtime.global.prod.js');
+    requireUniqueFrontendRuntimeAssetReference(html, 'components/system/business-closure-loader.js');
     renderVersion = readFrontendAssetVersion(html, 'app-render.min.js');
     startupRenderVersion = readFrontendAssetVersion(html, 'app-startup-render.min.js');
     runtimeVueVersion = readFrontendAssetVersion(html, 'vue.runtime.global.prod.js');
@@ -234,6 +322,9 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   const renderHash = artifact ? crypto.createHash('sha256').update(artifact).digest('hex').slice(0, 10) : '';
   const startupRenderHash = startupArtifact ? crypto.createHash('sha256').update(startupArtifact).digest('hex').slice(0, 10) : '';
   const runtimeVueHash = runtimeVue ? crypto.createHash('sha256').update(runtimeVue).digest('hex').slice(0, 10) : '';
+  const businessClosureLoaderHash = businessClosureLoader
+    ? crypto.createHash('sha256').update(businessClosureLoader).digest('hex').slice(0, 10)
+    : '';
   if (renderHash && renderVersion?.hash !== renderHash) {
     failures.push('public/index.html must reference the current precompiled render content hash.');
   }
@@ -242,6 +333,18 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   }
   if (runtimeVueHash && runtimeVueVersion?.hash !== runtimeVueHash) {
     failures.push('public/index.html must reference the current runtime-only Vue content hash.');
+  }
+  let businessClosureLoaderVersion = null;
+  try {
+    businessClosureLoaderVersion = readFrontendAssetVersion(
+      html,
+      'components/system/business-closure-loader.js',
+    );
+  } catch (error) {
+    failures.push(error.message);
+  }
+  if (businessClosureLoaderHash && businessClosureLoaderVersion?.hash !== businessClosureLoaderHash) {
+    failures.push('public/index.html must reference the current business closure loader content hash.');
   }
   if (runtimeAssets[0] !== 'vue.runtime.global.prod.js'
     || runtimeAssets.at(-3) !== 'app-startup-render.min.js'
@@ -254,6 +357,7 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   )?.phase;
   if (phaseFor('app-startup-render.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
     || phaseFor('app-main.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('components/system/business-closure-loader.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
     || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
     failures.push('The home startup render and app entry must load at startup while the full render waits until after first paint.');
   }
@@ -268,11 +372,15 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   const dataConfigDialogsArtifactHash = dataConfigDialogsArtifact
     ? crypto.createHash('sha256').update(dataConfigDialogsArtifact).digest('hex').slice(0, 10)
     : '';
+  const businessClosureViewsArtifactBytes = Buffer.byteLength(businessClosureViewsArtifact);
+  const businessClosureViewsArtifactGzipBytes = businessClosureViewsArtifact
+    ? gzipSync(businessClosureViewsArtifact, { level: 6 }).length
+    : 0;
   const renderToTemplateRatio = templateSnapshotBuffer.length > 0
     ? renderBytes / templateSnapshotBuffer.length
     : 0;
   if (artifact && renderBytes >= FRONTEND_RENDER_RAW_MAX_BYTES) {
-    failures.push('The precompiled render artifact exceeded the 1.455 MB raw ceiling.');
+    failures.push('The precompiled render artifact exceeded the 1.425 MB raw ceiling.');
   }
   if (artifact && renderToTemplateRatio >= FRONTEND_RENDER_TO_TEMPLATE_MAX_RATIO) {
     failures.push('The precompiled render artifact exceeded 66% of the canonical template size.');
@@ -307,6 +415,15 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
       data_config_dialogs_artifact_bytes: dataConfigDialogsArtifactBytes,
       data_config_dialogs_artifact_gzip_bytes: dataConfigDialogsArtifactGzipBytes,
       data_config_dialogs_artifact_hash: dataConfigDialogsArtifactHash,
+      business_closure_view_count: fragmentSource?.businessClosureViews?.length ?? 0,
+      business_closure_views_artifact_bytes: businessClosureViewsArtifactBytes,
+      business_closure_views_artifact_gzip_bytes: businessClosureViewsArtifactGzipBytes,
+      business_closure_views_artifact_hash: businessClosureViewsArtifactHash,
+      business_closure_loader_bytes: Buffer.byteLength(businessClosureLoader),
+      business_closure_loader_gzip_bytes: businessClosureLoader
+        ? gzipSync(businessClosureLoader, { level: 6 }).length
+        : 0,
+      business_closure_loader_hash: businessClosureLoaderHash,
       runtime_vue_hash: runtimeVueHash,
       runtime_vue_bytes: Buffer.byteLength(runtimeVue),
       runtime_vue_gzip_bytes: runtimeVue ? gzipSync(runtimeVue, { level: 6 }).length : 0,

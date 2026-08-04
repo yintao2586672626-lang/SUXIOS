@@ -40,27 +40,24 @@ test('self-service UI scopes every status, save and test request to the selected
   assert.match(routes, /Route::group\('api\/wechat-notification'[\s\S]+?->middleware\(\\app\\middleware\\Auth::class\)/);
 });
 
-test('enterprise WeChat persists the selected hotel and otherwise defaults to 敦煌漠蓝新', () => {
-  assert.match(appMain, /const DEFAULT_WECHAT_NOTIFICATION_HOTEL_NAME = '敦煌漠蓝新';/);
+test('enterprise WeChat persists its explicit selection and otherwise inherits only the valid main hotel', () => {
   assert.match(appMain, /suxios_wechat_notification_hotel_\$\{user\.value\?\.id \|\| 'guest'\}_v1/);
   const ensureHotel = appMain.slice(
     appMain.indexOf('const ensureWechatNotificationHotel = () => {'),
     appMain.indexOf('const loadWechatNotificationStatus = async () => {'),
   );
-  assert.match(
-    ensureHotel,
-    /const defaultHotel = options\.find\([\s\S]+?hotel\?\.name[\s\S]+?DEFAULT_WECHAT_NOTIFICATION_HOTEL_NAME/,
-  );
+  assert.match(ensureHotel, /const storedHotel = options\.find/);
+  assert.match(ensureHotel, /const mainHotelId = String\(filterReportHotel\.value \|\| ''\)\.trim\(\)/);
+  assert.match(ensureHotel, /const mainHotel = options\.find/);
   assert.ok(
-    ensureHotel.indexOf('if (currentExists) {') < ensureHotel.indexOf('const defaultHotel ='),
+    ensureHotel.indexOf('if (currentExists) {') < ensureHotel.indexOf('const storedHotel ='),
     'an explicit current selection must remain stable',
   );
   assert.ok(
-    ensureHotel.indexOf('storedHotel?.id') < ensureHotel.indexOf('defaultHotel?.id')
-      && ensureHotel.indexOf('defaultHotel?.id') < ensureHotel.indexOf('preferred?.id'),
-    'a saved selection should win; 敦煌漠蓝新 should remain the first-use fallback',
+    ensureHotel.indexOf('storedHotel?.id') < ensureHotel.indexOf('mainHotel?.id'),
+    'a saved notification selection should win over the system main hotel',
   );
-  assert.match(appMain, /\(storedHotel \|\| defaultHotel \|\| preferredHotel \|\| options\[0\]\)\.id/);
+  assert.doesNotMatch(ensureHotel, /options\[0\]|defaultHotel|preferred|user\.value\?\.hotel_id/);
 });
 
 test('Webhook is password-only input, is cleared after save, and only backend mask is rendered', () => {

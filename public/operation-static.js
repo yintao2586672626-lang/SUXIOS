@@ -380,6 +380,7 @@ window.SUXI_OPERATION_STATIC = (() => {
     };
     const operationExecutionNodeRecordText = (item = {}) => {
         const node = item?.evidence_summary?.node_record || {};
+        if (node.status === 'identity_mismatch') return '节点检查身份不一致，已拒绝回填';
         if (node.status !== 'available') return '节点检查未记录';
         const period = ({ weekday: '周内', weekend: '周末', holiday: '节假日', special_event: '特殊事件' }[node.operating_period] || '周期未回读');
         const alignment = ({ operator_confirmed: '房态人工确认一致', mismatch: '房态不一致', unverified: '房态未核验' }[node.room_status_alignment] || '房态状态未回读');

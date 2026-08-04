@@ -21,13 +21,14 @@ test('dashboard hotel preference is restored inside the current account scope', 
   assert.match(applyDefaultReportHotel, /filterReportHotel\.value = defaultHotelId/);
 });
 
-test('yesterday operations inherits the saved dashboard hotel before the legacy fallback', () => {
+test('yesterday operations inherits only the explicit ordinary hotel context', () => {
   assert.ok(refreshStart >= 0, 'refreshCoreOperationsLoop must exist');
   assert.ok(refreshEnd > refreshStart, 'refreshCoreOperationsLoop must have a bounded source slice');
   assert.match(
     refreshCoreOperationsLoop,
-    /options\.hotelId\s*\|\|\s*coreOperationsHotelId\.value\s*\|\|\s*filterReportHotel\.value\s*\|\|\s*getAutoFetchHotelId\(\)/,
+    /options\.hotelId\s*\|\|\s*coreOperationsHotelId\.value\s*\|\|\s*filterReportHotel\.value/,
   );
+  assert.doesNotMatch(refreshCoreOperationsLoop, /getAutoFetchHotelId\(\)/);
   assert.match(
     refreshCoreOperationsLoop,
     /operationHotelOptions\.value\.some\([\s\S]*String\(hotel\?\.id \|\| ''\)\.trim\(\) === hotelId/,

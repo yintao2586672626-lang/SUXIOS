@@ -126,6 +126,111 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         self::assertSame(1, (int)Db::name('dingdandao_operating_target_captures')->count());
     }
 
+    public function testTrustedDailyDetailReconciliationDoesNotRequireProviderRoomTypeIds(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $expectedHotelName = (string)$input['provider_hotel_name'];
+        $input['room_fee_summary_rows'] = [];
+
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            $expectedHotelName,
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertSame('verified', $capture['capture_status']);
+        self::assertSame('verified', $capture['quality_status']);
+        self::assertSame('matched', $capture['reconciliation_status']);
+        self::assertSame(
+            'details_to_summary_with_grand_total',
+            $capture['reconciliation_basis']
+        );
+        self::assertSame([], $capture['room_fee_summary_rows']);
+        self::assertNotContains(
+            'dingdandao_room_fee_summary_missing',
+            array_column($capture['gaps'], 'code')
+        );
+        self::assertSame(
+            'verified',
+            $capture['component_coverage']['components']['operating_core']['status']
+        );
+        self::assertSame(
+            'derived_from_room_details_with_grand_total',
+            $capture['component_coverage']['components']['operating_core']['room_fee_summary_evidence_status']
+        );
+        self::assertTrue($capture['collection_result']['claim']['allowed']);
+    }
+
+    public function testTrustedDailyDetailReconciliationStillRejectsAmountMismatch(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $expectedHotelName = (string)$input['provider_hotel_name'];
+        $input['room_fee_summary_rows'] = [];
+        $input['room_fee_details'][0]['room_fee'] += 0.02;
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('dingdandao_capture_not_verified');
+        try {
+            $service->save(
+                8,
+                5,
+                7,
+                $expectedHotelName,
+                $input,
+                true,
+                'provider-hotel-5'
+            );
+        } finally {
+            self::assertSame(
+                0,
+                (int)Db::name('dingdandao_operating_target_captures')->count()
+            );
+        }
+    }
+
+    public function testTrustedCaptureDateBoundaryUsesAsiaShanghaiEvenWhenPhpDefaultTimezoneIsUtc(): void
+    {
+        $previousTimezone = date_default_timezone_get();
+        date_default_timezone_set('UTC');
+        try {
+            $service = new DingdandaoOperatingTargetCaptureService(
+                static fn(): DateTimeImmutable => new DateTimeImmutable(
+                    '2026-07-27 01:00:00',
+                    new \DateTimeZone('Asia/Shanghai')
+                )
+            );
+            $input = $this->validInput();
+            // 2026-07-26 16:30 UTC is 2026-07-27 00:30 in the business
+            // timezone. A UTC-only date check would incorrectly reject it.
+            $input['captured_at'] = '2026-07-26T16:30:00+00:00';
+
+            $capture = $service->save(
+                8,
+                5,
+                7,
+                (string)$input['provider_hotel_name'],
+                $input,
+                true,
+                (string)$input['provider_hotel_id']
+            );
+
+            self::assertSame('verified', $capture['capture_status']);
+            self::assertSame('2026-07-27 00:30:00', $capture['captured_at']);
+        } finally {
+            date_default_timezone_set($previousTimezone);
+        }
+    }
+
     public function testTrustedCaptureSavesReadsBackAndReusesExactFacts(): void
     {
         $service = new DingdandaoOperatingTargetCaptureService(

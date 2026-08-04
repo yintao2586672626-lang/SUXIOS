@@ -427,6 +427,10 @@ final class SchemaVersionServiceTest extends TestCase
                 '9de6848d905344e105d7d0b3e44a41fd89b0af2c633c78769dc9610196491167',
                 '3e588a9fc391f065976cf9a99a9db0c4ebe618014d2cf491df3c3c012059cce0',
             ],
+            '20260803_enforce_single_active_temporal_forecast_trial.sql' => [
+                '867b1adbbe762b04101dfbe6ef91f6c613fd9ed2149ba8846ebb1780f0bfc35e',
+                '578e9f96fa438e8ff2ba2539dca34322889ec2e16933a7ebe3087d4f1709cd70',
+            ],
         ];
         $insert = $this->pdo->prepare(
             'INSERT INTO schema_versions '
@@ -458,6 +462,19 @@ final class SchemaVersionServiceTest extends TestCase
             $select->execute([$migration]);
             self::assertSame($requiredChecksum, $select->fetchColumn());
         }
+    }
+
+    public function testSingleActiveTrialMigrationUsesRepeatableMariaDbGuards(): void
+    {
+        $migration = (string)file_get_contents(
+            __DIR__ . '/../database/migrations/20260803_enforce_single_active_temporal_forecast_trial.sql'
+        );
+
+        self::assertStringContainsString('ADD COLUMN IF NOT EXISTS `active_slot`', $migration);
+        self::assertStringContainsString(
+            'ADD UNIQUE INDEX IF NOT EXISTS `uniq_temporal_forecast_trial_active`',
+            $migration
+        );
     }
 
     public function testUnknownRegistrationKeepsDatabaseOutOfReadyState(): void

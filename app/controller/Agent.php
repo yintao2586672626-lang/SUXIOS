@@ -290,8 +290,8 @@ class Agent extends Base
         if ($hotelId <= 0) {
             return $this->error('hotel_id must be a positive system hotel id', 422);
         }
-        if (!in_array($platform, ['ctrip', 'meituan', 'qunar'], true)) {
-            return $this->error('platform 仅支持 ctrip、meituan、qunar', 422);
+        if (!in_array($platform, ['ctrip', 'meituan', 'qunar', 'all_ota'], true)) {
+            return $this->error('platform 仅支持 ctrip、meituan、qunar、all_ota', 422);
         }
         if (!$this->isDateString($startDate) || !$this->isDateString($endDate) || strtotime($startDate) > strtotime($endDate)) {
             return $this->error('start_date 和 end_date 必须是有效的 YYYY-MM-DD 范围', 422);
@@ -395,8 +395,8 @@ class Agent extends Base
             $this->isAllowedLlmModelKey($modelKey)
         );
         $analysisRuntime['model_selection'] = $modelSelection;
-        if (!in_array($platform, ['ctrip', 'meituan', 'qunar'], true)) {
-            return $this->error('platform 仅支持 ctrip、meituan、qunar', 422);
+        if (!in_array($platform, ['ctrip', 'meituan', 'qunar', 'all_ota'], true)) {
+            return $this->error('platform 仅支持 ctrip、meituan、qunar、all_ota', 422);
         }
         if (!$this->isDateString($startDate) || !$this->isDateString($endDate)) {
             return $this->error('start_date 和 end_date 必须为 YYYY-MM-DD', 422);
@@ -409,7 +409,7 @@ class Agent extends Base
         }
 
         try {
-            if ($hotelIdRaw === '' && $configId !== '') {
+            if ($platform !== 'all_ota' && $hotelIdRaw === '' && $configId !== '') {
                 $config = $this->resolveOtaDiagnosisConfig($platform, $configId);
                 if (!empty($config)) {
                     $hotelId = (int) ($config['hotel_id'] ?? $hotelId);
@@ -424,6 +424,66 @@ class Agent extends Base
                 return $this->error('hotel_id must be a positive system hotel id', 422);
             }
             $this->assertOtaDiagnosisHotelPermission($hotelId, 'operation.view');
+
+            if ($platform === 'all_ota') {
+                $platformDataSets = [];
+                foreach (['ctrip', 'meituan'] as $scopedPlatform) {
+                    // Cross-channel diagnosis is bound only by the explicit
+                    // system hotel id. A platform config id or platform hotel
+                    // id must never infer or broaden this scope.
+                    $platformDataSets[$scopedPlatform] = $this->queryOtaDiagnosisData(
+                        $hotelId,
+                        '',
+                        '',
+                        $scopedPlatform,
+                        $startDate,
+                        $endDate,
+                        $analysisType
+                    );
+                }
+                $effectiveHotelName = $hotelName;
+                foreach ($platformDataSets as $dataSet) {
+                    $candidateName = trim((string)($dataSet['hotel']['name'] ?? ''));
+                    if ($effectiveHotelName === '' && $candidateName !== '') {
+                        $effectiveHotelName = $candidateName;
+                    }
+                }
+                $result = $this->buildAllOtaDiagnosisResult(
+                    $platformDataSets,
+                    $hotelId,
+                    $effectiveHotelName,
+                    $startDate,
+                    $endDate,
+                    $analysisType
+                );
+                $result['analysis_runtime'] = array_merge($analysisRuntime, [
+                    'mode' => 'deterministic_cross_channel_rules',
+                    'model_called' => false,
+                    'use_rules_only' => true,
+                    'fallback_reason' => 'all_ota_metrics_kept_per_platform',
+                ]);
+                $result['ai_governance'] = $this->buildAiGovernancePayload('ota_diagnosis', $result, [
+                    'ok' => true,
+                    'provider' => 'local',
+                    'model_key' => 'deterministic_cross_channel_rules',
+                    'model' => 'ota_diagnosis_cross_channel_rule_engine',
+                    'data' => [
+                        'governance' => [
+                            'status' => 'skipped_cross_channel_metric_comparability_guard',
+                            'prompt_version' => 'ota_diagnosis.all_ota.rules_only.v1',
+                        ],
+                    ],
+                ]);
+                $result = $this->finalizeAllOtaDiagnosisDecision($result);
+                $result = $this->persistOtaDiagnosisResult($result, $hotelId, $platform);
+
+                return $this->success(
+                    $result,
+                    ($result['coverage']['complete'] ?? false) === true
+                        ? 'success'
+                        : '携程+美团 OTA 诊断因证据覆盖不完整而受阻'
+                );
+            }
 
             $dataSet = $this->queryOtaDiagnosisData($hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $startDate, $endDate, $analysisType);
             if (!$this->hasOtaDiagnosisData($dataSet)) {

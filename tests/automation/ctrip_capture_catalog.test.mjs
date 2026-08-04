@@ -10,6 +10,7 @@ import {
   buildCtripStandardRowsFromFacts,
   ctripCatalogSummary,
   extractCtripCatalogFacts,
+  filterCtripCatalogFactsForProfileFields,
   findCtripEndpointByUrl,
   generateCtripCaptureMarkdown,
   getCtripCapturePlan,
@@ -17,6 +18,32 @@ import {
   normalizeCtripCapturePlan,
   normalizeCtripCaptureSections,
 } from '../../scripts/lib/ctrip_capture_catalog.mjs';
+
+test('keeps structural date facts when Profile fields filter business metrics', () => {
+  const base = {
+    platform: 'ctrip',
+    section: 'traffic_report',
+    endpoint_id: 'traffic_flow_transform',
+    data_type: 'traffic',
+    data_date: '2026-08-03',
+    captured_at: '2026-08-03T11:00:00.000Z',
+    source_parent_path: '0',
+  };
+  const filtered = filterCtripCatalogFactsForProfileFields([
+    { ...base, metric_key: 'date', value: '2026-08-02', source_key: 'date', source_path: '0.date' },
+    { ...base, metric_key: 'list_exposure', value: 547, source_key: 'listExposure', source_path: '0.listExposure' },
+    { ...base, metric_key: 'flow_rate', value: 19.74, source_key: 'flowRate', source_path: '0.flowRate' },
+  ], new Set(['list_exposure']));
+
+  assert.deepEqual(filtered.map((fact) => fact.metric_key), ['date', 'list_exposure']);
+  const rows = buildCtripStandardRowsFromFacts(filtered, {
+    dataDate: '2026-08-03',
+    defaultDataDate: '2026-08-03',
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_date, '2026-08-02');
+  assert.equal(rows[0].list_exposure, 547);
+});
 
 test('normalizes Ctrip capture presets for core and wide collection', () => {
   assert.deepEqual(normalizeCtripCaptureSections('core'), [
@@ -115,6 +142,11 @@ test('splits lightweight Ctrip JSON capture into past, realtime, intraday trend,
 
   const full = getCtripCapturePlan('full_diagnostic');
   assert.equal(full.lightweight, false);
+  assert.deepEqual(full.gate_endpoint_ids_by_section, {
+    business_overview: ['business_market_overview'],
+    business_weekly_overview: ['weekly_report'],
+    traffic_report: ['traffic_order_overview'],
+  });
   assert.equal(getCtripSectionInteractionPlan('traffic_report', 'full').length > realtimeTraffic.length, true);
 });
 

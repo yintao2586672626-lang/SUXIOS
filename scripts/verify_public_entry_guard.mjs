@@ -292,7 +292,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     { name: 'Vue mount root', pattern: /id=["']app["']/ },
     { name: 'local Vue runtime', pattern: /vue\.runtime\.global\.prod\.js/ },
     { name: 'local Tailwind stylesheet', pattern: /tailwind\.min\.css/ },
-    { name: 'application stylesheet', pattern: /style\.css/ },
+    { name: 'application stylesheet', pattern: /style(?:\.min)?\.css/ },
     { name: 'Vue app bootstrap', pattern: /createApp|Vue\.createApp/ },
   ];
 
@@ -1042,9 +1042,10 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('const applyVersion = ++ctripHotelConfigApplyVersion;')
     || !content.includes('const config = resolveCtripConfigMetadata(configSource);')
     || !content.includes('isCtripRankingFormAlignedWithConfig(ctripForm.value, config, { selectedHotelId: requestedHotelId })')
-    || !content.includes('@change="scheduleCtripHotelConfigApply"')
+    || !content.includes('@change="handlePlatformHotelContextChange"')
+    || !content.includes('else openCtripManualTab(onlineDataTab.value);')
     || content.includes('@change="applyCtripHotelConfig"')) {
-    failures.push('public/index.html Ctrip hotel selection must apply metadata without credential-detail loading and skip redundant form application when already aligned.');
+    failures.push('public/index.html platform header hotel selection must apply Ctrip metadata without credential-detail loading and skip redundant form application when already aligned.');
   }
   if (content.includes("request('/online-data/get-ctrip-config-detail")
     || content.includes('ctripConfigDetailLoadingPromises.set(')
@@ -1222,9 +1223,10 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes('CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS')
     || !ctripEbookingStartupRefreshSource.includes('const systemHotelId = await syncCtripOverviewTargetHotel({ loadConfig: false });')
     || !ctripEbookingStartupRefreshSource.includes('const [latestResult, configResult] = await Promise.allSettled([')
+    || !ctripEbookingStartupRefreshSource.includes('hydrateDisplay: false,')
     || !ctripEbookingStartupRefreshSource.includes('hotelId: systemHotelId,')
-    || !ctripEbookingStartupRefreshSource.includes('await applyCtripHotelConfig(false, {')
-    || !ctripEbookingStartupRefreshSource.includes('refreshLatest: false,')
+    || !ctripEbookingStartupRefreshSource.includes('await syncCtripOverviewTargetHotel({ loadConfig: true });')
+    || ctripEbookingStartupRefreshSource.includes('await applyCtripHotelConfig(false, {')
     || !ctripEbookingStartupRefreshSource.includes('}, 0);')
     || ctripEbookingStartupRefreshSource.includes('loadCookiesList(')
     || ctripEbookingStartupRefreshSource.includes('loadBookmarklet(')) {
@@ -1566,9 +1568,9 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   if (!content.includes("const buildMeituanBrowserSupplementCaptureState = requireMeituanStatic('buildMeituanBrowserSupplementCaptureState');")
     || !meituanStaticContent.includes('const buildMeituanBrowserSupplementCaptureState = ({')
     || !runMeituanBrowserSupplementCaptureSource.includes('const supplementState = buildMeituanBrowserSupplementCaptureState({')
-    || !runMeituanBrowserSupplementCaptureSource.includes('autoFetchHotelId: autoFetchHotelId.value,')
     || !runMeituanBrowserSupplementCaptureSource.includes('formHotelId: meituanForm.value.hotelId,')
-    || !runMeituanBrowserSupplementCaptureSource.includes('userHotelId: user.value?.hotel_id,')
+    || runMeituanBrowserSupplementCaptureSource.includes('autoFetchHotelId: autoFetchHotelId.value,')
+    || runMeituanBrowserSupplementCaptureSource.includes('userHotelId: user.value?.hotel_id,')
     || !runMeituanBrowserSupplementCaptureSource.includes('showToast(supplementState.message, supplementState.level);')
     || !runMeituanBrowserSupplementCaptureSource.includes('meituanForm.value.hotelId = supplementState.hotelId;')
     || !runMeituanBrowserSupplementCaptureSource.includes('runMeituanBrowserCaptureForSections(supplementState.captureSections, { dataPeriod: supplementState.dataPeriod });')
@@ -1585,7 +1587,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !copyMeituanBrowserCaptureCommandSource.includes('const copyState = buildMeituanBrowserCaptureCopyCommandState({')
     || !copyMeituanBrowserCaptureCommandSource.includes('storeId: meituanBrowserCaptureForm.value.storeId,')
     || !copyMeituanBrowserCaptureCommandSource.includes('formHotelId: meituanForm.value.hotelId,')
-    || !copyMeituanBrowserCaptureCommandSource.includes('userHotelId: user.value?.hotel_id,')
+    || copyMeituanBrowserCaptureCommandSource.includes('userHotelId: user.value?.hotel_id,')
     || !copyMeituanBrowserCaptureCommandSource.includes('if (!copyState.canCopy) {')
     || !copyMeituanBrowserCaptureCommandSource.includes('showToast(copyState.message, copyState.level);')
     || copyMeituanBrowserCaptureCommandSource.includes('!meituanBrowserCaptureForm.value.storeId')
@@ -1618,11 +1620,12 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !meituanStaticContent.includes('const resolveMeituanBrowserCaptureSystemHotelId = ({')
     || !runMeituanBrowserCaptureSource.includes('getSystemHotelId: () => resolveMeituanBrowserCaptureSystemHotelId({')
     || !runMeituanBrowserCaptureSource.includes('formHotelId: meituanForm.value.hotelId,')
-    || !runMeituanBrowserCaptureSource.includes('autoFetchHotelId: autoFetchHotelId.value,')
-    || !runMeituanBrowserCaptureSource.includes('userHotelId: user.value?.hotel_id,')
+    || runMeituanBrowserCaptureSource.includes('autoFetchHotelId: autoFetchHotelId.value,')
+    || runMeituanBrowserCaptureSource.includes('userHotelId: user.value?.hotel_id,')
     || !saveMeituanCapturedPayloadSource.includes('getSystemHotelId: () => resolveMeituanBrowserCaptureSystemHotelId({')
     || !saveMeituanCapturedPayloadSource.includes('formHotelId: meituanForm.value.hotelId,')
-    || !saveMeituanCapturedPayloadSource.includes('userHotelId: user.value?.hotel_id,')
+    || saveMeituanCapturedPayloadSource.includes('userHotelId: user.value?.hotel_id,')
+    || !meituanStaticContent.includes("return String(formHotelId || '').trim() || null;")
     || runMeituanBrowserCaptureSource.includes('meituanForm.value.hotelId || autoFetchHotelId.value || user.value?.hotel_id')
     || saveMeituanCapturedPayloadSource.includes('meituanForm.value.hotelId || user.value?.hotel_id')) {
     failures.push('public/index.html Meituan browser capture system hotel id resolution must stay in public/meituan-static.js.');
@@ -1838,12 +1841,25 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !/meituanConfigListLoaded && !selectedMeituanHotelConfig/.test(content)) {
     failures.push('public/index.html Meituan manual fetch must not show a slow pending match state and must keep failed/confirmed-missing states explicit.');
   }
+  const ctripPlatformPageTemplate = appTemplateSemanticContent.slice(
+    appTemplateSemanticContent.indexOf("<div v-if=\"currentPage === 'ctrip-ebooking'\">"),
+    appTemplateSemanticContent.indexOf("<div v-if=\"currentPage === 'ctrip-ebooking' && onlineDataTab === 'ctrip-fetch-settings'\""),
+  );
+  const meituanPlatformPageTemplate = appTemplateSemanticContent.slice(
+    appTemplateSemanticContent.indexOf("<div v-if=\"currentPage === 'meituan-ebooking'\">"),
+    appTemplateSemanticContent.indexOf("<div v-if=\"currentPage === 'agent-center'\">"),
+  );
   if (!content.includes('const ctripTargetHotelOptions = computed(() => {')
     || !content.includes('const meituanTargetHotelOptions = computed(() => {')
-    || !content.includes('v-for="hotel in ctripTargetHotelOptions"')
-    || !content.includes('v-for="hotel in meituanTargetHotelOptions"')
-    || !content.includes('仅显示已配置酒店')) {
-    failures.push('public/index.html manual OTA target hotel selects must only list platform-configured hotels.');
+    || !content.includes('data-testid="platform-hotel-context-select"')
+    || !content.includes("v-for=\"hotel in (platformHotelContext === 'meituan' ? meituanTargetHotelOptions : ctripTargetHotelOptions)\"")
+    || !content.includes('const platformHotelContext = computed(() => currentPage.value')
+    || ctripPlatformPageTemplate.includes('v-model="selectedCtripHotelId"')
+    || ctripPlatformPageTemplate.includes('v-model="autoFetchHotelId"')
+    || meituanPlatformPageTemplate.includes('v-model="meituanForm.hotelId"')
+    || !appTemplateSemanticContent.includes('v-model="ctripConfigForm.hotel_id"')
+    || !appTemplateSemanticContent.includes('v-model="meituanConfigForm.hotel_id"')) {
+    failures.push('public/index.html must expose one platform-scoped hotel selector in the sticky header, keep daily OTA subpages selector-free, and retain hotel binding selectors in platform configuration forms.');
   }
   if (!content.includes(':disabled="fetchingData || !canFetchMeituanRankingData()"')
     || !content.includes('const meituanManualFetchConfigProofPending = () => {')
@@ -2417,7 +2433,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !autoFetchPanelLoader.includes('const canLoadStatusBeforeHotels = !!autoFetchHotelId.value;')
     || !autoFetchPanelLoader.includes('const hotelsPromise = shouldLoadHotels ? loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS }) : Promise.resolve();')
     || !autoFetchPanelLoader.includes('if (canLoadStatusBeforeHotels) {\n                        await Promise.all([\n                            loadAutoFetchStatus({ detail: false }),\n                            hotelsPromise,\n                        ]);')
-    || !autoFetchPanelLoader.includes("await hotelsPromise;\n                    if (!isVisibleOnlineDataTab('platform-auto')) {\n                        return;\n                    }\n                    if (!autoFetchHotelId.value && hotels.value && hotels.value.length > 0) {")
+    || !autoFetchPanelLoader.includes("await hotelsPromise;\n                    if (!isVisibleOnlineDataTab('platform-auto')) {\n                        return;\n                    }\n                    if (!autoFetchHotelId.value) {\n                        autoFetchEnabled.value = false;\n                        autoFetchStatus.value = null;\n                        platformProfileStatus.value = { items: [], summary: {} };\n                        panelLoaded = true;\n                        return;\n                    }")
     || !autoFetchPanelLoader.includes('await loadAutoFetchStatus({ detail: false });')
     || !autoFetchPanelLoader.includes('if (panelLoaded) {')
     || !autoFetchPanelLoader.includes('else if (autoFetchPanelCache.promise === run) {')
@@ -2427,7 +2443,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || /scheduleAutoFetchStatusDetailRefresh\(\);/.test(autoFetchPanelLoader)
     || /schedulePlatformProfileStatusRefresh\(\{ silent: true \}\);/.test(autoFetchPanelLoader)
     || /await Promise\.all\(\[[\s\S]*loadAutoFetchStatus\(\)[\s\S]*loadPlatformProfileStatus/.test(autoFetchPanelLoader)) {
-    failures.push('public/index.html must let platform-auto first paint wait only for light auto-fetch status, and load hotels/status/static helper in parallel when the selected hotel is already known.');
+    failures.push('public/index.html must keep an unknown platform hotel unselected while preserving parallel light-status and hotel loading when the selected hotel is already known.');
   }
   if (!content.includes('const scheduleAutoFetchConfigListPrewarm = () => {')
     || !content.includes('!ctripConfigListLoaded.value && (!ctripConfigList.value || ctripConfigList.value.length === 0)')

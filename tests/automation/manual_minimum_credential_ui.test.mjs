@@ -762,11 +762,11 @@ test('Meituan ranking uses selected hotel config without exposing temporary fiel
     meituanStatic.indexOf('const buildMeituanBatchFetchResultEntry')
   );
 
-  assert.match(rankingPanel, /v-model="meituanForm\.hotelId"/);
-  assert.match(rankingPanel, /请选择目标酒店/);
+  assert.doesNotMatch(rankingPanel, /v-model="meituanForm\.hotelId"/);
+  assert.doesNotMatch(rankingPanel, /请选择目标酒店/);
   assert.match(rankingPanel, /meituan-hotel-picker/);
-  assert.match(rankingPanel, /id="meituan-ranking-hotel"/);
-  assert.match(rankingPanel, /仅显示已绑定美团账号的酒店/);
+  assert.doesNotMatch(rankingPanel, /id="meituan-ranking-hotel"/);
+  assert.match(rankingPanel, /酒店在美团项目顶栏统一切换/);
   assert.doesNotMatch(rankingPanel, /选择酒店和时间后更新竞争圈/);
   assert.match(rankingPanel, /每次获取一个周期，默认昨日/);
   assert.match(rankingPanel, /selectMeituanRankingDateRange\('custom'\)/);
@@ -1131,7 +1131,7 @@ test('Meituan browser capture preview is owned by the static helper', () => {
   assert.match(browserCapturePreview, /buildMeituanBrowserCaptureCommand\(\{/);
   assert.match(browserCapturePreview, /buildMeituanBrowserCaptureReadinessNotice\(\{/);
   assert.match(browserCapturePreview, /rankingForm: meituanForm\.value/);
-  assert.match(browserCapturePreview, /userHotelId: user\.value\?\.hotel_id/);
+  assert.doesNotMatch(browserCapturePreview, /userHotelId: user\.value\?\.hotel_id/);
   assert.match(browserCapturePreview, /hotelName: getHotelNameById\(meituanForm\.value\.hotelId\)/);
   assert.doesNotMatch(browserCapturePreview, /const sectionLabels/);
   assert.doesNotMatch(browserCapturePreview, /node scripts\/meituan_browser_capture\.mjs/);
@@ -1154,9 +1154,9 @@ test('Meituan browser capture preview is owned by the static helper', () => {
   assert.doesNotMatch(runMeituanBrowserCapturePreset, /meituanBrowserCaptureForm\.value\.dataPeriod = presetState\.dataPeriod;/);
   assert.doesNotMatch(runMeituanBrowserCapturePreset, /runMeituanBrowserCaptureForSections\(preset\.sections \|\| \[\]/);
   assert.match(runMeituanBrowserSupplementCapture, /const supplementState = buildMeituanBrowserSupplementCaptureState\(\{/);
-  assert.match(runMeituanBrowserSupplementCapture, /autoFetchHotelId: autoFetchHotelId\.value,/);
+  assert.doesNotMatch(runMeituanBrowserSupplementCapture, /autoFetchHotelId: autoFetchHotelId\.value,/);
   assert.match(runMeituanBrowserSupplementCapture, /formHotelId: meituanForm\.value\.hotelId,/);
-  assert.match(runMeituanBrowserSupplementCapture, /userHotelId: user\.value\?\.hotel_id,/);
+  assert.doesNotMatch(runMeituanBrowserSupplementCapture, /userHotelId: user\.value\?\.hotel_id,/);
   assert.match(runMeituanBrowserSupplementCapture, /showToast\(supplementState\.message, supplementState\.level\);/);
   assert.match(runMeituanBrowserSupplementCapture, /meituanForm\.value\.hotelId = supplementState\.hotelId;/);
   assert.match(runMeituanBrowserSupplementCapture, /runMeituanBrowserCaptureForSections\(supplementState\.captureSections, \{ dataPeriod: supplementState\.dataPeriod \}\);/);
@@ -1165,7 +1165,7 @@ test('Meituan browser capture preview is owned by the static helper', () => {
   assert.match(copyMeituanBrowserCaptureCommand, /const copyState = buildMeituanBrowserCaptureCopyCommandState\(\{/);
   assert.match(copyMeituanBrowserCaptureCommand, /storeId: meituanBrowserCaptureForm\.value\.storeId,/);
   assert.match(copyMeituanBrowserCaptureCommand, /formHotelId: meituanForm\.value\.hotelId,/);
-  assert.match(copyMeituanBrowserCaptureCommand, /userHotelId: user\.value\?\.hotel_id,/);
+  assert.doesNotMatch(copyMeituanBrowserCaptureCommand, /userHotelId: user\.value\?\.hotel_id,/);
   assert.match(copyMeituanBrowserCaptureCommand, /if \(!copyState\.canCopy\) \{/);
   assert.match(copyMeituanBrowserCaptureCommand, /showToast\(copyState\.message, copyState\.level\);/);
   assert.doesNotMatch(copyMeituanBrowserCaptureCommand, /!meituanBrowserCaptureForm\.value\.storeId/);
@@ -1177,15 +1177,15 @@ test('Meituan browser capture preview is owned by the static helper', () => {
   assert.doesNotMatch(clearMeituanBrowserCapturePayload, /meituanBrowserCaptureResult\.value = null;/);
   assert.match(runMeituanBrowserCapture, /getSystemHotelId: \(\) => resolveMeituanBrowserCaptureSystemHotelId\(\{/);
   assert.match(runMeituanBrowserCapture, /formHotelId: meituanForm\.value\.hotelId,/);
-  assert.match(runMeituanBrowserCapture, /autoFetchHotelId: autoFetchHotelId\.value,/);
-  assert.match(runMeituanBrowserCapture, /userHotelId: user\.value\?\.hotel_id,/);
+  assert.doesNotMatch(runMeituanBrowserCapture, /autoFetchHotelId: autoFetchHotelId\.value,/);
+  assert.doesNotMatch(runMeituanBrowserCapture, /userHotelId: user\.value\?\.hotel_id,/);
   assert.doesNotMatch(runMeituanBrowserCapture, /meituanForm\.value\.hotelId \|\| autoFetchHotelId\.value \|\| user\.value\?\.hotel_id/);
   assert.match(runMeituanBrowserProfileLoginOnly, /const loginOnlyOptions = buildMeituanBrowserProfileLoginOnlyRunOptions\(\);/);
   assert.match(runMeituanBrowserProfileLoginOnly, /await runMeituanBrowserCapture\(loginOnlyOptions\);/);
   assert.doesNotMatch(runMeituanBrowserProfileLoginOnly, /runMeituanBrowserCapture\(\{ loginOnly: true, bindDataSource: true \}\)/);
   assert.match(saveMeituanCapturedPayload, /getSystemHotelId: \(\) => resolveMeituanBrowserCaptureSystemHotelId\(\{/);
   assert.match(saveMeituanCapturedPayload, /formHotelId: meituanForm\.value\.hotelId,/);
-  assert.match(saveMeituanCapturedPayload, /userHotelId: user\.value\?\.hotel_id,/);
+  assert.doesNotMatch(saveMeituanCapturedPayload, /userHotelId: user\.value\?\.hotel_id,/);
   assert.doesNotMatch(saveMeituanCapturedPayload, /meituanForm\.value\.hotelId \|\| user\.value\?\.hotel_id/);
   assert.match(goConfigureMeituanForSelectedHotel, /const action = resolveMeituanSelectedHotelConfigAction\(\{/);
   assert.match(goConfigureMeituanForSelectedHotel, /hotels: hotels\.value,/);
@@ -1279,7 +1279,7 @@ test('Meituan browser capture preview is owned by the static helper', () => {
     formHotelId: '',
     autoFetchHotelId: ' 7 ',
     userHotelId: '99',
-  }), '7');
+  }), null);
   assert.equal(meituanStaticApi.resolveMeituanBrowserCaptureSystemHotelId({
     formHotelId: '',
     autoFetchHotelId: '',
@@ -1341,7 +1341,7 @@ test('Meituan browser capture preview is owned by the static helper', () => {
     userHotelId: '99',
   }))), {
     ok: true,
-    hotelId: '7',
+    hotelId: '58',
     captureSections: ['traffic', 'orders', 'reviews', 'ads'],
     dataPeriod: 'historical_daily',
     message: '',
@@ -3400,7 +3400,7 @@ test('Login background preload does not compete with cached-auth shell', () => {
 test('Login page uses SUXIOS brand instead of legacy Guilusuli brand', () => {
   const loginPanel = sliceFrom('<div v-if="!isLoggedIn"', '<!-- 登录表单 -->');
 
-  assert.match(html, /style\.css\?v=[^"']+/);
+  assert.match(html, /style\.min\.css\?v=[^"']+/);
   assert.match(loginPanel, /aria-label="宿析OS登录主视觉"/);
   assert.match(loginPanel, /<p class="login-brand-mark">宿析OS<\/p>/);
   assert.match(loginPanel, /src="images\/logo\.svg" alt="宿析OS"/);
@@ -4179,21 +4179,29 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
     delayMs: 0,
   });
   assert.equal(meituanStaticApi.resolveMeituanManualDefaultHotelIdFromState({
-    currentHotelId: '',
+    currentHotelId: 'ctrip-only',
+    storedHotelId: 'stored-7',
+    userHotelId: 'user-10',
     autoFetchHotelId: 'auto-7',
     selectedCtripHotelId: 'ctrip-8',
     onlineDataHotelId: 'filter-9',
-    userHotelId: 'user-10',
-    hotelPool: [{ id: 'pool-11' }],
-  }), 'auto-7');
+    hotelPool: [{ id: 'stored-7' }, { id: 'pool-11' }],
+  }), 'stored-7');
   assert.equal(meituanStaticApi.resolveMeituanManualDefaultHotelIdFromState({
     currentHotelId: '',
-    autoFetchHotelId: '',
-    selectedCtripHotelId: '',
-    onlineDataHotelId: '',
+    storedHotelId: '',
     userHotelId: '',
     hotelPool: [{ id: 'pool-11' }],
-  }), 'pool-11');
+  }), '');
+  assert.equal(meituanStaticApi.resolveMeituanManualDefaultHotelIdFromState({
+    currentHotelId: 'ctrip-only',
+    storedHotelId: '',
+    userHotelId: 'not-configured',
+    autoFetchHotelId: 'auto-7',
+    selectedCtripHotelId: 'ctrip-8',
+    onlineDataHotelId: 'filter-9',
+    hotelPool: [],
+  }), '');
   assert.match(html, /const resolveCanFetchMeituanRankingData = requireMeituanStatic\('resolveCanFetchMeituanRankingData'\);/);
   assert.match(html, /const resolveMeituanManualFetchConfigProofPending = requireMeituanStatic\('resolveMeituanManualFetchConfigProofPending'\);/);
   assert.match(html, /const resolveMeituanManualFetchConfigCandidate = requireMeituanStatic\('resolveMeituanManualFetchConfigCandidate'\);/);
@@ -4247,11 +4255,13 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(html, /let suppressNextMeituanHotelConfigApply = false;/);
   assert.match(resolveMeituanManualDefaultHotelId, /return resolveMeituanManualDefaultHotelIdFromState\(\{/);
   assert.match(resolveMeituanManualDefaultHotelId, /currentHotelId: meituanForm\.value\.hotelId/);
-  assert.match(resolveMeituanManualDefaultHotelId, /autoFetchHotelId\.value/);
-  assert.match(resolveMeituanManualDefaultHotelId, /selectedCtripHotelId\.value/);
-  assert.match(resolveMeituanManualDefaultHotelId, /onlineDataHotelId: onlineDataFilter\.value\.hotel_id/);
+  assert.match(resolveMeituanManualDefaultHotelId, /storedHotelId: readPlatformHotelContext\('meituan'\)/);
+  assert.doesNotMatch(resolveMeituanManualDefaultHotelId, /autoFetchHotelId\.value/);
+  assert.doesNotMatch(resolveMeituanManualDefaultHotelId, /selectedCtripHotelId\.value/);
+  assert.doesNotMatch(resolveMeituanManualDefaultHotelId, /onlineDataFilter\.value\.hotel_id/);
+  assert.doesNotMatch(resolveMeituanManualDefaultHotelId, /filterReportHotel\.value/);
   assert.match(resolveMeituanManualDefaultHotelId, /userHotelId: user\.value\?\.hotel_id/);
-  assert.match(resolveMeituanManualDefaultHotelId, /hotelPool,/);
+  assert.match(resolveMeituanManualDefaultHotelId, /hotelPool: meituanTargetHotelOptions\.value/);
   assert.match(ensureMeituanManualHotelSelected, /suppressNextMeituanHotelConfigApply = true;/);
   assert.match(ensureMeituanManualHotelSelected, /meituanForm\.value\.hotelId = hotelId;/);
   assert.match(scheduleMeituanEbookingDeferredStartupRefresh, /applySelectedConfig: false/);
@@ -4380,10 +4390,10 @@ test('Ctrip manual startup loads the stored snapshot without fixed waits or unre
   assert.match(html, /v-if="ctripEbookingDiagnosticsPanelsReady" class="p-4 border-t space-y-4"/);
   assert.match(scheduleCtripEbookingDeferredStartupRefresh, /const systemHotelId = await syncCtripOverviewTargetHotel\(\{ loadConfig: false \}\);/);
   assert.match(scheduleCtripEbookingDeferredStartupRefresh, /const \[latestResult, configResult\] = await Promise\.allSettled\(\[/);
-  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /loadLatestCtripData\(\{\s*silent: true,\s*hydrateDisplay: true,\s*hotelId: systemHotelId,/);
+  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /loadLatestCtripData\(\{\s*silent: true,\s*hydrateDisplay: false,\s*hotelId: systemHotelId,/);
   assert.match(scheduleCtripEbookingDeferredStartupRefresh, /loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,/);
   assert.match(ctripEbookingDefaultLoader, /setOnlineDataTabFromPage\('ctrip-ranking'\);/);
-  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /await applyCtripHotelConfig\(false, \{\s*refreshList: false,\s*refreshLatest: false,\s*skipIfAligned: true,/);
+  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /await syncCtripOverviewTargetHotel\(\{ loadConfig: true \}\);/);
   assert.match(scheduleCtripEbookingDeferredStartupRefresh, /if \(currentPage\.value !== 'ctrip-ebooking'\) return null;/);
   assert.match(scheduleCtripEbookingDeferredStartupRefresh, /}, 0\);/);
   assert.doesNotMatch(scheduleCtripEbookingDeferredStartupRefresh, /loadCookiesList\(/);
@@ -4740,7 +4750,7 @@ test('Download center defers hotel filter loading after primary data', () => {
   assert.ok(hotelFilterIndex < secondarySourceIndex, 'secondary platform sources must not block hotel-filter scheduling');
   assert.doesNotMatch(downloadCenterScheduler, /await loadPlatformDataSources\(\{ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS \}\);/);
   assert.match(html, /const meituanDownloadData = computed\(\(\) => buildMeituanDownloadData\(onlineDataList\.value\)\);/);
-  assert.match(html, /switchToMeituanDownloadCenter, openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData,/);
+  assert.match(html, /switchToMeituanDownloadCenter,[\s\S]{0,160}openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData,/);
   assert.doesNotMatch(downloadCenterScheduler, /await refreshOnlineHistory\(\);\s*return null;/);
   assert.doesNotMatch(
     downloadCenterScheduler,

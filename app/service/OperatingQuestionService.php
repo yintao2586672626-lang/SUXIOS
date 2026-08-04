@@ -22,6 +22,9 @@ final class OperatingQuestionService
     /** @var list<string> */
     private const PLATFORMS = ['ctrip', 'meituan', 'qunar', 'all_ota'];
 
+    /** @var list<string> */
+    private const ALL_OTA_REQUIRED_PLATFORMS = ['ctrip', 'meituan'];
+
     /**
      * @param null|Closure(int,int,string,string,string,string):array<string,mixed> $evidenceLoader
      */
@@ -56,9 +59,48 @@ final class OperatingQuestionService
             ? ($this->evidenceLoader)($tenantId, $hotelId, $platform, $dateStart, $dateEnd, $question)
             : $this->loadEvidence($tenantId, $hotelId, $platform, $dateStart, $dateEnd, $question);
         $evidence = $this->normalizeEvidence($evidence);
-        $facts = $evidence['facts'];
-        $diagnoses = $evidence['diagnoses'];
-        $factCount = max(count($facts), (int)($evidence['fact_count'] ?? 0));
+        $facts = array_values(array_filter($evidence['facts'], static function (array $fact) use ($platform): bool {
+            $factPlatform = strtolower(trim((string)($fact['platform'] ?? '')));
+            if ($factPlatform === '') {
+                $factPlatform = strtolower(trim((string)($fact['source'] ?? '')));
+            }
+            return $platform === 'all_ota'
+                ? in_array($factPlatform, self::ALL_OTA_REQUIRED_PLATFORMS, true)
+                : $factPlatform === $platform;
+        }));
+        $diagnoses = [];
+        $diagnosisRejectionCodes = [];
+        foreach ($evidence['diagnoses'] as $diagnosis) {
+            $rejectionCode = $this->diagnosisIneligibilityCode(
+                $diagnosis,
+                $tenantId,
+                $hotelId,
+                $platform,
+                $dateStart,
+                $dateEnd
+            );
+            if ($rejectionCode === '') {
+                $diagnoses[] = $diagnosis;
+            } elseif ($rejectionCode !== 'platform_mismatch') {
+                $diagnosisRejectionCodes[] = $rejectionCode;
+            }
+        }
+        $factPlatformCounts = $this->factPlatformCountsFromEvidence($evidence);
+        $factPlatformDates = $this->factPlatformDatesFromEvidence($evidence);
+        $requiredDates = $this->dateRange($dateStart, $dateEnd);
+        $factCount = $platform === 'all_ota'
+            ? array_sum(array_intersect_key($factPlatformCounts, array_fill_keys(self::ALL_OTA_REQUIRED_PLATFORMS, true)))
+            : max(count($facts), (int)($evidence['fact_count'] ?? 0));
+        $missingFactPlatforms = $platform === 'all_ota'
+            ? array_values(array_filter(self::ALL_OTA_REQUIRED_PLATFORMS, static function (string $requiredPlatform) use (
+                $factPlatformCounts,
+                $factPlatformDates,
+                $requiredDates
+            ): bool {
+                $dates = $factPlatformDates[$requiredPlatform] ?? [];
+                return (int)($factPlatformCounts[$requiredPlatform] ?? 0) <= 0 || $dates !== $requiredDates;
+            }))
+            : [];
 
         $answerStatus = 'blocked_by_missing_facts';
         $answerSummary = '该酒店、平台和日期范围内没有找到已保存且完成严格回读的经营事实，暂不生成经营结论。';
@@ -67,6 +109,23 @@ final class OperatingQuestionService
             $dataGaps[] = [
                 'code' => 'saved_verified_fact_missing',
                 'message' => '缺少同酒店、同平台、同日期范围的 readback_verified 事实。',
+            ];
+            if ($platform === 'all_ota') {
+                $dataGaps[] = [
+                    'code' => 'all_ota_platform_fact_coverage_missing',
+                    'message' => '全渠道问题必须同时具备携程和美团的严格回读事实。',
+                    'missing_platforms' => self::ALL_OTA_REQUIRED_PLATFORMS,
+                ];
+            }
+        } elseif ($platform === 'all_ota' && $missingFactPlatforms !== []) {
+            $answerSummary = sprintf(
+                '已读取部分 OTA 严格回读事实，但缺少%s同酒店、同日期范围的事实，不能形成全渠道经营结论。',
+                implode('、', array_map([$this, 'platformLabel'], $missingFactPlatforms))
+            );
+            $dataGaps[] = [
+                'code' => 'all_ota_platform_fact_coverage_missing',
+                'message' => '全渠道问题必须同时具备携程和美团的严格回读事实。',
+                'missing_platforms' => $missingFactPlatforms,
             ];
         } else {
             $types = array_values(array_unique(array_filter(array_map(
@@ -86,10 +145,22 @@ final class OperatingQuestionService
                     $factCount,
                     $typeText
                 );
-                $dataGaps[] = [
-                    'code' => 'saved_agent_diagnosis_missing',
-                    'message' => '存在已回读事实，但没有同范围的已保存 Agent 诊断；答案保持证据摘要级。',
-                ];
+                if ($platform === 'all_ota') {
+                    $dataGaps[] = [
+                        'code' => $diagnosisRejectionCodes === []
+                            ? 'all_ota_saved_diagnosis_missing'
+                            : 'all_ota_saved_diagnosis_not_current',
+                        'message' => $diagnosisRejectionCodes === []
+                            ? '事实已覆盖携程和美团，但没有明确保存为 all_ota 且严格回读的跨渠道诊断；单渠道诊断不会被拼接为全渠道结论。'
+                            : '已有跨渠道诊断不是当前同酒店同请求日的 active 精确回读记录，不能用于回答。',
+                        'reason_codes' => array_values(array_unique($diagnosisRejectionCodes)),
+                    ];
+                } else {
+                    $dataGaps[] = [
+                        'code' => 'saved_agent_diagnosis_missing',
+                        'message' => '存在已回读事实，但没有同范围的已保存 Agent 诊断；答案保持证据摘要级。',
+                    ];
+                }
             }
         }
 
@@ -114,6 +185,8 @@ final class OperatingQuestionService
             'evidence_counts' => [
                 'facts' => $factCount,
                 'fact_samples' => count($facts),
+                'fact_platforms' => $factPlatformCounts,
+                'fact_platform_dates' => $factPlatformDates,
                 'operating_memories' => count($memoryRefs),
                 'saved_agent_diagnoses' => count($diagnosisRefs),
                 'knowledge_units' => count($knowledgeRefs),
@@ -282,6 +355,8 @@ final class OperatingQuestionService
         return [
             'facts' => $this->loadFacts($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_count' => $this->factCount($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
+            'fact_platform_counts' => $this->factPlatformCounts($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
+            'fact_platform_dates' => $this->factPlatformDates($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'memories' => $this->loadMemories($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'diagnoses' => $this->loadDiagnoses($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'knowledge' => $this->loadKnowledge($hotelId, $question),
@@ -304,7 +379,10 @@ final class OperatingQuestionService
             ->select()
             ->toArray();
         return array_map(static function (array $row): array {
-            $rowPlatform = strtolower(trim((string)($row['platform'] ?? $row['source'] ?? '')));
+            $rowPlatform = strtolower(trim((string)($row['platform'] ?? '')));
+            if ($rowPlatform === '') {
+                $rowPlatform = strtolower(trim((string)($row['source'] ?? '')));
+            }
             return [
                 'ref' => 'online_daily_data#' . (int)$row['id'],
                 'data_date' => (string)$row['data_date'],
@@ -335,14 +413,56 @@ final class OperatingQuestionService
             ->where('system_hotel_id', $hotelId)
             ->whereBetween('data_date', [$dateStart, $dateEnd])
             ->where('readback_verified', 1)
-            ->where('validation_status', 'normal');
-        if ($platform !== 'all_ota') {
+            ->whereIn('validation_status', ['normal', 'available', 'ok', 'valid', 'verified']);
+        if ($platform === 'all_ota') {
+            $query->whereRaw(
+                "LOWER(COALESCE(NULLIF(`platform`, ''), `source`, '')) IN ('ctrip','meituan')"
+            );
+        } else {
             $query->whereRaw(
                 "LOWER(COALESCE(NULLIF(`platform`, ''), `source`, '')) = :operating_platform",
                 ['operating_platform' => $platform]
             );
         }
         return $query;
+    }
+
+    /** @return array<string,int> */
+    private function factPlatformCounts(
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $dateStart,
+        string $dateEnd
+    ): array {
+        $platforms = $platform === 'all_ota' ? self::ALL_OTA_REQUIRED_PLATFORMS : [$platform];
+        $counts = [];
+        foreach ($platforms as $scopedPlatform) {
+            $counts[$scopedPlatform] = $this->tableExists('online_daily_data')
+                ? (int)$this->factQuery($tenantId, $hotelId, $scopedPlatform, $dateStart, $dateEnd)->count()
+                : 0;
+        }
+        return $counts;
+    }
+
+    /** @return array<string,list<string>> */
+    private function factPlatformDates(
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $dateStart,
+        string $dateEnd
+    ): array {
+        $platforms = $platform === 'all_ota' ? self::ALL_OTA_REQUIRED_PLATFORMS : [$platform];
+        $dates = [];
+        foreach ($platforms as $scopedPlatform) {
+            $values = $this->tableExists('online_daily_data')
+                ? $this->factQuery($tenantId, $hotelId, $scopedPlatform, $dateStart, $dateEnd)->column('data_date')
+                : [];
+            $dates[$scopedPlatform] = array_values(array_unique(array_filter(array_map('strval', $values))));
+            sort($dates[$scopedPlatform], SORT_STRING);
+        }
+        return $dates;
     }
 
     /** @return list<array<string,mixed>> */
@@ -393,28 +513,43 @@ final class OperatingQuestionService
             $context = $this->decode($row['context_data'] ?? null);
             $snapshot = is_array($context['diagnosis_result'] ?? null) ? $context['diagnosis_result'] : [];
             $saved = is_array($snapshot['saved_record'] ?? null) ? $snapshot['saved_record'] : [];
-            $range = is_array($snapshot['requested_date_range'] ?? null)
-                ? $snapshot['requested_date_range']
-                : (is_array($snapshot['date_range'] ?? null) ? $snapshot['date_range'] : []);
             $recordPlatform = strtolower(trim((string)($snapshot['platform'] ?? $context['platform'] ?? '')));
-            if (($snapshot['record_status'] ?? $context['record_status'] ?? 'active') !== 'active'
-                || ($saved['saved'] ?? false) !== true
-                || ($saved['readback_verified'] ?? false) !== true
-                || ($platform !== 'all_ota' && $recordPlatform !== $platform)
-                || (string)($range['start_date'] ?? '') !== $dateStart
-                || (string)($range['end_date'] ?? '') !== $dateEnd
-            ) {
-                continue;
-            }
-            $items[] = [
+            $candidate = [
                 'ref' => 'agent_logs#' . (int)$row['id'],
                 'summary' => trim((string)($snapshot['core_conclusion'] ?? $snapshot['diagnosis']['summary'] ?? '')),
                 'decision_status' => (string)($snapshot['decision_status'] ?? 'blocked_by_data'),
                 'platform' => $recordPlatform,
-                'date_start' => $dateStart,
-                'date_end' => $dateEnd,
-                'readback_status' => 'readback_verified',
+                'record_status' => (string)($snapshot['record_status'] ?? $context['record_status'] ?? ''),
+                'saved' => ($saved['saved'] ?? false) === true,
+                'readback_verified' => ($saved['readback_verified'] ?? false) === true,
+                'saved_record_status' => (string)($saved['status'] ?? 'active'),
+                'readback_identity_digest' => (string)($context['readback_identity_digest'] ?? ''),
+                'saved_readback_identity_digest' => (string)($saved['readback_identity_digest'] ?? ''),
+                'requested_date_range' => is_array($snapshot['requested_date_range'] ?? null)
+                    ? $snapshot['requested_date_range']
+                    : (array)($context['requested_date_range'] ?? $snapshot['date_range'] ?? []),
+                'effective_date_range' => is_array($snapshot['effective_date_range'] ?? null)
+                    ? $snapshot['effective_date_range']
+                    : (array)($snapshot['date_range'] ?? []),
+                'used_latest_available_data' => ($snapshot['data_summary']['used_latest_available_data'] ?? false) === true,
+                'coverage' => is_array($snapshot['coverage'] ?? null) ? $snapshot['coverage'] : [],
+                'evidence_refs' => is_array($snapshot['evidence_refs'] ?? null) ? $snapshot['evidence_refs'] : [],
+                'validation_status' => (string)($snapshot['validation_status'] ?? ''),
             ];
+            if ($this->diagnosisIneligibilityCode(
+                $candidate,
+                $tenantId,
+                $hotelId,
+                $platform,
+                $dateStart,
+                $dateEnd
+            ) !== '') {
+                continue;
+            }
+            $candidate['date_start'] = $dateStart;
+            $candidate['date_end'] = $dateEnd;
+            $candidate['readback_status'] = 'readback_verified';
+            $items[] = $candidate;
             if (count($items) >= 5) {
                 break;
             }
@@ -502,7 +637,207 @@ final class OperatingQuestionService
             $evidence[$key] = array_values(array_filter($value, 'is_array'));
         }
         $evidence['fact_count'] = max(0, (int)($evidence['fact_count'] ?? count($evidence['facts'])));
+        $evidence['fact_platform_counts'] = $this->factPlatformCountsFromEvidence($evidence);
+        $evidence['fact_platform_dates'] = $this->factPlatformDatesFromEvidence($evidence);
         return $evidence;
+    }
+
+    /** @param array<string,mixed> $evidence @return array<string,int> */
+    private function factPlatformCountsFromEvidence(array $evidence): array
+    {
+        $counts = [];
+        $provided = is_array($evidence['fact_platform_counts'] ?? null)
+            ? $evidence['fact_platform_counts']
+            : [];
+        foreach ($provided as $platform => $count) {
+            $normalized = strtolower(trim((string)$platform));
+            if (in_array($normalized, self::PLATFORMS, true) && $normalized !== 'all_ota') {
+                $counts[$normalized] = max(0, (int)$count);
+            }
+        }
+        $sampleCounts = [];
+        foreach ($evidence['facts'] ?? [] as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            $platform = strtolower(trim((string)($fact['platform'] ?? '')));
+            if ($platform === '') {
+                $platform = strtolower(trim((string)($fact['source'] ?? '')));
+            }
+            if (!in_array($platform, self::PLATFORMS, true) || $platform === 'all_ota') {
+                continue;
+            }
+            $sampleCounts[$platform] = ($sampleCounts[$platform] ?? 0) + 1;
+        }
+        foreach ($sampleCounts as $platform => $count) {
+            $counts[$platform] = max($counts[$platform] ?? 0, $count);
+        }
+        ksort($counts, SORT_STRING);
+        return $counts;
+    }
+
+    /** @param array<string,mixed> $evidence @return array<string,list<string>> */
+    private function factPlatformDatesFromEvidence(array $evidence): array
+    {
+        $dates = [];
+        $provided = is_array($evidence['fact_platform_dates'] ?? null)
+            ? $evidence['fact_platform_dates']
+            : [];
+        foreach ($provided as $platform => $values) {
+            $normalized = strtolower(trim((string)$platform));
+            if (!in_array($normalized, self::PLATFORMS, true) || $normalized === 'all_ota') {
+                continue;
+            }
+            $dates[$normalized] = array_values(array_unique(array_filter(array_map(
+                'strval',
+                is_array($values) ? $values : []
+            ))));
+            sort($dates[$normalized], SORT_STRING);
+        }
+        foreach ($evidence['facts'] ?? [] as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            $platform = strtolower(trim((string)($fact['platform'] ?? '')));
+            if ($platform === '') {
+                $platform = strtolower(trim((string)($fact['source'] ?? '')));
+            }
+            $date = trim((string)($fact['data_date'] ?? ''));
+            if (!in_array($platform, self::PLATFORMS, true) || $platform === 'all_ota' || $date === '') {
+                continue;
+            }
+            $dates[$platform][] = $date;
+            $dates[$platform] = array_values(array_unique($dates[$platform]));
+            sort($dates[$platform], SORT_STRING);
+        }
+        ksort($dates, SORT_STRING);
+        return $dates;
+    }
+
+    /** @return list<string> */
+    private function dateRange(string $startDate, string $endDate): array
+    {
+        $dates = [];
+        $cursor = new \DateTimeImmutable($startDate);
+        $end = new \DateTimeImmutable($endDate);
+        while ($cursor <= $end) {
+            $dates[] = $cursor->format('Y-m-d');
+            $cursor = $cursor->modify('+1 day');
+        }
+        return $dates;
+    }
+
+    /** @param array<string,mixed> $diagnosis */
+    private function diagnosisIneligibilityCode(
+        array $diagnosis,
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $dateStart,
+        string $dateEnd
+    ): string {
+        if (strtolower(trim((string)($diagnosis['platform'] ?? ''))) !== $platform) {
+            return 'platform_mismatch';
+        }
+        if ((string)($diagnosis['record_status'] ?? '') !== 'active'
+            || (string)($diagnosis['saved_record_status'] ?? 'active') === 'superseded'
+        ) {
+            return 'diagnosis_not_active';
+        }
+        if (($diagnosis['saved'] ?? false) !== true || ($diagnosis['readback_verified'] ?? false) !== true) {
+            return 'diagnosis_readback_unverified';
+        }
+        if (in_array(strtolower(trim((string)($diagnosis['validation_status'] ?? ''))), [
+            'invalid_evidence', 'stale', 'unverified', 'superseded',
+        ], true)) {
+            return 'diagnosis_validation_not_current';
+        }
+        $requested = $this->normalizeDiagnosisDateRange($diagnosis['requested_date_range'] ?? null);
+        $effective = $this->normalizeDiagnosisDateRange($diagnosis['effective_date_range'] ?? null);
+        $target = ['start_date' => $dateStart, 'end_date' => $dateEnd];
+        if ($requested !== $target) {
+            return 'diagnosis_requested_date_mismatch';
+        }
+        if ($effective !== $target || $effective !== $requested) {
+            return 'diagnosis_effective_date_mismatch';
+        }
+        if (($diagnosis['used_latest_available_data'] ?? false) === true) {
+            return 'diagnosis_used_latest_available_data';
+        }
+        if ($platform !== 'all_ota') {
+            return '';
+        }
+        $readbackIdentityDigest = trim((string)($diagnosis['readback_identity_digest'] ?? ''));
+        if ($readbackIdentityDigest === ''
+            || $readbackIdentityDigest !== trim((string)($diagnosis['saved_readback_identity_digest'] ?? ''))
+        ) {
+            return 'all_ota_diagnosis_readback_identity_mismatch';
+        }
+
+        $coverage = is_array($diagnosis['coverage'] ?? null) ? $diagnosis['coverage'] : [];
+        $required = array_values(array_map('strval', (array)($coverage['required_platforms'] ?? [])));
+        $covered = array_values(array_map('strval', (array)($coverage['covered_platforms'] ?? [])));
+        sort($required, SORT_STRING);
+        sort($covered, SORT_STRING);
+        $expected = self::ALL_OTA_REQUIRED_PLATFORMS;
+        sort($expected, SORT_STRING);
+        if (($coverage['complete'] ?? false) !== true
+            || $required !== $expected
+            || $covered !== $expected
+            || (array)($coverage['missing_platforms'] ?? []) !== []
+        ) {
+            return 'all_ota_diagnosis_coverage_incomplete';
+        }
+        $evidenceRefs = is_array($diagnosis['evidence_refs'] ?? null) ? $diagnosis['evidence_refs'] : [];
+        foreach (self::ALL_OTA_REQUIRED_PLATFORMS as $requiredPlatform) {
+            $platformCoverage = is_array($coverage['per_platform'][$requiredPlatform] ?? null)
+                ? $coverage['per_platform'][$requiredPlatform]
+                : [];
+            if (($platformCoverage['status'] ?? '') !== 'ready'
+                || (int)($platformCoverage['tenant_id'] ?? 0) !== $tenantId
+                || (int)($platformCoverage['hotel_id'] ?? 0) !== $hotelId
+                || $this->normalizeDiagnosisDateRange($platformCoverage['requested_date_range'] ?? null) !== $target
+                || $this->normalizeDiagnosisDateRange($platformCoverage['effective_date_range'] ?? null) !== $target
+                || ($platformCoverage['used_latest_available_data'] ?? false) === true
+                || !$this->hasValidDiagnosisEvidenceRefs($evidenceRefs[$requiredPlatform] ?? null)
+                || !$this->hasValidDiagnosisEvidenceRefs($platformCoverage['evidence_refs'] ?? null)
+            ) {
+                return 'all_ota_diagnosis_platform_scope_invalid';
+            }
+        }
+        return '';
+    }
+
+    /** @return array{start_date:string,end_date:string} */
+    private function normalizeDiagnosisDateRange(mixed $range): array
+    {
+        $range = is_array($range) ? $range : [];
+        $start = trim((string)($range['start_date'] ?? $range['start'] ?? ''));
+        $end = trim((string)($range['end_date'] ?? $range['end'] ?? $start));
+        return ['start_date' => $start, 'end_date' => $end];
+    }
+
+    private function hasValidDiagnosisEvidenceRefs(mixed $refs): bool
+    {
+        if (!is_array($refs) || $refs === []) {
+            return false;
+        }
+        foreach ($refs as $ref) {
+            if (preg_match('/^online_daily_data#[1-9][0-9]*$/D', trim((string)$ref)) !== 1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function platformLabel(string $platform): string
+    {
+        return match ($platform) {
+            'ctrip' => '携程',
+            'meituan' => '美团',
+            'qunar' => '去哪儿',
+            default => $platform,
+        };
     }
 
     /** @param list<array<string,mixed>> $items @return list<string> */

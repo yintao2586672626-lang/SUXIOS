@@ -1287,10 +1287,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         autoFetchHotelId = '',
         userHotelId = '',
     } = {}) => {
-        const candidate = [formHotelId, autoFetchHotelId, userHotelId]
-            .map(value => String(value || '').trim())
-            .find(value => value);
-        return candidate || null;
+        void autoFetchHotelId;
+        void userHotelId;
+        return String(formHotelId || '').trim() || null;
     };
 
     const resolveMeituanSelectedHotelConfigAction = ({
@@ -1349,7 +1348,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         sections = ['full'],
         dataPeriod = 'historical_daily',
     } = {}) => {
-        const hotelId = String(autoFetchHotelId || formHotelId || userHotelId || '').trim();
+        void autoFetchHotelId;
+        void userHotelId;
+        const hotelId = String(formHotelId || '').trim();
         if (!hotelId) {
             return {
                 ok: false,
@@ -1375,8 +1376,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         formHotelId = '',
         userHotelId = '',
     } = {}) => {
+        void userHotelId;
         const hasStoreId = !!String(storeId || '').trim();
-        const hasHotelId = !!String(formHotelId || userHotelId || '').trim();
+        const hasHotelId = !!String(formHotelId || '').trim();
         if (hasStoreId && hasHotelId) {
             return { canCopy: true, message: '', level: '' };
         }
@@ -1494,8 +1496,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         userHotelId = '',
         hotelName = '',
     } = {}) => {
+        void userHotelId;
         const storeId = String(form.storeId || rankingForm.poiId || '').trim();
-        const hotelId = String(rankingForm.hotelId || userHotelId || '').trim();
+        const hotelId = String(rankingForm.hotelId || '').trim();
         if (!storeId || !hotelId) {
             return '请先选择目标酒店并填写美团门店标识';
         }
@@ -1532,7 +1535,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         rankingForm = {},
         userHotelId = '',
     } = {}) => {
-        const hotelId = String(rankingForm.hotelId || userHotelId || '').trim();
+        void userHotelId;
+        const hotelId = String(rankingForm.hotelId || '').trim();
         const storeId = String(form.storeId || rankingForm.poiId || '').trim();
         if (!hotelId || !storeId) {
             return {
@@ -2825,22 +2829,19 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const resolveMeituanManualDefaultHotelIdFromState = ({
         currentHotelId = '',
-        autoFetchHotelId = '',
-        selectedCtripHotelId = '',
-        onlineDataHotelId = '',
+        storedHotelId = '',
         userHotelId = '',
         hotelPool = [],
     } = {}) => {
-        const firstHotelId = Array.isArray(hotelPool) ? hotelPool?.[0]?.id : '';
-        return String(
-            currentHotelId
-            || autoFetchHotelId
-            || selectedCtripHotelId
-            || onlineDataHotelId
-            || userHotelId
-            || firstHotelId
-            || ''
-        ).trim();
+        const allowedHotelIds = (Array.isArray(hotelPool) ? hotelPool : [])
+            .map(hotel => String(hotel?.id || hotel?.hotel_id || '').trim())
+            .filter(Boolean);
+        if (!allowedHotelIds.length) return '';
+        const allowed = new Set(allowedHotelIds);
+        const selected = [currentHotelId, storedHotelId, userHotelId]
+            .map(value => String(value || '').trim())
+            .find(value => value && allowed.has(value));
+        return selected || '';
     };
 
     const meituanFallbackMetricNumber = (value) => {
@@ -3073,6 +3074,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         tab = '',
         getCurrentPage = () => '',
         getCurrentTab = () => '',
+        getCurrentHotelId = () => '',
         loadConfigList = async () => {},
         syncTrafficConfig = async () => {},
         syncOrderConfig = async () => {},
@@ -3082,27 +3084,34 @@ window.SUXI_MEITUAN_STATIC = (() => {
     } = {}) => {
         const isActive = () => getCurrentPage() === 'meituan-ebooking' && getCurrentTab() === tab;
         if (!isActive()) return { status: 'stale_before_load', tab };
+        const hotelId = String(getCurrentHotelId() || '');
+        const isCurrentHotel = () => isActive() && String(getCurrentHotelId() || '') === hotelId;
 
         await loadConfigList();
-        if (!isActive()) return { status: 'stale_after_load', tab };
+        if (!isCurrentHotel()) return { status: 'stale_after_load', tab, hotelId };
 
         if (tab === 'meituan-traffic') {
             await syncTrafficConfig();
+            if (!isCurrentHotel()) return { status: 'stale_after_sync', tab, hotelId };
             return { status: 'synced', tab, target: 'traffic' };
         }
         if (tab === 'meituan-orders') {
             await syncOrderConfig();
+            if (!isCurrentHotel()) return { status: 'stale_after_sync', tab, hotelId };
             return { status: 'synced', tab, target: 'orders' };
         }
         if (tab === 'meituan-ads') {
             await syncAdsConfig();
+            if (!isCurrentHotel()) return { status: 'stale_after_sync', tab, hotelId };
             return { status: 'synced', tab, target: 'ads' };
         }
         if (tab === 'meituan-order-flow') {
             await loadOrderFlow();
+            if (!isCurrentHotel()) return { status: 'stale_after_sync', tab, hotelId };
             return { status: 'synced', tab, target: 'order_flow' };
         }
         await applyRankingConfig();
+        if (!isCurrentHotel()) return { status: 'stale_after_sync', tab, hotelId };
         return { status: 'synced', tab, target: 'ranking' };
     };
 

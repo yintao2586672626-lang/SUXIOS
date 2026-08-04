@@ -132,6 +132,25 @@ final class TemporalForecastTrialServiceTest extends TestCase
         self::assertSame(42, (int)Db::name('temporal_forecast_trial_points')->count());
     }
 
+    public function testReadAndListDoNotReturnTrialsAfterHotelTenantBindingDrifts(): void
+    {
+        $this->insertForecastRun();
+        $service = $this->serviceWithVerifiedSources();
+        $created = $service->createTrial(self::HOTEL_ID, self::FORECAST_RUN_ID, 901);
+
+        // The system-hotel binding is part of the trial identity. If it drifts
+        // to another tenant, neither detail nor list may expose the old row.
+        Db::name('hotels')->where('id', self::HOTEL_ID)->update(['tenant_id' => 9]);
+
+        try {
+            $service->readTrial((int)$created['trial']['id'], self::HOTEL_ID);
+            self::fail('A tenant-drifted hotel must not read the previous trial.');
+        } catch (InvalidArgumentException) {
+            self::assertTrue(true);
+        }
+        self::assertSame([], $service->listTrials(self::HOTEL_ID));
+    }
+
     public function testThirteenTrustedHistoryDaysAreRejectedWithoutCreatingTrialRows(): void
     {
         $this->insertForecastRun(13);

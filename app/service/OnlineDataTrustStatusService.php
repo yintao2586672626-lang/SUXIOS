@@ -28,6 +28,7 @@ final class OnlineDataTrustStatusService
         'abnormal', 'invalid', 'failed', 'fail', 'error',
         'collection_failed', 'capture_failed', 'permission_denied',
         'binding_missing', 'mismatched', 'mismatch', 'login_required',
+        'quarantined',
     ];
 
     public const UNVERIFIED_VALIDATION_STATUSES = ['unverified', 'stale'];

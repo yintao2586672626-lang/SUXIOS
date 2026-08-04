@@ -24,7 +24,7 @@ const sliceBetween = (source, startText, endText) => {
   return end > start ? source.slice(start, end) : source.slice(start);
 };
 
-test('Ctrip display removes the legacy estimate and builds a stable bounded full-channel scenario', () => {
+test('Ctrip display removes unsupported estimates and refuses to invent full-channel room nights', () => {
   const api = loadWindowApi(ctripStaticSource, 'SUXI_CTRIP_STATIC', 'public/ctrip-static.js');
   const display = api.buildTruthfulCtripDisplayModel([
     { hotelId: 'A', quantity: 0, bookOrderNum: 0, aiEstimatedTotalRoomNights: 12 },
@@ -45,50 +45,55 @@ test('Ctrip display removes the legacy estimate and builds a stable bounded full
     hotelName: 'Alpha Hotel',
     quantity: 54,
   });
-  const repeatedScenario = api.buildCtripFullChannelRoomNightScenario({
-    hotelId: 'A',
-    hotelName: 'Alpha Hotel',
-    quantity: 54,
-  });
-  assert.equal(scenario.status, 'scenario_estimate');
-  assert.ok(scenario.multiplier >= 1.15 && scenario.multiplier <= 1.30);
-  assert.equal(scenario.value, Math.round(54 * scenario.multiplier));
-  assert.equal(repeatedScenario.multiplier, scenario.multiplier);
-  assert.equal(repeatedScenario.value, scenario.value);
-  assert.equal(scenario.sourceLabel, '情景推算，非平台返回');
-  assert.equal(api.buildCtripFullChannelRoomNightScenario({ hotelId: 'B', quantity: 0 }).value, 0);
-  assert.equal(api.buildCtripFullChannelRoomNightScenario({
+  assert.equal(scenario.status, 'full_channel_source_missing');
+  assert.equal(scenario.value, null);
+  assert.equal(scenario.ctripRoomNights, 54);
+  assert.equal(Object.hasOwn(scenario, 'multiplier'), false);
+  assert.match(scenario.sourceLabel, /全渠道间夜来源未接入/);
+  assert.equal(api.buildCtripFullChannelRoomNightScenario({ hotelId: 'B', quantity: 0 }).value, null);
+  const missingScenario = api.buildCtripFullChannelRoomNightScenario({
     quantity: 0,
     metricSourceStatus: { quantity: '系统未返回' },
-  }).value, null);
+  });
+  assert.equal(missingScenario.value, null);
+  assert.equal(missingScenario.status, 'ctrip_room_nights_missing');
   const scenarioRow = api.attachCtripFullChannelRoomNightScenario({
     hotelId: 'A',
     hotelName: 'Alpha Hotel',
     quantity: 54,
   });
-  assert.equal(scenarioRow.fullChannelRoomNightsEstimate, scenario.value);
-  assert.equal(scenarioRow.fullChannelRoomNightsEstimateMeta.status, 'scenario_estimate');
+  assert.equal(scenarioRow.fullChannelRoomNightsEstimate, null);
+  assert.equal(scenarioRow.fullChannelRoomNightsEstimateMeta.status, 'full_channel_source_missing');
   assert.doesNotMatch(appMain, /ctripStableEstimateRatio|ctripAiEstimatedRoomNights|全渠道AI预计总间夜数/);
   assert.doesNotMatch(appMain, /ctripFullChannelRoomNightSharePercent|normalizeCtripRoomNightSharePercent/);
   assert.doesNotMatch(ctripStaticSource, /field === 'aiEstimatedTotalRoomNights'/);
-  assert.match(appMain, /全渠道间夜推算（情景）/);
+  assert.match(appMain, /label: '全渠道间夜'/);
   assert.match(appMain, /fullChannelRoomNightText/);
+  assert.doesNotMatch(ctripStaticSource, /deriveCtripFullChannelRoomNightMultiplier|1\.15\s*\+|scenario_estimate/);
 
   const downloadTable = sliceBetween(appMain, 'const ctripDownloadRows', 'const buildCtripBusinessCanvas');
   for (const field of ['quantity', 'bookOrderNum', 'commentScore', 'qunarCommentScore']) {
     assert.match(downloadTable, new RegExp(`formatNumber\\(row\\.${field}\\)`), `${field} must preserve zero through formatNumber`);
   }
+  assert.match(appTemplate, /formatNumber\(Math\.round\(Number\(hotel\.amount\)\)\)/);
+  assert.match(appTemplate, /formatNumber\(Math\.round\(Number\(hotel\.adr\)\)\)/);
+  assert.match(downloadTable, /formatNumber\(Math\.round\(Number\(row\.amount\)\)\)/);
+  assert.match(downloadTable, /formatNumber\(Math\.round\(Number\(row\.adr\)\)\)/);
+  assert.match(downloadTable, /hasDisplayValue\(row\.amount\)/);
+  assert.match(downloadTable, /hasDisplayValue\(row\.adr\)/);
   assert.doesNotMatch(downloadTable, /row\.(?:quantity|bookOrderNum|commentScore|qunarCommentScore)\s*\|\|\s*'-'/);
   assert.match(downloadTable, /value === null \|\| value === undefined \|\| value === '' \? '-' : `\$\{value\}%`/);
   assert.match(downloadTable, /: formatNumber\(value\)/);
   assert.doesNotMatch(downloadTable, /`≈\$\{formatNumber\(value\)\}`/);
 });
 
-test('Ctrip templates expose the bounded full-channel room-night scenario', () => {
+test('Ctrip templates expose source boundaries and no unsupported full-channel room-night formula', () => {
   assert.doesNotMatch(appTemplate, /携程间夜占全渠道比例（%）|v-model="ctripFullChannelRoomNightSharePercent"/);
-  assert.match(appTemplate, /全渠道间夜推算/);
-  assert.match(appTemplate, /1\.15–1\.30 稳定情景系数/);
-  assert.match(appTemplate, /非平台返回/);
+  assert.match(appMain, /field: 'quantity', label: '离店间夜', title: '携程离店间夜，仅代表携程渠道'/);
+  assert.match(appMain, /field: 'fullChannelRoomNightsEstimate'[\s\S]*?label: '全渠道间夜'[\s\S]*?缺少其他渠道间夜及订单到间夜的可核验转换口径/);
+  assert.match(appTemplate, /class="ctrip-sales-state">缺来源<\/div>/);
+  assert.match(appTemplate, /:title="hotel\.fullChannelRoomNightsEstimateMeta\?\.formulaText \|\| '缺少全渠道间夜来源，暂不可推算'"/);
+  assert.doesNotMatch(appTemplate, /1\.15–1\.30|情景推算/);
   assert.doesNotMatch(appTemplate, /<span class="ml-1 rounded bg-amber-100 px-1 py-0\.5 text-\[10px\] text-amber-700">情景<\/span>/);
   assert.doesNotMatch(appTemplate, /≈\s*\{\{\s*formatOptionalNumber\(hotel\.fullChannelRoomNightsEstimate\)\s*\}\}/);
   assert.doesNotMatch(appTemplate, /<div class="mt-0\.5 text-\[10px\] text-gray-400">非平台返回<\/div>/);
@@ -174,7 +179,9 @@ test('AI workbench personalizes hotel order per account and opens the matching m
   const mountedBootstrap = sliceBetween(appMain, 'onMounted(() => {', 'onUnmounted(() => {');
   assert.match(hotelOrder, /suxios_dual_ota_hotel_search_counts_\$\{user\.value\?\.id \|\| 'guest'\}_v1/);
   assert.match(hotelOrder, /\.sort\(\(a, b\) => \(b\.count - a\.count\) \|\| \(a\.index - b\.index\)\)/);
-  assert.match(mountedBootstrap, /if \(isCompassDataPage\(\)\) \{\s*activateCoreOperationsAfterLogin\(\);/);
+  assert.match(mountedBootstrap, /const primaryPageLoad = isCompassDataPage\(\)\s*\?\s*activateCoreOperationsAfterLogin\(\)\s*:\s*nextTick\(\);/);
+  assert.match(mountedBootstrap, /scheduleHotelManagementPrewarmAfter\(primaryPageLoad\);/);
+  assert.match(appMain, /const scheduleHotelManagementPrewarmAfter = \(primaryPageLoad\) => \{\s*Promise\.resolve\(primaryPageLoad\)\.then/);
   assert.match(appTemplate, /<option value="">全部门店<\/option>[\s\S]*v-for="hotel in dualOtaCurrentHotelOptions"/);
 
   const shortcuts = sliceBetween(appMain, 'const dualOtaModuleNavigationTarget', 'const dualOtaSystemMetricPlatform');

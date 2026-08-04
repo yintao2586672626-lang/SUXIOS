@@ -85,6 +85,12 @@ final class HotelTenantCreationTest extends TestCase
             'created_by' => 9002,
         ]);
         $user = $this->tenantManager(9002, 101, $firstHotelId);
+        Db::name('users')->insert([
+            'id' => 9002,
+            'tenant_id' => 101,
+            'hotel_id' => $firstHotelId,
+            'default_hotel_id' => $firstHotelId,
+        ]);
 
         $response = $this->createHotel('Tenant A hotel 2', $user);
         $payload = $this->json($response);
@@ -100,6 +106,7 @@ final class HotelTenantCreationTest extends TestCase
         self::assertIsArray($permission);
         self::assertSame(9002, (int)$permission['user_id']);
         self::assertSame(101, (int)$permission['tenant_id']);
+        self::assertSame($firstHotelId, (int)Db::name('users')->where('id', 9002)->value('default_hotel_id'));
         $audit = Db::name('operation_logs')->where('action', 'create')->find();
         self::assertIsArray($audit);
         self::assertSame($hotelId, (int)$audit['hotel_id']);
@@ -111,6 +118,12 @@ final class HotelTenantCreationTest extends TestCase
         $this->createSchema(true);
         $this->createPermissionTable();
         $user = $this->tenantManager(9002, 101);
+        Db::name('users')->insert([
+            'id' => 9002,
+            'tenant_id' => 101,
+            'hotel_id' => null,
+            'default_hotel_id' => null,
+        ]);
 
         $payload = $this->json($this->createHotel('Owner first hotel', $user));
         $hotelId = (int)$payload['data']['id'];
@@ -127,6 +140,47 @@ final class HotelTenantCreationTest extends TestCase
         self::assertSame(101, (int)$permission['tenant_id']);
         self::assertSame(9002, (int)$permission['user_id']);
         self::assertSame('owner', $permission['scope_type']);
+        self::assertSame($hotelId, (int)Db::name('users')->where('id', 9002)->value('default_hotel_id'));
+        self::assertNull(Db::name('users')->where('id', 9002)->value('hotel_id'));
+    }
+
+    public function testDisablingHotelClearsDefaultPreferenceWithoutChangingAuthorizationOrTenant(): void
+    {
+        $this->createSchema(true);
+        $hotelId = Db::name('hotels')->insertGetId([
+            'tenant_id' => 101,
+            'name' => 'Default hotel to disable',
+            'code' => 'DISABLE-DEFAULT',
+            'status' => 1,
+            'owner_user_id' => 9001,
+            'created_by' => 9001,
+        ]);
+        Db::name('users')->insert([
+            'id' => 9001,
+            'tenant_id' => 101,
+            'hotel_id' => $hotelId,
+            'default_hotel_id' => $hotelId,
+        ]);
+
+        $user = new User();
+        $user->id = 9001;
+        $user->role_id = Role::SUPER_ADMIN;
+        $user->tenant_id = 101;
+        $user->hotel_id = $hotelId;
+        $user->default_hotel_id = $hotelId;
+        $controller = new HotelTenantCreationHarness(self::$app, [
+            'name' => 'Default hotel to disable',
+            'code' => 'DISABLE-DEFAULT',
+            'status' => 0,
+        ]);
+        $controller->useUser($user);
+
+        $payload = $this->json($controller->update($hotelId));
+        self::assertSame(200, $payload['code']);
+        self::assertSame(1, (int)$payload['data']['default_preferences_cleared']);
+        self::assertNull(Db::name('users')->where('id', 9001)->value('default_hotel_id'));
+        self::assertSame($hotelId, (int)Db::name('users')->where('id', 9001)->value('hotel_id'));
+        self::assertSame(101, (int)Db::name('users')->where('id', 9001)->value('tenant_id'));
     }
 
     public function testCreatedHotelInheritsOtaDeleteCapabilityFromRole(): void
@@ -398,6 +452,12 @@ final class HotelTenantCreationTest extends TestCase
             ip VARCHAR(50),
             user_agent TEXT,
             create_time DATETIME
+        )');
+        Db::execute('CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            tenant_id INTEGER,
+            hotel_id INTEGER,
+            default_hotel_id INTEGER
         )');
     }
 

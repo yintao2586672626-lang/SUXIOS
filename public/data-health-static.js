@@ -942,8 +942,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         };
     };
 
-    const manualOneClickFetchQunarVisitorNeedsRetry = (quality = {}) => Number(quality?.rowCount || 0) > 0
-        && Number(quality?.total || 0) <= 0
+    const manualOneClickFetchQunarVisitorNeedsRetry = (quality = {}) => Number(quality?.rowCount ?? quality?.row_count ?? 0) > 0
+        && Number(quality?.total ?? quality?.visitor_total ?? 0) <= 0
         && quality?.ready !== true;
 
     const manualOneClickFetchQunarAutoRetryAllowedAt = (date = new Date()) => {

@@ -25,13 +25,10 @@ const syncContract = sliceBetween(
   'return {',
 );
 
-test('ordinary hotel selectors share the one system current-hotel context', () => {
+test('ordinary hotel selectors share one system context while OTA project hotels stay independent', () => {
   for (const expectedBinding of [
     'coreOperationsHotelId.value',
     'dashboardHotelId.value',
-    'autoFetchHotelId.value',
-    'selectedCtripHotelId.value',
-    'meituanForm.value.hotelId',
     'onlineDataFilter.value.hotel_id',
     'operationFilters.value.hotel_id',
     'operatingTargetForm.value.hotel_id',
@@ -44,6 +41,14 @@ test('ordinary hotel selectors share the one system current-hotel context', () =
     'otaDiagnosisForm.value.hotel_id',
   ]) {
     assert.ok(bindings.includes(expectedBinding), `missing unified hotel binding: ${expectedBinding}`);
+  }
+
+  for (const platformScopedBinding of [
+    'autoFetchHotelId.value',
+    'selectedCtripHotelId.value',
+    'meituanForm.value.hotelId',
+  ]) {
+    assert.ok(!bindings.includes(platformScopedBinding), `platform hotel leaked into unified context: ${platformScopedBinding}`);
   }
 
   assert.match(syncContract, /watch\(filterReportHotel,[\s\S]*syncUnifiedHotelContexts\(hotelId, previousHotelId\)/);
@@ -118,7 +123,7 @@ test('switching the current hotel invalidates old-store results instead of displ
   assert.match(resetResults, /transferPricingResult\.value = null/);
 });
 
-test('legacy page defaults now prefer the system current hotel', () => {
+test('ordinary page defaults use only the explicit system current hotel', () => {
   const onlineDefault = sliceBetween(
     'const resolveDefaultOnlineAnalysisHotelId = async () => {',
     'const loadCompetitorEventFeed = async',
@@ -131,18 +136,65 @@ test('legacy page defaults now prefer the system current hotel', () => {
     'const normalizeOperationHotelSelection =',
     'const operationDisplayFormatters =',
   );
+  const operatingTargetDefault = sliceBetween(
+    'const operatingTargetContext = () => {',
+    'const applyOperatingTargetRecord =',
+  );
+  const manualNotificationContext = sliceBetween(
+    'const manualNotificationContext = () => {',
+    'const manualNotificationTemplateCards =',
+  );
+  const homeTemporalDefault = sliceBetween(
+    'const homeTemporalSelectedHotelId = computed(() => {',
+    'const homeTemporalPastMetric = computed',
+  );
+  const transferDefault = sliceBetween(
+    'const defaultTransferHotelId = () => {',
+    'const resolveTransferHotelId =',
+  );
   const dashboardLoad = sliceBetween(
     'const loadHotelDataDashboard = async () => {',
     'const dataHealthLightCacheKey =',
+  );
+  const optimizerDefault = sliceBetween(
+    'watch(operationOptimizerHotelOptions, (options) => {',
+    'const operationOptimizerKeywordRows = computed',
+  );
+  const optimizerLoad = sliceBetween(
+    'const loadOperationOptimizer = async (options = {}) => {',
+    'const openOperationOptimizerRecovery =',
+  );
+  const revenueDefault = sliceBetween(
+    'watch(revenueResearchHotelOptions, (options) => {',
+    'const revenueResearchSteps = ref',
+  );
+  const feasibilityDefault = sliceBetween(
+    'watch(aiFeasibilityHotelOptions, (options) => {',
+    'watch(aiFeasibilityHotelId,',
   );
   const otaPlatformWatch = sliceBetween(
     'watch(() => otaDiagnosisForm.value.platform',
     'const setOtaDiagnosisRange =',
   );
 
-  assert.match(onlineDefault, /if \(filterReportHotel\.value\) return filterReportHotel\.value/);
+  assert.match(onlineDefault, /return String\(filterReportHotel\.value \|\| ''\)\.trim\(\)/);
+  assert.doesNotMatch(onlineDefault, /autoFetchHotelId|hotels\.value.*\[0\]|auto-fetch-records/);
   assert.match(autoFetchDefault, /if \(filterReportHotel\.value\) return filterReportHotel\.value/);
-  assert.match(operationDefault, /isOperationHotelPermitted\(systemHotelId\)[\s\S]*firstOperationHotelId\(\)/);
-  assert.match(dashboardLoad, /dashboardHotelId\.value \|\| filterReportHotel\.value \|\| getAutoFetchHotelId\(\)/);
+  assert.match(operationDefault, /isOperationHotelPermitted\(systemHotelId\)[\s\S]*\? systemHotelId[\s\S]*: ''/);
+  assert.doesNotMatch(operationDefault, /firstOperationHotelId|operationHotelOptions\.value\[0\]/);
+  assert.match(operatingTargetDefault, /isOperationHotelPermitted\(systemHotelId\)[\s\S]*hotelId = systemHotelId/);
+  assert.doesNotMatch(operatingTargetDefault, /operationHotelOptions\.value\[0\]|length === 1/);
+  assert.doesNotMatch(manualNotificationContext, /operationHotelOptions\.value\[0\]|length === 1/);
+  assert.match(homeTemporalDefault, /return String\(filterReportHotel\.value \|\| ''\)\.trim\(\)/);
+  assert.doesNotMatch(homeTemporalDefault, /permittedHotels|hotels\.value|\[0\]|length === 1/);
+  assert.match(transferDefault, /filterReportHotel\.value/);
+  assert.match(transferDefault, /transferHotelOptions\.value[\s\S]*\.some\(/);
+  assert.doesNotMatch(transferDefault, /\[0\]|length === 1/);
+  assert.match(dashboardLoad, /dashboardHotelId\.value \|\| filterReportHotel\.value \|\| ''/);
+  assert.doesNotMatch(dashboardLoad, /getAutoFetchHotelId\(\)/);
+  assert.doesNotMatch(optimizerDefault, /autoFetchHotelId|options\[0\]/);
+  assert.doesNotMatch(optimizerLoad, /optionsList\[0\]/);
+  assert.doesNotMatch(revenueDefault, /options\[0\]/);
+  assert.doesNotMatch(feasibilityDefault, /normalized\[0\]/);
   assert.match(otaPlatformWatch, /reportHotelOptionExists\(systemHotelId\) \? systemHotelId : ''/);
 });

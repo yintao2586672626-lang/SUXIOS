@@ -12,6 +12,9 @@ use app\service\AuthTokenState;
 use app\service\HotelPmsBindingService;
 use app\service\LoginRateLimiter;
 use app\service\PermissionService;
+use app\service\UserDefaultHotelService;
+use DomainException;
+use RuntimeException;
 use think\Response;
 
 class Auth extends Base
@@ -370,13 +373,17 @@ class Auth extends Base
     private function buildLoginUserPayload(User $user, array $permittedHotels, ?int $currentHotelId): array
     {
         $primaryHotel = $this->permittedPrimaryHotel($user, $permittedHotels);
+        $defaultHotelId = $primaryHotel !== null ? (int)($primaryHotel['id'] ?? 0) : null;
         return [
             'id' => $user->id,
             'username' => $user->username,
             'realname' => $user->realname,
             'role_id' => $user->role_id,
             'role_name' => $user->role ? $user->role->display_name : '',
-            'hotel_id' => $primaryHotel !== null ? (int)($primaryHotel['id'] ?? 0) : null,
+            // hotel_id remains the legacy response name expected by the UI;
+            // internally users.hotel_id continues to mean authorization/owner binding.
+            'hotel_id' => $defaultHotelId,
+            'default_hotel_id' => $defaultHotelId,
             'hotel_name' => (string)($primaryHotel['name'] ?? $primaryHotel['hotel_name'] ?? ''),
             'is_super_admin' => $user->isSuperAdmin(),
             'is_hotel_manager' => $user->isHotelManager(),
@@ -395,7 +402,7 @@ class Auth extends Base
      */
     private function permittedPrimaryHotel(User $user, array $permittedHotels): ?array
     {
-        $primaryHotelId = (int)($user->hotel_id ?? 0);
+        $primaryHotelId = $user->defaultHotelPreferenceId();
         if ($primaryHotelId <= 0) {
             return null;
         }
@@ -484,17 +491,13 @@ class Auth extends Base
             }
         }
 
-        $userHotelId = (int)($user->hotel_id ?? 0);
-        if ($userHotelId > 0) {
+        $defaultHotelId = $user->defaultHotelPreferenceId();
+        if ($defaultHotelId > 0) {
             foreach ($permittedHotels as $hotel) {
-                if ((int)($hotel['id'] ?? 0) === $userHotelId) {
+                if ((int)($hotel['id'] ?? 0) === $defaultHotelId) {
                     return $hotel;
                 }
             }
-        }
-
-        if (count($permittedHotels) === 1) {
-            return $permittedHotels[0];
         }
 
         return null;
@@ -650,6 +653,7 @@ class Auth extends Base
             $user,
             $this->positiveIntOrNull($authContext['hotelId'] ?? null)
         );
+        $defaultHotelId = $primaryHotel !== null ? (int)($primaryHotel['id'] ?? 0) : null;
 
         return $this->success([
             'id' => $user->id,
@@ -659,7 +663,8 @@ class Auth extends Base
             'phone' => $user->phone,
             'role_id' => $user->role_id,
             'role_name' => $user->role ? $user->role->display_name : '',
-            'hotel_id' => $primaryHotel !== null ? (int)($primaryHotel['id'] ?? 0) : null,
+            'hotel_id' => $defaultHotelId,
+            'default_hotel_id' => $defaultHotelId,
             'hotel' => $primaryHotel,
             'is_super_admin' => $user->isSuperAdmin(),
             'is_hotel_manager' => $user->isHotelManager(),
@@ -671,6 +676,36 @@ class Auth extends Base
             'context' => $authContext,
             'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ]);
+    }
+
+    /**
+     * 设置当前用户的默认主门店，不改变其门店授权范围。
+     */
+    public function setDefaultHotel(): Response
+    {
+        if (!$this->currentUser) {
+            return $this->error('未登录', 401);
+        }
+
+        $data = $this->requestData();
+        $rawHotelId = $data['hotel_id'] ?? null;
+        $hotelIdText = is_scalar($rawHotelId) ? trim((string)$rawHotelId) : '';
+        if ($hotelIdText === '' || preg_match('/^[1-9][0-9]*$/D', $hotelIdText) !== 1) {
+            return $this->error('请选择有效的主门店', 422);
+        }
+
+        try {
+            $result = (new UserDefaultHotelService())->setDefaultHotel(
+                $this->currentUser,
+                (int)$hotelIdText
+            );
+        } catch (DomainException $exception) {
+            return $this->error($exception->getMessage(), 403);
+        } catch (RuntimeException $exception) {
+            return $this->error($exception->getMessage(), 409);
+        }
+
+        return $this->success($result, '默认主门店已保存');
     }
 
     /**

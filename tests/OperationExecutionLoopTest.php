@@ -825,12 +825,14 @@ final class OperationExecutionLoopTest extends TestCase
     {
         $service = new OperationManagementService();
         $item = $service->buildExecutionFlowItem(
-            ['id' => 41, 'hotel_id' => 7, 'status' => 'approved', 'source_module' => 'manual', 'platform' => 'ctrip', 'date_start' => '2026-08-03'],
-            [['id' => 51, 'intent_id' => 41, 'hotel_id' => 7, 'status' => 'pending_execute']],
+            ['id' => 41, 'hotel_id' => 7, 'tenant_id' => 3, 'status' => 'approved', 'source_module' => 'manual', 'platform' => 'ctrip', 'date_start' => '2026-08-03'],
+            [['id' => 51, 'intent_id' => 41, 'hotel_id' => 7, 'tenant_id' => 3, 'status' => 'pending_execute']],
             [
                 [
                     'id' => 62,
                     'task_id' => 51,
+                    'tenant_id' => 3,
+                    'created_by' => 9,
                     'evidence_type' => 'revenue_node_check',
                     'platform_response_json' => json_encode(['node_record' => array_replace(
                         $this->revenueNodeRecordV2(),
@@ -840,6 +842,8 @@ final class OperationExecutionLoopTest extends TestCase
                 [
                     'id' => 61,
                     'task_id' => 51,
+                    'tenant_id' => 3,
+                    'created_by' => 8,
                     'evidence_type' => 'manual_operation_execution',
                     'platform_response_json' => json_encode(['node_record' => [
                         'contract_version' => 'operation_revenue_node.v1',
@@ -864,6 +868,40 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame('updated same-weekend pace window', $node['comparison_basis']);
         self::assertSame('same-scope booking pace', $node['metric_definition']);
         self::assertSame('too_slow', $node['progress_status']);
+        self::assertNull($node['metric_snapshot']);
+        self::assertSame(2, $item['evidence_summary']['count']);
+        self::assertSame([
+            'tenant_id' => 3,
+            'system_hotel_id' => 7,
+            'task_id' => 51,
+            'parent_intent_id' => 41,
+            'business_date' => '2026-08-03',
+            'platform' => 'ctrip',
+            'source_scope' => 'pms_ota_cross_check',
+            'operator_id' => 9,
+        ], $node['identity']);
+    }
+
+    public function testExecutionFlowRejectsNewestRevenueNodeWithDriftedIdentity(): void
+    {
+        $service = new OperationManagementService();
+        $item = $service->buildExecutionFlowItem(
+            ['id' => 41, 'hotel_id' => 7, 'tenant_id' => 3, 'status' => 'approved', 'platform' => 'ctrip', 'date_start' => '2026-08-03'],
+            [['id' => 51, 'intent_id' => 41, 'hotel_id' => 7, 'tenant_id' => 3, 'status' => 'pending_execute']],
+            [[
+                'id' => 62,
+                'task_id' => 51,
+                'tenant_id' => 3,
+                'created_by' => 9,
+                'evidence_type' => 'revenue_node_check',
+                'platform_response_json' => json_encode(['node_record' => array_replace(
+                    $this->revenueNodeRecordV2(),
+                    ['business_date' => '2026-08-04']
+                )], JSON_UNESCAPED_UNICODE),
+            ]]
+        );
+
+        self::assertSame('identity_mismatch', $item['evidence_summary']['node_record']['status']);
     }
 
     public function testExecutionRequiresApprovedIntent(): void

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use app\controller\OnlineData;
+use app\service\OnlineDataTrustStatusService;
 use app\service\OtaTrafficAttributionService;
 use think\App;
 use think\facade\Db;
@@ -325,6 +326,117 @@ function p0_has_nonzero_required_traffic_metric(array $metrics, string $platform
     }
 
     return false;
+}
+
+/**
+ * An all-zero traffic snapshot is a valid fact only when every required zero
+ * is still present in the captured source row. This keeps explicit platform
+ * zeroes distinct from parser/default zeroes.
+ *
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $raw
+ * @param array<string, string> $requiredStorageFields
+ */
+function p0_has_explicit_zero_required_traffic_confirmation(
+    array $row,
+    array $raw,
+    string $platform,
+    array $requiredStorageFields,
+    string $rowSourceTraceId,
+    string $rowSourceUrlHash
+): bool {
+    $metrics = p0_required_traffic_metric_values($row, $platform);
+    if (p0_has_nonzero_required_traffic_metric($metrics, $platform)) {
+        return false;
+    }
+
+    $sourceRow = p0_array($raw['row'] ?? null);
+    if ($sourceRow === []) {
+        // Persistence stores some collector rows directly in raw_data and
+        // others under raw_data.row. Both must still prove the original keys.
+        $sourceRow = $raw;
+    }
+    $dateSource = strtolower(trim((string)(
+        $raw['date_source']
+        ?? $sourceRow['date_source']
+        ?? $sourceRow['dateSource']
+        ?? ''
+    )));
+    $dateSourceInvalid = $dateSource === ''
+        || str_contains($dateSource, 'default_data_date')
+        || str_contains($dateSource, 'command_date')
+        || str_contains($dateSource, 'command --date')
+        || $dateSource === 'capture_argument'
+        || $dateSource === 'response.rtdataupdatetime'
+        || $dateSource === 'page.visible_update_time'
+        || preg_match('/(?:^|\.)cards\.rtdataupdatetime$/', $dateSource) === 1;
+    if ($dateSourceInvalid) {
+        return false;
+    }
+
+    $sourceDateValue = $sourceRow['date']
+        ?? $sourceRow['dataDate']
+        ?? $sourceRow['statDate']
+        ?? $sourceRow['stat_date']
+        ?? $sourceRow['data_date']
+        ?? $sourceRow['reportDate']
+        ?? $sourceRow['day']
+        ?? null;
+    $sourceDateTimestamp = trim((string)$sourceDateValue) === ''
+        ? false
+        : strtotime((string)$sourceDateValue);
+    if ($sourceDateTimestamp === false
+        || p0_timestamp_date_in_shanghai($sourceDateTimestamp) !== (string)($row['data_date'] ?? '')
+    ) {
+        return false;
+    }
+
+    $captureSource = strtolower(trim((string)(
+        $sourceRow['_capture_source']
+        ?? $sourceRow['capture_source']
+        ?? ''
+    )));
+    if (preg_match('/^(?:xhr|fetch|same_origin_api|browser_response|network_response)(?::|$)/', $captureSource) !== 1) {
+        return false;
+    }
+
+    $factsByMetric = [];
+    foreach (p0_array($raw['field_facts'] ?? null) as $fact) {
+        if (!is_array($fact)) {
+            continue;
+        }
+        $metricKey = trim((string)($fact['metric_key'] ?? ''));
+        if (isset($requiredStorageFields[$metricKey])) {
+            $factsByMetric[$metricKey] = $fact;
+        }
+    }
+
+    foreach (p0_required_traffic_metric_keys($platform) as $metricKey) {
+        $fact = $factsByMetric[$metricKey] ?? null;
+        if (!is_array($fact)) {
+            return false;
+        }
+        $sourceKey = trim((string)($fact['source_key'] ?? ''));
+        $sourceValue = $sourceKey !== '' && array_key_exists($sourceKey, $sourceRow)
+            ? $sourceRow[$sourceKey]
+            : null;
+        $captureEvidence = p0_array($fact['capture_evidence'] ?? null);
+        $factCaptureSource = strtolower(trim((string)($captureEvidence['capture_source'] ?? '')));
+        if ((string)($fact['status'] ?? '') !== 'captured'
+            || $sourceKey === ''
+            || !is_numeric($sourceValue)
+            || abs((float)$sourceValue) > 0.000001
+            || !p0_source_path_is_structured((string)($fact['source_path'] ?? ''))
+            || trim((string)($fact['storage_field'] ?? '')) !== $requiredStorageFields[$metricKey]
+            || ($fact['stored_value_present'] ?? null) !== true
+            || !p0_field_fact_capture_evidence_matches_row($fact, $rowSourceTraceId, $rowSourceUrlHash)
+            || $factCaptureSource !== $captureSource
+        ) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -2888,12 +3000,28 @@ function p0_traffic_source_issue_code(array $row, array $config, array $credenti
 /**
  * @return array<string, mixed>
  */
-function p0_latest_sync_task(int $dataSourceId, string $targetDate): array
+function p0_latest_sync_task(
+    int $dataSourceId,
+    string $targetDate,
+    int $tenantId = 0,
+    int $systemHotelId = 0,
+    string $platform = ''
+): array
 {
     if ($dataSourceId <= 0) {
         return [
             'status' => 'not_available',
             'reason' => 'missing_data_source_id',
+            'target_date' => $targetDate,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+    $platform = strtolower(trim($platform));
+    if ($tenantId <= 0 || $systemHotelId <= 0 || !in_array($platform, ['ctrip', 'meituan'], true)) {
+        return [
+            'status' => 'scope_missing',
+            'reason' => 'sync_task_scope_identity_missing',
+            'data_source_id' => $dataSourceId,
             'target_date' => $targetDate,
             'sensitive_values_exposed' => false,
         ];
@@ -2909,6 +3037,7 @@ function p0_latest_sync_task(int $dataSourceId, string $targetDate): array
 
     $fields = p0_existing_columns('platform_data_sync_tasks', [
         'id',
+        'tenant_id',
         'data_source_id',
         'system_hotel_id',
         'platform',
@@ -2923,7 +3052,7 @@ function p0_latest_sync_task(int $dataSourceId, string $targetDate): array
         'create_time',
         'update_time',
     ]);
-    if (!in_array('id', $fields, true) || !in_array('data_source_id', $fields, true)) {
+    if (array_diff(['id', 'tenant_id', 'data_source_id', 'system_hotel_id', 'platform'], $fields) !== []) {
         return [
             'status' => 'task_schema_missing',
             'data_source_id' => $dataSourceId,
@@ -2936,6 +3065,9 @@ function p0_latest_sync_task(int $dataSourceId, string $targetDate): array
         $tasks = Db::name('platform_data_sync_tasks')
             ->field(implode(',', $fields))
             ->where('data_source_id', $dataSourceId)
+            ->where('tenant_id', $tenantId)
+            ->where('system_hotel_id', $systemHotelId)
+            ->where('platform', $platform)
             ->order('id', 'desc')
             ->limit(30)
             ->select()
@@ -2957,14 +3089,22 @@ function p0_latest_sync_task(int $dataSourceId, string $targetDate): array
         ];
     }
 
-    $task = $tasks[0];
+    $matchingTasks = [];
     foreach ($tasks as $candidateTask) {
         $candidateStats = json_decode((string)($candidateTask['stats_json'] ?? ''), true);
         if (is_array($candidateStats) && p0_sync_task_target_date($candidateStats) === $targetDate) {
-            $task = $candidateTask;
-            break;
+            $matchingTasks[] = $candidateTask;
         }
     }
+    if ($matchingTasks === []) {
+        return [
+            'status' => 'no_target_date_sync_task',
+            'data_source_id' => $dataSourceId,
+            'target_date' => $targetDate,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+    $task = $matchingTasks[0];
 
     $stats = json_decode((string)($task['stats_json'] ?? ''), true);
     $stats = is_array($stats) ? $stats : [];
@@ -3027,11 +3167,34 @@ function p0_normalize_task_date($value): string
     if ($text === '') {
         return '';
     }
-    if (preg_match('/\d{4}-\d{2}-\d{2}/', $text, $matches) === 1) {
-        return $matches[0];
+    $shanghai = new DateTimeZone('Asia/Shanghai');
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $text) === 1) {
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $text, $shanghai);
+        $errors = DateTimeImmutable::getLastErrors();
+        if ($date instanceof DateTimeImmutable
+            && ($errors === false || ($errors['warning_count'] ?? 0) === 0)
+            && $date->format('Y-m-d') === $text
+        ) {
+            return $text;
+        }
+        return '';
     }
-    $timestamp = strtotime($text);
-    return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    try {
+        // Parse the complete timestamp before converting its instant to
+        // Asia/Shanghai; a UTC late-afternoon value may be the next local day.
+        return (new DateTimeImmutable($text, $shanghai))
+            ->setTimezone($shanghai)
+            ->format('Y-m-d');
+    } catch (Throwable) {
+        return '';
+    }
+}
+
+function p0_timestamp_date_in_shanghai(int $timestamp): string
+{
+    return (new DateTimeImmutable('@' . $timestamp))
+        ->setTimezone(new DateTimeZone('Asia/Shanghai'))
+        ->format('Y-m-d');
 }
 
 function p0_sync_task_message_code(array $task, array $stats, string $targetDate): string
@@ -3251,6 +3414,18 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
         $sourceQuery->where('system_hotel_id', $scopeSystemHotelId);
     }
     $rows = $sourceQuery->select()->toArray();
+    $sourceScopeIssueCounts = [];
+    $rows = array_values(array_filter($rows, static function (array $row) use (&$sourceScopeIssueCounts): bool {
+        $hotelId = (int)($row['system_hotel_id'] ?? 0);
+        $hotelTenantId = p0_hotel_tenant_id($hotelId);
+        $sourceTenantId = (int)($row['tenant_id'] ?? 0);
+        if ($hotelId <= 0 || $hotelTenantId <= 0 || $sourceTenantId !== $hotelTenantId) {
+            $sourceScopeIssueCounts['source_tenant_scope_mismatch'] =
+                ((int)($sourceScopeIssueCounts['source_tenant_scope_mismatch'] ?? 0)) + 1;
+            return false;
+        }
+        return true;
+    }));
 
     $methodCounts = [];
     $statusCounts = [];
@@ -3280,7 +3455,7 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
     $trafficProfilePreparedForProbeCount = 0;
     $trafficProfileFlowReadyCount = 0;
     $trafficProfilePlatformHotelIdentifierCount = 0;
-    $trafficSourceIssueCounts = [];
+    $trafficSourceIssueCounts = $sourceScopeIssueCounts;
     $trafficLatestSyncTaskSummary = [
         'traffic_latest_sync_task_count' => 0,
         'traffic_latest_sync_task_status_counts' => [],
@@ -3347,7 +3522,13 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
                 && $credentialMetadataAllowsActions;
             $profileFlowReady = $profilePreparedForProbe && $currentSessionVerified;
             $issueCode = p0_traffic_source_issue_code($row, $sourceConfig, $credentialMetadata, $profileBinding);
-            $latestSyncTask = p0_latest_sync_task((int)($row['id'] ?? 0), $targetDate);
+            $latestSyncTask = p0_latest_sync_task(
+                (int)($row['id'] ?? 0),
+                $targetDate,
+                (int)($row['tenant_id'] ?? 0),
+                (int)($row['system_hotel_id'] ?? 0),
+                (string)($row['platform'] ?? $platform)
+            );
             p0_accumulate_latest_sync_task($trafficLatestSyncTaskSummary, $latestSyncTask);
             if ($issueCode !== '') {
                 $trafficSourceIssueCounts[$issueCode] = ($trafficSourceIssueCounts[$issueCode] ?? 0) + 1;
@@ -5071,6 +5252,90 @@ function p0_traffic_row_scope(array $row, string $platform): array
 }
 
 /**
+ * Resolve one exact hotel/platform/source/sync-task identity before reading
+ * online_daily_data. A platform-wide aggregate is intentionally blocked: it
+ * cannot prove that rows belong to one tenant/source/task without mixing.
+ *
+ * @return array<string, mixed>
+ */
+function p0_resolve_traffic_storage_scope(string $platform, string $targetDate, int $systemHotelId): array
+{
+    $platform = strtolower(trim($platform));
+    if (!in_array($platform, ['ctrip', 'meituan'], true) || $systemHotelId <= 0) {
+        return ['status' => 'scope_missing', 'reason' => 'exact_hotel_platform_scope_required'];
+    }
+    if (!p0_table_exists('platform_data_sources')) {
+        return ['status' => 'scope_missing', 'reason' => 'platform_data_sources_table_missing'];
+    }
+    $sourceFields = p0_existing_columns('platform_data_sources', [
+        'id', 'tenant_id', 'system_hotel_id', 'platform', 'enabled', 'status', 'data_type',
+    ]);
+    if (array_diff(['id', 'tenant_id', 'system_hotel_id', 'platform'], $sourceFields) !== []) {
+        return ['status' => 'scope_missing', 'reason' => 'platform_data_source_scope_columns_missing'];
+    }
+    try {
+        $sourceQuery = Db::name('platform_data_sources')
+            ->field(implode(',', $sourceFields))
+            ->where('system_hotel_id', $systemHotelId)
+            ->where('platform', $platform);
+        if (in_array('enabled', $sourceFields, true)) {
+            $sourceQuery->where('enabled', 1);
+        }
+        if (in_array('status', $sourceFields, true)) {
+            $sourceQuery->whereIn('status', ['ready', 'active', 'enabled', 'waiting_config']);
+        }
+        $sources = $sourceQuery->order('id', 'asc')->select()->toArray();
+    } catch (Throwable) {
+        return ['status' => 'scope_missing', 'reason' => 'platform_data_source_scope_read_failed'];
+    }
+    if (count($sources) !== 1) {
+        return [
+            'status' => 'scope_missing',
+            'reason' => $sources === [] ? 'traffic_data_source_missing' : 'traffic_data_source_ambiguous',
+            'source_count' => count($sources),
+        ];
+    }
+    $source = $sources[0];
+    $hotelTenantId = p0_hotel_tenant_id($systemHotelId);
+    $tenantId = (int)($source['tenant_id'] ?? 0);
+    $sourceId = (int)($source['id'] ?? 0);
+    if ($hotelTenantId <= 0) {
+        return ['status' => 'scope_missing', 'reason' => 'hotel_tenant_metadata_missing'];
+    }
+    if ($tenantId <= 0 || $sourceId <= 0) {
+        return ['status' => 'scope_missing', 'reason' => 'traffic_data_source_identity_missing'];
+    }
+    if ($tenantId !== $hotelTenantId
+        || (int)($source['system_hotel_id'] ?? 0) !== $systemHotelId
+        || strtolower(trim((string)($source['platform'] ?? ''))) !== $platform
+    ) {
+        return ['status' => 'scope_missing', 'reason' => 'traffic_source_tenant_scope_mismatch'];
+    }
+    $latest = p0_latest_sync_task($sourceId, $targetDate, $tenantId, $systemHotelId, $platform);
+    $syncTaskId = (int)($latest['task_id'] ?? 0);
+    if ($syncTaskId <= 0) {
+        return [
+            'status' => 'scope_missing',
+            'reason' => (string)($latest['reason'] ?? $latest['status'] ?? 'sync_task_identity_missing'),
+            'latest_sync_task' => $latest,
+            'tenant_id' => $tenantId,
+            'data_source_id' => $sourceId,
+            'system_hotel_id' => $systemHotelId,
+            'platform' => $platform,
+        ];
+    }
+    return [
+        'status' => 'ready',
+        'tenant_id' => $tenantId,
+        'data_source_id' => $sourceId,
+        'sync_task_id' => $syncTaskId,
+        'system_hotel_id' => $systemHotelId,
+        'platform' => $platform,
+        'latest_sync_task' => $latest,
+    ];
+}
+
+/**
  * @return array<string, mixed>
  */
 function p0_traffic_field_fact_closure(string $platform, string $targetDate, int $systemHotelId = 0): array
@@ -5097,8 +5362,10 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         'rows_with_field_facts' => 0,
         'nonzero_required_metric_rows' => 0,
         'zero_required_metric_rows' => 0,
+        'explicit_zero_confirmed_rows' => 0,
+        'zero_value_unconfirmed_rows' => 0,
         'required_metric_value_status' => 'not_loaded',
-        'required_metric_value_policy' => 'P0 traffic closure requires at least one target-date row with a non-zero required traffic metric; all-zero core metrics remain zero_value_unverified unless explicit source-side zero confirmation exists.',
+        'required_metric_value_policy' => 'P0 traffic closure accepts non-zero target-date metrics or all-zero rows whose original structured response explicitly contains every required zero with matching date, source path, capture evidence and stored readback.',
         'complete_metric_keys' => [],
         'missing_metric_keys' => $requiredMetricKeys,
         'incomplete_metric_keys' => [],
@@ -5145,17 +5412,44 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
             return $base;
         }
     }
+    $storageScope = p0_resolve_traffic_storage_scope($platform, $targetDate, $systemHotelId);
+    $base['storage_scope'] = $storageScope;
+    if ((string)($storageScope['status'] ?? '') !== 'ready') {
+        $base['status'] = 'scope_missing';
+        $base['scope_block_reason'] = (string)($storageScope['reason'] ?? 'exact_storage_scope_missing');
+        return $base;
+    }
+    foreach (['tenant_id', 'data_source_id', 'sync_task_id', 'readback_verified'] as $column) {
+        if (!isset($columns[$column])) {
+            $base['status'] = 'required_column_missing';
+            $base['missing_column'] = $column;
+            return $base;
+        }
+    }
+    $tenantId = (int)($storageScope['tenant_id'] ?? 0);
+    $dataSourceId = (int)($storageScope['data_source_id'] ?? 0);
+    $syncTaskId = (int)($storageScope['sync_task_id'] ?? 0);
 
     $query = Db::name('online_daily_data')
         ->where('source', $platform)
         ->where('data_date', $targetDate)
-        ->whereIn('data_type', ['traffic', 'flow', 'conversion']);
+        ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
+        ->where('tenant_id', $tenantId)
+        ->where('data_source_id', $dataSourceId)
+        ->where('sync_task_id', $syncTaskId)
+        ->where('readback_verified', 1);
     if (isset($columns['data_period'])) {
         $query->where(static function ($periodQuery): void {
             $periodQuery
                 ->whereNull('data_period')
                 ->whereOr('data_period', 'not in', ['next_7_days', 'next_30_days', 'forecast', 'future_forecast']);
         });
+    }
+    if (isset($columns['validation_status'])) {
+        $blocked = OnlineDataTrustStatusService::quotedSqlList(
+            OnlineDataTrustStatusService::blockingValidationStatuses()
+        );
+        $query->whereRaw("(`validation_status` IS NULL OR LOWER(TRIM(`validation_status`)) NOT IN ({$blocked}))");
     }
     if ($systemHotelId > 0 && isset($columns['system_hotel_id'])) {
         $query->where('system_hotel_id', $systemHotelId);
@@ -5164,8 +5458,14 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         $base['missing_column'] = 'system_hotel_id';
         return $base;
     }
+    if (isset($columns['platform'])) {
+        $query->where('platform', $platform);
+    }
     $fieldList = array_values(array_filter([
         'id',
+        isset($columns['tenant_id']) ? 'tenant_id' : '',
+        isset($columns['data_source_id']) ? 'data_source_id' : '',
+        isset($columns['sync_task_id']) ? 'sync_task_id' : '',
         'source',
         'data_date',
         'data_type',
@@ -5180,12 +5480,19 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         isset($columns['order_filling_num']) ? 'order_filling_num' : '',
         isset($columns['order_submit_num']) ? 'order_submit_num' : '',
         isset($columns['source_trace_id']) ? 'source_trace_id' : '',
-        isset($columns['sync_task_id']) ? 'sync_task_id' : '',
         isset($columns['readback_verified']) ? 'readback_verified' : '',
     ], static fn(string $field): bool => $field !== ''));
     $sourceRows = array_values(array_filter(
         $query->field(implode(',', $fieldList))->select()->toArray(),
-        static fn(array $row): bool => \app\service\OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic($row, $platform)
+        static function (array $row) use ($platform, $tenantId, $dataSourceId, $syncTaskId, $systemHotelId, $columns): bool {
+            return \app\service\OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic($row, $platform)
+                && (int)($row['tenant_id'] ?? 0) === $tenantId
+                && (int)($row['data_source_id'] ?? 0) === $dataSourceId
+                && (int)($row['sync_task_id'] ?? 0) === $syncTaskId
+                && (int)($row['readback_verified'] ?? 0) === 1
+                && (int)($row['system_hotel_id'] ?? 0) === $systemHotelId
+                && (!isset($columns['platform']) || strtolower(trim((string)($row['platform'] ?? ''))) === $platform);
+        }
     ));
     $base['source_traffic_row_count'] = count($sourceRows);
     $rows = [];
@@ -5267,13 +5574,6 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         } else {
             $base['zero_required_metric_rows']++;
         }
-        if (count($base['sample_metric_rows']) < 5) {
-            $base['sample_metric_rows'][] = [
-                'row_id' => $row['id'] ?? null,
-                'metrics' => $metrics,
-                'required_metric_value_status' => $hasNonzeroRequiredMetric ? 'ready' : 'zero_value_unverified',
-            ];
-        }
         $facts = p0_array($raw['field_facts'] ?? null);
         if ($facts !== []) {
             $base['rows_with_field_facts']++;
@@ -5281,6 +5581,30 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         $rowEvidence = p0_external_desensitized_capture_evidence($raw);
         $rowSourceTraceId = trim((string)($row['source_trace_id'] ?? $raw['source_trace_id'] ?? $rowEvidence['source_trace_id'] ?? ''));
         $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
+        $explicitZeroConfirmed = !$hasNonzeroRequiredMetric
+            && p0_has_explicit_zero_required_traffic_confirmation(
+                $row,
+                $raw,
+                $platform,
+                $requiredStorageFields,
+                $rowSourceTraceId,
+                $rowSourceUrlHash
+            );
+        if ($explicitZeroConfirmed) {
+            $base['explicit_zero_confirmed_rows']++;
+        } elseif (!$hasNonzeroRequiredMetric) {
+            $base['zero_value_unconfirmed_rows']++;
+        }
+        if (count($base['sample_metric_rows']) < 5) {
+            $base['sample_metric_rows'][] = [
+                'row_id' => $row['id'] ?? null,
+                'metrics' => $metrics,
+                'required_metric_value_status' => $hasNonzeroRequiredMetric || $explicitZeroConfirmed
+                    ? 'ready'
+                    : 'zero_value_unverified',
+                'explicit_zero_confirmed' => $explicitZeroConfirmed,
+            ];
+        }
         $uiStatus = p0_required_traffic_ui_status(
             $facts,
             $row,
@@ -5392,7 +5716,14 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     $base['incomplete_metric_keys'] = $incompleteKeys;
     $base['system_hotel_ids'] = array_values(array_map('intval', array_keys((array)$base['system_hotel_row_counts'])));
     $base['ui_statuses'] = array_values(array_keys((array)$base['ui_statuses']));
-    $base['required_metric_value_status'] = (int)$base['nonzero_required_metric_rows'] > 0 ? 'ready' : 'zero_value_unverified';
+    $requiredMetricValuesReady = (int)$base['traffic_row_count'] > 0
+        && (int)$base['nonzero_required_metric_rows']
+            + (int)$base['explicit_zero_confirmed_rows']
+            === (int)$base['traffic_row_count']
+        && (int)$base['zero_value_unconfirmed_rows'] === 0;
+    $base['required_metric_value_status'] = $requiredMetricValuesReady
+        ? 'ready'
+        : 'zero_value_unverified';
     $base['readback_status'] = ($base['readback_check_supported'] ?? false) !== true
         ? 'schema_missing'
         : (
@@ -5420,7 +5751,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     $base['ui_status_closure_policy'] = 'P0 traffic UI closure requires the metric matrix and every authoritative target-date traffic snapshot row in scope to be ready; auxiliary endpoint rows are reported separately and cannot be used to satisfy or fail the canonical gate.';
     $base['status'] = $missingKeys === []
         && $incompleteKeys === []
-        && (int)$base['nonzero_required_metric_rows'] > 0
+        && $requiredMetricValuesReady
         && $uiClosureReady
         && (string)$base['platform_hotel_identifier_status'] === 'ready'
         && ($platform !== 'meituan' || (string)$base['readback_status'] === 'ready')
@@ -5438,7 +5769,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         }
     } elseif ($platform === 'meituan' && (string)$base['readback_status'] !== 'ready') {
         $base['status'] = 'readback_unverified';
-    } elseif ((int)$base['nonzero_required_metric_rows'] === 0) {
+    } elseif (!$requiredMetricValuesReady) {
         $base['status'] = 'zero_value_unverified';
         $base['standard_fact_status'] = 'zero_value_unverified';
         $base['standard_fact_status_counts']['zero_value_unverified'] = (int)$base['traffic_row_count'];
@@ -6001,6 +6332,8 @@ function p0_platform_traffic_gate(array $traffic): array
     $platformHotelIdentifierMatchReasonCounts = p0_array($trafficFieldFacts['platform_hotel_identifier_match_reason_counts'] ?? null);
     $nonzeroRequiredMetricRows = (int)($trafficFieldFacts['nonzero_required_metric_rows'] ?? 0);
     $zeroRequiredMetricRows = (int)($trafficFieldFacts['zero_required_metric_rows'] ?? 0);
+    $explicitZeroConfirmedRows = (int)($trafficFieldFacts['explicit_zero_confirmed_rows'] ?? 0);
+    $zeroValueUnconfirmedRows = (int)($trafficFieldFacts['zero_value_unconfirmed_rows'] ?? 0);
     $requiredMetricValueStatus = (string)($trafficFieldFacts['required_metric_value_status'] ?? 'not_loaded');
     $requiredMetricValuePolicy = (string)($trafficFieldFacts['required_metric_value_policy'] ?? 'P0 traffic closure requires non-zero target-date core traffic metric evidence or explicit zero confirmation.');
     $readbackCheckSupported = (bool)($trafficFieldFacts['readback_check_supported'] ?? false);
@@ -6055,7 +6388,9 @@ function p0_platform_traffic_gate(array $traffic): array
     $storedValueReady = $fieldLoopAll('stored_value_present');
     $uiStatusReady = $fieldLoopAll('ui_status_ready')
         && (int)($trafficFieldFacts['ui_status_ready_rows'] ?? 0) > 0;
-    $requiredMetricValuesReady = $nonzeroRequiredMetricRows > 0 && $requiredMetricValueStatus === 'ready';
+    $requiredMetricValuesReady = $requiredMetricValueStatus === 'ready'
+        && ($nonzeroRequiredMetricRows > 0 || $explicitZeroConfirmedRows > 0)
+        && $zeroValueUnconfirmedRows === 0;
     $recommendedAction = p0_array($traffic['recommended_action'] ?? null);
     $nextSteps = p0_platform_traffic_gate_next_steps($traffic);
     $externalEvidenceRows = (int)($externalEvidence['evidence_rows'] ?? 0);
@@ -6135,6 +6470,8 @@ function p0_platform_traffic_gate(array $traffic): array
         'profile_scope_missing_target_date_traffic_hotel_ids' => array_values(array_map('intval', (array)($profileScopeTrafficClosure['missing_target_date_traffic_hotel_ids'] ?? []))),
         'nonzero_required_metric_rows' => $nonzeroRequiredMetricRows,
         'zero_required_metric_rows' => $zeroRequiredMetricRows,
+        'explicit_zero_confirmed_rows' => $explicitZeroConfirmedRows,
+        'zero_value_unconfirmed_rows' => $zeroValueUnconfirmedRows,
         'required_metric_value_status' => $requiredMetricValueStatus,
         'required_metric_value_policy' => $requiredMetricValuePolicy,
         'readback_check_supported' => $readbackCheckSupported,

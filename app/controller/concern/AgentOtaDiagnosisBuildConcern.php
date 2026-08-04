@@ -67,6 +67,7 @@ trait AgentOtaDiagnosisBuildConcern
     {
         return array_values(array_intersect([
             'id',
+            'tenant_id',
             'hotel_id',
             'hotel_name',
             'system_hotel_id',
@@ -297,6 +298,7 @@ trait AgentOtaDiagnosisBuildConcern
         ksort($excludedQualityStatuses);
 
         return [
+            'tenant_id' => $tenantId,
             'hotel' => $hotel ?: ['id' => $hotelIdRaw, 'name' => ''],
             'online_rows' => $onlineRows,
             'decision_eligible_online_rows' => $decisionEligibleOnlineRows,
@@ -487,6 +489,439 @@ trait AgentOtaDiagnosisBuildConcern
     private function hasOtaDiagnosisData(array $dataSet): bool
     {
         return !empty($dataSet['online_rows']);
+    }
+
+    /** @return list<string> */
+    private function allOtaDiagnosisRequiredPlatforms(): array
+    {
+        return ['ctrip', 'meituan'];
+    }
+
+    /** @return list<string> */
+    private function otaDiagnosisRequestedDates(string $startDate, string $endDate): array
+    {
+        $dates = [];
+        $cursor = new \DateTimeImmutable($startDate);
+        $end = new \DateTimeImmutable($endDate);
+        while ($cursor <= $end) {
+            $dates[] = $cursor->format('Y-m-d');
+            $cursor = $cursor->modify('+1 day');
+        }
+        return $dates;
+    }
+
+    /**
+     * Build a Ctrip + Meituan OTA diagnosis while retaining each platform's
+     * own metric definition. Cross-platform exposure, visitor, order and
+     * revenue values are deliberately never summed here.
+     *
+     * @param array<string,array<string,mixed>> $platformDataSets
+     */
+    private function buildAllOtaDiagnosisResult(
+        array $platformDataSets,
+        int $hotelId,
+        string $hotelName,
+        string $startDate,
+        string $endDate,
+        string $analysisType
+    ): array {
+        $requiredPlatforms = $this->allOtaDiagnosisRequiredPlatforms();
+        $requestedRange = ['start_date' => $startDate, 'end_date' => $endDate];
+        $requestedDates = $this->otaDiagnosisRequestedDates($startDate, $endDate);
+        $coverageByPlatform = [];
+        $evidenceRefsByPlatform = [];
+        $platformSummaries = [];
+        $evidenceSources = [];
+        $dataGaps = [];
+        $mainProblems = [];
+        $possibleReasons = [];
+        $recommendedActions = [];
+        $actionItems = [];
+        $missingSections = [];
+        $priority = 'none';
+
+        foreach ($requiredPlatforms as $platform) {
+            $dataSet = is_array($platformDataSets[$platform] ?? null) ? $platformDataSets[$platform] : [];
+            $tenantId = (int)($dataSet['tenant_id'] ?? 0);
+            $visibleRows = is_array($dataSet['online_rows'] ?? null) ? $dataSet['online_rows'] : [];
+            $eligibleRows = is_array($dataSet['decision_eligible_online_rows'] ?? null)
+                ? $dataSet['decision_eligible_online_rows']
+                : [];
+            $canonical = $this->selectCanonicalOtaDiagnosisTrafficSnapshots(
+                $eligibleRows,
+                $hotelId,
+                $hotelName,
+                $platform
+            );
+            $validRows = [];
+            $identityGapCounts = [];
+            foreach ($canonical['rows'] as $row) {
+                if (!is_array($row) || !$this->isOtaDiagnosisDecisionEligibleRow($row)) {
+                    $identityGapCounts['decision_ineligible'] = ($identityGapCounts['decision_ineligible'] ?? 0) + 1;
+                    continue;
+                }
+                $rowPlatform = strtolower(trim((string)($row['source'] ?? $row['platform'] ?? '')));
+                $rowHotelId = (int)($row['system_hotel_id'] ?? 0);
+                $rowTenantId = (int)($row['tenant_id'] ?? 0);
+                $rowDate = trim((string)($row['data_date'] ?? ''));
+                $rowId = (int)($row['id'] ?? 0);
+                $reason = '';
+                if ($rowPlatform !== $platform) {
+                    $reason = 'platform_mismatch';
+                } elseif ($rowHotelId !== $hotelId) {
+                    $reason = 'hotel_mismatch';
+                } elseif ($tenantId <= 0 || $rowTenantId !== $tenantId) {
+                    $reason = 'tenant_mismatch';
+                } elseif (!in_array($rowDate, $requestedDates, true)) {
+                    $reason = 'requested_date_mismatch';
+                } elseif ($rowId <= 0) {
+                    $reason = 'source_record_id_missing';
+                }
+                if ($reason !== '') {
+                    $identityGapCounts[$reason] = ($identityGapCounts[$reason] ?? 0) + 1;
+                    continue;
+                }
+                $validRows[] = $row;
+            }
+
+            $coveredDates = array_values(array_unique(array_map(
+                static fn(array $row): string => (string)($row['data_date'] ?? ''),
+                $validRows
+            )));
+            sort($coveredDates, SORT_STRING);
+            $missingDates = array_values(array_diff($requestedDates, $coveredDates));
+            $evidenceRefs = array_values(array_unique(array_map(
+                static fn(array $row): string => 'online_daily_data#' . (int)($row['id'] ?? 0),
+                $validRows
+            )));
+            sort($evidenceRefs, SORT_STRING);
+            $effectiveRange = [
+                'start_date' => (string)($dataSet['effective_start_date'] ?? $startDate),
+                'end_date' => (string)($dataSet['effective_end_date'] ?? $endDate),
+            ];
+            $usedLatest = ($dataSet['used_latest_available_data'] ?? false) === true;
+            $reasonCodes = [];
+            if ($usedLatest) {
+                $reasonCodes[] = 'used_latest_available_data';
+            }
+            if ($effectiveRange !== $requestedRange) {
+                $reasonCodes[] = 'effective_date_mismatch';
+            }
+            if ($validRows === []) {
+                $reasonCodes[] = 'decision_eligible_rows_missing';
+            }
+            if ($missingDates !== []) {
+                $reasonCodes[] = 'requested_date_coverage_missing';
+            }
+            if ($identityGapCounts !== []) {
+                $reasonCodes[] = 'source_identity_mismatch';
+            }
+            $reasonCodes = array_values(array_unique($reasonCodes));
+            $ready = $reasonCodes === [];
+            $coverageByPlatform[$platform] = [
+                'platform' => $platform,
+                'status' => $ready ? 'ready' : 'blocked',
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'requested_date_range' => $requestedRange,
+                'effective_date_range' => $effectiveRange,
+                'covered_dates' => $coveredDates,
+                'missing_dates' => $missingDates,
+                'visible_row_count' => count($visibleRows),
+                'decision_eligible_row_count' => count($validRows),
+                'evidence_refs' => $evidenceRefs,
+                'used_latest_available_data' => $usedLatest,
+                'identity_gap_counts' => $identityGapCounts,
+                'reason_codes' => $reasonCodes,
+            ];
+            $evidenceRefsByPlatform[$platform] = $evidenceRefs;
+
+            if (!$ready) {
+                $dataGaps[] = [
+                    'code' => 'all_ota_platform_evidence_incomplete',
+                    'message' => sprintf('%s缺少同租户、同酒店、同请求日期且可用于决策的规范回读事实。', $this->allOtaDiagnosisPlatformLabel($platform)),
+                    'scope' => 'ctrip_meituan_ota_channels',
+                    'platform' => $platform,
+                    'reason_codes' => $reasonCodes,
+                    'missing_dates' => $missingDates,
+                    'blocked_conclusions' => ['跨渠道收益诊断', '跨渠道流量诊断', '跨渠道运营动作'],
+                    'next_action' => sprintf('补齐%s目标日期事实并完成保存回读后重新诊断。', $this->allOtaDiagnosisPlatformLabel($platform)),
+                ];
+                continue;
+            }
+
+            $scopedDataSet = $dataSet;
+            $scopedDataSet['decision_eligible_online_rows'] = $validRows;
+            $platformResult = $this->buildOtaDiagnosisResult(
+                $scopedDataSet,
+                $hotelId,
+                (string)$hotelId,
+                $hotelName,
+                $platform,
+                $startDate,
+                $endDate,
+                $analysisType
+            );
+            $platformMetrics = $this->allOtaDiagnosisPlatformMetrics((array)($platformResult['metrics'] ?? []));
+            $platformProblems = array_values(array_filter(array_map(
+                'strval',
+                (array)($platformResult['diagnosis']['abnormal_metrics'] ?? [])
+            )));
+            $platformActions = array_values(array_filter(array_map(
+                'strval',
+                (array)($platformResult['diagnosis']['actions'] ?? [])
+            )));
+            $label = $this->allOtaDiagnosisPlatformLabel($platform);
+            $platformSummaries[$platform] = [
+                'platform' => $platform,
+                'label' => $label,
+                'requested_date_range' => $requestedRange,
+                'effective_date_range' => $effectiveRange,
+                'metrics' => $platformMetrics,
+                'main_problems' => $platformProblems,
+                'traffic_analysis' => (string)($platformResult['diagnosis']['traffic_analysis'] ?? ''),
+                'exposure_analysis' => (string)($platformResult['diagnosis']['exposure_analysis'] ?? ''),
+                'visit_conversion_analysis' => (string)($platformResult['diagnosis']['visit_conversion_analysis'] ?? ''),
+                'order_conversion_analysis' => (string)($platformResult['diagnosis']['order_conversion_analysis'] ?? ''),
+                'recommended_actions' => $platformActions,
+                'evidence_refs' => $evidenceRefs,
+                'decision_quality' => $platformResult['decision_quality'] ?? [],
+                'blocking_data_gaps' => $platformResult['blocking_data_gaps'] ?? [],
+            ];
+            foreach ($platformProblems as $problem) {
+                $mainProblems[] = $label . '：' . $problem;
+            }
+            foreach (['exposure_analysis', 'visit_conversion_analysis', 'order_conversion_analysis'] as $analysisField) {
+                $analysis = trim((string)($platformResult['diagnosis'][$analysisField] ?? ''));
+                if ($analysis !== '') {
+                    $possibleReasons[] = $label . '：' . $analysis;
+                }
+            }
+            foreach ($platformActions as $index => $action) {
+                $actionText = $label . '：' . $action;
+                $recommendedActions[] = $actionText;
+                $actionItems[] = [
+                    'id' => sprintf('all_ota_%s_action_%d', $platform, $index + 1),
+                    'platform' => $platform,
+                    'action' => $actionText,
+                    'status' => 'requires_platform_specific_diagnosis',
+                    'evidence_refs' => $evidenceRefs,
+                    'required_evidence' => ['platform_specific_saved_diagnosis'],
+                    'missing_evidence' => [],
+                    'execution_ready' => false,
+                    'can_request_execution_intent' => false,
+                    'human_confirmation_required' => true,
+                    'human_confirmation_status' => 'blocked',
+                    'blocked_reason' => '跨渠道诊断只提供逐平台证据摘要；需回到对应单平台保存诊断后才能创建执行意图。',
+                    'source_policy' => 'all_ota_diagnosis_read_only_platform_specific_execution_required',
+                ];
+            }
+            foreach ((array)($platformResult['blocking_data_gaps'] ?? []) as $gap) {
+                if (!is_array($gap)) {
+                    continue;
+                }
+                $dataGaps[] = [
+                    'code' => 'all_ota_platform_metric_gap',
+                    'message' => $label . '：' . (string)($gap['message'] ?? $gap['code'] ?? '指标证据缺失'),
+                    'scope' => 'ctrip_meituan_ota_channels',
+                    'platform' => $platform,
+                    'source_code' => (string)($gap['code'] ?? ''),
+                    'blocked_conclusions' => $gap['blocked_conclusions'] ?? ['对应平台经营诊断'],
+                    'next_action' => $gap['next_action'] ?? '补齐对应平台目标日期字段后重新诊断。',
+                ];
+            }
+            foreach ((array)($platformResult['missing_sections'] ?? []) as $section) {
+                $section = trim((string)$section);
+                if ($section !== '') {
+                    $missingSections[] = $label . '：' . $section;
+                }
+            }
+            $platformPriority = strtolower((string)($platformResult['priority'] ?? 'none'));
+            if (($platformPriority === 'high') || ($platformPriority === 'medium' && $priority !== 'high')) {
+                $priority = $platformPriority;
+            }
+
+            foreach ($validRows as $row) {
+                $evidenceSources[] = array_merge([
+                    'ref' => 'online_daily_data#' . (int)$row['id'],
+                    'table' => 'online_daily_data',
+                    'record_id' => (int)$row['id'],
+                    'date' => (string)$row['data_date'],
+                    'tags' => $this->buildOtaEvidenceTags('online_daily_data', $row),
+                    'label' => $label . ' ' . trim((string)($row['data_type'] ?? 'OTA事实')),
+                    'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+                    'decision_eligible' => true,
+                    'excluded_from_decision' => false,
+                ], $this->buildOtaDiagnosisEvidenceMetadata($row));
+            }
+        }
+
+        $coveredPlatforms = array_values(array_filter($requiredPlatforms, static fn(string $platform): bool =>
+            ($coverageByPlatform[$platform]['status'] ?? '') === 'ready'
+        ));
+        $missingPlatforms = array_values(array_diff($requiredPlatforms, $coveredPlatforms));
+        $coverageComplete = $missingPlatforms === [];
+        $usedLatestAvailableData = false;
+        foreach ($coverageByPlatform as $coverage) {
+            if (($coverage['used_latest_available_data'] ?? false) === true) {
+                $usedLatestAvailableData = true;
+                break;
+            }
+        }
+        $coverage = [
+            'scope' => 'ctrip_meituan_ota_channels_only',
+            'definition' => 'all_ota means Ctrip plus Meituan OTA channels; it excludes PMS and whole-hotel facts',
+            'required_platforms' => $requiredPlatforms,
+            'covered_platforms' => $coveredPlatforms,
+            'missing_platforms' => $missingPlatforms,
+            'complete' => $coverageComplete,
+            'per_platform' => $coverageByPlatform,
+        ];
+
+        if ($coverageComplete) {
+            $summary = sprintf(
+                '已按同一酒店、同一请求日期分别读取携程和美团的规范回读事实并形成跨渠道诊断；曝光、访客、订单、收入等指标保持逐平台口径，未作跨平台相加。携程%d条，美团%d条。',
+                (int)($coverageByPlatform['ctrip']['decision_eligible_row_count'] ?? 0),
+                (int)($coverageByPlatform['meituan']['decision_eligible_row_count'] ?? 0)
+            );
+        } else {
+            $summary = sprintf(
+                '携程+美团 OTA 跨渠道诊断未形成：缺少%s的同酒店、同请求日期规范回读事实；已有单平台事实仅保留为来源证据，不会改写为 all_ota 结论。',
+                implode('、', array_map([$this, 'allOtaDiagnosisPlatformLabel'], $missingPlatforms))
+            );
+            $platformSummaries = [];
+            $mainProblems = [];
+            $possibleReasons = [];
+            $recommendedActions = [];
+            $actionItems = [];
+            $priority = 'none';
+        }
+
+        $diagnosis = [
+            'summary' => $summary,
+            'data_overview' => array_values(array_map(
+                fn(string $platform): string => sprintf(
+                    '%s：%d条规范回读事实',
+                    $this->allOtaDiagnosisPlatformLabel($platform),
+                    (int)($coverageByPlatform[$platform]['decision_eligible_row_count'] ?? 0)
+                ),
+                $requiredPlatforms
+            )),
+            'abnormal_metrics' => array_values(array_unique($mainProblems)),
+            'traffic_analysis' => $coverageComplete
+                ? implode('；', array_filter(array_map(
+                    fn(string $platform): string => $this->allOtaDiagnosisPlatformLabel($platform) . '：' . (string)($platformSummaries[$platform]['traffic_analysis'] ?? ''),
+                    $requiredPlatforms
+                )))
+                : '双平台事实覆盖不完整，不能形成跨渠道流量判断。',
+            'exposure_analysis' => $coverageComplete ? implode('；', array_map(
+                fn(string $platform): string => $this->allOtaDiagnosisPlatformLabel($platform) . '：' . (string)($platformSummaries[$platform]['exposure_analysis'] ?? ''),
+                $requiredPlatforms
+            )) : '',
+            'visit_conversion_analysis' => $coverageComplete ? implode('；', array_map(
+                fn(string $platform): string => $this->allOtaDiagnosisPlatformLabel($platform) . '：' . (string)($platformSummaries[$platform]['visit_conversion_analysis'] ?? ''),
+                $requiredPlatforms
+            )) : '',
+            'order_conversion_analysis' => $coverageComplete ? implode('；', array_map(
+                fn(string $platform): string => $this->allOtaDiagnosisPlatformLabel($platform) . '：' . (string)($platformSummaries[$platform]['order_conversion_analysis'] ?? ''),
+                $requiredPlatforms
+            )) : '',
+            'price_analysis' => '跨平台价格与收入指标仅逐平台展示；没有相同且已声明的字段定义时不做合计或价差推断。',
+            'competitor_analysis' => '本结果只覆盖携程和美团 OTA 渠道，不代表 PMS 或全酒店经营。',
+            'advertising_analysis' => '',
+            'service_quality_analysis' => '',
+            'comment_analysis' => '',
+            'actions' => array_values(array_unique($recommendedActions)),
+        ];
+        $totalEligibleRows = array_sum(array_map(
+            static fn(array $item): int => (int)($item['decision_eligible_row_count'] ?? 0),
+            $coverageByPlatform
+        ));
+
+        return [
+            'hotel' => ['id' => $hotelId, 'name' => $hotelName],
+            'platform' => 'all_ota',
+            'date_range' => $requestedRange,
+            'effective_date_range' => $coverageComplete ? $requestedRange : ['start_date' => '', 'end_date' => ''],
+            'requested_date_range' => $requestedRange,
+            'coverage' => $coverage,
+            'evidence_refs' => $evidenceRefsByPlatform,
+            'platform_summaries' => $platformSummaries,
+            'metric_comparability' => [
+                'policy' => 'per_platform_only_unless_definition_and_grain_match',
+                'cross_platform_totals_calculated' => false,
+                'kept_separate' => ['amount', 'quantity', 'book_order_num', 'list_exposure', 'detail_visitors', 'order_visitors', 'submit_users'],
+            ],
+            'data_summary' => [
+                'has_ota_data' => $coverageComplete,
+                'has_traffic_data' => $coverageComplete,
+                'has_competitor_data' => false,
+                'has_comment_data' => false,
+                'has_advertising_data' => false,
+                'has_service_quality_data' => false,
+                'has_price_order_data' => $coverageComplete,
+                'has_daily_report_data' => false,
+                'core_metrics_complete' => $coverageComplete && $dataGaps === [],
+                'used_latest_available_data' => $usedLatestAvailableData,
+                'source_counts' => [
+                    'online_rows' => $totalEligibleRows,
+                    'online_rows_by_platform' => array_map(
+                        static fn(array $item): int => (int)($item['decision_eligible_row_count'] ?? 0),
+                        $coverageByPlatform
+                    ),
+                    'daily_reports' => 0,
+                ],
+            ],
+            'metrics' => [],
+            'derived_metric_lineage' => [],
+            'data_gaps' => $dataGaps,
+            'diagnosis' => $diagnosis,
+            'diagnosis_sections' => $this->buildOtaDiagnosisSections($diagnosis, array_values(array_unique($missingSections))),
+            'missing_sections' => array_values(array_unique($missingSections)),
+            'core_conclusion' => $summary,
+            'main_problems' => array_values(array_unique($mainProblems)),
+            'possible_reasons' => array_values(array_unique($possibleReasons)),
+            'recommended_actions' => array_values(array_unique($recommendedActions)),
+            'action_items' => $actionItems,
+            'evidence_sources' => $evidenceSources,
+            'priority' => $priority,
+            'source_policy' => 'database_only_same_tenant_hotel_requested_date_ctrip_meituan_per_platform_metrics_no_cross_platform_sum',
+            'source_summary' => [
+                'scope' => [
+                    'hotel_id' => $hotelId,
+                    'platform' => 'all_ota',
+                    'platform_definition' => 'ctrip_plus_meituan_ota_only',
+                    'requested_start_date' => $startDate,
+                    'requested_end_date' => $endDate,
+                    'excludes' => ['pms', 'whole_hotel'],
+                ],
+                'coverage' => $coverage,
+                'metric_comparability' => 'per_platform_only',
+            ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function allOtaDiagnosisPlatformMetrics(array $metrics): array
+    {
+        $allowed = [
+            'record_count', 'date_count', 'amount', 'quantity', 'book_order_num', 'adr',
+            'list_exposure', 'detail_visitors', 'flow_rate', 'order_visitors', 'submit_users',
+            'detail_rate', 'order_rate', 'submit_rate', 'advertising_spend',
+            'advertising_order_amount', 'advertising_bookings', 'advertising_room_nights',
+            'advertising_impressions', 'advertising_clicks', 'advertising_roas',
+            'avg_psi_score', 'avg_service_score', 'avg_im_score', 'avg_reply_rate', 'hotel_collect',
+        ];
+        return array_intersect_key($metrics, array_fill_keys($allowed, true));
+    }
+
+    private function allOtaDiagnosisPlatformLabel(string $platform): string
+    {
+        return match ($platform) {
+            'ctrip' => '携程',
+            'meituan' => '美团',
+            default => $platform,
+        };
     }
 
     private function isOtaDiagnosisDecisionEligibleRow(array $row): bool
@@ -1223,6 +1658,7 @@ trait AgentOtaDiagnosisBuildConcern
         };
 
         return [
+            'tenant_id' => (int)($row['tenant_id'] ?? 0),
             'platform' => strtolower(trim((string)($row['source'] ?? $row['platform'] ?? ''))),
             'system_hotel_id' => (int)($row['system_hotel_id'] ?? 0),
             'platform_hotel_id' => trim((string)($row['hotel_id'] ?? '')),

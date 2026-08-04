@@ -25,7 +25,7 @@ test('public login shell defers the authenticated application asset chain', () =
   const styleAssets = entries
     .filter((entry) => entry.type === 'style')
     .map((entry) => stripFrontendAssetQuery(entry.src));
-  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style.css', 'ai-custom.css']);
+  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style.min.css', 'ai-custom.css']);
   assert.match(index, /<link rel="stylesheet" href="login-critical\.css\?v=[^"]+"/);
   assert.doesNotMatch(index, /<link[^>]+href="(?:tailwind\.min|style|ai-custom)\.css/);
   assert.equal(scriptAssets[0], 'vue.runtime.global.prod.js');
@@ -286,7 +286,7 @@ test('authenticated dashboard defers secondary API requests beyond the first mea
   assert.match(appMain, /const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;/);
   assert.match(
     appMain,
-    /const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/,
+    /const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = 9000\) => \{/,
   );
   assert.match(
     appMain,
@@ -298,7 +298,7 @@ test('authenticated dashboard defers secondary API requests beyond the first mea
   );
   assert.match(
     compassLoader,
-    /scheduleDelayedPageTask\(async \(\) => \{[\s\S]*?const compassBackgroundJobs = \[[\s\S]*?\}, AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\);/,
+    /scheduleDelayedPageTask\(async \(\) => \{[\s\S]*?const compassBackgroundJobs = \[[\s\S]*?\}, 6200\);/,
   );
   assert.doesNotMatch(
     compassLoader,

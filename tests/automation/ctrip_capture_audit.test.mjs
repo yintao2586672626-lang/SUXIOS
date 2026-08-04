@@ -343,6 +343,82 @@ test('passes the capture gate when required auth, response, rows, and endpoints 
   assert.deepEqual(gate.failed_check_ids, []);
 });
 
+test('treats unrelated endpoint gaps as warnings after requested domain core endpoints are captured', () => {
+  const audit = {
+    auth_status: { status: 'logged_in' },
+    captured_endpoint_ids: [
+      'business_market_overview',
+      'traffic_order_overview',
+    ],
+    summary: {
+      response_count: 87,
+      standard_row_count: 360,
+      expected_endpoint_count: 21,
+      captured_catalog_endpoint_count: 20,
+      missing_catalog_endpoint_count: 1,
+    },
+    endpoint_coverage: {
+      summary: {
+        required_endpoint_count: 21,
+        captured_required_endpoint_count: 20,
+        missing_required_endpoint_count: 1,
+      },
+    },
+    field_coverage: { summary: {} },
+  };
+
+  const gate = evaluateCtripCaptureAuditGate(audit, {
+    requiredCoreEndpointIds: [
+      'business_market_overview',
+      'traffic_order_overview',
+    ],
+    softCheckIds: ['endpoint_coverage'],
+  });
+
+  assert.equal(gate.status, 'pass');
+  assert.equal(gate.failed, false);
+  assert.equal(gate.coverage_status, 'partial');
+  assert.deepEqual(gate.failed_check_ids, []);
+  assert.deepEqual(gate.warning_check_ids, ['endpoint_coverage']);
+  assert.equal(gate.checks.find((check) => check.id === 'endpoint_coverage')?.status, 'warning');
+  assert.equal(gate.checks.find((check) => check.id === 'core_endpoint_coverage')?.status, 'pass');
+});
+
+test('still blocks a partial capture when a requested domain core endpoint is missing', () => {
+  const audit = {
+    auth_status: { status: 'logged_in' },
+    captured_endpoint_ids: ['business_realtime'],
+    summary: {
+      response_count: 12,
+      standard_row_count: 24,
+      expected_endpoint_count: 11,
+      captured_catalog_endpoint_count: 10,
+      missing_catalog_endpoint_count: 1,
+    },
+    endpoint_coverage: {
+      summary: {
+        required_endpoint_count: 11,
+        captured_required_endpoint_count: 10,
+        missing_required_endpoint_count: 1,
+      },
+    },
+    field_coverage: { summary: {} },
+  };
+
+  const gate = evaluateCtripCaptureAuditGate(audit, {
+    requiredCoreEndpointIds: ['business_market_overview'],
+    softCheckIds: ['endpoint_coverage'],
+  });
+
+  assert.equal(gate.status, 'fail');
+  assert.equal(gate.failed, true);
+  assert.deepEqual(gate.failed_check_ids, [
+    'endpoint_coverage',
+    'core_endpoint_coverage',
+  ]);
+  assert.deepEqual(gate.warning_check_ids, []);
+});
+
 test('fails the capture gate when field coverage is below the configured minimum', () => {
   const audit = {
     auth_status: { status: 'ok_or_unverified' },
@@ -523,6 +599,9 @@ test('Ctrip browser capture payload keeps the structured capture gap report', ()
   assert.match(script, /capture_gap_report:\s*null/);
   assert.match(script, /payload\.capture_gap_report\s*=\s*audit\.capture_gap_report/);
   assert.match(script, /capture_gap_report:\s*audit\.capture_gap_report\s*\|\|\s*null/);
+  assert.match(script, /required_gate_endpoint_ids:\s*requiredGateEndpointIds/);
+  assert.match(script, /requiredCoreEndpointIds:\s*requiredGateEndpointIds/);
+  assert.match(script, /softCheckIds:\s*requiredGateEndpointIds\.length\s*>\s*0\s*\?\s*\['endpoint_coverage'\]\s*:\s*\[\]/);
 });
 
 test('Ctrip capture audit scopes endpoint and field expectations to a lightweight plan', () => {

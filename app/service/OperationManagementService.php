@@ -4772,9 +4772,9 @@ class OperationManagementService
             ->order('id', 'desc')
             ->select()
             ->toArray();
-        $task['evidence'] = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
-        $task['evidence_summary'] = $this->buildSafeExecutionEvidenceSummary($task['evidence']);
         $intent = $this->normalizeExecutionIntentRow($intentRow);
+        $task['evidence'] = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
+        $task['evidence_summary'] = $this->buildSafeExecutionEvidenceSummary($task['evidence'], $task, $intent);
         $task['evidence_truth'] = $this->buildExecutionEvidenceTruth($intent, $task, $task['evidence']);
         $task['outcome_truth'] = $this->buildExecutionOutcomeTruth($intent, $task, $task['evidence']);
         $task['truth_context'] = $this->buildExecutionTruthContext(
@@ -4837,9 +4837,9 @@ class OperationManagementService
      * @param array<int, array<string, mixed>> $rows
      * @return array{count: int, types: array<int, string>, latest_type: string, latest_at: string}
      */
-    private function buildSafeExecutionEvidenceSummary(array $rows): array
+    private function buildSafeExecutionEvidenceSummary(array $rows, array $task = [], array $intent = []): array
     {
-        return $this->executionFlowReadService->buildSafeEvidenceSummary($rows);
+        return $this->executionFlowReadService->buildSafeEvidenceSummary($rows, $task, $intent);
     }
 
     private function normalizeExecutionIntentRow(array $row): array

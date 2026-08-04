@@ -78,7 +78,8 @@ test('Ctrip public profile UI calls scoped add, read, and refresh endpoints', ()
   assert.match(source, /binding_saved_collection_failed/);
   assert.match(source, /mutationSeq !== ctripPublicProfileMutationSeq[\s\S]*systemHotelId !== String\(selectedCtripHotelId\.value/);
   assert.match(source, /const ctripPublicProfileBusy = computed\(\(\) => ctripPublicProfileLoading\.value[\s\S]*ctripPublicProfileArchivingId\.value\)/);
-  assert.match(template, /ctrip-public-profile-hotel-select[^>]*:disabled="ctripPublicProfileBusy \|\| otaPublicPageDiagnosisExecutionLoading"/);
+  assert.doesNotMatch(template, /ctrip-public-profile-hotel-select/);
+  assert.doesNotMatch(template, /v-model="selectedCtripHotelId"/);
 });
 
 test('Ctrip competition-circle operations are reachable from the public-profile page with truthful evidence states', () => {

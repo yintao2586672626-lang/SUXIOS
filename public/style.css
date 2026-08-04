@@ -902,6 +902,15 @@ select {
     overflow-wrap: anywhere;
 }
 
+.ctrip-business-summary-grid .responsive-metric-card {
+    display: flex;
+    min-height: 6rem;
+    flex-direction: column;
+    justify-content: center;
+    padding-top: .625rem !important;
+    padding-bottom: .625rem !important;
+}
+
 /* 下拉菜单增强 */
 select {
     cursor: pointer;
@@ -1832,7 +1841,7 @@ textarea:focus,
     font-size: 0.78rem;
     font-weight: 700;
 }
-.feasibility-field span {
+.feasibility-field > span {
     display: block;
     margin-bottom: 0.35rem;
     color: var(--sx-muted);
@@ -3919,6 +3928,7 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
     }
 
 }
+
 
 @media (max-width: 640px) {
     main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] {
@@ -7830,12 +7840,17 @@ aside.sidebar:not(.collapsed) {
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
-    min-width: 0;
+    min-width: 24px;
+    min-height: 24px;
     max-width: 100%;
     padding: 0;
     background: transparent;
     border: 0;
     border-bottom: 1px dotted rgba(111, 87, 47, 0.62);
+    box-sizing: border-box;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
     cursor: help;
     transition: color 160ms ease, border-color 160ms ease;
 }
@@ -7844,7 +7859,12 @@ aside.sidebar:not(.collapsed) {
 .suxi-term-help:focus {
     color: #6f572f;
     border-bottom-color: #6f572f;
-    outline: none;
+}
+
+.suxi-term-help:focus-visible {
+    border-radius: 0.25rem;
+    outline: 2px solid rgba(111, 87, 47, 0.72);
+    outline-offset: 2px;
 }
 
 .suxi-term-help-mark {
@@ -7862,8 +7882,7 @@ aside.sidebar:not(.collapsed) {
     line-height: 1;
 }
 
-.suxi-term-help::after {
-    content: attr(data-help);
+.suxi-term-help-tooltip {
     display: none;
     position: absolute;
     top: calc(100% + 0.55rem);
@@ -7881,20 +7900,27 @@ aside.sidebar:not(.collapsed) {
     line-height: 1.55;
     text-align: left;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    pointer-events: auto;
 }
 
 @media (hover: hover) and (pointer: fine) {
-    .suxi-term-help:hover::after {
+    .suxi-term-help:hover:not(.is-dismissed) > .suxi-term-help-tooltip {
         display: block;
     }
 }
 
-.suxi-term-help:focus::after {
+.suxi-term-help:focus:not(.is-dismissed) > .suxi-term-help-tooltip,
+.suxi-term-help.is-open:not(.is-dismissed) > .suxi-term-help-tooltip {
     display: block;
 }
 
+.suxi-term-help.is-dismissed > .suxi-term-help-tooltip {
+    display: none;
+}
+
 @media (max-width: 639px) {
-    .suxi-term-help::after {
+    .suxi-term-help-tooltip {
         position: fixed;
         top: auto;
         right: 1rem;
@@ -7903,6 +7929,7 @@ aside.sidebar:not(.collapsed) {
         width: auto;
         max-height: min(50vh, 22rem);
         overflow-y: auto;
+        overscroll-behavior: contain;
         transform: none;
     }
 }
@@ -14142,6 +14169,176 @@ main[data-current-page="ai-workbench"] .holiday-advice-number {
     gap: 7px !important;
 }
 
+.suxi-app-shell .header .platform-hotel-context {
+    display: grid;
+    grid-template-columns: 30px auto minmax(190px, 1fr);
+    align-items: center;
+    gap: 8px;
+    width: clamp(340px, 34vw, 410px);
+    min-width: 0;
+    height: 44px;
+    padding: 5px 6px 5px 7px;
+    border: 1px solid rgba(220, 197, 145, .28);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, .055);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .045);
+}
+
+.suxi-app-shell .header .platform-hotel-context-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: rgba(220, 197, 145, .13);
+    color: #e7d39f;
+    font-size: 12px;
+}
+
+.suxi-app-shell .header .platform-hotel-context-copy {
+    display: flex;
+    min-width: 54px;
+    flex-direction: column;
+    gap: 1px;
+    line-height: 1.05;
+}
+
+.suxi-app-shell .header .platform-hotel-context-platform {
+    color: rgba(220, 197, 145, .82);
+    font-size: 9px;
+    font-weight: 750;
+    letter-spacing: .12em;
+}
+
+.suxi-app-shell .header .platform-hotel-context-label {
+    color: #f8faf7;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.suxi-app-shell .header .platform-hotel-context-select-wrap {
+    position: relative;
+    display: block;
+    min-width: 0;
+}
+
+.suxi-app-shell .header .platform-hotel-context-select {
+    width: 100%;
+    height: 32px;
+    padding: 0 30px 0 11px;
+    overflow: hidden;
+    appearance: none;
+    border: 1px solid rgba(220, 197, 145, .42);
+    border-radius: 8px;
+    background: #fbfaf7;
+    color: #13231e;
+    font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 32px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.suxi-app-shell .header .platform-hotel-context-select:hover {
+    border-color: rgba(220, 197, 145, .78);
+    background: #fff;
+}
+
+.suxi-app-shell .header .platform-hotel-context-select:focus-visible {
+    border-color: #dcc591;
+    box-shadow: 0 0 0 3px rgba(220, 197, 145, .18);
+}
+
+.suxi-app-shell .header .platform-hotel-context-select:disabled {
+    cursor: not-allowed;
+    background: rgba(251, 250, 247, .76);
+    color: #64748b;
+}
+
+.suxi-app-shell .header .platform-hotel-context-config {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid rgba(220, 197, 145, .52);
+    border-radius: 8px;
+    background: rgba(220, 197, 145, .14);
+    color: #f7e8bd;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+}
+
+.suxi-app-shell .header .platform-hotel-context-config:hover {
+    border-color: rgba(220, 197, 145, .82);
+    background: rgba(220, 197, 145, .23);
+    color: #fff8e7;
+}
+
+.suxi-app-shell .header .platform-hotel-context-config:focus-visible {
+    outline: 2px solid rgba(220, 197, 145, .82);
+    outline-offset: 2px;
+}
+
+.suxi-app-shell .header .platform-hotel-context-select-wrap > i {
+    position: absolute;
+    top: 50%;
+    right: 11px;
+    color: #6f572f;
+    font-size: 10px;
+    pointer-events: none;
+    transform: translateY(-50%);
+}
+
+@media (max-width: 1100px) {
+    .suxi-app-shell .header-layout {
+        flex-wrap: wrap;
+    }
+
+    .suxi-app-shell .header .header-utility-cluster {
+        width: 100%;
+    }
+
+    .suxi-app-shell .header .platform-hotel-context {
+        width: auto;
+        flex: 1 1 340px;
+    }
+}
+
+@media (max-width: 767px) {
+    .suxi-app-shell .header .platform-hotel-context {
+        grid-column: 1 / -1;
+        grid-template-columns: 30px auto minmax(0, 1fr);
+        width: 100%;
+        height: 42px;
+    }
+}
+
+@media (max-width: 479px) {
+    .suxi-app-shell .header .platform-hotel-context {
+        grid-template-columns: 28px minmax(0, 1fr);
+    }
+
+    .suxi-app-shell .header .platform-hotel-context-copy {
+        display: none;
+    }
+
+    .suxi-app-shell .header .platform-hotel-context-icon {
+        width: 28px;
+        height: 28px;
+    }
+}
+
 .suxi-app-shell .header .header-utility-cluster > .header-language-control,
 .suxi-app-shell .header .header-notification-control > .header-notification-button,
 .suxi-app-shell .header .header-utility-cluster > .header-time-panel {
@@ -14886,4 +15083,114 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+}
+
+.ctrip-sales-table :where(th, td),
+.ctrip-rank-table :where(th, td) {
+    padding: 0.68rem 0.5rem !important;
+    vertical-align: middle;
+    border-right: 1px solid #cfd9e5 !important;
+    font-variant-numeric: tabular-nums;
+}
+
+.ctrip-sales-table {
+    min-width: 1380px;
+    table-layout: auto !important;
+}
+
+.ctrip-sales-table :where(th, td):last-child,
+.ctrip-rank-table :where(th, td):last-child {
+    border-right: 0 !important;
+}
+
+.ctrip-sales-groups > th,
+.ctrip-rank-groups > th {
+    background: #eef2f6 !important;
+    font-size: 11px;
+    font-weight: 700 !important;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+    border-top: 3px solid #b9975b !important;
+}
+
+.suxi-app-shell main .ctrip-sales-head > th,
+.suxi-app-shell main .ctrip-rank-head > th {
+    background: #f8fafc !important;
+    font-size: 12px;
+    font-weight: 650 !important;
+    line-height: 1.25;
+    text-align: center;
+    vertical-align: middle;
+    cursor: pointer;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.ctrip-sales-head .suxi-term-help,
+.ctrip-rank-head .suxi-term-help {
+    justify-content: center;
+    white-space: normal;
+}
+
+.ctrip-sales-table .ctrip-sales-head > th:nth-child(6),
+.ctrip-sales-table .ctrip-sales-head > th:nth-child(7) {
+    min-width: 132px;
+}
+
+.ctrip-sales-table .ctrip-sales-head > th:nth-child(8) {
+    min-width: 120px;
+}
+
+.ctrip-sales-groups > th:nth-child(n + 4),
+.ctrip-sales-table .ctrip-sales-head > th:nth-child(1),
+.ctrip-sales-table .ctrip-sales-head > th:nth-child(5),
+.ctrip-sales-table .ctrip-sales-head > th:nth-child(8),
+.ctrip-sales-table tbody td:nth-child(4),
+.ctrip-sales-table tbody td:nth-child(8),
+.ctrip-sales-table tbody td:nth-child(11),
+.ctrip-rank-groups > th:nth-child(n + 3),
+.ctrip-rank-head > th:nth-child(1),
+.ctrip-rank-head > th:nth-child(3),
+.ctrip-rank-table tbody td:nth-child(3),
+.ctrip-rank-table tbody td:nth-child(5) {
+    border-left: 1px solid #bcc8d5 !important;
+}
+
+.ctrip-sales-table tbody td {
+    text-align: center !important;
+    white-space: nowrap;
+}
+
+.ctrip-sales-table tbody td:nth-child(1),
+.ctrip-sales-table tbody td:nth-child(3) {
+    text-align: center !important;
+}
+
+.ctrip-sales-table tbody td:nth-child(2) {
+    text-align: left !important;
+    white-space: normal;
+}
+
+.ctrip-sales-table tbody td:nth-child(2) > div {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.45;
+}
+
+.ctrip-sales-state {
+    display: inline-block;
+    padding: 2px 8px;
+    border: 1px solid #f0d8ad;
+    border-radius: 999px;
+    background: #fff8eb;
+    color: #9a5a13;
+    font-size: 11px;
+}
+
+@media (max-width: 1100px) {
+    .ctrip-sales-table { min-width: 1380px; }
+    .ctrip-rank-table { min-width: 1040px; }
 }

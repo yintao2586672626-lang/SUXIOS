@@ -1902,7 +1902,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             return { status: 'not_logged_in' };
         }
 
-        const selectedCtripHotelId = getSelectedCtripHotelId();
+        const selectedCtripHotelId = String(getSelectedCtripHotelId() || '');
         let form = getForm() || {};
         const temporaryCookieQuery = isCtripTemporaryCookieQuery({
             selectedCtripHotelId,
@@ -2236,6 +2236,9 @@ window.SUXI_CTRIP_STATIC = (() => {
         const directRequestBody = { ...requestBody, async: false, background: false };
         try {
             const res = await requestFetch(directRequestBody);
+            if (String(getSelectedCtripHotelId() || '') !== selectedCtripHotelId) {
+                return { status: 'stale' };
+            }
             if (isCtripBackgroundAcceptedResponse(res)) {
                 const data = res.data || {};
                 const runningPayload = {
@@ -2303,6 +2306,9 @@ window.SUXI_CTRIP_STATIC = (() => {
             await handleFetchFailure(res.message || '获取失败');
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
+            if (String(getSelectedCtripHotelId() || '') !== selectedCtripHotelId) {
+                return { status: 'stale' };
+            }
             await handleFetchFailure('请求失败: ' + error.message);
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
@@ -2818,22 +2824,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         return result;
     };
 
-    const deriveCtripFullChannelRoomNightMultiplier = (row = {}) => {
-        const seed = [
-            row?.hotelId ?? row?.hotel_id ?? '',
-            row?.hotelName ?? row?.hotel_name ?? '',
-        ].join('|');
-        let hash = 2166136261;
-        for (let index = 0; index < seed.length; index += 1) {
-            hash ^= seed.charCodeAt(index);
-            hash = Math.imul(hash, 16777619);
-        }
-        return Number((1.15 + ((hash >>> 0) % 16) / 100).toFixed(2));
-    };
-
     const buildCtripFullChannelRoomNightScenario = (row = {}) => {
-        const multiplier = deriveCtripFullChannelRoomNightMultiplier(row);
-
         const quantityStatus = String(row?.metricSourceStatus?.quantity || '').trim();
         const quantityMissing = row?.quantity === null
             || row?.quantity === undefined
@@ -2845,20 +2836,18 @@ window.SUXI_CTRIP_STATIC = (() => {
                 value: null,
                 status: 'ctrip_room_nights_missing',
                 displayLabel: '携程间夜缺失',
-                multiplier,
-                formulaText: '携程离店间夜 × 1.15–1.30 情景系数',
-                sourceLabel: '情景推算，非平台返回',
+                formulaText: '携程离店间夜缺失，无法判断全渠道间夜',
+                sourceLabel: '全渠道间夜需要独立的全渠道间夜来源',
             };
         }
 
         return {
-            value: Math.round(ctripRoomNights * multiplier),
-            status: 'scenario_estimate',
-            displayLabel: '情景推算',
-            multiplier,
+            value: null,
+            status: 'full_channel_source_missing',
+            displayLabel: '缺少全渠道间夜来源',
             ctripRoomNights,
-            formulaText: `携程离店间夜 ${ctripRoomNights} × 情景系数 ${multiplier}`,
-            sourceLabel: '情景推算，非平台返回',
+            formulaText: `已获取携程离店间夜 ${ctripRoomNights}；缺少其他渠道间夜及订单到间夜的可核验转换口径，暂不可推算全渠道间夜`,
+            sourceLabel: '携程离店间夜仅代表携程渠道；全渠道间夜来源未接入',
         };
     };
 
@@ -2871,15 +2860,54 @@ window.SUXI_CTRIP_STATIC = (() => {
         };
     };
 
-    const normalizeCtripChannelOrderInput = (value, sourceStatus = '') => {
+    const normalizeCtripChannelOrderInput = (value, sourceStatus = '', sourcePresent = true) => {
         const statusText = String(sourceStatus || '').trim();
         const missing = value === null
             || value === undefined
             || value === ''
             || typeof value === 'boolean'
-            || /未返回|missing|unavailable|failed|unknown/i.test(statusText);
+            || sourcePresent !== true
+            || /未返回|not_returned|not_collected|missing|unavailable|failed|unknown/i.test(statusText);
         const number = Number(value);
         return missing || !Number.isFinite(number) || number < 0 ? null : number;
+    };
+
+    const ctripChannelOrderIdentity = (row = {}, options = {}) => {
+        const optionalText = value => {
+            const text = String(value ?? '').trim();
+            return text !== '' ? text : null;
+        };
+        const optionalPositiveInteger = value => {
+            const number = Number(value);
+            return Number.isInteger(number) && number > 0 ? number : null;
+        };
+        return {
+            source: 'ctrip',
+            systemHotelId: optionalPositiveInteger(
+                options.systemHotelId ?? row?.system_hotel_id ?? row?.systemHotelId
+            ),
+            platformHotelId: optionalText(
+                options.platformHotelId
+                ?? row?.platform_hotel_id
+                ?? row?.platformHotelId
+                ?? row?.hotelId
+                ?? row?.hotel_id
+            ),
+            businessDate: normalizeCtripChannelOrderDate(
+                options.dataDate
+                ?? row?._channelOrderDataDate
+                ?? row?._data_date
+                ?? row?.data_date
+                ?? row?.dataDate
+                ?? row?.date
+            ) || null,
+            captureId: optionalText(
+                options.captureId ?? row?.capture_id ?? row?.captureId ?? row?.source_trace_id
+            ),
+            fetchedAt: optionalText(
+                options.fetchedAt ?? row?._channelOrderFetchedAt ?? row?._fetch_time ?? row?.fetched_at
+            ),
+        };
     };
 
     const normalizeCtripChannelOrderDate = (value) => {
@@ -2964,16 +2992,24 @@ window.SUXI_CTRIP_STATIC = (() => {
         const metricStatus = row?.metricSourceStatus && typeof row.metricSourceStatus === 'object'
             ? row.metricSourceStatus
             : {};
-        const totalOrders = normalizeCtripChannelOrderInput(row?.bookOrderNum, metricStatus.bookOrderNum);
-        const ctripVisitors = normalizeCtripChannelOrderInput(row?.totalDetailNum, metricStatus.totalDetailNum);
-        const ctripRate = normalizeCtripChannelOrderInput(row?.convertionRate, metricStatus.convertionRate);
-        const qunarVisitors = normalizeCtripChannelOrderInput(row?.qunarDetailVisitors, metricStatus.qunarDetailVisitors);
-        const qunarRate = normalizeCtripChannelOrderInput(row?.qunarDetailCR, metricStatus.qunarDetailCR);
+        const hasOwn = key => Object.prototype.hasOwnProperty.call(row || {}, key);
+        const totalOrders = normalizeCtripChannelOrderInput(row?.bookOrderNum, metricStatus.bookOrderNum, hasOwn('bookOrderNum'));
+        let totalOrderConversionRatio = 0.75;
+        let totalOrdersIncludingCancelled = totalOrders === null
+            ? null
+            : Math.round(totalOrders / totalOrderConversionRatio);
+        const ctripVisitors = normalizeCtripChannelOrderInput(row?.totalDetailNum, metricStatus.totalDetailNum, hasOwn('totalDetailNum'));
+        const ctripRate = normalizeCtripChannelOrderInput(row?.convertionRate, metricStatus.convertionRate, hasOwn('convertionRate'));
+        const qunarVisitors = normalizeCtripChannelOrderInput(row?.qunarDetailVisitors, metricStatus.qunarDetailVisitors, hasOwn('qunarDetailVisitors'));
+        const qunarRate = normalizeCtripChannelOrderInput(row?.qunarDetailCR, metricStatus.qunarDetailCR, hasOwn('qunarDetailCR'));
         const estimateAvailability = resolveCtripChannelOrderEstimateAvailability(row, options);
+        const identity = ctripChannelOrderIdentity(row, options);
+        const totalOrderConversionRatioText = () => String(totalOrderConversionRatio).replace(/0+$/, '').replace(/\.$/, '');
         const formulas = {
+            totalOrdersIncludingCancelled: `四舍五入（总平台订单 ÷ ${totalOrderConversionRatioText()}）`,
             ctrip: '向上取整（携程APP访客量 × 携程转化率）',
-            qunar: '向上取整（去哪儿访客 × 去哪儿转化率）',
-            ctripUndistributed: '携程系预订订单 − 携程APP推算订单 − 去哪儿推算订单',
+            qunar: '四舍五入（去哪儿详情页访客量 × 去哪儿转化率）；转化率＝统计周期内预订订单量之和 ÷ 详情页访客量之和',
+            ctripUndistributed: '同程艺龙和携程小程序以及其他分销渠道（含取消）＝ 总订单（含取消） − 携程APP订单（含取消） − 去哪儿订单（含取消）',
         };
         const inputs = {
             totalOrders,
@@ -2982,17 +3018,66 @@ window.SUXI_CTRIP_STATIC = (() => {
             qunarVisitors,
             qunarRate,
         };
+        const missingInputs = Object.entries(inputs)
+            .filter(([, value]) => value === null)
+            .map(([key]) => key);
+        const provenance = {
+            totalOrders: {
+                kind: 'platform_returned',
+                sourceKey: 'bookOrderNum',
+                scope: 'ctrip_ecosystem_reservation_orders',
+                unit: 'orders',
+                caveat: '不含取消订单',
+            },
+            totalOrdersIncludingCancelled: {
+                kind: 'derived',
+                sourceKeys: ['bookOrderNum'],
+                formula: formulas.totalOrdersIncludingCancelled,
+                scope: 'all_orders_including_cancelled_estimate',
+                unit: 'orders',
+                caveat: '默认按 0.75 换算；若渠道残差为负，逐级改用 0.725、0.7，非平台直接返回字段',
+            },
+            ctripOrders: {
+                kind: 'derived',
+                sourceKeys: ['totalDetailNum', 'convertionRate'],
+                formula: formulas.ctrip,
+                scope: 'ctrip_app_estimated_orders',
+                unit: 'orders',
+                caveat: '转化率订单口径包含取消订单',
+            },
+            qunarOrders: {
+                kind: 'derived',
+                sourceKeys: ['qunarDetailVisitors', 'qunarDetailCR'],
+                formula: formulas.qunar,
+                scope: 'qunar_estimated_orders',
+                unit: 'orders',
+                caveat: '转化率包含取消订单；不包含分销单、商旅单、机酒单和度假单',
+            },
+            ctripUndistributedOrders: {
+                kind: 'derived_residual_estimate',
+                sourceKeys: ['bookOrderNum', 'totalDetailNum', 'convertionRate', 'qunarDetailVisitors', 'qunarDetailCR'],
+                formula: formulas.ctripUndistributed,
+                scope: 'inclusive_cancellation_residual_estimate',
+                unit: 'orders',
+                caveat: '由三个含取消口径推算值计算，非平台直接返回的同程及分销订单明细',
+            },
+        };
         if (estimateAvailability.pending) {
             return {
+                totalOrdersIncludingCancelled,
+                totalOrderConversionRatio,
                 ctripOrders: null,
                 qunarOrders: null,
                 ctripUndistributedOrders: null,
                 ctripEstimateExcessOrders: null,
                 status: 'traffic_pending_window',
-                displayLabel: '0–8点数据待更新，暂不可推算',
-                sourceLabel: '00:00–08:00 为携程与去哪儿订单数据更新窗口；当前不推算渠道订单、不生成携程系余数，同程订单仍需独立数据源',
+                displayLabel: '00:00–08:00 数据待更新，暂不可推算',
+                sourceLabel: '00:00–08:00 为携程与去哪儿订单数据更新窗口；总订单（含取消）仍按总平台订单÷0.75 推算，渠道订单及同程分销残差暂不推算',
                 formulas,
                 inputs,
+                missingInputs,
+                provenance,
+                identity,
                 estimateAvailability,
             };
         }
@@ -3001,24 +3086,47 @@ window.SUXI_CTRIP_STATIC = (() => {
             : Math.ceil(ctripVisitors * ctripRate / 100);
         const qunarOrders = qunarVisitors === null || qunarRate === null
             ? null
-            : Math.ceil(qunarVisitors * qunarRate / 100);
+            : Math.round(qunarVisitors * qunarRate / 100);
         const hasAllInputs = totalOrders !== null && ctripOrders !== null && qunarOrders !== null;
-        const residualOrders = hasAllInputs ? Math.round(totalOrders) - ctripOrders - qunarOrders : null;
-        const residualConflict = residualOrders !== null && residualOrders < 0;
-        const ctripEstimateExcessOrders = residualConflict ? Math.abs(residualOrders) : 0;
+        let residualOrders = hasAllInputs ? totalOrdersIncludingCancelled - ctripOrders - qunarOrders : null;
+        if (hasAllInputs && residualOrders < 0) {
+            for (const fallbackRatio of [0.725, 0.7]) {
+                totalOrderConversionRatio = fallbackRatio;
+                totalOrdersIncludingCancelled = Math.round(totalOrders / totalOrderConversionRatio);
+                residualOrders = totalOrdersIncludingCancelled - ctripOrders - qunarOrders;
+                if (residualOrders >= 0) break;
+            }
+            formulas.totalOrdersIncludingCancelled = `四舍五入（总平台订单 ÷ ${totalOrderConversionRatioText()}）`;
+            provenance.totalOrdersIncludingCancelled.formula = formulas.totalOrdersIncludingCancelled;
+            provenance.totalOrdersIncludingCancelled.caveat = `默认 0.75 计算后渠道残差为负，本行改用 ${totalOrderConversionRatioText()}；非平台直接返回字段`;
+        }
+        const ctripEstimateExcessOrders = !hasAllInputs
+            ? null
+            : Math.max(0, -residualOrders);
+        const signedResidualLabel = residualOrders === null
+            ? ''
+            : `${residualOrders > 0 ? '+' : ''}${residualOrders}`;
+        const sourceLabel = !hasAllInputs
+            ? `缺少推算输入：${missingInputs.join('、')}；未用 0 或旧数据补位`
+            : `总订单（含取消）按总平台订单÷${totalOrderConversionRatioText()} 四舍五入推算${totalOrderConversionRatio === 0.75 ? '' : '；本行按0.75计算时渠道残差为负，已逐级调整换算系数'}；同程艺龙和携程小程序以及其他分销渠道（含取消）为该总数减去携程APP、去哪儿含取消推算订单的残差，非平台返回明细`;
 
         return {
+            totalOrdersIncludingCancelled,
+            totalOrderConversionRatio,
             ctripOrders,
             qunarOrders,
-            ctripUndistributedOrders: residualConflict ? null : residualOrders,
+            ctripUndistributedOrders: residualOrders,
             ctripEstimateExcessOrders,
-            status: !hasAllInputs ? 'input_missing' : (residualConflict ? 'ctrip_ecosystem_total_conflict' : 'derived'),
+            status: !hasAllInputs ? 'input_missing' : 'derived',
             displayLabel: !hasAllInputs
                 ? '输入缺失'
-                : (residualConflict ? `携程系推算超出总订单 ${ctripEstimateExcessOrders} 单` : '携程系内部推算'),
-            sourceLabel: '仅基于携程系预订订单、携程APP和去哪儿流量转化率推算；未接入同程订单数据源',
+                : `同程及分销推算 ${signedResidualLabel} 单`,
+            sourceLabel,
             formulas,
             inputs,
+            missingInputs,
+            provenance,
+            identity,
             estimateAvailability,
         };
     };
@@ -3027,6 +3135,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         const breakdown = buildCtripChannelOrderBreakdown(row, options);
         return {
             ...(row && typeof row === 'object' ? row : {}),
+            totalOrderIncludingCancelledEstimate: breakdown.totalOrdersIncludingCancelled,
             ctripOrderEstimate: breakdown.ctripOrders,
             qunarOrderEstimate: breakdown.qunarOrders,
             ctripUndistributedOrderEstimate: breakdown.ctripUndistributedOrders,
@@ -3065,6 +3174,11 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (field === 'ari') return row.ari || 0;
         if (field === 'sci') return row.sci || 0;
         if (field === 'bookOrderNum') return row.bookOrderNum || 0;
+        if (field === 'totalOrderIncludingCancelledEstimate') {
+            return Number.isFinite(Number(row.totalOrderIncludingCancelledEstimate))
+                ? Number(row.totalOrderIncludingCancelledEstimate)
+                : Number.NEGATIVE_INFINITY;
+        }
         if (field === 'fullChannelRoomNightsEstimate') {
             return Number.isFinite(Number(row.fullChannelRoomNightsEstimate))
                 ? Number(row.fullChannelRoomNightsEstimate)
@@ -3358,15 +3472,13 @@ window.SUXI_CTRIP_STATIC = (() => {
         estimatedText = '',
         startedAt = '',
         selectedCtripHotelId = '',
-        autoFetchHotelId = '',
-        userHotelId = '',
     } = {}) => {
         const rows = Array.isArray(targets) ? targets : [];
         const sections = Array.from(new Set(rows
             .map(field => String(field?.section || '').trim())
             .filter(Boolean)));
         const normalizedSections = sections.length ? sections : ['default'];
-        const canRecapture = Boolean(selectedCtripHotelId || autoFetchHotelId || userHotelId);
+        const canRecapture = String(selectedCtripHotelId || '').trim() !== '';
         const targetCount = rows.length;
         const normalizedStartedAt = startedAt || new Date().toLocaleString('zh-CN', { hour12: false });
         return {
@@ -3922,7 +4034,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         runCtripFetchDataFlow,
         buildLatestCtripSnapshotModel,
         buildTruthfulCtripDisplayModel,
-        deriveCtripFullChannelRoomNightMultiplier,
         buildCtripFullChannelRoomNightScenario,
         attachCtripFullChannelRoomNightScenario,
         resolveCtripChannelOrderEstimateAvailability,

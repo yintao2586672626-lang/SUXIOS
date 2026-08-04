@@ -66,8 +66,11 @@ test('Ctrip candidate scoring keeps PMS optional and exposes the five evidence s
 test('Ctrip review-order tools never fall back to another hotel identity', () => {
   assert.match(
     appMain,
-    /if \(tab === 'ctrip-review-match'\)[\s\S]{0,500}ctripReviewMatchForm\.value\.systemHotelId = reviewHotelId/,
+    /const resolveCtripReviewMatchSystemHotelId = \(\) => String\(selectedCtripHotelId\.value \|\| ''\)\.trim\(\);/,
   );
+  assert.doesNotMatch(appMain, /ctripReviewMatchForm\.value\.systemHotelId/);
+  assert.doesNotMatch(appMain, /resolveCtripReviewMatchSystemHotelId[\s\S]{0,200}user\.value\?\.hotel_id/);
+  assert.match(appMain, /throw new Error\('请先在顶部选择携程当前酒店'\)/);
   assert.match(
     appMain,
     /system_hotel_id:\s*Number\(buildCtripReviewMatchBasePayload\(\)\.system_hotel_id\)/,

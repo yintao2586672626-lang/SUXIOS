@@ -5,6 +5,9 @@ import test from 'node:test';
 const read = (path) => readFileSync(path, 'utf8');
 const migration = read('database/migrations/20260802_extend_operating_intelligence.sql');
 const questions = read('app/service/OperatingQuestionService.php');
+const agent = read('app/controller/Agent.php');
+const agentBuild = read('app/controller/concern/AgentOtaDiagnosisBuildConcern.php');
+const agentPersistence = read('app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php');
 const sops = read('app/service/OperatingSopService.php');
 const controller = read('app/controller/OperatingIntelligence.php');
 const routes = read('route/app.php');
@@ -38,6 +41,21 @@ test('question evidence keeps facts, memory, knowledge, Agent and execution refe
   assert.match(questions, /external_llm_called' => false/);
   assert.match(questions, /'ota_write' => false/);
   assert.match(questions, /'external_message' => false/);
+});
+
+test('all_ota diagnosis is explicit Ctrip plus Meituan current-date evidence and never whole-hotel fallback', () => {
+  assert.match(agentPage, /<option value="all_ota">携程\+美团 OTA<\/option>/);
+  assert.match(agentPage, /不包含 PMS，也不代表全酒店经营/);
+  assert.match(agentPage, /同步携程[\s\S]*同步美团/);
+  assert.match(agent, /\$platform !== 'all_ota' && \$hotelIdRaw === '' && \$configId !== ''/);
+  assert.match(agentBuild, /ctrip_meituan_ota_channels_only/);
+  assert.match(agentBuild, /cross_platform_totals_calculated' => false/);
+  assert.match(agentBuild, /used_latest_available_data/);
+  assert.match(agentPersistence, /readback_identity_digest/);
+  assert.match(agentPersistence, /effective_date_range/);
+  assert.match(questions, /all_ota_saved_diagnosis_not_current/);
+  assert.match(questions, /diagnosis_used_latest_available_data/);
+  assert.match(questions, /ALL_OTA_REQUIRED_PLATFORMS = \['ctrip', 'meituan'\]/);
 });
 
 test('SOP versions require repeated positive review memories and remain immutable', () => {

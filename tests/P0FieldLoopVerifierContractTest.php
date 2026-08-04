@@ -7,6 +7,30 @@ use PHPUnit\Framework\TestCase;
 
 final class P0FieldLoopVerifierContractTest extends TestCase
 {
+    public function testStoredTrafficVerifierExcludesQuarantinedValidationRows(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+
+        self::assertStringContainsString('OnlineDataTrustStatusService::blockingValidationStatuses()', $verifier);
+        self::assertStringContainsString('LOWER(TRIM(`validation_status`)) NOT IN', $verifier);
+    }
+
+    public function testStoredTrafficVerifierSeparatesExplicitZeroFromMissingOrDefaultZero(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+
+        self::assertStringContainsString(
+            'function p0_has_explicit_zero_required_traffic_confirmation',
+            $verifier
+        );
+        self::assertStringContainsString("array_key_exists(\$sourceKey, \$sourceRow)", $verifier);
+        self::assertStringContainsString("'explicit_zero_confirmed_rows' => 0", $verifier);
+        self::assertStringContainsString("'zero_value_unconfirmed_rows' => 0", $verifier);
+        self::assertStringContainsString("&& (int)\$base['zero_value_unconfirmed_rows'] === 0", $verifier);
+        self::assertStringContainsString('default_data_date', $verifier);
+        self::assertStringContainsString('p0_field_fact_capture_evidence_matches_row', $verifier);
+    }
+
     public function testStoredValueReadinessOnlyRequiresCompleteFactsToHaveStoredValues(): void
     {
         $p0Verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
@@ -763,6 +787,10 @@ final class P0FieldLoopVerifierContractTest extends TestCase
             self::assertNotSame('', $definition, 'Missing pure verifier helper: ' . $functionName);
             eval($definition);
         }
+
+        self::assertSame('2026-08-04', p0_normalize_task_date('2026-08-03T16:00:00Z'));
+        self::assertSame('2026-08-03', p0_normalize_task_date('2026-08-03'));
+        self::assertSame('', p0_normalize_task_date('2026-08-03 not-a-timestamp'));
 
         $profileCode = p0_sync_task_message_code([
             'status' => 'failed',

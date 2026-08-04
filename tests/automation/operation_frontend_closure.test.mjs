@@ -178,6 +178,7 @@ test('revenue node check is independent from completed-action evidence and reads
   assert.match(nodeFlow, /节点检查未按完整口径精确回读/);
   assert.match(appMain, /node_record: nodeRecord/);
   assert.match(appMain, /const nodeText = \(item\) => operationExecutionNodeRecordText\(item\)/);
+  assert.match(operationStatic, /节点检查身份不一致，已拒绝回填/);
 });
 
 test('operation execution requests keep the selected hotel identity consistent through readback', () => {
@@ -202,11 +203,20 @@ test('execution approval uses an in-page two-click confirmation without a native
   assert.ok(start > 0 && end > start, 'approval confirmation flow must be present');
   const approvalFlow = appMain.slice(start, end);
   assert.match(approvalFlow, /operationApprovalConfirmingIntentId\.value = Number\(item\.id\)/);
+  assert.match(approvalFlow, /if \(operationLoading\.value\.actions\) return;/);
   assert.match(approvalFlow, /请再次点击“确认审批”/);
   assert.match(approvalFlow, /rejectOrCancelOperationApproval/);
   assert.doesNotMatch(approvalFlow, /\bconfirm\s*\(/);
   assert.match(onlineDataPage, /operationApprovalText\(item\)/);
   assert.match(onlineDataPage, /rejectOrCancelOperationApproval\(item\)/);
+  assert.match(
+    onlineDataPage,
+    /:disabled="operationLoading\.actions"\s+@click="approveOperationExecutionIntent\(item, true\)"/,
+  );
+  assert.match(
+    onlineDataPage,
+    /:disabled="operationLoading\.actions"\s+@click="rejectOrCancelOperationApproval\(item\)"/,
+  );
 });
 
 test('effect review uses an in-page form and preserves the observing state when evidence is pending', () => {

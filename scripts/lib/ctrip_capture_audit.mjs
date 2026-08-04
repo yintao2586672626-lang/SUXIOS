@@ -235,6 +235,16 @@ export function evaluateCtripCaptureAuditGate(audit = {}, options = {}) {
   const requireFieldCoverage = requireFieldCoverageFlag
     || minFieldCoverageRate !== null
     || configuredMaxMissingFields !== null;
+  const requiredCoreEndpointIds = normalizeExpectedEndpointIds(
+    options.requiredCoreEndpointIds || options.required_core_endpoint_ids,
+  );
+  const softCheckIds = new Set(
+    Array.isArray(options.softCheckIds || options.soft_check_ids)
+      ? (options.softCheckIds || options.soft_check_ids)
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+      : [],
+  );
   const thresholds = {
     require_auth_session: options.requireAuthSession !== false,
     min_response_count: numberOption(options.minResponseCount, 1),
@@ -245,6 +255,8 @@ export function evaluateCtripCaptureAuditGate(audit = {}, options = {}) {
     require_field_coverage: requireFieldCoverage,
     min_field_coverage_rate: minFieldCoverageRate,
     max_missing_fields: configuredMaxMissingFields ?? (requireFieldCoverageFlag && minFieldCoverageRate === null ? 0 : null),
+    required_core_endpoint_ids: requiredCoreEndpointIds ? [...requiredCoreEndpointIds] : [],
+    soft_check_ids: [...softCheckIds],
   };
   const checks = [];
   const authStatus = String(audit.auth_status?.status || 'unknown');
@@ -292,6 +304,25 @@ export function evaluateCtripCaptureAuditGate(audit = {}, options = {}) {
     });
   }
 
+  if (requiredCoreEndpointIds) {
+    const capturedEndpointIds = new Set(
+      Array.isArray(audit.captured_endpoint_ids)
+        ? audit.captured_endpoint_ids.map((item) => String(item || '').trim()).filter(Boolean)
+        : [],
+    );
+    const missingCoreEndpointIds = [...requiredCoreEndpointIds]
+      .filter((endpointId) => !capturedEndpointIds.has(endpointId));
+    addGateCheck(checks, {
+      id: 'core_endpoint_coverage',
+      passed: missingCoreEndpointIds.length === 0,
+      actual: `${requiredCoreEndpointIds.size - missingCoreEndpointIds.length}/${requiredCoreEndpointIds.size}`,
+      expected: `required=${[...requiredCoreEndpointIds].join(',')}`,
+      message: missingCoreEndpointIds.length === 0
+        ? 'The requested metric domains captured their core Ctrip endpoints.'
+        : `Missing core Ctrip endpoints: ${missingCoreEndpointIds.join(',')}`,
+    });
+  }
+
   if (thresholds.require_field_coverage) {
     const expectedFieldCount = numberValue(fieldCoverage.expected_field_count ?? summary.expected_field_count);
     const capturedFieldCount = numberValue(fieldCoverage.captured_field_count ?? summary.captured_catalog_field_count);
@@ -322,12 +353,27 @@ export function evaluateCtripCaptureAuditGate(audit = {}, options = {}) {
   }
 
   const failedChecks = checks.filter((check) => check.status === 'fail');
+  const coreEndpointCheckPassed = !requiredCoreEndpointIds
+    || checks.some((check) => check.id === 'core_endpoint_coverage' && check.status === 'pass');
+  const warningChecks = failedChecks.filter((check) => (
+    softCheckIds.has(check.id)
+    && (check.id !== 'endpoint_coverage' || coreEndpointCheckPassed)
+  ));
+  const warningCheckIdSet = new Set(warningChecks.map((check) => check.id));
+  const blockingChecks = failedChecks.filter((check) => !warningCheckIdSet.has(check.id));
+  const normalizedChecks = checks.map((check) => (
+    warningCheckIdSet.has(check.id)
+      ? { ...check, status: 'warning' }
+      : check
+  ));
   return {
-    status: failedChecks.length > 0 ? 'fail' : 'pass',
-    failed: failedChecks.length > 0,
-    failed_check_ids: failedChecks.map((check) => check.id),
+    status: blockingChecks.length > 0 ? 'fail' : 'pass',
+    failed: blockingChecks.length > 0,
+    failed_check_ids: blockingChecks.map((check) => check.id),
+    warning_check_ids: warningChecks.map((check) => check.id),
+    coverage_status: warningChecks.length > 0 ? 'partial' : 'complete',
     thresholds,
-    checks,
+    checks: normalizedChecks,
   };
 }
 

@@ -21,6 +21,7 @@ class User extends Model
         'tenant_id' => 'integer',
         'status' => 'integer',
         'hotel_id' => 'integer',
+        'default_hotel_id' => 'integer',
         'role_id' => 'integer',
     ];
 
@@ -53,6 +54,22 @@ class User extends Model
     public function hotel()
     {
         return $this->belongsTo(Hotel::class, 'hotel_id', 'id');
+    }
+
+    /**
+     * Navigation preference only. Authorization continues to use hotel_id,
+     * ownership and user_hotel_permissions through HotelScopeService.
+     */
+    public function defaultHotelPreferenceId(): int
+    {
+        $data = $this->getData();
+        if (array_key_exists('default_hotel_id', $data)) {
+            return max(0, (int)($data['default_hotel_id'] ?? 0));
+        }
+
+        // Read compatibility for an old schema during a migration rollout.
+        // The live setter never writes hotel_id as a preference fallback.
+        return max(0, (int)($data['hotel_id'] ?? 0));
     }
 
     /**

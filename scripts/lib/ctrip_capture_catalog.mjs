@@ -1252,6 +1252,11 @@ export const CTRIP_CAPTURE_PLANS = {
     default_sections: [...DEFAULT_CTRIP_CAPTURE_SECTIONS],
     capture_endpoint_ids: null,
     expected_endpoint_ids: null,
+    gate_endpoint_ids_by_section: {
+      business_overview: ['business_market_overview'],
+      business_weekly_overview: ['weekly_report'],
+      traffic_report: ['traffic_order_overview'],
+    },
     click_refresh: true,
     probe_popups: true,
     scroll_page: true,
@@ -1424,6 +1429,14 @@ export function getCtripCapturePlan(value = 'full') {
     default_sections: [...plan.default_sections],
     capture_endpoint_ids: Array.isArray(plan.capture_endpoint_ids) ? [...plan.capture_endpoint_ids] : null,
     expected_endpoint_ids: Array.isArray(plan.expected_endpoint_ids) ? [...plan.expected_endpoint_ids] : null,
+    gate_endpoint_ids_by_section: plan.gate_endpoint_ids_by_section
+      ? Object.fromEntries(
+          Object.entries(plan.gate_endpoint_ids_by_section).map(([section, endpointIds]) => [
+            section,
+            Array.isArray(endpointIds) ? [...endpointIds] : [],
+          ]),
+        )
+      : null,
     interactions: plan.interactions
       ? Object.fromEntries(
           Object.entries(plan.interactions).map(([section, steps]) => [
@@ -3233,6 +3246,30 @@ export function buildCtripStandardRowsFromFacts(facts = [], context = {}) {
     }
   }
   return rows;
+}
+
+const CTRIP_PROFILE_STRUCTURAL_FACT_KEYS = new Set([
+  'date',
+  'start_date',
+  'comment_date',
+]);
+
+/**
+ * Profile field selection limits business metrics, but date facts are row
+ * identity evidence. Dropping them before standard-row construction makes a
+ * previous-day response inherit the requested capture date.
+ */
+export function filterCtripCatalogFactsForProfileFields(facts = [], allowedFieldKeys = []) {
+  if (!Array.isArray(facts)) {
+    return [];
+  }
+  const allowed = allowedFieldKeys instanceof Set
+    ? allowedFieldKeys
+    : new Set(Array.isArray(allowedFieldKeys) ? allowedFieldKeys : []);
+  return facts.filter((fact) => {
+    const key = String(fact?.metric_key || '').trim().toLowerCase();
+    return allowed.has(key) || CTRIP_PROFILE_STRUCTURAL_FACT_KEYS.has(key);
+  });
 }
 
 export function generateCtripCaptureMarkdown({ i18nReference = null } = {}) {

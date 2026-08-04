@@ -935,6 +935,8 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.equal(qunarReadyQuality.competitorHotelCount, 1);
   assert.equal(helpers.manualOneClickFetchQunarVisitorNeedsRetry(qunarReadyQuality), false);
   assert.equal(helpers.manualOneClickFetchQunarVisitorNeedsRetry({ rowCount: 0, total: 0, ready: false }), false);
+  assert.equal(helpers.manualOneClickFetchQunarVisitorNeedsRetry({ row_count: 26, visitor_total: 0, ready: false }), true);
+  assert.equal(helpers.manualOneClickFetchQunarVisitorNeedsRetry({ row_count: 26, visitor_total: 57, ready: true }), false);
   assert.match(publicEntry, /const CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT = 5;/);
   assert.match(publicEntry, /qunarRetryCount >= CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT/);
   assert.match(publicEntry, /Math\.min\(1800, 600 \* qunarRetryCount\)/);

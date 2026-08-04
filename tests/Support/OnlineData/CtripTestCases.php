@@ -215,19 +215,34 @@ trait CtripTestCases
     public function testManualCtripBusinessInputIsExplicitlyUnverifiedAndExcludedFromAnalytics(): void
     {
         $controller = $this->controller();
+        self::assertSame('', $this->invokeNonPublic(
+            $controller,
+            'ctripBusinessPersistenceDimension',
+            [['ingestion_method' => 'browser_profile']]
+        ));
+        self::assertSame('manual_input_unverified', $this->invokeNonPublic(
+            $controller,
+            'ctripBusinessPersistenceDimension',
+            [['ingestion_method' => 'user_provided_unverified', 'force_unverified' => true]]
+        ));
         $provenance = $this->invokeNonPublic($controller, 'buildCtripBusinessPersistenceProvenance', [[
             'hotelId' => 'ctrip-80',
             'amount' => 123.45,
         ], [
             'ingestion_method' => 'user_provided_unverified',
             'force_unverified' => true,
-        ], 'ctrip-80', 80]);
+            'capture_id' => 'manual-capture-1',
+        ], 'ctrip-80', 80, '2026-08-03']);
 
         self::assertSame('user_provided_unverified', $provenance['ingestion_method']);
         self::assertTrue($provenance['force_unverified']);
         self::assertSame('manual_input_unverified', $provenance['analysis_exclusion_reason']);
         self::assertTrue($provenance['raw_data']['manual_input']);
         self::assertFalse($provenance['raw_data']['analysis_eligibility']['eligible']);
+        self::assertSame('ctrip', $provenance['raw_data']['provenance']['source']);
+        self::assertSame('2026-08-03', $provenance['raw_data']['provenance']['business_date']);
+        self::assertSame('manual-capture-1', $provenance['raw_data']['provenance']['capture_id']);
+        self::assertSame('manual_unverified', $provenance['raw_data']['provenance']['verification_status']);
 
         $row = $this->invokeNonPublic($controller, 'markCtripBusinessRowUnverified', [[
             'validation_status' => 'normal',
@@ -334,6 +349,7 @@ trait CtripTestCases
                 'raw_data' => json_encode([
                     'hotelId' => 121669867,
                     'hotelName' => '长沙宾际·云端酒店',
+                    'bookOrderNumRank' => 12,
                     'totalDetailNum' => 612,
                     'qunarDetailVisitors' => 438,
                     'qunarDetailCR' => 10.05,
@@ -342,6 +358,8 @@ trait CtripTestCases
         ]]);
 
         self::assertCount(1, $rows);
+        self::assertSame(12, $rows[0]['bookOrderNumRank']);
+        self::assertSame('携程竞争圈返回', $rows[0]['metricSourceStatus']['bookOrderNumRank']);
         self::assertSame(612, $rows[0]['totalDetailNum']);
         self::assertSame(438, $rows[0]['qunarDetailVisitors']);
 
@@ -388,6 +406,13 @@ trait CtripTestCases
         self::assertStringContainsString('仅作为字段缺口提示', $quality['message']);
         self::assertStringContainsString('不阻断携程竞争圈获取和入库', $quality['message']);
         self::assertStringNotContainsString('需要自动重抓', $quality['message']);
+
+        $summary = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplaySummary', [[
+            ['hotelId' => 'A', 'hotelName' => 'A', 'amount' => 1000, 'quantity' => 5, 'qunarDetailVisitors' => 0],
+            ['hotelId' => 'B', 'hotelName' => 'B', 'amount' => 800, 'quantity' => 4, 'qunarDetailVisitors' => 0],
+        ]]);
+        $cards = array_column($summary['cards'], null, 'key');
+        self::assertSame('数据不足', $cards['totalQunarDetailVisitors']['value']);
     }
 
     public function testBackendBuildsCtripBusinessDisplayDerivedMetricsForFrontend(): void
@@ -920,6 +945,91 @@ trait CtripTestCases
         ], $query->calls);
     }
 
+    public function testCtripEarlyMorningFallbackOnlyHydratesMissingTrafficFields(): void
+    {
+        $controller = $this->controller();
+        $result = $this->invokeNonPublic($controller, 'mergeCtripEarlyMorningTrafficFallbackRows', [
+            [[
+                'hotelId' => '1001',
+                'hotelName' => '测试酒店',
+                'amount' => 49837,
+                'quantity' => 109,
+                'bookOrderNum' => 62,
+                'totalDetailNum' => 0,
+                'convertionRate' => 0,
+                'qunarDetailVisitors' => 0,
+                'qunarDetailCR' => 0,
+                'metricSourceStatus' => [],
+            ]],
+            [[
+                'hotelId' => '1001',
+                'hotelName' => '测试酒店',
+                'amount' => 111,
+                'quantity' => 2,
+                'bookOrderNum' => 3,
+                'totalDetailNum' => 800,
+                'convertionRate' => 4.1,
+                'qunarDetailVisitors' => 260,
+                'qunarDetailCR' => 2.5,
+            ]],
+            [
+                'source_data_date' => '2026-08-02',
+                'source_fetched_at' => '2026-08-03 23:50:00',
+                'target_data_date' => '2026-08-03',
+            ],
+            '2026-08-04 00:30:00',
+        ]);
+
+        $row = $result['display_hotels'][0];
+        self::assertSame(49837, $row['amount']);
+        self::assertSame(109, $row['quantity']);
+        self::assertSame(62, $row['bookOrderNum']);
+        self::assertSame(800, $row['totalDetailNum']);
+        self::assertSame(4.1, $row['convertionRate']);
+        self::assertSame(260, $row['qunarDetailVisitors']);
+        self::assertSame(2.5, $row['qunarDetailCR']);
+        self::assertSame(7.75, $row['bookingRate']);
+        self::assertSame('7.8%', $row['bookingRateText']);
+        self::assertSame('ok', $row['displayMetricStatus']['bookingRate']);
+        self::assertSame('当前订单与最近可用访客计算', $row['metricSourceStatus']['bookingRate']);
+        self::assertSame('applied', $row['earlyMorningFallback']['status']);
+        self::assertSame('2026-08-02', $row['earlyMorningFallback']['source_data_date']);
+        self::assertTrue($result['fallback']['active']);
+        self::assertSame(4, $result['fallback']['applied_field_count']);
+    }
+
+    public function testCtripEarlyMorningFallbackLeavesMissingTrafficPendingWhenHistoryIsUnavailable(): void
+    {
+        $controller = $this->controller();
+        $result = $this->invokeNonPublic($controller, 'mergeCtripEarlyMorningTrafficFallbackRows', [
+            [[
+                'hotelId' => '1001',
+                'hotelName' => '测试酒店',
+                'bookOrderNum' => 62,
+                'totalDetailNum' => 0,
+                'convertionRate' => 0,
+                'qunarDetailVisitors' => 0,
+                'qunarDetailCR' => 0,
+                'metricSourceStatus' => [],
+            ]],
+            [],
+            ['target_data_date' => '2026-08-03'],
+            '2026-08-04 07:59:00',
+        ]);
+
+        $row = $result['display_hotels'][0];
+        self::assertNull($row['totalDetailNum']);
+        self::assertNull($row['convertionRate']);
+        self::assertNull($row['qunarDetailVisitors']);
+        self::assertNull($row['qunarDetailCR']);
+        self::assertSame(62, $row['bookOrderNum']);
+        self::assertNull($row['bookingRate']);
+        self::assertSame('待更新', $row['bookingRateText']);
+        self::assertSame('pending', $row['earlyMorningFallback']['status']);
+        self::assertFalse($result['fallback']['active']);
+        self::assertSame(4, $result['fallback']['pending_field_count']);
+    }
+
     public function testCtripTargetDateMetadataDoesNotReuseHistoricalFetchStatus(): void
     {
         (new App(dirname(__DIR__, 3)))->initialize();
@@ -1088,6 +1198,99 @@ trait CtripTestCases
             ['where', 'data_type', 'competitor'],
             ['where', 'dimension', 'competition_circle_hotel'],
         ], $query->calls);
+    }
+
+    public function testStoredCtripRankIdentityAcceptsTheBoundSelfHotel(): void
+    {
+        $controller = $this->controller();
+
+        $result = $this->invokeNonPublic($controller, 'evaluateCtripStoredRankIdentity', [
+            64,
+            ['122476915'],
+            ['122476915'],
+            '桂林漓江望月',
+        ]);
+
+        self::assertTrue($result['ok']);
+        self::assertSame('matched', $result['status']);
+    }
+
+    public function testStoredCtripRankIdentityRejectsAnotherHotelsSelfId(): void
+    {
+        $controller = $this->controller();
+
+        $result = $this->invokeNonPublic($controller, 'evaluateCtripStoredRankIdentity', [
+            64,
+            ['122476915'],
+            ['900336'],
+            '桂林漓江望月',
+        ]);
+
+        self::assertFalse($result['ok']);
+        self::assertSame('configured_platform_hotel_id_mismatch', $result['status']);
+        self::assertStringContainsString('已停止展示', $result['message']);
+    }
+
+    public function testCtripRankingCacheRequiresTrustedTodayDatabaseReadback(): void
+    {
+        $controller = $this->controller();
+        $trustedRow = [
+            'status' => 'success',
+            'validation_status' => 'normal',
+            'readback_verified' => 1,
+            'system_hotel_id' => 80,
+            'platform' => 'Ctrip',
+            'hotel_id' => '122476915',
+            'data_date' => '2026-08-03',
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => 'ctrip:' . str_repeat('a', 64),
+            'snapshot_time' => '2026-08-04 09:12:00',
+            'amount' => 1888,
+            'raw_data' => json_encode([
+                'hotelId' => '122476915',
+                'hotelName' => '当前酒店',
+            ], JSON_UNESCAPED_UNICODE),
+        ];
+
+        $storageProof = $this->invokeNonPublic($controller, 'buildCtripLatestStorageProof', [[$trustedRow]]);
+        self::assertTrue($storageProof['readback_verified']);
+        self::assertTrue($storageProof['source_verified']);
+
+        $cache = $this->invokeNonPublic($controller, 'buildCtripRankingCachePolicy', [
+            $storageProof,
+            [
+                'data_date' => '2026-08-03',
+                'target_data_date' => '2026-08-03',
+                'fetched_at' => '2026-08-04 09:12:00',
+                'today' => '2026-08-04',
+                'identity_check' => ['ok' => true],
+                'display_hotels' => [['hotelId' => '122476915']],
+                'traffic_fallback' => null,
+            ],
+        ]);
+        self::assertTrue($cache['eligible']);
+        self::assertSame('trusted_today_snapshot', $cache['reason']);
+
+        $stale = $this->invokeNonPublic($controller, 'buildCtripRankingCachePolicy', [
+            $storageProof,
+            [
+                'data_date' => '2026-08-03',
+                'target_data_date' => '2026-08-03',
+                'fetched_at' => '2026-08-03 22:00:00',
+                'today' => '2026-08-04',
+                'identity_check' => ['ok' => true],
+                'display_hotels' => [['hotelId' => '122476915']],
+                'traffic_fallback' => null,
+            ],
+        ]);
+        self::assertFalse($stale['eligible']);
+        self::assertSame('not_collected_today', $stale['reason']);
+
+        $unreadRow = $trustedRow;
+        $unreadRow['readback_verified'] = 0;
+        $unreadProof = $this->invokeNonPublic($controller, 'buildCtripLatestStorageProof', [[$unreadRow]]);
+        self::assertFalse($unreadProof['readback_verified']);
+        self::assertFalse($unreadProof['source_verified']);
     }
 
     public function testOnlineDataQualityAcceptsCtripOrderNumAlias(): void

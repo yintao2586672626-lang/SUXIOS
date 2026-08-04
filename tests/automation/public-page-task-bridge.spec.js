@@ -57,7 +57,7 @@ async function openPublicPage(page) {
   await page.getByTestId('ctrip-public-profile-tab').click();
   await expect(page.getByTestId('ctrip-public-profile-panel')).toBeVisible();
 
-  const hotelSelect = page.getByTestId('ctrip-public-profile-hotel-select');
+  const hotelSelect = page.getByTestId('platform-hotel-context-select');
   await expect(hotelSelect.locator(`option[value="${config.hotelId}"]`)).toHaveCount(1);
   await expect(hotelSelect).toBeEnabled({ timeout: 30000 });
   await hotelSelect.selectOption(String(config.hotelId));

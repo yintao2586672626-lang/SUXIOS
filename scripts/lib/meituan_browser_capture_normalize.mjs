@@ -59,6 +59,51 @@ const BUSINESS_METRICS = [
 const MEITUAN_ORDER_FLOW_ENDPOINT_PATH = '/api/v1/ebooking/peerRank/order/loss/query';
 const MEITUAN_ORDER_LIST_ENDPOINT_PATH = '/api/v1/ebooking/orders';
 
+const MEITUAN_PLATFORM_HOTEL_IDENTIFIER_KEYS = [
+  'poiId', 'poi_id', 'storeId', 'store_id', 'shopId', 'shop_id',
+  'mtPoiId', 'mt_poi_id', 'partnerId', 'partner_id',
+];
+
+/**
+ * Add the verified capture-scope hotel identifier only to own-hotel rows that
+ * did not expose one themselves. Existing identifiers are never overwritten,
+ * so the importer can still reject mismatched or cross-hotel rows.
+ */
+export function attachVerifiedMeituanCaptureScope(rows, identityValidation, expectedIdentifier) {
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+  const validatedIdentifier = String(identityValidation?.validated_identifier || '').trim();
+  const expected = String(expectedIdentifier || '').trim();
+  const scopeVerified = String(identityValidation?.status || '').trim().toLowerCase() === 'matched'
+    && identityValidation?.source_validation === true
+    && identityValidation?.sensitive_values_exposed !== true
+    && validatedIdentifier !== ''
+    && expected !== ''
+    && validatedIdentifier === expected;
+  if (!scopeVerified) {
+    return rows;
+  }
+
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      return row;
+    }
+    const explicitIdentifier = MEITUAN_PLATFORM_HOTEL_IDENTIFIER_KEYS
+      .map((key) => String(row[key] || '').trim())
+      .find(Boolean) || '';
+    if (explicitIdentifier !== '') {
+      return row;
+    }
+    return {
+      ...row,
+      poi_id: validatedIdentifier,
+      store_id: validatedIdentifier,
+      _platform_hotel_identifier_source: 'capture_scope_default',
+    };
+  });
+}
+
 export function normalizeMeituanOrderRows(value, options = {}) {
   if (String(options.endpointPath || '').trim() !== MEITUAN_ORDER_LIST_ENDPOINT_PATH) {
     return [];

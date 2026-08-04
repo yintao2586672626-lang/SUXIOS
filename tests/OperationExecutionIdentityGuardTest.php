@@ -9,6 +9,30 @@ use PHPUnit\Framework\TestCase;
 
 final class OperationExecutionIdentityGuardTest extends TestCase
 {
+    public function testExpectedDeltaReadbackPreservesNullAndCastsNumericValues(): void
+    {
+        $service = new ExecutionFlowReadService(new ExecutionOutcomeService());
+        $baseIntent = [
+            'id' => 9,
+            'hotel_id' => 7,
+            'status' => 'pending_approval',
+        ];
+
+        $unquantified = $service->buildItem(
+            $baseIntent + ['expected_delta' => null],
+            [],
+            []
+        );
+        $quantified = $service->buildItem(
+            $baseIntent + ['expected_delta' => '1.25'],
+            [],
+            []
+        );
+
+        self::assertNull($unquantified['recommendation']['expected_delta']);
+        self::assertSame(1.25, $quantified['recommendation']['expected_delta']);
+    }
+
     public function testCrossHotelTenantChildrenAreExcludedFromExecutionFlow(): void
     {
         $service = new ExecutionFlowReadService(new ExecutionOutcomeService());

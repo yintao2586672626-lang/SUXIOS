@@ -111,6 +111,9 @@ final class HotelCascadeDeletionService
         $usersDetached = $this->tableColumnExists('users', 'hotel_id')
             ? (int)Db::name('users')->where('hotel_id', $hotelId)->count()
             : 0;
+        $defaultPreferences = $this->tableColumnExists('users', 'default_hotel_id')
+            ? (int)Db::name('users')->where('default_hotel_id', $hotelId)->count()
+            : 0;
         $configEntries = $this->countOtaConfigEntries($hotelId);
         $preservedAuditRows = $this->tableColumnExists('operation_logs', 'hotel_id')
             ? (int)Db::name('operation_logs')->where('hotel_id', $hotelId)->count()
@@ -123,9 +126,10 @@ final class HotelCascadeDeletionService
             ],
             'tables' => $tables,
             'users_detached' => $usersDetached,
+            'default_preferences_cleared' => $defaultPreferences,
             'config_entries' => $configEntries,
             'preserved_audit_rows' => $preservedAuditRows,
-            'total_rows' => array_sum($tables) + $usersDetached + $configEntries,
+            'total_rows' => array_sum($tables) + $usersDetached + $defaultPreferences + $configEntries,
         ];
     }
 
@@ -160,13 +164,18 @@ final class HotelCascadeDeletionService
                 }
             }
 
+            $defaultPreferencesCleared = 0;
+            if ($this->tableColumnExists('users', 'default_hotel_id')) {
+                $defaultPreferencesCleared = (int)Db::name('users')
+                    ->where('default_hotel_id', $hotelId)
+                    ->update(['default_hotel_id' => null]);
+            }
+
             $usersDetached = 0;
             if ($this->tableColumnExists('users', 'hotel_id')) {
-                $payload = ['hotel_id' => null];
-                if ($this->tableColumnExists('users', 'tenant_id')) {
-                    $payload['tenant_id'] = null;
-                }
-                $usersDetached = (int)Db::name('users')->where('hotel_id', $hotelId)->update($payload);
+                $usersDetached = (int)Db::name('users')
+                    ->where('hotel_id', $hotelId)
+                    ->update(['hotel_id' => null]);
             }
 
             $configEntriesDeleted = $this->deleteOtaConfigEntries($hotelId);
@@ -181,6 +190,7 @@ final class HotelCascadeDeletionService
                 'deleted_tables' => $deleted,
                 'deleted_rows' => array_sum($deleted),
                 'users_detached' => $usersDetached,
+                'default_preferences_cleared' => $defaultPreferencesCleared,
                 'config_entries_deleted' => $configEntriesDeleted,
                 'preserved_audit_rows' => $preservedAuditRows,
             ];

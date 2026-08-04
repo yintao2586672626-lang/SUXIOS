@@ -246,6 +246,11 @@ test('server contract exposes paired device endpoints and never accepts central 
   assert.match(service, /previous_mapping_id/);
   assert.match(service, /write_action/);
   assert.match(service, /reassigned/);
+  assert.match(service, /mappingReadbackReceipt/);
+  assert.match(service, /mapping_readback/);
+  assert.match(service, /run_readback_scope_verified/);
+  assert.match(service, /scope_identity/);
+  assert.match(service, /服务器保存结果的租户、来源、同步任务、酒店、平台、日期或行集合回读凭据不一致/);
   assert.match(service, /刚刚被其他账户绑定/);
   assert.match(service, /ordered_collection/);
   assert.match(service, /P0OtaFieldLoopVerifierRunner/);

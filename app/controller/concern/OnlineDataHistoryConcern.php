@@ -245,8 +245,21 @@ trait OnlineDataHistoryConcern
 
         $decodedRows = $this->decodeOnlineRawRows($rows);
         $displayHotels = $section === 'rank' ? $this->buildCtripBusinessDisplayHotels($decodedRows) : [];
+        $earlyMorningFallback = null;
+        if ($section === 'rank' && $this->isCtripEarlyMorningUpdateWindow()) {
+            $earlyMorningResult = $this->hydrateCtripEarlyMorningTrafficFallback(
+                $displayHotels,
+                $latest,
+                $hotelId,
+                $currentUser,
+                $columns,
+                $range
+            );
+            $displayHotels = $earlyMorningResult['display_hotels'];
+            $earlyMorningFallback = $earlyMorningResult['fallback'];
+        }
         $trafficFallback = null;
-        if ($range === '' && $section === 'rank' && (empty($displayHotels) || !$this->ctripBusinessDisplayHotelsHaveTraffic($displayHotels))) {
+        if ($earlyMorningFallback === null && $range === '' && $section === 'rank' && (empty($displayHotels) || !$this->ctripBusinessDisplayHotelsHaveTraffic($displayHotels))) {
             $fallback = $this->findLatestCtripRankRowsWithTraffic($latest, $hotelId, $currentUser, $columns);
             if ($fallback !== null) {
                 $latest = $fallback['latest'];
@@ -264,15 +277,48 @@ trait OnlineDataHistoryConcern
                 ];
             }
         }
+        $identityCheck = null;
+        if ($section === 'rank' && $hotelId !== '') {
+            $identityCheck = $this->buildCtripStoredRankIdentityCheck($decodedRows, $hotelId);
+            if (($identityCheck['ok'] ?? false) !== true) {
+                return $this->buildCtripLatestIdentityBlockedSection(
+                    $latest,
+                    $targetDate,
+                    $fetchedAt,
+                    $identityCheck
+                );
+            }
+        }
         $displayTrafficRows = $section === 'traffic' ? CtripTrafficDisplayService::buildCtripTrafficDisplayRows($decodedRows) : [];
         $displaySummary = $section === 'rank' ? $this->buildCtripBusinessDisplaySummary($displayHotels) : $this->emptyCtripBusinessDisplaySummary();
         if ($trafficFallback !== null) {
             $displaySummary['source_notice'] = '当前最新批次未返回流量字段，已展示最近一组有流量的携程竞争圈数据。';
         }
+        if ($earlyMorningFallback !== null) {
+            $displaySummary['early_morning_fallback'] = $earlyMorningFallback;
+            $displaySummary['source_notice'] = (string)($earlyMorningFallback['message'] ?? $displaySummary['source_notice']);
+        }
 
         $comparison = $section === 'rank'
             ? $this->buildCtripLatestRankComparison($latest, $hotelId, $currentUser, $columns, $range)
             : null;
+        $storageProof = $this->buildCtripLatestStorageProof($rows);
+        $cachePolicy = $section === 'rank'
+            ? $this->buildCtripRankingCachePolicy($storageProof, [
+                'data_date' => (string)($latest['data_date'] ?? ''),
+                'target_data_date' => $targetDate,
+                'fetched_at' => $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $columns),
+                'identity_check' => $identityCheck,
+                'display_hotels' => $displayHotels,
+                'traffic_fallback' => $trafficFallback,
+                'early_morning_fallback' => $earlyMorningFallback,
+            ])
+            : [
+                'eligible' => false,
+                'status' => 'not_applicable',
+                'reason' => 'ranking_cache_only',
+                'collected_date' => '',
+            ];
 
         return [
             'data_type' => $section,
@@ -280,7 +326,11 @@ trait OnlineDataHistoryConcern
             'data_source' => '携程 ebooking',
             'status' => empty($rows) ? 'empty' : 'success',
             'status_label' => empty($rows) ? '暂无入库记录' : '有入库记录',
-            'verification_status' => empty($rows) ? 'not_available' : 'record_present_source_not_proven',
+            'verification_status' => empty($rows)
+                ? 'not_available'
+                : (($storageProof['source_verified'] ?? false) === true
+                    ? 'source_verified'
+                    : 'record_present_source_not_proven'),
             'data_date' => (string)($latest['data_date'] ?? ''),
             'target_data_date' => $targetDate,
             'fetched_at' => $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $columns),
@@ -291,9 +341,212 @@ trait OnlineDataHistoryConcern
             'display_traffic_rows' => $displayTrafficRows,
             'display_traffic_summary' => $section === 'traffic' ? CtripTrafficDisplayService::buildCtripTrafficDisplaySummary($displayTrafficRows) : CtripTrafficDisplayService::emptyCtripTrafficDisplaySummary(),
             'traffic_fallback' => $trafficFallback,
-            'early_morning_fallback' => null,
+            'early_morning_fallback' => $earlyMorningFallback,
             'comparison' => $comparison,
+            'identity_check' => $identityCheck,
+            'persistence_status' => ($storageProof['readback_verified'] ?? false) === true
+                ? 'readback_verified'
+                : 'readback_incomplete',
+            'readback_verified' => ($storageProof['readback_verified'] ?? false) === true,
+            'readback_count' => (int)($storageProof['readback_count'] ?? 0),
+            'source_verified' => ($storageProof['source_verified'] ?? false) === true,
+            'source_verified_count' => (int)($storageProof['source_verified_count'] ?? 0),
+            'cache_eligible' => ($cachePolicy['eligible'] ?? false) === true,
+            'cache_status' => (string)($cachePolicy['status'] ?? 'miss'),
+            'cache_reason' => (string)($cachePolicy['reason'] ?? 'cache_policy_unavailable'),
+            'collected_date' => (string)($cachePolicy['collected_date'] ?? ''),
         ];
+    }
+
+    /**
+     * A stored row is cacheable only after the persisted row itself has been
+     * read back and its hotel/source/date/trace evidence is complete.
+     */
+    private function buildCtripLatestStorageProof(array $rows): array
+    {
+        $total = count($rows);
+        $readbackCount = 0;
+        $sourceVerifiedCount = 0;
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            if ((int)($row['readback_verified'] ?? 0) === 1) {
+                $readbackCount++;
+            }
+            $rawData = is_string($row['raw_data'] ?? null) ? (string)$row['raw_data'] : '';
+            if ($this->resolveHistoryStatus($row, $rawData) === 'success') {
+                $sourceVerifiedCount++;
+            }
+        }
+
+        return [
+            'total' => $total,
+            'readback_count' => $readbackCount,
+            'readback_verified' => $total > 0 && $readbackCount === $total,
+            'source_verified_count' => $sourceVerifiedCount,
+            'source_verified' => $total > 0 && $sourceVerifiedCount === $total,
+        ];
+    }
+
+    /**
+     * The competition-circle page may reuse today's exact database snapshot.
+     * A row from another hotel/date, an older collection run, a partial save,
+     * or a historical fallback must never suppress a fresh OTA request.
+     */
+    private function buildCtripRankingCachePolicy(array $storageProof, array $context): array
+    {
+        $dataDate = trim((string)($context['data_date'] ?? ''));
+        $targetDataDate = trim((string)($context['target_data_date'] ?? ''));
+        $fetchedAt = trim((string)($context['fetched_at'] ?? ''));
+        $collectedDate = preg_match('/^\d{4}-\d{2}-\d{2}/D', $fetchedAt) === 1
+            ? substr($fetchedAt, 0, 10)
+            : '';
+        $today = trim((string)($context['today'] ?? date('Y-m-d')));
+        $identityCheck = is_array($context['identity_check'] ?? null)
+            ? $context['identity_check']
+            : null;
+        $displayHotels = is_array($context['display_hotels'] ?? null)
+            ? $context['display_hotels']
+            : [];
+
+        $reason = '';
+        if ((int)($storageProof['total'] ?? 0) <= 0) {
+            $reason = 'no_stored_rows';
+        } elseif ($dataDate === '' || $targetDataDate === '' || $dataDate !== $targetDataDate) {
+            $reason = 'target_date_mismatch';
+        } elseif ($collectedDate === '' || $today === '' || $collectedDate !== $today) {
+            $reason = 'not_collected_today';
+        } elseif (($identityCheck['ok'] ?? false) !== true) {
+            $reason = 'hotel_identity_not_verified';
+        } elseif (($storageProof['readback_verified'] ?? false) !== true) {
+            $reason = 'database_readback_incomplete';
+        } elseif (($storageProof['source_verified'] ?? false) !== true) {
+            $reason = 'source_verification_incomplete';
+        } elseif ($displayHotels === []) {
+            $reason = 'display_rows_missing';
+        } elseif (is_array($context['traffic_fallback'] ?? null) || is_array($context['early_morning_fallback'] ?? null)) {
+            $reason = 'historical_fallback_used';
+        }
+
+        return [
+            'eligible' => $reason === '',
+            'status' => $reason === '' ? 'hit' : 'miss',
+            'reason' => $reason === '' ? 'trusted_today_snapshot' : $reason,
+            'collected_date' => $collectedDate,
+        ];
+    }
+
+    private function buildCtripStoredRankIdentityCheck(array $decodedRows, string $hotelId): array
+    {
+        $systemHotelId = is_numeric($hotelId) ? (int)$hotelId : 0;
+        $targetHotelName = $systemHotelId > 0 ? $this->getSystemHotelName($systemHotelId) : '';
+        if ($systemHotelId <= 0) {
+            return $this->evaluateCtripStoredRankIdentity(
+                $systemHotelId,
+                [],
+                [],
+                $targetHotelName
+            );
+        }
+
+        $config = $this->resolveCtripManualBusinessIdentityConfig($systemHotelId);
+        $expectedIds = $this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId);
+        $capturedIds = $this->extractCtripManualBusinessSelfHotelIds($decodedRows, $systemHotelId);
+
+        return $this->evaluateCtripStoredRankIdentity(
+            $systemHotelId,
+            $expectedIds,
+            $capturedIds,
+            $targetHotelName
+        );
+    }
+
+    private function evaluateCtripStoredRankIdentity(
+        int $systemHotelId,
+        array $expectedIds,
+        array $capturedIds,
+        string $targetHotelName = ''
+    ): array {
+        $normalizeIds = static function (array $ids): array {
+            $values = [];
+            foreach ($ids as $id) {
+                if (is_array($id) || is_object($id)) {
+                    continue;
+                }
+                $value = trim((string)$id);
+                if ($value !== '') {
+                    $values[$value] = true;
+                }
+            }
+            return array_keys($values);
+        };
+        $expectedIds = $normalizeIds($expectedIds);
+        $capturedIds = $normalizeIds($capturedIds);
+        $hotelLabel = $targetHotelName !== '' ? $targetHotelName : ('门店ID ' . $systemHotelId);
+
+        if ($systemHotelId <= 0 || $expectedIds === []) {
+            return [
+                'ok' => false,
+                'status' => 'binding_missing',
+                'message' => '当前门店缺少可核验的携程酒店ID，已停止展示竞争圈数据，避免串店。',
+                'target_system_hotel_id' => $systemHotelId > 0 ? $systemHotelId : null,
+                'target_hotel_name' => $targetHotelName,
+                'expected_hotel_ids' => $expectedIds,
+                'captured_hotel_ids' => $capturedIds,
+            ];
+        }
+
+        if ($capturedIds === []) {
+            return [
+                'ok' => false,
+                'status' => 'returned_current_hotel_id_missing',
+                'message' => '已入库竞争圈数据未识别到本店携程酒店ID，已停止展示，避免把其他门店数据显示到' . $hotelLabel . '。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'expected_hotel_ids' => $expectedIds,
+                'captured_hotel_ids' => [],
+            ];
+        }
+
+        if (array_intersect($expectedIds, $capturedIds) === []) {
+            return [
+                'ok' => false,
+                'status' => 'configured_platform_hotel_id_mismatch',
+                'message' => '已入库竞争圈数据与当前门店携程酒店ID不一致，已停止展示，避免串店。',
+                'target_system_hotel_id' => $systemHotelId,
+                'target_hotel_name' => $targetHotelName,
+                'expected_hotel_ids' => $expectedIds,
+                'captured_hotel_ids' => $capturedIds,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'status' => 'matched',
+            'message' => '',
+            'target_system_hotel_id' => $systemHotelId,
+            'target_hotel_name' => $targetHotelName,
+            'expected_hotel_ids' => $expectedIds,
+            'captured_hotel_ids' => $capturedIds,
+        ];
+    }
+
+    private function buildCtripLatestIdentityBlockedSection(
+        array $latest,
+        string $targetDate,
+        string $fetchedAt,
+        array $identityCheck
+    ): array {
+        $section = $this->emptyCtripLatestSection('rank', '榜单数据', $targetDate);
+        $section['status'] = 'identity_mismatch';
+        $section['status_label'] = '酒店身份不匹配';
+        $section['verification_status'] = 'binding_mismatch';
+        $section['data_date'] = (string)($latest['data_date'] ?? '');
+        $section['fetched_at'] = $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $this->getOnlineDailyDataColumns());
+        $section['identity_check'] = $identityCheck;
+        $section['source_notice'] = (string)($identityCheck['message'] ?? '酒店身份不匹配，已停止展示竞争圈数据。');
+        return $section;
     }
 
     private function normalizeCtripLatestRange(string $range): string
@@ -466,6 +719,197 @@ trait OnlineDataHistoryConcern
         return null;
     }
 
+    private function isCtripEarlyMorningUpdateWindow(?string $now = null): bool
+    {
+        try {
+            $clock = new \DateTimeImmutable($now ?: 'now', new \DateTimeZone('Asia/Shanghai'));
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return (int)$clock->format('G') < 8;
+    }
+
+    /**
+     * During the OTA 00:00-08:00 refresh window, replace only missing traffic
+     * inputs with the latest valid values for the same competition hotel.
+     * Revenue, room nights and total orders always remain from the current row.
+     *
+     * @return array{display_hotels:array,fallback:?array}
+     */
+    private function hydrateCtripEarlyMorningTrafficFallback(
+        array $displayHotels,
+        array $currentLatest,
+        string $hotelId,
+        $currentUser,
+        array $columns,
+        string $range = ''
+    ): array {
+        if (!$this->isCtripEarlyMorningUpdateWindow() || empty($displayHotels)) {
+            return ['display_hotels' => $displayHotels, 'fallback' => null];
+        }
+
+        $fallback = $this->findLatestCtripRankRowsWithTraffic(
+            $currentLatest,
+            $hotelId,
+            $currentUser,
+            $columns,
+            $range
+        );
+
+        return $this->mergeCtripEarlyMorningTrafficFallbackRows(
+            $displayHotels,
+            is_array($fallback['display_hotels'] ?? null) ? $fallback['display_hotels'] : [],
+            [
+                'source_data_date' => (string)($fallback['latest']['data_date'] ?? ''),
+                'source_fetched_at' => (string)($fallback['fetched_at'] ?? ''),
+                'target_data_date' => (string)($currentLatest['data_date'] ?? ''),
+            ],
+            'now'
+        );
+    }
+
+    /** @return array{display_hotels:array,fallback:?array} */
+    private function mergeCtripEarlyMorningTrafficFallbackRows(
+        array $displayHotels,
+        array $fallbackHotels,
+        array $source = [],
+        ?string $now = null
+    ): array {
+        if (!$this->isCtripEarlyMorningUpdateWindow($now) || empty($displayHotels)) {
+            return ['display_hotels' => $displayHotels, 'fallback' => null];
+        }
+
+        $fields = ['totalDetailNum', 'convertionRate', 'qunarDetailVisitors', 'qunarDetailCR'];
+        $fallbackMap = [];
+        foreach ($fallbackHotels as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $key = $this->ctripEarlyMorningFallbackHotelKey($row);
+            if ($key !== '') {
+                $fallbackMap[$key] = $row;
+            }
+        }
+
+        $sourceDataDate = trim((string)($source['source_data_date'] ?? ''));
+        $sourceFetchedAt = trim((string)($source['source_fetched_at'] ?? ''));
+        $targetDataDate = trim((string)($source['target_data_date'] ?? ''));
+        $appliedFieldCount = 0;
+        $pendingFieldCount = 0;
+        $appliedHotelCount = 0;
+
+        foreach ($displayHotels as &$row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $missingFields = [];
+            foreach ($fields as $field) {
+                if (!is_numeric($row[$field] ?? null) || (float)$row[$field] <= 0) {
+                    $missingFields[] = $field;
+                }
+            }
+            if (empty($missingFields)) {
+                continue;
+            }
+
+            $fallbackRow = $fallbackMap[$this->ctripEarlyMorningFallbackHotelKey($row)] ?? [];
+            $appliedFields = [];
+            $pendingFields = [];
+            foreach ($missingFields as $field) {
+                $fallbackValue = $fallbackRow[$field] ?? null;
+                if (is_numeric($fallbackValue) && (float)$fallbackValue > 0) {
+                    $row[$field] = in_array($field, ['totalDetailNum', 'qunarDetailVisitors'], true)
+                        ? (int)$fallbackValue
+                        : (float)$fallbackValue;
+                    $row['metricSourceStatus'][$field] = '上次有效值';
+                    $appliedFields[] = $field;
+                    $appliedFieldCount++;
+                    continue;
+                }
+
+                $row[$field] = null;
+                $row['metricSourceStatus'][$field] = '系统未返回';
+                $pendingFields[] = $field;
+                $pendingFieldCount++;
+            }
+
+            if (!empty($appliedFields)) {
+                $appliedHotelCount++;
+            }
+
+            $effectiveDetailVisitors = is_numeric($row['totalDetailNum'] ?? null)
+                ? (int)$row['totalDetailNum']
+                : 0;
+            $currentBookingOrders = is_numeric($row['bookOrderNum'] ?? null)
+                ? (int)$row['bookOrderNum']
+                : null;
+            if ($effectiveDetailVisitors > 0 && $currentBookingOrders !== null) {
+                $bookingRate = round($currentBookingOrders / $effectiveDetailVisitors * 100, 2);
+                $row['bookingRate'] = $bookingRate;
+                $row['bookingRateText'] = number_format($bookingRate, 1, '.', '') . '%';
+                $row['displayMetricStatus']['bookingRate'] = 'ok';
+                $row['metricSourceStatus']['bookingRate'] = in_array('totalDetailNum', $appliedFields, true)
+                    ? '当前订单与最近可用访客计算'
+                    : '携程竞争圈返回';
+            } else {
+                $row['bookingRate'] = null;
+                $row['bookingRateText'] = '待更新';
+                $row['displayMetricStatus']['bookingRate'] = 'missing_total_detail_num';
+                $row['metricSourceStatus']['bookingRate'] = '系统未返回';
+            }
+            $row['earlyMorningFallback'] = [
+                'status' => !empty($appliedFields) ? (empty($pendingFields) ? 'applied' : 'partial') : 'pending',
+                'source_data_date' => $sourceDataDate,
+                'source_fetched_at' => $sourceFetchedAt,
+                'target_data_date' => $targetDataDate,
+                'applied_fields' => $appliedFields,
+                'pending_fields' => $pendingFields,
+            ];
+        }
+        unset($row);
+
+        if ($appliedFieldCount === 0 && $pendingFieldCount === 0) {
+            return ['display_hotels' => $displayHotels, 'fallback' => null];
+        }
+
+        $status = $appliedFieldCount > 0
+            ? ($pendingFieldCount > 0 ? 'partial' : 'applied')
+            : 'pending';
+        $sourceLabel = $sourceDataDate !== '' ? $sourceDataDate : '最近有效快照';
+        $message = $appliedFieldCount > 0
+            ? "00:00–08:00 更新窗口：访客/转化采用 {$sourceLabel} 最近可用数据；销售额、间夜和总订单仍为当前数据。"
+            : '00:00–08:00 更新窗口：未找到同酒店的历史有效访客/转化值，缺失字段显示“待更新”。';
+
+        return [
+            'display_hotels' => $displayHotels,
+            'fallback' => [
+                'active' => $appliedFieldCount > 0,
+                'status' => $status,
+                'reason' => 'early_morning_traffic_refresh_window',
+                'source' => 'latest_same_hotel_nonzero_traffic_snapshot',
+                'source_data_date' => $sourceDataDate,
+                'source_fetched_at' => $sourceFetchedAt,
+                'target_data_date' => $targetDataDate,
+                'applied_hotel_count' => $appliedHotelCount,
+                'applied_field_count' => $appliedFieldCount,
+                'pending_field_count' => $pendingFieldCount,
+                'message' => $message,
+            ],
+        ];
+    }
+
+    private function ctripEarlyMorningFallbackHotelKey(array $row): string
+    {
+        $hotelId = trim((string)($row['hotelId'] ?? $row['hotel_id'] ?? ''));
+        if ($hotelId !== '') {
+            return 'id:' . $hotelId;
+        }
+
+        $hotelName = preg_replace('/\s+/u', '', trim((string)($row['hotelName'] ?? $row['hotel_name'] ?? '')));
+        return $hotelName !== '' ? 'name:' . mb_strtolower($hotelName) : '';
+    }
+
     private function ctripLatestBatchKey(array $row, array $columns, bool $includeSystemHotel): string
     {
         $isCompetitionCircle = strtolower(trim((string)($row['data_type'] ?? ''))) === 'competitor'
@@ -498,6 +942,7 @@ trait OnlineDataHistoryConcern
             'data_source' => '携程 ebooking',
             'status' => 'empty',
             'status_label' => $targetDate !== '' ? '目标日期未采集' : '暂无数据',
+            'verification_status' => 'not_available',
             'data_date' => '',
             'target_data_date' => $targetDate,
             'fetched_at' => '',
@@ -507,6 +952,15 @@ trait OnlineDataHistoryConcern
             'display_summary' => $this->emptyCtripBusinessDisplaySummary(),
             'display_traffic_rows' => [],
             'display_traffic_summary' => CtripTrafficDisplayService::emptyCtripTrafficDisplaySummary(),
+            'persistence_status' => 'not_available',
+            'readback_verified' => false,
+            'readback_count' => 0,
+            'source_verified' => false,
+            'source_verified_count' => 0,
+            'cache_eligible' => false,
+            'cache_status' => 'miss',
+            'cache_reason' => 'no_stored_rows',
+            'collected_date' => '',
         ];
     }
 
@@ -517,6 +971,7 @@ trait OnlineDataHistoryConcern
         $targetDataDate = '';
         $total = 0;
         $earlyFallbacks = [];
+        $identityCheck = null;
         foreach ($sections as $section) {
             $total += (int)($section['total'] ?? 0);
             $sectionFetchedAt = (string)($section['fetched_at'] ?? '');
@@ -534,6 +989,9 @@ trait OnlineDataHistoryConcern
             if (is_array($section['early_morning_fallback'] ?? null)) {
                 $earlyFallbacks[] = $section['early_morning_fallback'];
             }
+            if (is_array($section['identity_check'] ?? null) && ($section['identity_check']['ok'] ?? true) !== true) {
+                $identityCheck = $section['identity_check'];
+            }
         }
 
         if ($range === '') {
@@ -545,19 +1003,31 @@ trait OnlineDataHistoryConcern
             }
         }
 
+        $identityBlocked = is_array($identityCheck);
+        $rankingCacheEligible = ($sections['rank']['cache_eligible'] ?? false) === true;
+        $rankingCacheReason = (string)($sections['rank']['cache_reason'] ?? 'no_stored_rows');
         return [
             'hotel_id' => $hotelId,
             'platform' => 'ctrip',
             'data_source' => '携程 ebooking',
-            'status' => $total > 0 ? 'success' : 'empty',
-            'status_label' => $total > 0 ? '有入库记录' : ($targetDataDate !== '' ? '目标日期未采集' : '暂无入库记录'),
-            'verification_status' => $total > 0 ? 'record_present_source_not_proven' : 'not_available',
+            'status' => $identityBlocked ? 'identity_mismatch' : ($total > 0 ? 'success' : 'empty'),
+            'status_label' => $identityBlocked ? '酒店身份不匹配' : ($total > 0 ? '有入库记录' : ($targetDataDate !== '' ? '目标日期未采集' : '暂无入库记录')),
+            'verification_status' => $identityBlocked
+                ? 'binding_mismatch'
+                : ($rankingCacheEligible
+                    ? 'source_verified'
+                    : ($total > 0 ? 'record_present_source_not_proven' : 'not_available')),
+            'identity_check' => $identityCheck,
+            'identity_message' => $identityBlocked ? (string)($identityCheck['message'] ?? '') : '',
             'data_date' => $dataDate,
             'target_data_date' => $targetDataDate,
             'fetched_at' => $fetchedAt,
             'total_records' => $total,
             'early_morning_fallback' => !empty($earlyFallbacks),
             'early_morning_fallbacks' => $earlyFallbacks,
+            'ranking_cache_eligible' => $rankingCacheEligible,
+            'ranking_cache_status' => $rankingCacheEligible ? 'hit' : 'miss',
+            'ranking_cache_reason' => $rankingCacheReason,
         ];
     }
 

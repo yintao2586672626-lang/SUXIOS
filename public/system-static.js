@@ -790,6 +790,39 @@ window.SUXI_SYSTEM_STATIC = (() => {
             ].filter(Boolean).join('\n\n'),
         };
     };
+    let suxiTermHelpInstanceSequence = 0;
+    const suxiTermHelpEscapeDispatchers = new Map();
+    const unregisterSuxiTermHelpEscapeInstance = (instance) => {
+        const documentRef = instance?.termHelpEscapeDocument;
+        if (!documentRef) return;
+        const dispatcher = suxiTermHelpEscapeDispatchers.get(documentRef);
+        dispatcher?.instances.delete(instance);
+        if (dispatcher && dispatcher.instances.size === 0) {
+            documentRef.removeEventListener('keydown', dispatcher.listener);
+            suxiTermHelpEscapeDispatchers.delete(documentRef);
+        }
+        instance.termHelpEscapeDocument = null;
+    };
+    const registerSuxiTermHelpEscapeInstance = (instance) => {
+        const documentRef = instance?.$el?.ownerDocument;
+        if (!documentRef?.addEventListener) return;
+        if (instance.termHelpEscapeDocument && instance.termHelpEscapeDocument !== documentRef) {
+            unregisterSuxiTermHelpEscapeInstance(instance);
+        }
+        let dispatcher = suxiTermHelpEscapeDispatchers.get(documentRef);
+        if (!dispatcher) {
+            const instances = new Set();
+            const listener = (event) => {
+                if (event?.key !== 'Escape') return;
+                [...instances].forEach(activeInstance => activeInstance.handleTermHelpDocumentKeydown(event));
+            };
+            dispatcher = { instances, listener };
+            suxiTermHelpEscapeDispatchers.set(documentRef, dispatcher);
+            documentRef.addEventListener('keydown', listener);
+        }
+        dispatcher.instances.add(instance);
+        instance.termHelpEscapeDocument = documentRef;
+    };
     const createSuxiTermHelpComponent = (h) => ({
         name: 'SuxiTermHelp',
         inheritAttrs: false,
@@ -798,25 +831,89 @@ window.SUXI_SYSTEM_STATIC = (() => {
             label: { type: String, default: '' },
             scope: { type: String, default: '' },
         },
-        setup(props, { attrs }) {
-            return () => {
-                const help = resolveSuxiTermHelp(props.term || props.label, { scope: props.scope });
-                const label = String(props.label || help?.label || props.term || '').trim();
-                const { class: className, ...restAttrs } = attrs;
-                if (!help) return h('span', { ...restAttrs, class: className }, label);
-                return h('span', {
-                    ...restAttrs,
-                    class: ['suxi-term-help', className],
-                    role: 'button',
-                    tabindex: '0',
-                    'data-help': help.text,
-                    title: help.text.replace(/\n+/g, ' '),
-                    'aria-label': `${label}：${help.definition} 口径：${help.formula}${help.scope ? ` 范围：${help.scope}` : ''}`,
-                }, [
-                    h('span', label),
-                    h('span', { class: 'suxi-term-help-mark', 'aria-hidden': 'true' }, '?'),
-                ]);
+        data() {
+            suxiTermHelpInstanceSequence += 1;
+            return {
+                termHelpOpen: false,
+                termHelpDismissed: false,
+                termHelpPointerInside: false,
+                termHelpTooltipId: `suxi-term-help-tooltip-${suxiTermHelpInstanceSequence}`,
             };
+        },
+        mounted() {
+            registerSuxiTermHelpEscapeInstance(this);
+        },
+        beforeUnmount() {
+            unregisterSuxiTermHelpEscapeInstance(this);
+        },
+        methods: {
+            toggleTermHelp(event) {
+                event?.preventDefault();
+                event?.stopPropagation();
+                const willOpen = !this.termHelpOpen;
+                this.termHelpOpen = willOpen;
+                this.termHelpDismissed = !willOpen;
+            },
+            dismissTermHelp(event) {
+                if (event?.key !== 'Escape') return;
+                event.preventDefault();
+                this.termHelpOpen = false;
+                this.termHelpDismissed = true;
+            },
+            handleTermHelpKeydown(event) {
+                this.dismissTermHelp(event);
+            },
+            handleTermHelpDocumentKeydown(event) {
+                if (!this.termHelpPointerInside && !this.termHelpOpen) return;
+                this.dismissTermHelp(event);
+            },
+            handleTermHelpPointerEnter() {
+                this.termHelpPointerInside = true;
+            },
+            handleTermHelpPointerLeave() {
+                this.termHelpPointerInside = false;
+                if (this.$el?.ownerDocument?.activeElement !== this.$el) {
+                    this.termHelpDismissed = false;
+                }
+            },
+            handleTermHelpBlur() {
+                this.termHelpOpen = false;
+                this.termHelpDismissed = false;
+            },
+        },
+        render() {
+            const help = resolveSuxiTermHelp(this.term || this.label, { scope: this.scope });
+            const label = String(this.label || help?.label || this.term || '').trim();
+            const { class: className, ...restAttrs } = this.$attrs || {};
+            if (!help) return h('span', { ...restAttrs, class: className }, label);
+            return h('button', {
+                ...restAttrs,
+                type: 'button',
+                class: [
+                    'suxi-term-help',
+                    {
+                        'is-open': this.termHelpOpen,
+                        'is-dismissed': this.termHelpDismissed,
+                    },
+                    className,
+                ],
+                'data-help': help.text,
+                'aria-label': label,
+                'aria-describedby': this.termHelpTooltipId,
+                onClick: this.toggleTermHelp,
+                onKeydown: this.handleTermHelpKeydown,
+                onPointerenter: this.handleTermHelpPointerEnter,
+                onPointerleave: this.handleTermHelpPointerLeave,
+                onBlur: this.handleTermHelpBlur,
+            }, [
+                h('span', label),
+                h('span', { class: 'suxi-term-help-mark', 'aria-hidden': 'true' }, '?'),
+                h('span', {
+                    id: this.termHelpTooltipId,
+                    class: 'suxi-term-help-tooltip',
+                    role: 'tooltip',
+                }, help.text),
+            ]);
         },
     });
     const calculateHhi = (items, valueGetter) => {
@@ -896,7 +993,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             }
         };
         if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
-            window.requestIdleCallback(runner, { timeout: Math.max(80, delay || 80) });
+            setTimeout(() => window.requestIdleCallback(runner, { timeout: 1200 }), delay);
             return;
         }
         setTimeout(runner, delay);

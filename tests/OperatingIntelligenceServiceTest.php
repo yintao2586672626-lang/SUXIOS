@@ -111,6 +111,15 @@ final class OperatingIntelligenceServiceTest extends TestCase
             'memories' => [['ref' => 'hotel_operating_memories#11']],
             'diagnoses' => [[
                 'ref' => 'agent_logs#31',
+                'platform' => 'ctrip',
+                'record_status' => 'active',
+                'saved' => true,
+                'readback_verified' => true,
+                'readback_identity_digest' => 'all-ota-readback-33',
+                'saved_readback_identity_digest' => 'all-ota-readback-33',
+                'requested_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+                'effective_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+                'used_latest_available_data' => false,
                 'summary' => 'Saved diagnosis conclusion.',
             ]],
             'knowledge' => [['ref' => 'knowledge_units#40']],
@@ -139,6 +148,144 @@ final class OperatingIntelligenceServiceTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
         $ready->create(11, 20, 'Cross tenant?', 'ctrip', '2026-08-01', '2026-08-01', 7);
+    }
+
+    public function testAllOtaQuestionRequiresBothPlatformFactsAndExplicitAllOtaDiagnosis(): void
+    {
+        $ctripOnly = new OperatingQuestionService(static fn(): array => [
+            'facts' => [[
+                'ref' => 'online_daily_data#701',
+                'data_date' => '2026-08-01',
+                'platform' => 'ctrip',
+                'data_type' => 'traffic',
+            ]],
+            'fact_count' => 1,
+            'diagnoses' => [[
+                'ref' => 'agent_logs#31',
+                'platform' => 'ctrip',
+                'summary' => '携程诊断。',
+            ]],
+        ]);
+        $missingFacts = $ctripOnly->create(
+            10,
+            20,
+            '双平台事实是否齐全？',
+            'all_ota',
+            '2026-08-01',
+            '2026-08-01',
+            7
+        );
+        self::assertSame('blocked_by_missing_facts', $missingFacts['question']['answer_status']);
+        self::assertSame('all_ota_platform_fact_coverage_missing', $missingFacts['question']['data_gaps'][0]['code']);
+        self::assertSame(['meituan'], $missingFacts['question']['data_gaps'][0]['missing_platforms']);
+
+        $bothFactsOneDiagnosis = new OperatingQuestionService(static fn(): array => [
+            'facts' => [
+                ['ref' => 'online_daily_data#702', 'data_date' => '2026-08-01', 'platform' => 'ctrip', 'data_type' => 'traffic'],
+                ['ref' => 'online_daily_data#703', 'data_date' => '2026-08-01', 'platform' => 'meituan', 'data_type' => 'business'],
+            ],
+            'fact_count' => 2,
+            'diagnoses' => [[
+                'ref' => 'agent_logs#32',
+                'platform' => 'ctrip',
+                'summary' => '携程诊断。',
+            ]],
+        ]);
+        $missingDiagnosis = $bothFactsOneDiagnosis->create(
+            10,
+            20,
+            '双平台诊断是否齐全？',
+            'all_ota',
+            '2026-08-01',
+            '2026-08-01',
+            7
+        );
+        self::assertSame('evidence_ready', $missingDiagnosis['question']['answer_status']);
+        self::assertSame('all_ota_saved_diagnosis_missing', $missingDiagnosis['question']['data_gaps'][0]['code']);
+        self::assertStringNotContainsString('携程诊断。', $missingDiagnosis['question']['answer_summary']);
+
+        $complete = new OperatingQuestionService(static fn(): array => [
+            'facts' => [
+                ['ref' => 'online_daily_data#704', 'data_date' => '2026-08-01', 'platform' => 'ctrip', 'data_type' => 'traffic'],
+                ['ref' => 'online_daily_data#705', 'data_date' => '2026-08-01', 'platform' => 'meituan', 'data_type' => 'business'],
+            ],
+            'fact_count' => 2,
+            'diagnoses' => [[
+                'ref' => 'agent_logs#33',
+                'platform' => 'all_ota',
+                'record_status' => 'active',
+                'saved' => true,
+                'readback_verified' => true,
+                'readback_identity_digest' => 'all-ota-readback-33',
+                'saved_readback_identity_digest' => 'all-ota-readback-33',
+                'requested_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+                'effective_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+                'used_latest_available_data' => false,
+                'coverage' => [
+                    'complete' => true,
+                    'required_platforms' => ['ctrip', 'meituan'],
+                    'covered_platforms' => ['ctrip', 'meituan'],
+                    'missing_platforms' => [],
+                    'per_platform' => [
+                        'ctrip' => [
+                            'status' => 'ready', 'tenant_id' => 10, 'hotel_id' => 20,
+                            'requested_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+                            'effective_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+                            'used_latest_available_data' => false,
+                            'evidence_refs' => ['online_daily_data#704'],
+                        ],
+                        'meituan' => [
+                            'status' => 'ready', 'tenant_id' => 10, 'hotel_id' => 20,
+                            'requested_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+                            'effective_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+                            'used_latest_available_data' => false,
+                            'evidence_refs' => ['online_daily_data#705'],
+                        ],
+                    ],
+                ],
+                'evidence_refs' => [
+                    'ctrip' => ['online_daily_data#704'],
+                    'meituan' => ['online_daily_data#705'],
+                ],
+                'summary' => '明确保存并回读的跨渠道诊断。',
+            ]],
+        ]);
+        $answered = $complete->create(
+            10,
+            20,
+            '双平台结论是否可用？',
+            'all_ota',
+            '2026-08-01',
+            '2026-08-01',
+            7
+        );
+        self::assertSame('answered_from_saved_diagnosis', $answered['question']['answer_status']);
+        self::assertSame('明确保存并回读的跨渠道诊断。', $answered['question']['answer_summary']);
+        self::assertSame(['ctrip' => 1, 'meituan' => 1], $answered['question']['answer']['evidence_counts']['fact_platforms']);
+
+        $latestFallback = new OperatingQuestionService(static fn(): array => [
+            'facts' => [
+                ['ref' => 'online_daily_data#706', 'data_date' => '2026-08-01', 'platform' => 'ctrip', 'data_type' => 'traffic'],
+                ['ref' => 'online_daily_data#707', 'data_date' => '2026-08-01', 'platform' => 'meituan', 'data_type' => 'traffic'],
+            ],
+            'diagnoses' => [[
+                'ref' => 'agent_logs#34',
+                'platform' => 'all_ota',
+                'record_status' => 'active',
+                'saved' => true,
+                'readback_verified' => true,
+                'requested_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+                'effective_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+                'used_latest_available_data' => true,
+                'summary' => '最近可用日期诊断不得回答目标日问题。',
+            ]],
+        ]);
+        $rejected = $latestFallback->create(
+            10, 20, '最近可用诊断可否回答？', 'all_ota', '2026-08-01', '2026-08-01', 7
+        );
+        self::assertSame('evidence_ready', $rejected['question']['answer_status']);
+        self::assertSame('all_ota_saved_diagnosis_not_current', $rejected['question']['data_gaps'][0]['code']);
+        self::assertContains('diagnosis_used_latest_available_data', $rejected['question']['data_gaps'][0]['reason_codes']);
     }
 
     public function testSopCandidateNeedsRepeatedPositiveMemoriesAndCreatesImmutableVerifiedVersion(): void

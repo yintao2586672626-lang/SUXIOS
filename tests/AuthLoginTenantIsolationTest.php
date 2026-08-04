@@ -6,6 +6,8 @@ namespace Tests;
 use app\controller\Auth as AuthController;
 use app\model\User;
 use app\service\LoginRateLimiter;
+use app\service\UserDefaultHotelService;
+use DomainException;
 use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -79,7 +81,7 @@ final class AuthLoginTenantIsolationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['operation_logs', 'login_logs', 'user_hotel_permissions', 'users', 'hotels', 'roles'] as $table) {
+        foreach (['operation_logs', 'login_logs', 'user_hotel_permissions', 'users', 'hotels', 'roles', 'tenants'] as $table) {
             Db::name($table)->delete(true);
         }
         Cache::clear();
@@ -134,6 +136,124 @@ final class AuthLoginTenantIsolationTest extends TestCase
         self::assertSame([10, 11, 20], $hotelIds);
         self::assertTrue($payload['user']['is_super_admin']);
         self::assertSame(hash('sha256', $payload['token']), cache('user_token_1'));
+    }
+
+    public function testCurrentUserCanSetAnAccessibleHotelAsDefaultAndReadItBackImmediately(): void
+    {
+        $permissionCountBefore = Db::name('user_hotel_permissions')->where('user_id', 501)->count();
+
+        $saved = $this->successPayload($this->setDefaultHotel(501, 11));
+        self::assertSame(11, (int)$saved['default_hotel_id']);
+        self::assertSame(10, (int)$saved['previous_default_hotel_id']);
+        self::assertTrue($saved['changed']);
+        self::assertSame(10, (int)Db::name('users')->where('id', 501)->value('hotel_id'));
+        self::assertSame(11, (int)Db::name('users')->where('id', 501)->value('default_hotel_id'));
+        self::assertSame($permissionCountBefore, Db::name('user_hotel_permissions')->where('user_id', 501)->count());
+        self::assertSame(0, (int)Db::name('user_hotel_permissions')
+            ->where('user_id', 501)
+            ->where('hotel_id', 11)
+            ->value('is_primary'));
+        self::assertSame(0, (int)Db::name('user_hotel_permissions')
+            ->where('user_id', 501)
+            ->where('hotel_id', 20)
+            ->value('is_primary'));
+
+        $readback = $this->successPayload($this->info(501));
+        self::assertSame(11, (int)$readback['hotel_id']);
+        self::assertSame(11, (int)$readback['default_hotel_id']);
+        self::assertSame(11, (int)$readback['hotel']['id']);
+        self::assertSame(11, (int)$readback['context']['hotelId']);
+        self::assertSame(101, (int)$readback['context']['tenantId']);
+        self::assertSame(1, Db::name('operation_logs')->where('action', 'set_default_hotel')->count());
+
+        $unchanged = $this->successPayload($this->setDefaultHotel(501, 11));
+        self::assertFalse($unchanged['changed']);
+        self::assertSame(11, (int)$unchanged['previous_default_hotel_id']);
+        self::assertSame(1, Db::name('operation_logs')->where('action', 'set_default_hotel')->count());
+    }
+
+    public function testDefaultHotelRejectsCrossTenantDisabledAndInvalidTargetsWithoutWriting(): void
+    {
+        foreach ([20, 12] as $hotelId) {
+            $response = $this->setDefaultHotel(501, $hotelId);
+            self::assertSame(403, $response->getCode(), (string)$hotelId);
+            self::assertSame(10, (int)Db::name('users')->where('id', 501)->value('hotel_id'));
+            self::assertSame(10, (int)Db::name('users')->where('id', 501)->value('default_hotel_id'));
+            self::assertSame(0, Db::name('operation_logs')->where('action', 'set_default_hotel')->count());
+        }
+
+        $invalid = $this->setDefaultHotel(501, 'not-a-hotel');
+        self::assertSame(422, $invalid->getCode());
+        self::assertSame(10, (int)Db::name('users')->where('id', 501)->value('hotel_id'));
+        self::assertSame(10, (int)Db::name('users')->where('id', 501)->value('default_hotel_id'));
+    }
+
+    public function testExpiredDefaultPreferenceDoesNotPreserveAccessOrSelectAnotherHotel(): void
+    {
+        Db::name('user_hotel_permissions')->where('user_id', 501)->where('hotel_id', 11)->update([
+            'expires_at' => date('Y-m-d H:i:s', time() + 3600),
+        ]);
+        $this->successPayload($this->setDefaultHotel(501, 11));
+
+        Db::name('user_hotel_permissions')->where('user_id', 501)->where('hotel_id', 11)->update([
+            'expires_at' => date('Y-m-d H:i:s', time() - 60),
+        ]);
+        $user = User::find(501);
+        self::assertInstanceOf(User::class, $user);
+        self::assertSame([10], array_values(array_map('intval', $user->getPermittedHotelIds())));
+
+        $readback = $this->successPayload($this->info(501));
+        self::assertNull($readback['hotel_id']);
+        self::assertNull($readback['default_hotel_id']);
+        self::assertNull($readback['hotel']);
+        self::assertNull($readback['context']['hotelId']);
+        self::assertSame(11, (int)Db::name('users')->where('id', 501)->value('default_hotel_id'));
+    }
+
+    public function testSetterRechecksRevokedGrantAfterReloadingLockedUserState(): void
+    {
+        $staleUser = User::find(501);
+        self::assertInstanceOf(User::class, $staleUser);
+        self::assertContains(11, array_map('intval', $staleUser->getPermittedHotelIds()));
+        Db::name('user_hotel_permissions')->where('user_id', 501)->where('hotel_id', 11)->update([
+            'status' => 'inactive',
+        ]);
+
+        try {
+            (new UserDefaultHotelService())->setDefaultHotel($staleUser, 11);
+            self::fail('A revoked grant must fail after the transaction reloads and locks current state.');
+        } catch (DomainException) {
+            self::assertSame(10, (int)Db::name('users')->where('id', 501)->value('default_hotel_id'));
+            self::assertSame(0, Db::name('operation_logs')->where('action', 'set_default_hotel')->count());
+        }
+    }
+
+    public function testSetterRechecksDisabledUserAndTenantAfterAuthentication(): void
+    {
+        $staleUser = User::find(501);
+        self::assertInstanceOf(User::class, $staleUser);
+        Db::name('users')->where('id', 501)->update(['status' => 0]);
+
+        try {
+            (new UserDefaultHotelService())->setDefaultHotel($staleUser, 11);
+            self::fail('A user disabled after authentication must not change the default hotel.');
+        } catch (DomainException) {
+            self::assertSame(10, (int)Db::name('users')->where('id', 501)->value('default_hotel_id'));
+            self::assertSame(0, Db::name('operation_logs')->where('action', 'set_default_hotel')->count());
+        }
+
+        Db::name('users')->where('id', 501)->update(['status' => 1]);
+        $staleUser = User::find(501);
+        self::assertInstanceOf(User::class, $staleUser);
+        Db::name('tenants')->where('id', 101)->update(['status' => 0]);
+
+        try {
+            (new UserDefaultHotelService())->setDefaultHotel($staleUser, 11);
+            self::fail('A tenant disabled after authentication must not change the default hotel.');
+        } catch (DomainException) {
+            self::assertSame(10, (int)Db::name('users')->where('id', 501)->value('default_hotel_id'));
+            self::assertSame(0, Db::name('operation_logs')->where('action', 'set_default_hotel')->count());
+        }
     }
 
     public function testMissingTenantReturnsExplicitRejectionBeforeAnyLoginStateIsUpdated(): void
@@ -247,6 +367,29 @@ final class AuthLoginTenantIsolationTest extends TestCase
         return (new AuthLoginTenantHarness(self::$app))->info();
     }
 
+    private function setDefaultHotel(int $userId, int|string $hotelId): \think\Response
+    {
+        $user = User::find($userId);
+        self::assertInstanceOf(User::class, $user);
+
+        $request = new class extends Request {
+            public function isCli(): bool
+            {
+                return false;
+            }
+        };
+        $request->setMethod('PUT')
+            ->setUrl('/api/auth/default-hotel')
+            ->setBaseUrl('/api/auth/default-hotel')
+            ->setPathinfo('api/auth/default-hotel')
+            ->withPost(['hotel_id' => $hotelId])
+            ->withHeader(['Accept' => 'application/json']);
+        $request->user = $user;
+        self::$app->instance('request', $request);
+
+        return (new AuthLoginTenantHarness(self::$app))->setDefaultHotel();
+    }
+
     /** @return array<string, mixed> */
     private function successPayload(\think\Response $response): array
     {
@@ -258,6 +401,11 @@ final class AuthLoginTenantIsolationTest extends TestCase
 
     private function seedFixture(): void
     {
+        Db::name('tenants')->insertAll([
+            ['id' => 101, 'name' => 'Tenant A', 'status' => 1],
+            ['id' => 202, 'name' => 'Tenant B', 'status' => 1],
+            ['id' => 303, 'name' => 'Owner tenant', 'status' => 1],
+        ]);
         Db::name('roles')->insertAll([
             ['id' => 1, 'name' => 'admin', 'display_name' => 'Super admin', 'level' => 1, 'permissions' => '["all"]', 'status' => 1],
             ['id' => 3, 'name' => 'normal_user', 'display_name' => 'Normal user', 'level' => 3, 'permissions' => '["dashboard.view","hotel.view"]', 'status' => 1],
@@ -294,6 +442,7 @@ final class AuthLoginTenantIsolationTest extends TestCase
             'password' => password_hash('Strong123!', PASSWORD_DEFAULT),
             'role_id' => $roleId,
             'hotel_id' => $hotelId,
+            'default_hotel_id' => $hotelId,
             'status' => 1,
             'login_count' => 0,
         ];
@@ -301,10 +450,11 @@ final class AuthLoginTenantIsolationTest extends TestCase
 
     private static function createSchema(): void
     {
+        Db::execute('CREATE TABLE tenants (id INTEGER PRIMARY KEY, name TEXT, status INTEGER NOT NULL, created_at TEXT, updated_at TEXT)');
         Db::execute('CREATE TABLE roles (id INTEGER PRIMARY KEY, name TEXT, display_name TEXT, level INTEGER, permissions TEXT, status INTEGER, create_time TEXT, update_time TEXT)');
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT, status INTEGER, owner_user_id INTEGER, created_by INTEGER, create_time TEXT, update_time TEXT)');
-        Db::execute('CREATE TABLE users (id INTEGER PRIMARY KEY, tenant_id INTEGER, username TEXT, realname TEXT, password TEXT, role_id INTEGER, hotel_id INTEGER, status INTEGER, login_count INTEGER, last_login_time TEXT, last_login_ip TEXT, create_time TEXT, update_time TEXT)');
-        Db::execute('CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, user_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, can_view INTEGER, status TEXT, expires_at TEXT)');
+        Db::execute('CREATE TABLE users (id INTEGER PRIMARY KEY, tenant_id INTEGER, username TEXT, realname TEXT, password TEXT, role_id INTEGER, hotel_id INTEGER, default_hotel_id INTEGER, status INTEGER, login_count INTEGER, last_login_time TEXT, last_login_ip TEXT, create_time TEXT, update_time TEXT)');
+        Db::execute('CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, user_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, can_view INTEGER, status TEXT, expires_at TEXT, is_primary INTEGER DEFAULT 0, update_time TEXT)');
         Db::execute('CREATE TABLE login_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, user_id INTEGER, username TEXT, action TEXT, status TEXT, message TEXT, ip_address TEXT, user_agent TEXT, client_info TEXT, created_at TEXT)');
         Db::execute('CREATE TABLE operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, user_id INTEGER, hotel_id INTEGER, module TEXT, action TEXT, description TEXT, error_info TEXT, extra_data TEXT, ip TEXT, user_agent TEXT, create_time TEXT)');
     }

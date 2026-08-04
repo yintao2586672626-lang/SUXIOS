@@ -32,6 +32,7 @@ const contentTypes = new Map([
   ['.woff', 'font/woff'],
   ['.woff2', 'font/woff2'],
 ]);
+const healthFailureThreshold = 2;
 
 function parseInteger(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
@@ -121,10 +122,24 @@ function createBackendPool(backends, {
   const workers = backends.map((backend) => ({
     backend,
     healthy: false,
+    consecutiveHealthFailures: 0,
     checking: null,
     agent: new http.Agent({ keepAlive: true, maxSockets: 32 }),
   }));
   let cursor = 0;
+
+  const recordHealthResult = (worker, healthy) => {
+    if (healthy) {
+      worker.healthy = true;
+      worker.consecutiveHealthFailures = 0;
+      return true;
+    }
+    worker.consecutiveHealthFailures += 1;
+    if (!worker.healthy || worker.consecutiveHealthFailures >= healthFailureThreshold) {
+      worker.healthy = false;
+    }
+    return false;
+  };
 
   const checkWorker = (worker) => {
     if (worker.checking) return worker.checking;
@@ -140,14 +155,12 @@ function createBackendPool(backends, {
       }, (probeResponse) => {
         probeResponse.resume();
         probeResponse.once('end', () => {
-          worker.healthy = probeResponse.statusCode === 200;
-          resolve(worker.healthy);
+          resolve(recordHealthResult(worker, probeResponse.statusCode === 200));
         });
       });
       probe.setTimeout(healthCheckTimeoutMs, () => probe.destroy(new Error('health check timeout')));
       probe.once('error', () => {
-        worker.healthy = false;
-        resolve(false);
+        resolve(recordHealthResult(worker, false));
       });
       probe.end();
     }).finally(() => {
@@ -180,6 +193,7 @@ function createBackendPool(backends, {
     },
     markUnhealthy(worker) {
       worker.healthy = false;
+      worker.consecutiveHealthFailures = healthFailureThreshold;
     },
     close() {
       clearInterval(interval);
@@ -216,6 +230,11 @@ function serveStaticFile(request, response, filePath, stat) {
   }
 
   const stream = fs.createReadStream(filePath);
+  const releaseStream = () => {
+    if (!stream.destroyed) stream.destroy();
+  };
+  response.once('close', releaseStream);
+  stream.once('close', () => response.removeListener('close', releaseStream));
   stream.on('error', () => {
     if (!response.headersSent) {
       response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });

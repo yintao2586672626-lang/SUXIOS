@@ -52,19 +52,11 @@
                                         <div class="meituan-hotel-picker-copy">
                                             <span class="meituan-hotel-picker-icon"><i class="fas fa-hotel"></i></span>
                                             <div>
-                                                <label for="meituan-ranking-hotel" class="text-sm font-semibold text-slate-800">选择酒店</label>
-                                                <p class="mt-0.5 text-xs text-slate-500">仅显示已绑定美团账号的酒店</p>
+                                                <div class="text-sm font-semibold text-slate-800">当前酒店配置</div>
+                                                <p class="mt-0.5 text-xs text-slate-500">酒店在美团项目顶栏统一切换</p>
                                             </div>
                                         </div>
                                         <div class="meituan-hotel-picker-control">
-                                            <div class="relative">
-                                                <i class="fas fa-building pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                                                <select id="meituan-ranking-hotel" v-model="meituanForm.hotelId" @change="resetMeituanRankingFetchState" class="meituan-hotel-picker-select">
-                                                    <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                                <i class="fas fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"></i>
-                                            </div>
                                             <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" :class="[
                                                 'meituan-hotel-picker-status',
                                                 selectedMeituanManualCredentialState.canFetch &amp;&amp; (meituanForm.partnerId || selectedMeituanHotelConfig.partner_id || selectedMeituanHotelConfig.partnerId) &amp;&amp; (meituanForm.poiId || selectedMeituanHotelConfig.poi_id || selectedMeituanHotelConfig.poiId || selectedMeituanHotelConfig.store_id || selectedMeituanHotelConfig.storeId) ? 'is-ready' : 'is-warning'
@@ -386,17 +378,7 @@
                                     </div>
 
                                     <div data-testid="meituan-order-flow-toolbar" class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                                        <div class="flex flex-col gap-4 lg:flex-row lg:items-end">
-                                            <div class="min-w-0 flex-1">
-                                                <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                                    <label class="text-sm font-semibold text-gray-800">目标酒店</label>
-                                                    <span class="text-xs text-gray-400">仅显示已配置美团账号的酒店</span>
-                                                </div>
-                                                <select v-model="meituanForm.hotelId" class="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-green-700 focus:ring-2 focus:ring-green-100">
-                                                    <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                            </div>
+                                        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-end">
                                             <button type="button" @click="refreshMeituanOrderFlowData" :disabled="meituanOrderFlowFetching || meituanOrderFlowLoading || !meituanForm.hotelId" class="inline-flex h-11 flex-shrink-0 items-center justify-center rounded-xl px-6 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none" style="background:#143a31">
                                                 <i :class="meituanOrderFlowFetching ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ meituanOrderFlowFetching ? '正在获取并保存' : '获取并保存' }}
                                             </button>
@@ -504,20 +486,7 @@
                                             <i class="fas fa-plug text-gray-500 mr-2"></i>临时排障：手动接口抓取
                                         </h4>
                                         <p class="text-sm text-gray-500 mb-4">接口地址仅用于高级排障，应填写平台后台真实请求地址，不是页面地址。</p>
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
-                                                <select v-model="meituanForm.hotelId" @change="syncMeituanTrafficConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
-                                                    <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                                <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
-                                                    {{ getHotelNameById(meituanForm.hotelId) }}｜已读取美团配置
-                                                </div>
-                                                <div v-if="meituanForm.hotelId &amp;&amp; !selectedMeituanHotelConfig" class="text-xs text-yellow-700 mt-1">
-                                                    未读取到该酒店美团配置，请手动补充平台接口标识、门店标识和 Cookie/API 辅助内容。
-                                                </div>
-                                            </div>
+                                        <div class="grid grid-cols-1 gap-4 mb-4">
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">接口请求地址 <span class="text-red-500">*</span></label>
                                                 <input v-model="meituanTrafficForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="从高级排障中复制平台后台真实请求地址">
@@ -579,14 +548,7 @@
                                             <i class="fas fa-file-csv text-emerald-600 mr-2"></i>临时补录：美团订单 CSV 导入
                                         </h4>
                                         <p class="text-sm text-gray-500 mb-4">用于导入授权订单页导出的 CSV。订单号入库前只保存 hash；底价作为导入参考价，不写成已确认销售收入。</p>
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
-                                                <select v-model="meituanForm.hotelId" @change="syncMeituanOrderConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
-                                                    <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                            </div>
+                                        <div class="grid grid-cols-1 gap-4 mb-4">
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识（可选）</label>
                                                 <input v-model="meituanOrderForm.poiId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="用于标记来源门店">
@@ -610,17 +572,7 @@
                                             <i class="fas fa-plug text-gray-500 mr-2"></i>临时排障：手动接口抓取
                                         </h4>
                                         <p class="text-sm text-gray-500 mb-4">接口地址应填写平台后台订单列表的真实请求地址，不是订单页面地址。</p>
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
-                                                <select v-model="meituanForm.hotelId" @change="syncMeituanOrderConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
-                                                    <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                                <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
-                                                    {{ getHotelNameById(meituanForm.hotelId) }}：已读取美团配置
-                                                </div>
-                                            </div>
+                                        <div class="grid grid-cols-1 gap-4 mb-4">
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">接口请求地址 <span class="text-red-500">*</span></label>
                                                 <input v-model="meituanOrderForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="从高级排障中复制订单接口请求地址">
@@ -707,17 +659,7 @@
                                             <i class="fas fa-plug text-gray-500 mr-2"></i>临时排障：手动接口抓取
                                         </h4>
                                         <p class="text-sm text-gray-500 mb-4">接口地址仅用于高级排障，应填写平台后台真实请求地址，不是推广通入口页面地址。</p>
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
-                                                <select v-model="meituanForm.hotelId" @change="syncMeituanAdsConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
-                                                    <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                                <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
-                                                    {{ getHotelNameById(meituanForm.hotelId) }}：已读取美团配置
-                                                </div>
-                                            </div>
+                                        <div class="grid grid-cols-1 gap-4 mb-4">
                                             <div>
                                                 <label class="block text-sm font-medium text-gray-700 mb-1">接口请求地址 <span class="text-red-500">*</span></label>
                                                 <input v-model="meituanAdsForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="从高级排障中复制广告接口请求地址">
@@ -805,11 +747,14 @@
                                     </div>
 
                                     <!-- 筛选条件 -->
-                                    <div v-if="downloadCenterTab !== 'traffic'" class="mb-4 flex gap-4 flex-wrap items-center">
-                                        <select v-model="onlineDataFilter.hotel_id" class="px-3 py-2 border rounded-lg">
-                                            <option value="">全部酒店</option>
-                                            <option v-for="h in onlineDataHotelList" :key="h.id" :value="h.id">{{ h.hotel_name }}</option>
-                                        </select>
+                                    <div v-if="downloadCenterTab !== 'traffic'" class="mb-4 flex gap-4 flex-wrap items-end">
+                                        <label data-testid="meituan-stored-hotel-query-filter" class="flex flex-col gap-1">
+                                            <span class="text-xs font-medium text-slate-600">历史查询酒店（不改变顶部当前酒店）</span>
+                                            <select v-model="onlineDataFilter.hotel_id" class="px-3 py-2 border rounded-lg">
+                                                <option value="">全部历史酒店</option>
+                                                <option v-for="h in onlineDataHotelList" :key="h.id" :value="h.id">{{ h.hotel_name }}</option>
+                                            </select>
+                                        </label>
                                         <input v-model="onlineDataFilter.start_date" type="date" class="px-3 py-2 border rounded-lg" placeholder="开始日期">
                                         <input v-model="onlineDataFilter.end_date" type="date" class="px-3 py-2 border rounded-lg" placeholder="结束日期">
                                         <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
@@ -898,11 +843,12 @@
                                         <section :class="mtUi.panel">
                                             <h3 class="text-xl font-bold">美团流量分析 <small class="text-blue-600">OTA 渠道数据</small></h3>
                                             <p>{{ mtCopy.intro }}{{ mtSummary?.today?.captured_at || mtCopy.emptyReference }}</p>
-                                            <select v-model="onlineDataFilter.hotel_id" @change="loadMtSummary({ force: true })" class="mt-2 rounded border p-2">
-                                                <option value="">请选择门店</option><option v-for="h in onlineDataHotelList" :key="h.id" :value="h.id">{{ h.hotel_name }}</option>
-                                            </select>
-                                            <button @click="refreshMt" :disabled="mtRefreshing || !onlineDataFilter.hotel_id" :class="mtUi.refreshButton">{{ mtRefreshing ? '正在采集并回读' : '更新本页数据' }}</button>
-                                            <button @click="openMtSchedule" :disabled="!onlineDataFilter.hotel_id" :class="mtUi.scheduleButton"><i class="fas fa-clock mr-1"></i>设置定时推送</button>
+                                            <div data-testid="meituan-traffic-current-hotel" class="mt-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">
+                                                当前酒店：<strong>{{ getHotelNameById(meituanForm.hotelId) || '未选择' }}</strong>
+                                                <span class="ml-2 text-xs text-cyan-700">本页跟随顶部“美团当前酒店”</span>
+                                            </div>
+                                            <button @click="refreshMt" :disabled="mtRefreshing || !meituanForm.hotelId" :class="mtUi.refreshButton">{{ mtRefreshing ? '正在采集并回读' : '更新本页数据' }}</button>
+                                            <button @click="openMtSchedule" :disabled="!meituanForm.hotelId" :class="mtUi.scheduleButton"><i class="fas fa-clock mr-1"></i>设置定时推送</button>
                                             <p class="mt-2 text-xs text-slate-500">{{ mtCopy.scheduleHint }}</p>
                                             <p v-if="mtLoading">{{ mtCopy.loading }}</p>
                                             <p v-else-if="mtError" class="text-red-700">{{ mtError }}</p>

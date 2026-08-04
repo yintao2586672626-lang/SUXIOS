@@ -2270,6 +2270,32 @@ function business_chain_next_required_gate(
         ];
     }
 
+    $analysisGapCodes = [];
+    foreach (business_chain_list($revenueFactLayer['analysis_gaps'] ?? []) as $gap) {
+        if (!is_array($gap)) {
+            continue;
+        }
+        $code = trim((string)($gap['code'] ?? ''));
+        if ($code !== '') {
+            $analysisGapCodes[$code] = true;
+        }
+    }
+    if ($analysisGapCodes !== []) {
+        return [
+            'type' => 'data_gaps',
+            'code' => 'resolve_three_source_fact_gaps',
+            'command' => '',
+            'stage' => 'source_collection',
+            'evidence_code' => 'multiple_three_source_fact_gaps',
+            'evidence_codes' => array_keys($analysisGapCodes),
+            'target_entry' => 'online-data:data-health',
+            'required_gate' => 'all_three_sources_readback_verified',
+            'required_status' => 'ready',
+            'current_status' => (string)($revenueFactLayer['status'] ?? 'blocked'),
+            'next_action' => 'resolve_each_source_gap_before_revenue_analysis',
+        ];
+    }
+
     $queue = is_array($workflow['ctrip_chain_action_queue'] ?? null)
         ? $workflow['ctrip_chain_action_queue']
         : [];

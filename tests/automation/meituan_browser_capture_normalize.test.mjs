@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  attachVerifiedMeituanCaptureScope,
   buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
   normalizeMeituanBusinessRows,
@@ -13,6 +14,38 @@ import {
   normalizeMeituanTrafficDomText,
   normalizeMeituanTrafficForecastRows,
 } from '../../scripts/lib/meituan_browser_capture_normalize.mjs';
+
+test('Meituan verified capture scope fills only missing own-hotel identifiers', () => {
+  const validation = {
+    status: 'matched',
+    source_validation: true,
+    sensitive_values_exposed: false,
+    validated_identifier: '1029642156589279',
+  };
+  const existing = { poi_id: 'different-hotel', data_type: 'traffic' };
+  const rows = attachVerifiedMeituanCaptureScope([
+    { data_type: 'traffic', dataDate: '2026-08-03' },
+    existing,
+  ], validation, '1029642156589279');
+
+  assert.equal(rows[0].poi_id, '1029642156589279');
+  assert.equal(rows[0].store_id, '1029642156589279');
+  assert.equal(rows[0]._platform_hotel_identifier_source, 'capture_scope_default');
+  assert.equal(rows[1], existing);
+  assert.equal(rows[1].poi_id, 'different-hotel');
+});
+
+test('Meituan capture scope stays fail-closed without a verified identity match', () => {
+  const row = { data_type: 'traffic', dataDate: '2026-08-03' };
+  const rows = attachVerifiedMeituanCaptureScope([row], {
+    status: 'matched',
+    source_validation: false,
+    validated_identifier: '1029642156589279',
+  }, '1029642156589279');
+
+  assert.equal(rows[0], row);
+  assert.equal(rows[0].poi_id, undefined);
+});
 
 test('Meituan business data is normalized independently and preserves zero versus missing', () => {
   const rows = normalizeMeituanBusinessRows({

@@ -30,12 +30,20 @@ test('scheduled Dingdandao collection can require one explicit shared-browser sa
   assert.match(runner, /'sandbox_isolated'\s*=>\s*\$sandboxId\s*!==\s*''/);
 });
 
-test('local Dingdandao runner requires an explicit provider binding', () => {
+test('local Dingdandao runner requires a named binding and learns its ID only from trusted capture', () => {
   assert.match(runner, /captureExpectation/);
   assert.match(runner, /configured.*!==\s*true/s);
   assert.match(runner, /dingdandao_local_provider_binding_missing/);
   assert.match(runner, /expectedProviderHotelId/);
   assert.match(runner, /dingdandao_local_provider_identity_incomplete/);
+  assert.match(
+    runner,
+    /\$expectedProviderHotelId\s*=\s*trim\([\s\S]+\$collector\['capture'\]\['provider_hotel_id'\]/,
+  );
+  assert.ok(
+    runner.indexOf("$collector['capture']['provider_hotel_id']")
+      < runner.indexOf('DingdandaoOperatingTargetCaptureService())->save'),
+  );
 });
 
 test('local Dingdandao runner limits historical recovery to exact operating facts', () => {

@@ -20,6 +20,7 @@ import {
 } from './lib/ota_endpoint_discovery.mjs';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
 import {
+  attachVerifiedMeituanCaptureScope,
   buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
   normalizeMeituanFlowAnalysisRows,
@@ -251,6 +252,11 @@ try {
     if (!String(args.poiId || '').trim() || platformIdentityValidation.validated_identifier === storeId) {
       payload.store_id = platformIdentityValidation.validated_identifier;
     }
+    payload.traffic = attachVerifiedMeituanCaptureScope(
+      payload.traffic,
+      platformIdentityValidation,
+      payload.poi_id || payload.store_id || storeId,
+    );
   }
   payload.pre_filter_date_source_summary = summarizeMeituanDateSources(payload);
   Object.assign(payload, filterMeituanCumulativeRowsByTargetDate(payload, defaultDataDate));

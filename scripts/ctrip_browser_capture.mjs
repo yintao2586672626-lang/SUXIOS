@@ -9,6 +9,7 @@ import {
   buildCtripPageUrls,
   ctripCatalogSummary,
   extractCtripCatalogFacts,
+  filterCtripCatalogFactsForProfileFields,
   findCtripEndpointByUrl,
   getCtripCapturePlan,
   getCtripSectionInteractionPlan,
@@ -118,6 +119,13 @@ const profileFieldConfig = fieldConfigPath
     ))
   : normalizeProfileFieldConfig(null);
 const requestedSections = constrainRequestedSectionsByProfileFieldConfig(rawRequestedSections, profileFieldConfig);
+const requiredGateEndpointIds = Array.from(new Set(
+  requestedSections.flatMap((section) => (
+    Array.isArray(capturePlan.gate_endpoint_ids_by_section?.[section])
+      ? capturePlan.gate_endpoint_ids_by_section[section]
+      : []
+  )),
+));
 const sectionConcurrency = normalizeSectionConcurrency(
   args.sectionConcurrency
     || args.section_concurrency
@@ -155,6 +163,7 @@ const payload = {
     lightweight: capturePlan.lightweight,
     capture_endpoint_ids: capturePlan.capture_endpoint_ids,
     expected_endpoint_ids: capturePlan.expected_endpoint_ids,
+    required_gate_endpoint_ids: requiredGateEndpointIds,
   },
   page_urls: PAGE_URLS,
   requested_sections: requestedSections,
@@ -2285,7 +2294,7 @@ function filterCatalogFactsByProfileFieldConfig(facts) {
   if (!Array.isArray(facts) || !profileFieldConfig.configured || !profileFieldConfig.allowedFieldKeys) {
     return facts;
   }
-  return facts.filter((fact) => profileFieldConfig.allowedFieldKeys.has(normalizeProfileFieldKey(fact?.metric_key || '')));
+  return filterCtripCatalogFactsForProfileFields(facts, profileFieldConfig.allowedFieldKeys);
 }
 
 function filterStandardRowsByProfileFieldConfig(rows) {
@@ -2499,6 +2508,8 @@ function captureGateOptions() {
     requireEndpointCoverage: args.allowMissingEndpoints ? false : undefined,
     requireExpectedEndpoints: args.allowEmptyExpectedEndpoints ? false : undefined,
     requireAuthSession: args.allowUnverifiedAuth ? false : undefined,
+    requiredCoreEndpointIds: requiredGateEndpointIds,
+    softCheckIds: requiredGateEndpointIds.length > 0 ? ['endpoint_coverage'] : [],
   };
 }
 

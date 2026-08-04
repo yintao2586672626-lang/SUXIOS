@@ -327,8 +327,12 @@ final class TemporalForecastTrialService
         if ($trialId <= 0 || $hotelId <= 0) {
             throw new InvalidArgumentException('试运营批次和酒店身份无效。');
         }
+        // A hotel id by itself is not a sufficient identity contract. Resolve
+        // the tenant from the requested hotel before returning any trial data.
+        $tenantId = $this->tenantIdForHotel($hotelId);
         $trial = Db::name(self::TRIAL_TABLE)
             ->where('id', $trialId)
+            ->where('tenant_id', $tenantId)
             ->where('system_hotel_id', $hotelId)
             ->find();
         if (!is_array($trial)) {
@@ -385,7 +389,9 @@ final class TemporalForecastTrialService
         if ($hotelId <= 0) {
             throw new InvalidArgumentException('请选择要查看试运营批次的酒店。');
         }
+        $tenantId = $this->tenantIdForHotel($hotelId);
         $rows = Db::name(self::TRIAL_TABLE)
+            ->where('tenant_id', $tenantId)
             ->where('system_hotel_id', $hotelId)
             ->order('id', 'desc')
             ->limit(max(1, min(100, $limit)))
@@ -485,6 +491,7 @@ final class TemporalForecastTrialService
         }
         $updated = (int)Db::name(self::TRIAL_TABLE)
             ->where('id', $trialId)
+            ->where('tenant_id', (int)$trial['tenant_id'])
             ->where('system_hotel_id', $hotelId)
             ->where('status', 'draft')
             ->update([
@@ -551,9 +558,11 @@ final class TemporalForecastTrialService
             }
         }
 
-        Db::transaction(function () use ($trialId, $hotelId, $updates, $now): void {
+        $tenantId = (int)($snapshot['trial']['tenant_id'] ?? 0);
+        Db::transaction(function () use ($trialId, $tenantId, $hotelId, $updates, $now): void {
             $lockedTrial = Db::name(self::TRIAL_TABLE)
                 ->where('id', $trialId)
+                ->where('tenant_id', $tenantId)
                 ->where('system_hotel_id', $hotelId)
                 ->lock(true)
                 ->find();
@@ -564,10 +573,15 @@ final class TemporalForecastTrialService
                 $affected = (int)Db::name(self::POINT_TABLE)
                     ->where('id', $pointId)
                     ->where('trial_id', $trialId)
+                    ->where('tenant_id', $tenantId)
                     ->where('system_hotel_id', $hotelId)
                     ->update($update);
                 if ($affected !== 1) {
-                    $stored = Db::name(self::POINT_TABLE)->where('id', $pointId)->find();
+                    $stored = Db::name(self::POINT_TABLE)
+                        ->where('id', $pointId)
+                        ->where('tenant_id', $tenantId)
+                        ->where('system_hotel_id', $hotelId)
+                        ->find();
                     if (!is_array($stored) || !$this->actualUpdateMatches($update, $stored)) {
                         throw new RuntimeException('到期实际值保存后回读不一致。');
                     }
@@ -580,12 +594,14 @@ final class TemporalForecastTrialService
                 : 'accruing';
             $headerUpdated = (int)Db::name(self::TRIAL_TABLE)
                 ->where('id', $trialId)
+                ->where('tenant_id', $tenantId)
                 ->where('system_hotel_id', $hotelId)
                 ->where('status', 'running')
                 ->update(['maturity_status' => $maturityStatus, 'updated_at' => $now]);
             if ($headerUpdated !== 1) {
                 $storedHeader = Db::name(self::TRIAL_TABLE)
                     ->where('id', $trialId)
+                    ->where('tenant_id', $tenantId)
                     ->where('system_hotel_id', $hotelId)
                     ->find();
                 if (!is_array($storedHeader)
@@ -659,9 +675,11 @@ final class TemporalForecastTrialService
         ];
         $review['review_digest'] = $this->digest($review);
         $status = $decision === 'stop' ? 'stopped' : 'reviewed';
-        Db::transaction(function () use ($trialId, $hotelId, $reviewerId, $review, $status, $decision): void {
+        $tenantId = (int)($trial['tenant_id'] ?? 0);
+        Db::transaction(function () use ($trialId, $tenantId, $hotelId, $reviewerId, $review, $status, $decision): void {
             $lockedTrial = Db::name(self::TRIAL_TABLE)
                 ->where('id', $trialId)
+                ->where('tenant_id', $tenantId)
                 ->where('system_hotel_id', $hotelId)
                 ->lock(true)
                 ->find();
@@ -673,6 +691,7 @@ final class TemporalForecastTrialService
             }
             $affected = (int)Db::name(self::TRIAL_TABLE)
                 ->where('id', $trialId)
+                ->where('tenant_id', $tenantId)
                 ->where('system_hotel_id', $hotelId)
                 ->where('status', 'running')
                 ->where('maturity_status', 'matured')
@@ -739,9 +758,11 @@ final class TemporalForecastTrialService
         if (!$this->tableExists(self::TRIAL_TABLE)) {
             throw new RuntimeException('预测试运营表缺失，不能同步审批决定。');
         }
+        $tenantId = $this->tenantIdForHotel($hotelId);
         $status = $approved ? 'running' : 'rejected';
         $affected = (int)Db::name(self::TRIAL_TABLE)
             ->where('id', $trialId)
+            ->where('tenant_id', $tenantId)
             ->where('system_hotel_id', $hotelId)
             ->where('operation_intent_id', $intentId)
             ->where('status', 'pending_approval')
@@ -756,6 +777,7 @@ final class TemporalForecastTrialService
         }
         $stored = Db::name(self::TRIAL_TABLE)
             ->where('id', $trialId)
+            ->where('tenant_id', $tenantId)
             ->where('system_hotel_id', $hotelId)
             ->find();
         if (!is_array($stored)

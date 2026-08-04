@@ -169,7 +169,8 @@ test('Ctrip eBooking competition view binds the current hotel and end date to a 
   assert.match(ctripTemplate, /data-testid="ctrip-market-competition-tab"/);
   assert.match(ctripTemplate, /openCtripManualTab\('ctrip-market-competition'\)/);
   assert.match(ctripTemplate, /data-testid="ctrip-market-competition-panel"/);
-  assert.match(ctripTemplate, /data-testid="ctrip-market-competition-hotel"/);
+  assert.doesNotMatch(ctripTemplate, /data-testid="ctrip-market-competition-hotel"/);
+  assert.doesNotMatch(ctripTemplate, /v-model="selectedCtripHotelId"/);
   assert.match(ctripTemplate, /管理竞对档案/);
   assert.match(ctripTemplate, /不把竞品库存变化推算成真实销量/);
   assert.match(ctripTemplate, /data-testid="ctrip-competitor-event-feed-panel"/);

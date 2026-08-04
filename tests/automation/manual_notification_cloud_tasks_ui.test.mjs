@@ -109,13 +109,14 @@ test('the unified current-hotel channel precedes automatic task evidence', () =>
   assert.doesNotMatch(notificationSource, /data-testid="wecom-robot-management"/);
 });
 
-test('notification center remembers the selection and otherwise defaults to 敦煌漠蓝新', () => {
-  assert.match(appMainSource, /const DEFAULT_WECHAT_NOTIFICATION_HOTEL_NAME = '敦煌漠蓝新'/);
-  assert.match(appMainSource, /readWechatNotificationHotelPreference/);
-  assert.match(
-    appMainSource,
-    /String\(item\?\.id \|\| ''\) === String\(user\.value\?\.hotel_id \|\| ''\)/,
+test('notification center remembers its selection and otherwise inherits only the valid main hotel', () => {
+  const loader = appMainSource.slice(
+    appMainSource.indexOf('const loadManualNotificationCenter = async () => {'),
+    appMainSource.indexOf('const selectManualNotificationTemplate =', appMainSource.indexOf('const loadManualNotificationCenter = async () => {')),
   );
-  assert.match(appMainSource, /\(storedHotel \|\| defaultHotel \|\| preferredHotel \|\| options\[0\]\)\.id/);
-  assert.match(appMainSource, /persistWechatNotificationHotelPreference\(context\.hotelId\)/);
+  assert.match(loader, /readWechatNotificationHotelPreference/);
+  assert.match(loader, /const mainHotelId = String\(filterReportHotel\.value \|\| ''\)\.trim\(\)/);
+  assert.match(loader, /storedHotel\?\.id \|\| mainHotel\?\.id \|\| ''/);
+  assert.doesNotMatch(loader, /options\[0\]|defaultHotel|preferredHotel|user\.value\?\.hotel_id/);
+  assert.match(loader, /persistWechatNotificationHotelPreference\(context\.hotelId\)/);
 });

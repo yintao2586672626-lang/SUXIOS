@@ -411,11 +411,15 @@ class Hotel extends Base
         if ($tenantId !== null) {
             $hotel->tenant_id = $tenantId;
         }
-        Db::transaction(function () use ($hotel, $tenantId): void {
+        $hadAccessibleHotels = $this->currentUser->getPermittedHotelIds() !== [];
+        Db::transaction(function () use ($hotel, $tenantId, $hadAccessibleHotels): void {
             $hotel->save();
             $this->assignGeneratedHotelCode($hotel);
             if (!$this->currentUser->isSuperAdmin()) {
                 $this->grantCurrentUserHotelPermission($hotel, $tenantId);
+            }
+            if (!$hadAccessibleHotels) {
+                $this->assignFirstCreatedHotelAsDefault((int)$hotel->id);
             }
 
             $auditData = $tenantId !== null ? ['tenant_id' => $tenantId] : [];
@@ -537,11 +541,17 @@ class Hotel extends Base
         $newStatus = $data['status'] ?? $oldStatus;
         $statusChanged = false;
         $affectedUsers = 0;
+        $isDisabling = (int)$oldStatus === HotelModel::STATUS_ENABLED
+            && (int)$newStatus !== HotelModel::STATUS_ENABLED;
         
         if ($oldStatus != $newStatus) {
             $statusChanged = true;
-            // 统计受影响的用户数
-            $affectedUsers = \app\model\User::where('hotel_id', $id)->count();
+            $preferenceColumn = $this->tableColumnExists('users', 'default_hotel_id')
+                ? 'default_hotel_id'
+                : 'hotel_id';
+            $affectedUsers = $isDisabling
+                ? (int)Db::name('users')->where($preferenceColumn, $id)->count()
+                : 0;
         }
 
         $updatePayload = [
@@ -561,26 +571,47 @@ class Hotel extends Base
         if ($this->tableColumnExists('hotels', 'update_time')) {
             $updatePayload['update_time'] = date('Y-m-d H:i:s');
         }
-        $this->hotelQuery()->where('id', $id)->update($updatePayload);
-        $hotel = $this->hotelQuery()->where('id', $id)->find();
-        if (!$hotel instanceof HotelModel) {
-            return $this->error('酒店更新失败，请刷新后重试', 409);
-        }
+        [$hotel, $clearedDefaultPreferences] = Db::transaction(function () use (
+            $id,
+            $updatePayload,
+            $statusChanged,
+            $newStatus,
+            $affectedUsers,
+            $isDisabling
+        ): array {
+            $this->hotelQuery()->where('id', $id)->update($updatePayload);
+            $cleared = 0;
+            if ($isDisabling && $this->tableColumnExists('users', 'default_hotel_id')) {
+                $cleared = (int)Db::name('users')
+                    ->where('default_hotel_id', $id)
+                    ->update(['default_hotel_id' => null]);
+            }
 
-        // 记录操作日志
-        $logDesc = '更新酒店: ' . $hotel->name;
-        if ($statusChanged) {
-            $statusText = $newStatus == HotelModel::STATUS_ENABLED ? '启用' : '禁用';
-            $logDesc .= " (状态变更: {$statusText}, 影响{$affectedUsers}个用户)";
+            $updatedHotel = $this->hotelQuery()->where('id', $id)->find();
+            if (!$updatedHotel instanceof HotelModel) {
+                throw new RuntimeException('酒店更新失败，请刷新后重试');
+            }
+
+            $logDesc = '更新酒店: ' . $updatedHotel->name;
+            if ($statusChanged) {
+                $statusText = (int)$newStatus === HotelModel::STATUS_ENABLED ? '启用' : '禁用';
+                $logDesc .= " (状态变更: {$statusText}, 影响{$affectedUsers}个默认主门店账号)";
+            }
+            OperationLog::record('hotel', 'update', $logDesc, $this->currentUser->id ?? null, $id);
+            return [$updatedHotel, $cleared];
+        });
+
+        if ($clearedDefaultPreferences > 0 && $this->currentUser->defaultHotelPreferenceId() === $id) {
+            $this->currentUser->default_hotel_id = null;
         }
-        OperationLog::record('hotel', 'update', $logDesc, $this->currentUser->id ?? null, $id);
 
         // 返回结果，包含状态变更信息
         $result = $hotel->toArray();
         if ($statusChanged) {
             $result['status_changed'] = true;
             $result['affected_users'] = $affectedUsers;
-            $result['status_text'] = $newStatus == HotelModel::STATUS_ENABLED ? '已启用' : '已禁用';
+            $result['default_preferences_cleared'] = $clearedDefaultPreferences;
+            $result['status_text'] = (int)$newStatus === HotelModel::STATUS_ENABLED ? '已启用' : '已禁用';
         }
 
         return $this->success($result, $statusChanged ? "酒店已{$result['status_text']}，涉及{$affectedUsers}个主门店归属账号" : '更新成功');
@@ -928,7 +959,7 @@ class Hotel extends Base
             'can_view_online_data' => 1,
             'can_fetch_online_data' => 1,
             'can_delete_online_data' => $canDeleteOta,
-            'is_primary' => empty($this->currentUser->hotel_id) ? 1 : 0,
+            'is_primary' => $this->currentUser->defaultHotelPreferenceId() <= 0 ? 1 : 0,
             'update_time' => date('Y-m-d H:i:s'),
         ];
 
@@ -972,6 +1003,22 @@ class Hotel extends Base
         $payload['create_time'] = date('Y-m-d H:i:s');
         UserHotelPermission::create($payload);
         $this->currentUser->resetAuthorizationContext();
+    }
+
+    private function assignFirstCreatedHotelAsDefault(int $hotelId): void
+    {
+        $userId = (int)($this->currentUser->id ?? 0);
+        if ($userId <= 0 || $hotelId <= 0 || !$this->tableColumnExists('users', 'default_hotel_id')) {
+            return;
+        }
+
+        $updated = (int)Db::name('users')
+            ->where('id', $userId)
+            ->whereNull('default_hotel_id')
+            ->update(['default_hotel_id' => $hotelId]);
+        if ($updated === 1) {
+            $this->currentUser->default_hotel_id = $hotelId;
+        }
     }
 
     protected function shouldBlockHotelDelete(array $references, bool $forceDelete): bool

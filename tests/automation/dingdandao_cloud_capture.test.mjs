@@ -1151,6 +1151,103 @@ test('sum-detail room fee must reconcile with daily detail and operating total',
   }), /capture_exact_target_date_network_incomplete/);
 });
 
+test('daily detail with one grand total remains trusted when room-type summary is absent', async () => {
+  const now = new Date('2026-07-27T02:00:00.000Z');
+  const targetDate = shanghaiToday(now);
+  const capture = await collectDingdandaoDirect({
+    cdpUrl: 'http://127.0.0.1:9223',
+    targetDate,
+    expectedHotelName: providerHotelName,
+    collectionMode: DINGDANDAO_COLLECTION_MODES.operatingIndicators,
+  }, {
+    now,
+    readSession: async () => ({
+      ntwNum: 'network_123',
+      token: 'secret-token-value',
+      cookieHeader: 'sid=secret-cookie-value',
+      userAgent: 'Mozilla/5.0 test-current-browser',
+    }),
+    postJson: async (path, body) => {
+      const data = path === DINGDANDAO_API_PATHS.sumDetail
+        && body.type === DINGDANDAO_DETAIL_TYPES.roomFee
+        ? { list: [] }
+        : responseData(path, body.type, targetDate);
+      if (path === DINGDANDAO_API_PATHS.dailyDetail
+        && body.type === DINGDANDAO_DETAIL_TYPES.roomFee
+      ) {
+        for (const row of data.list) {
+          if (row.roomTypeId) row.roomTypeName = '\u666f\u89c2\u5927\u5e8a\u623f';
+        }
+      }
+      return { code: '1', errorDetail: null, data };
+    },
+  });
+
+  assert.deepEqual(capture.room_fee_summary_rows, []);
+  assert.equal(isTrustedDingdandaoCaptureComplete(capture, {
+    targetDate,
+    expectedHotelName: providerHotelName,
+  }), true);
+});
+
+test('daily detail without room-type summary still rejects a mismatched grand total', async () => {
+  const now = new Date('2026-07-27T02:00:00.000Z');
+  const targetDate = shanghaiToday(now);
+  await assert.rejects(collectDingdandaoDirect({
+    cdpUrl: 'http://127.0.0.1:9223',
+    targetDate,
+    expectedHotelName: providerHotelName,
+    collectionMode: DINGDANDAO_COLLECTION_MODES.operatingIndicators,
+  }, {
+    now,
+    readSession: async () => ({
+      ntwNum: 'network_123',
+      token: 'secret-token-value',
+      cookieHeader: 'sid=secret-cookie-value',
+      userAgent: 'Mozilla/5.0 test-current-browser',
+    }),
+    postJson: async (path, body) => {
+      const data = path === DINGDANDAO_API_PATHS.sumDetail
+        && body.type === DINGDANDAO_DETAIL_TYPES.roomFee
+        ? { list: [] }
+        : responseData(path, body.type, targetDate);
+      if (path === DINGDANDAO_API_PATHS.dailyDetail
+        && body.type === DINGDANDAO_DETAIL_TYPES.roomFee
+      ) {
+        data.list.at(-1).dailyRoomRate[0].price += 0.02;
+      }
+      return { code: '1', errorDetail: null, data };
+    },
+  }), /capture_exact_target_date_network_incomplete/);
+});
+
+test('daily detail without room-type summary rejects nonzero rows with no room-type identity', async () => {
+  const now = new Date('2026-07-27T02:00:00.000Z');
+  const targetDate = shanghaiToday(now);
+  await assert.rejects(collectDingdandaoDirect({
+    cdpUrl: 'http://127.0.0.1:9223',
+    targetDate,
+    expectedHotelName: providerHotelName,
+    collectionMode: DINGDANDAO_COLLECTION_MODES.operatingIndicators,
+  }, {
+    now,
+    readSession: async () => ({
+      ntwNum: 'network_123',
+      token: 'secret-token-value',
+      cookieHeader: 'sid=secret-cookie-value',
+      userAgent: 'Mozilla/5.0 test-current-browser',
+    }),
+    postJson: async (path, body) => ({
+      code: '1',
+      errorDetail: null,
+      data: path === DINGDANDAO_API_PATHS.sumDetail
+        && body.type === DINGDANDAO_DETAIL_TYPES.roomFee
+        ? { list: [] }
+        : responseData(path, body.type, targetDate),
+    }),
+  }), /capture_exact_target_date_network_incomplete/);
+});
+
 test('full diagnostic collector preserves auxiliary details and county context', async () => {
   const now = new Date('2026-07-27T02:00:00.000Z');
   const targetDate = shanghaiToday(now);

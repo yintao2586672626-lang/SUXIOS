@@ -242,6 +242,26 @@
                             <h1 class="text-xl font-semibold text-gray-800">{{ pageTitle }}</h1>
                         </div>
                         <div class="header-utility-cluster flex flex-wrap items-center justify-end gap-3" role="group" aria-label="顶栏工具">
+                            <!-- full-render:platform-hotel-context:start -->
+                            <div v-if="platformHotelContext" data-testid="platform-hotel-context" class="platform-hotel-context" title="当前酒店只在本平台项目内共用，不会同步到另一个 OTA 平台">
+                                <span class="platform-hotel-context-icon" aria-hidden="true"><i class="fas fa-hotel"></i></span>
+                                <span class="platform-hotel-context-copy">
+                                    <span class="platform-hotel-context-platform">{{ platformHotelContext === 'meituan' ? '美团' : '携程' }}</span>
+                                    <span class="platform-hotel-context-label">当前酒店</span>
+                                </span>
+                                <span class="platform-hotel-context-select-wrap">
+                                    <select v-if="(platformHotelContext === 'meituan' ? meituanConfigListLoading : ctripConfigListLoading) || (platformHotelContext === 'meituan' ? meituanTargetHotelOptions : ctripTargetHotelOptions).length" data-testid="platform-hotel-context-select" :value="platformHotelContext === 'meituan' ? meituanForm.hotelId : selectedCtripHotelId" @change="handlePlatformHotelContextChange" :disabled="fetchingData || ctripTrafficBundleLoading || (platformHotelContext === 'meituan' ? fetchingCommentData || meituanConfigListLoading || !meituanTargetHotelOptions.length : ctripCommentBrowserCaptureRunning || ctripDiagnosisSnapshotLoading || !!ctripReviewMatchLoading || ctripConfigListLoading || !ctripTargetHotelOptions.length)" class="platform-hotel-context-select" :aria-label="platformHotelContext === 'meituan' ? '选择美团当前酒店' : '选择携程当前酒店'">
+                                        <option value="">{{ (platformHotelContext === 'meituan' ? meituanConfigListLoading : ctripConfigListLoading) ? '正在读取...' : ((platformHotelContext === 'meituan' ? meituanTargetHotelOptions : ctripTargetHotelOptions).length ? '请选择酒店' : '暂无已配置酒店') }}</option>
+                                        <option v-for="hotel in (platformHotelContext === 'meituan' ? meituanTargetHotelOptions : ctripTargetHotelOptions)" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                    </select>
+                                    <i v-if="(platformHotelContext === 'meituan' ? meituanConfigListLoading : ctripConfigListLoading) || (platformHotelContext === 'meituan' ? meituanTargetHotelOptions : ctripTargetHotelOptions).length" class="fas fa-chevron-down" aria-hidden="true"></i>
+                                    <button v-else type="button" data-testid="platform-hotel-context-config" @click="openPlatformHotelContextConfig" class="platform-hotel-context-config">
+                                        <i class="fas fa-cog" aria-hidden="true"></i>
+                                        <span>去配置</span>
+                                    </button>
+                                </span>
+                            </div>
+                            <!-- full-render:platform-hotel-context:end -->
                             <div class="relative header-notification-control">
                                 <button type="button" data-testid="header-notification-trigger" @click="toggleGlobalNotifications" @keydown.esc.stop="globalNotificationOpen = false" class="header-notification-button" :class="globalNotificationOpen ? 'is-open' : ''" :aria-expanded="globalNotificationOpen ? 'true' : 'false'" aria-controls="global-notification-panel" :aria-label="globalNotificationUnreadCount ? `通知中心，${globalNotificationUnreadCount} 条未读` : '通知中心，无未读提醒'">
                                     <span class="header-utility-icon"><i class="fas fa-bell" aria-hidden="true"></i></span>

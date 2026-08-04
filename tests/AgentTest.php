@@ -146,11 +146,101 @@ final class AgentTest extends TestCase
         ]]));
     }
 
+    public function testAllOtaDiagnosisKeepsCtripAndMeituanMetricsAndEvidenceSeparate(): void
+    {
+        $controller = $this->controller();
+        $dataSets = [];
+        foreach (['ctrip' => [801, 1000], 'meituan' => [802, 600]] as $platform => [$id, $exposure]) {
+            $row = [
+                'id' => $id,
+                'tenant_id' => 80,
+                'system_hotel_id' => 80,
+                'hotel_name' => '敦煌漠蓝新',
+                'source' => $platform,
+                'platform' => $platform,
+                'data_date' => '2026-08-01',
+                'data_type' => 'traffic',
+                'compare_type' => 'self',
+                'list_exposure' => $exposure,
+                'detail_exposure' => 30,
+                'order_filling_num' => 3,
+                'order_submit_num' => 2,
+                'readback_verified' => 1,
+                'validation_status' => 'normal',
+            ];
+            $dataSets[$platform] = [
+                'tenant_id' => 80,
+                'hotel' => ['id' => 80, 'name' => '敦煌漠蓝新'],
+                'online_rows' => [$row],
+                'decision_eligible_online_rows' => [$row],
+                'effective_start_date' => '2026-08-01',
+                'effective_end_date' => '2026-08-01',
+                'used_latest_available_data' => false,
+            ];
+        }
+        $result = $this->invokeNonPublic($controller, 'buildAllOtaDiagnosisResult', [
+            $dataSets, 80, '敦煌漠蓝新', '2026-08-01', '2026-08-01', 'all',
+        ]);
+
+        self::assertTrue($result['coverage']['complete']);
+        self::assertSame(['online_daily_data#801'], $result['evidence_refs']['ctrip']);
+        self::assertSame(['online_daily_data#802'], $result['evidence_refs']['meituan']);
+        self::assertSame(1000, $result['platform_summaries']['ctrip']['metrics']['list_exposure']);
+        self::assertSame(600, $result['platform_summaries']['meituan']['metrics']['list_exposure']);
+        self::assertSame([], $result['metrics']);
+        self::assertFalse($result['metric_comparability']['cross_platform_totals_calculated']);
+    }
+
+    public function testAllOtaDiagnosisRejectsLatestAvailableOrMissingPlatformCoverage(): void
+    {
+        $controller = $this->controller();
+        $ctripRow = [
+            'id' => 811,
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'source' => 'ctrip',
+            'data_date' => '2026-08-01',
+            'data_type' => 'traffic',
+            'compare_type' => 'self',
+            'list_exposure' => 100,
+            'detail_exposure' => 10,
+            'readback_verified' => 1,
+            'validation_status' => 'normal',
+        ];
+        $result = $this->invokeNonPublic($controller, 'buildAllOtaDiagnosisResult', [[
+            'ctrip' => [
+                'tenant_id' => 80,
+                'hotel' => ['id' => 80, 'name' => '敦煌漠蓝新'],
+                'online_rows' => [$ctripRow],
+                'decision_eligible_online_rows' => [$ctripRow],
+                'effective_start_date' => '2026-08-01',
+                'effective_end_date' => '2026-08-01',
+                'used_latest_available_data' => false,
+            ],
+            'meituan' => [
+                'tenant_id' => 80,
+                'hotel' => ['id' => 80, 'name' => '敦煌漠蓝新'],
+                'online_rows' => [],
+                'decision_eligible_online_rows' => [],
+                'effective_start_date' => '2026-07-31',
+                'effective_end_date' => '2026-07-31',
+                'used_latest_available_data' => true,
+            ],
+        ], 80, '敦煌漠蓝新', '2026-08-01', '2026-08-01', 'all']);
+
+        self::assertFalse($result['coverage']['complete']);
+        self::assertSame(['meituan'], $result['coverage']['missing_platforms']);
+        self::assertContains('used_latest_available_data', $result['coverage']['per_platform']['meituan']['reason_codes']);
+        self::assertSame([], $result['platform_summaries']);
+        self::assertStringContainsString('不会改写为 all_ota 结论', $result['core_conclusion']);
+    }
+
     public function testOtaDiagnosisQueryPreservesSourceBindingAndSyncIdentityFields(): void
     {
         $controller = $this->controller();
         $columns = array_fill_keys([
             'id',
+            'tenant_id',
             'system_hotel_id',
             'data_source_id',
             'sync_task_id',
@@ -169,6 +259,7 @@ final class AgentTest extends TestCase
         $fields = $this->invokeNonPublic($controller, 'otaDiagnosisOnlineRowFields', [$columns]);
 
         self::assertContains('data_source_id', $fields);
+        self::assertContains('tenant_id', $fields);
         self::assertContains('sync_task_id', $fields);
         self::assertContains('readback_verified', $fields);
         self::assertContains('data_period', $fields);
@@ -1188,6 +1279,42 @@ final class AgentTest extends TestCase
         self::assertSame(211, $snapshot['superseded_by']['log_id']);
         self::assertSame('2026-07-14', $snapshot['requested_date_range']['start_date']);
         self::assertArrayNotHasKey('unsafe_field', $snapshot);
+    }
+
+    public function testAllOtaReadbackIdentityBindsRequestedEffectiveCoverageAndEvidenceRefs(): void
+    {
+        $controller = $this->controller();
+        $snapshot = [
+            'platform' => 'all_ota',
+            'requested_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+            'effective_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+            'coverage' => [
+                'complete' => true,
+                'required_platforms' => ['ctrip', 'meituan'],
+                'covered_platforms' => ['ctrip', 'meituan'],
+            ],
+            'evidence_refs' => [
+                'ctrip' => ['online_daily_data#801'],
+                'meituan' => ['online_daily_data#802'],
+            ],
+        ];
+        $identity = $this->invokeNonPublic($controller, 'otaDiagnosisReadbackIdentity', [$snapshot, 80, 'all_ota']);
+        self::assertSame('all_ota', $identity['platform']);
+        self::assertSame('2026-08-01', $identity['requested_date_range']['start_date']);
+        self::assertSame('2026-08-01', $identity['requested_date_range']['end_date']);
+        self::assertSame('2026-08-01', $identity['effective_date_range']['start_date']);
+        self::assertSame('2026-08-01', $identity['effective_date_range']['end_date']);
+        self::assertTrue($identity['coverage']['complete']);
+        self::assertSame(['ctrip', 'meituan'], $identity['coverage']['required_platforms']);
+        self::assertSame(['ctrip', 'meituan'], $identity['coverage']['covered_platforms']);
+        self::assertSame(['online_daily_data#801'], $identity['evidence_refs']['ctrip']);
+        self::assertSame(['online_daily_data#802'], $identity['evidence_refs']['meituan']);
+
+        $snapshot['effective_date_range'] = ['start_date' => '2026-07-31', 'end_date' => '2026-07-31'];
+        self::assertNotSame(
+            $identity,
+            $this->invokeNonPublic($controller, 'otaDiagnosisReadbackIdentity', [$snapshot, 80, 'all_ota'])
+        );
     }
 
     public function testNormalizeRequestedModelKeyCoversDefaultAliasesAndFallback(): void

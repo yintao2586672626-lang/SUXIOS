@@ -67,6 +67,69 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
 
 export const FRONTEND_TEMPLATE_MANIFEST_RELATIVE_PATH = 'resources/frontend/templates/manifest.json';
 
+const BUSINESS_CLOSURE_TEMPLATE_VIEW_DEFINITIONS = Object.freeze([
+  Object.freeze({
+    id: 'knowledge-promotion-workbench',
+    fragmentId: 'page-knowledge-center',
+    componentKey: 'KnowledgePromotionWorkbenchBody',
+    start: '                        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 space-y-4">',
+    end: '                        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">',
+    wrapper: '                        <knowledge-promotion-workbench-view :ctx="$root"></knowledge-promotion-workbench-view>\n\n',
+  }),
+  Object.freeze({
+    id: 'home-temporal-trial',
+    fragmentId: 'page-ai-workbench',
+    componentKey: 'HomeTemporalTrialBody',
+    start: '                                        <section v-if="!dualOtaPmsSelected" class="mt-3 rounded-xl border border-slate-200 bg-white p-4" data-testid="home-temporal-forecast-trial">',
+    end: '                                    </section>\n\n                                    <div v-if="dualOtaDashboard.principle',
+    wrapper: '                                        <home-temporal-trial-view v-if="!dualOtaPmsSelected" :ctx="$root"></home-temporal-trial-view>\n',
+  }),
+  Object.freeze({
+    id: 'knowledge-xlsx-import-dialog',
+    fragmentId: 'dialogs-knowledge-center',
+    componentKey: 'KnowledgeXlsxImportDialogBody',
+    start: '        <div v-if="showKnowledgeCenterImportModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">',
+    end: '\n        <!--',
+    wrapper: '        <knowledge-xlsx-import-dialog-view v-if="showKnowledgeCenterImportModal" :ctx="$root"></knowledge-xlsx-import-dialog-view>\n',
+  }),
+]);
+
+function extractBusinessClosureTemplateViews(fragments) {
+  const views = [];
+  const nextFragments = fragments.map((fragment) => {
+    const definitions = BUSINESS_CLOSURE_TEMPLATE_VIEW_DEFINITIONS.filter(
+      (definition) => definition.fragmentId === fragment.id,
+    );
+    if (!definitions.length) return fragment;
+
+    let source = fragment.source;
+    for (const definition of definitions) {
+      const start = source.indexOf(definition.start);
+      const end = source.indexOf(definition.end, start + definition.start.length);
+      if (start < 0 || end <= start) {
+        throw new Error(`Business closure template boundary drifted: ${definition.id}.`);
+      }
+      const template = source.slice(start, end);
+      if (!template.trim()) {
+        throw new Error(`Business closure component template is empty: ${definition.id}.`);
+      }
+      views.push({
+        id: definition.id,
+        fragmentId: definition.fragmentId,
+        componentKey: definition.componentKey,
+        template,
+      });
+      source = source.slice(0, start) + definition.wrapper + source.slice(end);
+    }
+    return { ...fragment, source, buffer: Buffer.from(source, 'utf8') };
+  });
+
+  if (views.length !== BUSINESS_CLOSURE_TEMPLATE_VIEW_DEFINITIONS.length) {
+    throw new Error('Business closure template extraction did not produce all required component views.');
+  }
+  return { fragments: nextFragments, views };
+}
+
 export const frontendTemplateManifestFragments = () => FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS.map(({
   id,
   domain,
@@ -99,6 +162,8 @@ const FRONTEND_STARTUP_DEFERRED_PAGE_FALLBACK = `
   </div>
 </div>
 `;
+
+const FULL_RENDER_PLATFORM_HOTEL_CONTEXT_PATTERN = /<!-- full-render:platform-hotel-context:start -->[\s\S]*?<!-- full-render:platform-hotel-context:end -->/;
 
 const templatesRoot = (repoRoot) => path.resolve(repoRoot, 'resources/frontend/templates');
 const manifestPath = (repoRoot) => path.resolve(repoRoot, FRONTEND_TEMPLATE_MANIFEST_RELATIVE_PATH);
@@ -158,7 +223,7 @@ export function loadFrontendTemplateManifest(repoRoot) {
 
 export function loadFrontendTemplateSource(repoRoot) {
   const manifest = loadFrontendTemplateManifest(repoRoot);
-  const fragments = manifest.fragments.map((fragment) => {
+  const rawFragments = manifest.fragments.map((fragment) => {
     const absolutePath = resolveFragmentPath(repoRoot, fragment.path);
     if (!fs.existsSync(absolutePath)) {
       throw new Error(`Frontend template fragment is missing: ${fragment.path}`);
@@ -167,6 +232,8 @@ export function loadFrontendTemplateSource(repoRoot) {
     if (!buffer.length) throw new Error(`Frontend template fragment is empty: ${fragment.path}`);
     return { ...fragment, absolutePath, buffer, source: buffer.toString('utf8') };
   });
+  const extracted = extractBusinessClosureTemplateViews(rawFragments);
+  const fragments = extracted.fragments;
   const templateBuffer = Buffer.concat(fragments.map((fragment) => fragment.buffer));
   return {
     manifest,
@@ -174,6 +241,7 @@ export function loadFrontendTemplateSource(repoRoot) {
     fragments,
     templateBuffer,
     template: templateBuffer.toString('utf8'),
+    businessClosureViews: extracted.views,
   };
 }
 
@@ -187,11 +255,14 @@ export function loadFrontendStartupTemplateSource(repoRoot) {
   });
   const shellCloseIndex = fragments.findIndex((fragment) => fragment.id === 'app-shell-close');
   if (shellCloseIndex < 0) throw new Error('Frontend startup render must contain the app-shell-close fragment.');
-  const templateParts = fragments.map((fragment, index) => (
-    index === shellCloseIndex
-      ? `${FRONTEND_STARTUP_DEFERRED_PAGE_FALLBACK}${fragment.source}`
-      : fragment.source
-  ));
+  const templateParts = fragments.map((fragment, index) => {
+    const fragmentSource = fragment.id === 'app-shell'
+      ? fragment.source.replace(FULL_RENDER_PLATFORM_HOTEL_CONTEXT_PATTERN, '')
+      : fragment.source;
+    return index === shellCloseIndex
+      ? `${FRONTEND_STARTUP_DEFERRED_PAGE_FALLBACK}${fragmentSource}`
+      : fragmentSource;
+  });
   const template = templateParts.join('');
   return {
     manifest: source.manifest,

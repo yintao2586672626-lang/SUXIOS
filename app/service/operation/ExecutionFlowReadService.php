@@ -81,7 +81,7 @@ final class ExecutionFlowReadService
         $latestEvidence = $taskEvidence[0] ?? [];
         $longitudinalReview = $this->latestLongitudinalReview($taskEvidence);
         $roiEvidence = $this->executionOutcomeService->latestExecutionRoiEvidence($taskEvidence);
-        $evidenceSummary = $this->buildSafeEvidenceSummary($taskEvidence);
+        $evidenceSummary = $this->buildSafeEvidenceSummary($taskEvidence, $task, $intent);
         $reviewStatus = (string)($task['result_status'] ?? 'observing');
         $evidenceTruth = $this->executionOutcomeService->buildExecutionEvidenceTruth(
             $intent,
@@ -184,7 +184,9 @@ final class ExecutionFlowReadService
                 'date_start' => (string)($intent['date_start'] ?? ''),
                 'date_end' => (string)($intent['date_end'] ?? ''),
                 'expected_metric' => (string)($intent['expected_metric'] ?? ''),
-                'expected_delta' => (float)($intent['expected_delta'] ?? 0),
+                'expected_delta' => is_numeric($intent['expected_delta'] ?? null)
+                    ? (float)$intent['expected_delta']
+                    : null,
                 'risk_level' => (string)($intent['risk_level'] ?? ''),
                 'current_value' => $intent['current_value'] ?? [],
                 'target_value' => $intent['target_value'] ?? [],
@@ -543,7 +545,7 @@ final class ExecutionFlowReadService
      * @param array<int, array<string, mixed>> $rows
      * @return array{count: int, types: array<int, string>, latest_type: string, latest_at: string}
      */
-    public function buildSafeEvidenceSummary(array $rows): array
+    public function buildSafeEvidenceSummary(array $rows, array $task = [], array $intent = []): array
     {
         $types = [];
         $nodeRecord = [];
@@ -563,9 +565,35 @@ final class ExecutionFlowReadService
                     ['operation_revenue_node.v1', 'operation_revenue_node.v2'],
                     true
                 )) {
+                    $contractVersion = trim((string)($candidate['contract_version'] ?? ''));
+                    if ($contractVersion === 'operation_revenue_node.v2' && ($task !== [] || $intent !== [])) {
+                        $tenantId = (int)($intent['tenant_id'] ?? 0);
+                        $taskId = (int)($task['id'] ?? 0);
+                        $parentIntentId = (int)($intent['id'] ?? 0);
+                        $systemHotelId = (int)($candidate['system_hotel_id'] ?? 0);
+                        $businessDate = trim((string)($candidate['business_date'] ?? ''));
+                        $identityMismatch = $tenantId <= 0
+                            || (int)($task['tenant_id'] ?? 0) !== $tenantId
+                            || (int)($row['tenant_id'] ?? 0) !== $tenantId
+                            || $taskId <= 0
+                            || (int)($row['task_id'] ?? 0) !== $taskId
+                            || $parentIntentId <= 0
+                            || (int)($task['intent_id'] ?? 0) !== $parentIntentId
+                            || $systemHotelId <= 0
+                            || $systemHotelId !== (int)($task['hotel_id'] ?? 0)
+                            || $systemHotelId !== (int)($intent['hotel_id'] ?? 0)
+                            || $businessDate === ''
+                            || $businessDate !== substr(trim((string)($intent['date_start'] ?? '')), 0, 10)
+                            || (int)($row['created_by'] ?? 0) <= 0;
+                        if ($identityMismatch) {
+                            $nodeRecord = ['status' => 'identity_mismatch'];
+                            break;
+                        }
+                    }
+                    $metricSnapshot = trim((string)($candidate['metric_snapshot'] ?? ''));
                     $nodeRecord = [
                         'status' => 'available',
-                        'contract_version' => trim((string)($candidate['contract_version'] ?? '')),
+                        'contract_version' => $contractVersion,
                         'system_hotel_id' => trim((string)($candidate['system_hotel_id'] ?? '')),
                         'business_date' => trim((string)($candidate['business_date'] ?? '')),
                         'recorded_at' => trim((string)($candidate['recorded_at'] ?? '')),
@@ -575,7 +603,7 @@ final class ExecutionFlowReadService
                         'room_status_alignment' => trim((string)($candidate['room_status_alignment'] ?? '')),
                         'data_quality_status' => trim((string)($candidate['data_quality_status'] ?? '')),
                         'metric_definition' => trim((string)($candidate['metric_definition'] ?? '')),
-                        'metric_snapshot' => trim((string)($candidate['metric_snapshot'] ?? '')),
+                        'metric_snapshot' => $metricSnapshot === '' ? null : $metricSnapshot,
                         'progress_status' => trim((string)($candidate['progress_status'] ?? '')),
                         'comparison_basis' => trim((string)($candidate['comparison_basis'] ?? '')),
                         'judgment_basis' => trim((string)($candidate['judgment_basis'] ?? '')),
@@ -583,6 +611,18 @@ final class ExecutionFlowReadService
                         'success_criteria' => trim((string)($candidate['success_criteria'] ?? '')),
                         'stop_condition' => trim((string)($candidate['stop_condition'] ?? '')),
                     ];
+                    if ($contractVersion === 'operation_revenue_node.v2') {
+                        $nodeRecord['identity'] = [
+                            'tenant_id' => (int)($row['tenant_id'] ?? 0),
+                            'system_hotel_id' => (int)($candidate['system_hotel_id'] ?? 0),
+                            'task_id' => (int)($row['task_id'] ?? 0),
+                            'parent_intent_id' => (int)($task['intent_id'] ?? 0),
+                            'business_date' => trim((string)($candidate['business_date'] ?? '')),
+                            'platform' => strtolower(trim((string)($intent['platform'] ?? ''))),
+                            'source_scope' => trim((string)($candidate['source_scope'] ?? '')),
+                            'operator_id' => (int)($row['created_by'] ?? 0),
+                        ];
+                    }
                 }
             }
         }

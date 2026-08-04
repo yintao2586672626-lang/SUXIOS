@@ -11,6 +11,8 @@ import {
   buildDataConfigDialogsComponent,
   buildFrontendStartupRender,
   buildFrontendTemplateRender,
+  BUSINESS_CLOSURE_LOADER_RELATIVE_PATH,
+  BUSINESS_CLOSURE_VIEWS_ARTIFACT_RELATIVE_PATH,
   DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH,
   DATA_CONFIG_DIALOGS_TEMPLATE_RELATIVE_PATH,
   FRONTEND_TEMPLATE_MINIFY_OPTIONS,
@@ -27,6 +29,7 @@ import {
   resolveFrontendRuntimeAssetReferences,
   stripFrontendAssetQuery,
 } from '../../scripts/lib/frontend_authenticated_assets.mjs';
+import { readFrontendAssetVersion } from '../../scripts/lib/frontend_asset_version.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const templatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
@@ -40,6 +43,8 @@ const indexPath = path.join(repoRoot, 'public/index.html');
 const appMainPath = path.join(repoRoot, 'public/app-main.js');
 const dataConfigDialogsTemplatePath = path.join(repoRoot, DATA_CONFIG_DIALOGS_TEMPLATE_RELATIVE_PATH);
 const dataConfigDialogsArtifactPath = path.join(repoRoot, DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH);
+const businessClosureLoaderPath = path.join(repoRoot, BUSINESS_CLOSURE_LOADER_RELATIVE_PATH);
+const businessClosureViewsArtifactPath = path.join(repoRoot, BUSINESS_CLOSURE_VIEWS_ARTIFACT_RELATIVE_PATH);
 
 async function withTemplateTestLock(owner, action) {
   const release = await acquireFrontendTemplateLock(repoRoot, { owner });
@@ -253,7 +258,17 @@ test('authenticated asset manifest loads the hashed runtime Vue and render befor
   const html = fs.readFileSync(indexPath, 'utf8');
   const artifact = fs.readFileSync(renderPath, 'utf8');
   const appMain = fs.readFileSync(appMainPath, 'utf8');
+  const businessClosureLoader = fs.readFileSync(businessClosureLoaderPath, 'utf8');
+  const businessClosureViewsArtifact = fs.readFileSync(businessClosureViewsArtifactPath, 'utf8');
   const hash = crypto.createHash('sha256').update(artifact).digest('hex').slice(0, 10);
+  const businessClosureLoaderHash = crypto.createHash('sha256')
+    .update(businessClosureLoader)
+    .digest('hex')
+    .slice(0, 10);
+  const businessClosureViewsArtifactHash = crypto.createHash('sha256')
+    .update(businessClosureViewsArtifact)
+    .digest('hex')
+    .slice(0, 10);
   const authenticatedReferences = resolveFrontendRuntimeAssetReferences(html);
   const authenticatedEntries = extractAuthenticatedAssetEntries(html);
   const authenticatedAssets = authenticatedReferences.map(stripFrontendAssetQuery);
@@ -268,6 +283,14 @@ test('authenticated asset manifest loads the hashed runtime Vue and render befor
   assert.equal(authenticatedAssets.at(-2), 'app-render.min.js');
   assert.equal(authenticatedAssets.at(-1), 'app-main.min.js');
   assert.match(renderReference, new RegExp(`^app-render\\.min\\.js\\?v=[^"]*-h${hash}$`));
+  assert.equal(
+    readFrontendAssetVersion(businessClosureLoader, 'business-closure-views.js').hash,
+    businessClosureViewsArtifactHash,
+  );
+  assert.equal(
+    readFrontendAssetVersion(html, 'components/system/business-closure-loader.js').hash,
+    businessClosureLoaderHash,
+  );
   assert.equal(authenticatedEntries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-render.min.js')?.phase, 'after-first-paint');
   assert.match(appMain, /const suxiActiveRender = shallowRef\(requireSuxiAppRender\(\)\)/);
   assert.match(appMain, /return activeRender\.apply\(this, renderArgs\)/);

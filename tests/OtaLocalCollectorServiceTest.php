@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\OtaLocalCollectorService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use think\App;
@@ -271,6 +272,45 @@ final class OtaLocalCollectorServiceTest extends TestCase
         $service = new OtaLocalCollectorService(
             static function ($owner, array $task, array $account, array $mapping, array $device, array $rows) use (&$importedRows): array {
                 $importedRows = $rows;
+                Db::name('ota_local_collector_account_hotels')
+                    ->where('id', (int)$mapping['id'])
+                    ->where('tenant_id', (int)$task['tenant_id'])
+                    ->where('account_id', (int)$task['account_id'])
+                    ->where('system_hotel_id', (int)$task['system_hotel_id'])
+                    ->where('platform', (string)$task['platform'])
+                    ->update(['data_source_id' => 88]);
+                Db::name('platform_data_sources')->insert([
+                    'id' => 88,
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'platform' => (string)$task['platform'],
+                    'data_type' => 'business',
+                    'ingestion_method' => 'local_collector',
+                    'status' => 'active',
+                    'enabled' => 1,
+                ]);
+                Db::name('online_daily_data')->insert([
+                    'id' => 7001,
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'data_source_id' => 88,
+                    'sync_task_id' => 99,
+                    'data_date' => (string)$task['data_date'],
+                    'platform' => (string)$task['platform'],
+                    'source' => (string)$task['platform'],
+                    'data_type' => 'business',
+                    'data_period' => 'historical_daily',
+                    'readback_verified' => 1,
+                    'validation_status' => 'valid',
+                    'amount' => 688,
+                    'quantity' => 2,
+                    'book_order_num' => 6,
+                    'list_exposure' => 120,
+                    'detail_exposure' => 40,
+                    'flow_rate' => 0.33,
+                    'order_filling_num' => 9,
+                    'order_submit_num' => 4,
+                ]);
                 return [
                     'status' => 'success',
                     'data_source_id' => 88,
@@ -279,6 +319,29 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'saved_count' => count($rows),
                     'readback_count' => count($rows),
                     'readback_verified' => count($rows) > 0,
+                    'run_readback' => [
+                        'tenant_id' => (int)$task['tenant_id'],
+                        'data_source_id' => 88,
+                        'sync_task_id' => 99,
+                        'system_hotel_id' => (int)$task['system_hotel_id'],
+                        'target_date' => (string)$task['data_date'],
+                        'platform' => (string)$task['platform'],
+                        'readback_count' => 1,
+                        'readback_verified' => true,
+                        'p0_status' => 'ready',
+                        'row_ids' => [7001],
+                    ],
+                    'deterministic_readback' => [
+                        'tenant_id' => (int)$task['tenant_id'],
+                        'data_source_id' => 88,
+                        'sync_task_id' => 99,
+                        'system_hotel_id' => (int)$task['system_hotel_id'],
+                        'target_date' => (string)$task['data_date'],
+                        'platform' => (string)$task['platform'],
+                        'readback_count' => 1,
+                        'readback_verified' => true,
+                        'row_ids' => [7001],
+                    ],
                     'sync_diagnostics' => [
                         'target_date' => (string)$task['data_date'],
                         'requires_target_date_traffic' => true,
@@ -376,8 +439,247 @@ final class OtaLocalCollectorServiceTest extends TestCase
         );
         self::assertSame('success', $result['status']);
         self::assertTrue($result['summary']['readback_verified']);
+        self::assertTrue($result['summary']['run_readback_scope_verified']);
+        self::assertSame(102, $result['summary']['scope_identity']['system_hotel_id']);
+        self::assertSame('ctrip', $result['summary']['scope_identity']['platform']);
+        self::assertSame('2026-07-23', $result['summary']['scope_identity']['business_date']);
         self::assertSame(102, $importedRows[0]['system_hotel_id']);
         self::assertSame('local_account_profile', $importedRows[0]['source_method']);
+    }
+
+    #[DataProvider('strictRunReadbackCaseProvider')]
+    public function testSuccessfulImporterRequiresAnExactScopedDeterministicReadback(
+        string $variant,
+        bool $expectSuccess
+    ): void {
+        $service = new OtaLocalCollectorService(
+            static function (
+                $owner,
+                array $task,
+                array $account,
+                array $mapping,
+                array $device,
+                array $rows
+            ) use ($variant): array {
+                $rowIds = [7001];
+                $runReadback = [
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'data_source_id' => 88,
+                    'sync_task_id' => 99,
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'target_date' => (string)$task['data_date'],
+                    'platform' => (string)$task['platform'],
+                    'readback_count' => 1,
+                    'readback_verified' => true,
+                    'p0_status' => 'ready',
+                    'row_ids' => $rowIds,
+                ];
+                $deterministicReadback = [
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'data_source_id' => 88,
+                    'sync_task_id' => 99,
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'target_date' => (string)$task['data_date'],
+                    'platform' => (string)$task['platform'],
+                    'readback_count' => 1,
+                    'readback_verified' => true,
+                    'row_ids' => $rowIds,
+                ];
+                if ($variant === 'tenant_mismatch') {
+                    $runReadback['tenant_id'] = 99;
+                } elseif ($variant === 'data_source_mismatch') {
+                    $runReadback['data_source_id'] = 89;
+                } elseif ($variant === 'mapping_data_source_mismatch') {
+                    // The importer receipt can be internally consistent while
+                    // still pointing at a different source than the task's
+                    // hotel mapping. The service must reject that scope drift.
+                    $runReadback['data_source_id'] = 88;
+                } elseif ($variant === 'sync_task_mismatch') {
+                    $runReadback['sync_task_id'] = 100;
+                } elseif ($variant === 'row_set_mismatch') {
+                    $runReadback['row_ids'] = [7002];
+                }
+
+                if ($variant !== 'mapping_data_source_missing') {
+                    Db::name('platform_data_sources')->insert([
+                        'id' => 88,
+                        'tenant_id' => (int)$task['tenant_id'],
+                        'system_hotel_id' => (int)$task['system_hotel_id'],
+                        'platform' => (string)$task['platform'],
+                        'data_type' => 'business',
+                        'ingestion_method' => 'local_collector',
+                        'status' => 'active',
+                        'enabled' => 1,
+                    ]);
+                    Db::name('online_daily_data')->insert([
+                        'id' => 7001,
+                        'tenant_id' => (int)$task['tenant_id'],
+                        'system_hotel_id' => (int)$task['system_hotel_id'],
+                        'data_source_id' => 88,
+                        'sync_task_id' => 99,
+                        'data_date' => (string)$task['data_date'],
+                        'platform' => (string)$task['platform'],
+                        'source' => (string)$task['platform'],
+                        'data_type' => 'business',
+                        'data_period' => 'historical_daily',
+                        'readback_verified' => 1,
+                        'validation_status' => 'valid',
+                        'amount' => 688,
+                        'quantity' => 2,
+                        'book_order_num' => 6,
+                        'list_exposure' => 120,
+                        'detail_exposure' => 40,
+                        'flow_rate' => 0.33,
+                        'order_filling_num' => 9,
+                        'order_submit_num' => 4,
+                    ]);
+                }
+
+                $result = [
+                    'status' => 'success',
+                    'data_source_id' => 88,
+                    'task_id' => 99,
+                    'normalized_count' => count($rows),
+                    'saved_count' => count($rows),
+                    'readback_count' => count($rows),
+                    'readback_verified' => true,
+                    'sync_diagnostics' => [
+                        'target_date' => (string)$task['data_date'],
+                        'requires_target_date_traffic' => true,
+                        'p0_status' => 'ready',
+                    ],
+                ];
+                if ($variant !== 'missing_receipt') {
+                    $result['run_readback'] = $runReadback;
+                    $result['deterministic_readback'] = $deterministicReadback;
+                }
+                return $result;
+            }
+        );
+        $actor = $this->actor();
+        $paired = $service->pairDevice([
+            'pair_code' => $service->createPairCode(
+                $actor,
+                ['device_name' => 'Strict readback fixture PC']
+            )['pair_code'],
+            'device_platform' => 'windows',
+        ]);
+        $account = $service->createAccount($actor, [
+            'device_id' => $paired['device_id'],
+            'platform' => 'ctrip',
+            'account_alias' => '严格回读测试账户',
+            'system_hotel_id' => 102,
+            'platform_hotel_id' => 'CTRIP-STRICT-102',
+        ]);
+        Db::name('ota_local_collector_accounts')->where('id', $account['account_id'])->update([
+            'status' => 'active',
+            'session_status' => 'current_session_verified',
+        ]);
+        if ($variant === 'mapping_data_source_mismatch') {
+            Db::name('ota_local_collector_account_hotels')
+                ->where('account_id', $account['account_id'])
+                ->where('system_hotel_id', 102)
+                ->update(['data_source_id' => 87]);
+        } elseif ($variant !== 'mapping_data_source_missing') {
+            Db::name('ota_local_collector_account_hotels')
+                ->where('tenant_id', 12)
+                ->where('account_id', $account['account_id'])
+                ->where('system_hotel_id', 102)
+                ->where('platform', 'ctrip')
+                ->update(['data_source_id' => 88]);
+        }
+        $service->createTask($actor, [
+            'account_id' => $account['account_id'],
+            'system_hotel_id' => 102,
+            'task_type' => 'collect',
+            'data_date' => '2026-07-23',
+        ]);
+        $task = $service->nextTask($paired['device_public_id'], $paired['device_token'])['task'];
+        $result = $service->submitTaskResult(
+            $paired['device_public_id'],
+            $paired['device_token'],
+            (int)$task['id'],
+            [
+                'lease_token' => $task['lease_token'],
+                'success' => true,
+                'capture_summary' => [
+                    'platform_identity_validation' => [
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'validated_identifier' => 'CTRIP-STRICT-102',
+                    ],
+                ],
+                'rows' => [[
+                    'data_date' => '2026-07-23',
+                    'platform_hotel_id' => 'CTRIP-STRICT-102',
+                    'data_type' => 'business',
+                    'order_amount' => 688,
+                    'room_nights' => 2,
+                    'order_count' => 6,
+                    'list_exposure' => 120,
+                    'detail_exposure' => 40,
+                    'flow_rate' => 0.33,
+                    'order_filling_num' => 9,
+                    'order_submit_num' => 4,
+                ]],
+            ]
+        );
+
+        if ($expectSuccess) {
+            self::assertSame('success', $result['status']);
+            self::assertTrue($result['summary']['run_readback_scope_verified']);
+            self::assertSame(12, $result['summary']['run_readback']['tenant_id']);
+            self::assertSame([7001], $result['summary']['deterministic_readback']['row_ids']);
+            return;
+        }
+        self::assertNotSame('success', $result['status']);
+        self::assertSame('upload_failed', $result['error_code']);
+    }
+
+    /** @return array<string, array{string, bool}> */
+    public static function strictRunReadbackCaseProvider(): array
+    {
+        return [
+            'success' => ['success', true],
+            'tenant mismatch' => ['tenant_mismatch', false],
+            'data source mismatch' => ['data_source_mismatch', false],
+            'mapping data source mismatch' => ['mapping_data_source_mismatch', false],
+            'missing mapping data source fails closed' => ['mapping_data_source_missing', false],
+            'sync task mismatch' => ['sync_task_mismatch', false],
+            'row set mismatch' => ['row_set_mismatch', false],
+            'missing importer receipt remains closed' => ['missing_receipt', false],
+        ];
+    }
+
+    public function testMappingLookupFailsClosedForTenantOrPlatformAmbiguity(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $actor = $this->actor();
+        $paired = $service->pairDevice([
+            'pair_code' => $service->createPairCode($actor, ['device_name' => 'Mapping scope PC'])['pair_code'],
+            'device_platform' => 'windows',
+        ]);
+        $account = $service->createAccount($actor, [
+            'device_id' => $paired['device_id'],
+            'platform' => 'ctrip',
+            'account_alias' => 'Mapping scope account',
+            'system_hotel_id' => 101,
+            'platform_hotel_id' => 'CTRIP-SCOPE-101',
+        ]);
+
+        $method = new \ReflectionMethod(OtaLocalCollectorService::class, 'mappingForAccountHotel');
+        $method->setAccessible(true);
+        foreach ([
+            [99, (int)$account['account_id'], 101, 'ctrip'],
+            [12, (int)$account['account_id'], 101, 'meituan'],
+        ] as [$tenantId, $accountId, $hotelId, $platform]) {
+            try {
+                $method->invoke($service, $tenantId, $accountId, $hotelId, $platform);
+                self::fail('A mapping outside the tenant/platform scope must not be returned.');
+            } catch (RuntimeException $exception) {
+                self::assertSame(404, $exception->getCode());
+            }
+        }
     }
 
     public function testOneHotelCanBeUnboundWithoutChangingOtherHotelOrHistoricalFacts(): void
@@ -506,6 +808,8 @@ final class OtaLocalCollectorServiceTest extends TestCase
             'platform_hotel_id' => 'CTRIP-UNBIND-101',
         ]);
         self::assertSame((int)$targetMapping['id'], $rebound['mapping_id']);
+        self::assertTrue($rebound['mapping_readback']['readback_verified']);
+        self::assertSame(101, $rebound['mapping_readback']['system_hotel_id']);
         self::assertSame('active', Db::name('ota_local_collector_account_hotels')
             ->where('id', (int)$targetMapping['id'])->value('status'));
         self::assertCount(2, $service->status($actor)['accounts'][0]['hotels']);
@@ -687,6 +991,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame('unbound', $repeatedUnbind['status']);
         self::assertTrue($repeatedUnbind['already_unbound']);
         self::assertTrue($repeatedUnbind['readback_verified']);
+        self::assertSame('unbound', $repeatedUnbind['mapping_readback']['mapping_status']);
     }
 
     public function testRevokedAccountCanBeRestoredOnANewOwnedDeviceWithoutDuplicatingMappings(): void
@@ -1299,6 +1604,45 @@ final class OtaLocalCollectorServiceTest extends TestCase
                 $platform = (string)$task['platform'];
                 $sourceId = $platform === 'ctrip' ? 201 : 202;
                 $syncTaskId = $platform === 'ctrip' ? 301 : 302;
+                Db::name('ota_local_collector_account_hotels')
+                    ->where('id', (int)$mapping['id'])
+                    ->where('tenant_id', (int)$task['tenant_id'])
+                    ->where('account_id', (int)$task['account_id'])
+                    ->where('system_hotel_id', (int)$task['system_hotel_id'])
+                    ->where('platform', $platform)
+                    ->update(['data_source_id' => $sourceId]);
+                Db::name('platform_data_sources')->insert([
+                    'id' => $sourceId,
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'platform' => $platform,
+                    'data_type' => 'business',
+                    'ingestion_method' => 'local_collector',
+                    'status' => 'active',
+                    'enabled' => 1,
+                ]);
+                Db::name('online_daily_data')->insert([
+                    'id' => $platform === 'ctrip' ? 401 : 402,
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'data_source_id' => $sourceId,
+                    'sync_task_id' => $syncTaskId,
+                    'data_date' => (string)$task['data_date'],
+                    'platform' => $platform,
+                    'source' => $platform,
+                    'data_type' => 'business',
+                    'data_period' => 'historical_daily',
+                    'readback_verified' => 1,
+                    'validation_status' => 'valid',
+                    'amount' => 688,
+                    'quantity' => 2,
+                    'book_order_num' => 6,
+                    'list_exposure' => 120,
+                    'detail_exposure' => 40,
+                    'flow_rate' => 0.33,
+                    'order_filling_num' => 9,
+                    'order_submit_num' => 4,
+                ]);
                 return [
                     'status' => 'success',
                     'data_source_id' => $sourceId,
@@ -1308,13 +1652,26 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'readback_count' => count($rows),
                     'readback_verified' => true,
                     'run_readback' => [
+                        'tenant_id' => (int)$task['tenant_id'],
                         'data_source_id' => $sourceId,
                         'sync_task_id' => $syncTaskId,
                         'system_hotel_id' => (int)$task['system_hotel_id'],
                         'target_date' => (string)$task['data_date'],
                         'platform' => $platform,
+                        'readback_count' => 1,
                         'readback_verified' => true,
                         'p0_status' => 'ready',
+                        'row_ids' => [$platform === 'ctrip' ? 401 : 402],
+                    ],
+                    'deterministic_readback' => [
+                        'tenant_id' => (int)$task['tenant_id'],
+                        'data_source_id' => $sourceId,
+                        'sync_task_id' => $syncTaskId,
+                        'system_hotel_id' => (int)$task['system_hotel_id'],
+                        'target_date' => (string)$task['data_date'],
+                        'platform' => $platform,
+                        'readback_count' => 1,
+                        'readback_verified' => true,
                         'row_ids' => [$platform === 'ctrip' ? 401 : 402],
                     ],
                     'sync_diagnostics' => [
@@ -1477,7 +1834,15 @@ final class OtaLocalCollectorServiceTest extends TestCase
     public function testSavedAndReadBackRowsRemainRetryWaitWhenCoreFieldsOrRealP0AreMissing(): void
     {
         $service = new OtaLocalCollectorService(
-            static fn(): array => [
+            static function ($owner, array $task, array $account, array $mapping): array {
+                Db::name('ota_local_collector_account_hotels')
+                    ->where('id', (int)$mapping['id'])
+                    ->where('tenant_id', (int)$task['tenant_id'])
+                    ->where('account_id', (int)$task['account_id'])
+                    ->where('system_hotel_id', (int)$task['system_hotel_id'])
+                    ->where('platform', (string)$task['platform'])
+                    ->update(['data_source_id' => 88]);
+                return [
                 'status' => 'partial_success',
                 'data_source_id' => 88,
                 'task_id' => 99,
@@ -1485,13 +1850,37 @@ final class OtaLocalCollectorServiceTest extends TestCase
                 'saved_count' => 1,
                 'readback_count' => 1,
                 'readback_verified' => true,
+                'run_readback' => [
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'data_source_id' => 88,
+                    'sync_task_id' => 99,
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'target_date' => (string)$task['data_date'],
+                    'platform' => (string)$task['platform'],
+                    'readback_count' => 1,
+                    'readback_verified' => true,
+                    'p0_status' => 'blocked',
+                    'row_ids' => [7101],
+                ],
+                'deterministic_readback' => [
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'data_source_id' => 88,
+                    'sync_task_id' => 99,
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'target_date' => (string)$task['data_date'],
+                    'platform' => (string)$task['platform'],
+                    'readback_count' => 1,
+                    'readback_verified' => true,
+                    'row_ids' => [7101],
+                ],
                 'sync_diagnostics' => [
                     'target_date' => '2026-07-23',
                     'requires_target_date_traffic' => true,
                     'p0_status' => 'blocked',
                     'missing_inputs' => ['required_traffic_metric_keys'],
                 ],
-            ]
+                ];
+            }
         );
         $actor = $this->actor();
         $pairCode = $service->createPairCode($actor, ['device_name' => 'Gap Fixture PC']);
@@ -1745,8 +2134,8 @@ final class OtaLocalCollectorServiceTest extends TestCase
             enabled INTEGER NOT NULL, config_json TEXT, last_sync_time TEXT, last_sync_status TEXT, last_error TEXT
         )');
         Db::execute('CREATE TABLE online_daily_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, system_hotel_id INTEGER NOT NULL, data_source_id INTEGER,
-            data_date TEXT NOT NULL, platform TEXT, source TEXT, data_type TEXT, data_period TEXT,
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, system_hotel_id INTEGER NOT NULL, data_source_id INTEGER,
+            sync_task_id INTEGER, data_date TEXT NOT NULL, platform TEXT, source TEXT, data_type TEXT, data_period TEXT,
             readback_verified INTEGER, validation_status TEXT, compare_type TEXT, dimension TEXT,
             amount REAL, quantity INTEGER, book_order_num INTEGER, list_exposure INTEGER,
             detail_exposure INTEGER, flow_rate REAL, order_filling_num INTEGER, order_submit_num INTEGER,

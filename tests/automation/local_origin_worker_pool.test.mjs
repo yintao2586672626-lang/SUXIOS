@@ -15,11 +15,15 @@ function close(server) {
 }
 
 function worker({ healthy, name, failDynamic = false }) {
+  let healthResponse = healthy;
+  let healthRequests = 0;
   let dynamicRequests = 0;
   const server = http.createServer((request, response) => {
     if (request.url === '/api/health') {
-      response.writeHead(healthy ? 200 : 503, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ status: healthy ? 'ok' : 'failed' }));
+      healthRequests += 1;
+      if (healthResponse === 'timeout') return;
+      response.writeHead(healthResponse ? 200 : 503, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ status: healthResponse ? 'ok' : 'failed' }));
       return;
     }
     dynamicRequests += 1;
@@ -30,8 +34,69 @@ function worker({ healthy, name, failDynamic = false }) {
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify({ worker: name }));
   });
-  return { server, dynamicRequests: () => dynamicRequests };
+  return {
+    server,
+    dynamicRequests: () => dynamicRequests,
+    healthRequests: () => healthRequests,
+    setHealthResponse: (value) => {
+      healthResponse = value;
+    },
+  };
 }
+
+async function waitFor(predicate, message, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+test('local origin retains previously healthy workers for one transient pool-wide health failure', async () => {
+  const first = worker({ healthy: true, name: 'first' });
+  const second = worker({ healthy: true, name: 'second' });
+  const firstPort = await listen(first.server);
+  const secondPort = await listen(second.server);
+  const origin = createLocalOriginServer({
+    backendUrls: [
+      `http://127.0.0.1:${firstPort}`,
+      `http://127.0.0.1:${secondPort}`,
+    ],
+    healthCheckIntervalMs: 500,
+    healthCheckTimeoutMs: 100,
+  });
+  const originPort = await listen(origin);
+
+  try {
+    await waitFor(
+      () => first.healthRequests() >= 1 && second.healthRequests() >= 1,
+      'workers did not complete their initial healthy probes',
+    );
+    first.setHealthResponse('timeout');
+    second.setHealthResponse('timeout');
+    await waitFor(
+      () => first.healthRequests() >= 2 && second.healthRequests() >= 2,
+      'workers did not complete the transient failed probes',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const transientFailure = await fetch(`http://127.0.0.1:${originPort}/api/transient-probe`);
+    assert.equal(transientFailure.status, 200);
+
+    await waitFor(
+      () => first.healthRequests() >= 3 && second.healthRequests() >= 3,
+      'workers did not complete the sustained failed probes',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const sustainedFailure = await fetch(`http://127.0.0.1:${originPort}/api/sustained-probe`);
+    assert.equal(sustainedFailure.status, 503);
+  } finally {
+    await close(origin);
+    await close(first.server);
+    await close(second.server);
+  }
+});
 
 test('local origin dispatches only to healthy PHP workers and reports an empty pool', async () => {
   const unavailable = worker({ healthy: false, name: 'unavailable' });
@@ -55,8 +120,13 @@ test('local origin dispatches only to healthy PHP workers and reports an empty p
     assert.deepEqual(await routed.json(), { worker: 'healthy' });
     assert.equal(unavailable.dynamicRequests(), 0);
 
-    await close(healthy.server);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    const completedHealthyProbes = healthy.healthRequests();
+    healthy.setHealthResponse(false);
+    await waitFor(
+      () => healthy.healthRequests() >= completedHealthyProbes + 2,
+      'healthy worker did not complete the sustained failed probes',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
     const emptyPool = await fetch(`http://127.0.0.1:${originPort}/api/probe`);
     assert.equal(emptyPool.status, 503);
     assert.deepEqual(await emptyPool.json(), {
@@ -66,7 +136,7 @@ test('local origin dispatches only to healthy PHP workers and reports an empty p
   } finally {
     await close(origin);
     await close(unavailable.server);
-    if (healthy.server.listening) await close(healthy.server);
+    await close(healthy.server);
   }
 });
 

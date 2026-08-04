@@ -112,6 +112,7 @@ Route::post('api/auth/register', 'Auth/register');
 Route::group('api/auth', function () {
     Route::post('logout', 'Auth/logout');
     Route::get('info', 'Auth/info');
+    Route::put('default-hotel', 'Auth/setDefaultHotel');
     Route::post('changePassword', 'Auth/changePassword');
 })->middleware(\app\middleware\Auth::class);
 
