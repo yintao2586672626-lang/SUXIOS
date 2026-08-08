@@ -17,6 +17,10 @@ test('local browser host is loopback-only and creates an explicit isolated sandb
   assert.match(launcher, /runtime\\local_browser_host/);
   assert.match(launcher, /--headless=new/);
   assert.match(launcher, /WindowStyle/);
+  assert.match(launcher, /RedirectStandardOutput = \$browserStdoutPath/);
+  assert.match(launcher, /RedirectStandardError = \$browserStderrPath/);
+  assert.match(launcher, /browser\.stdout\.log/);
+  assert.match(launcher, /browser\.stderr\.log/);
   assert.match(launcher, /bind-process-profile/);
   assert.match(launcher, /InteractiveLogin/);
   assert.match(launcher, /SwitchMode/);

@@ -177,6 +177,8 @@ $resolvedBrowser = Resolve-Application `
 
 $cdpUrl = "http://127.0.0.1:$Port"
 $profilePath = Join-Path $resolvedRoot 'runtime\local_browser_host'
+$browserStdoutPath = Join-Path $profilePath 'browser.stdout.log'
+$browserStderrPath = Join-Path $profilePath 'browser.stderr.log'
 $browserStarted = $false
 $modeSwitchPerformed = $false
 $cdpState = Get-LocalCdpState -BaseUrl $cdpUrl -ExpectedPort $Port
@@ -278,6 +280,8 @@ if ($null -eq $cdpState) {
         FilePath = $resolvedBrowser
         ArgumentList = $browserArguments
         WorkingDirectory = (Split-Path -Parent $resolvedBrowser)
+        RedirectStandardOutput = $browserStdoutPath
+        RedirectStandardError = $browserStderrPath
     }
     if (-not $InteractiveLogin) {
         $startParameters['WindowStyle'] = 'Hidden'

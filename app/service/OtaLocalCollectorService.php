@@ -2507,7 +2507,7 @@ final class OtaLocalCollectorService
                 ->where('system_hotel_id', (int)$mapping['system_hotel_id'])
                 ->where('platform', (string)$account['platform'])
                 ->find();
-            if (!is_array($existing)) {
+            if (!is_array($existing) || !$this->isIdempotencyKeyConflict($e)) {
                 throw $e;
             }
             $existing['_created'] = false;
@@ -2527,6 +2527,15 @@ final class OtaLocalCollectorService
         }
         $row['_created'] = true;
         return $row;
+    }
+
+    private function isIdempotencyKeyConflict(Throwable $exception): bool
+    {
+        $code = (int)$exception->getCode();
+        $message = strtolower(trim($exception->getMessage()));
+
+        return in_array($code, [1062, 23000], true)
+            || (str_contains($message, 'duplicate') && str_contains($message, 'idempotency'));
     }
 
     /** @return array<string, mixed>|null */
