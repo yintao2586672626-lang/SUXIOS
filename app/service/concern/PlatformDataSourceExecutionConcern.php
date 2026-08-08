@@ -17,6 +17,8 @@ use think\facade\Db;
 
 trait PlatformDataSourceExecutionConcern
 {
+    use PlatformInAppBrowserCaptureConcern;
+
     private function normalizeSourcePayload(array $payload): array
     {
         $config = $this->decodeConfig($payload['config_json'] ?? $payload['config'] ?? []);
@@ -295,6 +297,11 @@ trait PlatformDataSourceExecutionConcern
         }
         (new OtaProfileBindingService())->assertBound($hotelId, $platform, $profileKey);
 
+        $inAppBrowserCapture = $this->verifiedInAppBrowserCaptureResult($source, $options);
+        if ($inAppBrowserCapture !== null) {
+            return $inAppBrowserCapture;
+        }
+
         $executionSource = $source;
         unset($executionSource['secret'], $executionSource['secret_json']);
 
@@ -303,7 +310,6 @@ trait PlatformDataSourceExecutionConcern
             []
         );
     }
-
     /**
      * Local collector uploads are already bound to a leased device task. They
      * bypass the central credential vault and may contain business facts only.
