@@ -5,6 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { gunzipSync } from 'node:zlib';
 import { createLocalOriginServer } from '../../scripts/local_origin_server.mjs';
 
 function listen(server) {
@@ -16,6 +17,28 @@ function listen(server) {
 
 function close(server) {
   return new Promise((resolve) => server.close(resolve));
+}
+
+function requestBuffer({ port, pathname, method = 'GET', headers = {} }) {
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      host: '127.0.0.1',
+      port,
+      path: pathname,
+      method,
+      headers: { Connection: 'close', ...headers },
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => resolve({
+        status: response.statusCode,
+        headers: response.headers,
+        body: Buffer.concat(chunks),
+      }));
+    });
+    request.once('error', reject);
+    request.end();
+  });
 }
 
 const waitForStreamClose = async (stream, timeoutMs = 1000) => {
@@ -102,6 +125,87 @@ test('local origin serves static files concurrently and proxies dynamic requests
     largeRequest?.destroy();
     await close(origin);
     await close(backend);
+    await fs.rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test('local origin serves versioned text assets with negotiated gzip and representation validators', async () => {
+  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'suxios-local-origin-gzip-'));
+  const publicRoot = path.join(temporaryRoot, 'public');
+  await fs.mkdir(publicRoot);
+  const source = Buffer.from('window.SUXIOS_COMPRESSED = true;\n'.repeat(10_000));
+  await fs.writeFile(path.join(publicRoot, 'bundle.js'), source);
+
+  const origin = createLocalOriginServer({
+    publicRoot,
+    backendUrl: 'http://127.0.0.1:1',
+    healthCheckIntervalMs: 60_000,
+    healthCheckTimeoutMs: 50,
+  });
+  const originPort = await listen(origin);
+  const pathname = '/bundle.js?v=20260805-local-origin-h1234567890';
+
+  try {
+    const compressed = await requestBuffer({
+      port: originPort,
+      pathname,
+      headers: { 'Accept-Encoding': 'gzip' },
+    });
+    assert.equal(compressed.status, 200);
+    assert.equal(compressed.headers['content-encoding'], 'gzip');
+    assert.equal(compressed.headers.vary, 'Accept-Encoding');
+    assert.equal(compressed.headers['cache-control'], 'public, max-age=2592000, immutable');
+    assert.equal(Number(compressed.headers['content-length']), compressed.body.length);
+    assert.ok(compressed.body.length < source.length / 5);
+    assert.deepEqual(gunzipSync(compressed.body), source);
+
+    const compressedEtag = compressed.headers.etag;
+    assert.match(compressedEtag, /-gzip"$/);
+    const head = await requestBuffer({
+      port: originPort,
+      pathname,
+      method: 'HEAD',
+      headers: { 'Accept-Encoding': 'gzip' },
+    });
+    assert.equal(head.status, 200);
+    assert.equal(head.body.length, 0);
+    assert.equal(head.headers['content-encoding'], 'gzip');
+    assert.equal(head.headers['content-length'], compressed.headers['content-length']);
+    assert.equal(head.headers.etag, compressedEtag);
+
+    const notModified = await requestBuffer({
+      port: originPort,
+      pathname,
+      headers: {
+        'Accept-Encoding': 'gzip',
+        'If-None-Match': compressedEtag,
+      },
+    });
+    assert.equal(notModified.status, 304);
+    assert.equal(notModified.body.length, 0);
+    assert.equal(notModified.headers.etag, compressedEtag);
+
+    const identity = await requestBuffer({
+      port: originPort,
+      pathname,
+      headers: { 'Accept-Encoding': 'gzip;q=0, identity;q=1' },
+    });
+    assert.equal(identity.status, 200);
+    assert.equal(identity.headers['content-encoding'], undefined);
+    assert.equal(Number(identity.headers['content-length']), source.length);
+    assert.notEqual(identity.headers.etag, compressedEtag);
+    assert.deepEqual(identity.body, source);
+
+    const unversioned = await requestBuffer({
+      port: originPort,
+      pathname: '/bundle.js',
+      method: 'HEAD',
+      headers: { 'Accept-Encoding': 'gzip' },
+    });
+    assert.equal(unversioned.status, 200);
+    assert.equal(unversioned.headers['cache-control'], 'public, max-age=300, must-revalidate');
+  } finally {
+    await close(origin);
     await fs.rm(temporaryRoot, { recursive: true, force: true });
   }
 });

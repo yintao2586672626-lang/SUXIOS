@@ -146,9 +146,17 @@ test('platform account UI names manual and automatic paths and routes them separ
 });
 
 test('multi-hotel account center loads all permitted data sources instead of inheriting the selected hotel', () => {
+  const start = html.indexOf('const loadPlatformDataSources = async');
+  const end = html.indexOf('const loadPlatformSyncTasks = async', start);
+  assert.ok(start >= 0 && end > start, 'platform data source loader must be present');
+  const loader = html.slice(start, end);
   assert.match(
-    html,
-    /request\('\/online-data\/data-sources', \{\s*withBusinessContext: false,\s*requestPolicy: loadOptions\.requestPolicy,\s*\}\)/,
+    loader,
+    /const requestPolicy = loadOptions\.requestPolicy[\s\S]*currentPageReadPolicy/,
+  );
+  assert.match(
+    loader,
+    /request\('\/online-data\/data-sources', \{\s*withBusinessContext: false,\s*requestPolicy,\s*\}\)/,
   );
 });
 

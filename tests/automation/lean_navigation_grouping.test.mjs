@@ -47,11 +47,12 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(operations, /sourcePath: 'wechat-notification',[\s\S]*name: '企业微信推送'/);
   assert.match(operations, /sourcePath: 'automation-monitor',[\s\S]*name: '自动化运行监控'/);
   assert.match(operations, /sourcePath: 'ops-track'/);
+  assert.match(operations, /sourcePath: 'operating-growth-archive',[\s\S]*name: '经营成长档案'/);
   assert.doesNotMatch(operations, /sourcePath: 'operating-targets'/);
   assert.doesNotMatch(operations, /sourcePath: 'manual-notifications'/);
   assert.doesNotMatch(operations, /sourcePath: 'ai-daily-report'/);
   assert.doesNotMatch(operations, /sourcePath: 'ai-governance'/);
-  assert.equal((operations.match(/sourcePath:/g) || []).length, 4);
+  assert.equal((operations.match(/sourcePath:/g) || []).length, 5);
 
   const systemTools = section("name: '系统与工具'");
   assert.match(systemTools, /name: '系统与工具'/);

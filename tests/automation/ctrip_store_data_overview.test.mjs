@@ -264,7 +264,7 @@ test('Ctrip overview batch capture runs competition circle only for every ready 
   assert.match(ctripFragment, /ctripOverviewCoreFetchState\.message/);
   assert.match(ctripFragment, /hotel\.message/);
   assert.match(html, /配置缺口 \$\{state\.configuration_gap_count\} 家/);
-  assert.match(quickActions, /:disabled="ctripOverviewCoreFetchRunning \|\| !!ctripOverviewFetchActionLoading"/);
+  assert.match(quickActions, /:disabled="fetchingData \|\| !!ctripOverviewFetchActionLoading \|\| ctripOverviewCoreFetchRunning"/);
   assert.match(dataHealthOverviewSource, /抓取竞争/);
   assert.match(dataHealthOverviewSource, /抓取经营/);
   assert.match(dataHealthOverviewSource, /抓取流量/);
@@ -645,10 +645,11 @@ test('Ctrip store overview surfaces identity-filtered rows instead of generic un
 
 test('Ctrip store overview ignores stale health responses after hotel switching', () => {
   assert.match(html, /let collectionReliabilityRequestSeq = 0/);
-  assert.match(html, /const handleCtripOverviewHotelChange = async \(event = null\) =>/);
-  assert.match(html, /autoFetchHotelId\.value = String\(event\.target\.value \|\| ''\)/);
-  assert.match(html, /await syncCtripOverviewTargetHotel\(\{ clearDisplay: true, loadConfig: true \}\);\s*scheduleDataHealthPanelRefresh\('light', \{ force: true \}\);/);
-  assert.doesNotMatch(html, /await syncCtripOverviewTargetHotel\(\{ clearDisplay: true, loadConfig: true \}\);\s*await loadDataHealthPanel\('light'\);/);
+  assert.match(html, /const syncCtripDataHealthHotelScope = \(\) =>/);
+  assert.match(html, /autoFetchHotelId\.value = hotelId/);
+  assert.match(html, /coreOperationsHotelId\.value = hotelId/);
+  assert.match(html, /if \(tab === 'data-health'\) \{\s*syncCtripDataHealthHotelScope\(\)/);
+  assert.match(html, /data-testid="platform-hotel-context-select"[\s\S]{0,400}@change="handlePlatformHotelContextChange"/);
   assert.match(html, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
   assert.match(html, /await applyCtripHotelConfig\(false, \{\s*refreshList: false,\s*refreshLatest: false,\s*skipIfAligned: true,\s*\}\);/);
   assert.match(html, /const requestSeq = \+\+collectionReliabilityRequestSeq/);

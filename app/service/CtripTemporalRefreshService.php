@@ -75,16 +75,20 @@ final class CtripTemporalRefreshService
                 $businessDate
             );
         } catch (\Throwable) {
-            $before = ['segments' => []];
+            return $this->blocked('ctrip_temporal_preview_read_failed');
         }
         $segments = is_array($before['segments'] ?? null)
             ? $before['segments']
             : [];
-        $attemptedDailyFlows = $this->dailyAttemptedFlows(
-            $sourceId,
-            $hotelId,
-            $businessDate
-        );
+        try {
+            $attemptedDailyFlows = $this->dailyAttemptedFlows(
+                $sourceId,
+                $hotelId,
+                $businessDate
+            );
+        } catch (\Throwable) {
+            return $this->blocked('ctrip_daily_flow_attempts_read_failed');
+        }
         $flows = [];
         $flowResults = [];
         foreach ([
@@ -237,31 +241,36 @@ final class CtripTemporalRefreshService
                 $hotelId,
                 $businessDate
             );
+            if (!is_array($loaded)) {
+                throw new \RuntimeException(
+                    'ctrip_daily_flow_attempt_loader_invalid'
+                );
+            }
             return $this->normalizeDailyFlows($loaded);
         }
 
-        try {
-            $rows = Db::name('platform_data_sync_tasks')
-                ->where('data_source_id', $sourceId)
-                ->where('system_hotel_id', $hotelId)
-                ->where('platform', 'ctrip')
-                ->where('trigger_type', 'manual_notification_schedule')
-                ->whereBetween('create_time', [
-                    $businessDate . ' 00:00:00',
-                    $businessDate . ' 23:59:59',
-                ])
-                ->field('stats_json')
-                ->select()
-                ->toArray();
-        } catch (\Throwable) {
-            return [];
-        }
+        $rows = Db::name('platform_data_sync_tasks')
+            ->where('data_source_id', $sourceId)
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', 'ctrip')
+            ->where('trigger_type', 'manual_notification_schedule')
+            ->whereBetween('create_time', [
+                $businessDate . ' 00:00:00',
+                $businessDate . ' 23:59:59',
+            ])
+            ->field('stats_json')
+            ->select()
+            ->toArray();
 
         $flows = [];
         foreach ($rows as $row) {
             $stats = json_decode((string)($row['stats_json'] ?? ''), true);
-            if (!is_array($stats)) {
-                continue;
+            if (!is_array($stats)
+                || !array_key_exists('collector_flow', $stats)
+            ) {
+                throw new \RuntimeException(
+                    'ctrip_daily_flow_attempt_row_invalid'
+                );
             }
             $flows[] = $stats['collector_flow'] ?? '';
         }
@@ -278,6 +287,11 @@ final class CtripTemporalRefreshService
         $flows = [];
         foreach ($value as $flow) {
             $normalized = $workflow->normalizeFlow($flow);
+            if ($normalized === '') {
+                throw new \RuntimeException(
+                    'ctrip_daily_flow_attempt_value_invalid'
+                );
+            }
             if (in_array($normalized, ['historical_review', 'future_demand'], true)) {
                 $flows[] = $normalized;
             }

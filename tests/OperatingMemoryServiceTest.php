@@ -223,6 +223,144 @@ final class OperatingMemoryServiceTest extends TestCase
         $service->createManualGrowthEvent(10, [21], 21, $input, 7);
     }
 
+    public function testKnownDeadlockRetriesOutsideTransactionAndKeepsExactScope(): void
+    {
+        $service = new OperatingMemoryService($this->operationSource());
+        $identity = [
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'memory_key' => 'manual-event:deadlock-retry',
+        ];
+        $this->insertMemoryFixture([
+            'tenant_id' => 11,
+            'hotel_id' => 21,
+            'memory_key' => $identity['memory_key'],
+        ]);
+
+        $calls = 0;
+        $expectedId = 0;
+        $writer = function () use (&$calls, &$expectedId, $identity): array {
+            $calls++;
+            if ($calls === 1) {
+                throw $this->databaseException(
+                    '40001',
+                    1213,
+                    'Deadlock found when trying to get lock; try restarting transaction'
+                );
+            }
+            $expectedId = $this->insertMemoryFixture($identity);
+            return ['id' => $expectedId, 'created' => true];
+        };
+
+        $result = $this->invokeIdempotentConvergence($service, $identity, $writer);
+
+        self::assertSame(2, $calls);
+        self::assertTrue($result['created']);
+        self::assertSame($expectedId, $result['id']);
+        self::assertSame(1, (int)Db::name(OperatingMemoryService::TABLE)
+            ->where('tenant_id', 10)
+            ->where('hotel_id', 20)
+            ->where('memory_key', $identity['memory_key'])
+            ->count());
+    }
+
+    public function testDuplicateKeyConvergesToCommittedWinnerAsNotCreated(): void
+    {
+        $service = new OperatingMemoryService($this->operationSource());
+        $identity = [
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'memory_key' => 'manual-event:duplicate-readback',
+        ];
+        $calls = 0;
+        $winnerId = 0;
+        $writer = function () use (&$calls, &$winnerId, $identity): array {
+            $calls++;
+            $winnerId = $this->insertMemoryFixture($identity);
+            throw $this->databaseException(
+                '23000',
+                1062,
+                "Duplicate entry for key 'uniq_operating_memory_identity'"
+            );
+        };
+
+        $result = $this->invokeIdempotentConvergence($service, $identity, $writer);
+
+        self::assertSame(1, $calls);
+        self::assertFalse($result['created']);
+        self::assertSame($winnerId, $result['id']);
+    }
+
+    public function testNonConcurrencyDatabaseFailureIsNotRetriedOrSwallowed(): void
+    {
+        $service = new OperatingMemoryService($this->operationSource());
+        $identity = [
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'memory_key' => 'manual-event:database-failure',
+        ];
+        $calls = 0;
+        $failure = $this->databaseException('HY000', 2006, 'MySQL server has gone away');
+
+        try {
+            $this->invokeIdempotentConvergence(
+                $service,
+                $identity,
+                function () use (&$calls, $failure): array {
+                    $calls++;
+                    throw $failure;
+                }
+            );
+            self::fail('A non-concurrency database failure must be propagated.');
+        } catch (\think\db\exception\PDOException $exception) {
+            self::assertSame($failure, $exception);
+        }
+
+        self::assertSame(1, $calls);
+        self::assertSame(0, (int)Db::name(OperatingMemoryService::TABLE)
+            ->where('tenant_id', 10)
+            ->where('hotel_id', 20)
+            ->where('memory_key', $identity['memory_key'])
+            ->count());
+    }
+
+    public function testKnownConflictExhaustionDoesNotInventSuccess(): void
+    {
+        $service = new OperatingMemoryService($this->operationSource());
+        $identity = [
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'memory_key' => 'manual-event:deadlock-exhausted',
+        ];
+        $calls = 0;
+        $failure = $this->databaseException(
+            '40001',
+            1213,
+            'Deadlock found when trying to get lock; try restarting transaction'
+        );
+
+        try {
+            $this->invokeIdempotentConvergence(
+                $service,
+                $identity,
+                function () use (&$calls, $failure): array {
+                    $calls++;
+                    throw $failure;
+                }
+            );
+            self::fail('Exhausted concurrency retries must not invent a successful row.');
+        } catch (\think\db\exception\PDOException $exception) {
+            self::assertSame($failure, $exception);
+        }
+
+        self::assertSame(3, $calls);
+        self::assertSame(0, (int)Db::name(OperatingMemoryService::TABLE)
+            ->where('tenant_id', 10)
+            ->where('hotel_id', 20)
+            ->where('memory_key', $identity['memory_key'])
+            ->count());
+    }
+
     public function testOwnerAnnotationAndMilestoneKeepOriginalAndVersionHistory(): void
     {
         $service = new OperatingMemoryService($this->operationSource());
@@ -374,5 +512,68 @@ final class OperatingMemoryServiceTest extends TestCase
                 return $this->intent;
             }
         };
+    }
+
+    /**
+     * @param array{tenant_id:int,hotel_id:int,memory_key:string} $identity
+     * @param callable():array{id:int,created:bool} $writer
+     * @return array{id:int,created:bool}
+     */
+    private function invokeIdempotentConvergence(
+        OperatingMemoryService $service,
+        array $identity,
+        callable $writer
+    ): array {
+        $method = new \ReflectionMethod($service, 'convergeIdempotentWrite');
+        $method->setAccessible(true);
+
+        /** @var array{id:int,created:bool} $result */
+        $result = $method->invoke($service, $identity, $writer);
+        return $result;
+    }
+
+    private function databaseException(
+        string $sqlState,
+        int $driverCode,
+        string $driverMessage
+    ): \think\db\exception\PDOException {
+        $pdoException = new \PDOException(
+            sprintf('SQLSTATE[%s]: %s: %d %s', $sqlState, $sqlState, $driverCode, $driverMessage)
+        );
+        $pdoException->errorInfo = [$sqlState, $driverCode, $driverMessage];
+
+        return new \think\db\exception\PDOException($pdoException, [], 'INSERT INTO hotel_operating_memories');
+    }
+
+    /** @param array{tenant_id:int,hotel_id:int,memory_key:string} $identity */
+    private function insertMemoryFixture(array $identity): int
+    {
+        $now = '2026-08-05 10:00:00';
+        return (int)Db::name(OperatingMemoryService::TABLE)->insertGetId([
+            'tenant_id' => $identity['tenant_id'],
+            'hotel_id' => $identity['hotel_id'],
+            'memory_key' => $identity['memory_key'],
+            'memory_layer' => 'fact',
+            'title' => '并发幂等测试',
+            'summary' => '仅用于隔离数据库测试。',
+            'business_date' => '2026-08-05',
+            'platform' => 'manual',
+            'source_scope' => 'manual_background',
+            'source_module' => 'test',
+            'source_record_type' => 'concurrency_fixture',
+            'source_record_id' => 0,
+            'evidence_refs_json' => '[]',
+            'context_json' => '{}',
+            'quality_status' => 'unverified',
+            'usage_level' => 'archive_only',
+            'lifecycle_status' => 'active',
+            'content_digest' => hash('sha256', implode(':', $identity)),
+            'previous_memory_id' => null,
+            'recorded_by' => 7,
+            'occurred_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+            'deleted_at' => null,
+        ]);
     }
 }

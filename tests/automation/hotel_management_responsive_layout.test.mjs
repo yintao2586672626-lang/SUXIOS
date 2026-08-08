@@ -7,7 +7,8 @@ import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 const indexHtml = readFrontendContractSource();
 const hotelPage = fs.readFileSync(new URL('../../resources/frontend/templates/fragments/18-page-hotels.html', import.meta.url), 'utf8');
 const styleCss = fs.readFileSync(new URL('../../public/style.css', import.meta.url), 'utf8');
-const styleHash = createHash('sha256').update(styleCss).digest('hex').slice(0, 10);
+const authenticatedStyle = fs.readFileSync(new URL('../../public/style.min.css', import.meta.url), 'utf8');
+const styleHash = createHash('sha256').update(authenticatedStyle).digest('hex').slice(0, 10);
 const systemStaticSource = fs.readFileSync(new URL('../../public/system-static.js', import.meta.url), 'utf8');
 const systemStaticSandbox = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(systemStaticSource, systemStaticSandbox, { filename: 'public/system-static.js' });
@@ -15,13 +16,13 @@ const { sortHotelManagementRows } = systemStaticSandbox.window.SUXI_SYSTEM_STATI
 
 assert.match(
   indexHtml,
-  new RegExp(`style\\.css\\?v=[^"']*h${styleHash}`),
+  new RegExp(`style\\.min\\.css\\?v=[^"']*h${styleHash}`),
   'responsive hotel styles must use a fresh browser cache key'
 );
 
 assert.match(
   indexHtml,
-  /class="xl:hidden hotel-preview-layout"/,
+  /<div v-else class="hotel-preview-layout">/,
   'compact hotel management view must expose an intrinsic responsive grid'
 );
 assert.match(

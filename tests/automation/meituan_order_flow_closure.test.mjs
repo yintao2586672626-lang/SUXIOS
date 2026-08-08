@@ -48,7 +48,8 @@ test('order flow reads reject stale scope and fetch success requires matching da
   assert.match(loader, /const requestSeq = \+\+meituanOrderFlowRequestSeq;/);
   assert.match(loader, /requestSeq === meituanOrderFlowRequestSeq/);
   assert.match(loader, /isAuthSessionCurrent\(requestSession\)/);
-  assert.match(loader, /String\(meituanForm\.value\.hotelId \|\| user\.value\?\.hotel_id \|\| ''\)\.trim\(\) === systemHotelId/);
+  assert.match(loader, /String\(meituanForm\.value\.hotelId \|\| ''\)\.trim\(\) === systemHotelId/);
+  assert.doesNotMatch(loader, /user\.value\?\.hotel_id/);
   assert.match(loader, /String\(meituanOrderFlowPeriod\.value \|\| ''\) === requestPeriod/);
   assert.ok(responseIndex >= 0 && responseGuardIndex > responseIndex, 'order-flow response must be scope-checked after readback');
   assert.ok(firstResponseWriteIndex > responseGuardIndex, 'stale order-flow responses must be rejected before rows are written');

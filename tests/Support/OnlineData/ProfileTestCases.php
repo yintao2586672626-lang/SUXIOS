@@ -810,6 +810,15 @@ trait ProfileTestCases
     public function testCtripProfileStatusBindingRequiresStrongMatchedProbe(): void
     {
         $controller = $this->controller();
+        $this->invokeNonPublic($controller, 'assertCtripProfileStatusProbeDataSourceScope', [false, 0]);
+        $this->invokeNonPublic($controller, 'assertCtripProfileStatusProbeDataSourceScope', [true, 25]);
+        try {
+            $this->invokeNonPublic($controller, 'assertCtripProfileStatusProbeDataSourceScope', [true, 0]);
+            self::fail('Ctrip login probing without a bound data source must fail closed.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(409, $exception->getCode());
+            self::assertSame('Ctrip Profile login probe requires a bound data_source_id.', $exception->getMessage());
+        }
         self::assertSame(25, $this->invokeNonPublic($controller, 'ctripProfileStatusRequestedDataSourceId', [[
             'data_source_id' => 25,
             'source_id' => 99,

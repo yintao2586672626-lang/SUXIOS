@@ -16,10 +16,17 @@ test('home Revenue AI overview is not requested for an account without Revenue A
     appMain,
     /const canUseRevenueAi = \(\) =>[\s\S]*can_use_ai_decision[\s\S]*ai\.view[\s\S]*ai\.execute/,
   );
-  assert.match(
-    appMain,
-    /const loadRevenueAiOverview = async \(\) => \{[\s\S]{0,300}if \(!canUseRevenueAi\(\)\) \{[\s\S]{0,300}return null;/,
-  );
+  const start = appMain.indexOf('const loadRevenueAiOverview = async (options = {}) => {');
+  const end = appMain.indexOf('const loadCompassData = async', start);
+  assert.ok(start >= 0 && end > start, 'Revenue AI overview loader must be present');
+  const loader = appMain.slice(start, end);
+  const permissionGate = loader.indexOf('if (!canUseRevenueAi()) {');
+  const sessionCapture = loader.indexOf('const requestSession = captureAuthSession();');
+  const networkRequest = loader.indexOf('await request(overviewRequest.endpoint');
+  assert.ok(permissionGate >= 0, 'Revenue AI permission gate must be present');
+  assert.match(loader.slice(permissionGate, sessionCapture), /return null;/);
+  assert.ok(sessionCapture > permissionGate, 'permission denial must happen before request state is captured');
+  assert.ok(networkRequest > sessionCapture, 'network access must happen only after permission and request-scope checks');
 });
 
 test('combined OTA loss-chain preserves known subtotals without treating a missing platform as zero', () => {

@@ -19,17 +19,30 @@ test('page runtime errors recover to a safe page instead of replacing the whole 
   assert.ok(handlerStart > 0 && handlerEnd > handlerStart);
   assert.match(handler, /const recovered = typeof recoverSuxiRuntimeError === 'function'/);
   assert.match(handler, /if \(recovered\) return;/);
-  assert.match(handler, /renderSuxiStartupError\(error\);/);
-  assert.ok(handler.indexOf('if (recovered) return;') < handler.indexOf('renderSuxiStartupError(error);'));
+  assert.match(handler, /scheduleSuxiStartupError\(error\);/);
+  assert.ok(handler.indexOf('if (recovered) return;') < handler.indexOf('scheduleSuxiStartupError(error);'));
+  assert.doesNotMatch(handler, /renderSuxiStartupError\(error\);/);
+  const recoveryStart = html.indexOf('const scheduleSuxiStartupError = (error) => {');
+  const recoveryEnd = html.indexOf('const operatingQuestionPanel = {', recoveryStart);
+  const recovery = html.slice(recoveryStart, recoveryEnd);
+  const unmountCatchStart = recovery.indexOf('} catch (unmountError) {');
+  const unmountCatchEnd = recovery.indexOf('}', unmountCatchStart);
+
+  assert.ok(recoveryStart > 0 && recoveryEnd > recoveryStart);
+  assert.match(recovery, /const appToUnmount = suxiApp;\s*suxiApp = null;/);
+  assert.match(recovery, /appToUnmount\?\.unmount\(\);/);
+  assert.doesNotMatch(recovery.slice(unmountCatchStart, unmountCatchEnd), /\breturn\b/);
+  assert.ok(recovery.indexOf('renderSuxiStartupError(error);') > unmountCatchEnd);
 });
 
-test('setup failures remain explicit fatal startup failures', () => {
-  assert.match(html, /const isFatalStartupError = \/setup function\|app errorHandler\|app warnHandler\|app unmount cleanup function\/i\.test\(String\(info \|\| ''\)\);/);
+test('development and production Vue error information use the same recovery classes', () => {
+  assert.match(html, /app unmount cleanup function\|#runtime-\(\?:0\|10\|11\|16\)\\b/);
+  assert.match(html, /scheduler flush\|#runtime-\(\?:1\|14\|15\)\\b/);
   assert.match(html, /if \(isFatalStartupError\) return false;/);
 });
 
-test('public entry guard locks the fatal classification and safe-page recovery contract', () => {
-  assert.match(publicEntryGuard, /isFatalStartupError/);
-  assert.match(publicEntryGuard, /currentPage\.value = 'compass'/);
-  assert.match(publicEntryGuard, /当前功能发生异常，已返回今日经营看板/);
+test('public entry guard delegates runtime behavior to the AST contract instead of exact source fragments', () => {
+  assert.match(publicEntryGuard, /inspectPublicEntryRuntimeContracts/);
+  assert.doesNotMatch(publicEntryGuard, /content\.includes\('const isFatalStartupError/);
+  assert.doesNotMatch(publicEntryGuard, /content\.includes\("currentPage\.value = 'compass';"\)/);
 });

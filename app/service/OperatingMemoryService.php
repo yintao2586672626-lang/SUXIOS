@@ -12,6 +12,12 @@ final class OperatingMemoryService
 {
     public const TABLE = 'hotel_operating_memories';
 
+    private const IDEMPOTENCY_WRITE_ATTEMPTS = 3;
+
+    private const IDEMPOTENCY_READBACK_ATTEMPTS = 3;
+
+    private const IDEMPOTENCY_RETRY_DELAY_MICROSECONDS = 10000;
+
     /** @var list<string> */
     private const MEMORY_LAYERS = ['fact', 'analysis', 'judgement', 'decision', 'execution_review', 'milestone', 'sop'];
 
@@ -550,62 +556,54 @@ final class OperatingMemoryService
         }
 
         $record = $this->buildExecutionReviewRecord($task, $intent, $recordedBy);
-        $existing = Db::name(self::TABLE)
-            ->where('tenant_id', (int)$record['tenant_id'])
-            ->where('hotel_id', (int)$record['hotel_id'])
-            ->where('memory_key', (string)$record['memory_key'])
-            ->whereNull('deleted_at')
-            ->find();
-
-        $created = false;
-        if (is_array($existing)) {
-            $memoryId = (int)$existing['id'];
-        } else {
-            $memoryId = Db::transaction(function () use ($record): int {
+        $write = $this->convergeIdempotentWrite($record, function () use ($record): array {
+            return Db::transaction(function () use ($record): array {
+                $writeRecord = $record;
                 $sameContent = Db::name(self::TABLE)
-                    ->where('tenant_id', (int)$record['tenant_id'])
-                    ->where('hotel_id', (int)$record['hotel_id'])
-                    ->where('memory_key', (string)$record['memory_key'])
+                    ->where('tenant_id', (int)$writeRecord['tenant_id'])
+                    ->where('hotel_id', (int)$writeRecord['hotel_id'])
+                    ->where('memory_key', (string)$writeRecord['memory_key'])
                     ->whereNull('deleted_at')
                     ->lock(true)
                     ->find();
                 if (is_array($sameContent)) {
-                    return (int)$sameContent['id'];
+                    return ['id' => (int)$sameContent['id'], 'created' => false];
                 }
 
                 $previous = Db::name(self::TABLE)
-                    ->where('tenant_id', (int)$record['tenant_id'])
-                    ->where('hotel_id', (int)$record['hotel_id'])
+                    ->where('tenant_id', (int)$writeRecord['tenant_id'])
+                    ->where('hotel_id', (int)$writeRecord['hotel_id'])
                     ->where('memory_layer', 'execution_review')
                     ->where('source_record_type', 'operation_execution_task')
-                    ->where('source_record_id', (int)$record['source_record_id'])
+                    ->where('source_record_id', (int)$writeRecord['source_record_id'])
                     ->whereNull('deleted_at')
                     ->order('id', 'desc')
                     ->lock(true)
                     ->find();
                 if (is_array($previous)) {
-                    $record['previous_memory_id'] = (int)$previous['id'];
+                    $writeRecord['previous_memory_id'] = (int)$previous['id'];
                 }
 
-                $id = (int)Db::name(self::TABLE)->insertGetId($record);
+                $id = (int)Db::name(self::TABLE)->insertGetId($writeRecord);
                 if ($id <= 0) {
                     throw new RuntimeException('经营记忆保存失败：未取得记录ID');
                 }
                 if (is_array($previous)) {
                     Db::name(self::TABLE)
                         ->where('id', (int)$previous['id'])
-                        ->where('tenant_id', (int)$record['tenant_id'])
-                        ->where('hotel_id', (int)$record['hotel_id'])
+                        ->where('tenant_id', (int)$writeRecord['tenant_id'])
+                        ->where('hotel_id', (int)$writeRecord['hotel_id'])
                         ->update([
                             'lifecycle_status' => 'superseded',
                             'updated_at' => date('Y-m-d H:i:s'),
                         ]);
                 }
 
-                return $id;
+                return ['id' => $id, 'created' => true];
             });
-            $created = true;
-        }
+        });
+        $memoryId = (int)$write['id'];
+        $created = (bool)$write['created'];
 
         $memory = $this->read($memoryId, $callerTenantId, $hotelIds);
         if ((int)($memory['id'] ?? 0) !== $memoryId
@@ -831,62 +829,58 @@ final class OperatingMemoryService
         if (!$this->tableExists()) {
             throw new RuntimeException('经营记忆功能尚未启用：请先执行数据库迁移');
         }
-        $existing = Db::name(self::TABLE)
-            ->where('tenant_id', (int)$record['tenant_id'])
-            ->where('hotel_id', (int)$record['hotel_id'])
-            ->where('memory_key', (string)$record['memory_key'])
-            ->whereNull('deleted_at')
-            ->find();
-        $created = false;
-        if (is_array($existing)) {
-            $memoryId = (int)$existing['id'];
-        } else {
-            $memoryId = Db::transaction(function () use ($record, $supersedePreviousVersion): int {
-                $duplicate = Db::name(self::TABLE)
-                    ->where('tenant_id', (int)$record['tenant_id'])
-                    ->where('hotel_id', (int)$record['hotel_id'])
-                    ->where('memory_key', (string)$record['memory_key'])
-                    ->whereNull('deleted_at')
-                    ->lock(true)
-                    ->find();
-                if (is_array($duplicate)) {
-                    return (int)$duplicate['id'];
-                }
-                $previous = null;
-                if ($supersedePreviousVersion) {
-                    $previous = Db::name(self::TABLE)
-                        ->where('tenant_id', (int)$record['tenant_id'])
-                        ->where('hotel_id', (int)$record['hotel_id'])
-                        ->where('memory_layer', (string)$record['memory_layer'])
-                        ->where('source_record_type', (string)$record['source_record_type'])
-                        ->where('source_record_id', (int)$record['source_record_id'])
-                        ->where('lifecycle_status', 'active')
+        $write = $this->convergeIdempotentWrite(
+            $record,
+            function () use ($record, $supersedePreviousVersion): array {
+                return Db::transaction(function () use ($record, $supersedePreviousVersion): array {
+                    $writeRecord = $record;
+                    $duplicate = Db::name(self::TABLE)
+                        ->where('tenant_id', (int)$writeRecord['tenant_id'])
+                        ->where('hotel_id', (int)$writeRecord['hotel_id'])
+                        ->where('memory_key', (string)$writeRecord['memory_key'])
                         ->whereNull('deleted_at')
-                        ->order('id', 'desc')
                         ->lock(true)
                         ->find();
-                    if (is_array($previous)) {
-                        $record['previous_memory_id'] = (int)$previous['id'];
+                    if (is_array($duplicate)) {
+                        return ['id' => (int)$duplicate['id'], 'created' => false];
                     }
-                }
-                $id = (int)Db::name(self::TABLE)->insertGetId($record);
-                if ($id <= 0) {
-                    throw new RuntimeException('经营成长档案保存失败：未取得记录ID');
-                }
-                if (is_array($previous)) {
-                    Db::name(self::TABLE)
-                        ->where('id', (int)$previous['id'])
-                        ->where('tenant_id', (int)$record['tenant_id'])
-                        ->where('hotel_id', (int)$record['hotel_id'])
-                        ->update([
-                            'lifecycle_status' => 'superseded',
-                            'updated_at' => date('Y-m-d H:i:s'),
-                        ]);
-                }
-                return $id;
-            });
-            $created = true;
-        }
+                    $previous = null;
+                    if ($supersedePreviousVersion) {
+                        $previous = Db::name(self::TABLE)
+                            ->where('tenant_id', (int)$writeRecord['tenant_id'])
+                            ->where('hotel_id', (int)$writeRecord['hotel_id'])
+                            ->where('memory_layer', (string)$writeRecord['memory_layer'])
+                            ->where('source_record_type', (string)$writeRecord['source_record_type'])
+                            ->where('source_record_id', (int)$writeRecord['source_record_id'])
+                            ->where('lifecycle_status', 'active')
+                            ->whereNull('deleted_at')
+                            ->order('id', 'desc')
+                            ->lock(true)
+                            ->find();
+                        if (is_array($previous)) {
+                            $writeRecord['previous_memory_id'] = (int)$previous['id'];
+                        }
+                    }
+                    $id = (int)Db::name(self::TABLE)->insertGetId($writeRecord);
+                    if ($id <= 0) {
+                        throw new RuntimeException('经营成长档案保存失败：未取得记录ID');
+                    }
+                    if (is_array($previous)) {
+                        Db::name(self::TABLE)
+                            ->where('id', (int)$previous['id'])
+                            ->where('tenant_id', (int)$writeRecord['tenant_id'])
+                            ->where('hotel_id', (int)$writeRecord['hotel_id'])
+                            ->update([
+                                'lifecycle_status' => 'superseded',
+                                'updated_at' => date('Y-m-d H:i:s'),
+                            ]);
+                    }
+                    return ['id' => $id, 'created' => true];
+                });
+            }
+        );
+        $memoryId = (int)$write['id'];
+        $created = (bool)$write['created'];
 
         $memory = $this->normalizeGrowthRow($this->read($memoryId, $callerTenantId, $hotelIds));
         foreach ($expected as $field => $value) {
@@ -914,6 +908,120 @@ final class OperatingMemoryService
                 'external_message' => false,
             ],
         ];
+    }
+
+    /**
+     * Converge only known idempotency races. Every recovery read happens after
+     * Db::transaction has rolled back, and is scoped to the exact unique key.
+     *
+     * @param array<string, mixed> $record
+     * @param callable():array{id:int,created:bool} $transactionWrite
+     * @return array{id:int,created:bool}
+     */
+    private function convergeIdempotentWrite(array $record, callable $transactionWrite): array
+    {
+        for ($attempt = 1; $attempt <= self::IDEMPOTENCY_WRITE_ATTEMPTS; $attempt++) {
+            $existing = $this->findIdempotentRecord($record);
+            if (is_array($existing)) {
+                return ['id' => (int)$existing['id'], 'created' => false];
+            }
+
+            try {
+                $write = $transactionWrite();
+                if ((int)($write['id'] ?? 0) <= 0 || !array_key_exists('created', $write)) {
+                    throw new RuntimeException('经营记忆保存失败：事务结果无效');
+                }
+                return ['id' => (int)$write['id'], 'created' => (bool)$write['created']];
+            } catch (\Throwable $exception) {
+                $conflictKind = $this->idempotencyConflictKind($exception);
+                if ($conflictKind === null) {
+                    throw $exception;
+                }
+
+                $winner = $this->awaitIdempotentRecord($record);
+                if (is_array($winner)) {
+                    return ['id' => (int)$winner['id'], 'created' => false];
+                }
+                if ($attempt >= self::IDEMPOTENCY_WRITE_ATTEMPTS) {
+                    throw $exception;
+                }
+
+                usleep(self::IDEMPOTENCY_RETRY_DELAY_MICROSECONDS * $attempt);
+            }
+        }
+
+        throw new RuntimeException('经营记忆保存失败：并发写入未收敛');
+    }
+
+    /** @param array<string, mixed> $record @return array<string, mixed>|null */
+    private function findIdempotentRecord(array $record): ?array
+    {
+        $row = Db::name(self::TABLE)
+            ->where('tenant_id', (int)$record['tenant_id'])
+            ->where('hotel_id', (int)$record['hotel_id'])
+            ->where('memory_key', (string)$record['memory_key'])
+            ->whereNull('deleted_at')
+            ->find();
+
+        return is_array($row) && (int)($row['id'] ?? 0) > 0 ? $row : null;
+    }
+
+    /** @param array<string, mixed> $record @return array<string, mixed>|null */
+    private function awaitIdempotentRecord(array $record): ?array
+    {
+        for ($attempt = 1; $attempt <= self::IDEMPOTENCY_READBACK_ATTEMPTS; $attempt++) {
+            $row = $this->findIdempotentRecord($record);
+            if (is_array($row)) {
+                return $row;
+            }
+            if ($attempt < self::IDEMPOTENCY_READBACK_ATTEMPTS) {
+                usleep(self::IDEMPOTENCY_RETRY_DELAY_MICROSECONDS * $attempt);
+            }
+        }
+
+        return null;
+    }
+
+    private function idempotencyConflictKind(\Throwable $exception): ?string
+    {
+        for ($current = $exception; $current !== null; $current = $current->getPrevious()) {
+            if (!$current instanceof \PDOException
+                && !$current instanceof \think\db\exception\PDOException
+            ) {
+                continue;
+            }
+
+            $sqlState = '';
+            $driverCode = 0;
+            if ($current instanceof \PDOException && is_array($current->errorInfo ?? null)) {
+                $sqlState = strtoupper(trim((string)($current->errorInfo[0] ?? '')));
+                $driverCode = (int)($current->errorInfo[1] ?? 0);
+            } elseif (method_exists($current, 'getData')) {
+                $errorInfo = $current->getData()['PDO Error Info'] ?? [];
+                if (is_array($errorInfo)) {
+                    $sqlState = strtoupper(trim((string)($errorInfo['SQLSTATE'] ?? '')));
+                    $driverCode = (int)($errorInfo['Driver Error Code'] ?? 0);
+                }
+            }
+
+            $message = strtolower($current->getMessage());
+            if ($sqlState === '40001'
+                || $driverCode === 1213
+                || str_contains($message, 'sqlstate[40001]')
+                || str_contains($message, 'deadlock found when trying to get lock')
+            ) {
+                return 'transaction_retry';
+            }
+
+            $hasDuplicateMarker = str_contains($message, 'duplicate entry')
+                || str_contains($message, 'unique constraint failed')
+                || str_contains($message, 'uniq_operating_memory_identity');
+            if ($driverCode === 1062 || ($sqlState === '23000' && $hasDuplicateMarker)) {
+                return 'duplicate_key';
+            }
+        }
+
+        return null;
     }
 
     /** @param list<int> $hotelIds */

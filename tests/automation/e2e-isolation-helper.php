@@ -79,14 +79,28 @@ function e2eAssertSchemaReady(): array
     $requiredColumns = [
         'tenants' => ['id', 'name', 'status'],
         'roles' => ['id', 'name'],
-        'users' => ['id', 'username', 'role_id', 'hotel_id', 'tenant_id'],
+        'users' => ['id', 'username', 'role_id', 'hotel_id', 'default_hotel_id', 'tenant_id'],
         'hotels' => ['id', 'name', 'tenant_id'],
         'login_rate_limit_counters' => ['scope_type', 'subject_hash', 'bucket_start', 'attempt_count', 'expires_at'],
         'user_hotel_permissions' => ['user_id', 'hotel_id'],
         'online_daily_data' => [
             'id', 'tenant_id', 'system_hotel_id', 'hotel_id', 'data_date',
             'source', 'data_type', 'dimension',
+            'data_source_id', 'ingestion_method', 'snapshot_time',
             'readback_verified', 'readback_verified_at',
+        ],
+        'platform_data_sources' => [
+            'id', 'tenant_id', 'system_hotel_id', 'name', 'platform',
+            'data_type', 'ingestion_method', 'status', 'enabled',
+        ],
+        'ai_daily_reports' => [
+            'id', 'tenant_id', 'hotel_id', 'report_date', 'status',
+            'generation_mode', 'model_status', 'recommended_actions_json',
+            'source_refs_json', 'snapshot_json', 'input_fingerprint', 'prompt_version',
+        ],
+        'ai_report_human_reviews' => [
+            'id', 'tenant_id', 'hotel_id', 'report_id', 'subject_type',
+            'decision', 'result_version', 'created_by', 'created_at',
         ],
         'competitor_price_log' => ['report_fingerprint'],
     ];
@@ -239,6 +253,7 @@ function e2eCount(string $prefix): array
     }
     foreach ([
         'online_daily_data' => ['online_daily_data', 'system_hotel_id'],
+        'platform_data_sources' => ['platform_data_sources', 'system_hotel_id'],
         'temporal_forecast_snapshots' => ['temporal_forecast_snapshots', 'system_hotel_id'],
         'analysis_reference_set_versions' => ['analysis_reference_set_versions', 'system_hotel_id'],
         'ai_daily_reports' => 'ai_daily_reports',
@@ -361,6 +376,7 @@ function e2eSeed(string $prefix): array
 
         Db::name('users')->where('id', $userId)->update(e2eFilterPayload('users', [
             'hotel_id' => $hotelId,
+            'default_hotel_id' => $hotelId,
             'update_time' => date('Y-m-d H:i:s'),
         ]));
 
@@ -435,7 +451,40 @@ function e2eSeedAiReportInputs(string $prefix): array
         ['date' => '2026-05-17', 'data_type' => 'business', 'hotel_id' => $businessOtaHotelId, 'amount' => 120000, 'quantity' => 300, 'book_order_num' => 120],
     ];
 
-    $rowIds = Db::transaction(function () use ($fixtures, $hotel, $hotelId, $names, $prefix, $now): array {
+    $fixtureResult = Db::transaction(function () use ($fixtures, $hotel, $hotelId, $names, $prefix, $now): array {
+        $dataSourceIds = [];
+        foreach (['business', 'traffic'] as $dataType) {
+            $sourceId = (int)Db::name('platform_data_sources')->insertGetId(e2eFilterPayload('platform_data_sources', [
+                'tenant_id' => (int)($hotel['tenant_id'] ?? 0) ?: $hotelId,
+                'system_hotel_id' => $hotelId,
+                'name' => $prefix . '_ctrip_' . $dataType . '_source',
+                'platform' => 'ctrip',
+                'data_type' => $dataType,
+                'ingestion_method' => 'isolated_e2e_fixture',
+                'status' => 'success',
+                'enabled' => 1,
+                'config_json' => json_encode([
+                    'synthetic' => true,
+                    'fixture_scope' => 'isolated_e2e_ai_report_inputs',
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                'last_sync_time' => $now,
+                'last_sync_status' => 'success',
+                'create_time' => $now,
+                'update_time' => $now,
+            ]));
+            $storedSource = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+            if ($sourceId <= 0
+                || !is_array($storedSource)
+                || (int)($storedSource['system_hotel_id'] ?? 0) !== $hotelId
+                || (string)($storedSource['platform'] ?? '') !== 'ctrip'
+                || (string)($storedSource['data_type'] ?? '') !== $dataType
+                || (string)($storedSource['ingestion_method'] ?? '') !== 'isolated_e2e_fixture'
+                || (string)($storedSource['status'] ?? '') !== 'success') {
+                throw new RuntimeException('Isolated AI report data-source fixture readback failed');
+            }
+            $dataSourceIds[$dataType] = $sourceId;
+        }
+
         $ids = [];
         foreach ($fixtures as $fixture) {
             $date = (string)$fixture['date'];
@@ -464,11 +513,14 @@ function e2eSeedAiReportInputs(string $prefix): array
                 'data_value' => $fixture['list_exposure'] ?? $fixture['amount'] ?? 0,
                 'raw_data' => json_encode([
                     'synthetic' => true,
-                    'scope' => 'isolated_e2e_fixture',
+                    'fixture_scope' => 'isolated_e2e_ai_report_inputs',
+                    'ingestion_method' => 'isolated_e2e_fixture',
+                    'collected_at' => $date . ' 23:59:59',
                     'source_trace_id' => $traceId,
                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
                 'validation_status' => 'normal',
                 'validation_flags' => '[]',
+                'data_source_id' => $dataSourceIds[$dataType],
                 'ingestion_method' => 'isolated_e2e_fixture',
                 'source_trace_id' => $traceId,
                 'data_period' => 'historical_daily',
@@ -488,6 +540,7 @@ function e2eSeedAiReportInputs(string $prefix): array
                 || (string)($stored['data_date'] ?? '') !== $date
                 || (string)($stored['source'] ?? '') !== 'ctrip'
                 || (string)($stored['data_type'] ?? '') !== $dataType
+                || (int)($stored['data_source_id'] ?? 0) !== (int)$dataSourceIds[$dataType]
                 || ($dataType === 'traffic' && (
                     (int)($stored['list_exposure'] ?? -1) !== (int)$fixture['list_exposure']
                     || (int)($stored['detail_exposure'] ?? -1) !== (int)$fixture['detail_exposure']
@@ -508,17 +561,178 @@ function e2eSeedAiReportInputs(string $prefix): array
             }
             $ids[] = $rowId;
         }
-        return $ids;
+        return ['row_ids' => $ids, 'data_source_ids' => $dataSourceIds];
     });
+
+    $rowIds = $fixtureResult['row_ids'];
+    $dataSourceIds = $fixtureResult['data_source_ids'];
 
     return [
         'hotel_id' => $hotelId,
         'ota_hotel_id' => $trafficOtaHotelId,
         'business_ota_hotel_id' => $businessOtaHotelId,
         'row_ids' => $rowIds,
+        'data_source_ids' => $dataSourceIds,
         'data_dates' => array_values(array_unique(array_column($fixtures, 'date'))),
         'readback_verified' => count($rowIds) === count($fixtures),
         'source_scope' => 'synthetic_isolated_e2e_ctrip_channel_fixture',
+    ];
+}
+
+/**
+ * Persist an explicitly synthetic, non-formal report so browser E2E can test
+ * judgment/readback and the untrusted-action refusal without forging a real
+ * dual-OTA P0 verifier receipt.
+ *
+ * @return array<string, mixed>
+ */
+function e2eSeedSyntheticAiReport(string $prefix): array
+{
+    $names = e2eNames($prefix);
+    $hotelId = (int)getenv('SUXI_E2E_HOTEL_ID');
+    $hotel = $hotelId > 0
+        ? Db::name('hotels')->where('id', $hotelId)->field('id,name,tenant_id')->find()
+        : null;
+    if (!is_array($hotel)
+        || (int)($hotel['id'] ?? 0) <= 0
+        || (string)($hotel['name'] ?? '') !== $names['hotel_name']) {
+        throw new RuntimeException('Isolated E2E hotel is missing for synthetic AI report fixture');
+    }
+
+    $reportDate = '2026-05-17';
+    $tenantId = (int)($hotel['tenant_id'] ?? 0);
+    $userId = (int)getenv('SUXI_E2E_USER_ID');
+    $sourceRows = Db::name('online_daily_data')
+        ->where('system_hotel_id', $hotelId)
+        ->where('data_date', $reportDate)
+        ->where('source', 'ctrip')
+        ->where('ingestion_method', 'isolated_e2e_fixture')
+        ->order('id', 'asc')
+        ->column('id');
+    $sourceRowIds = array_values(array_filter(array_map('intval', $sourceRows), static fn(int $id): bool => $id > 0));
+    if (count($sourceRowIds) < 2) {
+        throw new RuntimeException('Synthetic AI report fixture requires the isolated Ctrip input rows first');
+    }
+
+    $resultVersion = hash('sha256', implode('|', [$prefix, (string)$hotelId, $reportDate, 'non-formal-report-v1']));
+    $snapshot = [
+        'synthetic' => true,
+        'fixture_scope' => 'isolated_e2e_non_formal_ai_report',
+        'formal_report_generated' => false,
+        'input_trust' => [
+            'readback_verified' => false,
+            'source_rows_readback_verified' => true,
+            'formal_p0_gate_ready' => false,
+            'quality_status' => 'synthetic_unverified',
+            'reason_code' => 'isolated_fixture_has_no_external_p0_verifier_receipt',
+        ],
+        'report_scope' => [
+            'hotel_id' => $hotelId,
+            'report_date' => $reportDate,
+            'source_scope' => 'ctrip_channel_synthetic_fixture',
+            'whole_hotel_conclusions_allowed' => false,
+        ],
+        'result_contract' => [
+            'result_version' => $resultVersion,
+            'evidence_boundary' => 'synthetic_isolated_e2e_only',
+        ],
+        'trial_validation' => [
+            'user_confirmed_useful' => null,
+        ],
+    ];
+    $actions = [[
+        'title' => '核查合成流量下降信号',
+        'action' => '仅验证人工复核界面；不得转成真实执行单。',
+        'reason' => '输入是隔离 E2E 合成数据，且不存在外部 P0 verifier 回执。',
+        'platform' => 'ctrip',
+        'object_type' => 'campaign',
+        'action_type' => 'promotion',
+        'expected_metric' => 'conversion',
+        'expected_delta' => 0.0,
+        'risk_level' => 'medium',
+        'target_value' => [
+            'campaign_type' => 'synthetic_fixture_review',
+            'target_metric' => 'conversion',
+        ],
+        'can_create_execution_intent' => false,
+        'blocked_reason' => 'Synthetic E2E input is not a trusted OTA readback and cannot create an execution intent.',
+    ]];
+    $sourceRefs = [[
+        'ref' => 'online_daily_data.synthetic_e2e',
+        'source' => 'ctrip',
+        'platform' => 'ctrip',
+        'system_hotel_id' => $hotelId,
+        'data_date' => $reportDate,
+        'metric_scope' => 'ctrip_channel_synthetic_fixture',
+        'quality_status' => 'synthetic_unverified',
+        'ingestion_method' => 'isolated_e2e_fixture',
+        'readback_verified' => true,
+        'row_ids' => $sourceRowIds,
+        'summary' => 'Synthetic isolated E2E input; not eligible for a formal operating report.',
+    ]];
+    $now = date('Y-m-d H:i:s');
+
+    $reportId = (int)Db::name('ai_daily_reports')->insertGetId(e2eFilterPayload('ai_daily_reports', [
+        'tenant_id' => $tenantId,
+        'hotel_id' => $hotelId,
+        'report_date' => $reportDate,
+        'status' => 'generated',
+        'generation_mode' => 'synthetic_e2e',
+        'model_key' => '',
+        'model_status' => 'not_requested',
+        'model_message' => 'Synthetic isolated E2E fixture; no formal P0 verifier receipt.',
+        'summary' => '[Synthetic E2E / non-formal] Ctrip channel fixture for judgment and refusal-path verification.',
+        'yesterday_result_json' => json_encode([
+            'report_date' => $reportDate,
+            'source_scope' => 'ctrip_channel_synthetic_fixture',
+            'revenue' => 120000,
+            'orders' => 120,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'abnormal_metrics_json' => json_encode([[
+            'metric' => 'list_exposure',
+            'status' => 'synthetic_signal_only',
+        ]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'competitor_changes_json' => '[]',
+        'data_gaps_json' => json_encode([[
+            'code' => 'formal_dual_ota_p0_verifier_missing',
+            'message' => 'Synthetic fixture has no Meituan and external P0 verifier receipt.',
+        ]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'recommended_actions_json' => json_encode($actions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'source_refs_json' => json_encode($sourceRefs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'snapshot_json' => json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'input_fingerprint' => $resultVersion,
+        'prompt_version' => 'isolated-e2e-non-formal-v1',
+        'created_by' => $userId,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]));
+
+    $stored = Db::name('ai_daily_reports')->where('id', $reportId)->find();
+    $storedSnapshot = is_array($stored)
+        ? json_decode((string)($stored['snapshot_json'] ?? ''), true)
+        : null;
+    if ($reportId <= 0
+        || !is_array($stored)
+        || (int)($stored['hotel_id'] ?? 0) !== $hotelId
+        || (string)($stored['report_date'] ?? '') !== $reportDate
+        || (string)($stored['generation_mode'] ?? '') !== 'synthetic_e2e'
+        || !is_array($storedSnapshot)
+        || ($storedSnapshot['synthetic'] ?? false) !== true
+        || ($storedSnapshot['formal_report_generated'] ?? true) !== false
+        || (($storedSnapshot['input_trust']['readback_verified'] ?? true) !== false)) {
+        throw new RuntimeException('Synthetic AI report fixture exact readback failed');
+    }
+
+    return [
+        'report_id' => $reportId,
+        'hotel_id' => $hotelId,
+        'report_date' => $reportDate,
+        'generation_mode' => 'synthetic_e2e',
+        'formal_report_generated' => false,
+        'input_trust_readback_verified' => false,
+        'persistence_readback_verified' => true,
+        'source_row_ids' => $sourceRowIds,
+        'source_scope' => 'synthetic_isolated_e2e_non_formal_report',
     ];
 }
 
@@ -860,6 +1074,7 @@ try {
             'count' => e2eCount($prefix),
             'seed' => e2eSeed($prefix),
             'seed-ai-report-inputs' => e2eSeedAiReportInputs($prefix),
+            'seed-synthetic-ai-report' => e2eSeedSyntheticAiReport($prefix),
             'verify-temporal-inputs' => e2eVerifyTemporalInputs($prefix),
             'cleanup' => e2eCleanup($prefix),
             default => throw new RuntimeException('Unknown E2E isolation action'),

@@ -80,6 +80,74 @@ final class AiDailyReportOperatingDiagnosisTest extends TestCase
         self::assertSame('blocked_by_data_conflict', $actions[0]['judgment_status']);
     }
 
+    public function testTemporalFactReadFailureBlocksTheFactConflictGateAndAiJudgment(): void
+    {
+        $service = new AiDailyReportService();
+        $snapshot = $this->completeSnapshot();
+        $snapshot['temporal_facts'] = [
+            'status' => 'blocked',
+            'data_status' => 'read_failed',
+            'reason_code' => 'temporal_facts_read_failed',
+            'stage' => 'online_daily_data',
+            'report_date' => '2026-09-20',
+            'metrics' => [],
+        ];
+
+        $diagnosis = $this->invoke($service, 'buildOperatingDiagnosis', [
+            $snapshot,
+            $this->completeReport(),
+        ]);
+        $judgments = $this->byDimension($diagnosis['judgments']);
+
+        self::assertSame('blocked', $diagnosis['conflict_gate']['status']);
+        self::assertContains('all', $diagnosis['conflict_gate']['blocked_dimensions']);
+        self::assertContains(
+            'temporal_facts_read_failed',
+            array_column($diagnosis['conflict_gate']['conflicts'], 'code')
+        );
+        self::assertSame('blocked_by_data_conflict', $judgments['overall']['status']);
+        self::assertSame('blocked_by_data_conflict', $diagnosis['ai_assistance']['status']);
+    }
+
+    public function testTemporalAnchorKeepsReadFailureDistinctFromTrueMissingFact(): void
+    {
+        $readFailure = new AiDailyReportService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            static function (array $hotelIds, int $historyDays, int $futureDays, string $today): array {
+                throw new \RuntimeException('isolated temporal database read failure');
+            }
+        );
+        $blocked = $this->invoke($readFailure, 'loadTemporalFactAnchor', [9, '2026-09-20']);
+        self::assertSame('blocked', $blocked['status']);
+        self::assertSame('read_failed', $blocked['data_status']);
+        self::assertSame('temporal_facts_read_failed', $blocked['reason_code']);
+        self::assertSame('temporal_insight', $blocked['stage']);
+
+        $missingFact = new AiDailyReportService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            static fn(array $hotelIds, int $historyDays, int $futureDays, string $today): array => [
+                'past' => [
+                    'status' => 'empty',
+                    'data_status' => 'empty',
+                    'reason_code' => 'table_missing',
+                    'series' => [],
+                ],
+            ]
+        );
+        $missing = $this->invoke($missingFact, 'loadTemporalFactAnchor', [9, '2026-09-20']);
+        self::assertSame('missing', $missing['status']);
+        self::assertSame('table_missing', $missing['data_status']);
+        self::assertSame('table_missing', $missing['reason_code']);
+    }
+
     public function testRuleReportPersistsConflictGapAndBlocksRelatedRecommendation(): void
     {
         $service = new AiDailyReportService();

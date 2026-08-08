@@ -8,6 +8,7 @@ import {
   summarizeFrontendPerformanceRuns,
 } from './lib/frontend_performance_metrics.mjs';
 import { evaluateFrontendRuntimeBudget } from './lib/frontend_runtime_performance_budget.mjs';
+import { captureFrontendPerformanceIdentity } from './lib/frontend_performance_evidence_identity.mjs';
 
 const options = Object.fromEntries(process.argv.slice(2).map((argument) => {
   const [key, ...rest] = argument.replace(/^--/, '').split('=');
@@ -28,6 +29,8 @@ const settleMs = Math.max(
 );
 const requireVerified = options['require-verified'] === '1';
 const enforceBudget = options['enforce-budget'] === '1';
+const debugDomPatches = options['debug-dom-patches'] === '1'
+  || process.env.SUXI_PERFORMANCE_DEBUG_DOM_PATCHES === '1';
 const maxMeasurementAttempts = 2;
 const outputDir = path.resolve('output', 'performance');
 const credentialUsername = String(process.env.E2E_USERNAME || '').trim();
@@ -70,8 +73,38 @@ async function measureRun(browser, runIndex) {
       await cdp.send('Network.enable');
       await cdp.send('Network.emulateNetworkConditions', networkProfile.conditions);
     }
-    await page.addInitScript(() => {
+    await page.addInitScript(({ debugDomPatches }) => {
       window.__SUXI_PERFORMANCE = { lcp: null, longTasks: [] };
+      if (debugDomPatches) {
+        const originalSetAttribute = Element.prototype.setAttribute;
+        Element.prototype.setAttribute = function setAttributeWithDiagnostics(name, value) {
+          try {
+            return originalSetAttribute.call(this, name, value);
+          } catch (error) {
+            const details = {
+              tag: String(this?.tagName || '').slice(0, 80),
+              id: String(this?.id || '').slice(0, 120),
+              class_name: typeof this?.className === 'string' ? this.className.slice(0, 240) : '',
+              attribute: String(name || '').slice(0, 120),
+              value_type: typeof value,
+              null_prototype: false,
+              value_keys: [],
+              value_json: '',
+            };
+            try {
+              details.null_prototype = Boolean(value && typeof value === 'object' && Object.getPrototypeOf(value) === null);
+            } catch (_error) {}
+            try {
+              details.value_keys = value && typeof value === 'object' ? Object.keys(value).slice(0, 20) : [];
+            } catch (_error) {}
+            try {
+              details.value_json = JSON.stringify(value)?.slice(0, 400) || '';
+            } catch (_error) {}
+            console.error('[SUXIOS] DOM attribute patch failure:', JSON.stringify(details));
+            throw error;
+          }
+        };
+      }
       try {
         new PerformanceObserver((list) => {
           const entries = list.getEntries();
@@ -87,7 +120,7 @@ async function measureRun(browser, runIndex) {
           })));
         }).observe({ type: 'longtask', buffered: true });
       } catch (_error) {}
-    });
+    }, { debugDomPatches });
 
     await page.goto(baseURL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     let authTransitionMs = null;
@@ -218,6 +251,7 @@ async function measureRunWithRetry(runIndex) {
 }
 
 const startedAt = new Date().toISOString();
+const artifactIdentityStarted = captureFrontendPerformanceIdentity();
 const runs = [];
 for (let runIndex = 1; runIndex <= iterations; runIndex += 1) {
   const run = await measureRunWithRetry(runIndex);
@@ -229,6 +263,8 @@ for (let runIndex = 1; runIndex <= iterations; runIndex += 1) {
 
 const aggregate = summarizeFrontendPerformanceRuns(runs);
 const firstRun = runs[0] || {};
+const completedAt = new Date().toISOString();
+const artifactIdentityCompleted = captureFrontendPerformanceIdentity();
 const result = {
   schema_version: 2,
   label,
@@ -243,6 +279,10 @@ const result = {
   authentication_blocker: firstRun.authentication_blocker || null,
   startup_diagnostics: firstRun.startup_diagnostics || [],
   started_at: startedAt,
+  completed_at: completedAt,
+  artifact_identity: artifactIdentityStarted,
+  artifact_identity_completed_digest: artifactIdentityCompleted.digest,
+  artifact_identity_stable: artifactIdentityStarted.digest === artifactIdentityCompleted.digest,
   network_profile: networkProfile.name,
   auth_transition_ms: firstRun.auth_transition_ms ?? null,
   login_handoff: firstRun.login_handoff || null,

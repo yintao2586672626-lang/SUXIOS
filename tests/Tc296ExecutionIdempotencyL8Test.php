@@ -171,6 +171,48 @@ final class Tc296ExecutionIdempotencyL8Test extends TestCase
         ];
     }
 
+    public function testEvidenceReplayIsIdempotentAndTypeOnlyEvidenceIsRejected(): void
+    {
+        $taskId = $this->seedApprovedExecutionTask('DX-2399');
+        $service = new OperationManagementService();
+        $service->executeExecutionTask(
+            $taskId,
+            [self::HOTEL_ID],
+            $this->executionInput('DX-2399', self::factors('authorized', 'complete', 'fresh', 'success')),
+            self::OPERATOR_ID
+        );
+        $initialCount = (int)Db::name('operation_execution_evidence')->where('task_id', $taskId)->count();
+
+        try {
+            $service->addExecutionEvidence($taskId, [self::HOTEL_ID], ['evidence_type' => 'manual'], self::OPERATOR_ID);
+            self::fail('Evidence type without real evidence content must be rejected.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('content is required', $exception->getMessage());
+        }
+        self::assertSame($initialCount, (int)Db::name('operation_execution_evidence')->where('task_id', $taskId)->count());
+
+        $input = [
+            'evidence_type' => 'manual_followup',
+            'evidence' => [
+                'after' => ['status' => 'checked', 'count' => 0],
+                'remark' => 'same normalized follow-up evidence',
+            ],
+        ];
+        $created = $service->addExecutionEvidence($taskId, [self::HOTEL_ID], $input, self::OPERATOR_ID);
+        $replayed = $service->addExecutionEvidence($taskId, [self::HOTEL_ID], $input, self::OPERATOR_ID);
+
+        self::assertTrue($created['evidence_write']['created']);
+        self::assertFalse($created['evidence_write']['replayed']);
+        self::assertFalse($replayed['evidence_write']['created']);
+        self::assertTrue($replayed['evidence_write']['replayed']);
+        self::assertSame($created['evidence_write']['evidence_id'], $replayed['evidence_write']['evidence_id']);
+        self::assertSame($created['evidence_write']['fingerprint'], $replayed['evidence_write']['fingerprint']);
+        self::assertSame(
+            $initialCount + 1,
+            (int)Db::name('operation_execution_evidence')->where('task_id', $taskId)->count()
+        );
+    }
+
     private static function createSchema(): void
     {
         Db::execute('CREATE TABLE operation_execution_intents (

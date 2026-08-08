@@ -42,7 +42,8 @@ final class CtripTemporalRefreshServiceTest extends TestCase
                 ];
             },
             static fn(): array => ['id' => 25],
-            $payloads
+            $payloads,
+            static fn(): array => []
         );
 
         $result = $service->refresh(
@@ -106,7 +107,8 @@ final class CtripTemporalRefreshServiceTest extends TestCase
                 ];
             },
             static fn(): array => ['id' => 25],
-            $payloads
+            $payloads,
+            static fn(): array => []
         );
 
         $result = $service->refresh(
@@ -213,6 +215,86 @@ final class CtripTemporalRefreshServiceTest extends TestCase
         self::assertSame('blocked', $result['status']);
         self::assertSame('ctrip_dispatch_observation_not_current', $result['reason_code']);
         self::assertSame(0, $calls);
+    }
+
+    public function testPreviewReadFailureBlocksWithoutStartingCapture(): void
+    {
+        $calls = 0;
+        $now = new DateTimeImmutable(
+            'now',
+            new DateTimeZone('Asia/Shanghai')
+        );
+        $payloads = new CtripTemporalNotificationPayloadService(
+            static function (): array {
+                throw new \RuntimeException('simulated_preview_read_failure');
+            }
+        );
+        $service = new CtripTemporalRefreshService(
+            static function () use (&$calls): array {
+                $calls++;
+                return [];
+            },
+            static fn(): array => ['id' => 25],
+            $payloads,
+            static fn(): array => []
+        );
+
+        $result = $service->refresh(
+            (object)['id' => 7],
+            9,
+            80,
+            'Dunhuang Molan',
+            $now->format('Y-m-d'),
+            $now
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertSame(
+            'ctrip_temporal_preview_read_failed',
+            $result['reason_code']
+        );
+        self::assertSame(0, $calls);
+        self::assertFalse($result['readback_verified']);
+    }
+
+    public function testDailyAttemptReadFailureBlocksWithoutStartingCapture(): void
+    {
+        $calls = 0;
+        $now = new DateTimeImmutable(
+            'now',
+            new DateTimeZone('Asia/Shanghai')
+        );
+        $payloads = new CtripTemporalNotificationPayloadService(
+            static fn(): array => []
+        );
+        $service = new CtripTemporalRefreshService(
+            static function () use (&$calls): array {
+                $calls++;
+                return [];
+            },
+            static fn(): array => ['id' => 25],
+            $payloads,
+            static function (): array {
+                throw new \RuntimeException('simulated_attempt_read_failure');
+            }
+        );
+
+        $result = $service->refresh(
+            (object)['id' => 7],
+            9,
+            80,
+            'Dunhuang Molan',
+            $now->format('Y-m-d'),
+            $now
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertSame(
+            'ctrip_daily_flow_attempts_read_failed',
+            $result['reason_code']
+        );
+        self::assertSame(0, $calls);
+        self::assertFalse($result['readback_verified']);
     }
 
     /** @return array<string, mixed> */

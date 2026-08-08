@@ -32,6 +32,18 @@ class OtaStandard extends Base
         try {
             $dataset = (new OtaStandardEtlService())->buildDataset($this->filters());
             if ($dataset['status'] === 'empty') {
+                if ($this->truthy($this->request->param('include_missing_state', false))) {
+                    return $this->success([
+                        'status' => 'data_missing',
+                        'metric_scope' => 'ota_channel',
+                        'formal_metrics_available' => false,
+                        'data_quality' => $dataset['data_quality'] ?? [],
+                        'data_gaps' => [[
+                            'code' => 'ota_rows_missing',
+                            'message' => 'No OTA rows matched the requested scope.',
+                        ]],
+                    ], 'No OTA rows matched the requested scope.');
+                }
                 return $this->error('No OTA rows matched the requested scope.', 422, $dataset['data_quality'] ?? []);
             }
             $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);

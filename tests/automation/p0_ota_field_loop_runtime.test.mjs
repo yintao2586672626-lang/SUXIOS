@@ -1,9 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import {
+  buildPhpBinaryCandidates,
+  isBusinessChainRuntimeRequired,
+  resolvePhpBinary,
+} from '../../scripts/run_node_automation_tests.mjs';
 
-const php = 'C:\\xampp\\php\\php.exe';
+const phpCandidates = buildPhpBinaryCandidates();
+const php = resolvePhpBinary(phpCandidates);
+const runtimeRequired = isBusinessChainRuntimeRequired();
 const shanghaiToday = () => {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Shanghai',
@@ -34,6 +40,19 @@ function gateFailure(result) {
   });
 }
 
+function failOrSkipRuntime(t, reason, required = runtimeRequired) {
+  if (required) {
+    assert.fail(`${reason}; P0 OTA runtime assertions are required when CI=true or SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME=1`);
+  }
+  t.skip(reason);
+  return true;
+}
+
+function requirePhpRuntime(t, required = runtimeRequired) {
+  if (php) return false;
+  return failOrSkipRuntime(t, `PHP executable is unavailable; checked: ${phpCandidates.join(', ')}`, required);
+}
+
 function runVerifier(args) {
   const result = spawnSync(php, [
     'scripts/verify_p0_ota_field_loop_closure.php',
@@ -56,10 +75,7 @@ function runVerifier(args) {
 }
 
 test('Ctrip-only P0 field-loop verifier reports the current gate state truthfully', (t) => {
-  if (!existsSync(php)) {
-    t.skip(`${php} is not available`);
-    return;
-  }
+  if (requirePhpRuntime(t)) return;
 
   const result = runVerifier([
     `--date=${runtimeDate}`,
@@ -85,10 +101,7 @@ test('Ctrip-only P0 field-loop verifier reports the current gate state truthfull
 });
 
 test('All-platform P0 field-loop verifier reports the current gate state truthfully', (t) => {
-  if (!existsSync(php)) {
-    t.skip(`${php} is not available`);
-    return;
-  }
+  if (requirePhpRuntime(t)) return;
 
   const result = runVerifier([
     `--date=${runtimeDate}`,
@@ -113,4 +126,14 @@ test('All-platform P0 field-loop verifier reports the current gate state truthfu
   assert.ok(Number(meituan?.target_date_rows || 0) > 0);
   assert(!issueCodes.includes('meituan_traffic_evidence_availability_incomplete'));
   assert(!issueCodes.includes('live_closure_incomplete'));
+});
+
+test('P0 OTA runtime availability fails closed when complete verification is required', () => {
+  const skipped = [];
+  assert.equal(failOrSkipRuntime({ skip: (reason) => skipped.push(reason) }, 'missing PHP', false), true);
+  assert.equal(skipped.length, 1);
+  assert.throws(
+    () => failOrSkipRuntime({ skip() {} }, 'missing PHP', true),
+    /P0 OTA runtime assertions are required/,
+  );
 });

@@ -261,7 +261,7 @@ test('Ctrip and Qunar order estimates stay unavailable during the 00:00-08:00 up
   assert.equal(historical.status, 'derived');
 });
 
-test('Ctrip tables group order, traffic, and review columns by business meaning', () => {
+test('Ctrip sales table follows the flat one-row scan pattern used by the traffic table', () => {
   const salesStart = ctripTemplate.indexOf('<!-- 销售与订单表格 -->');
   const trafficStart = ctripTemplate.indexOf('<!-- 流量与转化表格 -->');
   const trafficEnd = ctripTemplate.indexOf('<!-- 榜单与排名表格 -->', trafficStart);
@@ -271,16 +271,18 @@ test('Ctrip tables group order, traffic, and review columns by business meaning'
   const rankTable = ctripTemplate.slice(trafficEnd, rankEnd);
 
   assert.equal((ctripTemplate.match(/ctrip-sales-table-wrap/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/class="ctrip-sales-groups"/g) || []).length, 2);
+  assert.doesNotMatch(ctripTemplate, /class="ctrip-sales-groups"/);
   assert.equal((ctripTemplate.match(/class="ctrip-rank-groups"/g) || []).length, 2);
   assert.equal((ctripTemplate.match(/class="ctrip-rank-head"/g) || []).length, 2);
   assert.equal((ctripTemplate.match(/class="ctrip-rank-table/g) || []).length, 2);
   assert.equal((ctripTemplate.match(/榜单与排名/g) || []).length, 4);
-  assert.equal((ctripTemplate.match(/v-for="group in ctripSalesColumnGroups"/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/v-for="column in ctripSalesMetricColumns"/g) || []).length, 2);
+  assert.doesNotMatch(ctripTemplate, /v-for="group in ctripSalesColumnGroups"/);
+  assert.equal((ctripTemplate.match(/v-for="column in ctripSalesMetricColumns"/g) || []).length, 4);
+  assert.doesNotMatch(ctripTemplate, /ctripSalesMetricColumns\.slice\(0, 4\)/);
+  assert.doesNotMatch(ctripTemplate, /ctrip-sales-breakdown-(?:cell|grid|item|label|value|note)/);
   assert.equal((ctripTemplate.match(/ctripTrafficChannelCellTitle\(hotel, column\)/g) || []).length, 2);
   assert.equal((ctripTemplate.match(/class="ctrip-sales-state">缺来源/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/<div :title="hotel\.hotelName">\{\{ hotel\.hotelName \}\}<\/div>/g) || []).length, 2);
+  assert.equal((ctripTemplate.match(/<div :title="hotel\.hotelName \+ ' · 酒店ID ' \+ hotel\.hotelId">\{\{ hotel\.hotelName \}\}<\/div>/g) || []).length, 2);
   assert.equal((ctripTemplate.match(/携程 eBooking 数据基石/g) || []).length, 1);
   assert.match(ctripTemplate, /class="ctrip-workspace-tabs[^\"]*flex-nowrap[^\"]*overflow-x-auto/);
   assert.match(ctripTemplate, /class="ctrip-workspace-status[^\"]*grid-cols-2[^\"]*xl:grid-cols-4/);
@@ -297,9 +299,9 @@ test('Ctrip tables group order, traffic, and review columns by business meaning'
   assert.doesNotMatch(salesTable, /携程点评分|去哪儿点评分/);
   assert.doesNotMatch(salesTable, /平均房价指数\(ARI\)|综合竞争力指数\(SCI\)|hotel\.ariText|hotel\.sciText/);
   assert.equal((ctripTemplate.match(/<td v-for="column in ctripSalesOrderColumns"/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/font-mono text-xs font-semibold text-gray-500/g) || []).length, 2);
+  assert.doesNotMatch(ctripTemplate, /font-mono text-xs font-semibold text-gray-500/);
   assert.equal((ctripTemplate.match(/<td class="px-3 py-2 border text-center font-semibold">\{\{ formatOptionalNumber\(hotel\.bookOrderNum\) \}\}<\/td>/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/:class="\[ctripTrafficChannelCellClass\(hotel, column\), 'font-semibold'\]"/g) || []).length, 2);
+  assert.equal((ctripTemplate.match(/:class="\['ctrip-sales-order-cell', ctripTrafficChannelCellClass\(hotel, column\)\]"/g) || []).length, 2);
 
   assert.match(rankTable, /竞争力[\s\S]*榜单排名[\s\S]*平均房价指数\(ARI\)[\s\S]*综合竞争力指数\(SCI\)/);
   assert.match(rankTable, /sortCtripTable\('ari'\)[\s\S]*sortCtripTable\('sci'\)/);
@@ -328,13 +330,8 @@ test('Ctrip tables group order, traffic, and review columns by business meaning'
     assert.ok(position > previous, `${label} should follow the preceding derived column`);
     previous = position;
   });
-  const groupDefinitions = appMain.slice(
-    appMain.indexOf('const ctripSalesColumnGroups', salesColumnStart),
-    appMain.indexOf('const ctripSalesMetricColumns', salesColumnStart),
-  );
-  assert.match(groupDefinitions, /大数据抓取[\s\S]*span: 4[\s\S]*AI推理[\s\S]*span: 4/);
-  assert.doesNotMatch(groupDefinitions, /AI预计/);
-  assert.doesNotMatch(groupDefinitions, /竞争力/);
+  assert.match(salesColumnDefinitions, /const ctripSalesColumnGroups = \[\];/);
+  assert.match(salesColumnDefinitions, /tableLabel: '携程APP订单'[\s\S]*tableLabel: '去哪儿订单'[\s\S]*tableLabel: '其他渠道订单'/);
   const metricDefinitions = appMain.slice(
     appMain.indexOf('const ctripSalesMetricColumns', salesColumnStart),
     salesColumnEnd,
@@ -346,6 +343,7 @@ test('Ctrip tables group order, traffic, and review columns by business meaning'
     previous = position;
   });
   assert.match(metricDefinitions, /field: 'totalOrderIncludingCancelledEstimate'/);
+  assert.match(metricDefinitions, /tableLabel: '含取消总单'/);
   assert.match(metricDefinitions, /总平台订单 ÷ 0\.75[\s\S]*0\.725[\s\S]*0\.7/);
   assert.doesNotMatch(metricDefinitions, /field: 'fullChannelRoomNightsEstimate'/);
   assert.doesNotMatch(metricDefinitions, /平均房价指数\(ARI\)|综合竞争力指数\(SCI\)/);
@@ -422,21 +420,25 @@ test('Ctrip tables group order, traffic, and review columns by business meaning'
   assert.doesNotMatch(appMain, /`≈ \$\{formatOptionalNumber\(value\)\}`/);
   assert.equal((ctripTemplate.match(/class="ctrip-sales-table[^\n]+style="width:100%;table-layout:fixed"/g) || []).length, 2);
   assert.equal((ctripTemplate.match(/class="ctrip-rank-table[^\n]+style="width:100%;table-layout:fixed"/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/style="width:96px">酒店ID/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/style="width:96px">\{\{ hotel\.hotelId \}\}/g) || []).length, 2);
+  assert.doesNotMatch(ctripTemplate, />酒店ID<\/th>|>酒店ID<\/td>/);
+  assert.equal((ctripTemplate.match(/' · 酒店ID ' \+ hotel\.hotelId/g) || []).length, 2);
   assert.doesNotMatch(ctripTemplate, /min-width:1470px/);
-  assert.equal((ctripTemplate.match(/style="position:sticky;left:0;width:54px;z-index:5"/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/style="position:sticky;left:54px;width:248px;z-index:5">酒店名称/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/style="position:sticky;left:54px;width:248px;z-index:2;background:inherit"/g) || []).length, 2);
+  assert.doesNotMatch(salesTable, /position:sticky|rowspan="2"|colspan=/);
   assert.equal((ctripTemplate.match(/hasDisplayValue\(hotel\.(?:amount|adr)\) \? formatNumber\(Math\.round\(Number\(hotel\.(?:amount|adr)\)\)\) : '-'/g) || []).length, 4);
   assert.doesNotMatch(salesTable, /'¥' \+ formatNumber\(Math\.round\(Number\(hotel\.(?:amount|adr)\)\)\)/);
-  assert.match(styleSource, /\.suxi-app-shell main \.ctrip-sales-head > th[\s\S]*?\.ctrip-rank-head > th[\s\S]*?white-space: normal[\s\S]*?overflow-wrap: anywhere/);
+  assert.equal((appMain.match(/tableLabel: '(?:含取消总单|携程APP订单|去哪儿订单|其他渠道订单)'/g) || []).length, 4);
+  assert.doesNotMatch(appMain, /shortLabel: '(?:携程APP|去哪儿|其他渠道)'/);
   assert.match(styleSource, /\.ctrip-sales-table :where\(th, td\)[\s\S]*?border-right: 1px solid #cfd9e5 !important/);
   assert.match(styleSource, /\.ctrip-sales-table tbody td \{[\s\S]*?text-align: center !important/);
-  assert.match(styleSource, /\.ctrip-sales-table \.ctrip-sales-head > th:nth-child\(5\)[\s\S]*?\.ctrip-sales-table tbody td:nth-child\(8\)[\s\S]*?border-left: 1px solid #bcc8d5 !important/);
-  assert.doesNotMatch(styleSource, /\.ctrip-sales-table \.ctrip-sales-head > th:nth-child\(4\)[\s\S]*?\.ctrip-sales-table tbody td:nth-child\(7\)/);
-  assert.match(styleSource, /\.ctrip-sales-table \{[\s\S]*?min-width: 1380px;[\s\S]*?table-layout: auto !important/);
-  assert.match(styleSource, /@media \(max-width: 1100px\)[\s\S]*?\.ctrip-sales-table \{ min-width: 1380px; \}[\s\S]*?\.ctrip-rank-table \{ min-width: 1040px; \}/);
+  assert.doesNotMatch(styleSource, /\.ctrip-sales-groups|\.ctrip-sales-table \.ctrip-sales-head > th:nth-child\(5\)/);
+  assert.match(styleSource, /\.ctrip-sales-table \{[\s\S]*?width: 100% !important;[\s\S]*?min-width: 0;[\s\S]*?table-layout: fixed !important/);
+  assert.doesNotMatch(styleSource, /\.ctrip-sales-table \{[\s\S]*?table-layout: auto !important/);
+  assert.match(styleSource, /\.ctrip-sales-col-hotel \{ width: auto; \}[\s\S]*?\.ctrip-sales-col-amount \{ width: 90px; \}[\s\S]*?\.ctrip-sales-col-ctripUndistributedOrderEstimate \{ width: 100px; \}/);
+  assert.doesNotMatch(styleSource, /\.ctrip-sales-breakdown-(?:grid|item|label|value|note)/);
+  assert.match(styleSource, /\.ctrip-sales-flat-note \{[\s\S]*?white-space: normal/);
+  assert.match(styleSource, /\.suxi-app-shell main \.ctrip-sales-head > th \{[\s\S]*?border-top: 3px solid #b9975b !important;[\s\S]*?font-size: 11px/);
+  assert.match(styleSource, /@media \(max-width: 1100px\)[\s\S]*?\.ctrip-rank-table \{ min-width: 1040px; \}/);
+  assert.match(styleSource, /@media \(max-width: 940px\)[\s\S]*?\.ctrip-sales-table \{ min-width: 920px; \}/);
   assert.match(styleSource, /\.ctrip-sales-table tbody td:nth-child\(2\) > div[\s\S]*?-webkit-line-clamp: 2/);
 });
 

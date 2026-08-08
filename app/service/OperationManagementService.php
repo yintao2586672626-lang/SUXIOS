@@ -19,6 +19,8 @@ class OperationManagementService
     private ExecutionOutcomeService $executionOutcomeService;
     private ExecutionFlowReadService $executionFlowReadService;
     private OperationOptimizationReviewService $operationOptimizationReviewService;
+    /** @var null|callable(int,int,string,string):array<string,mixed> */
+    private $temporalForecastReadbackResolver;
 
     private const EXECUTION_CREDENTIAL_KEYS = [
         'authorization' => true,
@@ -53,7 +55,8 @@ class OperationManagementService
         ?RevenuePricingRecommendationService $pricingRecommendationService = null,
         ?ExecutionOutcomeService $executionOutcomeService = null,
         ?ExecutionFlowReadService $executionFlowReadService = null,
-        ?OperationOptimizationReviewService $operationOptimizationReviewService = null
+        ?OperationOptimizationReviewService $operationOptimizationReviewService = null,
+        ?callable $temporalForecastReadbackResolver = null
     )
     {
         $this->pricingRecommendationService = $pricingRecommendationService ?? new RevenuePricingRecommendationService();
@@ -62,6 +65,7 @@ class OperationManagementService
             ?? new ExecutionFlowReadService($this->executionOutcomeService);
         $this->operationOptimizationReviewService = $operationOptimizationReviewService
             ?? new OperationOptimizationReviewService();
+        $this->temporalForecastReadbackResolver = $temporalForecastReadbackResolver;
     }
 
     /**
@@ -2295,17 +2299,95 @@ class OperationManagementService
             'created_by' => $userId,
             'created_at' => date('Y-m-d H:i:s'),
         ];
-        if ($payload['evidence_type'] === 'compensation_receipt') {
-            $this->assertCompensationReceiptIsCurrentAndComplete($task, $payload['platform_response']);
+        if (!$this->hasMeaningfulExecutionEvidence($this->executionEvidenceContent($payload))) {
+            throw new \InvalidArgumentException('execution evidence content is required');
         }
         if ($isRevenueNodeCheck
             && (($payload['platform_response']['node_record']['contract_version'] ?? '') !== 'operation_revenue_node.v2')
         ) {
             throw new \InvalidArgumentException('revenue node check requires operation_revenue_node.v2 identity');
         }
-        $this->insertExecutionEvidence($payload);
+        $fingerprint = $this->executionEvidenceFingerprint($payload);
+        $write = Db::transaction(function () use (
+            $taskId,
+            $hotelIds,
+            $intent,
+            $payload,
+            $fingerprint
+        ): array {
+            $lockedTask = $this->executionTaskRow($taskId, $hotelIds, true);
+            if ($lockedTask === null) {
+                throw new \RuntimeException('execution task not found');
+            }
+            $this->assertExecutionTaskIntentIdentity($lockedTask, $intent);
+            $lockedStatus = strtolower(trim((string)($lockedTask['status'] ?? '')));
+            if (!$this->executionEvidenceCanBeAddedAtStatus((string)$payload['evidence_type'], $lockedStatus)) {
+                throw new \InvalidArgumentException('execution task must be executed before evidence can be added');
+            }
 
-        return $this->executionTaskDetail($taskId, $hotelIds);
+            $existingId = $this->matchingExecutionEvidenceId($lockedTask, $fingerprint);
+            if ($existingId > 0) {
+                return ['id' => $existingId, 'created' => false];
+            }
+            if ($payload['evidence_type'] === 'compensation_receipt') {
+                $this->assertCompensationReceiptIsCurrentAndComplete($lockedTask, $payload['platform_response']);
+            }
+
+            return ['id' => $this->insertExecutionEvidence($payload), 'created' => true];
+        });
+
+        $detail = $this->executionTaskDetail($taskId, $hotelIds);
+        $detail['evidence_write'] = [
+            'evidence_id' => (int)$write['id'],
+            'created' => (bool)$write['created'],
+            'replayed' => !(bool)$write['created'],
+            'fingerprint' => $fingerprint,
+        ];
+        return $detail;
+    }
+
+    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    private function executionEvidenceContent(array $payload): array
+    {
+        return [
+            'before' => $payload['before'] ?? [],
+            'after' => $payload['after'] ?? [],
+            'attachment_path' => trim((string)($payload['attachment_path'] ?? '')),
+            'platform_response' => $payload['platform_response'] ?? [],
+            'remark' => trim((string)($payload['remark'] ?? '')),
+        ];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function executionEvidenceFingerprint(array $payload): string
+    {
+        $stable = [
+            'evidence_type' => strtolower(trim((string)($payload['evidence_type'] ?? 'manual'))),
+            ...$this->executionEvidenceContent($payload),
+        ];
+        return hash('sha256', json_encode(
+            $this->canonicalizeDecisionValue($stable),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
+        ) ?: '{}');
+    }
+
+    /** @param array<string, mixed> $task */
+    private function matchingExecutionEvidenceId(array $task, string $fingerprint): int
+    {
+        $query = Db::name('operation_execution_evidence')
+            ->where('task_id', (int)($task['id'] ?? 0))
+            ->whereNull('deleted_at');
+        if (array_key_exists('tenant_id', $task)) {
+            $query->where('tenant_id', (int)$task['tenant_id']);
+        }
+        $rows = $query->order('id', 'asc')->select()->toArray();
+        foreach ($rows as $row) {
+            $normalized = $this->normalizeExecutionEvidenceRow($row);
+            if (hash_equals($fingerprint, $this->executionEvidenceFingerprint($normalized))) {
+                return (int)($normalized['id'] ?? 0);
+            }
+        }
+        return 0;
     }
 
     private function executionEvidenceCanBeAddedAtStatus(string $evidenceType, string $taskStatus): bool
@@ -2459,6 +2541,13 @@ class OperationManagementService
         $normalizedIntent = $this->normalizeExecutionIntentRow($intentRow);
         $normalizedTask = $this->normalizeExecutionTaskRow($task);
         $normalizedEvidenceRows = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
+        $meaningfulEvidenceRows = array_values(array_filter(
+            $normalizedEvidenceRows,
+            fn(array $row): bool => $this->hasMeaningfulExecutionEvidence($this->executionEvidenceContent($row))
+        ));
+        if ($meaningfulEvidenceRows === []) {
+            throw new \InvalidArgumentException('meaningful execution evidence is required before review');
+        }
         $reviewAvailableAt = $this->executionReviewAvailableAt($normalizedIntent, $normalizedEvidenceRows);
         if ($reviewAvailableAt !== ''
             && ($reviewAvailableTimestamp = strtotime($reviewAvailableAt)) !== false
@@ -2630,6 +2719,27 @@ class OperationManagementService
         }
 
         Db::transaction(function () use ($payload, $taskId, $task, $intent): void {
+            $hotelId = (int)($task['hotel_id'] ?? $intent['hotel_id'] ?? 0);
+            $lockedTaskRow = $this->executionTaskRow($taskId, [$hotelId], true);
+            if ($lockedTaskRow === null) {
+                return;
+            }
+            $this->assertExecutionTaskIntentIdentity($lockedTaskRow, $intent);
+            $lockedTask = $this->normalizeExecutionTaskRow($lockedTaskRow);
+            $currentRows = Db::name('operation_execution_evidence')
+                ->where('task_id', $taskId)
+                ->whereNull('deleted_at')
+                ->order('id', 'desc')
+                ->select()
+                ->toArray();
+            $currentTruth = $this->buildExecutionEvidenceTruth(
+                $intent,
+                $lockedTask,
+                array_map([$this, 'normalizeExecutionEvidenceRow'], $currentRows)
+            );
+            if (($currentTruth['source_verified'] ?? false) === true) {
+                return;
+            }
             $this->insertExecutionEvidence($payload);
             $persistedRows = Db::name('operation_execution_evidence')
                 ->where('task_id', $taskId)
@@ -2639,7 +2749,7 @@ class OperationManagementService
                 ->toArray();
             $truth = $this->buildExecutionEvidenceTruth(
                 $intent,
-                $task,
+                $lockedTask,
                 array_map([$this, 'normalizeExecutionEvidenceRow'], $persistedRows)
             );
             if (($truth['source_verified'] ?? false) !== true) {
@@ -3206,14 +3316,22 @@ class OperationManagementService
         }
 
         try {
-            $actual = (new TemporalInsightService())->forecastActualReadback(
-                $forecastPointId,
-                $hotelId,
-                $metricKey,
-                $targetDate
-            );
-        } catch (Throwable) {
-            return null;
+            $actual = $this->temporalForecastReadbackResolver !== null
+                ? (array)call_user_func(
+                    $this->temporalForecastReadbackResolver,
+                    $forecastPointId,
+                    $hotelId,
+                    $metricKey,
+                    $targetDate
+                )
+                : (new TemporalInsightService())->forecastActualReadback(
+                    $forecastPointId,
+                    $hotelId,
+                    $metricKey,
+                    $targetDate
+                );
+        } catch (Throwable $e) {
+            throw new \RuntimeException('temporal_forecast_readback_failed', 503, $e);
         }
         if (($actual['status'] ?? '') !== 'ready'
             || (string)($actual['forecast_run_id'] ?? '') !== (string)($forecastRef['forecast_run_id'] ?? '')
@@ -4709,17 +4827,20 @@ class OperationManagementService
         return is_array($row) ? $row : null;
     }
 
-    private function executionTaskRow(int $id, array $hotelIds): ?array
+    private function executionTaskRow(int $id, array $hotelIds, bool $lock = false): ?array
     {
         if ($id <= 0 || empty($hotelIds)) {
             return null;
         }
 
-        $row = Db::name('operation_execution_tasks')
+        $query = Db::name('operation_execution_tasks')
             ->where('id', $id)
             ->whereIn('hotel_id', $hotelIds)
-            ->whereNull('deleted_at')
-            ->find();
+            ->whereNull('deleted_at');
+        if ($lock) {
+            $query->lock(true);
+        }
+        $row = $query->find();
 
         return is_array($row) ? $row : null;
     }
@@ -4888,11 +5009,11 @@ class OperationManagementService
         return is_array($sanitized) ? $sanitized : [];
     }
 
-    private function insertExecutionEvidence(array $payload): void
+    private function insertExecutionEvidence(array $payload): int
     {
         $this->assertExecutionPayloadHasNoCredentialMaterial($payload);
         $taskId = (int)$payload['task_id'];
-        Db::name('operation_execution_evidence')->insert($this->withExecutionTaskTenantId([
+        $id = (int)Db::name('operation_execution_evidence')->insertGetId($this->withExecutionTaskTenantId([
             'task_id' => $taskId,
             'evidence_type' => (string)$payload['evidence_type'],
             'before_json' => json_encode($payload['before'] ?? [], JSON_UNESCAPED_UNICODE),
@@ -4904,6 +5025,10 @@ class OperationManagementService
             'created_at' => (string)($payload['created_at'] ?? date('Y-m-d H:i:s')),
             'updated_at' => date('Y-m-d H:i:s'),
         ], 'operation_execution_evidence', $taskId));
+        if ($id <= 0) {
+            throw new \RuntimeException('execution evidence save failed: missing evidence id');
+        }
+        return $id;
     }
 
     private function buildExecutionEvidencePlatformResponse(

@@ -366,6 +366,11 @@ test('Ctrip Profile probe uses login-state endpoint instead of starting a captur
   assert.match(profileProbeAction, /\/online-data\/ctrip-profile-status/);
   assert.match(profileProbeAction, /probe_login:\s*'1'/);
   assert.match(profileProbeAction, /const dataSourceId = Number\(item\?\.data_source_id \|\| item\?\.dataSourceId \|\| 0\)/);
+  assert.match(profileProbeAction, /if \(!Number\.isInteger\(dataSourceId\) \|\| dataSourceId <= 0\) \{[\s\S]*?return;/);
+  assert.ok(
+    profileProbeAction.indexOf('if (!Number.isInteger(dataSourceId) || dataSourceId <= 0)')
+      < profileProbeAction.indexOf('await request(`/online-data/ctrip-profile-status')
+  );
   assert.match(profileProbeAction, /params\.set\('data_source_id', String\(dataSourceId\)\)/);
   assert.doesNotMatch(profileProbeAction, /runCtripBrowserCapture\(\{ loginOnly: true \}\)/);
 });

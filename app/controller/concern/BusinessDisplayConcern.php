@@ -3518,7 +3518,15 @@ trait BusinessDisplayConcern
                 $this->ctripBusinessSummaryCard('avgAri', '平均房价指数(ARI)', $avgAri > 0 ? number_format($avgAri, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200', $ariLevel),
                 $this->ctripBusinessSummaryCard('avgSci', '商圈综合竞争力指数(SCI)', $avgSci > 0 ? number_format($avgSci, 0, '.', ',') : '-', 'text-cyan-600', 'bg-cyan-50 border border-cyan-200', $sciLevel),
                 $this->ctripBusinessSummaryCard('totalDetailNum', '携程APP总访客量', $totalDetailNumReturned ? number_format($totalDetailNum) : '未返回', 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
-                $this->ctripBusinessSummaryCard('totalQunarDetailVisitors', '去哪儿总访客量', $totalQunarDetailVisitorsReturned && $totalQunarDetailVisitors > 0 ? number_format($totalQunarDetailVisitors) : '数据不足', 'text-teal-600', 'bg-teal-50 border border-teal-200'),
+                $this->ctripBusinessSummaryCard(
+                    'totalQunarDetailVisitors',
+                    '去哪儿总访客量',
+                    !$totalQunarDetailVisitorsReturned
+                        ? '未返回'
+                        : ($totalQunarDetailVisitors > 0 ? number_format($totalQunarDetailVisitors) : '数据不足'),
+                    'text-teal-600',
+                    'bg-teal-50 border border-teal-200'
+                ),
                 $this->ctripBusinessSummaryCard('trafficValue', '流量价值效率', $trafficInputReturned && $trafficValue > 0 ? '¥' . number_format($trafficValue, 2, '.', ',') : '数据不足', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->ctripBusinessSummaryCard('revenueConcentration', '收益集中度', number_format($revenueHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $revenueLevel),
                 $this->ctripBusinessSummaryCard('visitConcentration', '浏览/访客集中度', $totalDetailNumReturned && $totalDetailNum > 0 ? number_format($visitHhi, 2, '.', '') : '数据不足', 'text-orange-600', 'bg-orange-50 border border-orange-200', $totalDetailNumReturned && $totalDetailNum > 0 ? $visitLevel : []),

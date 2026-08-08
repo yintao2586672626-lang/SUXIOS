@@ -155,7 +155,7 @@ test('authenticated interactive readiness is reset and republished for every log
   );
 });
 
-test('authenticated startup paints the home render before loading the full render', () => {
+test('authenticated startup keeps the full render off the network until a non-startup page needs it', () => {
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'vue\.runtime\.global\.prod\.js'/);
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'app-main\.min\.js'/);
   assert.match(bootstrap, /asset\.phase === ASSET_PHASE_STARTUP/);
@@ -171,10 +171,11 @@ test('authenticated startup paints the home render before loading the full rende
     bootstrap,
     /const fullRenderAsset = assets\.find\([\s\S]*?assetBaseName\(asset\.src\) === 'app-render\.min\.js'[\s\S]*?preloadAuthenticatedAsset\(fullRenderAsset, 'high'\)/,
   );
-  assert.match(
-    bootstrap,
-    /await loadScript\(entry\);\s*void loadDeferredAuthenticatedAssets\(\s*assets\.filter\(\(asset\) => asset\.phase === ASSET_PHASE_AFTER_FIRST_PAINT\)/,
-  );
+  const authenticatedLoadStart = bootstrap.indexOf('const loadAuthenticatedApp = () => {');
+  const authenticatedLoadEnd = bootstrap.indexOf('\n\n    const loginMarkup', authenticatedLoadStart);
+  const authenticatedLoad = bootstrap.slice(authenticatedLoadStart, authenticatedLoadEnd);
+  assert.doesNotMatch(authenticatedLoad, /void loadDeferredAuthenticatedAssets\(/);
+  assert.match(authenticatedLoad, /await loadScript\(entry\);/);
   assert.match(appMain, /requestSuxiFullRenderForPage = \(page\) => \{[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS\(\)/);
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
 });
@@ -344,6 +345,24 @@ test('public login reconciles browser autofill before deciding the submit state'
   assert.match(bootstrap, /window\.addEventListener\('focus', scheduleLoginAutofillSync\)/);
   assert.match(bootstrap, /form\.addEventListener\('focusin', scheduleLoginAutofillSync\)/);
   assert.match(bootstrap, /password\.addEventListener\('change', handleInput\)/);
+});
+
+test('public login shell releases global listeners, timers, and warmup after authenticated handoff', () => {
+  assert.match(bootstrap, /let disposeLoginShell = null/);
+  assert.match(bootstrap, /const disposeCurrentLoginShell = \(\) =>/);
+  assert.match(bootstrap, /autofillSyncTimers\.forEach\(\(timer\) => window\.clearTimeout\(timer\)\)/);
+  assert.match(bootstrap, /loginConnectionWarmup\.stop\(\)/);
+  for (const expectedCleanup of [
+    /window\.removeEventListener\('pageshow', scheduleLoginAutofillSync\)/,
+    /window\.removeEventListener\('pageshow', warmLoginConnection\)/,
+    /window\.removeEventListener\('focus', scheduleLoginAutofillSync\)/,
+    /window\.removeEventListener\('focus', warmLoginConnection\)/,
+    /document\.removeEventListener\('visibilitychange', handleLoginVisibilityChange\)/,
+    /window\.removeEventListener\('pagehide', loginConnectionWarmup\.stop\)/,
+  ]) {
+    assert.match(bootstrap, expectedCleanup);
+  }
+  assert.match(bootstrap, /await loadAuthenticatedApp\(\);\s*disposeLoginShell\?\.\(\);/);
 });
 
 test('public login keeps the same-origin transport warm without delaying submit', () => {

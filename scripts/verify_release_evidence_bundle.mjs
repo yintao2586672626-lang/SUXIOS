@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDesignHandoff } from './lib/design_handoff_checks.mjs';
-import { checkLlmConnectivityAttestation } from './lib/llm_attestation_checks.mjs';
+import {
+  checkLlmConnectivityAttestation,
+  resolveGitHead,
+} from './lib/llm_attestation_checks.mjs';
 import { checkOtaCredentialRelease } from './lib/ota_credential_checks.mjs';
 import { checkProductionEnvFile } from './lib/release_env_checks.mjs';
 import { checkSecurityScanReports } from './lib/security_scan_checks.mjs';
@@ -73,6 +76,10 @@ addSection(
   checkLlmConnectivityAttestation({
     repoRoot,
     attestationPath: llmAttestationFile,
+    expectedReleaseCommit: process.env.RELEASE_EXPECTED_HEAD_SHA
+      || resolveGitHead(repoRoot)
+      || 'unresolved',
+    expectedConfigDigest: process.env.LLM_PRODUCTION_CONFIG_DIGEST || '',
   }),
 );
 

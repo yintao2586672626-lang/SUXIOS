@@ -1213,12 +1213,18 @@ trait AutoFetchConcern
         }
     }
 
-    private function listEnabledBrowserProfileDataSources(int $hotelId, string $platform = ''): array
+    private function listEnabledBrowserProfileDataSources(
+        int $hotelId,
+        string $platform = '',
+        bool $useCache = true
+    ): array
     {
         $cacheKey = $this->autoFetchLightProfileSourcesCacheKey($hotelId, $platform);
-        $cached = $this->readAutoFetchLightReadCache($cacheKey);
-        if ($cached !== null) {
-            return $cached;
+        if ($useCache) {
+            $cached = $this->readAutoFetchLightReadCache($cacheKey);
+            if ($cached !== null) {
+                return $cached;
+            }
         }
 
         try {
@@ -1233,10 +1239,17 @@ trait AutoFetchConcern
             }
             $rows = $query->order('id', 'desc')->select()->toArray();
             $safeRows = $this->sanitizeBrowserProfileSourcesForSharedCache($rows);
-            return $this->writeAutoFetchLightReadCache($cacheKey, $safeRows);
+            return $useCache
+                ? $this->writeAutoFetchLightReadCache($cacheKey, $safeRows)
+                : $safeRows;
         } catch (\Throwable $e) {
-            return [];
+            throw $this->browserProfileSourceReadFailure($e);
         }
+    }
+
+    private function browserProfileSourceReadFailure(\Throwable $previous): \RuntimeException
+    {
+        return new \RuntimeException('browser_profile_source_read_failed', 503, $previous);
     }
 
     private function listEnabledCtripBrowserProfileDataSources(int $hotelId): array
@@ -2694,7 +2707,7 @@ trait AutoFetchConcern
                 ->select()
                 ->toArray();
         } catch (\Throwable $e) {
-            return 0;
+            throw $this->browserProfileSourceReadFailure($e);
         }
 
         foreach ($this->sanitizeBrowserProfileSourcesForSharedCache($rows) as $row) {
@@ -2715,7 +2728,9 @@ trait AutoFetchConcern
 
     private function findBrowserProfileDataSourceForUnbind(int $hotelId, string $platform, string $profileKey): ?array
     {
-        $sources = $this->listEnabledBrowserProfileDataSources($hotelId, $platform);
+        // Unbinding is destructive. Always read the authoritative row instead of
+        // trusting a short-lived empty/list cache that could hide a database failure.
+        $sources = $this->listEnabledBrowserProfileDataSources($hotelId, $platform, false);
         if ($profileKey === '') {
             return count($sources) === 1 ? $sources[0] : null;
         }

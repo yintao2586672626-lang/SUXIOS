@@ -12,6 +12,10 @@ function enabled(value) {
   return ['1', 'true'].includes(String(value || '').trim().toLowerCase());
 }
 
+export function isBusinessChainRuntimeRequired(env = process.env) {
+  return enabled(env.CI) || enabled(env[runtimeRequirementEnv]);
+}
+
 export function discoverNodeTests(root) {
   const tests = [];
   const visit = (directory) => {

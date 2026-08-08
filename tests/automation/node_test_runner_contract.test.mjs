@@ -73,11 +73,16 @@ test('package and the isolated CI lane run the complete strict Node automation s
   const playwrightStep = nodeJob.indexOf('- name: Install Playwright Chromium');
   const databaseStep = nodeJob.indexOf('- name: Initialize Node test database');
   const nodeStep = nodeJob.indexOf('- name: Run Node automation tests');
+  const transitionStep = nodeJob.indexOf('- name: Verify full-render page transitions');
 
   assert.equal(packageJson.scripts?.['test:node'], 'node scripts/run_node_automation_tests.mjs');
   assert.equal(
     packageJson.scripts?.['test:node:partial'],
     'node scripts/run_node_automation_tests.mjs --allow-runtime-skip',
+  );
+  assert.equal(
+    packageJson.scripts?.['test:e2e:transition'],
+    'node tests/automation/run-quick-e2e-isolated.mjs --transition-only',
   );
   assert.ok(
     dependencyStep >= 0
@@ -98,6 +103,11 @@ test('package and the isolated CI lane run the complete strict Node automation s
   assert.match(nodeStepSource, /SUXI_E2E_DB_NAME:\s+hotelx_ci_test/);
   assert.match(nodeStepSource, /DB_NAME:\s+hotelx_ci_test/);
   assert.match(nodeStepSource, /run:\s+npm run test:node/);
+  assert.ok(transitionStep > nodeStep, 'the real full-render transition check must run after Node contracts');
+  const transitionStepSource = nodeJob.slice(transitionStep);
+  assert.match(transitionStepSource, /timeout-minutes:\s+4/);
+  assert.match(transitionStepSource, /SUXI_E2E_DB_NAME:\s+hotelx_ci_test/);
+  assert.match(transitionStepSource, /run:\s+npm run test:e2e:transition/);
   assert.doesNotMatch(nodeJob, /test:node:partial|allow-runtime-skip/);
   assert.doesNotMatch(nodeJob, /Run project guards/);
   assert.match(contractsJob, /Run project guards[\s\S]*npm run verify:p0-guards/);

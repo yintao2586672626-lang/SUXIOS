@@ -16,7 +16,8 @@ final class CleanupDormantOtaProfiles extends Command
         $this->setName('online-data:cleanup-dormant-profiles')
             ->addOption('retention-days', null, Option::VALUE_REQUIRED, 'Profile inactivity retention in days; default 30')
             ->addOption('dry-run', null, Option::VALUE_NONE, 'Preview expired OTA credentials and local assets without changing them')
-            ->setDescription('Revoke dormant OTA credentials and remove expired local Profiles or disposable artifacts');
+            ->addOption('execute', null, Option::VALUE_NONE, 'Explicitly revoke dormant credentials and remove expired local assets')
+            ->setDescription('Preview dormant OTA retention by default; execute cleanup only with --execute');
     }
 
     protected function execute(Input $input, Output $output)
@@ -32,15 +33,22 @@ final class CleanupDormantOtaProfiles extends Command
             return 2;
         }
 
+        $execute = (bool)$input->getOption('execute');
+        if ($execute && (bool)$input->getOption('dry-run')) {
+            $output->writeln('dry-run and execute cannot be used together.');
+            return 2;
+        }
+        $dryRun = !$execute;
+
         try {
             $result = (new OtaProfileRetentionService())->cleanup(
                 $days,
-                (bool)$input->getOption('dry-run')
+                $dryRun
             );
         } catch (\Throwable) {
             $output->writeln((string)json_encode([
                 'retention_days' => $days,
-                'dry_run' => (bool)$input->getOption('dry-run'),
+                'dry_run' => $dryRun,
                 'errors' => 1,
                 'error_codes' => ['retention_command_failed'],
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));

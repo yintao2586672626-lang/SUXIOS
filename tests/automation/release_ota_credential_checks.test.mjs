@@ -12,7 +12,10 @@ import {
   checkOtaCredentialRotationAttestation,
   findSensitiveFieldCategories,
 } from '../../scripts/lib/ota_credential_checks.mjs';
-import { checkLlmConnectivityAttestation } from '../../scripts/lib/llm_attestation_checks.mjs';
+import {
+  checkLlmConnectivityAttestation,
+  llmConfigDigest,
+} from '../../scripts/lib/llm_attestation_checks.mjs';
 
 const tempRoots = [];
 
@@ -68,7 +71,8 @@ function validAttestation() {
 }
 
 function validLlmAttestation() {
-  return {
+  const releaseCommitSha = 'd'.repeat(40);
+  const attestation = {
     reviewed_at: new Date().toISOString().slice(0, 10),
     reviewer: 'AI Security Owner',
     environment: 'production',
@@ -76,15 +80,25 @@ function validLlmAttestation() {
     model_key: 'production-default',
     model_name: 'production-model',
     base_url: 'https://api.openai.com/v1',
+    release_commit_sha: releaseCommitSha,
     evidence_ref: 'AI-SEC-1234',
     ai_model_config_enabled: true,
     ai_config_secret_checked: true,
     redaction_checked: true,
+    request: {
+      entrypoint: 'LlmClient',
+    },
     result: {
       status: 'passed',
       response_status: 200,
+      completed_at: new Date().toISOString(),
+      latency_ms: 100,
+      release_commit_sha: releaseCommitSha,
     },
   };
+  attestation.config_digest = llmConfigDigest(attestation);
+  attestation.result.config_digest = attestation.config_digest;
+  return attestation;
 }
 
 test.after(() => {
@@ -337,6 +351,129 @@ test('LLM attestation accepts exact redaction sentinels including Bearer redacti
   const result = checkLlmConnectivityAttestation({ repoRoot: root, attestationPath: file });
 
   assert.doesNotMatch(result.failures.join('\n'), /secret material|unredacted sensitive fields/i);
+});
+
+test('LLM attestation fails closed for stale, future, non-production, commit-unbound, or config-unbound evidence', () => {
+  const root = makeTempRoot();
+  const referenceNow = new Date('2026-08-05T12:00:00Z');
+
+  const cases = [
+    {
+      name: 'stale review',
+      mutate(attestation) {
+        attestation.reviewed_at = '2024-01-01';
+      },
+      expected: /reviewed_at must be within the 30-day release evidence window/i,
+    },
+    {
+      name: 'future completion',
+      mutate(attestation) {
+        attestation.result.completed_at = '2026-08-06T12:00:00Z';
+      },
+      expected: /result\.completed_at must not be in the future/i,
+    },
+    {
+      name: 'staging environment',
+      mutate(attestation) {
+        attestation.environment = 'staging';
+      },
+      expected: /environment must be exactly production/i,
+    },
+    {
+      name: 'different release commit',
+      mutate(attestation) {
+        attestation.release_commit_sha = 'e'.repeat(40);
+        attestation.result.release_commit_sha = attestation.release_commit_sha;
+      },
+      expected: /does not match the selected release commit/i,
+    },
+    {
+      name: 'changed production model config',
+      mutate(attestation) {
+        attestation.model_name = 'unexpected-model-after-smoke-test';
+      },
+      expected: /config_digest does not match provider, model_key, model_name, and base_url/i,
+    },
+    {
+      name: 'result not bound to config',
+      mutate(attestation) {
+        attestation.result.config_digest = 'f'.repeat(64);
+      },
+      expected: /result\.config_digest must match/i,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const attestation = validLlmAttestation();
+    const expectedConfigDigest = attestation.config_digest;
+    attestation.reviewed_at = '2026-08-05';
+    attestation.result.completed_at = '2026-08-05T11:59:00Z';
+    testCase.mutate(attestation);
+    const file = path.join(root, `llm-${testCase.name.replace(/\s+/g, '-')}.json`);
+    fs.writeFileSync(file, `${JSON.stringify(attestation, null, 2)}\n`, 'utf8');
+
+    const result = checkLlmConnectivityAttestation({
+      repoRoot: root,
+      attestationPath: file,
+      expectedReleaseCommit: 'd'.repeat(40),
+      expectedConfigDigest,
+      now: referenceNow,
+    });
+    assert.match(result.failures.join('\n'), testCase.expected, testCase.name);
+    assert.equal(result.passes.length, 0, `${testCase.name} must not produce a passing attestation`);
+  }
+});
+
+test('LLM attestation uses the Shanghai business date and requires an independent production config digest', () => {
+  const root = makeTempRoot();
+  const file = path.join(root, 'llm-shanghai-date-attestation.json');
+  const attestation = validLlmAttestation();
+  const expectedConfigDigest = attestation.config_digest;
+  attestation.reviewed_at = '2026-08-05';
+  attestation.result.completed_at = '2026-08-04T16:29:00Z';
+  fs.writeFileSync(file, `${JSON.stringify(attestation, null, 2)}\n`, 'utf8');
+
+  const valid = checkLlmConnectivityAttestation({
+    repoRoot: root,
+    attestationPath: file,
+    expectedReleaseCommit: 'd'.repeat(40),
+    expectedConfigDigest,
+    now: new Date('2026-08-04T16:30:00Z'),
+  });
+  assert.deepEqual(valid.failures, [], 'Shanghai 2026-08-05 must already be current at 00:30 +08:00');
+  assert.equal(valid.passes.length, 1);
+
+  const missingTrustedDigest = checkLlmConnectivityAttestation({
+    repoRoot: root,
+    attestationPath: file,
+    expectedReleaseCommit: 'd'.repeat(40),
+    now: new Date('2026-08-04T16:30:00Z'),
+  });
+  assert.match(missingTrustedDigest.failures.join('\n'), /trusted config binding cannot be established/i);
+
+  attestation.model_name = 'self-consistent-but-not-trusted-model';
+  attestation.config_digest = llmConfigDigest(attestation);
+  attestation.result.config_digest = attestation.config_digest;
+  fs.writeFileSync(file, `${JSON.stringify(attestation, null, 2)}\n`, 'utf8');
+  const selfConsistentTamper = checkLlmConnectivityAttestation({
+    repoRoot: root,
+    attestationPath: file,
+    expectedReleaseCommit: 'd'.repeat(40),
+    expectedConfigDigest,
+    now: new Date('2026-08-04T16:30:00Z'),
+  });
+  assert.match(selfConsistentTamper.failures.join('\n'), /independently supplied production model config digest/i);
+
+  attestation.reviewed_at = '2026-08-06';
+  fs.writeFileSync(file, `${JSON.stringify(attestation, null, 2)}\n`, 'utf8');
+  const futureBusinessDate = checkLlmConnectivityAttestation({
+    repoRoot: root,
+    attestationPath: file,
+    expectedReleaseCommit: 'd'.repeat(40),
+    expectedConfigDigest: attestation.config_digest,
+    now: new Date('2026-08-04T16:30:00Z'),
+  });
+  assert.match(futureBusinessDate.failures.join('\n'), /reviewed_at must not be in the future/i);
 });
 
 test('malformed attestation errors use fixed safe codes and never echo input', () => {

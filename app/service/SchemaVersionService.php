@@ -21,8 +21,9 @@ final class SchemaVersionService
      * Applied migrations remain immutable by default. These revisions are
      * narrowly allowed because they only added IF NOT EXISTS guards after the
      * original DDL had already been applied, or normalized trailing whitespace
-     * without changing SQL. Both the old and current hashes must match exactly
-     * before the registry can be advanced.
+     * without changing SQL. Both the old and current hashes must match exactly.
+     * The historical registry value is preserved; compatibility must never
+     * rewrite the evidence of which bytes were originally registered.
      *
      * @var array<string, array<string, string>>
      */
@@ -574,7 +575,11 @@ final class SchemaVersionService
         $this->ensureRegistryTable();
         $locked = $this->acquireLock();
         try {
-            $checksumUpgrades = $this->upgradeCompatibleRegisteredChecksums();
+            $checksumSupportedAtStart = $this->registryColumnExists('checksum');
+            // Kept in the result contract for backward compatibility. Applied
+            // migration evidence is immutable, so automatic checksum upgrades
+            // are intentionally never performed.
+            $checksumUpgrades = [];
             $status = $this->status();
             if ($status['version_mismatches'] !== []) {
                 throw new RuntimeException(
@@ -586,6 +591,12 @@ final class SchemaVersionService
                 throw new RuntimeException(
                     'Applied migration contents no longer match their registered checksums: '
                     . implode(', ', $status['checksum_mismatches'])
+                );
+            }
+            if ($checksumSupportedAtStart && $status['missing_checksums'] !== []) {
+                throw new RuntimeException(
+                    'Applied migration checksum evidence is missing and automatic backfill is refused: '
+                    . implode(', ', $status['missing_checksums'])
                 );
             }
             if ($status['baseline_checksum_mismatches'] !== [] || $status['baseline_unknown'] !== []) {
@@ -643,7 +654,12 @@ final class SchemaVersionService
             }
 
             $this->registerMissingBaselineSources();
-            $this->backfillMissingChecksums();
+            // The only automatic backfill allowed is the one-time transition
+            // where this very run introduced the checksum column. If the
+            // column already existed, a blank value is evidence drift.
+            if (!$checksumSupportedAtStart && $this->registryColumnExists('checksum')) {
+                $this->backfillMissingChecksums();
+            }
             $this->resolveRegisteredMigrationFailures();
 
             $finalStatus = $this->status();
@@ -1369,46 +1385,6 @@ final class SchemaVersionService
         $compatibleChecksum = self::COMPATIBLE_MIGRATION_CHECKSUM_REVISIONS[$migration][$registeredChecksum]
             ?? null;
         return is_string($compatibleChecksum) && hash_equals($requiredChecksum, $compatibleChecksum);
-    }
-
-    /** @return list<string> */
-    private function upgradeCompatibleRegisteredChecksums(): array
-    {
-        if (!$this->registryExists() || !$this->registryColumnExists('checksum')) {
-            return [];
-        }
-
-        $catalog = [];
-        foreach (self::migrationCatalog($this->root) as $migration) {
-            $catalog[$migration['migration']] = $migration;
-        }
-        $update = $this->pdo->prepare(
-            'UPDATE schema_versions SET checksum = ? '
-            . 'WHERE migration = ? AND version = ? AND checksum = ?'
-        );
-        $upgraded = [];
-        foreach (self::COMPATIBLE_MIGRATION_CHECKSUM_REVISIONS as $migration => $revisions) {
-            $required = $catalog[$migration] ?? null;
-            if (!is_array($required)) {
-                continue;
-            }
-            foreach ($revisions as $registeredChecksum => $compatibleChecksum) {
-                if (!hash_equals($required['checksum'], $compatibleChecksum)) {
-                    continue;
-                }
-                $update->execute([
-                    $compatibleChecksum,
-                    $migration,
-                    $required['version'],
-                    $registeredChecksum,
-                ]);
-                if ($update->rowCount() > 0) {
-                    $upgraded[] = $migration;
-                }
-            }
-        }
-        sort($upgraded);
-        return $upgraded;
     }
 
     private function backfillMissingChecksums(): void

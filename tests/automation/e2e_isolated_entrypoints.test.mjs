@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+
+const require = createRequire(import.meta.url);
+const {
+  MODULE,
+  classifyRequestFailureText,
+  moduleNavLabel,
+} = require('./e2e-helpers.js');
 
 const packageJson = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
 const isolatedRunner = readFileSync(new URL('./run-quick-e2e-isolated.mjs', import.meta.url), 'utf8');
 const helpers = readFileSync(new URL('./e2e-helpers.js', import.meta.url), 'utf8');
+const businessChains = readFileSync(new URL('./business-chains.spec.js', import.meta.url), 'utf8');
 const fullClick = readFileSync(new URL('./full-click-coverage.spec.js', import.meta.url), 'utf8');
 const publicPageTaskBridge = readFileSync(new URL('./public-page-task-bridge.spec.js', import.meta.url), 'utf8');
 const boundedRunner = readFileSync(new URL('../../scripts/run_full_click_bounded.mjs', import.meta.url), 'utf8');
@@ -22,6 +31,8 @@ test('all package E2E write-capable entrypoints route through the dedicated isol
     'test:e2e:business',
     'test:e2e:temporal',
     'test:e2e:public-page',
+    'test:e2e:transition',
+    'test:e2e:stability',
     'test:e2e:quick',
     'codex:runner',
     'codex:runner:quick',
@@ -35,6 +46,68 @@ test('all package E2E write-capable entrypoints route through the dedicated isol
   assert.match(String(packageJson.scripts?.['test:e2e:full:bounded'] || ''), /run_full_click_bounded\.mjs/);
   assert.match(boundedRunner, /run-quick-e2e-isolated\.mjs/);
   assert.match(boundedRunner, /--full-click-bounded/);
+});
+
+test('every Playwright spec is classified by the isolated runner', () => {
+  for (const spec of [
+    'async-page-guard.spec.js',
+    'business-chains.spec.js',
+    'daily-regression.spec.js',
+    'edge-input-guard.spec.js',
+    'frontend_full_render_transition.spec.js',
+    'full-click-coverage.spec.js',
+    'module-smoke.spec.js',
+    'ota-auth-strong-reminder.spec.js',
+    'public-page-task-bridge.spec.js',
+    'security_monitoring_page.spec.js',
+    'temporal-axis.spec.js',
+  ]) {
+    assert.match(isolatedRunner, new RegExp(spec.replaceAll('.', '\\.')));
+  }
+});
+
+test('E2E navigation follows the current visible boss menu labels', () => {
+  assert.equal(moduleNavLabel(MODULE.DATA_TRUST), '昨日经营闭环');
+  assert.equal(moduleNavLabel(MODULE.AI_DAILY_REPORT), 'AI经营日报');
+  assert.equal(moduleNavLabel(MODULE.EXECUTION_TRACKING), '任务执行与复盘');
+  assert.match(helpers, /for \(let attempt = 0; attempt < 3 && !clicked; attempt \+= 1\)/);
+  assert.doesNotMatch(helpers, /if \(await firstVisibleLocator\(targetLocators\)\) return nav;/);
+  assert.match(helpers, /while \(Date\.now\(\) < deadline\)/);
+  assert.match(helpers, /nav = await navRoot\(page\);/);
+  assert.match(helpers, /A deferred full-render can replace the entire Vue tree between modules/);
+});
+
+test('diagnostics separate intentional browser cancellation from API failure', () => {
+  assert.equal(classifyRequestFailureText('net::ERR_ABORTED'), 'api-error');
+  assert.equal(classifyRequestFailureText('net::ERR_ABORTED', true), 'api-cancelled');
+  assert.equal(classifyRequestFailureText('net::ERR_CONNECTION_RESET'), 'api-error');
+  assert.equal(classifyRequestFailureText(null), 'api-error');
+  assert.match(helpers, /activeReads: new Set\(\), expectedNavigationCancellations: new WeakSet\(\)/);
+  assert.match(helpers, /expectedNavigationCancellations\.add\(request\)/);
+  assert.match(helpers, /expectedNavigationCancellations\.has\(request\)/);
+  assert.match(helpers, /expectActiveApiReadCancellationsForNavigation\(page\);\s*await navItem\.click/);
+});
+
+test('OTA browser readback keeps system-hotel authorization separate from platform identity', () => {
+  assert.doesNotMatch(businessChains, /params:\s*\{\s*hotel_id:\s*otaHotelId/);
+  assert.match(
+    businessChains,
+    /system_hotel_id:\s*hotelContext\.hotelId,\s*ota_hotel_id:\s*otaHotelId/,
+  );
+});
+
+test('business E2E preserves the formal P0 gate and labels its fallback report as non-formal', () => {
+  assert.match(businessChains, /expectedStatus:\s*409/);
+  assert.match(businessChains, /formal_report_generated\)\.toBe\(false\)/);
+  assert.match(businessChains, /seedSyntheticAiReportFixture/);
+  assert.match(businessChains, /generation_mode\)\.toBe\('synthetic_e2e'\)/);
+  assert.match(businessChains, /input_trust\?\.readback_verified\)\.toBe\(false\)/);
+  assert.match(businessChains, /expectedStatus:\s*422/);
+  assert.match(businessChains, /Trusted OTA readback verification is required/);
+  assert.match(businessChains, /source-verified business metric readback is required/);
+  assert.match(businessChains, /result_status:\s*'observing'/);
+  assert.match(businessChains, /roi\.incremental_revenue\)\.toBeNull\(\)/);
+  assert.doesNotMatch(businessChains, /authority_verifier|external_p0_verifier/);
 });
 
 test('public-page task bridge has a dedicated authenticated browser entrypoint', () => {

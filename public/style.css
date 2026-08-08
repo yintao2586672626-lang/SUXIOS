@@ -15087,23 +15087,45 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
 
 .ctrip-sales-table :where(th, td),
 .ctrip-rank-table :where(th, td) {
-    padding: 0.68rem 0.5rem !important;
     vertical-align: middle;
     border-right: 1px solid #cfd9e5 !important;
     font-variant-numeric: tabular-nums;
 }
 
-.ctrip-sales-table {
-    min-width: 1380px;
-    table-layout: auto !important;
+.ctrip-sales-table :where(th, td) {
+    padding: 0.58rem 0.4rem !important;
 }
+
+.ctrip-rank-table :where(th, td) {
+    padding: 0.68rem 0.5rem !important;
+}
+
+.ctrip-sales-table-wrap {
+    overflow-x: auto;
+}
+
+.ctrip-sales-table {
+    width: 100% !important;
+    min-width: 0;
+    table-layout: fixed !important;
+}
+
+.ctrip-sales-col-rank { width: 54px; }
+.ctrip-sales-col-hotel { width: auto; }
+.ctrip-sales-col-amount { width: 90px; }
+.ctrip-sales-col-quantity { width: 70px; }
+.ctrip-sales-col-adr { width: 72px; }
+.ctrip-sales-col-bookOrderNum { width: 74px; }
+.ctrip-sales-col-totalOrderIncludingCancelledEstimate { width: 82px; }
+.ctrip-sales-col-ctripOrderEstimate { width: 82px; }
+.ctrip-sales-col-qunarOrderEstimate { width: 74px; }
+.ctrip-sales-col-ctripUndistributedOrderEstimate { width: 100px; }
 
 .ctrip-sales-table :where(th, td):last-child,
 .ctrip-rank-table :where(th, td):last-child {
     border-right: 0 !important;
 }
 
-.ctrip-sales-groups > th,
 .ctrip-rank-groups > th {
     background: #eef2f6 !important;
     font-size: 11px;
@@ -15123,32 +15145,35 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
     text-align: center;
     vertical-align: middle;
     cursor: pointer;
-    white-space: normal;
-    overflow-wrap: anywhere;
 }
 
 .ctrip-sales-head .suxi-term-help,
 .ctrip-rank-head .suxi-term-help {
     justify-content: center;
+}
+
+.suxi-app-shell main .ctrip-sales-head > th,
+.ctrip-sales-head .suxi-term-help {
+    white-space: nowrap;
+    overflow-wrap: normal;
+}
+
+.suxi-app-shell main .ctrip-sales-head > th {
+    background: #eef2f6 !important;
+    border-top: 3px solid #b9975b !important;
+    font-size: 11px;
+}
+
+.suxi-app-shell main .ctrip-sales-head > th:nth-child(2) {
+    text-align: left;
+}
+
+.suxi-app-shell main .ctrip-rank-head > th,
+.ctrip-rank-head .suxi-term-help {
     white-space: normal;
+    overflow-wrap: anywhere;
 }
 
-.ctrip-sales-table .ctrip-sales-head > th:nth-child(6),
-.ctrip-sales-table .ctrip-sales-head > th:nth-child(7) {
-    min-width: 132px;
-}
-
-.ctrip-sales-table .ctrip-sales-head > th:nth-child(8) {
-    min-width: 120px;
-}
-
-.ctrip-sales-groups > th:nth-child(n + 4),
-.ctrip-sales-table .ctrip-sales-head > th:nth-child(1),
-.ctrip-sales-table .ctrip-sales-head > th:nth-child(5),
-.ctrip-sales-table .ctrip-sales-head > th:nth-child(8),
-.ctrip-sales-table tbody td:nth-child(4),
-.ctrip-sales-table tbody td:nth-child(8),
-.ctrip-sales-table tbody td:nth-child(11),
 .ctrip-rank-groups > th:nth-child(n + 3),
 .ctrip-rank-head > th:nth-child(1),
 .ctrip-rank-head > th:nth-child(3),
@@ -15158,12 +15183,12 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
 }
 
 .ctrip-sales-table tbody td {
+    font-size: 12px;
     text-align: center !important;
     white-space: nowrap;
 }
 
-.ctrip-sales-table tbody td:nth-child(1),
-.ctrip-sales-table tbody td:nth-child(3) {
+.ctrip-sales-table tbody td:nth-child(1) {
     text-align: center !important;
 }
 
@@ -15180,6 +15205,21 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
     line-height: 1.45;
 }
 
+.ctrip-sales-order-value {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.ctrip-sales-flat-note {
+    margin-top: 2px;
+    color: #b45309;
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: normal;
+}
+
 .ctrip-sales-state {
     display: inline-block;
     padding: 2px 8px;
@@ -15191,6 +15231,9 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
 }
 
 @media (max-width: 1100px) {
-    .ctrip-sales-table { min-width: 1380px; }
     .ctrip-rank-table { min-width: 1040px; }
+}
+
+@media (max-width: 940px) {
+    .ctrip-sales-table { min-width: 920px; }
 }

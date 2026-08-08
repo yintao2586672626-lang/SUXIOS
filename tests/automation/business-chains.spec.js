@@ -147,7 +147,9 @@ async function createApi(request) {
         throw error;
       }
       const body = await parseJson(response);
-      const ok = response.ok() && body.code === (options.expectedCode || 200);
+      const expectedStatus = Number(options.expectedStatus || 200);
+      const expectedCode = Number(options.expectedCode || 200);
+      const ok = response.status() === expectedStatus && Number(body.code) === expectedCode;
       apiEvents.push({
         label: options.label || pathname,
         method: upper,
@@ -155,13 +157,23 @@ async function createApi(request) {
         status: response.status(),
         code: body.code,
         category: ok ? null : apiFailure(options.label || pathname, method, pathname, response, body).category,
+        expectedStatus,
+        expectedCode,
+        outcome: ok && expectedStatus >= 400 ? 'expected-rejection' : ok ? 'success' : 'unexpected-response',
         message: ok ? null : body.message,
         timestamp: new Date().toISOString(),
       });
       if (!ok) {
         throw apiFailure(options.label || pathname, method, pathname, response, body);
       }
-      return body.data;
+      return options.returnEnvelope
+        ? {
+            http_status: response.status(),
+            code: Number(body.code),
+            message: String(body.message || ''),
+            data: body.data,
+          }
+        : body.data;
     },
     get(pathname, options = {}) {
       return this.call('get', pathname, options);
@@ -217,13 +229,13 @@ async function cleanupAll(cleanups) {
   }
 }
 
-function seedAiReportInputFixture(hotelContext) {
+function runIsolationFixture(action, label, hotelContext) {
   if (process.env.SUXI_E2E_ISOLATED_RUNNER !== '1') {
-    throw new Error('AI report traffic fixture requires the isolated E2E runner');
+    throw new Error(`${label} requires the isolated E2E runner`);
   }
   const php = process.env.SUXI_PHP || 'C:\\xampp\\php\\php.exe';
   const helper = path.join(__dirname, 'e2e-isolation-helper.php');
-  const result = spawnSync(php, [helper, 'seed-ai-report-inputs'], {
+  const result = spawnSync(php, [helper, action], {
     cwd: path.resolve(__dirname, '..', '..'),
     env: {
       ...process.env,
@@ -235,17 +247,25 @@ function seedAiReportInputFixture(hotelContext) {
   });
   if (result.error || result.status !== 0) {
     const detail = String(result.stderr || result.stdout || result.error?.message || '').trim().slice(0, 800);
-    const error = new Error(`AI report input fixture failed${detail ? `: ${detail}` : ''}`);
+    const error = new Error(`${label} failed${detail ? `: ${detail}` : ''}`);
     error.category = 'test-data-invalid';
     throw error;
   }
   try {
     return JSON.parse(String(result.stdout || '').trim());
   } catch {
-    const error = new Error('AI report input fixture returned invalid JSON');
+    const error = new Error(`${label} returned invalid JSON`);
     error.category = 'test-data-invalid';
     throw error;
   }
+}
+
+function seedAiReportInputFixture(hotelContext) {
+  return runIsolationFixture('seed-ai-report-inputs', 'AI report input fixture', hotelContext);
+}
+
+function seedSyntheticAiReportFixture(hotelContext) {
+  return runIsolationFixture('seed-synthetic-ai-report', 'Synthetic non-formal AI report fixture', hotelContext);
 }
 
 async function assertPages(page, modules) {
@@ -319,6 +339,8 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       expect(reportInputFixture.ota_hotel_id).toBe(trafficOtaHotelId);
       expect(reportInputFixture.business_ota_hotel_id).toBe(otaHotelId);
       expect(reportInputFixture.row_ids || []).toHaveLength(3);
+      expect(Object.values(reportInputFixture.data_source_ids || {})).toHaveLength(2);
+      expect(Object.values(reportInputFixture.data_source_ids || {}).every((id) => Number(id) > 0)).toBe(true);
       expect(reportInputFixture.data_dates || []).toEqual([baselineDate, dataDate]);
 
       const save = await api.post('/api/online-data/save-daily-data', {
@@ -341,9 +363,11 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
         }],
       }, { label: 'OTA daily import' });
       expect(save.saved_count).toBeGreaterThan(0);
+      expect(save.analysis_eligible_count).toBe(0);
+      expect(save.ingestion_method).toBe('user_provided_unverified');
 
       const imported = await api.get('/api/online-data/daily-data-list', {
-        params: { hotel_id: otaHotelId, start_date: dataDate, end_date: dataDate, page_size: 5 },
+        params: { system_hotel_id: hotelContext.hotelId, ota_hotel_id: otaHotelId, start_date: dataDate, end_date: dataDate, page_size: 5 },
         label: 'OTA imported list',
       });
       const row = (imported.list || []).find((item) => (
@@ -356,7 +380,7 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       cleanups.push(() => api.post('/api/online-data/delete-data', { id: row.id }, { label: 'cleanup OTA row' }).catch(() => null));
 
       const revenue = await api.get('/api/online-data/data-analysis', {
-        params: { hotel_id: otaHotelId, start_date: dataDate, end_date: dataDate },
+        params: { system_hotel_id: hotelContext.hotelId, start_date: dataDate, end_date: dataDate },
         label: 'revenue analysis reads OTA',
       });
       expect(Number(revenue.summary.total_amount)).toBeGreaterThanOrEqual(120000);
@@ -398,44 +422,52 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       expect(strategy.execution_intent_status).toBe('blocked_by_insufficient_baseline');
 
       await goModule(page, MODULE.AI_DAILY_REPORT);
-      const generationTask = await api.post('/api/ai-daily-reports/generate', {
+      const formalGenerationGate = await api.post('/api/ai-daily-reports/generate', {
         hotel_id: hotelContext.hotelId,
         report_date: dataDate,
         use_llm: false,
         background: true,
-      }, { label: 'AI daily report background generation' });
-      expect(String(generationTask.task_id || '')).toMatch(/^airpt_/);
-      expect(Number(generationTask.hotel_id)).toBe(hotelContext.hotelId);
-      expect(generationTask.report_date).toBe(dataDate);
-
-      let completedGenerationTask = generationTask;
-      await expect.poll(async () => {
-        completedGenerationTask = await api.get(`/api/ai-daily-reports/tasks/${generationTask.task_id}`, {
-          label: 'AI daily report background task polling',
-        });
-        return completedGenerationTask.done;
       }, {
-        message: 'AI daily report background task should reach a terminal state',
-        timeout: 45000,
-        intervals: [100, 250, 500, 1000],
-      }).toBe(true);
-      expect(completedGenerationTask.status, JSON.stringify(completedGenerationTask)).toBe('succeeded');
-      expect(completedGenerationTask.model_status).toBe('not_requested');
-      const reportId = Number(completedGenerationTask.result_report_id || 0);
+        label: 'formal AI daily report rejects synthetic non-P0 data',
+        expectedStatus: 409,
+        expectedCode: 409,
+        returnEnvelope: true,
+      });
+      expect(formalGenerationGate.http_status).toBe(409);
+      expect(formalGenerationGate.message).toContain('P0 verifier');
+      expect(formalGenerationGate.data?.status).toBe('blocked_by_p0_ota_gate');
+      expect(formalGenerationGate.data?.formal_report_generated).toBe(false);
+      expect(Number(formalGenerationGate.data?.hotel_id || 0)).toBe(hotelContext.hotelId);
+      expect(formalGenerationGate.data?.target_date).toBe(dataDate);
+      expect(formalGenerationGate.data?.p0_downstream_gate?.status).not.toBe('ready');
+
+      const syntheticReportFixture = seedSyntheticAiReportFixture(hotelContext);
+      expect(syntheticReportFixture.persistence_readback_verified).toBe(true);
+      expect(syntheticReportFixture.formal_report_generated).toBe(false);
+      expect(syntheticReportFixture.input_trust_readback_verified).toBe(false);
+      expect(Number(syntheticReportFixture.hotel_id)).toBe(hotelContext.hotelId);
+      expect(syntheticReportFixture.report_date).toBe(dataDate);
+      expect(syntheticReportFixture.generation_mode).toBe('synthetic_e2e');
+      const reportId = Number(syntheticReportFixture.report_id || 0);
       expect(reportId).toBeGreaterThan(0);
 
       const report = await api.get(`/api/ai-daily-reports/${reportId}`, {
-        label: 'AI daily report exact id and hotel readback',
+        label: 'synthetic non-formal AI report exact id and hotel readback',
       });
       expect(Number(report.id)).toBeGreaterThan(0);
       expect(Number(report.id)).toBe(reportId);
       expect(Number(report.hotel_id)).toBe(hotelContext.hotelId);
       expect(report.report_date).toBe(dataDate);
-      expect(report.generation_mode).toBe('rule');
+      expect(report.generation_mode).toBe('synthetic_e2e');
       expect(report.model_status).toBe('not_requested');
+      expect(report.snapshot?.synthetic).toBe(true);
+      expect(report.snapshot?.formal_report_generated).toBe(false);
+      expect(report.snapshot?.input_trust?.readback_verified).toBe(false);
       const reportActions = report.recommended_actions || [];
-      const executableActionIndex = reportActions.findIndex((item) => item?.can_create_execution_intent === true);
-      expect(executableActionIndex, JSON.stringify(reportActions)).toBeGreaterThanOrEqual(0);
+      expect(reportActions).toHaveLength(1);
+      const blockedActionIndex = 0;
+      expect(reportActions[blockedActionIndex]?.can_create_execution_intent).toBe(false);
+      expect(reportActions[blockedActionIndex]?.blocked_reason).toContain('Synthetic E2E input');
 
       const judgmentComment = `${hotelContext.objectPrefix}_ai_report_useful`;
       const judgedReport = await api.post(`/api/ai-daily-reports/${report.id}/human-judgments`, {
@@ -460,19 +492,18 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
           && item?.comment === judgmentComment
       ))).toBe(true);
 
-      const reportActionBridge = await api.post(
-        `/api/ai-daily-reports/${report.id}/actions/${executableActionIndex}/execution-intent`,
+      const reportActionGate = await api.post(
+        `/api/ai-daily-reports/${report.id}/actions/${blockedActionIndex}/execution-intent`,
         {},
-        { label: 'AI daily report executable action intent' },
+        {
+          label: 'synthetic AI daily report action remains non-executable',
+          expectedStatus: 422,
+          expectedCode: 422,
+          returnEnvelope: true,
+        },
       );
-      expect(Number(reportActionBridge.report_id)).toBe(reportId);
-      expect(Number(reportActionBridge.action_index)).toBe(executableActionIndex);
-      const reportActionIntent = reportActionBridge.execution_intent || {};
-      expect(Number(reportActionIntent.id)).toBeGreaterThan(0);
-      expect(Number(reportActionIntent.hotel_id)).toBe(hotelContext.hotelId);
-      expect(reportActionIntent.source_module).toBe('ai_daily_report');
-      expect(reportActionIntent.status).toBe('pending_approval');
-      expect(reportActionIntent.tasks || []).toHaveLength(0);
+      expect(reportActionGate.http_status).toBe(422);
+      expect(reportActionGate.message).toContain('Trusted OTA readback verification is required');
 
       const intent = await api.post('/api/operation/execution-intents', {
         hotel_id: hotelContext.hotelId,
@@ -528,7 +559,7 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       expect(executed.status).toBe('executed');
       expect(Number(executed.evidence_summary?.count || 0), JSON.stringify(executed)).toBeGreaterThan(0);
 
-      const reviewed = await api.post(`/api/operation/execution-tasks/${task.id}/review`, {
+      const rejectedSuccessReview = await api.post(`/api/operation/execution-tasks/${task.id}/review`, {
         result_status: 'success',
         result_summary: `${hotelContext.objectPrefix}_manual_effect_review`,
         readback_evidence: {
@@ -537,8 +568,29 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
           source_ref: `${hotelContext.objectPrefix}_isolated_readback_receipt`,
           remark: 'isolated local E2E readback proof; no OTA write',
         },
-      }, { label: 'manual effect review' });
-      expect(reviewed.result_status).toBe('success');
+      }, {
+        label: 'manual evidence cannot claim successful effect review',
+        expectedStatus: 422,
+        expectedCode: 422,
+        returnEnvelope: true,
+      });
+      expect(rejectedSuccessReview.http_status).toBe(422);
+      expect(rejectedSuccessReview.message).toContain('source-verified business metric readback is required');
+
+      const observingSummary = `${hotelContext.objectPrefix}_awaiting_source_verified_readback`;
+      const reviewed = await api.post(`/api/operation/execution-tasks/${task.id}/review`, {
+        result_status: 'observing',
+        result_summary: observingSummary,
+        readback_evidence: {
+          operator_attested: true,
+          operator_attested_at: new Date().toISOString(),
+          source_ref: `${hotelContext.objectPrefix}_isolated_readback_receipt`,
+          remark: 'isolated local E2E operator attestation; no source-verified OTA outcome',
+        },
+      }, { label: 'manual effect remains observing pending source-verified readback' });
+      expect(reviewed.result_status).toBe('observing');
+      expect(reviewed.evidence_truth?.source_verified).toBe(false);
+      expect(reviewed.evidence_truth?.operator_attested).toBe(true);
 
       const tracking = await api.get('/api/operation/action-tracking', {
         params: { hotel_id: hotelContext.hotelId },
@@ -556,21 +608,28 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       expect(flowItem.approval.status).toBe('approved');
       expect(flowItem.execution.status).toBe('executed');
       expect(Number(flowItem.evidence_summary?.count || 0)).toBeGreaterThan(0);
-      expect(flowItem.review.status).toBe('success');
-      expect(flowItem.roi.status).toBe('ready');
-      expect(Number(flowItem.roi.incremental_revenue)).toBe(12000);
-      expect(Number(flowItem.roi.cost)).toBe(3000);
-      expect(Number(flowItem.roi.profit)).toBe(9000);
-      expect(Number(flowItem.roi.value)).toBe(300);
+      expect(flowItem.stage).toBe('evidence');
+      expect(flowItem.evidence_truth?.source_verified).toBe(false);
+      expect(flowItem.evidence_truth?.operator_attested).toBe(true);
+      expect(flowItem.truth_context?.status).toBe('partial');
+      expect(flowItem.truth_context?.failure_reason).toBe('operator_attested_only');
+      expect(flowItem.review.status).toBe('observing');
+      expect(flowItem.review.reported_status).toBe('observing');
+      expect(flowItem.roi.status).toBe('partial');
+      expect(flowItem.roi.failure_reason).toBe('operator_attested_only');
+      expect(flowItem.roi.incremental_revenue).toBeNull();
+      expect(flowItem.roi.cost).toBeNull();
+      expect(flowItem.roi.profit).toBeNull();
+      expect(flowItem.roi.value).toBeNull();
 
       const reportReadback = await api.get(`/api/ai-daily-reports/${report.id}`, {
-        label: 'AI daily report readback',
+        label: 'synthetic non-formal AI report readback',
       });
       const actionReadback = reportReadback.recommended_actions || [];
       expect(actionReadback.length).toBeGreaterThan(0);
-      expect(actionReadback[executableActionIndex]?.can_create_execution_intent).toBe(true);
-      expect(Number(actionReadback[executableActionIndex]?.execution_intent_id || 0)).toBe(Number(reportActionIntent.id));
-      expect(actionReadback[executableActionIndex]?.execution_status).toBe('pending_approval');
+      expect(actionReadback[blockedActionIndex]?.can_create_execution_intent).toBe(false);
+      expect(Number(actionReadback[blockedActionIndex]?.execution_intent_id || 0)).toBe(0);
+      expect(actionReadback[blockedActionIndex]?.blocked_reason).toContain('Synthetic E2E input');
 
       const deletedForRestore = await api.post('/api/online-data/delete-data', {
         id: row.id,
@@ -602,7 +661,7 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       expect(String(restoredLedger.restored_at || '')).not.toBe('');
 
       const restoredData = await api.get('/api/online-data/daily-data-list', {
-        params: { hotel_id: otaHotelId, start_date: dataDate, end_date: dataDate, page_size: 5 },
+        params: { system_hotel_id: hotelContext.hotelId, ota_hotel_id: otaHotelId, start_date: dataDate, end_date: dataDate, page_size: 5 },
         label: 'restored OTA row readback',
       });
       expect((restoredData.list || []).some((item) => Number(item.id) === Number(row.id))).toBe(true);
@@ -610,17 +669,19 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       await goModule(page, MODULE.AI_DAILY_REPORT);
       await goModule(page, MODULE.EXECUTION_TRACKING);
       const closedLoopRow = page.getByTestId('page-ops-track').locator('tbody tr').filter({
-        hasText: `${hotelContext.objectPrefix}_manual_effect_review`,
+        hasText: observingSummary,
       }).first();
       await expect(closedLoopRow).toBeVisible({ timeout: 5000 });
-      await expect(closedLoopRow).toContainText('300');
+      await expect(closedLoopRow).toContainText(observingSummary);
+      await expect(closedLoopRow).not.toContainText('300%');
 
       return [
         '页面展示正确',
         '接口返回成功',
         'OTA数据已保存',
         '收益分析和运营模块读取上游数据',
-        '策略动作可回显到效果追踪',
+        '合成数据未绕过正式 P0 日报门禁',
+        '显式手工动作可回显且未伪造成功复盘或ROI',
         '更正账本删除恢复完成回读',
       ];
     },

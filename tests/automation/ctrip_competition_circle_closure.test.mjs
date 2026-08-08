@@ -97,7 +97,9 @@ test('OTA pages can read one exact stored business date without triggering colle
 test('competition-circle selector keeps persistence guidance concise', () => {
   const html = readFrontendContractSource();
 
-  assert.match(html, /class="text-base font-semibold text-gray-800 mb-3">选择门店/);
+  assert.match(html, /data-testid="platform-hotel-context-select"[\s\S]{0,400}@change="handlePlatformHotelContextChange"/);
+  assert.match(html, /class="text-xs font-medium text-slate-500">当前酒店/);
+  assert.match(html, /请先在顶栏选择酒店/);
   assert.doesNotMatch(html, />数据归属门店<\/label>/);
   assert.doesNotMatch(html, /获取携程竞争圈数据/);
   assert.doesNotMatch(html, /选择门店：使用已保存授权并入库；临时 Cookie：仅查询，不入库/);
@@ -145,7 +147,9 @@ test('legacy Ctrip business parser routes competition-circle signatures to the t
   assert.match(source, /hasCompetitionCircleSignature/);
   assert.match(source, /persistRows/);
   assert.match(parser[0], /where\('data_type', 'business'\)/);
-  assert.match(parser[0], /where\('dimension', ''\)/);
+  assert.match(parser[0], /\$businessDimension = \$this->ctripBusinessPersistenceDimension\(\$persistenceContext\)/);
+  assert.match(parser[0], /where\('dimension', \$businessDimension\)/);
+  assert.match(parser[0], /manual_input_unverified/);
   assert.match(parser[0], /'ordamount'/);
   assert.match(parser[0], /'ordquantity'/);
   assert.match(parser[0], /'compare_type'\s*=>[\s\S]{0,120}\?: null/);

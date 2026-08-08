@@ -12,9 +12,11 @@ const freshInitializerPath = join(projectRoot, 'scripts', 'init_database.php');
 const recoveryVerifierPath = join(projectRoot, 'scripts', 'verify_mysql_fresh_initializer_recovery.php');
 const workerPath = join(projectRoot, 'scripts', 'mysql_execution_intent_concurrency_worker.php');
 const loginWorkerPath = join(projectRoot, 'scripts', 'mysql_login_rate_limiter_concurrency_worker.php');
+const atomicWorkerPath = join(projectRoot, 'scripts', 'mysql_atomic_write_concurrency_worker.php');
 const migrationRuns = 2;
 const workerCount = 8;
 const loginWorkerCount = 16;
+const atomicWorkerCount = 2;
 const mysqlCommandTimeoutMs = 120000;
 const workerCompletionTimeoutMs = 60000;
 const workerOutputLimitBytes = 1024 * 1024;
@@ -105,6 +107,7 @@ const connectionArguments = [
 const children = [];
 let databaseCreated = false;
 let barrierDirectory = '';
+let atomicCacheDirectory = '';
 
 function runMysql({ database = '', input = '', label }) {
   const args = [...connectionArguments];
@@ -465,6 +468,44 @@ function spawnLoginWorker(index, commonEnvironment) {
   });
 }
 
+function spawnAtomicWorker(index, commonEnvironment) {
+  const child = spawn(phpBinary, [atomicWorkerPath], {
+    cwd: projectRoot,
+    env: { ...process.env, ...commonEnvironment, SUXI_CI_WORKER_INDEX: String(index) },
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  children.push(child);
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', chunk => { stdout = `${stdout}${chunk}`.slice(-workerOutputLimitBytes); });
+  child.stderr.on('data', chunk => { stderr = `${stderr}${chunk}`.slice(-workerOutputLimitBytes); });
+  return new Promise((resolveWorker, rejectWorker) => {
+    child.once('error', rejectWorker);
+    child.once('close', code => {
+      if (code !== 0) {
+        rejectWorker(new Error(`atomic concurrency worker ${index} failed: ${(stderr || stdout).trim().slice(-2000)}`));
+        return;
+      }
+      const lines = stdout.trim().split(/\r?\n/).filter(Boolean);
+      try {
+        const result = JSON.parse(lines.at(-1) || '{}');
+        if (typeof result.atomic_case !== 'string'
+            || typeof result.succeeded !== 'boolean'
+            || !Number.isInteger(result.worker)
+        ) {
+          throw new Error('atomic_case/succeeded/worker result is missing');
+        }
+        resolveWorker(result);
+      } catch (error) {
+        rejectWorker(new Error(`atomic concurrency worker ${index} returned invalid JSON: ${error.message}`));
+      }
+    });
+  });
+}
+
 async function waitForReady(directory, expected) {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
@@ -515,8 +556,32 @@ async function withTimeout(promise, timeoutMs, label) {
   }
 }
 
+async function runAtomicBarrier(caseName, commonEnvironment) {
+  if (barrierDirectory !== '') {
+    rmSync(barrierDirectory, { recursive: true, force: true });
+  }
+  barrierDirectory = mkdtempSync(join(tmpdir(), `suxi-${caseName}-concurrency-`));
+  const environment = {
+    ...commonEnvironment,
+    SUXI_CI_ATOMIC_CASE: caseName,
+    SUXI_CI_BARRIER_DIR: barrierDirectory,
+  };
+  const workerPromises = Array.from(
+    { length: atomicWorkerCount },
+    (_, index) => spawnAtomicWorker(index + 1, environment),
+  );
+  const allWorkers = Promise.all(workerPromises);
+  const workerEarlyExit = allWorkers.then(
+    () => { throw new Error(`${caseName} workers exited before the barrier was released`); },
+    error => { throw error; },
+  );
+  await Promise.race([waitForReady(barrierDirectory, atomicWorkerCount), workerEarlyExit]);
+  writeFileSync(join(barrierDirectory, 'go'), 'go', { flag: 'wx' });
+  return withTimeout(allWorkers, workerCompletionTimeoutMs, `${caseName} concurrency workers`);
+}
+
 try {
-  for (const path of [initializationPath, freshInitializerPath, recoveryVerifierPath, workerPath, loginWorkerPath, ...migrationPaths]) {
+  for (const path of [initializationPath, freshInitializerPath, recoveryVerifierPath, workerPath, loginWorkerPath, atomicWorkerPath, ...migrationPaths]) {
     if (!existsSync(path)) throw new Error(`Required verifier input is missing: ${path}`);
   }
 
@@ -553,8 +618,19 @@ try {
   );
   if (tableCount < 82) throw new Error(`Fresh initialization created only ${tableCount} tables; expected at least 82`);
 
-  const hotelId = queryScalar('SELECT MIN(id) FROM hotels WHERE status = 1;', 'seed hotel lookup');
+  const hotelId = queryScalar(
+    'SELECT MIN(h.id) FROM hotels h INNER JOIN users u ON u.tenant_id = h.tenant_id WHERE h.status = 1 AND u.status = 1;',
+    'seed hotel lookup',
+  );
   if (hotelId <= 0) throw new Error('Fresh initialization did not create an enabled hotel');
+  const tenantId = queryScalar(`SELECT tenant_id FROM hotels WHERE id = ${hotelId};`, 'seed tenant lookup');
+  const userId = queryScalar(
+    `SELECT MIN(id) FROM users WHERE tenant_id = ${tenantId} AND status = 1;`,
+    'seed user lookup',
+  );
+  if (tenantId <= 0 || userId <= 0) {
+    throw new Error('Fresh initialization did not create an enabled user in the seed hotel tenant');
+  }
 
   const energyBenchmarkSeedCountsAfterInit = readEnergyBenchmarkSeedCounts(
     'energy benchmark default seed count after fresh initialization',
@@ -710,6 +786,303 @@ try {
     throw new Error(`Concurrency contract mismatch: workers=${workerResults.length}, unique_intent_ids=${uniqueIntentIds.size}, database_rows=${databaseRows}`);
   }
 
+  atomicCacheDirectory = mkdtempSync(join(tmpdir(), 'suxi-atomic-cache-'));
+  const atomicEnvironment = {
+    ...workerEnvironment,
+    SUXI_CI_TENANT_ID: String(tenantId),
+    SUXI_CI_USER_ID: String(userId),
+    SUXIOS_CACHE_PATH: atomicCacheDirectory,
+  };
+
+  const evidenceRecordId = 910000000 + Number.parseInt(randomBytes(3).toString('hex'), 16);
+  const evidenceIntentKey = `atomic-evidence:${evidenceRecordId}`;
+  runMysql({
+    database: databaseName,
+    input: `INSERT INTO operation_execution_intents
+      (tenant_id, idempotency_key, source_module, source_record_id, hotel_id, platform, object_type, action_type,
+       date_start, date_end, current_value_json, target_value_json, evidence_json, expected_metric, expected_delta,
+       risk_level, status, blocked_reason, review_remark, created_by, approved_by, approved_at)
+      VALUES (${tenantId}, '${evidenceIntentKey}', 'atomic_concurrency_fixture', ${evidenceRecordId}, ${hotelId},
+       'internal', 'campaign', 'manual_campaign_verification', CURRENT_DATE(), CURRENT_DATE(),
+       JSON_OBJECT('orders', 10), JSON_OBJECT('orders', 12), JSON_OBJECT('scope', 'dedicated_test_database'),
+       'orders', 2, 'low', 'approved', '', 'atomic concurrency test-only approval', ${userId}, ${userId}, NOW());
+      INSERT INTO operation_execution_tasks
+      (tenant_id, intent_id, hotel_id, execution_mode, operator_id, target_value_json, current_value_json,
+       blocked_reason, action_track_id, result_status, result_summary, status, executed_at)
+      SELECT ${tenantId}, id, ${hotelId}, 'manual', ${userId}, JSON_OBJECT('orders', 12), JSON_OBJECT('orders', 10),
+       '', 0, 'observing', '', 'executed', NOW()
+      FROM operation_execution_intents WHERE idempotency_key = '${evidenceIntentKey}';\n`,
+    label: 'seed atomic evidence task',
+  });
+  const evidenceTaskId = queryScalar(
+    `SELECT task.id FROM operation_execution_tasks task INNER JOIN operation_execution_intents intent ON intent.id = task.intent_id WHERE intent.idempotency_key = '${evidenceIntentKey}';`,
+    'atomic evidence task id',
+  );
+  const evidenceResults = await runAtomicBarrier('operation_evidence', {
+    ...atomicEnvironment,
+    SUXI_CI_TASK_ID: String(evidenceTaskId),
+  });
+  const evidenceIds = new Set(evidenceResults.map(result => Number(result.evidence_id)));
+  const evidenceFingerprints = new Set(evidenceResults.map(result => String(result.fingerprint || '')));
+  const evidenceCreated = evidenceResults.filter(result => result.created === true).length;
+  const evidenceReplayed = evidenceResults.filter(result => result.created === false).length;
+  const evidenceRows = queryScalar(
+    `SELECT COUNT(*) FROM operation_execution_evidence WHERE task_id = ${evidenceTaskId} AND deleted_at IS NULL;`,
+    'atomic evidence row count',
+  );
+  const storedEvidenceId = queryScalar(
+    `SELECT MIN(id) FROM operation_execution_evidence WHERE task_id = ${evidenceTaskId} AND deleted_at IS NULL;`,
+    'atomic stored evidence id',
+  );
+  if (evidenceResults.length !== atomicWorkerCount
+      || evidenceResults.some(result => result.succeeded !== true)
+      || evidenceIds.size !== 1
+      || !evidenceIds.has(storedEvidenceId)
+      || evidenceFingerprints.size !== 1
+      || !/^[a-f0-9]{64}$/.test([...evidenceFingerprints][0] || '')
+      || evidenceCreated !== 1
+      || evidenceReplayed !== 1
+      || evidenceRows !== 1
+  ) {
+    throw new Error(`Execution evidence atomicity mismatch: ${JSON.stringify({ evidenceResults, evidenceRows, storedEvidenceId })}`);
+  }
+
+  const devicesBeforePair = queryScalar(
+    `SELECT COUNT(*) FROM ota_local_collector_devices WHERE tenant_id = ${tenantId} AND user_id = ${userId};`,
+    'atomic pair initial device count',
+  );
+  const pairPreparation = spawnSync(phpBinary, [atomicWorkerPath], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      ...atomicEnvironment,
+      SUXI_CI_ATOMIC_CASE: 'pair_prepare',
+      SUXI_CI_WORKER_INDEX: '1',
+      SUXI_CI_SKIP_BARRIER: '1',
+    },
+    encoding: 'utf8',
+    maxBuffer: workerOutputLimitBytes,
+    timeout: workerCompletionTimeoutMs,
+    windowsHide: true,
+  });
+  if (pairPreparation.status !== 0) {
+    throw new Error(`Atomic pair preparation failed: ${String(pairPreparation.stderr || pairPreparation.stdout || '').trim().slice(-2000)}`);
+  }
+  const pairPreparationLines = String(pairPreparation.stdout || '').trim().split(/\r?\n/).filter(Boolean);
+  const pairPreparationResult = JSON.parse(pairPreparationLines.at(-1) || '{}');
+  const pairCode = String(pairPreparationResult.pair_code || '');
+  if (pairPreparationResult.succeeded !== true || !/^[A-Z0-9]{4}(?:-[A-Z0-9]{4}){2}$/.test(pairCode)) {
+    throw new Error(`Atomic pair preparation returned invalid output: ${JSON.stringify(pairPreparationResult)}`);
+  }
+  const pairResults = await runAtomicBarrier('pair_code', {
+    ...atomicEnvironment,
+    SUXI_CI_PAIR_CODE: pairCode,
+  });
+  const pairSuccesses = pairResults.filter(result => result.succeeded === true);
+  const pairFailures = pairResults.filter(result => result.succeeded === false);
+  const devicesAfterPair = queryScalar(
+    `SELECT COUNT(*) FROM ota_local_collector_devices WHERE tenant_id = ${tenantId} AND user_id = ${userId};`,
+    'atomic pair final device count',
+  );
+  if (pairResults.length !== atomicWorkerCount
+      || pairSuccesses.length !== 1
+      || pairFailures.length !== 1
+      || Number(pairSuccesses[0]?.device_id || 0) <= 0
+      || ![409, 410].includes(Number(pairFailures[0]?.error_code || 0))
+      || devicesAfterPair !== devicesBeforePair + 1
+  ) {
+    throw new Error(`Pair-code atomicity mismatch: ${JSON.stringify({ pairResults, devicesBeforePair, devicesAfterPair })}`);
+  }
+
+  const collectorLeaseSuffix = randomBytes(8).toString('hex');
+  const collectorOwnerToken = `collector-owner-${collectorLeaseSuffix}`;
+  const collectorLeaseHash = createHash('sha256')
+    .update(collectorOwnerToken)
+    .digest('hex');
+  const collectorReplacementHash = createHash('sha256')
+    .update(`collector-replacement-${collectorLeaseSuffix}`)
+    .digest('hex');
+  const collectorProfileHash = createHash('sha256')
+    .update(`collector-profile-${collectorLeaseSuffix}`)
+    .digest('hex');
+  const collectorTaskKey = createHash('sha256')
+    .update(`collector-task-${collectorLeaseSuffix}`)
+    .digest('hex');
+  runMysql({
+    database: databaseName,
+    input: `INSERT INTO user_hotel_permissions
+      (tenant_id, user_id, hotel_id, scope_type, can_view, can_fetch_ota,
+       can_view_online_data, can_fetch_online_data, status)
+      VALUES (${tenantId}, ${userId}, ${hotelId}, 'granted', 1, 1, 1, 1, 'active')
+      ON DUPLICATE KEY UPDATE tenant_id = ${tenantId}, can_view = 1, can_fetch_ota = 1,
+       can_view_online_data = 1, can_fetch_online_data = 1, status = 'active';
+      INSERT INTO ota_local_collector_devices
+      (tenant_id, user_id, device_public_id, device_token_hash, device_name, device_platform,
+       collector_version, status, last_seen_at, create_time, update_time)
+      VALUES (${tenantId}, ${userId}, 'atomic-device-${collectorLeaseSuffix}', '${collectorLeaseHash}',
+       'Atomic collector lease verifier', 'windows', 'test', 'online', NOW(), NOW(), NOW());
+      SET @collector_device_id = LAST_INSERT_ID();
+      INSERT INTO ota_local_collector_accounts
+      (tenant_id, user_id, device_id, platform, account_alias, profile_key_hash, status, session_status,
+       last_session_verified_at, create_time, update_time)
+      VALUES (${tenantId}, ${userId}, @collector_device_id, 'ctrip', 'Atomic collector ${collectorLeaseSuffix}',
+       '${collectorProfileHash}', 'active', 'current_session_verified', NOW(), NOW(), NOW());
+      SET @collector_account_id = LAST_INSERT_ID();
+      INSERT INTO ota_local_collector_account_hotels
+      (tenant_id, account_id, system_hotel_id, platform, platform_hotel_id, platform_hotel_name,
+       data_source_id, status, create_time, update_time)
+      VALUES (${tenantId}, @collector_account_id, ${hotelId}, 'ctrip', 'atomic-hotel-${collectorLeaseSuffix}',
+       'Atomic collector hotel', 0, 'active', NOW(), NOW());
+      INSERT INTO ota_local_collector_tasks
+      (tenant_id, user_id, device_id, account_id, system_hotel_id, platform, task_type, data_date,
+       data_type, status, priority, attempt, max_attempts, available_at, lease_token_hash,
+       lease_expires_at, idempotency_key, request_json, created_by, started_at, create_time, update_time)
+      VALUES (${tenantId}, ${userId}, @collector_device_id, @collector_account_id, ${hotelId}, 'ctrip',
+       'collect', CURRENT_DATE(), 'business', 'leased', 100, 1, 3, NOW(), '${collectorLeaseHash}',
+       DATE_ADD(NOW(), INTERVAL 15 MINUTE), '${collectorTaskKey}', JSON_OBJECT('scope', 'atomic_lease_fence'),
+       ${userId}, NOW(), NOW(), NOW());
+    `,
+    label: 'seed collector lease fencing fixture',
+  });
+  const collectorTaskId = queryScalar(
+    `SELECT id FROM ota_local_collector_tasks WHERE idempotency_key = '${collectorTaskKey}';`,
+    'collector lease fencing task id',
+  );
+  const collectorLeaseResults = await runAtomicBarrier('collector_lease_fence', {
+    ...atomicEnvironment,
+    SUXI_CI_TASK_ID: String(collectorTaskId),
+    SUXI_CI_REPLACEMENT_LEASE_HASH: collectorReplacementHash,
+  });
+  const collectorOwnerResult = collectorLeaseResults.find(result => result.role === 'lease_owner');
+  const collectorReplacementResult = collectorLeaseResults.find(result => result.role === 'stale_replacement');
+  const collectorStoredState = runMysql({
+    database: databaseName,
+    input: `SELECT status, attempt, lease_token_hash FROM ota_local_collector_tasks WHERE id = ${collectorTaskId};\n`,
+    label: 'collector lease fencing final state',
+  }).split('\t');
+  if (collectorLeaseResults.length !== atomicWorkerCount
+      || collectorLeaseResults.some(result => result.succeeded !== true)
+      || collectorOwnerResult?.final_status !== 'success'
+      || Number(collectorReplacementResult?.replacement_write_count ?? -1) !== 0
+      || Number(collectorReplacementResult?.blocked_ms ?? 0) < 150
+      || collectorStoredState[0] !== 'success'
+      || Number(collectorStoredState[1]) !== 1
+      || String(collectorStoredState[2] || '') !== ''
+  ) {
+    throw new Error(`Collector lease fencing mismatch: ${JSON.stringify({ collectorLeaseResults, collectorStoredState })}`);
+  }
+
+  const collectorSuccessorTaskKey = createHash('sha256')
+    .update(`collector-successor-${collectorLeaseSuffix}`)
+    .digest('hex');
+  runMysql({
+    database: databaseName,
+    input: `INSERT INTO ota_local_collector_tasks
+      (tenant_id, user_id, device_id, account_id, system_hotel_id, platform, task_type, data_date,
+       data_type, status, priority, attempt, max_attempts, available_at, lease_token_hash,
+       lease_expires_at, idempotency_key, request_json, created_by, started_at, create_time, update_time)
+      SELECT tenant_id, user_id, device_id, account_id, system_hotel_id, platform, task_type, data_date,
+       data_type, 'leased', priority, 1, max_attempts, NOW(), '${collectorLeaseHash}',
+       DATE_SUB(NOW(), INTERVAL 5 SECOND), '${collectorSuccessorTaskKey}',
+       JSON_OBJECT('scope', 'atomic_successor_wins'), created_by, NOW(), NOW(), NOW()
+      FROM ota_local_collector_tasks WHERE id = ${collectorTaskId};
+    `,
+    label: 'seed collector successor-wins fixture',
+  });
+  const collectorSuccessorTaskId = queryScalar(
+    `SELECT id FROM ota_local_collector_tasks WHERE idempotency_key = '${collectorSuccessorTaskKey}';`,
+    'collector successor-wins task id',
+  );
+  const collectorSuccessorResults = await runAtomicBarrier('collector_successor_wins', {
+    ...atomicEnvironment,
+    SUXI_CI_TASK_ID: String(collectorSuccessorTaskId),
+    SUXI_CI_OWNER_TOKEN: collectorOwnerToken,
+    SUXI_CI_REPLACEMENT_LEASE_HASH: collectorReplacementHash,
+  });
+  const collectorStaleOwnerResult = collectorSuccessorResults.find(result => result.role === 'stale_owner');
+  const collectorSuccessorResult = collectorSuccessorResults.find(result => result.role === 'successor');
+  const collectorSuccessorStoredState = runMysql({
+    database: databaseName,
+    input: `SELECT status, attempt, lease_token_hash FROM ota_local_collector_tasks WHERE id = ${collectorSuccessorTaskId};\n`,
+    label: 'collector successor-wins final state',
+  }).split('\t');
+  if (collectorSuccessorResults.length !== atomicWorkerCount
+      || collectorSuccessorResults.some(result => result.succeeded !== true)
+      || collectorStaleOwnerResult?.progress_rejected !== true
+      || collectorStaleOwnerResult?.result_rejected !== true
+      || collectorStaleOwnerResult?.terminal_rejected !== true
+      || Number(collectorStaleOwnerResult?.business_rows_before ?? -1)
+        !== Number(collectorStaleOwnerResult?.business_rows_after ?? -2)
+      || Number(collectorSuccessorResult?.recovered_write_count ?? -1) !== 1
+      || Number(collectorSuccessorResult?.successor_write_count ?? -1) !== 1
+      || collectorSuccessorStoredState[0] !== 'leased'
+      || Number(collectorSuccessorStoredState[1]) !== 2
+      || String(collectorSuccessorStoredState[2] || '') !== collectorReplacementHash
+  ) {
+    throw new Error(`Collector successor-wins mismatch: ${JSON.stringify({ collectorSuccessorResults, collectorSuccessorStoredState })}`);
+  }
+
+  const collectorDeviceId = queryScalar(
+    `SELECT device_id FROM ota_local_collector_tasks WHERE id = ${collectorSuccessorTaskId};`,
+    'collector device-revoke fixture id',
+  );
+  const collectorDeviceRevokeResults = await runAtomicBarrier('collector_device_revoke', {
+    ...atomicEnvironment,
+    SUXI_CI_DEVICE_ID: String(collectorDeviceId),
+  });
+  const collectorStaleDeviceResult = collectorDeviceRevokeResults.find(
+    result => result.role === 'stale_authenticated_request',
+  );
+  const collectorRevokerResult = collectorDeviceRevokeResults.find(result => result.role === 'revoker');
+  const collectorDeviceStoredState = runMysql({
+    database: databaseName,
+    input: `SELECT status, device_token_hash FROM ota_local_collector_devices WHERE id = ${collectorDeviceId};\n`,
+    label: 'collector device-revoke final state',
+  }).split('\t');
+  if (collectorDeviceRevokeResults.length !== atomicWorkerCount
+      || collectorDeviceRevokeResults.some(result => result.succeeded !== true)
+      || collectorStaleDeviceResult?.touch_accepted !== false
+      || collectorStaleDeviceResult?.stale_enqueue_rejected !== true
+      || Number(collectorStaleDeviceResult?.post_revoke_task_count ?? -1) !== 0
+      || collectorStaleDeviceResult?.token_rotated !== true
+      || collectorRevokerResult?.revoke_status !== 'revoked'
+      || collectorDeviceStoredState[0] !== 'revoked'
+      || String(collectorDeviceStoredState[1] || '') === collectorLeaseHash
+  ) {
+    throw new Error(`Collector device-revoke mismatch: ${JSON.stringify({ collectorDeviceRevokeResults, collectorDeviceStoredState })}`);
+  }
+
+  const memoryRequestId = `atomic-memory-${randomBytes(8).toString('hex')}`;
+  const expectedMemoryKey = `manual-event:${createHash('sha256').update(memoryRequestId).digest('hex')}`;
+  const memoryResults = await runAtomicBarrier('operating_memory', {
+    ...atomicEnvironment,
+    SUXI_CI_MEMORY_REQUEST_ID: memoryRequestId,
+  });
+  const memoryIds = new Set(memoryResults.map(result => Number(result.memory_id)));
+  const memoryKeys = new Set(memoryResults.map(result => String(result.memory_key || '')));
+  const memoryCreated = memoryResults.filter(result => result.created === true).length;
+  const memoryReplayed = memoryResults.filter(result => result.created === false).length;
+  const memoryRows = queryScalar(
+    `SELECT COUNT(*) FROM hotel_operating_memories WHERE tenant_id = ${tenantId} AND hotel_id = ${hotelId} AND memory_key = '${expectedMemoryKey}' AND deleted_at IS NULL;`,
+    'atomic operating memory row count',
+  );
+  const storedMemoryId = queryScalar(
+    `SELECT MIN(id) FROM hotel_operating_memories WHERE tenant_id = ${tenantId} AND hotel_id = ${hotelId} AND memory_key = '${expectedMemoryKey}' AND deleted_at IS NULL;`,
+    'atomic stored operating memory id',
+  );
+  if (memoryResults.length !== atomicWorkerCount
+      || memoryResults.some(result => result.succeeded !== true)
+      || memoryIds.size !== 1
+      || !memoryIds.has(storedMemoryId)
+      || memoryKeys.size !== 1
+      || !memoryKeys.has(expectedMemoryKey)
+      || memoryCreated !== 1
+      || memoryReplayed !== 1
+      || memoryRows !== 1
+  ) {
+    throw new Error(`Operating memory atomicity mismatch: ${JSON.stringify({ memoryResults, memoryRows, storedMemoryId })}`);
+  }
+
   rmSync(barrierDirectory, { recursive: true, force: true });
   barrierDirectory = mkdtempSync(join(tmpdir(), 'suxi-login-rate-concurrency-'));
   const loginIp = `198.18.${randomBytes(1)[0]}.${randomBytes(1)[0]}`;
@@ -817,6 +1190,39 @@ try {
     unique_intent_ids: uniqueIntentIds.size,
     database_rows: databaseRows,
     intent_id: storedIntentId,
+    atomic_evidence_workers: evidenceResults.length,
+    atomic_evidence_rows: evidenceRows,
+    atomic_evidence_id: storedEvidenceId,
+    atomic_evidence_created: evidenceCreated,
+    atomic_evidence_replayed: evidenceReplayed,
+    atomic_memory_workers: memoryResults.length,
+    atomic_memory_rows: memoryRows,
+    atomic_memory_id: storedMemoryId,
+    atomic_memory_created: memoryCreated,
+    atomic_memory_replayed: memoryReplayed,
+    atomic_pair_workers: pairResults.length,
+    atomic_pair_successes: pairSuccesses.length,
+    atomic_pair_failures: pairFailures.length,
+    atomic_pair_device_rows_added: devicesAfterPair - devicesBeforePair,
+    atomic_collector_lease_workers: collectorLeaseResults.length,
+    atomic_collector_stale_writes: Number(collectorReplacementResult?.replacement_write_count ?? -1),
+    atomic_collector_stale_write_blocked_ms: Number(collectorReplacementResult?.blocked_ms ?? 0),
+    atomic_collector_final_status: collectorStoredState[0],
+    atomic_collector_final_attempt: Number(collectorStoredState[1]),
+    atomic_collector_successor_workers: collectorSuccessorResults.length,
+    atomic_collector_successor_attempt: Number(collectorSuccessorStoredState[1]),
+    atomic_collector_successor_progress_rejected: collectorStaleOwnerResult?.progress_rejected === true,
+    atomic_collector_successor_result_rejected: collectorStaleOwnerResult?.result_rejected === true,
+    atomic_collector_successor_terminal_rejected: collectorStaleOwnerResult?.terminal_rejected === true,
+    atomic_collector_successor_business_rows_added:
+      Number(collectorStaleOwnerResult?.business_rows_after ?? 0)
+      - Number(collectorStaleOwnerResult?.business_rows_before ?? 0),
+    atomic_collector_revoke_workers: collectorDeviceRevokeResults.length,
+    atomic_collector_stale_touch_rejected: collectorStaleDeviceResult?.touch_accepted === false,
+    atomic_collector_stale_enqueue_rejected: collectorStaleDeviceResult?.stale_enqueue_rejected === true,
+    atomic_collector_post_revoke_tasks: Number(collectorStaleDeviceResult?.post_revoke_task_count ?? -1),
+    atomic_collector_revoke_token_rotated: collectorStaleDeviceResult?.token_rotated === true,
+    atomic_collector_revoke_final_status: collectorDeviceStoredState[0],
     login_workers: loginWorkerResults.length,
     login_allowed: loginAllowed,
     login_denied: loginDenied,
@@ -826,6 +1232,7 @@ try {
 } finally {
   await stopChildren();
   if (barrierDirectory !== '') rmSync(barrierDirectory, { recursive: true, force: true });
+  if (atomicCacheDirectory !== '') rmSync(atomicCacheDirectory, { recursive: true, force: true });
   if (databaseCreated) {
     runMysql({ input: `DROP DATABASE IF EXISTS \`${databaseName}\`;\n`, label: 'drop dedicated database' });
   }

@@ -4,6 +4,61 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync('public/app-main.js', 'utf8');
+const otaStandardControllerSource = readFileSync('app/controller/OtaStandard.php', 'utf8');
+
+test('expected page-request cancellation stays out of product error logging', () => {
+  for (const message of [
+    '加载自动获取状态失败:',
+    '加载每日工作台失败:',
+    '加载每日巡检快照失败:',
+    '加载第三阶段运营闭环失败:',
+    '[ManualOneClickFetch] 加载目标日入库证据失败:',
+  ]) {
+    const line = source.split(/\r?\n/).find(candidate => candidate.includes(`console.error('${message}'`));
+    assert.ok(line, `missing guarded log: ${message}`);
+    assert.match(line, /error\?\.name !== 'AbortError'/);
+  }
+});
+
+test('phase-3 loop skips its network request until a patrol snapshot exists', () => {
+  const loader = source.slice(
+    source.indexOf('const loadPhase3OperationEffectLoop = async'),
+    source.indexOf('const loadPhase3OperationEffectLoopLedger = async'),
+  );
+  const missingSnapshotGate = loader.indexOf('if (!runId)');
+  const request = loader.indexOf("request(`/online-data/phase3-operation-effect-loop?");
+  assert.ok(missingSnapshotGate >= 0);
+  assert.ok(request > missingSnapshotGate);
+  assert.match(loader, /尚无巡检快照；先生成巡检快照/);
+  assert.match(loader, /if \(!runId\)[\s\S]*?return;[\s\S]*?params\.append\('run_id', runId\);/);
+});
+
+test('core operations reads an explicit missing-metrics state without weakening the strict API default', () => {
+  const loader = source.slice(
+    source.indexOf('const loadCoreOperationsMetrics = async'),
+    source.indexOf('const requestOtaDiagnosis = body'),
+  );
+  assert.match(loader, /include_missing_state: '1'/);
+  assert.match(loader, /status: String\(res\.data\.status \|\| 'ready'\)/);
+  assert.match(otaStandardControllerSource, /param\('include_missing_state', false\)/);
+  assert.match(otaStandardControllerSource, /'status' => 'data_missing'/);
+  assert.match(otaStandardControllerSource, /'formal_metrics_available' => false/);
+  assert.match(otaStandardControllerSource, /return \$this->error\('No OTA rows matched the requested scope\.', 422/);
+});
+
+test('competitor summary cancellation preserves the previous view without product error logging', () => {
+  const loader = source.slice(
+    source.indexOf('const loadCompetitorSummary = async'),
+    source.indexOf('const loadRevenueAiOverview = async'),
+  );
+  const abortGate = loader.indexOf("e?.name === 'AbortError'");
+  const errorState = loader.indexOf('competitorSummaryLoadFailed.value = true;', abortGate);
+  const errorLog = loader.indexOf("console.error('加载竞对摘要失败:', e);", abortGate);
+  assert.ok(abortGate >= 0, 'missing competitor-summary AbortError gate');
+  assert.ok(errorState > abortGate, 'cancellation must return before setting a failed state');
+  assert.ok(errorLog > abortGate, 'cancellation must return before error logging');
+  assert.match(loader, /if \(!isCurrentRequest\(\) \|\| e\?\.name === 'AbortError'\) return null;/);
+});
 
 const sliceBetween = (start, end, { includeEnd = false } = {}) => {
   const startIndex = source.indexOf(start);

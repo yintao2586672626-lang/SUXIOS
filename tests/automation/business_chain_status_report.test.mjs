@@ -4,18 +4,14 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import {
   buildPhpBinaryCandidates,
+  isBusinessChainRuntimeRequired,
   resolvePhpBinary,
 } from '../../scripts/run_node_automation_tests.mjs';
 
 const phpCandidates = buildPhpBinaryCandidates();
 const php = resolvePhpBinary(phpCandidates) || phpCandidates[0] || 'php';
 
-function isRuntimeRequired(env = process.env) {
-  const enabled = (value) => ['1', 'true'].includes(String(value || '').trim().toLowerCase());
-  return enabled(env.CI) || enabled(env.SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME);
-}
-
-const runtimeRequired = isRuntimeRequired();
+const runtimeRequired = isBusinessChainRuntimeRequired();
 
 function extractJson(text) {
   const source = String(text || '');
@@ -73,10 +69,10 @@ function skipWhenRuntimeUnavailable(t, result, output, required = runtimeRequire
 }
 
 test('Business-chain runtime requirement recognizes CI and explicit enforcement', () => {
-  assert.equal(isRuntimeRequired({}), false);
-  assert.equal(isRuntimeRequired({ CI: 'true' }), true);
-  assert.equal(isRuntimeRequired({ CI: '1' }), true);
-  assert.equal(isRuntimeRequired({ SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME: '1' }), true);
+  assert.equal(isBusinessChainRuntimeRequired({}), false);
+  assert.equal(isBusinessChainRuntimeRequired({ CI: 'true' }), true);
+  assert.equal(isBusinessChainRuntimeRequired({ CI: '1' }), true);
+  assert.equal(isBusinessChainRuntimeRequired({ SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME: '1' }), true);
 });
 
 test('Business-chain runtime unavailability skips locally but fails closed when required', () => {

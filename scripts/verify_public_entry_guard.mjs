@@ -7,6 +7,7 @@ import { inspectFrontendEntryBuild } from './lib/frontend_entry_build.mjs';
 import { inspectFrontendStartupHelpers } from './lib/frontend_startup_helpers_build.mjs';
 import { inspectTailwindRuntimeBuild } from './lib/frontend_tailwind_build.mjs';
 import { inspectFrontendTemplateBuild } from './lib/frontend_template_build.mjs';
+import { inspectPublicEntryRuntimeContracts } from './lib/public_entry_ast_contract.mjs';
 import {
   AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT,
   AUTHENTICATED_ASSET_PHASE_STARTUP,
@@ -262,15 +263,10 @@ if (!fs.existsSync(indexPath)) {
     || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
     failures.push('public/index.html must load the home startup render and app-main before deferring the full render until after first paint.');
   }
-  if (!appBootstrapContent.includes("window.dispatchEvent(new CustomEvent('suxi:full-render-ready'")
-    || !appMainContent.includes("window.addEventListener('suxi:full-render-ready', handleSuxiFullRenderReady")
-    || !appMainContent.includes('const suxiRenderCaches = new WeakMap();')
-    || !appMainContent.includes('suxiActiveRender.value = fullRender;')
-    || !appMainContent.includes('suxiApp?.unmount();')
-    || !appMainContent.includes('window.SUXI_INITIAL_PAGE_OVERRIDE = targetPage;')
-    || !appMainContent.includes('requestSuxiFullRenderForPage = (page) => {')) {
-    failures.push('The authenticated bootstrap must remount deferred full pages through isolated render caches.');
-  }
+  failures.push(...inspectPublicEntryRuntimeContracts({
+    appBootstrapSource: appBootstrapContent,
+    appMainSource: appMainContent,
+  }).failures);
 
 if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
@@ -371,20 +367,6 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     failures.push('public/index.html must lazy-load the admin-only Ctrip profile-field config panel from public/components/online-data/ctrip-profile-field-config-panel.js.');
   }
 
-  if (!content.includes('let suxiApp = null;')
-    || !content.includes('const renderSuxiStartupError = (error) => {')
-    || !content.includes('let recoverSuxiRuntimeError = null;')
-    || !content.includes('recoverSuxiRuntimeError = ({ error, info }) => {')
-    || !content.includes('const isFatalStartupError = /setup function|app errorHandler|app warnHandler|app unmount cleanup function/i.test')
-    || !content.includes("currentPage.value = 'compass';")
-    || !content.includes('当前功能发生异常，已返回今日经营看板')
-    || !content.includes('app.config.errorHandler = (error, _instance, info) => {')
-    || !content.includes("recovered = typeof recoverSuxiRuntimeError === 'function'")
-    || !content.includes('if (recovered) return;')
-    || !content.includes('suxiApp = configureSuxiApp(createApp(suxiRootComponent));')
-    || !content.includes("suxiApp.mount('#app');")) {
-    failures.push('public/index.html must isolate recoverable Vue runtime errors while preserving an explicit fatal startup surface.');
-  }
   if (!content.includes(".replace(/[<>&\"']/g")) {
     failures.push('public/index.html startup error renderer must HTML-escape error messages before injecting them into #app.');
   }
@@ -1362,7 +1344,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || openCtripManualTabSource.includes('loadDataHealthPanel,')) {
     failures.push('public/index.html Ctrip manual data-health tab must schedule the light health refresh instead of passing the blocking loader.');
   }
-  if (!/if \(tab === 'data-health'\) \{\s*ctripEbookingModuleCardsReady\.value = false;\s*scheduleCtripEbookingModuleCardsReady\(\);\s*ctripEbookingSecondaryPanelsReady\.value = false;\s*scheduleCtripEbookingSecondaryPanelsReady\(\);\s*ctripEbookingDeepPanelsReady\.value = false;\s*scheduleCtripEbookingDeepPanelsReady\(\);\s*ctripEbookingBusinessDetailsReady\.value = false;\s*scheduleCtripEbookingBusinessDetailsReady\(\);\s*ctripEbookingDiagnosticsPanelsReady\.value = false;\s*\} else \{\s*clearCtripEbookingModuleCardsReadyTimer\(\);\s*ctripEbookingModuleCardsReady\.value = false;\s*clearCtripEbookingSecondaryPanelsReadyTimer\(\);\s*ctripEbookingSecondaryPanelsReady\.value = false;\s*clearCtripEbookingDeepPanelsReadyTimer\(\);\s*ctripEbookingDeepPanelsReady\.value = false;\s*clearCtripEbookingBusinessDetailsReadyTimer\(\);\s*ctripEbookingBusinessDetailsReady\.value = false;\s*ctripEbookingDiagnosticsPanelsReady\.value = false;\s*\}/.test(openCtripManualTabSource)) {
+  if (!/if \(tab === 'data-health'\) \{\s*syncCtripDataHealthHotelScope\(\);\s*ctripEbookingModuleCardsReady\.value = false;\s*scheduleCtripEbookingModuleCardsReady\(\);\s*ctripEbookingSecondaryPanelsReady\.value = false;\s*scheduleCtripEbookingSecondaryPanelsReady\(\);\s*ctripEbookingDeepPanelsReady\.value = false;\s*scheduleCtripEbookingDeepPanelsReady\(\);\s*ctripEbookingBusinessDetailsReady\.value = false;\s*scheduleCtripEbookingBusinessDetailsReady\(\);\s*ctripEbookingDiagnosticsPanelsReady\.value = false;\s*\} else \{\s*clearCtripEbookingModuleCardsReadyTimer\(\);\s*ctripEbookingModuleCardsReady\.value = false;\s*clearCtripEbookingSecondaryPanelsReadyTimer\(\);\s*ctripEbookingSecondaryPanelsReady\.value = false;\s*clearCtripEbookingDeepPanelsReadyTimer\(\);\s*ctripEbookingDeepPanelsReady\.value = false;\s*clearCtripEbookingBusinessDetailsReadyTimer\(\);\s*ctripEbookingBusinessDetailsReady\.value = false;\s*ctripEbookingDiagnosticsPanelsReady\.value = false;\s*\}/.test(openCtripManualTabSource)) {
     failures.push('public/index.html Ctrip manual tab switch must only mount secondary overview diagnostics after the data-health tab is visibly selected.');
   }
   const refreshCtripHotelConfigOptionsSource = content.slice(
@@ -2013,20 +1995,23 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   }
   const ctripOverviewTargetHotelSource = content.slice(
     content.indexOf('const syncCtripOverviewTargetHotel = async'),
-    content.indexOf('const handleCtripOverviewHotelChange = async')
+    content.indexOf('const applyCtripHotelConfig = async')
   );
   if (!/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/.test(ctripOverviewTargetHotelSource)
     || !/await applyCtripHotelConfig\(false, \{\s*refreshList: false,\s*refreshLatest: false,\s*skipIfAligned: true,\s*\}\);/.test(ctripOverviewTargetHotelSource)) {
     failures.push('public/index.html Ctrip overview hotel switching must reuse the short config-list cache before applying manual fetch config.');
   }
-  const ctripOverviewHotelChangeSource = content.slice(
-    content.indexOf('const handleCtripOverviewHotelChange = async'),
-    content.indexOf('const applyCtripHotelConfig = async')
+  const ctripDataHealthScopeSource = content.slice(
+    content.indexOf('const syncCtripDataHealthHotelScope = () =>'),
+    content.indexOf('const openCtripManualTab = (tab) =>')
   );
-  if (!ctripOverviewHotelChangeSource.includes('await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });')
-    || !ctripOverviewHotelChangeSource.includes("scheduleDataHealthPanelRefresh('light', { force: true });")
-    || ctripOverviewHotelChangeSource.includes("await loadDataHealthPanel('light');")) {
-    failures.push('public/index.html Ctrip overview hotel switching must schedule data-health refresh after config sync instead of waiting on it.');
+  if (!ctripDataHealthScopeSource.includes('autoFetchHotelId.value = hotelId;')
+    || !ctripDataHealthScopeSource.includes('coreOperationsHotelId.value = hotelId;')
+    || !openCtripManualTabSource.includes("if (tab === 'data-health') {")
+    || !openCtripManualTabSource.includes('syncCtripDataHealthHotelScope();')
+    || !openCtripManualTabSource.includes('loadDataHealthPanel: scheduleDataHealthPanelRefresh')
+    || openCtripManualTabSource.includes("await loadDataHealthPanel('light');")) {
+    failures.push('public/index.html Ctrip overview hotel switching must align the selected hotel before scheduling a non-blocking data-health refresh.');
   }
   if (!/newTab === ['"]platform-auto['"][\s\S]*schedulePlatformAutoFetchPanelLoad\((?:options)?\)/.test(onlineDataTabSchedulerSource)) {
     failures.push('public/index.html must lazy-load the platform-auto panel when the platform-auto tab is opened.');
@@ -3195,7 +3180,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   const meituanLightListSource = meituanLightListMatch ? meituanLightListMatch[1] : '';
   const profileSanitizerMatch = controllerContent.match(/private function sanitizeBrowserProfileSourcesForSharedCache\(array \$rows\): array\s+\{([\s\S]*?)\n    private function clearAutoFetchLightConfigListCache/);
   const profileSanitizerSource = profileSanitizerMatch ? profileSanitizerMatch[1] : '';
-  const profileListMatch = controllerContent.match(/private function listEnabledBrowserProfileDataSources\(int \$hotelId, string \$platform = ''\): array\s+\{([\s\S]*?)\n    private function listEnabledCtripBrowserProfileDataSources/);
+  const profileListMatch = controllerContent.match(/private function listEnabledBrowserProfileDataSources\(\s*int \$hotelId,\s*string \$platform = ''(?:,\s*bool \$useCache = true)?\s*\): array\s+\{([\s\S]*?)\n    private function (?:browserProfileSourceReadFailure|listEnabledCtripBrowserProfileDataSources)/);
   const profileListSource = profileListMatch ? profileListMatch[1] : '';
   const credentialReadyMatch = controllerContent.match(/private function autoFetchCredentialReady\(array \$config\): bool\s+\{([\s\S]*?)\n    private function autoFetchCtripRequestUrl/);
   const credentialReadySource = credentialReadyMatch ? credentialReadyMatch[1] : '';

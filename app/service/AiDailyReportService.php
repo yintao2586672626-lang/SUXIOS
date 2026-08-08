@@ -34,13 +34,16 @@ class AiDailyReportService
     private AiDecisionQualityService $decisionQualityService;
     private OtaCompetitionAnalysisBundleService $competitionBundleService;
     private AiModelRoutingService $modelRoutingService;
+    /** @var callable(array<int,int>,int,int,string):array<string,mixed> */
+    private $temporalOverviewLoader;
 
     public function __construct(
         ?OperationManagementService $operationService = null,
         ?LlmClient $llmClient = null,
         ?AiDecisionQualityService $decisionQualityService = null,
         ?OtaCompetitionAnalysisBundleService $competitionBundleService = null,
-        ?AiModelRoutingService $modelRoutingService = null
+        ?AiModelRoutingService $modelRoutingService = null,
+        ?callable $temporalOverviewLoader = null
     )
     {
         $this->operationService = $operationService ?? new OperationManagementService();
@@ -48,6 +51,9 @@ class AiDailyReportService
         $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
         $this->competitionBundleService = $competitionBundleService ?? new OtaCompetitionAnalysisBundleService();
         $this->modelRoutingService = $modelRoutingService ?? new AiModelRoutingService();
+        $this->temporalOverviewLoader = $temporalOverviewLoader
+            ?? static fn(array $hotelIds, int $historyDays, int $futureDays, string $today): array =>
+                (new TemporalInsightService())->overview($hotelIds, $historyDays, $futureDays, $today);
     }
 
     public static function promptVersion(): string
@@ -62,7 +68,12 @@ class AiDailyReportService
 
     public function list(array $hotelIds, ?int $hotelId, array $filters = []): array
     {
-        if (!$this->tableExists(self::TABLE)) {
+        try {
+            $reportTableExists = $this->tableExists(self::TABLE);
+        } catch (Throwable) {
+            return $this->blockedReportRead('list');
+        }
+        if (!$reportTableExists) {
             return [
                 'list' => [],
                 'data_status' => 'missing_table',
@@ -70,26 +81,33 @@ class AiDailyReportService
             ];
         }
 
-        $query = Db::name(self::TABLE)->whereNull('deleted_at');
-        $this->applyHotelScope($query, $hotelIds, $hotelId);
+        try {
+            $query = Db::name(self::TABLE)->whereNull('deleted_at');
+            $this->applyHotelScope($query, $hotelIds, $hotelId);
 
-        $date = trim((string)($filters['report_date'] ?? $filters['date'] ?? ''));
-        if ($date !== '') {
-            $query->where('report_date', $this->normalizeDate($date));
+            $date = trim((string)($filters['report_date'] ?? $filters['date'] ?? ''));
+            if ($date !== '') {
+                $query->where('report_date', $this->normalizeDate($date));
+            }
+
+            $page = max(1, (int)($filters['page'] ?? 1));
+            $pageSize = min(50, max(1, (int)($filters['page_size'] ?? 10)));
+            $total = (int)(clone $query)->count();
+            $rows = $query
+                ->order('report_date', 'desc')
+                ->order('id', 'desc')
+                ->page($page, $pageSize)
+                ->select()
+                ->toArray();
+            $enrichedRows = $this->enrichReportRows($rows, $hotelIds, $hotelId);
+        } catch (\InvalidArgumentException $exception) {
+            throw $exception;
+        } catch (Throwable) {
+            return $this->blockedReportRead('list');
         }
 
-        $page = max(1, (int)($filters['page'] ?? 1));
-        $pageSize = min(50, max(1, (int)($filters['page_size'] ?? 10)));
-        $total = (int)(clone $query)->count();
-        $rows = $query
-            ->order('report_date', 'desc')
-            ->order('id', 'desc')
-            ->page($page, $pageSize)
-            ->select()
-            ->toArray();
-
         return [
-            'list' => $this->enrichReportRows($rows, $hotelIds, $hotelId),
+            'list' => $enrichedRows,
             'pagination' => [
                 'total' => $total,
                 'page' => $page,
@@ -102,7 +120,12 @@ class AiDailyReportService
 
     public function latest(array $hotelIds, ?int $hotelId): array
     {
-        if (!$this->tableExists(self::TABLE)) {
+        try {
+            $reportTableExists = $this->tableExists(self::TABLE);
+        } catch (Throwable) {
+            return $this->blockedReportRead('latest');
+        }
+        if (!$reportTableExists) {
             return [
                 'report' => null,
                 'data_status' => 'missing_table',
@@ -110,11 +133,14 @@ class AiDailyReportService
             ];
         }
 
-        $query = Db::name(self::TABLE)->whereNull('deleted_at');
-        $this->applyHotelScope($query, $hotelIds, $hotelId);
-        $row = $query->order('report_date', 'desc')->order('id', 'desc')->find();
-
-        $reports = is_array($row) ? $this->enrichReportRows([$row], $hotelIds, $hotelId) : [];
+        try {
+            $query = Db::name(self::TABLE)->whereNull('deleted_at');
+            $this->applyHotelScope($query, $hotelIds, $hotelId);
+            $row = $query->order('report_date', 'desc')->order('id', 'desc')->find();
+            $reports = is_array($row) ? $this->enrichReportRows([$row], $hotelIds, $hotelId) : [];
+        } catch (Throwable) {
+            return $this->blockedReportRead('latest');
+        }
 
         return [
             'report' => $reports[0] ?? null,
@@ -125,7 +151,12 @@ class AiDailyReportService
 
     public function read(int $id, array $hotelIds): ?array
     {
-        if (!$this->tableExists(self::TABLE)) {
+        try {
+            $reportTableExists = $this->tableExists(self::TABLE);
+        } catch (Throwable) {
+            return $this->blockedReportRead('read', ['report_id' => $id]);
+        }
+        if (!$reportTableExists) {
             throw new \RuntimeException('ai_daily_reports table does not exist, run database migration first');
         }
 
@@ -133,17 +164,25 @@ class AiDailyReportService
             return null;
         }
 
-        $row = Db::name(self::TABLE)
-            ->where('id', $id)
-            ->whereIn('hotel_id', $hotelIds)
-            ->whereNull('deleted_at')
-            ->find();
+        try {
+            $row = Db::name(self::TABLE)
+                ->where('id', $id)
+                ->whereIn('hotel_id', $hotelIds)
+                ->whereNull('deleted_at')
+                ->find();
+        } catch (Throwable) {
+            return $this->blockedReportRead('read', ['report_id' => $id]);
+        }
 
         if (!is_array($row)) {
             return null;
         }
 
-        $reports = $this->enrichReportRows([$row], $hotelIds, null);
+        try {
+            $reports = $this->enrichReportRows([$row], $hotelIds, null);
+        } catch (Throwable) {
+            return $this->blockedReportRead('read', ['report_id' => $id]);
+        }
         return $reports[0] ?? null;
     }
 
@@ -1673,8 +1712,31 @@ class AiDailyReportService
     {
         try {
             $nextDay = (new \DateTimeImmutable($reportDate))->modify('+1 day')->format('Y-m-d');
-            $overview = (new TemporalInsightService())->overview([$hotelId], 7, 3, $nextDay);
+            $overview = (array)call_user_func(
+                $this->temporalOverviewLoader,
+                [$hotelId],
+                7,
+                3,
+                $nextDay
+            );
             $past = is_array($overview['past'] ?? null) ? $overview['past'] : [];
+            if (($past['data_status'] ?? '') === 'read_failed'
+                || ($past['status'] ?? '') === 'blocked'
+            ) {
+                return [
+                    'status' => 'blocked',
+                    'data_status' => 'read_failed',
+                    'reason_code' => (string)($past['reason_code'] ?? 'temporal_facts_read_failed'),
+                    'stage' => (string)($past['stage'] ?? 'online_daily_data'),
+                    'report_date' => $reportDate,
+                    'metric_scope' => 'ota_channel',
+                    'data_gaps' => array_values(array_filter(
+                        (array)($past['data_gaps'] ?? []),
+                        'is_array'
+                    )),
+                    'metrics' => [],
+                ];
+            }
             foreach ((array)($past['series'] ?? []) as $row) {
                 if (is_array($row) && (string)($row['date'] ?? '') === $reportDate) {
                     return [
@@ -1686,11 +1748,30 @@ class AiDailyReportService
                     ];
                 }
             }
+            $reasonCode = trim((string)($past['reason_code'] ?? ''));
+            return [
+                'status' => 'missing',
+                'data_status' => $reasonCode === 'table_missing' ? 'table_missing' : 'missing',
+                'reason_code' => $reasonCode !== '' ? $reasonCode : 'temporal_fact_missing',
+                'report_date' => $reportDate,
+                'metrics' => [],
+            ];
         } catch (\Throwable) {
-            // A missing optional temporal view must not make report generation fail.
+            return [
+                'status' => 'blocked',
+                'data_status' => 'read_failed',
+                'reason_code' => 'temporal_facts_read_failed',
+                'stage' => 'temporal_insight',
+                'report_date' => $reportDate,
+                'metric_scope' => 'ota_channel',
+                'data_gaps' => [[
+                    'code' => 'temporal_facts_read_failed',
+                    'data_status' => 'read_failed',
+                    'stage' => 'temporal_insight',
+                ]],
+                'metrics' => [],
+            ];
         }
-
-        return ['status' => 'missing', 'report_date' => $reportDate, 'metrics' => []];
     }
 
     /**
@@ -3117,7 +3198,22 @@ class AiDailyReportService
 
         $temporalFacts = is_array($snapshot['temporal_facts'] ?? null) ? $snapshot['temporal_facts'] : [];
         $temporalMetrics = is_array($temporalFacts['metrics'] ?? null) ? $temporalFacts['metrics'] : [];
-        if (in_array((string)($temporalFacts['status'] ?? ''), ['ready', 'partial'], true)) {
+        if (($temporalFacts['data_status'] ?? '') === 'read_failed'
+            || ($temporalFacts['status'] ?? '') === 'blocked'
+        ) {
+            $conflicts[] = [
+                'code' => (string)($temporalFacts['reason_code'] ?? 'temporal_facts_read_failed'),
+                'message' => '已保存 OTA 时间事实读取失败，无法核对经营汇总；相关研判和动作已停止。',
+                'source_ref' => 'temporal_insight.online_daily_data',
+                'affected_dimensions' => ['all'],
+                'evidence' => [
+                    'data_status' => 'read_failed',
+                    'stage' => (string)($temporalFacts['stage'] ?? 'online_daily_data'),
+                    'report_date' => (string)($temporalFacts['report_date'] ?? ''),
+                ],
+                'resolution' => '恢复同一酒店、同一业务日期的时间事实数据库读取，完成精确回读后重新生成日报。',
+            ];
+        } elseif (in_array((string)($temporalFacts['status'] ?? ''), ['ready', 'partial'], true)) {
             foreach (['revenue', 'orders', 'room_nights'] as $metric) {
                 $summaryValue = $this->numericOrNull($summary[$metric] ?? null);
                 $factValue = $this->numericOrNull($temporalMetrics['ota_' . ($metric === 'orders' ? 'orders' : $metric)] ?? null);
@@ -4846,14 +4942,84 @@ class AiDailyReportService
         return is_array($decoded) ? $decoded : [];
     }
 
+    /** @return array<string, mixed> */
+    private function blockedReportRead(string $stage, array $extra = []): array
+    {
+        $shape = match ($stage) {
+            'list' => [
+                'list' => [],
+                'pagination' => [
+                    'total' => null,
+                    'page' => null,
+                    'page_size' => null,
+                    'total_page' => null,
+                ],
+            ],
+            'latest' => ['report' => null],
+            default => [],
+        };
+
+        return array_merge($shape, [
+            'status' => 'blocked',
+            'data_status' => 'read_failed',
+            'reason_code' => 'ai_daily_reports_read_failed',
+            'stage' => $stage,
+            'data_gaps' => [[
+                'code' => 'ai_daily_reports_read_failed',
+                'data_status' => 'read_failed',
+                'stage' => $stage,
+                'message' => 'AI daily report storage could not be read; the result was not treated as missing or empty.',
+            ]],
+        ], $extra);
+    }
+
     private function tableExists(string $table): bool
     {
         try {
             Db::query('SELECT 1 FROM `' . str_replace('`', '', $table) . '` LIMIT 1');
             return true;
         } catch (Throwable $e) {
-            return false;
+            if ($this->isMissingTableException($e, $table)) {
+                return false;
+            }
+            throw new \RuntimeException(
+                'database_table_probe_failed:' . $table,
+                503,
+                $e
+            );
         }
+    }
+
+    private function isMissingTableException(Throwable $exception, string $table): bool
+    {
+        $table = strtolower(str_replace('`', '', $table));
+        $current = $exception;
+        do {
+            $code = strtoupper(trim((string)$current->getCode()));
+            $message = strtolower($current->getMessage());
+            if ($code === '42S02'
+                || str_contains($message, "table '{$table}' doesn't exist")
+                || str_contains($message, 'table `' . $table . '` does not exist')
+                || str_contains($message, 'relation "' . $table . '" does not exist')
+                || preg_match(
+                    '/table\s+[' . "'`\"" . '](?:[a-z0-9_]+\.)?'
+                        . preg_quote($table, '/')
+                        . '[' . "'`\"" . ']\s+(?:doesn.t|does not)\s+exist/i',
+                    $message
+                ) === 1
+                || preg_match(
+                    '/no such table:\s*(?:[a-z0-9_]+\.)?[`"\[]?'
+                        . preg_quote($table, '/')
+                        . '[`"\]]?(?:\s|$)/i',
+                    $message
+                ) === 1
+            ) {
+                return true;
+            }
+            $current = $current->getPrevious();
+        } while ($current instanceof Throwable);
+
+        return false;
     }
 
     private function withTenantId(array $data, string $table, int $hotelId): array

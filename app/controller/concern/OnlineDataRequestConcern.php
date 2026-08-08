@@ -1387,6 +1387,7 @@ trait OnlineDataRequestConcern
         $probeLogin = $this->isTruthyRequestValue($requestData['probe_login'] ?? $requestData['probeLogin'] ?? false);
         $systemHotelId = null;
         try {
+            $this->assertCtripProfileStatusProbeDataSourceScope($probeLogin, $requestedDataSourceId);
             if ($requestedDataSourceId > 0) {
                 $requestData = $this->applyPlatformProfileLoginDataSourceRequest('ctrip', $requestData);
             }
@@ -1438,7 +1439,9 @@ trait OnlineDataRequestConcern
             }
         } catch (\RuntimeException $e) {
             return $this->error($e->getMessage(), $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409, [
-                'status_code' => 'ota_profile_binding_blocked',
+                'status_code' => $probeLogin && $requestedDataSourceId <= 0
+                    ? 'data_source_scope_missing'
+                    : 'ota_profile_binding_blocked',
                 'sensitive_values_exposed' => false,
             ]);
         }
@@ -1465,6 +1468,13 @@ trait OnlineDataRequestConcern
             $status,
             !empty($status['exists']) ? '携程 Profile 状态已读取' : '未找到携程 Profile'
         );
+    }
+
+    private function assertCtripProfileStatusProbeDataSourceScope(bool $probeLogin, int $requestedDataSourceId): void
+    {
+        if ($probeLogin && $requestedDataSourceId <= 0) {
+            throw new \RuntimeException('Ctrip Profile login probe requires a bound data_source_id.', 409);
+        }
     }
 
     /** @param array<string, mixed> $status */
@@ -1567,10 +1577,14 @@ trait OnlineDataRequestConcern
 
         try {
             if ($sourceId > 0) {
-                $source = Db::name('platform_data_sources')
-                    ->field('id,system_hotel_id,platform,ingestion_method,config_json,enabled,status')
-                    ->where('id', $sourceId)
-                    ->find();
+                try {
+                    $source = Db::name('platform_data_sources')
+                        ->field('id,system_hotel_id,platform,ingestion_method,config_json,enabled,status')
+                        ->where('id', $sourceId)
+                        ->find();
+                } catch (\Throwable $e) {
+                    throw $this->browserProfileSourceReadFailure($e);
+                }
                 if (is_array($source)) {
                     $safeSources = $this->sanitizeBrowserProfileSourcesForSharedCache([$source]);
                     $source = $safeSources[0] ?? [];
@@ -1624,6 +1638,13 @@ trait OnlineDataRequestConcern
                 'system_hotel_id' => (int)$systemHotelId,
             ], 'Profile 绑定已解除');
         } catch (\RuntimeException $e) {
+            if ($e->getMessage() === 'browser_profile_source_read_failed') {
+                return $this->error('browser_profile_source_read_failed', 503, [
+                    'reason_code' => 'browser_profile_source_read_failed',
+                    'stage' => 'platform_data_sources_read',
+                    'retryable' => true,
+                ]);
+            }
             return $this->error($e->getMessage(), 400);
         } catch (\Throwable $e) {
             return $this->error('解除平台 Profile 绑定失败: ' . $e->getMessage(), 500);

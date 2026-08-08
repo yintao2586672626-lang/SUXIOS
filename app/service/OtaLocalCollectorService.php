@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\exception\OtaLocalCollectorLeaseConflict;
 use app\model\User;
+use app\service\concern\OtaLocalCollectorLeaseConcern;
 use RuntimeException;
 use think\facade\Cache;
 use think\facade\Db;
@@ -16,6 +18,8 @@ use Throwable;
  */
 final class OtaLocalCollectorService
 {
+    use OtaLocalCollectorLeaseConcern;
+
     private const CONTRACT_VERSION = 'ota_local_collector.v1';
     private const PAIR_TTL_SECONDS = 600;
     private const DEVICE_ONLINE_SECONDS = 120;
@@ -134,15 +138,9 @@ final class OtaLocalCollectorService
             Cache::delete($cacheKey);
             throw new RuntimeException('配对码已失效，请在宿析OS重新生成。', 410);
         }
-        Cache::delete($cacheKey);
 
         $userId = (int)($pairing['user_id'] ?? 0);
         $tenantId = (int)($pairing['tenant_id'] ?? 0);
-        $owner = User::find($userId);
-        if (!$owner || (int)($owner->status ?? 0) !== 1 || $tenantId <= 0) {
-            throw new RuntimeException('配对账号不可用，请联系管理员。', 403);
-        }
-
         $deviceName = $this->safeText(
             (string)($input['device_name'] ?? $input['name'] ?? $pairing['device_name'] ?? ''),
             120
@@ -157,22 +155,63 @@ final class OtaLocalCollectorService
         $deviceToken = 'lc_' . bin2hex(random_bytes(32));
         $now = date('Y-m-d H:i:s');
 
-        $id = (int)Db::name('ota_local_collector_devices')->insertGetId([
-            'tenant_id' => $tenantId,
-            'user_id' => $userId,
-            'device_public_id' => $publicId,
-            'device_token_hash' => hash('sha256', $deviceToken),
-            'device_name' => $deviceName !== '' ? $deviceName : 'Windows 本机采集器',
-            'device_platform' => $devicePlatform,
-            'collector_version' => $collectorVersion,
-            'capabilities_json' => json_encode($capabilities, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'status' => 'online',
-            'last_seen_at' => $now,
-            'last_error_code' => '',
-            'last_error_summary' => '',
-            'create_time' => $now,
-            'update_time' => $now,
-        ]);
+        $id = Db::transaction(function () use (
+            $cacheKey,
+            $userId,
+            $tenantId,
+            $publicId,
+            $deviceToken,
+            $deviceName,
+            $devicePlatform,
+            $collectorVersion,
+            $capabilities,
+            $now
+        ): int {
+            // Serialize all pair-code consumption for this account. The cache
+            // value is re-read only after the owner row lock is held, so two
+            // concurrent requests cannot both pass the one-time gate.
+            $owner = Db::name('users')->where('id', $userId)->lock(true)->find();
+            if (!is_array($owner)
+                || (int)($owner['status'] ?? 0) !== 1
+                || $tenantId <= 0
+                || (int)($owner['tenant_id'] ?? 0) !== $tenantId
+            ) {
+                throw new RuntimeException('配对账号不可用，请联系管理员。', 403);
+            }
+            $current = Cache::get($cacheKey);
+            if (!is_array($current)
+                || strtotime((string)($current['expires_at'] ?? '')) < time()
+                || (int)($current['user_id'] ?? 0) !== $userId
+                || (int)($current['tenant_id'] ?? 0) !== $tenantId
+            ) {
+                Cache::delete($cacheKey);
+                throw new RuntimeException('配对码已失效，请在宿析OS重新生成。', 410);
+            }
+            if (!Cache::delete($cacheKey)) {
+                throw new RuntimeException('配对码已被使用，请在宿析OS重新生成。', 409);
+            }
+
+            $deviceId = (int)Db::name('ota_local_collector_devices')->insertGetId([
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'device_public_id' => $publicId,
+                'device_token_hash' => hash('sha256', $deviceToken),
+                'device_name' => $deviceName !== '' ? $deviceName : 'Windows 本机采集器',
+                'device_platform' => $devicePlatform,
+                'collector_version' => $collectorVersion,
+                'capabilities_json' => json_encode($capabilities, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'status' => 'online',
+                'last_seen_at' => $now,
+                'last_error_code' => '',
+                'last_error_summary' => '',
+                'create_time' => $now,
+                'update_time' => $now,
+            ]);
+            if ($deviceId <= 0) {
+                throw new RuntimeException('本机采集器配对失败：未取得设备ID。', 500);
+            }
+            return $deviceId;
+        });
 
         return [
             'contract_version' => self::CONTRACT_VERSION,
@@ -205,10 +244,13 @@ final class OtaLocalCollectorService
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
             );
         }
-        Db::name('ota_local_collector_devices')->where('id', (int)$device['id'])->update($update);
+        $deviceReadback = $this->writeActiveDevice($device, $update);
+        if (!is_array($deviceReadback)) {
+            throw new RuntimeException('本机采集设备状态已变化或已撤销，请重新认证。', 409);
+        }
         $scheduled = ($input['skip_gap_scan'] ?? false) === true
             ? 0
-            : $this->scheduleGapBackfillsForDevice((int)$device['id']);
+            : $this->scheduleGapBackfillsForDevice($deviceReadback);
 
         return [
             'contract_version' => self::CONTRACT_VERSION,
@@ -234,12 +276,16 @@ final class OtaLocalCollectorService
                     $profileOrderedCollection,
                     $actor['is_super_admin']
                 );
-                return [
-                    'status' => 'ready',
+                $profileFailure = $this->browserProfileSnapshotReadFailure($profileOrderedCollection);
+                $profileReadFailed = $profileFailure !== null;
+                $response = [
+                    'status' => $profileReadFailed ? 'partial' : 'ready',
                     'contract_version' => self::CONTRACT_VERSION,
                     'collection_mode' => 'browser_profile',
                     'local_collector_required' => false,
-                    'local_collector_status' => 'migration_missing_optional',
+                    'local_collector_status' => $profileReadFailed
+                        ? 'browser_profile_read_failed'
+                        : 'migration_missing_optional',
                     'boundary' => [
                         'server_stores' => 'Profile 数据源元数据、任务状态、结构化业务结果和真实 verifier 状态',
                         'device_only' => 'Profile、Cookie、localStorage、sessionStorage、验证码和平台登录令牌',
@@ -250,13 +296,20 @@ final class OtaLocalCollectorService
                         'account_count' => 0,
                         'active_account_count' => 0,
                         'attention_task_count' => 0,
-                        'browser_profile_source_count' => (int)($profileOrderedCollection['source_count'] ?? 0),
+                        'browser_profile_source_count' => is_numeric($profileOrderedCollection['source_count'] ?? null)
+                            ? (int)$profileOrderedCollection['source_count']
+                            : null,
                     ],
                     'devices' => [],
                     'accounts' => [],
                     'tasks' => [],
                     'ordered_collection' => $profileOrderedCollection,
                 ];
+                if ($profileReadFailed) {
+                    $response['reason_code'] = (string)$profileFailure['reason_code'];
+                    $response['stage'] = (string)$profileFailure['stage'];
+                }
+                return $response;
             }
             return [
                 'status' => 'migration_required',
@@ -418,12 +471,18 @@ final class OtaLocalCollectorService
             ? 'browser_profile'
             : 'local_collector';
 
-        return [
-            'status' => 'ready',
+        $profileFailure = is_array($profileOrderedCollection)
+            ? $this->browserProfileSnapshotReadFailure($profileOrderedCollection)
+            : null;
+        $profileReadFailed = $profileFailure !== null;
+        $response = [
+            'status' => $profileReadFailed ? 'partial' : 'ready',
             'contract_version' => self::CONTRACT_VERSION,
             'collection_mode' => $collectionMode,
             'local_collector_required' => false,
-            'local_collector_status' => $devices === [] ? 'not_registered_optional' : 'registered',
+            'local_collector_status' => $profileReadFailed
+                ? 'browser_profile_read_failed'
+                : ($devices === [] ? 'not_registered_optional' : 'registered'),
             'boundary' => [
                 'server_stores' => '设备登记、账户别名、门店映射、任务状态、失败摘要和结构化业务结果',
                 'device_only' => 'Profile、Cookie、localStorage、sessionStorage、验证码和平台登录令牌',
@@ -447,13 +506,47 @@ final class OtaLocalCollectorService
                         true
                     )
                 )),
-                'browser_profile_source_count' => (int)($profileOrderedCollection['source_count'] ?? 0),
+                'browser_profile_source_count' => is_numeric($profileOrderedCollection['source_count'] ?? null)
+                    ? (int)$profileOrderedCollection['source_count']
+                    : ($profileOrderedCollection === null ? 0 : null),
             ],
             'devices' => array_values($devices),
             'accounts' => array_values($accounts),
             'tasks' => array_values($tasks),
             'ordered_collection' => $orderedCollection,
         ];
+        if ($profileReadFailed) {
+            $response['reason_code'] = (string)$profileFailure['reason_code'];
+            $response['stage'] = (string)$profileFailure['stage'];
+        }
+        return $response;
+    }
+
+    /** @return array{reason_code:string,stage:string}|null */
+    private function browserProfileSnapshotReadFailure(array $snapshot): ?array
+    {
+        if (($snapshot['data_status'] ?? '') === 'read_failed') {
+            return [
+                'reason_code' => (string)($snapshot['reason_code'] ?? 'source_read_failed'),
+                'stage' => (string)($snapshot['stage'] ?? 'browser_profile'),
+            ];
+        }
+
+        foreach ((array)($snapshot['read_failures'] ?? []) as $failure) {
+            if (!is_array($failure)) {
+                continue;
+            }
+            $reasonCode = trim((string)($failure['reason_code'] ?? ''));
+            $stage = trim((string)($failure['stage'] ?? ''));
+            if ($reasonCode !== '') {
+                return [
+                    'reason_code' => $reasonCode,
+                    'stage' => $stage !== '' ? $stage : 'browser_profile',
+                ];
+            }
+        }
+
+        return null;
     }
 
     /** @return array<string, mixed> */
@@ -942,16 +1035,25 @@ final class OtaLocalCollectorService
         $device = $this->ownedDevice($actor, $deviceId);
         $now = date('Y-m-d H:i:s');
         Db::transaction(function () use ($device, $now): void {
+            $deviceValues = [
+                'status' => 'revoked',
+                'device_token_hash' => hash('sha256', random_bytes(32)),
+                'update_time' => $now,
+            ];
             $deviceUpdated = Db::name('ota_local_collector_devices')
                 ->where('id', (int)$device['id'])
                 ->where('tenant_id', (int)$device['tenant_id'])
                 ->where('user_id', (int)$device['user_id'])
-                ->update([
-                'status' => 'revoked',
-                'device_token_hash' => hash('sha256', random_bytes(32)),
-                'update_time' => $now,
-                ]);
-            if ($deviceUpdated !== 1) {
+                ->update($deviceValues);
+            $deviceReadback = Db::name('ota_local_collector_devices')
+                ->where('id', (int)$device['id'])
+                ->where('tenant_id', (int)$device['tenant_id'])
+                ->where('user_id', (int)$device['user_id'])
+                ->find();
+            if ($deviceUpdated !== 1
+                || !is_array($deviceReadback)
+                || !$this->exactWriteReadbackMatches($deviceReadback, $deviceValues)
+            ) {
                 throw new RuntimeException('撤销设备身份回写失败。', 409);
             }
             $accounts = Db::name('ota_local_collector_accounts')
@@ -962,27 +1064,30 @@ final class OtaLocalCollectorService
                 ->select()
                 ->toArray();
             foreach ($accounts as $account) {
+                $accountValues = [
+                    'status' => 'revoked',
+                    'session_status' => 'device_revoked',
+                    'last_error_code' => 'device_revoked',
+                    'last_error_summary' => '设备已撤销，需要在新电脑重新配对和登录。',
+                    'update_time' => $now,
+                ];
                 $accountUpdated = Db::name('ota_local_collector_accounts')
                     ->where('id', (int)$account['id'])
                     ->where('tenant_id', (int)$device['tenant_id'])
                     ->where('user_id', (int)$device['user_id'])
                     ->where('device_id', (int)$device['id'])
                     ->where('platform', (string)$account['platform'])
-                    ->update([
-                        'status' => 'revoked',
-                        'session_status' => 'device_revoked',
-                        'last_error_code' => 'device_revoked',
-                        'last_error_summary' => '设备已撤销，需要在新电脑重新配对和登录。',
-                        'update_time' => $now,
-                    ]);
+                    ->update($accountValues);
+                $accountReadback = Db::name('ota_local_collector_accounts')
+                    ->where('id', (int)$account['id'])
+                    ->where('tenant_id', (int)$device['tenant_id'])
+                    ->where('user_id', (int)$device['user_id'])
+                    ->where('device_id', (int)$device['id'])
+                    ->where('platform', (string)$account['platform'])
+                    ->find();
                 if ($accountUpdated !== 1
-                    || !is_array(Db::name('ota_local_collector_accounts')
-                        ->where('id', (int)$account['id'])
-                        ->where('tenant_id', (int)$device['tenant_id'])
-                        ->where('user_id', (int)$device['user_id'])
-                        ->where('device_id', (int)$device['id'])
-                        ->where('platform', (string)$account['platform'])
-                        ->find())
+                    || !is_array($accountReadback)
+                    || !$this->exactWriteReadbackMatches($accountReadback, $accountValues)
                 ) {
                     throw new RuntimeException('撤销设备账户身份回写后精确回读失败。', 409);
                 }
@@ -1022,7 +1127,9 @@ final class OtaLocalCollectorService
     public function nextTask(string $publicId, string $token): array
     {
         $device = $this->authenticateDevice($publicId, $token);
-        $this->touchDevice((int)$device['id']);
+        if (!$this->touchDevice($device)) {
+            throw new RuntimeException('本机采集设备状态已变化或已撤销，请重新认证。', 409);
+        }
         $this->recoverExpiredLeases($device);
         $now = date('Y-m-d H:i:s');
         $permittedHotelIds = $this->devicePermittedHotelIds($device);
@@ -1092,16 +1199,17 @@ final class OtaLocalCollectorService
             $task = $candidates[0];
             $leaseToken = 'lease_' . bin2hex(random_bytes(24));
             $leaseExpiresAt = date('Y-m-d H:i:s', time() + self::LEASE_SECONDS);
+            $leaseValues = [
+                'status' => 'leased',
+                'attempt' => (int)($task['attempt'] ?? 0) + 1,
+                'lease_token_hash' => hash('sha256', $leaseToken),
+                'lease_expires_at' => $leaseExpiresAt,
+                'started_at' => $task['started_at'] ?: $now,
+                'update_time' => $now,
+            ];
             $updated = $this->scopedTaskQuery($task, true)
                 ->whereIn('status', ['queued', 'retry_wait'])
-                ->update([
-                    'status' => 'leased',
-                    'attempt' => (int)($task['attempt'] ?? 0) + 1,
-                    'lease_token_hash' => hash('sha256', $leaseToken),
-                    'lease_expires_at' => $leaseExpiresAt,
-                    'started_at' => $task['started_at'] ?: $now,
-                    'update_time' => $now,
-                ]);
+                ->update($leaseValues);
             if ($updated !== 1) {
                 return null;
             }
@@ -1109,15 +1217,11 @@ final class OtaLocalCollectorService
                 ->where('status', 'leased')
                 ->find();
             if (!is_array($leasedTask)
-                || !hash_equals(
-                    (string)($leasedTask['lease_token_hash'] ?? ''),
-                    hash('sha256', $leaseToken)
-                )
+                || !$this->exactWriteReadbackMatches($leasedTask, $leaseValues)
             ) {
-                return null;
+                throw new RuntimeException('本机任务领用回写后精确回读失败。', 409);
             }
             $leasedTask['lease_token'] = $leaseToken;
-            $leasedTask['lease_expires_at'] = $leaseExpiresAt;
             return $leasedTask;
         });
 
@@ -1207,35 +1311,36 @@ final class OtaLocalCollectorService
         }
         $message = $this->safeText((string)($input['message'] ?? ''), 300);
         $now = date('Y-m-d H:i:s');
-        $task['lease_expires_at'] = date('Y-m-d H:i:s', time() + self::LEASE_SECONDS);
-        $this->requireScopedTaskWrite($task, [
-            'status' => $status,
-            'error_summary' => $message,
-            'lease_expires_at' => $task['lease_expires_at'],
-            'update_time' => $now,
-        ], true);
-        if (in_array($status, ['waiting_user_login', 'verification_required'], true)) {
-            $accountUpdated = $this->scopedAccountQuery($task)
-                ->where('device_id', (int)$device['id'])
-                ->update([
+        $leaseExpiresAt = date('Y-m-d H:i:s', time() + self::LEASE_SECONDS);
+        $task = Db::transaction(function () use ($task, $device, $status, $message, $leaseExpiresAt, $now): array {
+            $updatedTask = $this->requireLeasedTaskWrite($task, [
                 'status' => $status,
-                'session_status' => $status,
-                'last_error_code' => $status,
-                'last_error_summary' => $message,
+                'error_summary' => $message,
+                'lease_expires_at' => $leaseExpiresAt,
                 'update_time' => $now,
-                ]);
-            if ($accountUpdated !== 1
-                || !is_array($this->scopedAccountQuery($task)->where('device_id', (int)$device['id'])->find())
-            ) {
-                throw new RuntimeException('本机任务账号状态回写后精确回读失败。', 409);
+            ], null, $now);
+            if (in_array($status, ['waiting_user_login', 'verification_required'], true)) {
+                $this->requireScopedAccountWrite(
+                    $task,
+                    (int)$device['id'],
+                    [
+                    'status' => $status,
+                    'session_status' => $status,
+                    'last_error_code' => $status,
+                    'last_error_summary' => $message,
+                    'update_time' => $now,
+                    ],
+                    '本机任务账号状态回写后精确回读失败。'
+                );
             }
-        }
-        $this->touchDevice((int)$device['id']);
+            return $updatedTask;
+        });
+        $this->touchDevice($device);
 
         return [
             'status' => $status,
             'task_id' => $taskId,
-            'lease_expires_at' => date('Y-m-d H:i:s', time() + self::LEASE_SECONDS),
+            'lease_expires_at' => $leaseExpiresAt,
         ];
     }
 
@@ -1339,7 +1444,21 @@ final class OtaLocalCollectorService
         $capturedFieldKeys = OtaOrderedCollectionPlanner::capturedFieldKeys((string)$task['platform'], $rows);
         $missingFieldKeys = OtaOrderedCollectionPlanner::missingFieldKeys((string)$task['platform'], $rows);
 
+        Db::startTrans();
         try {
+            $task = $this->lockLeasedTaskForImport($device, $task);
+            $account = $this->scopedAccountQuery($task)
+                ->where('device_id', (int)$device['id'])
+                ->find();
+            $mapping = $this->mappingForAccountHotel(
+                (int)$task['tenant_id'],
+                (int)$task['account_id'],
+                (int)$task['system_hotel_id'],
+                (string)$task['platform']
+            );
+            if (!is_array($account)) {
+                throw new RuntimeException('本机采集账户在导入前已不可用。', 409);
+            }
             $owner = User::find((int)$device['user_id']);
             if (!$owner || (int)($owner->status ?? 0) !== 1) {
                 throw new RuntimeException('设备所属账号已停用。', 403);
@@ -1356,17 +1475,8 @@ final class OtaLocalCollectorService
                     $captureSummary,
                     $orderedPlan
                 );
-        } catch (Throwable $e) {
-            return $this->handleTaskFailure(
-                $task,
-                $account,
-                $device,
-                'upload_failed',
-                '结构化结果入库或回读失败：' . $this->safeText($e->getMessage(), 360)
-            );
-        }
 
-        $deterministicReadback = $this->sanitizeDeterministicReadbackSet(
+            $deterministicReadback = $this->sanitizeDeterministicReadbackSet(
             $importResult['deterministic_readback'] ?? []
         );
         $rawRunReadback = is_array($importResult['run_readback'] ?? null)
@@ -1379,13 +1489,7 @@ final class OtaLocalCollectorService
         $savedCount = (int)($importResult['saved_count'] ?? 0);
         $readbackVerified = ($importResult['readback_verified'] ?? false) === true;
         if ($savedCount <= 0 || !$readbackVerified) {
-            return $this->handleTaskFailure(
-                $task,
-                $account,
-                $device,
-                'upload_failed',
-                '服务器未完成保存与数据库回读，任务不标记为成功。'
-            );
+            throw new RuntimeException('服务器未完成保存与数据库回读，任务不标记为成功。');
         }
 
         $now = date('Y-m-d H:i:s');
@@ -1404,13 +1508,7 @@ final class OtaLocalCollectorService
             || $rawRunReadback !== []
             || $deterministicReadback !== [];
         if ($strictReadbackRequired && !$runReadbackScopeVerified) {
-            return $this->handleTaskFailure(
-                $task,
-                $account,
-                $device,
-                'upload_failed',
-                '服务器保存结果的租户、来源、同步任务、酒店、平台、日期或行集合回读凭据不一致。'
-            );
+            throw new RuntimeException('服务器保存结果的租户、来源、同步任务、酒店、平台、日期或行集合回读凭据不一致。');
         }
         $syncP0Status = strtolower(trim((string)($syncDiagnostics['p0_status'] ?? 'unknown')));
         $missingFieldKeys = $this->currentMissingFieldKeys(
@@ -1487,10 +1585,10 @@ final class OtaLocalCollectorService
             || $syncStatus !== 'success'
             || !$p0Satisfied;
         if ($fieldGap) {
-            $this->requireScopedTaskWrite($task, [
+            $this->requireLeasedTaskWrite($task, [
                 'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 'update_time' => $now,
-            ], true);
+            ], null, $now);
             $gapParts = [];
             if ($missingFieldKeys !== []) {
                 $gapParts[] = '缺少字段：' . implode(', ', $missingFieldKeys);
@@ -1501,16 +1599,18 @@ final class OtaLocalCollectorService
             if ($syncStatus !== 'success') {
                 $gapParts[] = '同步状态=' . ($syncStatus !== '' ? $syncStatus : 'unknown');
             }
-            return $this->handleTaskFailure(
+            $failure = $this->handleTaskFailure(
                 $task,
                 $account,
                 $device,
                 'field_gap',
                 '目标日期数据已保存并回读，但尚未达到正式门禁：' . implode('；', $gapParts)
             );
+            Db::commit();
+            return $failure;
         }
         Db::transaction(function () use ($task, $account, $summary, $now): void {
-            $this->requireScopedTaskWrite($task, [
+            $this->requireLeasedTaskWrite($task, [
                 'status' => 'success',
                 'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 'error_code' => '',
@@ -1519,10 +1619,11 @@ final class OtaLocalCollectorService
                 'lease_expires_at' => null,
                 'finished_at' => $now,
                 'update_time' => $now,
-            ], true);
-            $accountUpdated = $this->scopedAccountQuery($task)
-                ->where('device_id', (int)$task['device_id'])
-                ->update([
+            ], null, $now);
+            $this->requireScopedAccountWrite(
+                $task,
+                (int)$task['device_id'],
+                [
                 'status' => 'active',
                 'session_status' => 'current_session_verified',
                 'last_success_at' => $now,
@@ -1531,22 +1632,33 @@ final class OtaLocalCollectorService
                 'retry_count' => 0,
                 'next_retry_at' => null,
                 'update_time' => $now,
-                ]);
-            if ($accountUpdated !== 1
-                || !is_array($this->scopedAccountQuery($task)->where('device_id', (int)$task['device_id'])->find())
-            ) {
-                throw new RuntimeException('登录任务账号回写后精确回读失败。', 409);
-            }
+                ],
+                '采集成功后账号状态精确回读失败。'
+            );
         });
-        $this->touchDevice((int)$device['id']);
-        $this->resolveFailureNotification($task);
         $summary['dual_ota_authority'] = $this->refreshDualOtaAuthorityReceipt(
             $task
         );
-        $this->requireScopedTaskWrite($task, [
+        $this->requireCompletedTaskWrite($task, 'success', $now, [
             'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'update_time' => date('Y-m-d H:i:s'),
-        ], true);
+        ]);
+            Db::commit();
+        } catch (OtaLocalCollectorLeaseConflict $e) {
+            Db::rollback();
+            throw $e;
+        } catch (Throwable $e) {
+            Db::rollback();
+            return $this->handleTaskFailure(
+                $task,
+                $account,
+                $device,
+                'upload_failed',
+                '结构化结果入库或回读失败：' . $this->safeText($e->getMessage(), 360)
+            );
+        }
+        $this->touchDevice($device);
+        $this->resolveFailureNotification($task);
 
         return [
             'status' => 'success',
@@ -1664,7 +1776,7 @@ final class OtaLocalCollectorService
             'sensitive_values_received' => false,
         ];
         Db::transaction(function () use ($task, $account, $summary, $verifiedAt, $now): void {
-            $this->requireScopedTaskWrite($task, [
+            $this->requireLeasedTaskWrite($task, [
                 'status' => 'success',
                 'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 'error_code' => '',
@@ -1673,10 +1785,11 @@ final class OtaLocalCollectorService
                 'lease_expires_at' => null,
                 'finished_at' => $now,
                 'update_time' => $now,
-            ], true);
-            $accountUpdated = $this->scopedAccountQuery($task)
-                ->where('device_id', (int)$task['device_id'])
-                ->update([
+            ], null, $now);
+            $this->requireScopedAccountWrite(
+                $task,
+                (int)$task['device_id'],
+                [
                 'status' => 'active',
                 'session_status' => 'current_session_verified',
                 'last_session_verified_at' => $verifiedAt,
@@ -1685,12 +1798,9 @@ final class OtaLocalCollectorService
                 'retry_count' => 0,
                 'next_retry_at' => null,
                 'update_time' => $now,
-                ]);
-            if ($accountUpdated !== 1
-                || !is_array($this->scopedAccountQuery($task)->where('device_id', (int)$task['device_id'])->find())
-            ) {
-                throw new RuntimeException('登录任务账号回写后精确回读失败。', 409);
-            }
+                ],
+                '登录任务账号回写后精确回读失败。'
+            );
         });
         $request = $this->decodeJson($task['request_json'] ?? null);
         $resumeCollections = is_array($request['resume_collections'] ?? null)
@@ -1755,11 +1865,11 @@ final class OtaLocalCollectorService
         if ($resumeError !== '') {
             $summary['resume_error'] = $resumeError;
         }
-        $this->requireScopedTaskWrite($task, [
+        $this->requireCompletedTaskWrite($task, 'success', $now, [
             'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'update_time' => date('Y-m-d H:i:s'),
-        ], true);
-        $this->touchDevice((int)$device['id']);
+        ]);
+        $this->touchDevice($device);
         $this->resolveFailureNotification($task);
 
         return [
@@ -1802,7 +1912,7 @@ final class OtaLocalCollectorService
             $taskStatus,
             $now
         ): void {
-            $this->requireScopedTaskWrite($task, [
+            $this->requireLeasedTaskWrite($task, [
                 'status' => $taskStatus,
                 'available_at' => $nextRetryAt ?: $now,
                 'lease_token_hash' => '',
@@ -1811,14 +1921,15 @@ final class OtaLocalCollectorService
                 'error_summary' => $errorSummary,
                 'finished_at' => $nextRetryAt === null ? $now : null,
                 'update_time' => $now,
-            ], true);
+            ], null, $now);
             $accountStatus = $taskStatus === 'retry_wait' ? 'retry_wait' : $taskStatus;
             $accountSession = in_array($taskStatus, ['login_required', 'verification_required'], true)
                 ? $taskStatus
                 : (string)($account['session_status'] ?? 'unverified');
-            $accountUpdated = $this->scopedAccountQuery($task)
-                ->where('device_id', (int)$task['device_id'])
-                ->update([
+            $this->requireScopedAccountWrite(
+                $task,
+                (int)$task['device_id'],
+                [
                 'status' => $accountStatus,
                 'session_status' => $accountSession,
                 'last_error_code' => $errorCode,
@@ -1826,14 +1937,11 @@ final class OtaLocalCollectorService
                 'retry_count' => $attempt,
                 'next_retry_at' => $nextRetryAt,
                 'update_time' => $now,
-                ]);
-            if ($accountUpdated !== 1
-                || !is_array($this->scopedAccountQuery($task)->where('device_id', (int)$task['device_id'])->find())
-            ) {
-                throw new RuntimeException('失败任务账号回写后精确回读失败。', 409);
-            }
+                ],
+                '失败任务账号回写后精确回读失败。'
+            );
         });
-        $this->touchDevice((int)$device['id']);
+        $this->touchDevice($device);
         if (!$retryable) {
             $this->notifyTerminalFailure($task, $account, $errorCode, $errorSummary);
         }
@@ -2121,11 +2229,12 @@ final class OtaLocalCollectorService
         return $result;
     }
 
-    private function scheduleGapBackfillsForDevice(int $deviceId): int
+    private function scheduleGapBackfillsForDevice(array $device): int
     {
         if (!$this->tableReadable('online_daily_data')) {
             return 0;
         }
+        $deviceId = (int)$device['id'];
         $accounts = Db::name('ota_local_collector_accounts')
             ->where('device_id', $deviceId)
             ->where('status', 'active')
@@ -2134,10 +2243,6 @@ final class OtaLocalCollectorService
             ->select()
             ->toArray();
         if ($accounts === []) {
-            return 0;
-        }
-        $device = Db::name('ota_local_collector_devices')->where('id', $deviceId)->find();
-        if (!is_array($device)) {
             return 0;
         }
         $accounts = array_values(array_filter(
@@ -2205,7 +2310,9 @@ final class OtaLocalCollectorService
                             'ordered_collection' => $plan,
                         ],
                         false,
-                        $daysAgo === 1 ? 70 : 35
+                        $daysAgo === 1 ? 70 : 35,
+                        false,
+                        $device
                     );
                     if (($task['_created'] ?? false) === true) {
                         $scheduled++;
@@ -2227,7 +2334,8 @@ final class OtaLocalCollectorService
         array $request,
         bool $force,
         int $priority,
-        bool $manualRequest = false
+        bool $manualRequest = false,
+        ?array $deviceFence = null
     ): array {
         $sessionTask = in_array($taskType, ['login', 'session_probe'], true);
         $collectionTask = in_array($taskType, ['collect', 'backfill'], true);
@@ -2320,8 +2428,34 @@ final class OtaLocalCollectorService
                 $request,
                 $actor,
                 $now,
-                $manualRetryOfTaskId
+                $manualRetryOfTaskId,
+                $deviceFence
             ): int {
+                $deviceQuery = $deviceFence !== null
+                    ? $this->activeDeviceQuery($deviceFence)
+                    : Db::name('ota_local_collector_devices')
+                        ->where('id', (int)$account['device_id'])
+                        ->where('tenant_id', (int)$account['tenant_id'])
+                        ->where('user_id', (int)$account['user_id'])
+                        ->where('status', '<>', 'revoked');
+                if (!is_array($deviceQuery->lock(true)->find())) {
+                    throw new RuntimeException('本机采集设备已撤销，未创建任务。', 409);
+                }
+                $accountQuery = Db::name('ota_local_collector_accounts')
+                    ->where('id', (int)$account['id'])
+                    ->where('tenant_id', (int)$account['tenant_id'])
+                    ->where('user_id', (int)$account['user_id'])
+                    ->where('device_id', (int)$account['device_id'])
+                    ->where('platform', (string)$account['platform'])
+                    ->where('status', '<>', 'revoked');
+                if ($deviceFence !== null) {
+                    $accountQuery
+                        ->where('status', 'active')
+                        ->where('session_status', 'current_session_verified');
+                }
+                if (!is_array($accountQuery->lock(true)->find())) {
+                    throw new RuntimeException('本机采集账号已撤销，未创建任务。', 409);
+                }
                 $id = (int)Db::name('ota_local_collector_tasks')->insertGetId([
                     'tenant_id' => (int)$account['tenant_id'],
                     'user_id' => (int)$account['user_id'],
@@ -2993,6 +3127,27 @@ final class OtaLocalCollectorService
             ->where('platform', strtolower(trim((string)$task['platform'])));
     }
 
+    private function requireScopedAccountWrite(
+        array $task,
+        int $deviceId,
+        array $values,
+        string $failureMessage
+    ): array {
+        $updated = $this->scopedAccountQuery($task)
+            ->where('device_id', $deviceId)
+            ->update($values);
+        $readback = $this->scopedAccountQuery($task)
+            ->where('device_id', $deviceId)
+            ->find();
+        if ($updated !== 1
+            || !is_array($readback)
+            || !$this->exactWriteReadbackMatches($readback, $values)
+        ) {
+            throw new RuntimeException($failureMessage, 409);
+        }
+        return $readback;
+    }
+
     private function requireScopedTaskWrite(array $task, array $values, bool $includeDevice = false): array
     {
         $updated = $this->scopedTaskQuery($task, $includeDevice)->update($values);
@@ -3000,7 +3155,9 @@ final class OtaLocalCollectorService
             throw new RuntimeException('本机任务身份回写范围不一致，未确认保存。', 409);
         }
         $readback = $this->scopedTaskQuery($task, $includeDevice)->find();
-        if (!is_array($readback)) {
+        if (!is_array($readback)
+            || !$this->exactWriteReadbackMatches($readback, $values)
+        ) {
             throw new RuntimeException('本机任务身份回写后精确回读失败。', 409);
         }
         return $readback;
@@ -3091,127 +3248,50 @@ final class OtaLocalCollectorService
         }
     }
 
-    private function recoverExpiredLeases(array $device): void
+    /** @return mixed */
+    private function activeDeviceQuery(array $device)
     {
-        $terminalNotifications = [];
-        Db::transaction(function () use ($device, &$terminalNotifications): void {
-        $rows = Db::name('ota_local_collector_tasks')
-            ->where('device_id', (int)$device['id'])
-            ->where('tenant_id', (int)$device['tenant_id'])
-            ->where('user_id', (int)$device['user_id'])
-            ->where('account_id', '>', 0)
-            ->where('system_hotel_id', '>', 0)
-            ->whereIn('platform', self::PLATFORMS)
-            ->whereIn('status', ['leased', 'running', 'waiting_user_login', 'verification_required'])
-            ->where('lease_expires_at', '<', date('Y-m-d H:i:s'))
-            ->limit(20)
-            ->select()
-            ->toArray();
-        foreach ($rows as $row) {
-            if ($this->taskIdentity($row) === null) {
-                throw new RuntimeException('绉熺害鎭㈠浠诲姟韬唤涓嶅畬鏁达紝宸插仠姝㈠洖鏀躲€?', 409);
-            }
-            $attempt = (int)($row['attempt'] ?? 0);
-            $maxAttempts = max(1, (int)($row['max_attempts'] ?? 3));
-            $previousStatus = (string)($row['status'] ?? '');
-            $requiresUser = in_array($previousStatus, ['waiting_user_login', 'verification_required'], true);
-            $retry = !$requiresUser && $attempt < $maxAttempts;
-            $terminalStatus = $previousStatus === 'waiting_user_login'
-                ? 'login_required'
-                : ($previousStatus === 'verification_required' ? 'verification_required' : 'failed');
-            $nextRetryAt = $retry ? date('Y-m-d H:i:s', time() + 60) : null;
-            $errorCode = $previousStatus === 'waiting_user_login'
-                ? 'login_required'
-                : ($previousStatus === 'verification_required' ? 'verification_required' : 'lease_expired');
-            $errorSummary = $requiresUser
-                ? '本机人工登录或验证未在任务租约内完成，请重新发起登录任务。'
-                : '本机采集器执行中断，任务租约已过期。';
-            $updated = $this->scopedTaskQuery($row, true)->update([
-                'status' => $retry ? 'retry_wait' : $terminalStatus,
-                'available_at' => $nextRetryAt ?: date('Y-m-d H:i:s'),
-                'lease_token_hash' => '',
-                'lease_expires_at' => null,
-                'error_code' => $errorCode,
-                'error_summary' => $errorSummary,
-                'finished_at' => $retry ? null : date('Y-m-d H:i:s'),
-                'update_time' => date('Y-m-d H:i:s'),
-            ]);
-            if ($updated !== 1) {
-                throw new RuntimeException('lease_recovery_task_writeback_failed', 409);
-            }
-            $taskReadback = $this->scopedTaskQuery($row, true)
-                ->where('status', $retry ? 'retry_wait' : $terminalStatus)
-                ->find();
-            if (!is_array($taskReadback)) {
-                throw new RuntimeException('lease_recovery_task_readback_failed', 409);
-            }
-            $account = $this->scopedAccountQuery($row)
-                ->where('device_id', (int)$device['id'])
-                ->find();
-            if (!is_array($account)) {
-                throw new RuntimeException('绉熺害鎭㈠璐﹀彿涓嶅瓨鍦紝宸插仠姝㈠洖鏀躲€?', 409);
-            }
-            $accountUpdated = $this->scopedAccountQuery($row)
-                ->where('device_id', (int)$device['id'])
-                ->update([
-                    'status' => $retry ? 'retry_wait' : $terminalStatus,
-                    'session_status' => $requiresUser ? $terminalStatus : (string)($account['session_status'] ?? 'unverified'),
-                    'last_error_code' => $errorCode,
-                    'last_error_summary' => $errorSummary,
-                    'retry_count' => $attempt,
-                    'next_retry_at' => $nextRetryAt,
-                    'update_time' => date('Y-m-d H:i:s'),
-                    ]);
-            if ($accountUpdated !== 1) {
-                throw new RuntimeException('lease_recovery_account_writeback_failed', 409);
-            }
-            $accountReadback = $this->scopedAccountQuery($row)
-                ->where('device_id', (int)$device['id'])
-                ->find();
-            if (!is_array($accountReadback)
-                || (string)($accountReadback['status'] ?? '') !== ($retry ? 'retry_wait' : $terminalStatus)
-                || (string)($accountReadback['last_error_code'] ?? '') !== $errorCode
-            ) {
-                throw new RuntimeException('lease_recovery_account_readback_mismatch', 409);
-            }
-            if (!$retry) {
-                $terminalNotifications[] = [$row, $accountReadback, $errorCode, $errorSummary];
-            }
+        $deviceId = (int)($device['id'] ?? 0);
+        $tenantId = (int)($device['tenant_id'] ?? 0);
+        $userId = (int)($device['user_id'] ?? 0);
+        $publicId = trim((string)($device['device_public_id'] ?? ''));
+        $tokenHash = trim((string)($device['device_token_hash'] ?? ''));
+        if ($deviceId <= 0 || $tenantId <= 0 || $userId <= 0 || $publicId === '' || $tokenHash === '') {
+            throw new RuntimeException('本机采集设备身份范围不完整，已拒绝状态回写。', 409);
         }
-        });
-        foreach ($terminalNotifications as $notification) {
-            $this->notifyTerminalFailure($notification[0], $notification[1], $notification[2], $notification[3]);
-        }
+        return Db::name('ota_local_collector_devices')
+            ->where('id', $deviceId)
+            ->where('tenant_id', $tenantId)
+            ->where('user_id', $userId)
+            ->where('device_public_id', $publicId)
+            ->where('device_token_hash', $tokenHash)
+            ->where('status', '<>', 'revoked');
     }
 
-    private function touchDevice(int $deviceId): void
+    /** @return array<string, mixed>|null */
+    private function writeActiveDevice(array $device, array $values): ?array
     {
-        Db::name('ota_local_collector_devices')->where('id', $deviceId)->update([
+        $updated = $this->activeDeviceQuery($device)->update($values);
+        if ($updated !== 0 && $updated !== 1) {
+            return null;
+        }
+        $readback = $this->activeDeviceQuery($device)->find();
+        if (!is_array($readback)
+            || !$this->exactWriteReadbackMatches($readback, $values)
+        ) {
+            return null;
+        }
+        return $readback;
+    }
+
+    private function touchDevice(array $device): bool
+    {
+        $now = date('Y-m-d H:i:s');
+        return is_array($this->writeActiveDevice($device, [
             'status' => 'online',
-            'last_seen_at' => date('Y-m-d H:i:s'),
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
-    }
-
-    private function failLeasedTask(array $task, string $code, string $message): bool
-    {
-        $updated = $this->scopedTaskQuery($task, true)->update([
-            'status' => 'failed',
-            'error_code' => $code,
-            'error_summary' => $this->safeText($message, 500),
-            'lease_token_hash' => '',
-            'lease_expires_at' => null,
-            'finished_at' => date('Y-m-d H:i:s'),
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
-        if ($updated !== 1) {
-            return false;
-        }
-        $readback = $this->scopedTaskQuery($task, true)
-            ->where('status', 'failed')
-            ->find();
-        return is_array($readback)
-            && (string)($readback['error_code'] ?? '') === $code;
+            'last_seen_at' => $now,
+            'update_time' => $now,
+        ]));
     }
 
     private function notifyTerminalFailure(array $task, array $account, string $errorCode, string $errorSummary): void
@@ -4319,7 +4399,7 @@ final class OtaLocalCollectorService
         array $actor,
         string $targetDate
     ): ?array {
-        if ($actor['hotel_ids'] === [] || !$this->tableReadable('platform_data_sources')) {
+        if ($actor['hotel_ids'] === []) {
             return null;
         }
         try {
@@ -4334,7 +4414,11 @@ final class OtaLocalCollectorService
                 ->select()
                 ->toArray();
         } catch (Throwable) {
-            return null;
+            return $this->browserProfileReadFailureSnapshot(
+                'source_read_failed',
+                'platform_data_sources',
+                $targetDate
+            );
         }
         $sources = OtaOrderedCollectionPlanner::oneSourcePerBrowserProfileAccount($sources);
         if ($sources === []) {
@@ -4342,12 +4426,17 @@ final class OtaLocalCollectorService
         }
 
         $hotelNames = [];
+        $readFailures = [];
         try {
             $hotelNames = Db::name('hotels')
                 ->where('tenant_id', (int)$actor['tenant_id'])
                 ->whereIn('id', $actor['hotel_ids'])
                 ->column('name', 'id');
         } catch (Throwable) {
+            $readFailures[] = [
+                'reason_code' => 'hotel_names_read_failed',
+                'stage' => 'hotels',
+            ];
         }
 
         $sessionProof = new OtaProfileSessionProofService();
@@ -4371,22 +4460,40 @@ final class OtaLocalCollectorService
             ];
             $sourceStatus = strtolower(trim((string)($source['status'] ?? '')));
             $sourceRecoveryRequired = in_array($sourceStatus, ['failed', 'waiting_config'], true);
-            $rows = $this->browserProfileStoredRows(
-                $hotelId,
-                $sourceId,
-                $platform,
-                $targetDate
-            );
+            try {
+                $rows = $this->browserProfileStoredRows(
+                    $hotelId,
+                    $sourceId,
+                    $platform,
+                    $targetDate
+                );
+            } catch (Throwable) {
+                return $this->browserProfileReadFailureSnapshot(
+                    'stored_rows_read_failed',
+                    'online_daily_data',
+                    $targetDate,
+                    count($sources)
+                );
+            }
             $plan = OtaOrderedCollectionPlanner::requestPlanFromStoredRows(
                 $platform,
                 $targetDate,
                 $rows,
                 $sourceRecoveryRequired
             );
-            $syncState = $this->browserProfileSyncTaskState(
-                $source,
-                $targetDate
-            );
+            try {
+                $syncState = $this->browserProfileSyncTaskState(
+                    $source,
+                    $targetDate
+                );
+            } catch (Throwable) {
+                return $this->browserProfileReadFailureSnapshot(
+                    'task_state_read_failed',
+                    'platform_data_sync_tasks',
+                    $targetDate,
+                    count($sources)
+                );
+            }
             if (($plan['sections'] ?? []) === []
                 && ($syncState['verified_readback'] ?? false) !== true
             ) {
@@ -4539,6 +4646,9 @@ final class OtaLocalCollectorService
         return [
             'contract_version' => OtaOrderedCollectionPlanner::CONTRACT_VERSION,
             'source_mode' => 'browser_profile',
+            'status' => $readFailures === [] ? 'ready' : 'partial',
+            'data_status' => $readFailures === [] ? 'ok' : 'partial',
+            'read_failures' => $readFailures,
             'local_collector_required' => false,
             'source_count' => count($queue),
             'target_date' => $targetDate,
@@ -4553,6 +4663,50 @@ final class OtaLocalCollectorService
         ];
     }
 
+    /** @return array<string, mixed> */
+    private function browserProfileReadFailureSnapshot(
+        string $reasonCode,
+        string $stage,
+        string $targetDate,
+        ?int $sourceCount = null
+    ): array {
+        return [
+            'contract_version' => OtaOrderedCollectionPlanner::CONTRACT_VERSION,
+            'source_mode' => 'browser_profile',
+            'status' => 'blocked',
+            'data_status' => 'read_failed',
+            'reason_code' => $reasonCode,
+            'stage' => $stage,
+            'read_failures' => [[
+                'reason_code' => $reasonCode,
+                'stage' => $stage,
+            ]],
+            'local_collector_required' => false,
+            'source_count' => $sourceCount,
+            'target_date' => $targetDate,
+            'order_by' => ['account', 'hotel', 'platform', 'target_date', 'field_completeness'],
+            'current' => null,
+            'next' => null,
+            'queue' => [],
+            'gate' => [
+                'ready' => false,
+                'status' => 'blocked_by_source_read_failure',
+                'reason_code' => $reasonCode,
+                'stage' => $stage,
+                'formal_revenue_ready' => false,
+                'formal_report_ready' => false,
+            ],
+            'gap_report' => [
+                'status' => 'blocked',
+                'gap_codes' => [$reasonCode],
+                'reason_code' => $reasonCode,
+                'stage' => $stage,
+            ],
+            'next_action' => '数据读取失败，未按无来源、零行或无任务处理；请恢复数据库读取后重试。',
+            'scope_boundary' => '仅昨日 OTA 核心事实；读取失败时不生成经营结论。',
+        ];
+    }
+
     /** @return array<int, array<string, mixed>> */
     private function browserProfileStoredRows(
         int $hotelId,
@@ -4560,23 +4714,16 @@ final class OtaLocalCollectorService
         string $platform,
         string $targetDate
     ): array {
-        if (!$this->tableReadable('online_daily_data')) {
-            return [];
-        }
-        try {
-            return Db::name('online_daily_data')
-                ->where('system_hotel_id', $hotelId)
-                ->where('data_source_id', $sourceId)
-                ->where('data_date', $targetDate)
-                ->where(static function ($query) use ($platform): void {
-                    $query->where('platform', $platform)->whereOr('source', $platform);
-                })
-                ->limit(500)
-                ->select()
-                ->toArray();
-        } catch (Throwable) {
-            return [];
-        }
+        return Db::name('online_daily_data')
+            ->where('system_hotel_id', $hotelId)
+            ->where('data_source_id', $sourceId)
+            ->where('data_date', $targetDate)
+            ->where(static function ($query) use ($platform): void {
+                $query->where('platform', $platform)->whereOr('source', $platform);
+            })
+            ->limit(500)
+            ->select()
+            ->toArray();
     }
 
     /**
@@ -4586,25 +4733,18 @@ final class OtaLocalCollectorService
     private function browserProfileSyncTaskState(array $source, string $targetDate): array
     {
         $empty = ['active_task' => null, 'verified_readback' => false];
-        if (!$this->tableReadable('platform_data_sync_tasks')) {
-            return $empty;
-        }
         $sourceId = (int)($source['id'] ?? 0);
         $hotelId = (int)($source['system_hotel_id'] ?? 0);
         $platform = strtolower(trim((string)($source['platform'] ?? '')));
-        try {
-            $tasks = Db::name('platform_data_sync_tasks')
-                ->where('tenant_id', (int)($source['tenant_id'] ?? 0))
-                ->where('data_source_id', $sourceId)
-                ->where('system_hotel_id', $hotelId)
-                ->where('platform', $platform)
-                ->order('id', 'desc')
-                ->limit(30)
-                ->select()
-                ->toArray();
-        } catch (Throwable) {
-            return $empty;
-        }
+        $tasks = Db::name('platform_data_sync_tasks')
+            ->where('tenant_id', (int)($source['tenant_id'] ?? 0))
+            ->where('data_source_id', $sourceId)
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->order('id', 'desc')
+            ->limit(30)
+            ->select()
+            ->toArray();
 
         $activeTask = null;
         $verifiedReadback = false;

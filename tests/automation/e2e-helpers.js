@@ -39,10 +39,10 @@ const MODULES = [
 ];
 
 const GROUP = Object.freeze({
-  BUSINESS_LOOP: '\u7ecf\u8425\u95ed\u73af',
-  OTA_DATA: 'OTA\u6570\u636e',
-  OPERATION_EXECUTION: '\u8fd0\u8425\u6267\u884c',
-  MORE: '\u5f85\u5f00\u53d1...',
+  BUSINESS_LOOP: '\u7ecf\u8425\u5206\u6790',
+  OTA_DATA: 'OTA\u6570\u636e\u4e0e\u91c7\u96c6',
+  OPERATION_EXECUTION: '\u8fd0\u8425\u81ea\u52a8\u5316\u4e2d\u5fc3',
+  MORE: '\u7cfb\u7edf\u4e0e\u5de5\u5177',
   PROJECT_BUILD: '\u7b79\u5efa\u7ba1\u7406',
   OPENING: '\u5f00\u4e1a\u7ba1\u7406',
   OPERATION: '\u8fd0\u8425\u7ba1\u7406',
@@ -55,8 +55,8 @@ const PROJECT_MENU = '';
 
 const MODULE_GROUPS = {
   [MODULE.REVENUE_DIAGNOSIS]: GROUP.BUSINESS_LOOP,
-  [MODULE.DATA_TRUST]: GROUP.OTA_DATA,
-  [MODULE.AI_DAILY_REPORT]: GROUP.OPERATION_EXECUTION,
+  [MODULE.DATA_TRUST]: GROUP.BUSINESS_LOOP,
+  [MODULE.AI_DAILY_REPORT]: GROUP.BUSINESS_LOOP,
   [MODULE.EXECUTION_TRACKING]: GROUP.OPERATION_EXECUTION,
   [MODULE.ADVANCED_AI]: GROUP.MORE,
   [MODULE.STRATEGY]: GROUP.PROJECT_BUILD,
@@ -105,7 +105,13 @@ const MODULE_PATHS = {
 
 const MODULE_NAV_TEST_IDS = {
   [MODULE.AI_WORKBENCH]: 'nav-lean-ai-workbench',
+  [MODULE.DATA_TRUST]: 'nav-core-operations-loop',
   [MODULE.HOTEL_MANAGEMENT]: 'nav-lean-hotel-management',
+};
+
+const MODULE_NAV_LABELS = {
+  [MODULE.DATA_TRUST]: '\u6628\u65e5\u7ecf\u8425\u95ed\u73af',
+  [MODULE.EXECUTION_TRACKING]: '\u4efb\u52a1\u6267\u884c\u4e0e\u590d\u76d8',
 };
 
 const GROUP_PATHS = {
@@ -226,6 +232,10 @@ function testIdForModule(mod) {
   return MODULE_NAV_TEST_IDS[mod] || `nav-${modulePath(mod)}`;
 }
 
+function moduleNavLabel(mod) {
+  return MODULE_NAV_LABELS[mod] || mod;
+}
+
 function pageTestIdForModule(mod) {
   return `page-${modulePath(mod)}`;
 }
@@ -328,19 +338,67 @@ function classifyApiStatus(status) {
   return null;
 }
 
+function classifyRequestFailureText(errorText, expectedCancellation = false) {
+  return expectedCancellation === true
+    && /^net::ERR_ABORTED(?:$|[ :])/i.test(String(errorText || '').trim())
+    ? 'api-cancelled'
+    : 'api-error';
+}
+
+const apiRequestLifecycleByPage = new WeakMap();
+
+function apiRequestLifecycle(page) {
+  let lifecycle = apiRequestLifecycleByPage.get(page);
+  if (!lifecycle) {
+    lifecycle = { activeReads: new Set(), expectedNavigationCancellations: new WeakSet() };
+    apiRequestLifecycleByPage.set(page, lifecycle);
+  }
+  return lifecycle;
+}
+
+function isSameOriginApiRead(page, request) {
+  if (!['GET', 'HEAD'].includes(request.method())) return false;
+  try {
+    const requestUrl = new URL(request.url());
+    const pageUrl = new URL(page.url());
+    return requestUrl.origin === pageUrl.origin && requestUrl.pathname.startsWith('/api/');
+  } catch {
+    return false;
+  }
+}
+
+function expectActiveApiReadCancellationsForNavigation(page) {
+  const lifecycle = apiRequestLifecycle(page);
+  for (const request of lifecycle.activeReads) {
+    lifecycle.expectedNavigationCancellations.add(request);
+  }
+}
+
 function installDiagnostics(page, sinks = {}) {
   const apiEvents = sinks.apiEvents || [];
   const pageEvents = sinks.pageEvents || [];
+  const lifecycle = apiRequestLifecycle(page);
+
+  page.on('request', (request) => {
+    if (isSameOriginApiRead(page, request)) lifecycle.activeReads.add(request);
+  });
+
+  page.on('requestfinished', (request) => {
+    lifecycle.activeReads.delete(request);
+  });
 
   page.on('requestfailed', (request) => {
     const url = request.url();
     if (!url.includes('/api/')) return;
+    const error = request.failure() ? request.failure().errorText : null;
+    const expectedCancellation = lifecycle.expectedNavigationCancellations.has(request);
+    lifecycle.activeReads.delete(request);
     apiEvents.push({
       phase: 'requestfailed',
-      category: 'api-error',
+      category: classifyRequestFailureText(error, expectedCancellation),
       method: request.method(),
       url,
-      error: request.failure() ? request.failure().errorText : null,
+      error,
       timestamp: new Date().toISOString(),
     });
   });
@@ -464,37 +522,62 @@ async function firstVisibleLocator(locators) {
 }
 
 async function expandModuleMenus(page, targetModule) {
-  const nav = await navRoot(page);
-  const targetLocators = [
-    page.getByTestId(testIdForModule(targetModule)),
-    nav.getByText(targetModule, { exact: true }),
-  ];
-  if (await firstVisibleLocator(targetLocators)) return nav;
-
+  let nav = await navRoot(page);
+  const targetLabel = moduleNavLabel(targetModule);
   const group = MODULE_GROUPS[targetModule];
-  if (group) {
-    const groupTestId = `nav-${GROUP_PATHS[group] || normalizeTestIdSegment(group)}`;
+  if (!group) return nav;
+
+  const groupTestId = `nav-${GROUP_PATHS[group] || normalizeTestIdSegment(group)}`;
+  const deadline = Date.now() + 3000;
+  let lastExpandClickAt = 0;
+  while (Date.now() < deadline) {
+    // A deferred full-render can replace the entire Vue tree between modules.
+    // Resolve both the nav and group again so an expanded stale node cannot
+    // make the next module appear permanently hidden.
+    nav = await navRoot(page);
+    const target = await firstVisibleLocator([
+      nav.getByTestId(testIdForModule(targetModule)),
+      nav.getByText(targetLabel, { exact: true }),
+    ]);
+    if (target) return nav;
+
     const item = await firstVisibleLocator([
-      page.getByTestId(groupTestId),
+      nav.getByTestId(groupTestId),
       nav.getByText(group, { exact: true }),
     ]);
     if (item) {
-      await item.click({ timeout: 3000 });
-      await page.waitForTimeout(50);
+      const expanded = await item.getAttribute('aria-expanded').catch(() => null);
+      if (expanded !== 'true' && Date.now() - lastExpandClickAt >= 100) {
+        await item.click({ timeout: 1000 }).catch(() => {});
+        lastExpandClickAt = Date.now();
+      }
     }
+    await page.waitForTimeout(50);
   }
-
-  return nav;
+  throw new Error(`nav item did not appear after expanding ${group}`);
 }
 
 async function goModule(page, mod) {
-  const nav = await expandModuleMenus(page, mod);
-  const navItem = await firstVisibleLocator([
-    page.getByTestId(testIdForModule(mod)),
-    nav.getByText(mod, { exact: true }),
-  ]);
-  expect(navItem, `nav item not found: ${mod}`).toBeTruthy();
-  await navItem.click({ timeout: 3000 });
+  const targetLabel = moduleNavLabel(mod);
+  let clicked = false;
+  for (let attempt = 0; attempt < 3 && !clicked; attempt += 1) {
+    const nav = await expandModuleMenus(page, mod);
+    const navItem = await firstVisibleLocator([
+      nav.getByTestId(testIdForModule(mod)),
+      nav.getByText(targetLabel, { exact: true }),
+    ]);
+    if (navItem) {
+      try {
+        expectActiveApiReadCancellationsForNavigation(page);
+        await navItem.click({ timeout: 3000 });
+        clicked = true;
+      } catch (error) {
+        if (attempt === 2) throw error;
+      }
+    }
+    if (!clicked) await page.waitForTimeout(50);
+  }
+  expect(clicked, `nav item not found: ${mod}`).toBe(true);
   await expect(page.getByTestId(pageTestIdForModule(mod))).toBeVisible({ timeout: 5000 });
   await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', modulePath(mod), { timeout: 5000 });
 }
@@ -618,6 +701,7 @@ module.exports = {
   PROJECT_MENU,
   appMain,
   classifyError,
+  classifyRequestFailureText,
   collectMainStats,
   createSuiteOutput,
   delayDetailApis,
@@ -627,6 +711,7 @@ module.exports = {
   goModule,
   installDiagnostics,
   login,
+  moduleNavLabel,
   modulePath,
   pageTestIdForModule,
   safeFileName,

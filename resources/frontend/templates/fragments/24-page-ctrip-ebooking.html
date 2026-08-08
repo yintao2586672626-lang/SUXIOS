@@ -533,45 +533,43 @@
                                         <!-- 销售与订单表格 -->
                                         <div v-if="ctripTableTab === 'sales'" class="ctrip-sales-table-wrap table-container">
                                             <table class="ctrip-sales-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
+                                                <colgroup>
+                                                    <col class="ctrip-sales-col-rank">
+                                                    <col class="ctrip-sales-col-hotel">
+                                                    <col v-for="column in ctripSalesMetricColumns" :key="`sales-col-${column.field}`" :class="'ctrip-sales-col-' + column.field">
+                                                </colgroup>
                                                 <thead>
-                                                    <tr class="ctrip-sales-groups">
-                                                        <th rowspan="2" style="position:sticky;left:0;width:54px;z-index:5">排名</th>
-                                                        <th rowspan="2" style="position:sticky;left:54px;width:248px;z-index:5">酒店名称</th>
-                                                        <th rowspan="2" style="width:96px">酒店ID</th>
-                                                        <th v-for="group in ctripSalesColumnGroups" :key="group.label" :colspan="group.span">{{ group.label }}</th>
-                                                    </tr>
                                                     <tr class="ctrip-sales-head">
-                                                        <th v-for="column in ctripSalesMetricColumns" :key="column.field" :title="column.title || null" @click="sortCtripTable(column.field)">
-                                                            <term-help v-if="column.help" :term="column.help" :label="column.label" />
-                                                            <span v-else>{{ column.label }}</span>
+                                                        <th>排名</th>
+                                                        <th>酒店名称</th>
+                                                        <th v-for="column in ctripSalesMetricColumns" :key="column.field" :title="column.title || column.label" @click="sortCtripTable(column.field)">
+                                                            <term-help v-if="column.help" :term="column.help" :label="column.tableLabel || column.label" />
+                                                            <span v-else>{{ column.tableLabel || column.label }}</span>
                                                             <span v-if="ctripSortField === column.field">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     <tr v-for="(hotel, index) in pagedCtripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
-                                                        <td class="px-3 py-2 border text-center" style="position:sticky;left:0;width:54px;z-index:2;background:inherit">
+                                                        <td class="px-3 py-2 border text-center">
                                                             <span :class="['px-2 py-1 rounded text-xs', (ctripTableRankOffset + index) &lt; 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
                                                                 {{ ctripTableRankOffset + index + 1 }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-left font-medium" style="position:sticky;left:54px;width:248px;z-index:2;background:inherit">
-                                                            <div :title="hotel.hotelName">{{ hotel.hotelName }}</div>
+                                                        <td class="px-3 py-2 border text-left font-medium">
+                                                            <div :title="hotel.hotelName + ' · 酒店ID ' + hotel.hotelId">{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-mono text-xs font-semibold text-gray-500" style="width:96px">{{ hotel.hotelId }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-green-600">{{ hasDisplayValue(hotel.amount) ? formatNumber(Math.round(Number(hotel.amount))) : '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center font-semibold text-yellow-600">{{ hotel.quantity }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-yellow-600">{{ formatOptionalNumber(hotel.quantity) }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? formatNumber(Math.round(Number(hotel.adr))) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
-                                                        <td class="px-3 py-2 border text-center" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
-                                                            <div v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined" class="font-semibold text-blue-600">
-                                                                {{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}
-                                                            </div>
-                                                            <div v-else class="ctrip-sales-state">缺来源</div>
+                                                        <td class="ctrip-sales-order-cell px-3 py-2 border text-center font-semibold text-blue-700" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
+                                                            <span v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
+                                                            <span v-else class="ctrip-sales-state">缺来源</span>
                                                         </td>
-                                                        <td v-for="column in ctripSalesOrderColumns" :key="column.field" :class="[ctripTrafficChannelCellClass(hotel, column), 'font-semibold']" :title="ctripTrafficChannelCellTitle(hotel, column)">
-                                                            <div>{{ ctripTrafficChannelText(hotel, column) }}</div>
-                                                            <div v-if="ctripTrafficChannelSecondaryText(hotel, column)" class="text-xs font-normal leading-tight opacity-80">{{ ctripTrafficChannelSecondaryText(hotel, column) }}</div>
+                                                        <td v-for="column in ctripSalesOrderColumns" :key="column.field" :class="['ctrip-sales-order-cell', ctripTrafficChannelCellClass(hotel, column)]" :title="ctripTrafficChannelCellTitle(hotel, column)">
+                                                            <div class="ctrip-sales-order-value">{{ ctripTrafficChannelText(hotel, column) }}</div>
+                                                            <div v-if="ctripTrafficChannelSecondaryText(hotel, column)" class="ctrip-sales-flat-note">{{ ctripTrafficChannelSecondaryText(hotel, column) }}</div>
                                                         </td>
                                                     </tr>
                                                 </tbody>
@@ -1877,45 +1875,43 @@
                                         <!-- 销售与订单表格 -->
                                         <div v-if="ctripTableTab === 'sales'" class="ctrip-sales-table-wrap table-container">
                                             <table class="ctrip-sales-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
+                                                <colgroup>
+                                                    <col class="ctrip-sales-col-rank">
+                                                    <col class="ctrip-sales-col-hotel">
+                                                    <col v-for="column in ctripSalesMetricColumns" :key="`sales-col-${column.field}`" :class="'ctrip-sales-col-' + column.field">
+                                                </colgroup>
                                                 <thead>
-                                                    <tr class="ctrip-sales-groups">
-                                                        <th rowspan="2" style="position:sticky;left:0;width:54px;z-index:5">排名</th>
-                                                        <th rowspan="2" style="position:sticky;left:54px;width:248px;z-index:5">酒店名称</th>
-                                                        <th rowspan="2" style="width:96px">酒店ID</th>
-                                                        <th v-for="group in ctripSalesColumnGroups" :key="group.label" :colspan="group.span">{{ group.label }}</th>
-                                                    </tr>
                                                     <tr class="ctrip-sales-head">
-                                                        <th v-for="column in ctripSalesMetricColumns" :key="column.field" :title="column.title || null" @click="sortCtripTable(column.field)">
-                                                            <term-help v-if="column.help" :term="column.help" :label="column.label" />
-                                                            <span v-else>{{ column.label }}</span>
+                                                        <th>排名</th>
+                                                        <th>酒店名称</th>
+                                                        <th v-for="column in ctripSalesMetricColumns" :key="column.field" :title="column.title || column.label" @click="sortCtripTable(column.field)">
+                                                            <term-help v-if="column.help" :term="column.help" :label="column.tableLabel || column.label" />
+                                                            <span v-else>{{ column.tableLabel || column.label }}</span>
                                                             <span v-if="ctripSortField === column.field">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
                                                         </th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     <tr v-for="(hotel, index) in pagedCtripSortedHotelsList" :key="hotel.hotelId" class="border-b hover:bg-gray-50">
-                                                        <td class="px-3 py-2 border text-center" style="position:sticky;left:0;width:54px;z-index:2;background:inherit">
+                                                        <td class="px-3 py-2 border text-center">
                                                             <span :class="['px-2 py-1 rounded text-xs', (ctripTableRankOffset + index) &lt; 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100']">
                                                                 {{ ctripTableRankOffset + index + 1 }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-left font-medium" style="position:sticky;left:54px;width:248px;z-index:2;background:inherit">
-                                                            <div :title="hotel.hotelName">{{ hotel.hotelName }}</div>
+                                                        <td class="px-3 py-2 border text-left font-medium">
+                                                            <div :title="hotel.hotelName + ' · 酒店ID ' + hotel.hotelId">{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-mono text-xs font-semibold text-gray-500" style="width:96px">{{ hotel.hotelId }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-green-600">{{ hasDisplayValue(hotel.amount) ? formatNumber(Math.round(Number(hotel.amount))) : '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center font-semibold text-yellow-600">{{ hotel.quantity }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-yellow-600">{{ formatOptionalNumber(hotel.quantity) }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? formatNumber(Math.round(Number(hotel.adr))) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
-                                                        <td class="px-3 py-2 border text-center" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
-                                                            <div v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined" class="font-semibold text-blue-600">
-                                                                {{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}
-                                                            </div>
-                                                            <div v-else class="ctrip-sales-state">缺来源</div>
+                                                        <td class="ctrip-sales-order-cell px-3 py-2 border text-center font-semibold text-blue-700" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
+                                                            <span v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
+                                                            <span v-else class="ctrip-sales-state">缺来源</span>
                                                         </td>
-                                                        <td v-for="column in ctripSalesOrderColumns" :key="column.field" :class="[ctripTrafficChannelCellClass(hotel, column), 'font-semibold']" :title="ctripTrafficChannelCellTitle(hotel, column)">
-                                                            <div>{{ ctripTrafficChannelText(hotel, column) }}</div>
-                                                            <div v-if="ctripTrafficChannelSecondaryText(hotel, column)" class="text-xs font-normal leading-tight opacity-80">{{ ctripTrafficChannelSecondaryText(hotel, column) }}</div>
+                                                        <td v-for="column in ctripSalesOrderColumns" :key="column.field" :class="['ctrip-sales-order-cell', ctripTrafficChannelCellClass(hotel, column)]" :title="ctripTrafficChannelCellTitle(hotel, column)">
+                                                            <div class="ctrip-sales-order-value">{{ ctripTrafficChannelText(hotel, column) }}</div>
+                                                            <div v-if="ctripTrafficChannelSecondaryText(hotel, column)" class="ctrip-sales-flat-note">{{ ctripTrafficChannelSecondaryText(hotel, column) }}</div>
                                                         </td>
                                                     </tr>
                                                 </tbody>

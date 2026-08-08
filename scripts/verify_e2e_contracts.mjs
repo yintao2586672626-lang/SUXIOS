@@ -16,9 +16,16 @@ const readTemplateSemantic = () => readRaw('resources/frontend/app-template.html
   .replaceAll('&gt;', '>')
   .replaceAll('&lt;', '<')
   .replaceAll('&quot;', '"');
-const read = (file) => file === 'public/index.html'
-  ? `${readRaw(file)}\n${readTemplateSemantic()}\n${readRaw('public/app-main.js')}`
-  : readRaw(file);
+const frontendSemanticSources = () => [
+  { file: 'public/index.html', source: readRaw('public/index.html') },
+  { file: 'resources/frontend/app-template.html (semantic)', source: readTemplateSemantic() },
+  { file: 'public/app-main.js', source: readRaw('public/app-main.js') },
+];
+const sourceEntries = (file) => file === 'public/index.html'
+  ? frontendSemanticSources()
+  : [{ file, source: readRaw(file) }];
+const read = (file) => sourceEntries(file).map((entry) => entry.source).join('\n');
+const scopedFileLabel = (entries) => entries.map((entry) => entry.file).join(' + ');
 const checks = [];
 const onlineDataConcernDir = path.join(root, 'app/controller/concern');
 const onlineDataConcernFiles = fs.existsSync(onlineDataConcernDir)
@@ -35,21 +42,26 @@ const onlineDataControllerFiles = [
 const readOnlineDataControllerSource = () => onlineDataControllerFiles.map(read).join('\n');
 
 function requireText(file, needle, label) {
-  const source = read(file);
+  const entries = sourceEntries(file);
+  const matches = entries.filter((entry) => entry.source.includes(needle));
   checks.push({
-    file,
+    file: scopedFileLabel(matches.length ? matches : entries),
     label,
-    ok: source.includes(needle),
+    ok: matches.length > 0,
     detail: needle,
   });
 }
 
 function requirePattern(file, pattern, label) {
-  const source = read(file);
+  const entries = sourceEntries(file);
+  const matches = entries.filter((entry) => {
+    pattern.lastIndex = 0;
+    return pattern.test(entry.source);
+  });
   checks.push({
-    file,
+    file: scopedFileLabel(matches.length ? matches : entries),
     label,
-    ok: pattern.test(source),
+    ok: matches.length > 0,
     detail: pattern.toString(),
   });
 }
@@ -65,36 +77,75 @@ function requireOnlineDataControllerText(needle, label) {
 }
 
 function requireNoText(file, needle, label) {
-  const source = read(file);
+  const entries = sourceEntries(file);
   checks.push({
-    file,
+    file: scopedFileLabel(entries),
     label,
-    ok: !source.includes(needle),
+    ok: entries.every((entry) => !entry.source.includes(needle)),
     detail: needle,
   });
 }
 
 function requireNoTextBetween(file, startNeedle, endNeedle, needle, label) {
-  const source = read(file);
-  const start = source.indexOf(startNeedle);
-  const end = start >= 0 ? source.indexOf(endNeedle, start + startNeedle.length) : -1;
-  const segment = start >= 0 && end >= 0 ? source.slice(start, end) : '';
+  const entries = sourceEntries(file);
+  const segments = entries.flatMap((entry) => {
+    const start = entry.source.indexOf(startNeedle);
+    const end = start >= 0 ? entry.source.indexOf(endNeedle, start + startNeedle.length) : -1;
+    return start >= 0 && end >= 0 ? [{ entry, source: entry.source.slice(start, end) }] : [];
+  });
   checks.push({
-    file,
+    file: scopedFileLabel(segments.length ? segments.map((segment) => segment.entry) : entries),
     label,
-    ok: start >= 0 && end >= 0 && !segment.includes(needle),
+    ok: segments.length > 0 && segments.every((segment) => !segment.source.includes(needle)),
     detail: `${startNeedle} .. ${endNeedle}: ${needle}`,
   });
 }
 
-function requireOrder(file, firstNeedle, secondNeedle, label) {
-  const source = read(file);
-  const first = source.indexOf(firstNeedle);
-  const second = source.indexOf(secondNeedle);
+function requireTextBetween(file, startNeedle, endNeedle, needle, label) {
+  const entries = sourceEntries(file);
+  const segments = entries.flatMap((entry) => {
+    const start = entry.source.indexOf(startNeedle);
+    const end = start >= 0 ? entry.source.indexOf(endNeedle, start + startNeedle.length) : -1;
+    return start >= 0 && end >= 0 ? [{ entry, source: entry.source.slice(start, end) }] : [];
+  });
   checks.push({
-    file,
+    file: scopedFileLabel(segments.length ? segments.map((segment) => segment.entry) : entries),
     label,
-    ok: first >= 0 && second >= 0 && first < second,
+    ok: segments.some((segment) => segment.source.includes(needle)),
+    detail: `${startNeedle} .. ${endNeedle}: ${needle}`,
+  });
+}
+
+function requireOrderBetween(file, startNeedle, endNeedle, firstNeedle, secondNeedle, label) {
+  const entries = sourceEntries(file);
+  const segments = entries.flatMap((entry) => {
+    const start = entry.source.indexOf(startNeedle);
+    const end = start >= 0 ? entry.source.indexOf(endNeedle, start + startNeedle.length) : -1;
+    return start >= 0 && end >= 0 ? [{ entry, source: entry.source.slice(start, end) }] : [];
+  });
+  checks.push({
+    file: scopedFileLabel(segments.length ? segments.map((segment) => segment.entry) : entries),
+    label,
+    ok: segments.some((segment) => {
+      const first = segment.source.indexOf(firstNeedle);
+      const second = segment.source.indexOf(secondNeedle);
+      return first >= 0 && second >= 0 && first < second;
+    }),
+    detail: `${startNeedle} .. ${endNeedle}: ${firstNeedle} -> ${secondNeedle}`,
+  });
+}
+
+function requireOrder(file, firstNeedle, secondNeedle, label) {
+  const entries = sourceEntries(file);
+  const matches = entries.filter((entry) => {
+    const first = entry.source.indexOf(firstNeedle);
+    const second = entry.source.indexOf(secondNeedle);
+    return first >= 0 && second >= 0 && first < second;
+  });
+  checks.push({
+    file: scopedFileLabel(matches.length ? matches : entries),
+    label,
+    ok: matches.length > 0,
     detail: `${firstNeedle} -> ${secondNeedle}`,
   });
 }
@@ -202,9 +253,12 @@ requireNoText('public/index.html', "return `当前门店${missingPlatform}未达
 requireText('public/index.html', 'const dualOtaHotelSearchCounts = ref(readDualOtaHotelSearchCounts());', 'AI workbench keeps local hotel search counts for current-hotel ordering');
 requireText('public/index.html', 'const dualOtaCurrentHotelOptions = computed(() => {', 'AI workbench current-hotel selector can order hotels by local search count');
 requireText('public/index.html', '<option v-for="hotel in dualOtaCurrentHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>', 'AI workbench current-hotel selector renders the ordered hotel list');
-requireText('public/index.html', 'const resolveDefaultReportHotelId = () => {', 'AI workbench resolves a default current hotel before falling back to all hotels');
+requireText('public/index.html', 'const resolveDefaultReportHotelId = () => {', 'AI workbench resolves only an explicit valid main hotel as its default current hotel');
 requireText('public/index.html', "const boundHotelId = String(user.value?.hotel_id || '').trim();\n                if (boundHotelId && reportHotelOptionExists(boundHotelId)) return boundHotelId;", 'AI workbench defaults current hotel to the account-bound main hotel when available');
-requireText('public/index.html', "const firstPermittedHotelId = String(permittedHotels.value?.[0]?.id || '').trim();\n                if (firstPermittedHotelId) return firstPermittedHotelId;", 'AI workbench defaults to the first account-permitted hotel when no explicit main hotel is bound');
+requireTextBetween('public/index.html', 'const resolveDefaultReportHotelId = () => {', 'let suppressNextReportHotelDashboardRefresh', "return '';", 'AI workbench stays unselected when no valid main hotel is bound');
+requireNoTextBetween('public/index.html', 'const resolveDefaultReportHotelId = () => {', 'let suppressNextReportHotelDashboardRefresh', 'permittedHotels.value?.[0]', 'AI workbench never treats the first permitted hotel as an implicit main hotel');
+requireNoTextBetween('public/index.html', 'const resolveDefaultReportHotelId = () => {', 'let suppressNextReportHotelDashboardRefresh', 'hotels.value?.[0]', 'AI workbench never treats the first visible hotel as an implicit main hotel');
+requireText('public/index.html', '尚未设置可用主门店，普通板块将保持未选择；请前往门店管理设置主门店。', 'AI workbench reports the missing-main-hotel state instead of silently choosing another hotel');
 requireText('public/index.html', "if (!dualOtaSuppressHotelSearchRecord && currentPage.value === 'ai-workbench') {\n                    recordDualOtaHotelSearch(filterReportHotel.value);\n                }", 'AI workbench records only manual current-hotel searches, not default binding selection');
 requireNoText('public/index.html', 'filterReportHotel.value = permittedHotels.value[0].id;', 'AI workbench default hotel selection is no longer limited to non-admin single-hotel users');
 requireText('public/index.html', 'const dualOtaMetricNoteText = (note = \'\') => {', 'AI workbench translates metric source notes before rendering');
@@ -239,7 +293,9 @@ requireText('public/index.html', "const latestRange = isCompassDataPage() ? Stri
 requireText('public/index.html', 'const requestRange = explicitRange || latestRange || resolveCtripLatestRequestRange();', 'AI workbench resolves one explicit latest-data range before the Ctrip request');
 requireText('public/index.html', "return currentPage.value === 'ctrip-ebooking' ? 'yesterday' : '';", 'Ctrip current data page requests the target date instead of an unscoped historical latest snapshot');
 requireText('public/index.html', "if (requestRange) params.append('range', requestRange);", 'AI workbench appends the resolved range to the latest Ctrip data request');
-requireText('public/index.html', "requestPromise = request(`/online-data/ctrip/latest${query ? '?' + query : ''}`);", 'AI workbench keeps Ctrip latest request query-driven while deduplicating identical requests');
+requireText('public/index.html', "requestPromise = request(`/online-data/ctrip/latest${query ? '?' + query : ''}`, selectedHotelId", 'AI workbench keeps the Ctrip latest URL query-driven and binds the request to the selected hotel context');
+requireText('public/index.html', 'let requestPromise = ctripLatestRequestPromises.get(requestKey);', 'AI workbench reuses an identical in-flight Ctrip latest request');
+requireText('public/index.html', 'ctripLatestRequestPromises.set(requestKey, requestPromise);', 'AI workbench records the hotel-and-query-bound Ctrip latest request for deduplication');
 requireText('public/index.html', "const summaryRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading Meituan competitor summary');
 requireText('public/index.html', "if (summaryRange) params.append('range', summaryRange);", 'AI workbench appends selected range to Meituan competitor summary request');
 requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true, force: true });', 'AI workbench refreshes Meituan competitor summary after changing top range');
@@ -411,10 +467,12 @@ requireNoText('resources/frontend/app-template.html', '全渠道AI预计总间�
 requireNoText('public/app-main.js', 'const ctripAiEstimatedRoomNights = (row = {}) => {', 'Ctrip display rows do not synthesize room nights from booking orders');
 requireNoText('public/app-main.js', '全渠道AI预计总间夜数', 'Ctrip export omits the unsupported all-channel AI room-night estimate');
 requireText('public/index.html', 'const ctripTargetHotelOptions = computed(() => {', 'Ctrip manual target hotel list is filtered to configured Ctrip data sources');
-requireText('public/index.html', '<option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">', 'Ctrip manual target selects do not list unbound hotels');
+requirePattern('public/index.html', /const ctripTargetHotelOptions = computed\(\(\) => \{[\s\S]{0,500}?hasCtripFetchConfigByHotelId/, 'Ctrip manual target options retain the configured-source filter');
 requireText('public/index.html', 'const meituanTargetHotelOptions = computed(() => {', 'Meituan manual target hotel list is filtered to configured Meituan data sources');
-requireText('public/index.html', '<option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>', 'Meituan manual target selects do not list unbound hotels');
-requireText('public/index.html', '<span class="text-xs text-gray-400">仅显示已配置酒店</span>', 'manual OTA target hotel helper text matches the filtered list behavior');
+requirePattern('public/index.html', /const meituanTargetHotelOptions = computed\(\(\) => \{[\s\S]{0,500}?hasMeituanFetchConfigByHotelId/, 'Meituan manual target options retain the configured-source filter');
+requireText('public/index.html', 'data-testid="platform-hotel-context-select"', 'manual OTA pages expose one unified platform hotel selector');
+requireText('public/index.html', '<option v-for="hotel in (platformHotelContext === \'meituan\' ? meituanTargetHotelOptions : ctripTargetHotelOptions)" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>', 'the unified OTA hotel selector renders only the active platform configured options');
+requireText('public/index.html', "'暂无已配置酒店'", 'the unified OTA hotel selector reports an explicit configured-hotel empty state');
 requireText('public/ctrip-static.js', 'const buildTruthfulCtripDisplayModel', 'Ctrip display strips unsupported estimate fields from legacy snapshots');
 requireNoText('public/ctrip-static.js', "if (field === 'aiEstimatedTotalRoomNights')", 'Ctrip static sorter omits the unsupported AI estimate field');
 requireText('app/controller/concern/OnlineDataHistoryConcern.php', 'findLatestCtripRankRowsWithTraffic($latest, $hotelId, $currentUser, $columns)', 'Ctrip latest rank display falls back to the newest rank batch with traffic when the latest batch has no traffic fields');
@@ -667,8 +725,12 @@ requireText('app/service/OtaReviewRiskPolicyService.php', 'privacy_not_queryable
 requireText('app/service/OtaReviewRiskPolicyService.php', 'reply_contains_contact', 'Ctrip review governance exposes reply contact validation status');
 requireNoText('public/index.html', 'JSON.stringify(ctripReviewMatchResult, null, 2)', 'Ctrip review order main UI must not expose raw match JSON');
 requireText('public/index.html', "ctripReviewMatchResult.data.missing_sources.join(' / ')", 'Ctrip review order main UI reports missing sources directly');
-requireText('public/index.html', '<select v-model="ctripReviewMatchForm.systemHotelId"', 'Ctrip review order main UI keeps hotel scope selectable');
-requireText('public/index.html', '使用当前携程门店 / 当前账号门店', 'Ctrip review order hotel selector can fall back to the current authorized context');
+requireText('public/index.html', 'data-testid="ctrip-review-current-hotel"', 'Ctrip review order main UI exposes the unified current-hotel scope');
+requireText('public/index.html', '跟随顶部选择，订单证据只写入该酒店。', 'Ctrip review order main UI explains its exact topbar hotel write scope');
+requireText('public/index.html', "const resolveCtripReviewMatchSystemHotelId = () => String(selectedCtripHotelId.value || '').trim();", 'Ctrip review order writes use only the explicit topbar hotel selection');
+requireText('public/index.html', "throw new Error('请先在顶部选择携程当前酒店');", 'Ctrip review order writes fail closed when no explicit topbar hotel is selected');
+requireNoText('public/index.html', 'ctripReviewMatchForm.systemHotelId', 'Ctrip review order main UI does not keep a second hotel selector');
+requireNoText('public/index.html', '使用当前携程门店 / 当前账号门店', 'Ctrip review order writes do not fall back to an account hotel implicitly');
 requireNoText('public/index.html', '<div class="text-sm font-medium text-gray-900">授权 payload 导入</div>', 'Ctrip review order main UI does not expose payload import configuration');
 requireNoText('public/index.html', 'IM 身份锁定', 'Ctrip review order main UI does not expose matching method tags');
 requireNoText('public/index.html', '订单池匹配', 'Ctrip review order main UI does not expose order matching method tags');
@@ -883,7 +945,19 @@ requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="ov
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady && homeTrendCards.length"', 'home trend cards are not mounted during the immediate OTA navigation window');
 requireText('public/index.html', 'homeSecondaryPanelsReady, homeClosedLoopStages', 'home lower-panel readiness flag is returned for template gating');
 requireText('public/index.html', 'const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;', 'authenticated secondary API requests stay outside the first measured interaction window');
-requireText('public/index.html', 'const scheduleDualOtaWorkbenchAutoFetch = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {', 'startup dual OTA refresh waits until after the first measured interaction window');
+{
+  const source = read('public/index.html');
+  const baselineMatch = source.match(/const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = (\d+);/);
+  const dualOtaDelayMatch = source.match(/const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = (\d+)\) => \{/);
+  checks.push({
+    file: 'public/index.html',
+    label: 'startup dual OTA refresh waits until after the first measured interaction window',
+    ok: baselineMatch !== null
+      && dualOtaDelayMatch !== null
+      && Number(dualOtaDelayMatch[1]) >= Number(baselineMatch[1]),
+    detail: 'scheduleDualOtaWorkbenchAutoFetch default delay >= AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS',
+  });
+}
 requireText('public/index.html', 'const scheduleInitialBackendNotificationRefresh = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {', 'startup backend notifications wait until after the first measured interaction window');
 requireText('public/index.html', 'if (!token.value) return;\n                    refreshGlobalNotifications({ silent: true, backendOnly: true, startupDedupe: true });', 'startup strong-reminder refresh runs once per authenticated startup session');
 requireText('public/index.html', 'if (isLoggedIn.value && token.value && !isCoreOtaPageVisible()) {', 'notification polling is paused while core OTA pages are visible');
@@ -918,7 +992,8 @@ requireText('public/index.html', '@toggle="handleCtripEbookingDiagnosticsToggle"
 requireText('public/index.html', '<div v-if="ctripEbookingDiagnosticsPanelsReady" class="p-4 border-t space-y-4">', 'Ctrip manual collapsed diagnostics content is not mounted while collapsed');
 requireText('public/index.html', 'const systemHotelId = await syncCtripOverviewTargetHotel({ loadConfig: false });', 'Ctrip startup fixes the selected hotel before requesting its stored snapshot');
 requireText('public/index.html', 'const [latestResult, configResult] = await Promise.allSettled([', 'Ctrip snapshot and credential metadata load concurrently');
-requireText('public/index.html', 'loadLatestCtripData({\n                            silent: true,\n                            hydrateDisplay: true,\n                            hotelId: systemHotelId,\n                        }),', 'Ctrip startup hydrates the selected hotel snapshot immediately');
+requireText('public/index.html', 'loadLatestCtripData({\n                            silent: true,\n                            hydrateDisplay: false,\n                            hotelId: systemHotelId,\n                            returnSnapshot: true,\n                        }),', 'Ctrip startup reads the selected-hotel snapshot without displaying it before truth validation');
+requireText('public/index.html', 'if (currentPage.value === \'ctrip-ebooking\'\n                        && onlineDataTab.value === \'ctrip-ranking\'\n                        && cachePolicy.hit) {\n                        applyLatestCtripSnapshot(latestSnapshot.payload, { hydrateDisplay: true });', 'Ctrip startup displays a stored snapshot only after the hotel-and-date cache policy passes');
 requireText('public/index.html', 'await applyCtripHotelConfig(false, {\n                            refreshList: false,\n                            refreshLatest: false,', 'Ctrip startup applies credential metadata without issuing a duplicate latest-data request');
 requireText('public/index.html', '}, 0);', 'Ctrip startup yields only to the next task instead of waiting an arbitrary number of seconds');
 requireText('public/index.html', '凭据统一由平台配置保管', 'legacy Cookie panel points users to the credential vault boundary');
@@ -947,7 +1022,8 @@ requireNoTextBetween('public/index.html', 'const useCookies = async (item) => {'
 requireText('public/index.html', 'const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS = 16;', 'Meituan manual startup config-list read starts near immediately without blocking route entry');
 requireText('public/index.html', 'const MEITUAN_EBOOKING_SECONDARY_CONFIG_DELAY_MS = 5200;', 'Meituan manual secondary config refresh stays outside the first interaction window');
 requireText('public/index.html', 'const MEITUAN_EBOOKING_HOTEL_LIST_DELAY_MS = 6400;', 'Meituan manual hotel-list refresh stays outside the first interaction window');
-requireText('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRefresh = () => {\n                ensureMeituanManualHotelSelected();\n                scheduleDelayedPageTask(async () => {', 'Meituan manual startup refresh is delayed outside first paint');
+requireText('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRefresh = () => {\n                scheduleDelayedPageTask(async () => {', 'Meituan manual startup refresh is delayed outside first paint');
+requireOrderBetween('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRefresh = () => {', 'const syncCtripDataHealthHotelScope = () => {', 'await loadMeituanConfigList({', 'ensureMeituanManualHotelSelected();', 'Meituan startup selects a hotel only after the configured hotel list is available');
 requireText('public/index.html', 'const resolveMeituanManualDefaultHotelId = () => {', 'Meituan manual fetch resolves a default hotel before fast local config matching');
 requireText('public/index.html', "const resolveMeituanManualDefaultHotelIdFromState = requireMeituanStatic('resolveMeituanManualDefaultHotelIdFromState');", 'Meituan manual default-hotel priority is owned by the static helper');
 requireText('public/meituan-static.js', 'const resolveMeituanManualDefaultHotelIdFromState = ({', 'Meituan static helper owns manual default-hotel priority');
@@ -982,7 +1058,7 @@ requireNoText('public/index.html', 'loadCompetitorSummary({ requireCompass: true
 requireText('public/index.html', 'const compassBackgroundJobs = [', 'deferred compass background jobs are queued explicitly');
 requireText('public/index.html', 'await job();', 'deferred compass background jobs run serially instead of in parallel');
 requireText('public/index.html', 'scheduleDelayedPageTask(async () => {', 'compass background jobs use a real delay instead of an early idle callback');
-requireText('public/index.html', '}, AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS);', 'deferred compass background jobs stay outside the first measured interaction window');
+requirePattern('public/index.html', /const compassBackgroundJobs = \[[\s\S]{0,1200}?await job\(\);[\s\S]{0,300}?\}, 6200\);/, 'deferred compass background jobs stay outside the first measured interaction window');
 requireOnlineDataControllerText("?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
 requireOnlineDataControllerText("get('include_detail'", 'backend auto-fetch status supports light detail requests');
 requireOnlineDataControllerText("'detail_loaded' => false", 'backend auto-fetch status marks light responses explicitly');
@@ -1015,7 +1091,7 @@ requireOnlineDataControllerText("'detail_loaded' => false", 'backend auto-fetch 
   const meituanLightListSource = meituanLightListMatch ? meituanLightListMatch[1] : '';
   const profileSanitizerMatch = source.match(/private function sanitizeBrowserProfileSourcesForSharedCache\(array \$rows\): array\s+\{([\s\S]*?)\n    private function clearAutoFetchLightConfigListCache/);
   const profileSanitizerSource = profileSanitizerMatch ? profileSanitizerMatch[1] : '';
-  const profileListMatch = source.match(/private function listEnabledBrowserProfileDataSources\(int \$hotelId, string \$platform = ''\): array\s+\{([\s\S]*?)\n    private function listEnabledCtripBrowserProfileDataSources/);
+  const profileListMatch = source.match(/private function listEnabledBrowserProfileDataSources\(\s*int \$hotelId,\s*string \$platform = ''(?:,\s*bool \$useCache = true)?\s*\): array\s+\{([\s\S]*?)\n    private function (?:browserProfileSourceReadFailure|listEnabledCtripBrowserProfileDataSources)/);
   const profileListSource = profileListMatch ? profileListMatch[1] : '';
   const profileSelectedFieldMatch = profileListSource.match(/->field\('([^']+)'\)/);
   const profileSelectedFields = profileSelectedFieldMatch
@@ -1112,7 +1188,9 @@ requireText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () 
 requireText('public/data-health-static.js', "return requireDataHealthPanelLoader(schedulePostFetchRefresh, 'schedulePostFetchRefresh')('data-health-light-diagnostics', () => {", 'data-health light diagnostics use the shared deduplicated post-fetch scheduler');
 requireText('public/index.html', "shouldRun: () => currentPage.value === 'online-data' && onlineDataTab.value === 'data-health'", 'data-health light diagnostics do not run after the user leaves the data-health tab');
 requireNoText('public/index.html', 'const scheduleDataHealthLightDiagnostics = () => {\n                deferUiTask(() => Promise.allSettled([', 'data-health light diagnostics must not use a bare deferred task without tab guards');
-requireText('public/index.html', "const initialHotelId = String(getAutoFetchHotelId() || '');", 'data-health light cache records target hotel before sync');
+requireText('public/index.html', "const initialHotelId = String(coreOperationsHotelId.value || filterReportHotel.value || '').trim();", 'data-health light cache keys use the unified current operating-hotel scope before sync');
+requireText('public/index.html', 'const syncCtripDataHealthHotelScope = () => {\n                const hotelId = String(selectedCtripHotelId.value || \'\').trim();\n                autoFetchHotelId.value = hotelId;', 'Ctrip data-health entry synchronizes the topbar hotel into the auto-fetch scope');
+requireText('public/index.html', 'if (String(coreOperationsHotelId.value || \'\') !== hotelId) resetCoreOperationsScopedState();\n                coreOperationsHotelId.value = hotelId;', 'Ctrip data-health entry resets stale operating state before adopting the topbar hotel');
 requireText('public/index.html', 'const initialCacheKey = dataHealthLightCacheKey(initialHotelId);', 'data-health light cache is checked before target hotel sync');
 requireText('public/index.html', "if (normalizedMode === 'light' && !force && cacheKey !== initialCacheKey) {", 'data-health light cache is rechecked only when target hotel sync changes the cache key');
 requireText('public/index.html', 'const jobs = buildDataHealthPanelRefreshJobs({', 'data-health panel loader uses extracted job composition');
@@ -1149,7 +1227,9 @@ requireNoText('public/index.html', 'ctripConfigDetailCache.set(', 'Ctrip entry m
 requireText('public/index.html', 'const scheduleCtripHotelConfigApply = (event = null, options = {}) => {', 'Ctrip hotel selection uses a non-blocking config apply scheduler');
 requireText('public/index.html', 'const applyVersion = ++ctripHotelConfigApplyVersion;', 'Ctrip hotel selection ignores stale deferred metadata responses');
 requireText('public/index.html', 'const config = resolveCtripConfigMetadata(configSource);', 'Ctrip hotel selection applies metadata without credential-detail loading');
-requireText('public/index.html', '@change="scheduleCtripHotelConfigApply"', 'Ctrip manual hotel selects use the non-blocking selection handler');
+requireText('public/index.html', '@change="handlePlatformHotelContextChange"', 'the unified OTA hotel selector uses the non-blocking platform selection handler');
+requireTextBetween('public/index.html', 'const handlePlatformHotelContextChange = (event) => {', 'const openPlatformHotelContextConfig = () =>', 'selectedCtripHotelId.value = hotelId;', 'the unified Ctrip hotel handler updates the explicit platform scope');
+requireTextBetween('public/index.html', 'const handlePlatformHotelContextChange = (event) => {', 'const openPlatformHotelContextConfig = () =>', 'else openCtripManualTab(onlineDataTab.value);', 'the unified Ctrip hotel handler delegates asynchronous page work to the tab scheduler');
 requireNoText('public/index.html', '@change="applyCtripHotelConfig"', 'Ctrip manual hotel selects must not block on metadata application');
 requireNoText('public/index.html', "request('/online-data/get-ctrip-config-detail", 'Ctrip entry must not request stored credential detail');
 requireText('public/index.html', 'const scheduleCtripEbookingDeferredStartupRefresh = () => {', 'Ctrip manual page owns one bounded startup snapshot task');
@@ -1157,7 +1237,7 @@ requireText('public/index.html', "if (currentPage.value !== 'ctrip-ebooking') re
 requireText('public/index.html', "loadCtripConfigList({\n                            cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                            applySelectedConfig: false,\n                        }),", 'Ctrip manual page loads only short-cached credential metadata beside the visible snapshot');
 requireText('public/index.html', "const syncCtripOverviewTargetHotel = async ({ clearDisplay = false, loadConfig = true } = {}) =>", 'Ctrip overview hotel switching stays in the shared target-hotel synchronizer');
 requireText('public/index.html', "if (!ctripConfigList.value.length) {\n                        await loadCtripConfigList({\n                            cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                            applySelectedConfig: false,", 'Ctrip overview hotel switching reuses the short config-list cache before applying manual fetch config');
-requireText('public/index.html', "await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });\n                scheduleDataHealthPanelRefresh('light', { force: true });", 'Ctrip overview hotel switching schedules data-health refresh without waiting on it');
+requireOrderBetween('public/index.html', 'const openCtripManualTab = (tab) => {', 'const openMeituanManualTab = (tab) => {', 'syncCtripDataHealthHotelScope();', 'loadDataHealthPanel: scheduleDataHealthPanelRefresh', 'Ctrip overview hotel switching fixes the data-health scope before scheduling its non-blocking refresh');
 requireNoText('public/index.html', "await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });\n                await loadDataHealthPanel('light');", 'Ctrip overview hotel switching must not wait on data-health light status');
 requireText('public/index.html', "if (selectedCtripHotelId.value && shouldApplySelectedConfig) {\n                                deferUiTask(() => (\n                                    isCurrentRequest()\n                                        ? applyCtripHotelConfig(false, {", 'Ctrip config-list loader defers selected metadata with a stale-request guard before returning');
 requireNoText('public/index.html', "if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;", 'Ctrip config-list loader must not wait for selected metadata application');
@@ -1171,7 +1251,7 @@ requireText('public/index.html', 'deferUiTask(() => runCtripManualTabSwitch({', 
 requireText('public/index.html', 'getCurrentPage: () => currentPage.value', 'Ctrip manual tab static helper receives active page reader');
 requireText('public/index.html', 'getCurrentTab: () => onlineDataTab.value', 'Ctrip manual tab static helper receives active tab reader');
 requireText('public/index.html', 'loadDataHealthPanel: scheduleDataHealthPanelRefresh', 'Ctrip manual data-health tab schedules light status refresh after switching');
-requireText('public/index.html', "if (tab === 'data-health') {\n                    ctripEbookingModuleCardsReady.value = false;\n                    scheduleCtripEbookingModuleCardsReady();", 'Ctrip manual data-health tab schedules delayed module fetch cards after switching');
+requireText('public/index.html', "if (tab === 'data-health') {\n                    syncCtripDataHealthHotelScope();\n                    ctripEbookingModuleCardsReady.value = false;\n                    scheduleCtripEbookingModuleCardsReady();", 'Ctrip manual data-health tab fixes hotel scope before scheduling delayed module fetch cards');
 requireText('public/index.html', "ctripEbookingSecondaryPanelsReady.value = false;\n                    scheduleCtripEbookingSecondaryPanelsReady();", 'Ctrip manual data-health tab schedules delayed secondary overview panels after switching');
 requireText('public/index.html', "ctripEbookingDeepPanelsReady.value = false;\n                    scheduleCtripEbookingDeepPanelsReady();", 'Ctrip manual data-health tab schedules deep business and diagnostics panels after lightweight secondary panels');
 requireText('public/index.html', "ctripEbookingBusinessDetailsReady.value = false;\n                    scheduleCtripEbookingBusinessDetailsReady();", 'Ctrip manual data-health tab schedules detailed business panels after the first deep revenue overview');
@@ -1191,7 +1271,8 @@ requireText('public/index.html', 'await Promise.allSettled([loadHotels(), loadCt
 requireText('public/index.html', 'applySelectedConfig: false,', 'Ctrip manual config refresh loads config lists without implicit form application');
 requireNoText('public/index.html', 'const refreshCtripHotelConfigOptions = async () => {', 'Ctrip manual config refresh button must not wait on config-list loading before returning');
 requireNoText('public/index.html', 'await Promise.all([loadHotels(), loadCtripConfigList()]);\n                await applyCtripHotelConfig(false);', 'Ctrip manual config refresh must not serially await hotel/config refreshes inline');
-requireText('public/index.html', "const openCtripOverviewFetchTab = async (tabName) => {\n                currentPage.value = 'ctrip-ebooking';\n                if (autoFetchHotelId.value) {", 'Ctrip overview external entry keeps the route switch first before syncing the selected hotel');
+requireText('public/index.html', "const openCtripOverviewFetchTab = async (tabName) => {\n                currentPage.value = 'ctrip-ebooking';\n                onlineDataTab.value = tabName;", 'Ctrip overview external entry switches route and tab before deferred configuration work');
+requireNoTextBetween('public/index.html', 'const openCtripOverviewFetchTab = async (tabName) => {', 'const ctripOverviewCookieApiSections = () =>', 'autoFetchHotelId', 'Ctrip overview external entry does not borrow a hotel from the generic auto-fetch module');
 requireText('public/index.html', "onlineDataTab.value = tabName;\n                deferUiTask(async () => {\n                    if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== tabName) return null;\n                    await loadCtripConfigList({\n                        cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,", 'Ctrip overview external entry reuses the short config-list cache after switching tabs');
 requireText('public/index.html', 'onlineDataTab.value = tabName;\n                deferUiTask(async () => {', 'Ctrip overview external entry defers config loading after switching tabs');
 requireText('public/index.html', "scheduleDataHealthPanelRefresh('light', { force: true });", 'Ctrip overview fetch completion schedules data-health refresh without waiting on it');
@@ -1334,9 +1415,9 @@ requireNoText('public/index.html', 'if (presetState.dataPeriod)', 'Meituan brows
 requireText('public/index.html', "const buildMeituanBrowserSupplementCaptureState = requireMeituanStatic('buildMeituanBrowserSupplementCaptureState');", 'Meituan browser supplement capture state is owned by the static helper');
 requireText('public/meituan-static.js', 'const buildMeituanBrowserSupplementCaptureState = ({', 'Meituan static helper owns browser supplement capture state');
 requireText('public/index.html', 'const supplementState = buildMeituanBrowserSupplementCaptureState({', 'entry keeps Meituan browser supplement capture state as a thin adapter');
-requireText('public/index.html', 'autoFetchHotelId: autoFetchHotelId.value,', 'Meituan browser supplement capture state receives auto-fetch hotel context explicitly');
-requireText('public/index.html', 'formHotelId: meituanForm.value.hotelId,', 'Meituan browser supplement capture state receives manual hotel context explicitly');
-requireText('public/index.html', 'userHotelId: user.value?.hotel_id,', 'Meituan browser supplement capture state receives user hotel context explicitly');
+requireTextBetween('public/index.html', 'const runMeituanBrowserSupplementCapture = async () => {', 'const copyMeituanBrowserCaptureCommand = () => {', 'formHotelId: meituanForm.value.hotelId,', 'Meituan browser supplement capture uses the explicit Meituan form hotel');
+requireNoTextBetween('public/index.html', 'const runMeituanBrowserSupplementCapture = async () => {', 'const copyMeituanBrowserCaptureCommand = () => {', 'autoFetchHotelId', 'Meituan browser supplement capture never borrows a generic auto-fetch hotel');
+requireNoTextBetween('public/index.html', 'const runMeituanBrowserSupplementCapture = async () => {', 'const copyMeituanBrowserCaptureCommand = () => {', 'userHotelId', 'Meituan browser supplement capture never falls back to the account hotel');
 requireText('public/index.html', 'runMeituanBrowserCaptureForSections(supplementState.captureSections, { dataPeriod: supplementState.dataPeriod });', 'Meituan browser supplement capture uses normalized static helper sections and data period');
 requireNoText('public/index.html', "runMeituanBrowserCaptureForSections(['full'], { dataPeriod: 'historical_daily' })", 'Meituan browser supplement capture defaults are not re-inlined');
 requireText('public/index.html', "const buildMeituanBrowserCaptureCopyCommandState = requireMeituanStatic('buildMeituanBrowserCaptureCopyCommandState');", 'Meituan browser capture copy-command state is owned by the static helper');
@@ -1373,7 +1454,9 @@ requireNoText('public/index.html', 'runMeituanBrowserCapture({ loginOnly: true, 
 requireText('public/index.html', "const resolveMeituanBrowserCaptureSystemHotelId = requireMeituanStatic('resolveMeituanBrowserCaptureSystemHotelId');", 'Meituan browser capture system hotel id resolution is owned by the static helper');
 requireText('public/meituan-static.js', 'const resolveMeituanBrowserCaptureSystemHotelId = ({', 'Meituan static helper owns browser capture system hotel id resolution');
 requireText('public/index.html', 'getSystemHotelId: () => resolveMeituanBrowserCaptureSystemHotelId({', 'entry keeps Meituan browser capture system hotel id resolution as a thin adapter');
-requireText('public/index.html', 'autoFetchHotelId: autoFetchHotelId.value,', 'Meituan browser capture system hotel id resolution receives auto-fetch hotel context explicitly');
+requireTextBetween('public/index.html', 'const runMeituanBrowserCapture = async (options = {}) => runMeituanBrowserCaptureFlow({', 'const loadMeituanOrderFlowData = async (options = {}) => {', 'formHotelId: meituanForm.value.hotelId,', 'Meituan browser capture system hotel id resolution uses the explicit Meituan form hotel');
+requireNoTextBetween('public/index.html', 'const runMeituanBrowserCapture = async (options = {}) => runMeituanBrowserCaptureFlow({', 'const loadMeituanOrderFlowData = async (options = {}) => {', 'autoFetchHotelId', 'Meituan browser capture system hotel id resolution never borrows a generic auto-fetch hotel');
+requireNoTextBetween('public/index.html', 'const runMeituanBrowserCapture = async (options = {}) => runMeituanBrowserCaptureFlow({', 'const loadMeituanOrderFlowData = async (options = {}) => {', 'userHotelId', 'Meituan browser capture system hotel id resolution never falls back to the account hotel');
 requireNoText('public/index.html', 'meituanForm.value.hotelId || autoFetchHotelId.value || user.value?.hotel_id', 'Meituan browser capture system hotel id selection is not re-inlined');
 requireNoTextBetween('public/index.html', 'const saveMeituanCapturedPayload = async () => runMeituanCapturedPayloadSaveFlow({', 'const goConfigureMeituanForSelectedHotel', 'meituanForm.value.hotelId || user.value?.hotel_id', 'Meituan captured payload save system hotel id selection is not re-inlined');
 requireText('public/index.html', "const resolveMeituanSelectedHotelConfigAction = requireMeituanStatic('resolveMeituanSelectedHotelConfigAction');", 'Meituan selected hotel config action is owned by the static helper');
@@ -7981,11 +8064,11 @@ requireNoText('tests/automation/async-page-guard.spec.js', 'waitForTimeout', 'as
 const failures = checks.filter((check) => !check.ok);
 
 if (failures.length) {
-  console.error('E2E contract verification failed:');
+  console.error('Static integration contract verification failed:');
   for (const failure of failures) {
     console.error(`- ${failure.file}: ${failure.label} (${failure.detail})`);
   }
   process.exit(1);
 }
 
-console.log(`E2E contract verification passed (${checks.length} checks).`);
+console.log(`Static integration contract verification passed (${checks.length} checks; not browser E2E evidence).`);

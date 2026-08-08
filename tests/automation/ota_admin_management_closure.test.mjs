@@ -68,7 +68,7 @@ test('Ctrip config panel removes unrelated snapshots and keeps Cookie help reada
 
   assert.match(
     html,
-    /!\['data-health', 'ctrip-public-profiles', 'ctrip-config'\]\.includes\(onlineDataTab\)[^>]*class="grid grid-cols-2 md:grid-cols-4/
+    /!\['data-health', 'ctrip-public-profiles', 'ctrip-config'\]\.includes\(onlineDataTab\)[^>]*class="ctrip-workspace-status[^"']*grid-cols-2[^"']*xl:grid-cols-4/
   );
   assert.match(html, /const showCtripCookieGuide = ref\(false\)/);
   assert.match(html, /if \(tab === 'ctrip-config'\) showCtripCookieGuide\.value = false/);

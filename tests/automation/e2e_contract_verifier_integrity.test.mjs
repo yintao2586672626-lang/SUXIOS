@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const source = readFileSync('scripts/verify_e2e_contracts.mjs', 'utf8');
 
-test('E2E verifier summarizes failures only after its final contract checks', () => {
+test('static integration verifier summarizes failures only after its final contract checks', () => {
   const failureSummary = source.lastIndexOf('const failures = checks.filter((check) => !check.ok);');
   assert.ok(failureSummary >= 0, 'failure summary must exist');
 
@@ -22,4 +22,12 @@ test('E2E verifier summarizes failures only after its final contract checks', ()
     failureSummary < source.lastIndexOf('if (failures.length)'),
     'failure summary must be consumed after it is computed',
   );
+});
+
+test('frontend semantic checks stay within one concrete source and do not claim browser E2E', () => {
+  assert.match(source, /const sourceEntries = \(file\) => file === 'public\/index\.html'/);
+  assert.match(source, /segments\.some\(\(segment\) => segment\.source\.includes\(needle\)\)/);
+  assert.match(source, /matches = entries\.filter\(\(entry\) => \{/);
+  assert.doesNotMatch(source, /`\$\{readRaw\(file\)\}\\n\$\{readTemplateSemantic\(\)\}\\n\$\{readRaw\('public\/app-main\.js'\)\}`/);
+  assert.match(source, /not browser E2E evidence/);
 });

@@ -30,6 +30,7 @@
     };
 
     const loadingComponent = {
+        inheritAttrs: false,
         render() {
             return Vue.h('div', {
                 class: 'rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500',
@@ -38,6 +39,7 @@
         },
     };
     const errorComponent = {
+        inheritAttrs: false,
         render() {
             return Vue.h('div', {
                 class: 'rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700',

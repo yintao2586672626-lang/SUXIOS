@@ -176,6 +176,35 @@ jobs:
           DB_PASS: suxi-ci-root
         run: npm run test:node
 
+      - name: Enforce source hotspot no-growth ratchets
+        run: npm run verify:source-hotspot-budget
+
+      - name: Verify full-render page transitions
+        timeout-minutes: 4
+        env:
+          SUXI_PHP: php
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: npm run test:e2e:transition
+
+      - name: Verify notification and security-monitoring stability journeys
+        timeout-minutes: 4
+        env:
+          SUXI_PHP: php
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: npm run test:e2e:stability
+
   contracts:
     name: Dependency security and release contracts
     runs-on: ubuntu-latest

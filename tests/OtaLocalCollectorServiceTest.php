@@ -172,6 +172,36 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame('queued', Db::name('ota_local_collector_tasks')->where('id', $task['task']['id'])->value('status'));
     }
 
+    public function testPairCodeIsConsumedOnceAndSecondAttemptCannotCreateAnotherDevice(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $pairCode = $service->createPairCode($this->actor(), ['device_name' => 'One-time pair PC']);
+
+        $first = $service->pairDevice([
+            'pair_code' => $pairCode['pair_code'],
+            'device_platform' => 'windows',
+        ]);
+        self::assertGreaterThan(0, $first['device_id']);
+
+        try {
+            $service->pairDevice([
+                'pair_code' => $pairCode['pair_code'],
+                'device_platform' => 'windows',
+            ]);
+            self::fail('A consumed pair code must never create a second device.');
+        } catch (RuntimeException $exception) {
+            self::assertContains($exception->getCode(), [409, 410]);
+        }
+        self::assertSame(1, (int)Db::name('ota_local_collector_devices')->count());
+
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/service/OtaLocalCollectorService.php');
+        self::assertMatchesRegularExpression(
+            '/users.{0,120}lock\(true\)[\s\S]{0,900}Cache::get\(\$cacheKey\)[\s\S]{0,900}Cache::delete\(\$cacheKey\)/',
+            $source,
+            'Pairing must re-read and consume the cache value while the owner row lock is held.'
+        );
+    }
+
     public function testDevicePermissionResolverFailsClosedForEmptyInactiveExpiredAndNoViewGrants(): void
     {
         $service = new OtaLocalCollectorService();
@@ -264,6 +294,253 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame($beforeAccount['status'], Db::name('ota_local_collector_accounts')->where('id', $account['account_id'])->value('status'));
         self::assertSame($beforeOnlineCount, Db::name('online_daily_data')->count());
         self::assertSame(0, $importCalls);
+    }
+
+    public function testLeaseFencedWritesRejectAStaleAttemptWithoutTouchingItsReplacement(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->leasedCollectionFixture($service, 'Stale lease fence');
+        $taskId = (int)$fixture['task']['id'];
+        $staleTask = Db::name('ota_local_collector_tasks')->where('id', $taskId)->find();
+        self::assertIsArray($staleTask);
+        $replacementHash = hash('sha256', 'replacement-lease-token');
+        $replacementExpiry = date('Y-m-d H:i:s', time() + 900);
+        Db::name('ota_local_collector_tasks')->where('id', $taskId)->update([
+            'status' => 'leased',
+            'attempt' => (int)$staleTask['attempt'] + 1,
+            'lease_token_hash' => $replacementHash,
+            'lease_expires_at' => $replacementExpiry,
+        ]);
+
+        $write = new \ReflectionMethod(OtaLocalCollectorService::class, 'requireLeasedTaskWrite');
+        $write->setAccessible(true);
+        foreach ([
+            ['status' => 'running', 'lease_expires_at' => date('Y-m-d H:i:s', time() + 1200)],
+            ['status' => 'success', 'lease_token_hash' => '', 'lease_expires_at' => null],
+            ['status' => 'failed', 'lease_token_hash' => '', 'lease_expires_at' => null],
+        ] as $values) {
+            try {
+                $write->invoke($service, $staleTask, $values);
+                self::fail('A stale lease snapshot must not write progress or a terminal result.');
+            } catch (RuntimeException $exception) {
+                self::assertSame(409, $exception->getCode());
+            }
+            $replacement = Db::name('ota_local_collector_tasks')->where('id', $taskId)->find();
+            self::assertSame('leased', $replacement['status']);
+            self::assertSame((int)$staleTask['attempt'] + 1, (int)$replacement['attempt']);
+            self::assertSame($replacementHash, $replacement['lease_token_hash']);
+            self::assertSame($replacementExpiry, $replacement['lease_expires_at']);
+        }
+    }
+
+    public function testExactWriteReadbackComparatorRequiresEveryWrittenValue(): void
+    {
+        $compare = new \ReflectionMethod(OtaLocalCollectorService::class, 'exactWriteReadbackMatches');
+        $compare->setAccessible(true);
+        $service = new OtaLocalCollectorService();
+
+        self::assertTrue($compare->invoke($service, [
+            'status' => 'running',
+            'retry_count' => '0',
+            'next_retry_at' => null,
+        ], [
+            'status' => 'running',
+            'retry_count' => 0,
+            'next_retry_at' => null,
+        ]));
+        self::assertFalse($compare->invoke($service, ['status' => 'running'], [
+            'status' => 'running',
+            'next_retry_at' => null,
+        ]));
+        self::assertFalse($compare->invoke($service, ['next_retry_at' => ''], [
+            'next_retry_at' => null,
+        ]));
+        self::assertFalse($compare->invoke($service, ['status' => 'failed'], [
+            'status' => 'running',
+        ]));
+    }
+
+    public function testInitialLeaseAndDeviceRevocationPersistExactFields(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->leasedCollectionFixture($service, 'Exact lease and revoke');
+        $task = $fixture['task'];
+        $storedLease = Db::name('ota_local_collector_tasks')->where('id', (int)$task['id'])->find();
+
+        self::assertSame('leased', $storedLease['status']);
+        self::assertSame((int)$task['attempt'], (int)$storedLease['attempt']);
+        self::assertSame($task['lease_expires_at'], $storedLease['lease_expires_at']);
+        self::assertSame(hash('sha256', $task['lease_token']), $storedLease['lease_token_hash']);
+        self::assertNotEmpty($storedLease['started_at']);
+        self::assertSame($storedLease['started_at'], $storedLease['update_time']);
+
+        $deviceId = (int)$fixture['pair']['device_id'];
+        $originalDeviceHash = (string)Db::name('ota_local_collector_devices')
+            ->where('id', $deviceId)
+            ->value('device_token_hash');
+        $revoked = $service->revokeDevice($this->actor(), $deviceId);
+        $storedDevice = Db::name('ota_local_collector_devices')->where('id', $deviceId)->find();
+        $storedAccount = Db::name('ota_local_collector_accounts')->where('id', (int)$storedLease['account_id'])->find();
+        $storedTask = Db::name('ota_local_collector_tasks')->where('id', (int)$task['id'])->find();
+
+        self::assertSame('revoked', $revoked['status']);
+        self::assertSame('revoked', $storedDevice['status']);
+        self::assertNotSame($originalDeviceHash, $storedDevice['device_token_hash']);
+        self::assertSame('revoked', $storedAccount['status']);
+        self::assertSame('device_revoked', $storedAccount['session_status']);
+        self::assertSame('device_revoked', $storedAccount['last_error_code']);
+        self::assertSame('设备已撤销，需要在新电脑重新配对和登录。', $storedAccount['last_error_summary']);
+        self::assertSame('cancelled', $storedTask['status']);
+        self::assertSame('device_revoked', $storedTask['error_code']);
+        self::assertSame('设备已撤销，任务停止。', $storedTask['error_summary']);
+        self::assertNotEmpty($storedTask['finished_at']);
+    }
+
+    public function testStaleAuthenticatedDeviceSnapshotCannotReviveRevokedDevice(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $actor = $this->actor();
+        $fixture = $this->leasedCollectionFixture($service, 'Stale revoke');
+        $deviceId = (int)$fixture['pair']['device_id'];
+        $staleAuthenticatedDevice = Db::name('ota_local_collector_devices')->where('id', $deviceId)->find();
+        $staleAccount = Db::name('ota_local_collector_accounts')->where('device_id', $deviceId)->find();
+        self::assertIsArray($staleAuthenticatedDevice);
+        self::assertIsArray($staleAccount);
+        $staleMapping = Db::name('ota_local_collector_account_hotels')
+            ->where('account_id', (int)$staleAccount['id'])
+            ->find();
+        self::assertIsArray($staleMapping);
+
+        $service->revokeDevice($actor, $deviceId);
+        $revoked = Db::name('ota_local_collector_devices')->where('id', $deviceId)->find();
+        $touch = new \ReflectionMethod(OtaLocalCollectorService::class, 'touchDevice');
+        $touch->setAccessible(true);
+
+        self::assertFalse($touch->invoke($service, $staleAuthenticatedDevice));
+        $afterStaleTouch = Db::name('ota_local_collector_devices')->where('id', $deviceId)->find();
+        self::assertSame('revoked', $afterStaleTouch['status']);
+        self::assertSame($revoked['device_token_hash'], $afterStaleTouch['device_token_hash']);
+        self::assertSame($revoked['update_time'], $afterStaleTouch['update_time']);
+
+        $enqueue = new \ReflectionMethod(OtaLocalCollectorService::class, 'enqueueTask');
+        $enqueue->setAccessible(true);
+        try {
+            $enqueue->invoke($service, [
+                'tenant_id' => 12,
+                'user_id' => 7,
+                'hotel_ids' => [101],
+            ], $staleAccount, $staleMapping, 'backfill', '2001-01-01', 'business', [
+                'reason' => 'stale_heartbeat_after_revoke',
+            ], false, 35, false, $staleAuthenticatedDevice);
+            self::fail('A stale heartbeat must not enqueue a task after device revocation commits.');
+        } catch (RuntimeException $exception) {
+            self::assertSame(409, $exception->getCode());
+        }
+        self::assertSame(0, (int)Db::name('ota_local_collector_tasks')
+            ->where('device_id', $deviceId)
+            ->where('data_date', '2001-01-01')
+            ->count());
+    }
+
+    public function testInitialLeaseAndRevocationPathsEnforceExactReadbackContract(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/service/OtaLocalCollectorService.php');
+
+        self::assertMatchesRegularExpression(
+            '/\$leaseValues = \[[\s\S]{0,900}->update\(\$leaseValues\)[\s\S]{0,900}exactWriteReadbackMatches\(\$leasedTask, \$leaseValues\)[\s\S]{0,200}throw new RuntimeException/',
+            $source
+        );
+        self::assertStringNotContainsString("\$leasedTask['lease_expires_at'] = \$leaseExpiresAt;", $source);
+        self::assertMatchesRegularExpression(
+            '/\$deviceValues = \[[\s\S]{0,900}->update\(\$deviceValues\)[\s\S]{0,900}exactWriteReadbackMatches\(\$deviceReadback, \$deviceValues\)/',
+            $source
+        );
+        self::assertMatchesRegularExpression(
+            '/\$accountValues = \[[\s\S]{0,1200}->update\(\$accountValues\)[\s\S]{0,1200}exactWriteReadbackMatches\(\$accountReadback, \$accountValues\)/',
+            $source
+        );
+        self::assertMatchesRegularExpression(
+            '/function requireScopedTaskWrite\([\s\S]{0,900}exactWriteReadbackMatches\(\$readback, \$values\)/',
+            $source
+        );
+        self::assertStringNotContainsString("touchDevice((int)\$device['id'])", $source);
+        self::assertMatchesRegularExpression(
+            '/function activeDeviceQuery\([\s\S]{0,1400}where\(\'id\', \$deviceId\)[\s\S]{0,300}where\(\'tenant_id\', \$tenantId\)[\s\S]{0,300}where\(\'user_id\', \$userId\)[\s\S]{0,300}where\(\'device_public_id\', \$publicId\)[\s\S]{0,300}where\(\'device_token_hash\', \$tokenHash\)[\s\S]{0,300}where\(\'status\', \'<>\', \'revoked\'\)/',
+            $source
+        );
+        self::assertMatchesRegularExpression(
+            '/function heartbeat\([\s\S]{0,1300}writeActiveDevice\(\$device, \$update\)[\s\S]{0,300}if \(!is_array\(\$deviceReadback\)\)[\s\S]{0,300}scheduleGapBackfillsForDevice\(\$deviceReadback\)/',
+            $source
+        );
+        self::assertMatchesRegularExpression(
+            '/function scheduleGapBackfillsForDevice\([\s\S]{0,7000}enqueueTask\([\s\S]{0,1200}\$device\s+\);/',
+            $source
+        );
+        self::assertMatchesRegularExpression(
+            '/\$deviceQuery = \$deviceFence !== null[\s\S]{0,500}activeDeviceQuery\(\$deviceFence\)[\s\S]{0,1000}\$deviceQuery->lock\(true\)->find\(\)[\s\S]{0,1200}\$accountQuery[\s\S]{0,1600}\$accountQuery->lock\(true\)->find\(\)[\s\S]{0,500}insertGetId/',
+            $source
+        );
+    }
+
+    public function testImportFailureRollsBackBusinessRowsBeforePersistingTheFencedFailure(): void
+    {
+        $service = new OtaLocalCollectorService(
+            static function ($owner, array $task): array {
+                Db::name('online_daily_data')->insert([
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'data_date' => (string)$task['data_date'],
+                    'platform' => (string)$task['platform'],
+                    'data_type' => 'business',
+                    'amount' => 999,
+                ]);
+                throw new RuntimeException('sentinel importer failure');
+            }
+        );
+        $fixture = $this->leasedCollectionFixture($service, 'Import rollback');
+        $result = $service->submitTaskResult(
+            $fixture['pair']['device_public_id'],
+            $fixture['pair']['device_token'],
+            (int)$fixture['task']['id'],
+            [
+                'lease_token' => $fixture['task']['lease_token'],
+                'success' => true,
+                'capture_summary' => [
+                    'platform_identity_validation' => [
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'validated_identifier' => 'CTRIP-LEASE-101',
+                    ],
+                ],
+                'rows' => [[
+                    'data_date' => '2026-07-23',
+                    'platform_hotel_id' => 'CTRIP-LEASE-101',
+                    'data_type' => 'business',
+                    'order_amount' => 999,
+                ]],
+            ]
+        );
+
+        self::assertSame('retry_wait', $result['status']);
+        self::assertSame('upload_failed', $result['error_code']);
+        self::assertSame(0, Db::name('online_daily_data')->count());
+        $stored = Db::name('ota_local_collector_tasks')->where('id', (int)$fixture['task']['id'])->find();
+        self::assertSame('retry_wait', $stored['status']);
+        self::assertSame('', (string)$stored['lease_token_hash']);
+        self::assertNull($stored['lease_expires_at']);
+    }
+
+    public function testLeaseRecoveryUsesRowLockAndExactSnapshotCas(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/concern/OtaLocalCollectorLeaseConcern.php'
+        );
+        self::assertStringContainsString('->lock(true)', $source);
+        self::assertMatchesRegularExpression(
+            '/where\(\'status\', \$previousStatus\)[\s\S]+where\(\'attempt\', \$attempt\)[\s\S]+where\(\'lease_token_hash\', \$previousLeaseHash\)[\s\S]+where\(\'lease_expires_at\', \$previousExpiry\)/',
+            $source
+        );
+        self::assertMatchesRegularExpression('/if \(\$updated !== 1\) \{\s+continue;/', $source);
     }
 
     public function testAccountOwnedDeviceProfileAndCollectionLoop(): void
@@ -1586,6 +1863,93 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame('redacted', $ordered['implementation_visibility']);
     }
 
+    #[DataProvider('browserProfileReadFailureProvider')]
+    public function testBrowserProfileReadFailuresNeverMasqueradeAsMissingSourcesRowsOrTasks(
+        string $table,
+        string $reasonCode,
+        string $stage,
+        bool $requiresSource
+    ): void {
+        if ($requiresSource) {
+            Db::name('platform_data_sources')->insert([
+                'tenant_id' => 12,
+                'system_hotel_id' => 101,
+                'platform' => 'ctrip',
+                'data_type' => 'business',
+                'ingestion_method' => 'browser_profile',
+                'status' => 'success',
+                'enabled' => 1,
+                'config_json' => json_encode(['profile_id' => 'read-failure-profile'], JSON_THROW_ON_ERROR),
+                'last_sync_time' => '2026-08-05 08:00:00',
+            ]);
+        }
+
+        $unavailableTable = $table . '_read_failure';
+        Db::execute(sprintf('ALTER TABLE "%s" RENAME TO "%s"', $table, $unavailableTable));
+        try {
+            $status = (new OtaLocalCollectorService())->status($this->actor());
+        } finally {
+            Db::execute(sprintf('ALTER TABLE "%s" RENAME TO "%s"', $unavailableTable, $table));
+        }
+
+        self::assertSame('partial', $status['status']);
+        self::assertSame('browser_profile_read_failed', $status['local_collector_status']);
+        self::assertSame($reasonCode, $status['reason_code']);
+        self::assertSame($stage, $status['stage']);
+        self::assertSame('blocked', $status['ordered_collection']['status']);
+        self::assertSame('read_failed', $status['ordered_collection']['data_status']);
+        self::assertSame($reasonCode, $status['ordered_collection']['gate']['reason_code']);
+        self::assertSame($stage, $status['ordered_collection']['gate']['stage']);
+        self::assertSame([], $status['ordered_collection']['queue']);
+        if ($requiresSource) {
+            self::assertSame(1, $status['summary']['browser_profile_source_count']);
+        } else {
+            self::assertNull($status['summary']['browser_profile_source_count']);
+        }
+    }
+
+    public static function browserProfileReadFailureProvider(): array
+    {
+        return [
+            'source query failed' => ['platform_data_sources', 'source_read_failed', 'platform_data_sources', false],
+            'stored rows query failed' => ['online_daily_data', 'stored_rows_read_failed', 'online_daily_data', true],
+            'task state query failed' => ['platform_data_sync_tasks', 'task_state_read_failed', 'platform_data_sync_tasks', true],
+        ];
+    }
+
+    public function testHotelNameReadFailureMakesTopLevelStatusPartialWithExactStage(): void
+    {
+        Db::name('platform_data_sources')->insert([
+            'tenant_id' => 12,
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'browser_profile',
+            'status' => 'success',
+            'enabled' => 1,
+            'config_json' => json_encode(['profile_id' => 'hotel-name-read-failure'], JSON_THROW_ON_ERROR),
+            'last_sync_time' => '2026-08-05 08:00:00',
+        ]);
+
+        Db::execute('ALTER TABLE "hotels" RENAME TO "hotels_read_failure"');
+        try {
+            $status = (new OtaLocalCollectorService())->status($this->actor());
+        } finally {
+            Db::execute('ALTER TABLE "hotels_read_failure" RENAME TO "hotels"');
+        }
+
+        self::assertSame('partial', $status['status']);
+        self::assertSame('browser_profile_read_failed', $status['local_collector_status']);
+        self::assertSame('hotel_names_read_failed', $status['reason_code']);
+        self::assertSame('hotels', $status['stage']);
+        self::assertSame('partial', $status['ordered_collection']['status']);
+        self::assertSame('partial', $status['ordered_collection']['data_status']);
+        self::assertSame([[
+            'reason_code' => 'hotel_names_read_failed',
+            'stage' => 'hotels',
+        ]], $status['ordered_collection']['read_failures']);
+    }
+
     public function testSecondPlatformSuccessRunsAndPersistsTheExactDateAuthorityVerifierReceipt(): void
     {
         $targetDate = date('Y-m-d', strtotime('-1 day'));
@@ -2066,6 +2430,35 @@ final class OtaLocalCollectorServiceTest extends TestCase
                 return false;
             }
         };
+    }
+
+    /** @return array{pair: array<string, mixed>, task: array<string, mixed>} */
+    private function leasedCollectionFixture(OtaLocalCollectorService $service, string $label): array
+    {
+        $actor = $this->actor();
+        $pair = $service->pairDevice([
+            'pair_code' => $service->createPairCode($actor, ['device_name' => $label . ' PC'])['pair_code'],
+            'device_platform' => 'windows',
+        ]);
+        $account = $service->createAccount($actor, [
+            'device_id' => $pair['device_id'],
+            'platform' => 'ctrip',
+            'account_alias' => $label,
+            'system_hotel_id' => 101,
+            'platform_hotel_id' => 'CTRIP-LEASE-101',
+        ]);
+        Db::name('ota_local_collector_accounts')->where('id', $account['account_id'])->update([
+            'status' => 'active',
+            'session_status' => 'current_session_verified',
+        ]);
+        $service->createTask($actor, [
+            'account_id' => $account['account_id'],
+            'system_hotel_id' => 101,
+            'task_type' => 'collect',
+            'data_date' => '2026-07-23',
+        ]);
+        $task = $service->nextTask($pair['device_public_id'], $pair['device_token'])['task'];
+        return ['pair' => $pair, 'task' => $task];
     }
 
     /** @param array<int, int> $hotelIds */

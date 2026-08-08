@@ -50,11 +50,13 @@ Before release, confirm:
 - `api_key_encrypted` can be decrypted with the production `AI_CONFIG_SECRET`.
 - A controlled real connectivity smoke test has passed.
 - The result is recorded using `docs/llm_connectivity_attestation.example.json` and checked through `LLM_CONNECTIVITY_ATTESTATION_FILE` or `docs/llm_connectivity_attestation.json`.
+- A separate release-control step reads the enabled production `ai_model_configs` row, computes the canonical non-secret config digest, and supplies it as `LLM_PRODUCTION_CONFIG_DIGEST`; the attestation producer must not set both sides of this comparison.
 
 Run the LLM evidence check independently before full release readiness:
 
 ```powershell
 $env:LLM_CONNECTIVITY_ATTESTATION_FILE='D:\controlled\llm_connectivity_attestation.json'
+$env:LLM_PRODUCTION_CONFIG_DIGEST='<sha256-from-independent-production-config-read>'
 npm.cmd run review:release-llm
 ```
 

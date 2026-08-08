@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkLlmConnectivityAttestation } from './lib/llm_attestation_checks.mjs';
+import {
+  checkLlmConnectivityAttestation,
+  resolveGitHead,
+} from './lib/llm_attestation_checks.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const releaseEvidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
@@ -20,7 +23,15 @@ function existingEvidenceOrRepo(evidenceFileName, repoRelativeFallback) {
 
 const attestationPath = process.env.LLM_CONNECTIVITY_ATTESTATION_FILE
   || existingEvidenceOrRepo('llm-attestation.json', 'docs/llm_connectivity_attestation.json');
-const result = checkLlmConnectivityAttestation({ repoRoot, attestationPath });
+const expectedReleaseCommit = process.env.RELEASE_EXPECTED_HEAD_SHA
+  || resolveGitHead(repoRoot)
+  || 'unresolved';
+const result = checkLlmConnectivityAttestation({
+  repoRoot,
+  attestationPath,
+  expectedReleaseCommit,
+  expectedConfigDigest: process.env.LLM_PRODUCTION_CONFIG_DIGEST || '',
+});
 
 for (const message of result.passes) {
   console.log(`PASS: ${message}`);

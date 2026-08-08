@@ -430,14 +430,17 @@ final class OtaProfileRetentionServiceTest extends TestCase
         self::assertStringContainsString('online-data:cleanup-manual-fetch-tasks', $cron);
         self::assertStringContainsString('online-data:cleanup-dormant-profiles', $cron);
         self::assertStringContainsString('--retention-days=30', $cron);
+        self::assertStringContainsString('--execute', $cron);
 
         $startup = (string)file_get_contents(
             dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'start_local_stack.ps1'
         );
-        self::assertStringContainsString('Invoke-OtaRetentionMaintenance', $startup);
+        self::assertStringContainsString('Invoke-OtaRetentionPreview', $startup);
         self::assertStringContainsString('online-data:cleanup-dormant-profiles', $startup);
         self::assertStringContainsString('--retention-days=30', $startup);
-        self::assertStringContainsString('kept fail-closed', $startup);
+        self::assertStringContainsString('--dry-run', $startup);
+        self::assertStringContainsString('kept unchanged', $startup);
+        self::assertStringNotContainsString('Invoke-OtaRetentionMaintenance', $startup);
     }
 
     private function service(): OtaProfileRetentionService

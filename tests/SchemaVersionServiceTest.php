@@ -405,7 +405,7 @@ final class SchemaVersionServiceTest extends TestCase
         self::assertSame(['database/base.sql'], $status['baseline_checksum_mismatches']);
     }
 
-    public function testKnownIdempotencyGuardRevisionsUpgradeExactRegisteredChecksums(): void
+    public function testKnownIdempotencyGuardRevisionsPreserveExactRegisteredChecksums(): void
     {
         $this->service->initializeFreshFromInitFull();
         $projectRoot = realpath(__DIR__ . '/..');
@@ -455,13 +455,37 @@ final class SchemaVersionServiceTest extends TestCase
         self::assertSame([], $before['checksum_mismatches']);
 
         $result = $this->service->migrate();
-        self::assertSame(array_keys($revisions), $result['checksum_upgrades']);
+        self::assertSame([], $result['checksum_upgrades']);
         self::assertTrue($result['status']['ready']);
         $select = $this->pdo->prepare('SELECT checksum FROM schema_versions WHERE migration = ?');
-        foreach ($revisions as $migration => [, $requiredChecksum]) {
+        foreach ($revisions as $migration => [$registeredChecksum]) {
             $select->execute([$migration]);
-            self::assertSame($requiredChecksum, $select->fetchColumn());
+            self::assertSame($registeredChecksum, $select->fetchColumn());
         }
+    }
+
+    public function testExistingChecksumColumnNeverSilentlyBackfillsMissingEvidence(): void
+    {
+        $this->service->initializeFreshFromInitFull();
+        $this->pdo->exec(
+            "UPDATE schema_versions SET checksum = NULL "
+            . "WHERE migration = '20260701_create_alpha.sql'"
+        );
+
+        try {
+            $this->service->migrate();
+            self::fail('Missing applied-migration checksum evidence must fail closed.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString(
+                'automatic backfill is refused: 20260701_create_alpha.sql',
+                $exception->getMessage()
+            );
+        }
+
+        self::assertNull($this->pdo->query(
+            "SELECT checksum FROM schema_versions "
+            . "WHERE migration = '20260701_create_alpha.sql'"
+        )->fetchColumn());
     }
 
     public function testSingleActiveTrialMigrationUsesRepeatableMariaDbGuards(): void

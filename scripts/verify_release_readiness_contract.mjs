@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { llmConfigDigest } from './lib/llm_attestation_checks.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'release-readiness-contract-'));
@@ -110,15 +111,16 @@ function validOtaAttestation() {
   };
 }
 
-function validLlmAttestation() {
-  return {
-    reviewed_at: '2024-01-01',
+function validLlmAttestation(releaseCommitSha = externalStateHead) {
+  const attestation = {
+    reviewed_at: todayDateOnly(),
     reviewer: 'Release AI Reviewer',
     environment: 'production',
     provider: 'openai',
     model_key: 'production-default',
     model_name: 'gpt-release-verifier',
     base_url: 'https://api.openai.com/v1',
+    release_commit_sha: releaseCommitSha,
     ai_model_config_enabled: true,
     ai_config_secret_checked: true,
     redaction_checked: true,
@@ -130,12 +132,16 @@ function validLlmAttestation() {
     result: {
       status: 'passed',
       response_status: 200,
-      completed_at: '2024-01-01T00:00:00Z',
+      completed_at: nowIso(),
       latency_ms: 100,
+      release_commit_sha: releaseCommitSha,
     },
-    evidence_ref: 'release-llm-connectivity-record-2024-01-01',
+    evidence_ref: `release-llm-connectivity-record-${todayDateOnly()}`,
     notes: 'Controlled temporary verifier attestation without provider secrets.',
   };
+  attestation.config_digest = llmConfigDigest(attestation);
+  attestation.result.config_digest = attestation.config_digest;
+  return attestation;
 }
 
 function writeReadinessFixture(evidenceDir, options = {}) {
@@ -157,7 +163,7 @@ function writeReadinessFixture(evidenceDir, options = {}) {
     'DB_PASS=nonempty-production-password',
     '',
   ].join('\n'));
-  writeJson(path.join(evidenceDir, 'llm-attestation.json'), validLlmAttestation());
+  writeJson(path.join(evidenceDir, 'llm-attestation.json'), validLlmAttestation(externalStateHeadValue));
   writeJson(path.join(evidenceDir, 'design_handoff_manifest.json'), validDesignManifest());
   writeJson(path.join(evidenceDir, 'ota_credential_rotation_attestation.json'), validOtaAttestation());
   writeJson(path.join(evidenceDir, 'release-staged-scope-result.json'), {
@@ -256,6 +262,7 @@ function runReadiness(evidenceDir) {
     'RELEASE_EXTERNAL_STATE_RESULT_FILE',
     'RELEASE_READINESS_RESULT_FILE',
     'RELEASE_READINESS_ALLOW_PENDING_EXTERNAL_STATE',
+    'LLM_PRODUCTION_CONFIG_DIGEST',
   ]) {
     delete env[key];
   }
@@ -267,6 +274,7 @@ function runReadiness(evidenceDir) {
       RELEASE_EVIDENCE_DIR: evidenceDir,
       RELEASE_PR_NUMBER: releasePrNumber,
       RELEASE_READINESS_RESULT_FILE: resultPath,
+      LLM_PRODUCTION_CONFIG_DIGEST: llmConfigDigest(validLlmAttestation()),
     },
     encoding: 'utf8',
   });
@@ -357,10 +365,46 @@ function verifyStaleDesignAndOtaEvidenceGuard() {
   }
 }
 
+function verifyLlmEvidenceBindingGuards() {
+  const evidenceDir = path.join(tempRoot, 'llm-evidence-binding');
+  writeReadinessFixture(evidenceDir, {
+    candidateHead,
+    externalStateHead: candidateHead,
+    localHead: candidateHead,
+  });
+  const attestation = validLlmAttestation('d'.repeat(40));
+  attestation.reviewed_at = '2024-01-01';
+  attestation.environment = 'staging';
+  attestation.model_name = 'changed-after-production-smoke-test';
+  attestation.config_digest = llmConfigDigest(attestation);
+  attestation.result.config_digest = attestation.config_digest;
+  attestation.result.completed_at = '2024-01-01T00:00:00Z';
+  writeJson(path.join(evidenceDir, 'llm-attestation.json'), attestation);
+
+  const result = runReadiness(evidenceDir);
+  const resultPath = path.join(evidenceDir, 'release-readiness-result.json');
+  const combined = `${result.stdout || ''}\n${result.stderr || ''}`;
+
+  expect(result.status !== 0, 'release-readiness rejects stale, non-production, release-unbound, and config-unbound LLM evidence');
+  expect(fs.existsSync(resultPath), 'release-readiness writes a controlled result for invalid LLM evidence bindings');
+  expect(/reviewed_at must be within the 30-day release evidence window/.test(combined), 'release-readiness explains stale LLM review evidence');
+  expect(/result\.completed_at must be within the 30-day release evidence window/.test(combined), 'release-readiness explains stale LLM completion evidence');
+  expect(/environment must be exactly production/.test(combined), 'release-readiness rejects a staging LLM proof');
+  expect(/release_commit_sha does not match the selected release commit/.test(combined), 'release-readiness binds LLM proof to the selected release head');
+  expect(/config_digest does not match the independently supplied production model config digest/.test(combined), 'release-readiness binds LLM proof to an independently supplied deployed model config digest');
+  if (fs.existsSync(resultPath)) {
+    const parsed = readJson(resultPath);
+    const failureText = Array.isArray(parsed.failures) ? parsed.failures.join('\n') : '';
+    expect(parsed.final_release_ready === false, 'invalid LLM evidence binding does not claim final_release_ready');
+    expect(/release_commit_sha does not match the selected release commit/.test(failureText), 'LLM release binding failure is recorded in the readiness result JSON');
+  }
+}
+
 try {
   verifyPrHeadMismatchGuard();
   verifyLocalHeadMismatchGuard();
   verifyStaleDesignAndOtaEvidenceGuard();
+  verifyLlmEvidenceBindingGuards();
 } catch (error) {
   failures.push(`release readiness contract crashed: ${error.message}`);
 }

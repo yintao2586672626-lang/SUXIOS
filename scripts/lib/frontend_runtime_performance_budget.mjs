@@ -75,6 +75,8 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
   const observed = {
     schema_version: finiteOrNull(report?.schema_version),
     authenticated_requested: report?.authenticated_requested === true,
+    authenticated: report?.authenticated === true,
+    artifact_identity_stable: report?.artifact_identity_stable === true,
     verification_status: String(report?.verification_status || ''),
     run_count: finiteOrNull(aggregate?.run_count),
     verified_run_count: finiteOrNull(aggregate?.verified_run_count),
@@ -92,6 +94,8 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
       (total, run) => total + Math.max(0, Number(run?.attempt_count || 1) - 1),
       0,
     ),
+    authenticated_run_count: runs.filter((run) => run?.authenticated === true).length,
+    verified_status_run_count: runs.filter((run) => run?.verification_status === 'verified').length,
   };
   const failures = [];
   const warnings = [];
@@ -115,6 +119,10 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
   if (!observed.authenticated_requested) {
     fail('authenticated_requested', false, true, 'authenticated_measurement_required');
   }
+  if (!observed.authenticated) fail('authenticated', false, true, 'authenticated_report_required');
+  if (!observed.artifact_identity_stable) {
+    fail('artifact_identity_stable', false, true, 'artifact_changed_during_measurement');
+  }
   if (observed.verification_status !== 'verified') {
     fail('verification_status', observed.verification_status || null, 'verified', 'unverified_report');
   }
@@ -127,6 +135,12 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
   }
   if (observed.run_count !== runs.length) {
     fail('run_count', observed.run_count, runs.length, 'aggregate_run_count_mismatch');
+  }
+  if (observed.authenticated_run_count !== runs.length) {
+    fail('authenticated_run_count', observed.authenticated_run_count, runs.length, 'unauthenticated_runs_present');
+  }
+  if (observed.verified_status_run_count !== runs.length) {
+    fail('verified_status_run_count', observed.verified_status_run_count, runs.length, 'unverified_run_status_present');
   }
 
   for (const [metric, limitKey] of [

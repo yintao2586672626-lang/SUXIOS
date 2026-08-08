@@ -4,19 +4,39 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import {
+  buildPhpBinaryCandidates,
+  isBusinessChainRuntimeRequired,
+  resolvePhpBinary,
+} from '../../scripts/run_node_automation_tests.mjs';
 
 const root = process.cwd();
 const scanner = path.join(root, 'scripts', 'scan_p0_ota_traffic_payload_candidates.mjs');
-const phpBinary = process.env.PHP_BINARY || 'C:\\xampp\\php\\php.exe';
+const phpCandidates = buildPhpBinaryCandidates();
+const phpBinary = resolvePhpBinary(phpCandidates);
+const runtimeRequired = isBusinessChainRuntimeRequired();
 const p0Verifier = path.join(root, 'scripts', 'verify_p0_ota_field_loop_closure.php');
 const childProcessMaxBuffer = 16 * 1024 * 1024;
 const targetDate = '2026-06-15';
 const systemHotelId = '7';
 
-test('P0 OTA traffic payload scanner defaults to P0 verifier hotel-scoped candidates', (t) => {
-  const expectedPaths = p0VerifierExpectedPayloadPaths(targetDate);
+test('P0 OTA traffic payload scanner reports the current hotel-scoped evidence state without fallback', (t) => {
+  if (!phpBinary) {
+    if (runtimeRequired) {
+      assert.fail(`PHP executable is unavailable; checked: ${phpCandidates.join(', ')}; P0 OTA runtime assertions are required`);
+    }
+    t.skip(`PHP executable is unavailable; checked: ${phpCandidates.join(', ')}`);
+    return;
+  }
+  const evidence = p0VerifierExpectedPayloadPaths(targetDate);
+  const expectedPaths = evidence.paths;
   if (expectedPaths.length === 0) {
-    t.skip('P0 verifier has no hotel-scoped database evidence in this environment');
+    assert.equal(evidence.payload.status, 'incomplete');
+    assert.ok(
+      (evidence.payload.platforms || []).some((platform) => platform?.p0_traffic_gate?.status !== 'ready')
+        || (evidence.payload.issues || []).length > 0,
+      'missing hotel-scoped evidence must remain an explicit incomplete gate',
+    );
     return;
   }
 
@@ -293,13 +313,14 @@ function p0VerifierExpectedPayloadPaths(date) {
   });
   assert.equal(result.error, undefined, result.error?.message);
   assert.ok([0, 1, 2].includes(Number(result.status)), result.stderr);
-  const json = JSON.parse(String(result.stdout || '').replace(/^\uFEFF/, '').trim());
-  return Array.from(new Set(
-    (json.platforms || [])
+  const payload = JSON.parse(String(result.stdout || '').replace(/^\uFEFF/, '').trim());
+  const paths = Array.from(new Set(
+    (payload.platforms || [])
       .flatMap((platform) => platform.p0_traffic_gate?.hotel_scoped_next_steps || [])
       .map((step) => String(step.payload_candidate_path || ''))
       .filter(Boolean),
   )).sort();
+  return { payload, paths };
 }
 
 function escapeRegExp(value) {

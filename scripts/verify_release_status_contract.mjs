@@ -1257,6 +1257,7 @@ try {
     [
       /checkLlmConnectivityAttestation/,
       /LLM_CONNECTIVITY_ATTESTATION_FILE/,
+      /LLM_PRODUCTION_CONFIG_DIGEST/,
       /RELEASE_EVIDENCE_DIR/,
       /release-evidence-temp/,
       /function existingEvidenceOrRepo/,
@@ -1270,6 +1271,7 @@ try {
     [
       /checkLlmAttestationFile/,
       /LLM_CONNECTIVITY_ATTESTATION_FILE/,
+      /LLM_PRODUCTION_CONFIG_DIGEST/,
     ],
     'scripts/verify_release_readiness.mjs release LLM integration',
   );

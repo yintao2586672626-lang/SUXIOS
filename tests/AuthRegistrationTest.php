@@ -399,10 +399,9 @@ final class AuthRegistrationTest extends TestCase
 
         $user = $this->getMockBuilder(UserModel::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['__get', '__isset'])
+            ->onlyMethods(['defaultHotelPreferenceId'])
             ->getMock();
-        $user->method('__isset')->willReturnCallback(static fn(string $key): bool => $key === 'hotel_id');
-        $user->method('__get')->willReturnCallback(static fn(string $key): ?int => $key === 'hotel_id' ? 7 : null);
+        $user->method('defaultHotelPreferenceId')->willReturn(7);
 
         $method = $reflection->getMethod('buildAuthContext');
         $method->setAccessible(true);

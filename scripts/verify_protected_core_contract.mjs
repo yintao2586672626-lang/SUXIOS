@@ -62,6 +62,7 @@ for (const protectedRoute of protectedRoutes) {
 
 const revenueAiExecutionCapability = capabilityBlock(service, 'operation_execution');
 const revenueAiDecisionCapability = capabilityBlock(service, 'ai_decision');
+const onlineDataHistoryCapability = capabilityBlock(service, 'online_data_history');
 assertContract(
   revenueAiExecutionCapability.includes("'permission' => 'operation.execute'")
     && revenueAiExecutionCapability.includes("'module' => 'operation_decision'")
@@ -79,11 +80,20 @@ assertContract(
   service.indexOf("'operation_execution' => [") < service.indexOf("'ai_decision' => ["),
   'operation_execution must be classified before the broader api/revenue-ai prefix'
 );
+assertContract(
+  onlineDataHistoryCapability.includes("'permission' => 'can_view_online_data'")
+    && onlineDataHistoryCapability.includes("'module' => 'online_data'")
+    && onlineDataHistoryCapability.includes("['path' => 'api/online-data/history', 'methods' => ['GET']]")
+    && onlineDataHistoryCapability.includes("['path' => 'api/online-data/ctrip/history', 'methods' => ['GET']]")
+    && onlineDataHistoryCapability.includes("['path' => 'api/online-data/history/*', 'methods' => ['GET']]")
+    && onlineDataHistoryCapability.includes("'response_mode' => 'summary_only'")
+    && onlineDataHistoryCapability.includes("'rate_limit' => ['scope' => 'protected_online_data_history', 'limit' => 60, 'window' => 3600]"),
+  'OTA history GET routes must require read permission, hotel scope, redaction, and a bounded rate limit'
+);
 
 for (const basicReadRoute of [
   'api/online-data/daily-data-list',
   'api/online-data/daily-data-summary',
-  'api/online-data/history',
   'api/online-data/get-ctrip-config-list',
   'api/online-data/get-ctrip-config-detail',
   'api/online-data/get-meituan-config-list',

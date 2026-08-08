@@ -7,6 +7,7 @@ import {
   DEFAULT_FRONTEND_RUNTIME_BUDGETS,
   evaluateFrontendRuntimeBudget,
 } from '../../scripts/lib/frontend_runtime_performance_budget.mjs';
+import { evaluateFrontendPerformanceEvidence } from '../../scripts/lib/frontend_performance_evidence_identity.mjs';
 import { extractGithubActionsJob } from './helpers/github_actions_workflow.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -20,6 +21,7 @@ const metric = (p95) => ({ sample_count: 5, p50_ms: p95, p95_ms: p95, max_ms: p9
 function passingReport(networkProfile = 'none') {
   const runs = Array.from({ length: 5 }, (_, index) => ({
     run: index + 1,
+    authenticated: true,
     verification_status: 'verified',
     attempt_count: 1,
     metrics: { total_requests: 29 },
@@ -28,6 +30,8 @@ function passingReport(networkProfile = 'none') {
   return {
     schema_version: 2,
     authenticated_requested: true,
+    authenticated: true,
+    artifact_identity_stable: true,
     verification_status: 'verified',
     network_profile: networkProfile,
     aggregate: {
@@ -111,6 +115,7 @@ test('CI isolates static contracts from runtime performance and preserves authen
   assert.match(ciMeasurement, /fresh_server_seed_and_browser_per_run/);
   assert.match(ciMeasurement, /summarizeFrontendPerformanceRuns\(runs\)/);
   assert.match(ciMeasurement, /evaluateFrontendRuntimeBudget\(result\)/);
+  assert.match(ciMeasurement, /expectedArtifactDigest/);
   assert.match(measurement, /const maxMeasurementAttempts = 2/);
   assert.match(measurement, /browser = await chromium\.launch/);
   assert.match(measurement, /attempt_failures: attemptFailures/);
@@ -120,6 +125,8 @@ test('CI isolates static contracts from runtime performance and preserves authen
   assert.match(measurement, /text\.startsWith\('\[SUXIOS\]'\)/);
   assert.match(measurement, /startup_diagnostics: startupDiagnostics/);
   assert.match(measurement, /\|\| startupDiagnostics\.length > 0\s*\? 'unverified'/);
+  assert.match(measurement, /artifactIdentityStarted = captureFrontendPerformanceIdentity\(\)/);
+  assert.match(measurement, /artifact_identity_stable: artifactIdentityStarted\.digest === artifactIdentityCompleted\.digest/);
 
   const evidenceStep = performanceJob.slice(preserveEvidenceStep);
   assert.match(evidenceStep, /if:\s+always\(\)/);
@@ -156,6 +163,43 @@ test('runtime budget fails closed on missing or unverified measurements', () => 
   assert(metrics.includes('unverified_run_count'));
   assert(metrics.includes('verified_run_count'));
   assert(metrics.includes('lcp_p95_ms'));
+});
+
+test('runtime budget requires top-level and per-run authenticated evidence', () => {
+  const report = passingReport();
+  report.authenticated = false;
+  report.runs[2].authenticated = false;
+  report.runs[3].verification_status = 'unverified';
+  report.artifact_identity_stable = false;
+  const metrics = evaluateFrontendRuntimeBudget(report).failures.map((failure) => failure.metric);
+  assert(metrics.includes('authenticated'));
+  assert(metrics.includes('authenticated_run_count'));
+  assert(metrics.includes('verified_status_run_count'));
+  assert(metrics.includes('artifact_identity_stable'));
+});
+
+test('runtime evidence rejects stale or drifted artifact identities', () => {
+  const digest = 'a'.repeat(64);
+  const report = {
+    completed_at: '2026-08-05T00:00:00.000Z',
+    artifact_identity: { digest },
+    artifact_identity_completed_digest: digest,
+    artifact_identity_stable: true,
+  };
+  const fresh = evaluateFrontendPerformanceEvidence(report, {
+    currentIdentity: { digest },
+    now: Date.parse('2026-08-05T01:00:00.000Z'),
+    maxAgeMinutes: 120,
+  });
+  assert.deepEqual(fresh.failures, []);
+
+  const staleReasons = evaluateFrontendPerformanceEvidence(report, {
+    currentIdentity: { digest: 'b'.repeat(64) },
+    now: Date.parse('2026-08-05T04:00:00.000Z'),
+    maxAgeMinutes: 120,
+  }).failures.map((failure) => failure.reason);
+  assert(staleReasons.includes('artifact_identity_stale'));
+  assert(staleReasons.includes('performance_report_stale'));
 });
 
 test('unthrottled auth handoff keeps the measured hard ceiling separate from the improvement target', () => {

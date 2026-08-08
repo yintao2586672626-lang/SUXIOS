@@ -85,7 +85,8 @@ test('Ctrip tables distinguish real zero from a missing value', () => {
   assert.match(appMain, /const aNumber = toDisplayNumber\(aValue\);[\s\S]*return aMissing \? 1 : -1/);
 
   assert.match(page, /formatOptionalNumber\(hotel\.bookOrderNum\)/);
-  assert.match(page, /formatOptionalPercent\(hotel\.convertionRate\)/);
+  assert.match(page, /ctripEarlyMorningTrafficText\(hotel, 'convertionRate', true\)/);
+  assert.match(appMain, /const ctripEarlyMorningTrafficText = \(hotel = \{\}, field = '', percent = false\) => \{[\s\S]{0,400}pendingFields\.includes\(field\)[\s\S]{0,180}formatOptionalPercent\(hotel\?\.\[field\]\)/);
   assert.match(page, /metric\.rate \? formatOptionalPercent\(row\.self\[metric\.key\]\) : formatOptionalNumber\(row\.self\[metric\.key\]\)/);
   assert.match(page, /metric\.rate \? formatOptionalPercent\(row\.avg\[metric\.key\]\) : formatOptionalNumber\(row\.avg\[metric\.key\]\)/);
   assert.doesNotMatch(page, /hotel\.bookOrderNum \|\| '-'/);

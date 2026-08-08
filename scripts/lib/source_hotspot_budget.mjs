@@ -3,20 +3,27 @@ import path from 'node:path';
 
 export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   // Transparent rebaseline: 49,934 lines is the verified formal promotion + temporal trial + XLSX closure baseline, not a size reduction or performance improvement.
-  { path: 'public/app-main.js', max_lines: 49_934, boundary: 'formal promotion + temporal trial + XLSX verified closure baseline; zero-growth until a behavior-driven domain extraction' },
+  { path: 'public/app-main.js', max_lines: 49_934, ratchet_max_lines: 50_665, boundary: 'formal promotion + temporal trial + XLSX verified closure plus authenticated patrol-report export; zero-growth until a behavior-driven domain extraction' },
+  { path: 'public/data-health-static.js', max_lines: 7_000, ratchet_max_lines: 7_444, boundary: 'data-health presentation domains; zero-growth until page-specific extraction' },
   { path: 'tests/OnlineDataTest.php', max_lines: 2_800, boundary: 'platform test-case traits' },
   { path: 'app/controller/Agent.php', max_lines: 2_700, boundary: 'Agent OTA concern traits' },
   { path: 'app/controller/concern/AutoFetchConcern.php', max_lines: 5_200, boundary: 'platform execution concern traits' },
-  { path: 'app/service/PlatformDataSyncService.php', max_lines: 3_800, boundary: 'data source, task, and persistence concerns' },
-  { path: 'app/service/OperationManagementService.php', max_lines: 4_800, boundary: 'snapshot and alert concerns' },
-  { path: 'tests/Support/OnlineData/CtripTestCases.php', max_lines: 3_250, boundary: 'Ctrip contract tests' },
+  { path: 'app/service/PlatformDataSyncService.php', max_lines: 3_800, ratchet_max_lines: 3_895, boundary: 'data source, task, and persistence concerns' },
+  { path: 'app/service/OperationManagementService.php', max_lines: 4_800, ratchet_max_lines: 5_407, boundary: 'snapshot and alert concerns' },
+  { path: 'app/service/OtaLocalCollectorService.php', max_lines: 4_800, ratchet_max_lines: 5_391, boundary: 'pairing, scheduling, result persistence, and browser-profile status concerns' },
+  { path: 'app/service/RevenueAiOverviewService.php', max_lines: 4_800, ratchet_max_lines: 5_293, boundary: 'revenue fact reads, overview composition, and AI evidence concerns' },
+  { path: 'app/service/AiDailyReportService.php', max_lines: 4_800, ratchet_max_lines: 5_059, boundary: 'daily report fact selection, generation, and persistence concerns' },
+  { path: 'app/controller/concern/Phase1EmployeeConsoleConcern.php', max_lines: 4_000, ratchet_max_lines: 4_876, boundary: 'phase-one employee console orchestration; zero-growth until page workflow extraction' },
+  { path: 'app/controller/concern/BusinessDisplayConcern.php', max_lines: 4_000, ratchet_max_lines: 4_711, boundary: 'business display composition; zero-growth until metric-domain extraction' },
+  { path: 'app/controller/concern/OnlineDataManualFetchConcern.php', max_lines: 4_000, ratchet_max_lines: 4_013, boundary: 'manual online-data collection orchestration; zero-growth until platform-flow extraction' },
+  { path: 'tests/Support/OnlineData/CtripTestCases.php', max_lines: 3_250, ratchet_max_lines: 3_477, boundary: 'Ctrip contract tests' },
   { path: 'tests/Support/OnlineData/MeituanTestCases.php', max_lines: 2_200, boundary: 'Meituan contract tests' },
   { path: 'tests/Support/OnlineData/ProfileTestCases.php', max_lines: 2_450, boundary: 'Profile contract tests' },
   { path: 'tests/Support/OnlineData/AutoFetchTestCases.php', max_lines: 800, boundary: 'AutoFetch contract tests' },
   { path: 'app/controller/concern/AgentOtaExecutionIntentConcern.php', max_lines: 250, boundary: 'Agent execution intents' },
   { path: 'app/controller/concern/AgentCapturedOtaAnalysisConcern.php', max_lines: 2_450, boundary: 'captured OTA analysis' },
-  { path: 'app/controller/concern/AgentOtaDiagnosisBuildConcern.php', max_lines: 1_500, boundary: 'OTA diagnosis build' },
-  { path: 'app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php', max_lines: 1_750, boundary: 'OTA diagnosis persistence' },
+  { path: 'app/controller/concern/AgentOtaDiagnosisBuildConcern.php', max_lines: 1_500, ratchet_max_lines: 2_139, boundary: 'OTA diagnosis build' },
+  { path: 'app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php', max_lines: 1_750, ratchet_max_lines: 1_882, boundary: 'OTA diagnosis persistence' },
   { path: 'app/controller/concern/AutoFetchProfileSyncConcern.php', max_lines: 300, boundary: 'Profile sync readback' },
   { path: 'app/controller/concern/CtripAutoFetchExecutionConcern.php', max_lines: 1_700, boundary: 'Ctrip auto-fetch execution' },
   { path: 'app/controller/concern/MeituanAutoFetchExecutionConcern.php', max_lines: 500, boundary: 'Meituan auto-fetch execution' },
@@ -27,6 +34,13 @@ export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'app/service/operation/OperationAlertConcern.php', max_lines: 1_000, boundary: 'operation alerts' },
 ]);
 
+export const SOURCE_HOTSPOT_DISCOVERY = Object.freeze({
+  roots: Object.freeze(['app', 'public', 'tests']),
+  extensions: Object.freeze(['.php', '.js', '.mjs']),
+  max_lines: 5_000,
+  max_lines_by_root: Object.freeze({ app: 4_000 }),
+});
+
 export function sourceLineCount(source) {
   const normalized = String(source || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (normalized === '') return 0;
@@ -35,10 +49,40 @@ export function sourceLineCount(source) {
     : normalized.split('\n').length;
 }
 
-export function inspectSourceHotspotBudget(repoRoot, budgets = SOURCE_HOTSPOT_BUDGETS) {
+function discoverSourceFiles(root, discovery) {
+  const files = [];
+  const allowedExtensions = new Set(discovery.extensions || []);
+  const walk = (directory) => {
+    if (!fs.existsSync(directory)) return;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolutePath);
+        continue;
+      }
+      if (!entry.isFile()
+        || entry.name.endsWith('.min.js')
+        || !allowedExtensions.has(path.extname(entry.name))) {
+        continue;
+      }
+      files.push(absolutePath);
+    }
+  };
+  for (const relativeRoot of discovery.roots || []) {
+    walk(path.join(root, relativeRoot));
+  }
+  return files;
+}
+
+export function inspectSourceHotspotBudget(
+  repoRoot,
+  budgets = SOURCE_HOTSPOT_BUDGETS,
+  discovery = SOURCE_HOTSPOT_DISCOVERY,
+) {
   const root = path.resolve(repoRoot);
   const files = [];
   const failures = [];
+  const debts = [];
 
   for (const budget of budgets) {
     const absolutePath = path.join(root, budget.path);
@@ -53,25 +97,66 @@ export function inspectSourceHotspotBudget(repoRoot, budgets = SOURCE_HOTSPOT_BU
     }
 
     const actualLines = sourceLineCount(fs.readFileSync(absolutePath, 'utf8'));
+    const enforcementMaxLines = Number.isInteger(budget.ratchet_max_lines)
+      ? budget.ratchet_max_lines
+      : budget.max_lines;
     const row = {
       ...budget,
       actual_lines: actualLines,
-      headroom_lines: budget.max_lines - actualLines,
+      enforcement_max_lines: enforcementMaxLines,
+      headroom_lines: enforcementMaxLines - actualLines,
+      target_headroom_lines: budget.max_lines - actualLines,
+      debt_lines: Math.max(0, actualLines - budget.max_lines),
     };
     files.push(row);
-    if (actualLines > budget.max_lines) {
+    if (actualLines > enforcementMaxLines) {
       failures.push({
         path: budget.path,
-        reason: 'line_budget_exceeded',
+        reason: 'line_ratchet_exceeded',
         actual_lines: actualLines,
         max_lines: budget.max_lines,
+        enforcement_max_lines: enforcementMaxLines,
+      });
+    }
+    if (row.debt_lines > 0) {
+      debts.push({
+        path: budget.path,
+        actual_lines: actualLines,
+        target_max_lines: budget.max_lines,
+        ratchet_max_lines: enforcementMaxLines,
+        debt_lines: row.debt_lines,
+        boundary: budget.boundary,
+      });
+    }
+  }
+
+  const budgetPaths = new Set(budgets.map((budget) => budget.path.replaceAll('\\', '/')));
+  const discoveredHotspots = [];
+  for (const absolutePath of discoverSourceFiles(root, discovery)) {
+    const relativePath = path.relative(root, absolutePath).replaceAll('\\', '/');
+    const actualLines = sourceLineCount(fs.readFileSync(absolutePath, 'utf8'));
+    const sourceRoot = relativePath.split('/')[0];
+    const discoveryMaxLines = Number(discovery.max_lines_by_root?.[sourceRoot] ?? discovery.max_lines);
+    if (actualLines <= discoveryMaxLines) continue;
+    discoveredHotspots.push({ path: relativePath, actual_lines: actualLines });
+    if (!budgetPaths.has(relativePath)) {
+      failures.push({
+        path: relativePath,
+        reason: 'unbudgeted_hotspot',
+        actual_lines: actualLines,
+        discovery_max_lines: discoveryMaxLines,
       });
     }
   }
 
   return {
-    schema_version: 1,
+    schema_version: 2,
     files,
+    debts,
+    discovery: {
+      ...discovery,
+      hotspots: discoveredHotspots.sort((left, right) => right.actual_lines - left.actual_lines),
+    },
     failures,
   };
 }

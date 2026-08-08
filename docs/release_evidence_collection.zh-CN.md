@@ -40,6 +40,12 @@
 ### `@openai-developers`
 
 - 生产 env 必须在仓库外或受控发布环境中提供。
+- LLM 连通性证明必须在最终发布提交上通过生产 `LlmClient` 真实执行，并记录完整 `release_commit_sha`；`result.release_commit_sha` 必须与其一致，最终门禁还会把它与选中的发布 PR head 对齐。
+- LLM 证明的 `reviewed_at` 与 `result.completed_at` 都必须在 30 天窗口内且不能来自未来，`environment` 必须为 `production`。
+- `config_digest` 与 `result.config_digest` 必须一致，并绑定本次实际使用的 `provider`、`model_key`、`model_name`、`base_url`。摘要算法为 UTF-8 SHA-256，输入依次为 `provider=<trimmed>`、`model_key=<trimmed>`、`model_name=<trimmed>`、`base_url=<trimmed-without-trailing-slash>`，每项之间使用单个 LF 换行。
+- 发布控制面必须从生产库中启用的 `ai_model_configs` 行独立读取上述四个非敏感字段并设置 `LLM_PRODUCTION_CONFIG_DIGEST`；证明文件不能生成或覆盖该受控值。缺少受控摘要，或证明摘要与其不一致时，门禁直接失败。
+- `reviewed_at` 按 `Asia/Shanghai` 业务日判断；ISO 完成时间仍按其显式时区比较，不能用 UTC 日期让上海凌晨的当日证明被误判为未来。
+- `base_url` 只能保留不含用户名、密码、query 或 fragment 的 HTTP(S) 地址；证明中不得写入 API Key、Authorization、Cookie 或原始响应敏感字段。
 - `RELEASE_ENV_FILE` 不能指向 `.example.production.env`、示例文件、模板文件或仓库内未受控 env。
 - LLM 证明必须说明使用 `LlmClient`、启用的 `ai_model_configs.model_key`、provider、model、base URL、响应状态和耗时。
 - LLM 证明必须包含 `redaction_checked=true`。

@@ -2529,26 +2529,26 @@
                 {
                     field: 'ctripOrderEstimate',
                     label: '携程APP订单(含取消)',
+                    tableLabel: '携程APP订单',
                     headerClass: 'bg-cyan-50 hover:bg-cyan-100',
                     title: '向上取整（携程APP访客量 × 携程转化率）；订单口径包含取消订单，非平台返回订单明细；00:00–08:00 数据更新窗口内不推算',
                 },
                 {
                     field: 'qunarOrderEstimate',
                     label: '去哪儿订单(含取消)',
+                    tableLabel: '去哪儿订单',
                     headerClass: 'bg-cyan-50 hover:bg-cyan-100',
                     title: '四舍五入（去哪儿详情页访客量 × 去哪儿转化率）。转化率＝统计周期内预订订单量之和 ÷ 详情页访客量之和；包含取消订单，不包含分销单、商旅单、机酒单和度假单；非平台返回订单明细；00:00–08:00 数据更新窗口内不推算',
                 },
                 {
                     field: 'ctripUndistributedOrderEstimate',
                     label: '同程等渠道',
+                    tableLabel: '其他渠道订单',
                     headerClass: 'bg-amber-50 hover:bg-amber-100',
                     title: '同程艺龙和携程小程序以及其他分销渠道（含取消）',
                 },
             ];
-            const ctripSalesColumnGroups = [
-                { label: '大数据抓取', span: 4 },
-                { label: 'AI推理', span: 4 },
-            ];
+            const ctripSalesColumnGroups = [];
             const ctripSalesMetricColumns = [
                 { field: 'amount', label: '离店销售额' },
                 { field: 'quantity', label: '离店间夜', title: '携程离店间夜，仅代表携程渠道' },
@@ -2557,6 +2557,7 @@
                 {
                     field: 'totalOrderIncludingCancelledEstimate',
                     label: '总订单（含取消）',
+                    tableLabel: '含取消总单',
                     title: '总订单（含取消）默认按总平台订单 ÷ 0.75 四舍五入；若渠道残差为负，该酒店依次改用 ÷ 0.725、÷ 0.7，非平台直接返回字段',
                 },
                 ...ctripSalesOrderColumns,
@@ -4251,6 +4252,9 @@
             const dailyWorkbenchPatrol = ref(null);
             const dailyWorkbenchPatrolLoading = ref(false);
             const dailyWorkbenchPatrolRunning = ref(false);
+            const dailyWorkbenchPatrolConfirming = ref(false);
+            let dailyWorkbenchPatrolConfirmationScope = '';
+            let dailyWorkbenchPatrolReportExporting = false;
             const dailyWorkbenchPatrolActionUpdating = ref('');
             const dailyWorkbenchPatrolError = ref('');
             const phase3OperationEffectLoop = ref(null);
@@ -12739,7 +12743,7 @@
                         syncAutoFetchRunStateFromStatus(autoFetchStatus.value);
                     }
                 } catch (error) {
-                    console.error('加载自动获取状态失败:', error);
+                    if (error?.name !== 'AbortError') console.error('加载自动获取状态失败:', error);
                 } finally {
                     autoFetchStatusRequestPromises.delete(requestKey);
                 }
@@ -13229,35 +13233,23 @@
                 try {
                     if (item.platform === 'ctrip') {
                         const dataSourceId = Number(item?.data_source_id || item?.dataSourceId || 0);
-                        const profileId = resolveCtripBrowserProfileId({ item, hotelId, allowDefault: true });
-                        const params = new URLSearchParams({
-                            system_hotel_id: String(hotelId),
-                            profile_id: String(profileId || ''),
-                            hotel_id: String(ctripBrowserCaptureForm.value.hotelId || ''),
-                            probe_login: '1',
-                        });
-                        if (dataSourceId > 0) params.set('data_source_id', String(dataSourceId));
-                        const res = await request(`/online-data/ctrip-profile-status?${params.toString()}`);
-                        if (res.code === 200) {
-                            showToast(platformProfileNextActionText(res.data || item) || res.message || '携程登录状态已检测');
-                        } else {
-                            showToast(res.message || '携程登录状态检测失败', 'error');
+                        if (!Number.isInteger(dataSourceId) || dataSourceId <= 0) {
+                            showToast('携程登录检测需要有效的数据源绑定，请先完成账号与门店绑定', 'error');
+                            return;
                         }
+                        const profileId = resolveCtripBrowserProfileId({ item, hotelId, allowDefault: true });
+                        const params = new URLSearchParams({ system_hotel_id: String(hotelId), profile_id: String(profileId || ''), hotel_id: String(ctripBrowserCaptureForm.value.hotelId || ''), probe_login: '1' });
+                        params.set('data_source_id', String(dataSourceId));
+                        const res = await request(`/online-data/ctrip-profile-status?${params.toString()}`);
+                        if (res.code === 200) showToast(platformProfileNextActionText(res.data || item) || res.message || '携程登录状态已检测');
+                        else showToast(res.message || '携程登录状态检测失败', 'error');
                     } else if (item.platform === 'meituan') {
                         const dataSourceId = Number(item?.data_source_id || item?.dataSourceId || 0);
-                        const params = new URLSearchParams({
-                            system_hotel_id: String(hotelId),
-                            store_id: String(meituanBrowserCaptureForm.value.storeId || ''),
-                            poi_id: String(meituanBrowserCaptureForm.value.poiId || ''),
-                            probe_login: '1',
-                        });
+                        const params = new URLSearchParams({ system_hotel_id: String(hotelId), store_id: String(meituanBrowserCaptureForm.value.storeId || ''), poi_id: String(meituanBrowserCaptureForm.value.poiId || ''), probe_login: '1' });
                         if (dataSourceId > 0) params.set('data_source_id', String(dataSourceId));
                         const res = await request(`/online-data/meituan-profile-status?${params.toString()}`);
-                        if (res.code === 200) {
-                            showToast(res.data?.next_action || res.message || '美团登录状态已检测');
-                        } else {
-                            showToast(res.message || '美团登录状态检测失败', 'error');
-                        }
+                        if (res.code === 200) showToast(res.data?.next_action || res.message || '美团登录状态已检测');
+                        else showToast(res.message || '美团登录状态检测失败', 'error');
                     }
                 } finally {
                     schedulePlatformProfileStatusRefresh({ silent: true, force: true });
@@ -13331,9 +13323,7 @@
                     if (requestSeq !== dailyWorkbenchRequestSeq) {
                         return;
                     }
-                    dailyWorkbench.value = null;
-                    dailyWorkbenchError.value = error.message || '每日工作台加载失败';
-                    console.error('加载每日工作台失败:', error);
+                    if (error?.name !== 'AbortError') { dailyWorkbench.value = null; dailyWorkbenchError.value = error.message || '每日工作台加载失败'; console.error('加载每日工作台失败:', error); }
                 } finally {
                     if (requestSeq === dailyWorkbenchRequestSeq) {
                         dailyWorkbenchLoading.value = false;
@@ -13379,9 +13369,7 @@
                     }
                 } catch (error) {
                     if (requestSeq !== dailyWorkbenchPatrolRequestSeq) return;
-                    dailyWorkbenchPatrol.value = null;
-                    dailyWorkbenchPatrolError.value = error.message || '巡检快照加载失败';
-                    console.error('加载每日巡检快照失败:', error);
+                    if (error?.name !== 'AbortError') { dailyWorkbenchPatrol.value = null; dailyWorkbenchPatrolError.value = error.message || '巡检快照加载失败'; console.error('加载每日巡检快照失败:', error); }
                 } finally {
                     if (requestSeq === dailyWorkbenchPatrolRequestSeq) {
                         dailyWorkbenchPatrolLoading.value = false;
@@ -13397,6 +13385,7 @@
                         start_date: targetDate,
                         end_date: targetDate,
                         limit: '5000',
+                        include_missing_state: '1',
                     });
                     try {
                         const res = await request(`/ota-standard/revenue-metrics?${params.toString()}`);
@@ -13644,9 +13633,12 @@
                     const runId = String(options.runId || latest?.run_id || '').trim();
                     const targetDate = String(options.targetDate || scope.target_date || latest?.scope?.target_date || '').trim();
                     const hotelId = String(options.hotelId || coreOperationsHotelId.value || scope.hotel_id || latest?.scope?.hotel_id || '').trim();
-                    if (runId) {
-                        params.append('run_id', runId);
+                    if (!runId) {
+                        phase3OperationEffectLoop.value = null;
+                        phase3OperationEffectLoopError.value = '尚无巡检快照；先生成巡检快照，再查看第三阶段运营闭环。';
+                        return;
                     }
+                    params.append('run_id', runId);
                     if (targetDate) {
                         params.append('target_date', targetDate);
                     }
@@ -13668,9 +13660,7 @@
                     if (requestSeq !== phase3OperationEffectLoopRequestSeq) {
                         return;
                     }
-                    phase3OperationEffectLoop.value = null;
-                    phase3OperationEffectLoopError.value = error.message || '第三阶段运营闭环加载失败';
-                    console.error('加载第三阶段运营闭环失败:', error);
+                    if (error?.name !== 'AbortError') { phase3OperationEffectLoop.value = null; phase3OperationEffectLoopError.value = error.message || '第三阶段运营闭环加载失败'; console.error('加载第三阶段运营闭环失败:', error); }
                 } finally {
                     if (requestSeq === phase3OperationEffectLoopRequestSeq) {
                         phase3OperationEffectLoopLoading.value = false;
@@ -13755,18 +13745,40 @@
                 }
             };
 
+            const openDailyWorkbenchPatrolConfirmation = (confirmationScope) => {
+                dailyWorkbenchPatrolConfirming.value = true;
+                dailyWorkbenchPatrolConfirmationScope = String(confirmationScope || '');
+                dailyWorkbenchPatrolError.value = '';
+            };
+
+            const cancelDailyWorkbenchPatrolConfirmation = () => {
+                dailyWorkbenchPatrolConfirming.value = false;
+                dailyWorkbenchPatrolConfirmationScope = '';
+            };
+
             const runDailyWorkbenchPatrol = async () => {
                 if (dailyWorkbenchPatrolRunning.value) return;
-                if (!window.confirm(dailyWorkbenchWriteBoundary.value.run.confirmText)) return;
+                const scope = dailyWorkbench.value?.scope && typeof dailyWorkbench.value.scope === 'object' ? dailyWorkbench.value.scope : {};
+                const targetDate = scope.target_date || coreOperationsTargetDate.value || coreOperationsMaxDate;
+                const hotelId = scope.hotel_id || coreOperationsHotelId.value;
+                const confirmationScope = `${String(hotelId || '')}|${String(targetDate || '')}`;
+                if (!dailyWorkbenchPatrolConfirming.value) {
+                    openDailyWorkbenchPatrolConfirmation(confirmationScope);
+                    return;
+                }
+                if (dailyWorkbenchPatrolConfirmationScope !== confirmationScope) {
+                    openDailyWorkbenchPatrolConfirmation(confirmationScope);
+                    dailyWorkbenchPatrolError.value = '门店或目标日已变化，请再次确认生成当前范围的清单';
+                    return;
+                }
+                cancelDailyWorkbenchPatrolConfirmation();
                 dailyWorkbenchPatrolRunning.value = true;
                 dailyWorkbenchPatrolError.value = '';
                 try {
-                    const scope = dailyWorkbench.value?.scope && typeof dailyWorkbench.value.scope === 'object' ? dailyWorkbench.value.scope : {};
                     const body = {
-                        target_date: scope.target_date || coreOperationsTargetDate.value || coreOperationsMaxDate,
+                        target_date: targetDate,
                         limit: Math.max(1, Math.min(30, Number(scope.requested_hotel_limit || 10))),
                     };
-                    const hotelId = scope.hotel_id || coreOperationsHotelId.value;
                     if (hotelId) {
                         body.hotel_id = hotelId;
                     }
@@ -13793,17 +13805,90 @@
                 }
             };
 
-            const exportDailyWorkbenchPatrolReport = () => {
+            const exportDailyWorkbenchPatrolReport = async () => {
                 const latest = dailyWorkbenchPatrolLatest.value;
                 if (!latest?.run_id) {
                     dailyWorkbenchPatrolError.value = '请先生成巡检快照，再导出报告';
                     return;
                 }
-                if (!window.confirm(dailyWorkbenchWriteBoundary.value.export.confirmText)) return;
+                if (dailyWorkbenchPatrolReportExporting) return;
+                const confirmation = await openWorkflowFormDialog({
+                    title: '导出巡检报告',
+                    description: dailyWorkbenchWriteBoundary.value.export.confirmText,
+                    submitText: '确认导出',
+                    fields: [],
+                });
+                if (confirmation === null) return;
+
+                const requestSession = captureAuthSession();
+                if (!requestSession.token) {
+                    dailyWorkbenchPatrolError.value = '登录状态已失效，请重新登录后导出';
+                    showToast(dailyWorkbenchPatrolError.value, 'error');
+                    return;
+                }
                 const params = new URLSearchParams({ run_id: latest.run_id });
                 const hotelId = String(coreOperationsHotelId.value || latest.scope?.hotel_id || '').trim();
                 if (hotelId) params.append('hotel_id', hotelId);
-                window.open(`/api/online-data/daily-workbench-patrols/report?${params.toString()}`, '_blank', 'noopener,noreferrer');
+                dailyWorkbenchPatrolReportExporting = true;
+                dailyWorkbenchPatrolError.value = '';
+                let requestSessionCleared = false;
+                try {
+                    const response = await fetch(API_BASE + `/online-data/daily-workbench-patrols/report?${params.toString()}`, {
+                        method: 'GET',
+                        headers: {
+                            Accept: 'text/markdown',
+                            Authorization: requestSession.token,
+                        },
+                        cache: 'no-store',
+                    });
+                    if (!isAuthSessionCurrent(requestSession)) return;
+
+                    if (!response.ok) {
+                        const errorPayload = await response.json().catch(() => ({}));
+                        if (response.status === 401 || errorPayload.code === 401) {
+                            const tokenStatus = normalizeTokenStatusFromReason(
+                                errorPayload?.data?.reason
+                                || errorPayload?.data?.redacted_reason
+                                || errorPayload?.message
+                            );
+                            requestSessionCleared = clearAuthSessionIfCurrent(requestSession, tokenStatus);
+                        }
+                        throw new Error(errorPayload.message || errorPayload.msg || `巡检报告导出失败: ${response.status}`);
+                    }
+
+                    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+                    if (!contentType.includes('text/markdown')) {
+                        throw new Error('巡检报告响应格式异常，未下载不可信内容');
+                    }
+                    const blob = await response.blob();
+                    if (!isAuthSessionCurrent(requestSession)) return;
+
+                    const fallbackName = `suxios_ota_daily_workbench_patrol_${String(latest.run_id).replace(/[^a-zA-Z0-9_-]+/g, '_')}.md`;
+                    const disposition = String(response.headers.get('content-disposition') || '');
+                    const nameMatch = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+                    let filename = fallbackName;
+                    if (nameMatch?.[1]) {
+                        try {
+                            filename = decodeURIComponent(nameMatch[1].trim());
+                        } catch (error) {
+                            filename = fallbackName;
+                        }
+                    }
+                    filename = filename.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim() || fallbackName;
+                    if (!filename.toLowerCase().endsWith('.md')) filename += '.md';
+                    downloadBlob(blob, filename);
+                    showToast('巡检报告已下载', 'success');
+                } catch (error) {
+                    if (!isAuthSessionCurrent(requestSession) && !requestSessionCleared) return;
+                    const errorMessage = requestSessionCleared
+                        ? '登录已过期，请重新登录后导出'
+                        : (error.message || '巡检报告导出失败');
+                    if (!requestSessionCleared) dailyWorkbenchPatrolError.value = errorMessage;
+                    showToast(errorMessage, 'error');
+                    console.error('导出每日巡检报告失败:', error);
+                } finally {
+                    dailyWorkbenchPatrolReportExporting = false;
+                }
             };
 
             const dailyWorkbenchPatrolActionKey = (item) => {
@@ -15066,10 +15151,18 @@
                     return loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS });
                 }, MEITUAN_EBOOKING_HOTEL_LIST_DELAY_MS);
             };
+            const syncCtripDataHealthHotelScope = () => {
+                const hotelId = String(selectedCtripHotelId.value || '').trim();
+                autoFetchHotelId.value = hotelId;
+                if (String(coreOperationsHotelId.value || '') !== hotelId) resetCoreOperationsScopedState();
+                coreOperationsHotelId.value = hotelId;
+                return hotelId;
+            };
             const openCtripManualTab = (tab) => {
                 if (tab === 'ctrip-config') showCtripCookieGuide.value = false;
                 onlineDataTab.value = tab;
                 if (tab === 'data-health') {
+                    syncCtripDataHealthHotelScope();
                     ctripEbookingModuleCardsReady.value = false;
                     scheduleCtripEbookingModuleCardsReady();
                     ctripEbookingSecondaryPanelsReady.value = false;
@@ -16295,10 +16388,10 @@
             };
             let runtimeErrorRecoveryQueued = false;
             recoverSuxiRuntimeError = ({ error, info }) => {
-                const isFatalStartupError = /setup function|app errorHandler|app warnHandler|app unmount cleanup function/i.test(String(info || ''));
+                const isFatalStartupError = /setup function|app errorHandler|app warnHandler|app unmount cleanup function|#runtime-(?:0|10|11|16)\b/i.test(String(info || ''));
                 if (isFatalStartupError) return false;
                 const normalizedInfo = String(info || '');
-                const isPageRenderError = /render function|component update|scheduler flush/i.test(normalizedInfo);
+                const isPageRenderError = /render function|component update|scheduler flush|#runtime-(?:1|14|15)\b/i.test(normalizedInfo);
                 if (isPageRenderError && currentPage.value === 'compass') return false;
                 if (runtimeErrorRecoveryQueued) return true;
 
@@ -22354,7 +22447,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260719-h7eb502590a';
+            const operationStaticScriptVersion = '20260805-public-page-actions-he05e2fac8e';
             let operationStaticLoadPromise = null;
             const loadOperationStatic = () => {
                 const currentStatic = window.SUXI_OPERATION_STATIC;
@@ -28417,9 +28510,15 @@
                 const hotelId = String(operationFilters.value.hotel_id || '').trim();
                 const memoryId = Number(record?.id || 0);
                 if (!hotelId || !memoryId) return;
-                const annotation = window.prompt('补充老板批注（不会覆盖原档案）', '');
-                if (annotation === null) return;
-                if (!annotation.trim()) {
+                const formValues = await openWorkflowFormDialog({
+                    title: '补充老板批注',
+                    description: '批注会追加到当前经营档案，不会覆盖原记录。',
+                    submitText: '保存批注',
+                    fields: [{ name: 'annotation', label: '老板批注', type: 'textarea', required: true, value: '' }],
+                });
+                if (formValues === null) return;
+                const annotation = String(formValues.annotation || '').trim();
+                if (!annotation) {
                     showToast('老板批注不能为空', 'warning');
                     return;
                 }
@@ -28428,7 +28527,7 @@
                     const res = await apiRequest(`/operation/growth-archive/${memoryId}/annotations`, {
                         method: 'POST',
                         businessContext: { hotelId },
-                        body: JSON.stringify({ annotation: annotation.trim(), client_request_id: operatingGrowthRequestId() }),
+                        body: JSON.stringify({ annotation, client_request_id: operatingGrowthRequestId() }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '老板批注保存失败');
                     await verifyOperatingGrowthWriteReadback(res.data, hotelId);
@@ -28444,14 +28543,20 @@
                 const hotelId = String(operationFilters.value.hotel_id || '').trim();
                 const memoryId = Number(record?.id || 0);
                 if (!hotelId || !memoryId) return;
-                const note = window.prompt('里程碑说明（可留空；不会覆盖原档案）', '');
-                if (note === null) return;
+                const formValues = await openWorkflowFormDialog({
+                    title: '设置经营里程碑',
+                    description: '里程碑说明可以留空，保存不会覆盖原经营档案。',
+                    submitText: '保存里程碑',
+                    fields: [{ name: 'note', label: '里程碑说明', type: 'textarea', value: '' }],
+                });
+                if (formValues === null) return;
+                const note = String(formValues.note || '').trim();
                 operatingGrowthBusyActionId.value = String(memoryId);
                 try {
                     const res = await apiRequest(`/operation/growth-archive/${memoryId}/milestone`, {
                         method: 'POST',
                         businessContext: { hotelId },
-                        body: JSON.stringify({ note: note.trim(), client_request_id: operatingGrowthRequestId() }),
+                        body: JSON.stringify({ note, client_request_id: operatingGrowthRequestId() }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '经营里程碑保存失败');
                     await verifyOperatingGrowthWriteReadback(res.data, hotelId);
@@ -33519,9 +33624,7 @@
                     manualOneClickFetchEvidenceRows.value = response.data.rows;
                     return true;
                 } catch (error) {
-                    manualOneClickFetchEvidenceRows.value = [];
-                    manualOneClickFetchEvidenceError.value = error?.message || '目标日入库证据加载失败';
-                    console.error('[ManualOneClickFetch] 加载目标日入库证据失败:', error);
+                    if (error?.name !== 'AbortError') { manualOneClickFetchEvidenceRows.value = []; manualOneClickFetchEvidenceError.value = error?.message || '目标日入库证据加载失败'; console.error('[ManualOneClickFetch] 加载目标日入库证据失败:', error); }
                     return false;
                 } finally {
                     manualOneClickFetchEvidenceLoading.value = false;
@@ -42118,7 +42221,7 @@
                             }
                         }
                     } catch (e) {
-                        if (!isCurrentRequest()) return null;
+                        if (!isCurrentRequest() || e?.name === 'AbortError') return null;
                         competitorSummaryLoadFailed.value = true;
                         competitorSummaryError.value = String(e?.message || '美团竞品摘要读取失败');
                         console.error('加载竞对摘要失败:', e);
@@ -42254,7 +42357,7 @@
                         ? { ...options.requestPolicy }
                         : currentCompassReadPolicy(requestPage, force ? 'action' : 'current');
                     if (force) requestPolicy.force = true;
-                    const homeOperatingSchedulePromise = loadHomeOperatingSchedule({ hotelId: compassHotelId });
+                    const homeOperatingSchedulePromise = requestPage === 'compass' ? loadHomeOperatingSchedule({ hotelId: compassHotelId }) : Promise.resolve(false);
                     const res = await request(`/compass${suffix}`, {
                         requestPolicy,
                     });
@@ -44042,15 +44145,6 @@
                     });
                 }
                 return String(hotelId);
-            };
-
-            const handleCtripOverviewHotelChange = async (event = null) => {
-                if (event?.target) {
-                    ctripTargetHotelManuallySelected.value = true;
-                    selectedCtripHotelId.value = String(event.target.value || '');
-                }
-                await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });
-                scheduleDataHealthPanelRefresh('light', { force: true });
             };
 
             const applyCtripHotelConfig = async (showMessage = true, options = {}) => {
@@ -46851,6 +46945,9 @@
                         showSuccess: false,
                     }));
                 }
+                if (currentPage.value === 'operation-logs' && user.value?.is_super_admin) {
+                    void runPageLoadOnce('operation-logs', 'main', () => reloadOperationLogs());
+                }
             };
 
             // 酒店操作
@@ -47129,6 +47226,19 @@
                 if (!isEdit) {
                     delete payload.code;
                     delete payload.status;
+                    const tenantId = String(
+                        authContext.value?.tenantId
+                        || authContext.value?.tenant_id
+                        || user.value?.tenant_id
+                        || ''
+                    ).trim();
+                    if (!tenantId && user.value?.is_super_admin) {
+                        showToast('创建酒店失败：超管身份需先提供有效 tenant_id', 'error');
+                        return;
+                    }
+                    if (tenantId) {
+                        payload.tenant_id = tenantId;
+                    }
                 }
 
                 hotelSaving.value = true;
@@ -50226,7 +50336,7 @@
                 meituanTemporalSummary, meituanTemporalLoading, meituanTemporalRefreshing, meituanTemporalError, meituanTemporalTodayCards, meituanTemporalYesterdayCards, meituanTemporalFutureRows, meituanTemporalReferencePanels, meituanTemporalSourceMessage, loadMeituanTemporalSummary, refreshMeituanTemporal, meituanTemporalMetricText, meituanTemporalMetricStatusText, meituanTemporalMetricStatusClass, meituanTemporalSectionStatusText, meituanTemporalSectionStatusClass,
                 mtSummary: meituanTemporalSummary, mtLoading: meituanTemporalLoading, mtRefreshing: meituanTemporalRefreshing, mtError: meituanTemporalError, mtTodayCards: meituanTemporalTodayCards, mtYesterdayCards: meituanTemporalYesterdayCards, mtFutureRows: meituanTemporalFutureRows, mtReferences: meituanTemporalReferencePanels, mtSourceMessage: meituanTemporalSourceMessage, loadMtSummary: loadMeituanTemporalSummary, refreshMt: refreshMeituanTemporal, openMtSchedule: openMeituanTemporalSchedule, mtText: meituanTemporalMetricText, mtMetricClass: meituanTemporalMetricStatusClass, mtStatusText: meituanTemporalSectionStatusText, mtStatusClass: meituanTemporalSectionStatusClass, mtCopy: meituanTemporalCopy, mtUi: meituanTemporalUiClass,
                 ctripTrafficChannelSecondaryText, ctripEarlyMorningTrafficText, ctripEarlyMorningTrafficNote,
-                fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripEarlyMorningSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, ctripSalesOrderColumns, ctripSalesColumnGroups, ctripSalesMetricColumns, ctripTrafficChannelColumns, ctripTrafficChannelText, ctripTrafficChannelCellClass, ctripTrafficChannelCellTitle, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficRoleCoverage, formatCtripTrafficSummaryMetric, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCapturePresets, meituanBrowserCaptureCommand, meituanBrowserCaptureSelectedSectionsText, meituanBrowserCaptureReadinessNotice, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripEarlyMorningSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, ctripSalesOrderColumns, ctripSalesColumnGroups, ctripSalesMetricColumns, ctripTrafficChannelColumns, ctripTrafficChannelText, ctripTrafficChannelCellClass, ctripTrafficChannelCellTitle, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficRoleCoverage, formatCtripTrafficSummaryMetric, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCapturePresets, meituanBrowserCaptureCommand, meituanBrowserCaptureSelectedSectionsText, meituanBrowserCaptureReadinessNotice, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, showConfigHelp, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldConfigPanelReady, ctripProfileFieldConfigPanelBody, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
@@ -50241,7 +50351,7 @@
                 dualOtaContinuousPlatformLabel, dualOtaContinuousStepRows, dualOtaContinuousSummaryText,
                 coreOperationsProfileSessionRows, coreOperationsProfileSessionBlockedRows, prepareCoreOperationsProfileSession, coreOperationsCanExecute, coreOperationsCanGenerateDiagnosis, coreOperationsCanCollect, coreOperationsDiagnosisGenerating, coreOperationsDiagnosisGenerationMessage, generateCoreOperationsDiagnoses,
                 otaConfigOverviewPageSize, otaConfigOverviewPages, otaConfigOverviewRefreshing, otaConfigOverviewProbeState, otaConfigOverviewSelectedCount, otaConfigOverviewHiddenSelectedCount, otaConfigOverviewPageCount, otaConfigOverviewPageNumber, otaConfigOverviewPageSummary, changeOtaConfigOverviewPage, isOtaConfigOverviewRowSelected, toggleOtaConfigOverviewRow, isOtaConfigOverviewPageSelected, toggleSelectOtaConfigOverviewPage, clearOtaConfigOverviewSelection, refreshOtaConfigOverviewStatus, probeOtaConfigOverviewRow, probeSelectedOtaConfigOverviewRows, runOtaConfigOverviewRowCollection, runSelectedOtaConfigOverviewCollection, deleteOtaConfigOverviewRow,
-                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, coreOperationsTargetDate, coreOperationsMaxDate, coreOperationsHotelId, coreOperationsLoading, coreOperationsError, coreOperationsMetrics, coreOperationsDiagnoses, coreOperationsDiagnosisIntentLoading, coreOperationsSourceFetchVisibleState, coreOperationsSourceFetchRunning, coreOperationsSourceFetchActionText, coreOperationsSourceFetchStatusClass, coreOperationsSourceFetchModeText, coreOperationsSelectedWorkbenchRow, coreOperationsPlatformCards, coreOperationsCompetitorRows, coreOperationsCompetitorError, coreOperationsAnomalyRows, coreOperationsAiSuggestions, coreOperationsActionRows, coreOperationsExecutionItems, coreOperationsStepRows, coreOperationsEvidenceStatusText, coreOperationsEvidenceStatusClass, refreshCoreOperationsLoop, runCoreOperationsYesterdayFetch, createCoreOperationsDiagnosisIntent, openCoreOperationsHotelOnboarding, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchPagedRows, manualOneClickFetchPagination, manualOneClickFetchPage, manualOneClickFetchPageSize, setManualOneClickFetchStatusFilter, changeManualOneClickFetchPage, changeManualOneClickFetchPageSize, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
+                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolConfirming, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, coreOperationsTargetDate, coreOperationsMaxDate, coreOperationsHotelId, coreOperationsLoading, coreOperationsError, coreOperationsMetrics, coreOperationsDiagnoses, coreOperationsDiagnosisIntentLoading, coreOperationsSourceFetchVisibleState, coreOperationsSourceFetchRunning, coreOperationsSourceFetchActionText, coreOperationsSourceFetchStatusClass, coreOperationsSourceFetchModeText, coreOperationsSelectedWorkbenchRow, coreOperationsPlatformCards, coreOperationsCompetitorRows, coreOperationsCompetitorError, coreOperationsAnomalyRows, coreOperationsAiSuggestions, coreOperationsActionRows, coreOperationsExecutionItems, coreOperationsStepRows, coreOperationsEvidenceStatusText, coreOperationsEvidenceStatusClass, refreshCoreOperationsLoop, runCoreOperationsYesterdayFetch, createCoreOperationsDiagnosisIntent, openCoreOperationsHotelOnboarding, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchPagedRows, manualOneClickFetchPagination, manualOneClickFetchPage, manualOneClickFetchPageSize, setManualOneClickFetchStatusFilter, changeManualOneClickFetchPage, changeManualOneClickFetchPageSize, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
                 dashboardAccountSummaryCards, dashboardCoreKpis, dashboardRiskAlerts, dashboardTodayActions, dashboardPortraitSections, dashboardDataSourceDiagnostics,
@@ -50270,7 +50380,7 @@
                 collectionHealthCtripEffectivenessClass,
                 collectionHealthFieldRows, collectionHealthSummaryCards, collectionHealthStatusText, collectionHealthStatusClass,
                 phase1EmployeeQuestionRows, phase1EmployeeRequiredActions, phase1EmployeeClosureSummary, phase1EmployeeCollectionSourceRows, phase1EmployeeFieldTrustRows, phase1EmployeeMissingFieldRows, phase1EmployeeMissingFieldOverflowText, dataHealthFieldGapActionRows, dataHealthFieldGapActionSummary, phase1EmployeeMetricDomainRows, phase1EmployeeAiEvidenceSummary, phase1EmployeeOperationSummary, phase1EmployeeQuestionStatusText, phase1EmployeeQuestionStatusClass,
-                loadCollectionReliability, loadDailyWorkbench, loadDailyWorkbenchPatrols, loadPhase3OperationEffectLoop, loadPhase3OperationEffectLoopLedger, publishPhase3OperationSop, createPhase3ReplicationPlan, runDailyWorkbenchPatrol, exportDailyWorkbenchPatrolReport, updateDailyWorkbenchPatrolAction, reviewDailyWorkbenchPatrolAction, loadHotelDataDashboard, loadDataHealthPanel,
+                loadCollectionReliability, loadDailyWorkbench, loadDailyWorkbenchPatrols, loadPhase3OperationEffectLoop, loadPhase3OperationEffectLoopLedger, publishPhase3OperationSop, createPhase3ReplicationPlan, runDailyWorkbenchPatrol, cancelDailyWorkbenchPatrolConfirmation, exportDailyWorkbenchPatrolReport, updateDailyWorkbenchPatrolAction, reviewDailyWorkbenchPatrolAction, loadHotelDataDashboard, loadDataHealthPanel,
                 onlineHistoryFilter, onlineHistoryList, onlineHistoryPagination, onlineHistoryPage, onlineHistorySummary, onlineHistoryLoading, onlineHistoryCurrentError, onlineHistoryHasCurrentSnapshot, onlineHistoryRefreshNotice, onlineHistoryHotelList,
                 onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
                 resetOnlineHistoryFilter, changeOnlineHistoryPage, applyOnlineHistoryDatePreset, toggleOnlineHistoryDetail, toggleOnlineHistoryRaw, formatOnlineHistoryRaw,
@@ -50398,22 +50508,24 @@
         appRoot.dataset.startupErrorRendered = '1';
         const stack = String(error?.stack || '').split('\n').slice(0, 8).join('\n');
         const message = [String(error?.message || error || 'unknown startup error'), stack].filter(Boolean).join('\n')
-            .replace(/[<>&"']/g, (char) => ({
-                '<': '&lt;',
-                '>': '&gt;',
-                '&': '&amp;',
-                '"': '&quot;',
-                "'": '&#39;',
-            }[char]));
-        appRoot.innerHTML = `
-            <div class="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-                <div class="max-w-xl w-full bg-white border border-red-100 rounded-lg shadow-sm p-6">
-                    <div class="text-lg font-semibold text-red-700 mb-2">项目启动失败</div>
-                    <div class="text-sm text-gray-600 mb-4">前端初始化被异常中断，请刷新页面；如果仍失败，请保留下面错误信息。</div>
-                    <pre class="text-xs whitespace-pre-wrap break-words bg-red-50 text-red-700 border border-red-100 rounded p-3">${message}</pre>
-                </div>
-            </div>
+            .replace(/[<>&"']/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[char]));
+        appRoot.innerHTML = `<div class="min-h-screen flex items-center justify-center bg-slate-50 px-4"><div class="max-w-xl w-full bg-white border border-red-100 rounded-lg shadow-sm p-6"><div class="text-lg font-semibold text-red-700 mb-2">项目启动失败</div><div class="text-sm text-gray-600 mb-4">前端初始化被异常中断，请刷新页面；如果仍失败，请保留下面错误信息。</div><pre class="text-xs whitespace-pre-wrap break-words bg-red-50 text-red-700 border border-red-100 rounded p-3">${message}</pre></div></div>
         `;
+    };
+    let suxiFatalErrorQueued = false;
+    const scheduleSuxiStartupError = (error) => {
+        if (suxiFatalErrorQueued) return;
+        suxiFatalErrorQueued = true;
+        window.setTimeout(() => {
+            const appToUnmount = suxiApp;
+            suxiApp = null;
+            try {
+                appToUnmount?.unmount();
+            } catch (unmountError) {
+                console.error('[SUXIOS] Fatal recovery could not safely unmount:', unmountError);
+            }
+            renderSuxiStartupError(error);
+        }, 0);
     };
     const operatingQuestionPanel = {
         setup: () => inject('operatingQuestionUi'),
@@ -50443,7 +50555,7 @@
                     }
                 })();
             if (recovered) return;
-            renderSuxiStartupError(error);
+            scheduleSuxiStartupError(error);
         };
         app.config.globalProperties.aiModelConfigText = globalAiModelConfigText;
         return app;

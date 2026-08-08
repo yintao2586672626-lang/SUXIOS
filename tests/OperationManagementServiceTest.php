@@ -1337,6 +1337,56 @@ final class OperationManagementServiceTest extends TestCase
         ], ['id' => 88, 'executed_at' => '2026-07-17 12:00:00'], 7]);
     }
 
+    public function testTemporalForecastDatabaseFailureIsNotReportedAsMissingReadback(): void
+    {
+        $targetDate = date('Y-m-d', strtotime('-1 day'));
+        $service = new OperationManagementService(
+            null,
+            null,
+            null,
+            null,
+            static function (): array {
+                throw new \RuntimeException('simulated database outage');
+            }
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(503);
+        $this->expectExceptionMessage('temporal_forecast_readback_failed');
+        $this->invokeNonPublic($service, 'buildTemporalForecastSourceVerifiedReadbackPayload', [[
+            'id' => 88,
+            'executed_at' => $targetDate . ' 08:00:00',
+        ], [
+            'hotel_id' => 7,
+            'source_record_id' => 123,
+            'platform' => 'all_ota',
+            'expected_metric' => 'ota_revenue',
+            'date_start' => $targetDate,
+            'date_end' => $targetDate,
+            'object_type' => 'operation_checklist',
+            'action_type' => 'manual_forecast_review',
+            'current_value' => [
+                'metric_key' => 'ota_revenue',
+                'target_date' => $targetDate,
+                'predicted_value' => 1200.0,
+            ],
+            'target_value' => [
+                'target_metric' => 'ota_revenue',
+                'automatic_price_write' => false,
+            ],
+            'evidence' => [
+                'automatic_price_write' => false,
+                'review_required' => true,
+                'evidence_refs' => [[
+                    'row_id' => 123,
+                    'metric_key' => 'ota_revenue',
+                    'target_date' => $targetDate,
+                    'forecast_run_id' => 'forecast-run-123',
+                ]],
+            ],
+        ], 'all_ota']);
+    }
+
     private function metricValue(array $summary, string $key): mixed
     {
         foreach ($summary['metrics'] as $metric) {

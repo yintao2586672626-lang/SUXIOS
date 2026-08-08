@@ -1,10 +1,18 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { gzip as gzipCallback } from 'node:zlib';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultPublicRoot = path.resolve(scriptDirectory, '..', 'public');
+const gzipAsync = promisify(gzipCallback);
+const staticGzipLevel = 6;
+const staticGzipMinimumBytes = 1_024;
+const staticGzipMaximumSourceBytes = 16 * 1024 * 1024;
+const staticGzipCacheMaximumBytes = 64 * 1024 * 1024;
+const staticGzipCacheMaximumEntries = 64;
 const hopByHopHeaders = new Set([
   'connection',
   'keep-alive',
@@ -16,6 +24,7 @@ const hopByHopHeaders = new Set([
   'upgrade',
 ]);
 const contentTypes = new Map([
+  ['.avif', 'image/avif'],
   ['.css', 'text/css; charset=utf-8'],
   ['.gif', 'image/gif'],
   ['.html', 'text/html; charset=utf-8'],
@@ -27,10 +36,18 @@ const contentTypes = new Map([
   ['.map', 'application/json; charset=utf-8'],
   ['.png', 'image/png'],
   ['.svg', 'image/svg+xml; charset=utf-8'],
+  ['.ttf', 'font/ttf'],
   ['.txt', 'text/plain; charset=utf-8'],
   ['.webp', 'image/webp'],
   ['.woff', 'font/woff'],
   ['.woff2', 'font/woff2'],
+]);
+const cacheableStaticExtensions = new Set([
+  '.avif', '.css', '.gif', '.ico', '.jpeg', '.jpg', '.js', '.png',
+  '.svg', '.ttf', '.webp', '.woff', '.woff2',
+]);
+const compressibleStaticExtensions = new Set([
+  '.css', '.html', '.js', '.json', '.map', '.svg', '.txt',
 ]);
 const healthFailureThreshold = 2;
 
@@ -202,28 +219,167 @@ function createBackendPool(backends, {
   };
 }
 
-function staticEtag(stat) {
-  return `W/"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}"`;
+function staticEtag(stat, encoding = 'identity') {
+  return `W/"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}-${encoding}"`;
 }
 
-function serveStaticFile(request, response, filePath, stat) {
-  const etag = staticEtag(stat);
-  if (request.headers['if-none-match'] === etag) {
-    response.writeHead(304, {
-      ETag: etag,
-      'Last-Modified': stat.mtime.toUTCString(),
-    });
+function encodingQuality(headerValue, encoding) {
+  const entries = String(headerValue || '').toLowerCase().split(',');
+  let wildcardQuality = null;
+  for (const entry of entries) {
+    const [rawName, ...parameters] = entry.trim().split(';');
+    const name = rawName.trim();
+    if (!name) continue;
+    let quality = 1;
+    for (const parameter of parameters) {
+      const match = parameter.trim().match(/^q\s*=\s*(0(?:\.\d+)?|1(?:\.0+)?)$/);
+      if (match) quality = Number(match[1]);
+    }
+    if (name === encoding) return quality;
+    if (name === '*') wildcardQuality = quality;
+  }
+  return wildcardQuality ?? (encoding === 'identity' ? 1 : 0);
+}
+
+function requestAcceptsGzip(request) {
+  const header = request.headers['accept-encoding'];
+  const gzipQuality = encodingQuality(header, 'gzip');
+  const identityQuality = encodingQuality(header, 'identity');
+  return gzipQuality > 0 && gzipQuality >= identityQuality;
+}
+
+function requestHasContentHash(requestUrl, filePath) {
+  const basename = path.basename(filePath);
+  if (/(?:^|[._-])h[0-9a-f]{10}(?:[._-]|$)/i.test(basename)) return true;
+  try {
+    const version = new URL(requestUrl || '/', 'http://127.0.0.1').searchParams.get('v') || '';
+    return /(?:^|[-_])h[0-9a-f]{10}(?:[-_]|$)/i.test(version);
+  } catch {
+    return false;
+  }
+}
+
+function staticCacheHeaders(requestUrl, filePath, extension) {
+  if (cacheableStaticExtensions.has(extension)) {
+    return {
+      'Cache-Control': requestHasContentHash(requestUrl, filePath)
+        ? 'public, max-age=2592000, immutable'
+        : 'public, max-age=300, must-revalidate',
+    };
+  }
+  if (extension === '.html' && path.basename(filePath).toLowerCase() === 'index.html') {
+    return {
+      'Cache-Control': 'public, max-age=60, s-maxage=60, stale-while-revalidate=30',
+      'CDN-Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+      'Cloudflare-CDN-Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+    };
+  }
+  return { 'Cache-Control': 'no-cache' };
+}
+
+function requestMatchesStaticValidator(request, etag, stat) {
+  const ifNoneMatch = String(request.headers['if-none-match'] || '').trim();
+  if (ifNoneMatch) {
+    return ifNoneMatch === '*' || ifNoneMatch.split(',').some((value) => value.trim() === etag);
+  }
+  const ifModifiedSince = Date.parse(String(request.headers['if-modified-since'] || ''));
+  if (!Number.isFinite(ifModifiedSince)) return false;
+  const fileModifiedAtSeconds = Math.trunc(stat.mtimeMs / 1000) * 1000;
+  return ifModifiedSince >= fileModifiedAtSeconds;
+}
+
+function createStaticGzipCache() {
+  const entries = new Map();
+  let totalBytes = 0;
+
+  const removeEntry = (key) => {
+    const entry = entries.get(key);
+    if (!entry) return;
+    totalBytes -= entry.size || 0;
+    entries.delete(key);
+  };
+
+  const prune = (protectedKey) => {
+    for (const key of entries.keys()) {
+      if (entries.size <= staticGzipCacheMaximumEntries
+        && totalBytes <= staticGzipCacheMaximumBytes) break;
+      if (key !== protectedKey) removeEntry(key);
+    }
+  };
+
+  return {
+    async get(filePath, stat) {
+      const key = `${filePath}\0${stat.size}\0${Math.trunc(stat.mtimeMs)}\0${staticGzipLevel}`;
+      for (const [cachedKey, entry] of entries) {
+        if (entry.filePath === filePath && cachedKey !== key) removeEntry(cachedKey);
+      }
+      const cached = entries.get(key);
+      if (cached) {
+        entries.delete(key);
+        entries.set(key, cached);
+        return cached.promise;
+      }
+
+      const entry = { filePath, size: 0, promise: null };
+      entry.promise = fs.promises.readFile(filePath)
+        .then((source) => gzipAsync(source, { level: staticGzipLevel }))
+        .then((encoded) => {
+          if (entries.get(key) !== entry) return encoded;
+          entry.size = encoded.length;
+          totalBytes += entry.size;
+          prune(key);
+          return encoded;
+        })
+        .catch((error) => {
+          if (entries.get(key) === entry) removeEntry(key);
+          throw error;
+        });
+      entries.set(key, entry);
+      prune(key);
+      return entry.promise;
+    },
+    clear() {
+      entries.clear();
+      totalBytes = 0;
+    },
+  };
+}
+
+async function serveStaticFile(request, response, filePath, stat, gzipCache) {
+  const extension = path.extname(filePath).toLowerCase();
+  const gzipSelected = stat.size > staticGzipMinimumBytes
+    && stat.size <= staticGzipMaximumSourceBytes
+    && compressibleStaticExtensions.has(extension)
+    && requestAcceptsGzip(request);
+  const encoding = gzipSelected ? 'gzip' : 'identity';
+  const etag = staticEtag(stat, encoding);
+  const headers = {
+    'Content-Type': contentTypes.get(extension) || 'application/octet-stream',
+    'Last-Modified': stat.mtime.toUTCString(),
+    ETag: etag,
+    'X-Content-Type-Options': 'nosniff',
+    ...staticCacheHeaders(request.url, filePath, extension),
+  };
+  if (compressibleStaticExtensions.has(extension)) headers.Vary = 'Accept-Encoding';
+  if (gzipSelected) headers['Content-Encoding'] = 'gzip';
+
+  if (requestMatchesStaticValidator(request, etag, stat)) {
+    response.writeHead(304, headers);
     response.end();
     return;
   }
 
-  response.writeHead(200, {
-    'Content-Type': contentTypes.get(path.extname(filePath).toLowerCase()) || 'application/octet-stream',
-    'Content-Length': stat.size,
-    'Last-Modified': stat.mtime.toUTCString(),
-    ETag: etag,
-    'X-Content-Type-Options': 'nosniff',
-  });
+  if (gzipSelected) {
+    const encoded = await gzipCache.get(filePath, stat);
+    if (response.destroyed) return;
+    headers['Content-Length'] = encoded.length;
+    response.writeHead(200, headers);
+    response.end(request.method === 'HEAD' ? undefined : encoded);
+    return;
+  }
+
+  headers['Content-Length'] = stat.size;
+  response.writeHead(200, headers);
   if (request.method === 'HEAD') {
     response.end();
     return;
@@ -344,6 +500,7 @@ export function createLocalOriginServer({
   healthCheckTimeoutMs = 1_500,
 } = {}) {
   const normalizedPublicRoot = path.resolve(publicRoot);
+  const gzipCache = createStaticGzipCache();
   const backends = normalizeBackendUrls(backendUrl, backendUrls);
   const backendPool = createBackendPool(backends, {
     healthPath,
@@ -366,7 +523,17 @@ export function createLocalOriginServer({
       if (filePath) {
         fs.stat(filePath, (error, stat) => {
           if (!error && stat.isFile()) {
-            serveStaticFile(request, response, filePath, stat);
+            void serveStaticFile(request, response, filePath, stat, gzipCache).catch((serveError) => {
+              if (!response.headersSent) {
+                response.writeHead(500, {
+                  'Content-Type': 'text/plain; charset=utf-8',
+                  'Cache-Control': 'no-store',
+                });
+                response.end('Static asset compression failed');
+                return;
+              }
+              response.destroy(serveError);
+            });
             return;
           }
           void proxyRequest(request, response);
@@ -381,7 +548,10 @@ export function createLocalOriginServer({
   server.requestTimeout = 120_000;
   server.headersTimeout = 65_000;
   server.keepAliveTimeout = 5_000;
-  server.on('close', () => backendPool.close());
+  server.on('close', () => {
+    gzipCache.clear();
+    backendPool.close();
+  });
   return server;
 }
 

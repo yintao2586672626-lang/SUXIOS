@@ -36,6 +36,7 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   const verifier = read('scripts/verify_mysql_fresh_migration_concurrency.mjs');
   const worker = read('scripts/mysql_execution_intent_concurrency_worker.php');
   const loginWorker = read('scripts/mysql_login_rate_limiter_concurrency_worker.php');
+  const atomicWorker = read('scripts/mysql_atomic_write_concurrency_worker.php');
   const databaseConfig = read('config/database.php');
   const initialization = read('database/init_full.sql');
   const baselineMigrations = new Set(Array.from(
@@ -94,6 +95,7 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /migrationRuns\s*=\s*2/);
   assert.match(verifier, /workerCount\s*=\s*8/);
   assert.match(verifier, /loginWorkerCount\s*=\s*16/);
+  assert.match(verifier, /atomicWorkerCount\s*=\s*2/);
   assert.match(verifier, /unique_intent_ids/);
   assert.match(verifier, /database_rows/);
   assert.match(verifier, /migration_files:\s*migrationPaths\.length/);
@@ -119,6 +121,12 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /energy_benchmark_seed_stable:\s*true/);
   assert.match(verifier, /login_allowed:\s*loginAllowed/);
   assert.match(verifier, /login_missing_table_fail_closed:\s*true/);
+  assert.match(verifier, /runAtomicBarrier\('operation_evidence'/);
+  assert.match(verifier, /runAtomicBarrier\('operating_memory'/);
+  assert.match(verifier, /runAtomicBarrier\('pair_code'/);
+  assert.match(verifier, /atomic_evidence_created:\s*evidenceCreated/);
+  assert.match(verifier, /atomic_memory_created:\s*memoryCreated/);
+  assert.match(verifier, /atomic_pair_successes:\s*pairSuccesses\.length/);
   assert.match(databaseConfig, /\$databaseConfigValue = static function/);
   assert.match(databaseConfig, /if \(\$e2eDatabaseOverride\)[\s\S]*getenv\(\$name\)/);
   assert.match(databaseConfig, /'password'\s*=>\s*\$databaseConfigValue\('DB_PASS', ''\)/);
@@ -129,6 +137,11 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(loginWorker, /SUXI_E2E_DB_OVERRIDE/);
   assert.match(loginWorker, /new LoginRateLimiter\(\)/);
   assert.match(loginWorker, /consumeAttempt\(\$ip, \$username\)/);
+  assert.match(atomicWorker, /SUXI_E2E_DB_OVERRIDE/);
+  assert.match(atomicWorker, /addExecutionEvidence\(/);
+  assert.match(atomicWorker, /createManualGrowthEvent\(/);
+  assert.match(atomicWorker, /pairDevice\(/);
+  assert.match(atomicWorker, /waitAtBarrier\(\$worker\)/);
 });
 
 test('fresh database verifier rejects missing gates, unsafe names, and remote hosts before starting a client', () => {

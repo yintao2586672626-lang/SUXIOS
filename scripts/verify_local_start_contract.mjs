@@ -31,6 +31,7 @@ if (!fs.existsSync(startupScriptPath)) {
     'Wait-MySql',
     'Assert-DatabaseReady',
     'Assert-DatabaseVersion',
+    'Invoke-OtaRetentionPreview',
     '@("think", "db:check")',
     'Start-ThinkPhp',
     'Test-StaticAsset',
@@ -43,6 +44,11 @@ if (!fs.existsSync(startupScriptPath)) {
     '--backends=',
     '-WindowStyle Hidden',
     'X-SUXIOS-Backend-Pool-Size',
+    'ConvertFrom-Json -ErrorAction Stop',
+    '$payload.checks.application -eq "ok"',
+    '$payload.checks.database -eq "ok"',
+    '$payload.checks.database_schema -eq "ok"',
+    '--dry-run',
     'SetEnvironmentVariable("PATH", $null, "Process")',
     'information_schema.SCHEMATA',
     'information_schema.TABLES',
@@ -56,6 +62,14 @@ if (!fs.existsSync(startupScriptPath)) {
 
   if (!/Start-LocalMySql[\s\S]*Assert-DatabaseReady[\s\S]*Assert-DatabaseVersion[\s\S]*Start-ThinkPhp/.test(script)) {
     failures.push('startup script must verify MySQL and database schema version before starting ThinkPHP');
+  }
+
+  if (/\$response\.Content\s+-like\s+"\*status\*"|\$response\.Content\s+-like\s+"\*ok\*"/.test(script)) {
+    failures.push('startup health checks must parse exact JSON status instead of accepting text substrings');
+  }
+
+  if (!/online-data:cleanup-dormant-profiles[\s\S]{0,180}--dry-run/.test(script)) {
+    failures.push('ordinary local startup may only preview OTA retention with --dry-run');
   }
 
   if (/"think",\s*"run"|public\/index\.php|public\\index\.php/.test(script)) {

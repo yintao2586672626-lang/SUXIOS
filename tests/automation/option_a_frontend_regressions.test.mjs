@@ -67,8 +67,7 @@ test('Ctrip display removes unsupported estimates and refuses to invent full-cha
   assert.doesNotMatch(appMain, /ctripStableEstimateRatio|ctripAiEstimatedRoomNights|全渠道AI预计总间夜数/);
   assert.doesNotMatch(appMain, /ctripFullChannelRoomNightSharePercent|normalizeCtripRoomNightSharePercent/);
   assert.doesNotMatch(ctripStaticSource, /field === 'aiEstimatedTotalRoomNights'/);
-  assert.match(appMain, /label: '全渠道间夜'/);
-  assert.match(appMain, /fullChannelRoomNightText/);
+  assert.doesNotMatch(appMain, /field: 'fullChannelRoomNightsEstimate'|label: '全渠道间夜'|fullChannelRoomNightText/);
   assert.doesNotMatch(ctripStaticSource, /deriveCtripFullChannelRoomNightMultiplier|1\.15\s*\+|scenario_estimate/);
 
   const downloadTable = sliceBetween(appMain, 'const ctripDownloadRows', 'const buildCtripBusinessCanvas');
@@ -90,9 +89,8 @@ test('Ctrip display removes unsupported estimates and refuses to invent full-cha
 test('Ctrip templates expose source boundaries and no unsupported full-channel room-night formula', () => {
   assert.doesNotMatch(appTemplate, /携程间夜占全渠道比例（%）|v-model="ctripFullChannelRoomNightSharePercent"/);
   assert.match(appMain, /field: 'quantity', label: '离店间夜', title: '携程离店间夜，仅代表携程渠道'/);
-  assert.match(appMain, /field: 'fullChannelRoomNightsEstimate'[\s\S]*?label: '全渠道间夜'[\s\S]*?缺少其他渠道间夜及订单到间夜的可核验转换口径/);
-  assert.match(appTemplate, /class="ctrip-sales-state">缺来源<\/div>/);
-  assert.match(appTemplate, /:title="hotel\.fullChannelRoomNightsEstimateMeta\?\.formulaText \|\| '缺少全渠道间夜来源，暂不可推算'"/);
+  assert.doesNotMatch(appMain, /field: 'fullChannelRoomNightsEstimate'|label: '全渠道间夜'/);
+  assert.doesNotMatch(appTemplate, /hotel\.fullChannelRoomNightsEstimate|全渠道间夜来源/);
   assert.doesNotMatch(appTemplate, /1\.15–1\.30|情景推算/);
   assert.doesNotMatch(appTemplate, /<span class="ml-1 rounded bg-amber-100 px-1 py-0\.5 text-\[10px\] text-amber-700">情景<\/span>/);
   assert.doesNotMatch(appTemplate, /≈\s*\{\{\s*formatOptionalNumber\(hotel\.fullChannelRoomNightsEstimate\)\s*\}\}/);
@@ -186,8 +184,10 @@ test('AI workbench personalizes hotel order per account and opens the matching m
 
   const shortcuts = sliceBetween(appMain, 'const dualOtaModuleNavigationTarget', 'const dualOtaSystemMetricPlatform');
   assert.match(shortcuts, /'携程竞争圈数据': 'ctrip-ranking'/);
-  assert.match(shortcuts, /selectedCtripHotelId\.value = hotelId[\s\S]*currentPage\.value = 'ctrip-ebooking'[\s\S]*openCtripManualTab\('ctrip-ranking'\)/);
-  assert.match(shortcuts, /meituanForm\.value\.hotelId = hotelId[\s\S]*currentPage\.value = 'meituan-ebooking'[\s\S]*onlineDataTab\.value = 'meituan-ranking'/);
+  assert.match(shortcuts, /await applyGeneralHotelToPlatformContext\('ctrip', hotelId\)[\s\S]*currentPage\.value = 'ctrip-ebooking'[\s\S]*openCtripManualTab\('ctrip-ranking'\)/);
+  assert.match(shortcuts, /await applyGeneralHotelToPlatformContext\('meituan', hotelId\)[\s\S]*currentPage\.value = 'meituan-ebooking'[\s\S]*onlineDataTab\.value = 'meituan-ranking'/);
+  assert.match(shortcuts, /selectedCtripHotelId\.value = normalizedHotelId/);
+  assert.match(shortcuts, /meituanForm\.value\.hotelId = normalizedHotelId/);
   assert.match(appTemplate, /data-testid="`dual-ota-\$\{dualOtaModuleNavigationTarget\(item\)\}-shortcut`"[\s\S]*@click="openDualOtaModule\(item\)"/);
   assert.ok(
     appMain.indexOf('const hotelPlatformBindingRows =') < appMain.indexOf('watch([dualOtaReadyStoreScopes, dualOtaSelectedHotel]'),
@@ -205,6 +205,12 @@ test('AI workbench personalizes hotel order per account and opens the matching m
     'suppressNextMeituanHotelConfigApply',
     'onlineDataTab',
     'scheduleMeituanHotelConfigApply',
+    'ensureHotelOtaConfigLists',
+    'ctripTargetHotelOptions',
+    'meituanTargetHotelOptions',
+    'permittedHotels',
+    'hotels',
+    'showToast',
     `${shortcuts}; return { dualOtaModuleNavigationTarget, openDualOtaModule };`,
   );
   const filterReportHotel = { value: '42' };
@@ -226,6 +232,12 @@ test('AI workbench personalizes hotel order per account and opens the matching m
     false,
     onlineDataTab,
     options => meituanApplies.push(options),
+    async () => {},
+    { value: [{ id: '42' }] },
+    { value: [{ id: '42' }] },
+    { value: [{ id: '42', name: '测试门店' }] },
+    { value: [] },
+    () => {},
   );
 
   await runtime.openDualOtaModule({ name: '携程竞争圈数据' });

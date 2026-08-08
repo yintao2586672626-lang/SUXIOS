@@ -4,6 +4,10 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const appMain = fs.readFileSync(new URL('../../public/app-main.js', import.meta.url), 'utf8');
+const businessClosureLoader = fs.readFileSync(
+  new URL('../../public/components/system/business-closure-loader.js', import.meta.url),
+  'utf8',
+);
 
 const helperStart = appMain.indexOf('    const normalizeSuxiDomAttributeText = (value) => {');
 const helperEnd = appMain.indexOf('\n    const requireSuxiAppRender', helperStart);
@@ -49,4 +53,13 @@ test('AI workbench title sources are normalized before Vue patches DOM attribute
   assert.match(appMain, /reason: normalizeSuxiDomAttributeText\(cohort\?\.reason\)/);
   assert.match(appMain, /fullDetail: normalizeSuxiDomAttributeText\(card\?\.fullDetail \|\| card\?\.detail\)/);
   assert.match(appMain, /fullDetail: normalizeSuxiDomAttributeText\(review\?\.fullDetail \|\| review\?\.detail\)/);
+});
+
+test('business closure async placeholders do not fall through the root ctx proxy to a DOM attribute', () => {
+  const loadingStart = businessClosureLoader.indexOf('const loadingComponent = {');
+  const errorStart = businessClosureLoader.indexOf('const errorComponent = {');
+  const definitionsStart = businessClosureLoader.indexOf('const definitions = [');
+  assert.ok(loadingStart >= 0 && errorStart > loadingStart && definitionsStart > errorStart);
+  assert.match(businessClosureLoader.slice(loadingStart, errorStart), /inheritAttrs: false/);
+  assert.match(businessClosureLoader.slice(errorStart, definitionsStart), /inheritAttrs: false/);
 });

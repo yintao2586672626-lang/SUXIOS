@@ -2,12 +2,13 @@ const { test, expect } = require('@playwright/test');
 
 test.use({
   browserName: 'chromium',
-  channel: 'chrome',
   headless: true,
   viewport: { width: 1440, height: 1000 },
   actionTimeout: 5000,
   navigationTimeout: 15000,
 });
+
+const appUrl = process.env.E2E_BASE_URL || 'http://127.0.0.1:8080/';
 
 test('OTA Cookie reminder auto-closes while keeping the top banner', async ({ page }) => {
   test.setTimeout(45000);
@@ -91,7 +92,7 @@ test('OTA Cookie reminder auto-closes while keeping the top banner', async ({ pa
     });
   });
 
-  await page.goto('http://127.0.0.1:8080/', { waitUntil: 'domcontentloaded' });
+  await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
 
   const banner = page.getByTestId('ota-auth-strong-reminder-banner');
   const modal = page.getByTestId('ota-auth-strong-reminder-modal');

@@ -372,7 +372,7 @@ final class OperatingQuestionService
         }
         $query = $this->factQuery($tenantId, $hotelId, $platform, $dateStart, $dateEnd);
         $rows = $query
-            ->field('id,data_date,platform,source,data_type,dimension,validation_status,readback_verified,readback_verified_at,ingestion_method,source_trace_id')
+            ->field('id,data_date,platform,source,data_type,dimension,validation_status,history_status,readback_verified,readback_verified_at,ingestion_method,source_trace_id')
             ->order('data_date', 'desc')
             ->order('id', 'desc')
             ->limit(40)
@@ -390,6 +390,7 @@ final class OperatingQuestionService
                 'data_type' => trim((string)($row['data_type'] ?? '')),
                 'dimension' => mb_substr(trim((string)($row['dimension'] ?? '')), 0, 180),
                 'quality_status' => 'verified',
+                'history_status' => (string)($row['history_status'] ?? ''),
                 'readback_status' => 'readback_verified',
                 'readback_verified_at' => $row['readback_verified_at'] ?? null,
                 'ingestion_method' => (string)($row['ingestion_method'] ?? ''),
@@ -408,12 +409,20 @@ final class OperatingQuestionService
 
     private function factQuery(int $tenantId, int $hotelId, string $platform, string $dateStart, string $dateEnd): mixed
     {
+        // The generated history_status is the canonical persisted-fact truth
+        // gate. A row may be stored and read back while still being partial or
+        // unverified (for example legacy/manual ingestion or missing trace and
+        // capture time), so readback_verified alone must never promote it.
+        if (!$this->columnExists('online_daily_data', 'history_status')) {
+            return Db::name('online_daily_data')->whereRaw('1 = 0');
+        }
         $query = Db::name('online_daily_data')
             ->where('tenant_id', $tenantId)
             ->where('system_hotel_id', $hotelId)
             ->whereBetween('data_date', [$dateStart, $dateEnd])
+            ->where('history_status', 'success')
             ->where('readback_verified', 1)
-            ->whereIn('validation_status', ['normal', 'available', 'ok', 'valid', 'verified']);
+            ->where('validation_status', 'verified');
         if ($platform === 'all_ota') {
             $query->whereRaw(
                 "LOWER(COALESCE(NULLIF(`platform`, ''), `source`, '')) IN ('ctrip','meituan')"

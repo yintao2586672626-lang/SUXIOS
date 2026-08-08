@@ -80,7 +80,12 @@ final class Tc038PermissionExpiryL8Test extends TestCase
             'id' => self::ROLE_ID,
             'name' => 'tc038_hotel_operator',
             'display_name' => 'TC-038 Hotel Operator',
-            'permissions' => json_encode(['ota.view', 'ota.collect'], JSON_THROW_ON_ERROR),
+            'permissions' => json_encode([
+                'ota.view',
+                'ota.collect',
+                'can_view_diagnostics',
+                'can_view_field_assets',
+            ], JSON_THROW_ON_ERROR),
             'level' => 2,
             'status' => 1,
             'create_time' => '2026-07-15 00:00:00',
@@ -88,6 +93,27 @@ final class Tc038PermissionExpiryL8Test extends TestCase
         ]);
         $this->insertUser(self::TARGET_USER_ID, null);
         $this->insertUser(self::OTHER_USER_ID, null);
+    }
+
+    public function testDiagnosticReadsReuseOnlyAnActiveHotelOnlineViewGrant(): void
+    {
+        $this->insertHotel(self::TARGET_HOTEL_ID, true);
+        $this->insertGrant(
+            self::TARGET_USER_ID,
+            self::TARGET_HOTEL_ID,
+            1,
+            0,
+            'active',
+            (new DateTimeImmutable('now', new DateTimeZone(self::TIMEZONE)))
+                ->modify('+1 day')
+                ->format('Y-m-d H:i:s')
+        );
+
+        $scope = new HotelScopeService();
+        $user = $this->loadUser(self::TARGET_USER_ID);
+        self::assertTrue($scope->hotelPermissionAllows($user, self::TARGET_HOTEL_ID, 'can_view_diagnostics'));
+        self::assertTrue($scope->hotelPermissionAllows($user, self::TARGET_HOTEL_ID, 'can_view_field_assets'));
+        self::assertFalse($scope->hotelPermissionAllows($this->loadUser(self::OTHER_USER_ID), self::TARGET_HOTEL_ID, 'can_view_diagnostics'));
     }
 
     /**

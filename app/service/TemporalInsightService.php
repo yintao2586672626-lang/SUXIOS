@@ -105,8 +105,8 @@ final class TemporalInsightService
             'future' => $future,
             'review' => $review,
             'view_state' => [
-                'has_past' => ($past['status'] ?? 'empty') !== 'empty',
-                'has_present' => ($present['status'] ?? 'empty') !== 'empty',
+                'has_past' => in_array((string)($past['status'] ?? ''), ['ready', 'partial'], true),
+                'has_present' => in_array((string)($present['status'] ?? ''), ['ready', 'partial'], true),
                 'has_future' => ($future['status'] ?? 'empty') === 'ready',
                 'has_review' => ($review['status'] ?? 'empty') === 'ready',
             ],
@@ -124,7 +124,23 @@ final class TemporalInsightService
         if ($hotelId <= 0) {
             throw new InvalidArgumentException('生成预测前必须选择一个已授权酒店。');
         }
-        if (!$this->tableExists(self::FORECAST_TABLE)) {
+        try {
+            $forecastTableExists = $this->tableExists(self::FORECAST_TABLE);
+        } catch (Throwable) {
+            return [
+                'status' => 'blocked',
+                'data_status' => 'read_failed',
+                'reason_code' => 'temporal_forecast_schema_check_failed',
+                'stage' => self::FORECAST_TABLE,
+                'message' => '预测版本表读取失败，未按未初始化处理。',
+                'metric_scope' => 'ota_channel',
+                'system_hotel_id' => $hotelId,
+                'saved_count' => null,
+                'readback_count' => null,
+                'operational_status' => 'disabled',
+            ];
+        }
+        if (!$forecastTableExists) {
             throw new RuntimeException('预测版本表尚未初始化，请先执行 20260715_create_temporal_forecast_snapshots.sql。', 422);
         }
 
@@ -133,6 +149,29 @@ final class TemporalInsightService
         $sourceEnd = $this->shiftDate($asOf, -1);
         $sourceStart = $this->shiftDate($sourceEnd, -27);
         $history = $this->loadPeriodFacts([$hotelId], $sourceStart, $sourceEnd, 'historical_daily', true);
+        if (($history['data_status'] ?? '') === 'read_failed') {
+            return [
+                'status' => 'blocked',
+                'data_status' => 'read_failed',
+                'reason_code' => (string)($history['reason_code'] ?? 'temporal_facts_read_failed'),
+                'stage' => (string)($history['stage'] ?? 'online_daily_data'),
+                'message' => 'Temporal forecast generation is blocked because source facts could not be read.',
+                'metric_scope' => 'ota_channel',
+                'system_hotel_id' => $hotelId,
+                'source_period' => ['start_date' => $sourceStart, 'end_date' => $sourceEnd],
+                'saved_count' => null,
+                'readback_count' => null,
+                'metrics' => [],
+                'data_quality' => $history['data_quality'] ?? [],
+                'data_gaps' => $history['data_gaps'] ?? [],
+                'operational_status' => 'disabled',
+                'eligible_point_count' => null,
+                'operational_policy' => $this->operationalPolicy(),
+                'confidence_type' => self::CONFIDENCE_TYPE,
+                'confidence_semantics' => self::CONFIDENCE_SEMANTICS,
+                'calibration_status' => 'not_calibrated',
+            ];
+        }
         $plan = $this->buildForecastPlan($history['series'], $asOf, $futureDays);
 
         if (($plan['points'] ?? []) === []) {
@@ -358,6 +397,18 @@ final class TemporalInsightService
     {
         $metricKey = strtolower(trim((string)($forecast['metric_key'] ?? '')));
         $targetDate = trim((string)($forecast['target_date'] ?? ''));
+        if (($bundle['data_status'] ?? '') === 'read_failed') {
+            return [
+                'status' => 'blocked',
+                'data_status' => 'read_failed',
+                'reason_code' => (string)($bundle['reason_code'] ?? 'temporal_facts_read_failed'),
+                'stage' => (string)($bundle['stage'] ?? 'online_daily_data'),
+                'forecast_point_id' => (int)($forecast['id'] ?? 0),
+                'metric_key' => $metricKey,
+                'target_date' => $targetDate,
+                'data_quality' => $bundle['data_quality'] ?? [],
+            ];
+        }
         $quality = is_array($bundle['metric_quality'][$metricKey] ?? null)
             ? $bundle['metric_quality'][$metricKey]
             : [];
@@ -576,7 +627,17 @@ final class TemporalInsightService
                 'series' => [],
             ];
         }
-        if (!$this->tableExists(self::FORECAST_TABLE)) {
+        try {
+            $forecastTableExists = $this->tableExists(self::FORECAST_TABLE);
+        } catch (Throwable) {
+            return $this->blockedTemporalView(
+                '未来可观',
+                'temporal_forecast_schema_check_failed',
+                self::FORECAST_TABLE,
+                ['series' => []]
+            );
+        }
+        if (!$forecastTableExists) {
             return [
                 'status' => 'not_initialized',
                 'label' => '未来可观',
@@ -588,13 +649,22 @@ final class TemporalInsightService
         $hotelId = $hotelIds[0];
         $startDate = $this->shiftDate($today, 1);
         $endDate = $this->shiftDate($today, $futureDays);
-        $latest = Db::name(self::FORECAST_TABLE)
-            ->where('system_hotel_id', $hotelId)
-            ->where('as_of_date', '<=', $today)
-            ->whereBetween('target_date', [$startDate, $endDate])
-            ->order('as_of_time', 'desc')
-            ->order('id', 'desc')
-            ->find();
+        try {
+            $latest = Db::name(self::FORECAST_TABLE)
+                ->where('system_hotel_id', $hotelId)
+                ->where('as_of_date', '<=', $today)
+                ->whereBetween('target_date', [$startDate, $endDate])
+                ->order('as_of_time', 'desc')
+                ->order('id', 'desc')
+                ->find();
+        } catch (Throwable) {
+            return $this->blockedTemporalView(
+                '未来可观',
+                'temporal_forecast_read_failed',
+                self::FORECAST_TABLE,
+                ['series' => []]
+            );
+        }
         if (!$latest) {
             return [
                 'status' => 'empty',
@@ -604,14 +674,23 @@ final class TemporalInsightService
             ];
         }
 
-        $rows = Db::name(self::FORECAST_TABLE)
-            ->where('system_hotel_id', $hotelId)
-            ->where('forecast_run_id', (string)$latest['forecast_run_id'])
-            ->whereBetween('target_date', [$startDate, $endDate])
-            ->order('target_date', 'asc')
-            ->order('metric_key', 'asc')
-            ->select()
-            ->toArray();
+        try {
+            $rows = Db::name(self::FORECAST_TABLE)
+                ->where('system_hotel_id', $hotelId)
+                ->where('forecast_run_id', (string)$latest['forecast_run_id'])
+                ->whereBetween('target_date', [$startDate, $endDate])
+                ->order('target_date', 'asc')
+                ->order('metric_key', 'asc')
+                ->select()
+                ->toArray();
+        } catch (Throwable) {
+            return $this->blockedTemporalView(
+                '未来可观',
+                'temporal_forecast_read_failed',
+                self::FORECAST_TABLE,
+                ['series' => []]
+            );
+        }
 
         $series = $this->shapeForecastRows($rows, $review);
         $operationRecommendation = $this->buildOperationRecommendation($rows, $review);
@@ -660,7 +739,22 @@ final class TemporalInsightService
                 'items' => [],
             ];
         }
-        if (!$this->tableExists(self::FORECAST_TABLE)) {
+        try {
+            $forecastTableExists = $this->tableExists(self::FORECAST_TABLE);
+        } catch (Throwable) {
+            return $this->blockedTemporalView(
+                '回看当时',
+                'temporal_forecast_schema_check_failed',
+                self::FORECAST_TABLE,
+                [
+                    'conclusion_status' => 'disabled',
+                    'policy' => $this->operationalPolicy(),
+                    'cohorts' => [],
+                    'items' => [],
+                ]
+            );
+        }
+        if (!$forecastTableExists) {
             return [
                 'status' => 'not_initialized',
                 'label' => '回看当时',
@@ -674,17 +768,31 @@ final class TemporalInsightService
         $hotelId = $hotelIds[0];
         $yesterday = $this->shiftDate($today, -1);
         $reviewStart = $this->shiftDate($yesterday, -(self::BACKTEST_LOOKBACK_DAYS - 1));
-        $forecasts = Db::name(self::FORECAST_TABLE)
-            ->where('system_hotel_id', $hotelId)
-            ->whereBetween('target_date', [$reviewStart, $yesterday])
-            ->order('target_date', 'asc')
-            ->order('metric_key', 'asc')
-            ->order('horizon_days', 'asc')
-            ->order('as_of_time', 'asc')
-            ->order('id', 'asc')
-            ->limit(10000)
-            ->select()
-            ->toArray();
+        try {
+            $forecasts = Db::name(self::FORECAST_TABLE)
+                ->where('system_hotel_id', $hotelId)
+                ->whereBetween('target_date', [$reviewStart, $yesterday])
+                ->order('target_date', 'asc')
+                ->order('metric_key', 'asc')
+                ->order('horizon_days', 'asc')
+                ->order('as_of_time', 'asc')
+                ->order('id', 'asc')
+                ->limit(10000)
+                ->select()
+                ->toArray();
+        } catch (Throwable) {
+            return $this->blockedTemporalView(
+                '回看当时',
+                'temporal_forecast_read_failed',
+                self::FORECAST_TABLE,
+                [
+                    'conclusion_status' => 'disabled',
+                    'policy' => $this->operationalPolicy(),
+                    'cohorts' => [],
+                    'items' => [],
+                ]
+            );
+        }
         if ($forecasts === []) {
             return [
                 'status' => 'empty',
@@ -699,6 +807,21 @@ final class TemporalInsightService
 
         $dates = array_map(static fn(array $row): string => (string)$row['target_date'], $forecasts);
         $actualBundle = $this->loadPeriodFacts([$hotelId], min($dates), max($dates), 'historical_daily', true);
+        if (($actualBundle['data_status'] ?? '') === 'read_failed') {
+            return $this->blockedTemporalView(
+                '回看当时',
+                (string)($actualBundle['reason_code'] ?? 'temporal_facts_read_failed'),
+                (string)($actualBundle['stage'] ?? 'online_daily_data'),
+                [
+                    'conclusion_status' => 'disabled',
+                    'policy' => $this->operationalPolicy(),
+                    'cohorts' => [],
+                    'items' => [],
+                    'actual_data_quality' => $actualBundle['data_quality'] ?? [],
+                    'actual_data_gaps' => $actualBundle['data_gaps'] ?? [],
+                ]
+            );
+        }
         $review = $this->buildBacktestSummary(
             $forecasts,
             $actualBundle['series'] ?? [],
@@ -1609,6 +1732,9 @@ final class TemporalInsightService
         $series = $bundle['series'] ?? [];
         return [
             'status' => $bundle['status'] ?? 'empty',
+            'data_status' => $bundle['data_status'] ?? ($bundle['status'] ?? 'empty'),
+            'reason_code' => $bundle['reason_code'] ?? $bundle['reason'] ?? null,
+            'stage' => $bundle['stage'] ?? null,
             'label' => '过去有据',
             'period' => ['start_date' => $startDate, 'end_date' => $endDate],
             'metric_scope' => 'ota_channel',
@@ -1621,8 +1747,12 @@ final class TemporalInsightService
                 'table' => 'online_daily_data',
                 'data_period' => 'historical_daily',
                 'is_final' => 1,
-                'source_rows' => (int)($bundle['source_row_count'] ?? 0),
-                'fact_rows' => (int)($bundle['fact_count'] ?? 0),
+                'source_rows' => is_numeric($bundle['source_row_count'] ?? null)
+                    ? (int)$bundle['source_row_count']
+                    : null,
+                'fact_rows' => is_numeric($bundle['fact_count'] ?? null)
+                    ? (int)$bundle['fact_count']
+                    : null,
             ],
         ];
     }
@@ -1652,19 +1782,27 @@ final class TemporalInsightService
             ];
         }
 
-        $rowCount = (int)($presentBundle['source_row_count'] ?? 0);
+        $rowCount = is_numeric($presentBundle['source_row_count'] ?? null)
+            ? (int)$presentBundle['source_row_count']
+            : null;
         $snapshotTime = $presentBundle['latest_snapshot_time'] ?? null;
+        $readFailed = ($presentBundle['data_status'] ?? '') === 'read_failed';
         return [
             'status' => $presentBundle['status'] ?? 'empty',
+            'data_status' => $presentBundle['data_status'] ?? ($presentBundle['status'] ?? 'empty'),
+            'reason_code' => $presentBundle['reason_code'] ?? $presentBundle['reason'] ?? null,
+            'stage' => $presentBundle['stage'] ?? null,
             'label' => '如今可察',
             'as_of_time' => $snapshotTime,
             'snapshot_row_count' => $rowCount,
             'metrics' => array_intersect_key($todayMetrics, array_fill_keys(array_keys(self::METRICS), true)),
             'comparison_to_latest_final' => $comparison,
             'comparison_caveat' => '今日为累计实时快照，最近定稿日为完整日；差异仅用于观察，不直接作为执行结论。',
-            'today_reason' => $rowCount > 0
+            'today_reason' => $readFailed
+                ? '时间事实读取失败，未按无数据或零值处理；请恢复数据库读取后重试。'
+                : ($rowCount > 0
                 ? sprintf('今天已有 %d 条 OTA 快照进入观察，最近更新时间为 %s。', $rowCount, $snapshotTime ?: '待确认')
-                : '今天尚无有效 OTA 实时快照，先确认采集状态，不把缺失显示成零。',
+                : '今天尚无有效 OTA 实时快照，先确认采集状态，不把缺失显示成零。'),
             'data_quality' => $presentBundle['data_quality'] ?? [],
             'data_gaps' => $presentBundle['data_gaps'] ?? [],
             'source' => [
@@ -1686,30 +1824,45 @@ final class TemporalInsightService
         string $period,
         bool $isFinal
     ): array {
-        if (!$this->tableExists('online_daily_data')) {
+        try {
+            $factTableExists = $this->tableExists('online_daily_data');
+        } catch (Throwable) {
+            return $this->readFailedFactBundle(
+                'temporal_fact_schema_check_failed',
+                'online_daily_data'
+            );
+        }
+        if (!$factTableExists) {
             return $this->emptyFactBundle('table_missing');
         }
 
-        $query = Db::name('online_daily_data')
-            ->whereBetween('data_date', [$startDate, $endDate])
-            ->where('data_period', $period)
-            ->where('is_final', $isFinal ? 1 : 0)
-            // The temporal headline is a fact view, not a generic raw-data
-            // rollup.  `business` rows can be dashboard widgets, rankings or
-            // competitor snapshots whose overloaded amount/order columns are
-            // not a hotel daily result.  A Ctrip daily business-overview row
-            // is the explicit exception and is filtered below by endpoint,
-            // section and normal validation before it can enter this fact view.
-            ->whereIn('data_type', ['order', 'traffic', 'business']);
-        if ($hotelIds !== []) {
-            $query->whereIn('system_hotel_id', $hotelIds);
+        try {
+            $query = Db::name('online_daily_data')
+                ->whereBetween('data_date', [$startDate, $endDate])
+                ->where('data_period', $period)
+                ->where('is_final', $isFinal ? 1 : 0)
+                // The temporal headline is a fact view, not a generic raw-data
+                // rollup.  `business` rows can be dashboard widgets, rankings or
+                // competitor snapshots whose overloaded amount/order columns are
+                // not a hotel daily result.  A Ctrip daily business-overview row
+                // is the explicit exception and is filtered below by endpoint,
+                // section and normal validation before it can enter this fact view.
+                ->whereIn('data_type', ['order', 'traffic', 'business']);
+            if ($hotelIds !== []) {
+                $query->whereIn('system_hotel_id', $hotelIds);
+            }
+            $rows = $query
+                ->order('data_date', 'asc')
+                ->order('id', 'asc')
+                ->limit(250000)
+                ->select()
+                ->toArray();
+        } catch (Throwable) {
+            return $this->readFailedFactBundle(
+                'temporal_facts_read_failed',
+                'online_daily_data'
+            );
         }
-        $rows = $query
-            ->order('data_date', 'asc')
-            ->order('id', 'asc')
-            ->limit(250000)
-            ->select()
-            ->toArray();
         $operatingRows = $this->selectOperatingFactRows($rows);
         $rows = $operatingRows['rows'];
         $futureTargetRowsExcluded = $operatingRows['future_target_rows_excluded'];
@@ -2532,6 +2685,81 @@ final class TemporalInsightService
         ];
     }
 
+    /** @return array<string, mixed> */
+    private function readFailedFactBundle(string $reasonCode, string $stage): array
+    {
+        $metricQuality = [];
+        foreach (self::METRICS as $metricKey => $factKey) {
+            $metricQuality[$metricKey] = [
+                'metric_key' => $metricKey,
+                'fact_key' => $factKey,
+                'source_fact_rows' => null,
+                'trusted_fact_rows' => null,
+                'excluded_fact_rows' => null,
+                'trusted_days' => null,
+                'quality_status' => 'read_failed',
+                'platform_coverage_status' => 'unknown',
+                'freshness_status' => 'unknown',
+                'row_ids' => [],
+            ];
+        }
+        $dataGaps = [[
+            'code' => $reasonCode,
+            'data_status' => 'read_failed',
+            'stage' => $stage,
+        ]];
+
+        return [
+            'status' => 'blocked',
+            'data_status' => 'read_failed',
+            'reason_code' => $reasonCode,
+            'stage' => $stage,
+            'series' => [],
+            'source_row_count' => null,
+            'source_fact_count' => null,
+            'fact_count' => null,
+            'excluded_fact_count' => null,
+            'excluded_fact_reason_counts' => [],
+            'source_row_ids' => [],
+            'metric_quality' => $metricQuality,
+            'latest_snapshot_time' => null,
+            'data_gaps' => $dataGaps,
+            'data_quality' => [
+                'status' => 'read_failed',
+                'reason_code' => $reasonCode,
+                'stage' => $stage,
+                'source_facts' => null,
+                'trusted_facts' => null,
+                'excluded_facts' => null,
+                'metric_quality' => $metricQuality,
+                'data_gaps' => $dataGaps,
+                'missing_values_are_null' => true,
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function blockedTemporalView(
+        string $label,
+        string $reasonCode,
+        string $stage,
+        array $extra = []
+    ): array {
+        return array_merge([
+            'status' => 'blocked',
+            'data_status' => 'read_failed',
+            'reason_code' => $reasonCode,
+            'stage' => $stage,
+            'label' => $label,
+            'message' => '数据库读取失败，未按缺表、无记录或零值处理；请恢复读取后重试。',
+            'data_gaps' => [[
+                'code' => $reasonCode,
+                'data_status' => 'read_failed',
+                'stage' => $stage,
+            ]],
+        ], $extra);
+    }
+
     /** @param array<string, float> $valuesByDate @return array<int, float> */
     private function valuesWithin(array $valuesByDate, string $startDate, string $endDate): array
     {
@@ -2676,8 +2904,47 @@ final class TemporalInsightService
         try {
             Db::query('SELECT 1 FROM `' . $table . '` LIMIT 1');
             return true;
-        } catch (Throwable) {
-            return false;
+        } catch (Throwable $exception) {
+            if ($this->isMissingTableException($exception, $table)) {
+                return false;
+            }
+            throw new RuntimeException(
+                'database_table_probe_failed:' . $table,
+                503,
+                $exception
+            );
         }
+    }
+
+    private function isMissingTableException(Throwable $exception, string $table): bool
+    {
+        $table = strtolower($table);
+        $current = $exception;
+        do {
+            $code = strtoupper(trim((string)$current->getCode()));
+            $message = strtolower($current->getMessage());
+            if ($code === '42S02'
+                || str_contains($message, "table '{$table}' doesn't exist")
+                || str_contains($message, 'table `' . $table . '` does not exist')
+                || str_contains($message, 'relation "' . $table . '" does not exist')
+                || preg_match(
+                    '/table\s+[' . "'`\"" . '](?:[a-z0-9_]+\.)?'
+                        . preg_quote($table, '/')
+                        . '[' . "'`\"" . ']\s+(?:doesn.t|does not)\s+exist/i',
+                    $message
+                ) === 1
+                || preg_match(
+                    '/no such table:\s*(?:[a-z0-9_]+\.)?[`"\[]?'
+                        . preg_quote($table, '/')
+                        . '[`"\]]?(?:\s|$)/i',
+                    $message
+                ) === 1
+            ) {
+                return true;
+            }
+            $current = $current->getPrevious();
+        } while ($current instanceof Throwable);
+
+        return false;
     }
 }

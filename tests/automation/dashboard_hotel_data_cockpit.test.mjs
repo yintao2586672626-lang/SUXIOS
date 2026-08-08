@@ -154,8 +154,9 @@ test('online-data surface exposes the six-step operating loop and retains collec
   assert.match(appMain, /const generateCoreOperationsDiagnoses = async/);
   assert.match(appMain, /analysis_mode: 'rules_only'/);
   assert.ok(diagnosisGenerationStart >= 0 && diagnosisGenerationEnd > diagnosisGenerationStart);
-  assert.match(diagnosisGenerationSource, /for \(const platform of \['ctrip', 'meituan'\]\)/);
-  assert.doesNotMatch(diagnosisGenerationSource, /Promise\.allSettled/);
+  assert.match(diagnosisGenerationSource, /Promise\.allSettled\(\['ctrip', 'meituan'\]\.map/);
+  assert.match(diagnosisGenerationSource, /savedCount === 2/);
+  assert.match(diagnosisGenerationSource, /requestFailureCount/);
   assert.ok(patrolRunStart >= 0 && patrolRunEnd > patrolRunStart);
   assert.match(patrolRunSource, /dailyWorkbenchPatrolConfirming\.value = true/);
   assert.match(patrolRunSource, /if \(!dailyWorkbenchPatrolConfirming\.value\)/);
@@ -229,7 +230,7 @@ test('online-data surface exposes the six-step operating loop and retains collec
   assert.match(appMain, /keepCurrentSurface: true/);
   assert.equal((onlineDataFragment.match(/refreshCoreOperationsLoop\(\{ resetScope: true \}\)/g) || []).length, 2);
   assert.match(appMain, /options\.resetScope === true/);
-  assert.match(diagnosisGenerationSource, /for \(const platform of \['ctrip', 'meituan'\]\)/);
+  assert.match(diagnosisGenerationSource, /Promise\.allSettled\(\['ctrip', 'meituan'\]\.map/);
   assert.match(appMain, /const currentPage = ref\(initialPageOverride \|\| 'ai-workbench'\)/);
   assert.match(appMain, /testid: 'nav-core-operations-loop'/);
   assert.match(operationStatic, /OTA诊断行动/);

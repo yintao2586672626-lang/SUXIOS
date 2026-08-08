@@ -16,6 +16,7 @@ const reports = [];
 const runs = [];
 let expectedNetworkProfile = '';
 let expectedUrl = '';
+let expectedArtifactDigest = '';
 
 fs.mkdirSync(outputDir, { recursive: true });
 
@@ -50,7 +51,11 @@ for (let isolationRun = 1; isolationRun <= isolationRunCount; isolationRun += 1)
   if (fragment?.schema_version !== 2
     || fragment?.label !== fragmentLabel
     || fragment?.authenticated_requested !== true
+    || fragment?.authenticated !== true
     || fragment?.verification_status !== 'verified'
+    || fragment?.artifact_identity_stable !== true
+    || !/^[a-f0-9]{64}$/.test(String(fragment?.artifact_identity?.digest || ''))
+    || fragment?.artifact_identity_completed_digest !== fragment?.artifact_identity?.digest
     || fragment?.runs?.length !== 1
     || fragmentRun?.authenticated !== true
     || fragmentRun?.verification_status !== 'verified') {
@@ -58,8 +63,12 @@ for (let isolationRun = 1; isolationRun <= isolationRunCount; isolationRun += 1)
   }
   expectedNetworkProfile ||= String(fragment.network_profile || '');
   expectedUrl ||= String(fragment.url || '');
+  expectedArtifactDigest ||= String(fragment.artifact_identity.digest || '');
   if (fragment.network_profile !== expectedNetworkProfile || fragment.url !== expectedUrl) {
     throw new Error(`Fresh isolated frontend performance run ${isolationRun} changed its measurement scope`);
+  }
+  if (fragment.artifact_identity.digest !== expectedArtifactDigest) {
+    throw new Error(`Fresh isolated frontend performance run ${isolationRun} changed its artifact identity`);
   }
   reports.push(fragment);
   runs.push({
@@ -90,6 +99,14 @@ const result = {
   authentication_status: firstRun.authentication_status || null,
   authentication_blocker: firstRun.authentication_blocker || null,
   started_at: firstReport.started_at || new Date().toISOString(),
+  completed_at: new Date().toISOString(),
+  artifact_identity: firstReport.artifact_identity || null,
+  artifact_identity_completed_digest: expectedArtifactDigest,
+  artifact_identity_stable: reports.every(
+    (report) => report.artifact_identity_stable === true
+      && report.artifact_identity_completed_digest === expectedArtifactDigest
+      && report.artifact_identity?.digest === expectedArtifactDigest,
+  ),
   network_profile: firstReport.network_profile || 'none',
   auth_transition_ms: firstRun.auth_transition_ms ?? null,
   login_handoff: firstRun.login_handoff || null,

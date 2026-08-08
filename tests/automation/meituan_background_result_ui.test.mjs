@@ -84,6 +84,7 @@ test('Meituan ranking production flow commits deferred candidates through the au
 
 test('Meituan production flow invalidates stale runs when the hotel changes', () => {
   const productionFlow = sliceFrom(html, 'const fetchMeituanData = async (options = {}) => {', 'const useCtripTrafficDisplayRows');
+  const hotelReset = sliceFrom(html, 'const clearMeituanPlatformHotelScopedState = () => {', 'const selectMeituanRankingDateRange');
   const hotelWatcher = sliceFrom(html, 'watch(() => meituanForm.value.hotelId, () => {', 'watch(() => meituanForm.value.dateRanges');
 
   assert.match(html, /let meituanFetchRunToken = 0;/);
@@ -91,7 +92,9 @@ test('Meituan production flow invalidates stale runs when the hotel changes', ()
   assert.match(productionFlow, /const isActive = \(\) => runToken === meituanFetchRunToken;/);
   assert.match(productionFlow, /isActive,/);
   assert.match(productionFlow, /if \(preparingConfig && isActive\(\)\)/);
-  assert.match(hotelWatcher, /meituanFetchRunToken \+= 1;/);
+  assert.match(hotelWatcher, /clearMeituanPlatformHotelScopedState\(\);/);
+  assert.match(hotelReset, /meituanFetchRunToken \+= 1;/);
+  assert.match(hotelReset, /meituanOrderFlowRequestSeq \+= 1;/);
 });
 
 test('Meituan ranking candidate flow ships with a fresh browser cache key', () => {

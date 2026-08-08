@@ -22,6 +22,7 @@
     const authenticatedStartupPreloadLinks = new Map();
     let loginHandoffStartedAt = null;
     let loginHandoffMetrics = null;
+    let disposeLoginShell = null;
 
     const appRoot = () => document.getElementById('app');
 
@@ -405,9 +406,9 @@
                 ]);
                 await Promise.all(prerequisites.map((src) => loadScript(src)));
                 await loadScript(entry);
-                void loadDeferredAuthenticatedAssets(
-                    assets.filter((asset) => asset.phase === ASSET_PHASE_AFTER_FIRST_PAINT),
-                );
+                // Deferred bundles stay off the default authenticated landing
+                // pages. app-main requests them when navigation first needs a
+                // page outside the compact startup render.
             } catch (error) {
                 const failedAsset = String(error?.message || '').split(' ')[0] || 'authenticated asset';
                 window.SUXI_RENDER_ASSET_LOAD_ERROR?.(failedAsset);
@@ -678,6 +679,7 @@
     };
 
     const renderLoginShell = () => {
+        disposeLoginShell?.();
         const root = appRoot();
         if (!root) return;
         root.removeAttribute('v-cloak');
@@ -777,6 +779,24 @@
         window.addEventListener('focus', warmLoginConnection);
         document.addEventListener('visibilitychange', handleLoginVisibilityChange);
         window.addEventListener('pagehide', loginConnectionWarmup.stop, { once: true });
+        let loginShellDisposed = false;
+        const disposeCurrentLoginShell = () => {
+            if (loginShellDisposed) return;
+            loginShellDisposed = true;
+            autofillSyncTimers.forEach((timer) => window.clearTimeout(timer));
+            autofillSyncTimers = [];
+            loginConnectionWarmup.stop();
+            window.removeEventListener('pageshow', scheduleLoginAutofillSync);
+            window.removeEventListener('pageshow', warmLoginConnection);
+            window.removeEventListener('focus', scheduleLoginAutofillSync);
+            window.removeEventListener('focus', warmLoginConnection);
+            document.removeEventListener('visibilitychange', handleLoginVisibilityChange);
+            window.removeEventListener('pagehide', loginConnectionWarmup.stop);
+            if (disposeLoginShell === disposeCurrentLoginShell) {
+                disposeLoginShell = null;
+            }
+        };
+        disposeLoginShell = disposeCurrentLoginShell;
         password.addEventListener('keydown', (event) => { capsLock.hidden = !event.getModifierState?.('CapsLock'); });
         password.addEventListener('keyup', (event) => { capsLock.hidden = !event.getModifierState?.('CapsLock'); });
         password.addEventListener('blur', () => { capsLock.hidden = true; });
@@ -888,6 +908,7 @@
                 }).catch(() => {});
                 submit.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>正在加载经营系统...</span>';
                 await loadAuthenticatedApp();
+                disposeLoginShell?.();
                 await markLoginInteractiveAfterPaint({ source: 'public-login' });
             } catch (error) {
                 markLoginHandoffFailed(error);

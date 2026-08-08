@@ -36,6 +36,10 @@ test('isolated E2E residue verification retains user identity after cleanup', ()
   ]) {
     assert.match(helper, new RegExp(`\\$counts\\['${residue}'\\]`));
   }
+  assert.match(
+    helper,
+    /'platform_data_sources' => \['platform_data_sources', 'system_hotel_id'\]/,
+  );
 });
 
 test('isolated E2E refuses unsafe database targets before any cleanup path', () => {
@@ -90,6 +94,17 @@ test('isolated E2E seed follows the current tenant foreign-key model', () => {
   assert.match(runner, /Number\(seed\.tenant_id\)/);
 });
 
+test('isolated E2E seed establishes the current default-hotel context', () => {
+  assert.match(
+    helper,
+    /'users' => \['id', 'username', 'role_id', 'hotel_id', 'default_hotel_id', 'tenant_id'\]/,
+  );
+  assert.match(
+    helper,
+    /Db::name\('users'\)->where\('id', \$userId\)->update\([\s\S]*'hotel_id' => \$hotelId,[\s\S]*'default_hotel_id' => \$hotelId/,
+  );
+});
+
 test('quick E2E binds helper and self-hosted app to one dedicated database', () => {
   assert.match(exampleEnv, /^SUXI_E2E_DB_NAME\s*=\s*hotelx_e2e$/m);
   assert.match(runner, /process\.env\.SUXI_E2E_DB_NAME/);
@@ -100,4 +115,14 @@ test('quick E2E binds helper and self-hosted app to one dedicated database', () 
   assert.match(runner, /spawn\(php, \['-S'/);
   assert.match(runner, /SUXI_E2E_APP_PORT/);
   assert.match(runner, /await stopIsolatedServer\(isolatedServer\)/);
+  assert.match(runner, /auto-fetch-status\?system_hotel_id=\$\{seed\.hotel_id\}/);
+  assert.match(runner, /platform-profile-status\?system_hotel_id=\$\{seed\.hotel_id\}/);
+});
+
+test('isolated E2E uses and removes a per-run cache and lock root', () => {
+  assert.match(runner, /const isolatedStateParent = path\.resolve\(root, 'runtime', 'e2e-state'\);/);
+  assert.match(runner, /SUXIOS_CACHE_PATH: isolatedCachePath/);
+  assert.match(runner, /SUXIOS_LOCAL_LOCK_PATH: isolatedLockPath/);
+  assert.match(runner, /path\.dirname\(isolatedStateRoot\) !== isolatedStateParent/);
+  assert.match(runner, /rmSync\(isolatedStateRoot, \{ recursive: true, force: true \}\)/);
 });

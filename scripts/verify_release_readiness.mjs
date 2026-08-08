@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDesignHandoff } from './lib/design_handoff_checks.mjs';
-import { checkLlmConnectivityAttestation as checkLlmAttestationFile } from './lib/llm_attestation_checks.mjs';
+import {
+  checkLlmConnectivityAttestation as checkLlmAttestationFile,
+  resolveGitHead,
+} from './lib/llm_attestation_checks.mjs';
 import { checkOtaCredentialRelease } from './lib/ota_credential_checks.mjs';
 import { checkProductionEnvFile } from './lib/release_env_checks.mjs';
 import { checkSecurityScanReports } from './lib/security_scan_checks.mjs';
@@ -15,6 +18,7 @@ const pendingExternalStateAllowed = process.env.RELEASE_READINESS_ALLOW_PENDING_
 const failures = [];
 const warnings = [];
 const passes = [];
+let expectedReleaseHeadSha = '';
 
 function addPass(message) {
   passes.push(message);
@@ -201,7 +205,15 @@ function checkOpenAiEntrypoints() {
 function checkLlmConnectivityAttestation() {
   const attestationPath = process.env.LLM_CONNECTIVITY_ATTESTATION_FILE
     || existingEvidenceOrRepo('llm-attestation.json', 'docs/llm_connectivity_attestation.json');
-  const result = checkLlmAttestationFile({ repoRoot, attestationPath });
+  const result = checkLlmAttestationFile({
+    repoRoot,
+    attestationPath,
+    expectedReleaseCommit: process.env.RELEASE_EXPECTED_HEAD_SHA
+      || expectedReleaseHeadSha
+      || resolveGitHead(repoRoot)
+      || 'unresolved',
+    expectedConfigDigest: process.env.LLM_PRODUCTION_CONFIG_DIGEST || '',
+  });
   result.passes.forEach(addPass);
   result.failures.forEach(addFailure);
 }
@@ -587,6 +599,7 @@ function checkExternalStateResult() {
     addFailure('Release external-state result did not record expected_release_pr_head_sha. Rerun npm run review:release-external-state on the selected final PR.');
     return;
   }
+  expectedReleaseHeadSha = externalStateHeadSha.toLowerCase();
   if (externalStateHeadSha.toLowerCase() !== prCandidateResult.selectedHeadRefOid.toLowerCase()) {
     addFailure(`Release external-state PR head ${externalStateHeadSha} does not match release PR candidate head ${prCandidateResult.selectedHeadRefOid}. Rerun npm run review:release-pr-candidates and npm run review:release-external-state on the same PR head.`);
     return;
@@ -630,7 +643,6 @@ function checkExternalStateResult() {
 
 checkEnvReadiness();
 checkOpenAiEntrypoints();
-checkLlmConnectivityAttestation();
 checkDesignArtifacts();
 checkOtaCredentialReadiness();
 checkReleasePackageScope();
@@ -639,6 +651,7 @@ checkTooling();
 checkGitEnvironment();
 checkReleaseStagedScopeResult();
 checkExternalStateResult();
+checkLlmConnectivityAttestation();
 
 const resultOutputPath = process.env.RELEASE_READINESS_RESULT_FILE
   ? resolveOutputPath(process.env.RELEASE_READINESS_RESULT_FILE)

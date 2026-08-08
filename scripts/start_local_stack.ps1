@@ -236,16 +236,17 @@ function Assert-DatabaseVersion {
     }
 }
 
-function Invoke-OtaRetentionMaintenance {
-    Write-Host "[INFO] Checking 30-day OTA credential/Profile retention..."
+function Invoke-OtaRetentionPreview {
+    Write-Host "[INFO] Previewing 30-day OTA credential/Profile retention (read-only)..."
     $maintenanceArgs = $PhpRuntimeArgs + @(
         "think",
         "online-data:cleanup-dormant-profiles",
-        "--retention-days=30"
+        "--retention-days=30",
+        "--dry-run"
     )
     $maintenanceOutput = & $PhpExe @maintenanceArgs 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "OTA retention maintenance did not complete; credentials and Profiles were kept fail-closed."
+        Write-Warning "OTA retention preview did not complete; credentials and Profiles were kept unchanged."
         return
     }
 
@@ -253,13 +254,27 @@ function Invoke-OtaRetentionMaintenance {
     try {
         $summary = $summaryLine | ConvertFrom-Json
         Write-Host (
-            "[OK] OTA retention checked: profiles removed={0}, credentials revoked={1}, errors={2}" -f `
-                [int]$summary.profiles_removed,
-                [int]$summary.credentials_revoked,
+            "[OK] OTA retention preview: profiles eligible={0}, credentials eligible={1}, errors={2}" -f `
+                [int]$summary.profiles_expired,
+                [int]$summary.credentials_expired,
                 [int]$summary.errors
         )
     } catch {
-        Write-Host "[OK] OTA retention maintenance completed"
+        Write-Host "[OK] OTA retention preview completed"
+    }
+}
+
+function Test-SuxiosHealthPayload {
+    param([string]$Content)
+
+    try {
+        $payload = $Content | ConvertFrom-Json -ErrorAction Stop
+        return [string]$payload.status -eq "ok" `
+            -and [string]$payload.checks.application -eq "ok" `
+            -and [string]$payload.checks.database -eq "ok" `
+            -and [string]$payload.checks.database_schema -eq "ok"
+    } catch {
+        return $false
     }
 }
 
@@ -268,8 +283,7 @@ function Test-HttpHealth {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $HealthUrl -TimeoutSec 2
         $reportedWorkerCount = [int]([string]$response.Headers["X-SUXIOS-Backend-Pool-Size"] -as [int])
         return $response.StatusCode -eq 200 `
-            -and $response.Content -like "*status*" `
-            -and $response.Content -like "*ok*" `
+            -and (Test-SuxiosHealthPayload -Content $response.Content) `
             -and $reportedWorkerCount -eq $PhpWorkerCount
     } catch {
         return $false
@@ -282,7 +296,7 @@ function Test-BackendHttpHealth {
     $targetHealthUrl = "http://$BindHost`:$TargetPort$HealthPath"
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $targetHealthUrl -TimeoutSec 2
-        return $response.StatusCode -eq 200 -and $response.Content -like "*status*" -and $response.Content -like "*ok*"
+        return $response.StatusCode -eq 200 -and (Test-SuxiosHealthPayload -Content $response.Content)
     } catch {
         return $false
     }
@@ -397,7 +411,7 @@ if (-not (Test-Path (Join-Path $RepoRoot "think"))) {
 Start-LocalMySql
 Assert-DatabaseReady
 Assert-DatabaseVersion
-Invoke-OtaRetentionMaintenance
+Invoke-OtaRetentionPreview
 Start-ThinkPhp
 
 if (-not $NoBrowser) {

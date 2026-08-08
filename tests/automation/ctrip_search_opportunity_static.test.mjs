@@ -244,7 +244,8 @@ test('traffic tab exposes one-click four-scope search opportunity panel', () => 
   }
   assert.match(ctripStaticSource, /traffic_rank.*seq_rank.*app_detail_uv_rank/s);
   assert.match(trafficTab, /获取流量数据/);
-  assert.match(trafficTab, /@change="handleCtripTrafficHotelChange"/);
+  assert.match(html, /data-testid="platform-hotel-context-select"[\s\S]{0,400}@change="handlePlatformHotelContextChange"/);
+  assert.match(html, /onlineDataTab\.value === 'ctrip-traffic'[\s\S]{0,100}handleCtripTrafficHotelChange\(\)/);
   assert.doesNotMatch(trafficTab, /一键获取流量（含未来搜索）|日期口径|临时 Cookie\/API 辅助内容|刷新已入库数据/);
   assert.match(html, /\/online-data\/ctrip\/search-opportunity\?system_hotel_id=/);
   assert.match(html, /fetchCtripTrafficAndSearchData/);
@@ -354,9 +355,7 @@ test('one-click traffic action hydrates every traffic view without a second hist
   assert.match(html, /extractCtripRealtimeTrafficSnapshot\(\[[\s\S]*\.\.\.snapshotModel\.rankRows[\s\S]*\.\.\.snapshotModel\.trafficRows/);
   assert.match(html, /onlineDataResult\.value\?\.traffic\?\.rows/);
   assert.match(hotelChangeFlow, /ctripTrafficRows\.value = \[\];/);
-  assert.match(hotelChangeFlow, /ctripTrafficSummary\.value = null;/);
-  assert.match(hotelChangeFlow, /ctripTrafficAnalysis\.value = null;/);
-  assert.match(hotelChangeFlow, /ctripTrafficHistoryResult\.value = null;/);
+  assert.match(hotelChangeFlow, /ctripTrafficSummary\.value = ctripTrafficAnalysis\.value = ctripTrafficHistoryResult\.value = ctripRealtimeTrafficRecord\.value = null;/);
   assert.match(trafficTab, /data-testid="ctrip-traffic-history-quality"/);
   assert.match(html, /title: '历史流量部分可用'/);
   assert.match(html, /目标日期 \$\{targetDataDate\} 尚未返回/);
@@ -520,6 +519,6 @@ test('stored traffic data is loaded when the tab opens or the selected hotel cha
   assert.match(hotelChangeFlow, /ctripSearchOpportunityPayload\.value\s*=\s*null/);
   assert.match(hotelChangeFlow, /ctripSearchOpportunityError\.value\s*=\s*''/);
   assert.match(hotelChangeFlow, /const systemHotelId\s*=\s*String\(event\?\.target\?\.value\s*\|\|\s*selectedCtripHotelId\.value\s*\|\|\s*''\)/);
-  assert.match(hotelChangeFlow, /autoFetchHotelId\.value\s*=\s*systemHotelId/);
+  assert.match(html, /selectedCtripHotelId\.value = hotelId;[\s\S]{0,180}handleCtripTrafficHotelChange\(\)/);
   assert.match(fetchFlow, /await loadCtripSearchOpportunity\(\)/);
 });

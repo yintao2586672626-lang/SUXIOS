@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
+import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { formatHealthFailure } from './e2e-health-diagnostics.mjs';
 
@@ -43,15 +44,26 @@ if (selfHosted) {
     throw new Error('E2E_BASE_URL must match SUXI_E2E_APP_PORT and use the loopback root path');
   }
 }
+const objectPrefix = `codex_e2e_${Date.now().toString(36)}_${randomBytes(6).toString('hex')}`;
+const isolatedStateParent = path.resolve(root, 'runtime', 'e2e-state');
+const isolatedStateRoot = path.resolve(isolatedStateParent, objectPrefix);
+if (path.dirname(isolatedStateRoot) !== isolatedStateParent) {
+  throw new Error('Refusing to use an E2E state path outside runtime/e2e-state');
+}
+const isolatedCachePath = path.join(isolatedStateRoot, 'cache');
+const isolatedLockPath = path.join(isolatedStateRoot, 'locks');
+mkdirSync(isolatedCachePath, { recursive: true });
+mkdirSync(isolatedLockPath, { recursive: true });
 const e2eProcessEnv = selfHosted
   ? {
       ...process.env,
       DB_NAME: dedicatedDatabaseName,
       SUXI_E2E_DB_NAME: dedicatedDatabaseName,
       SUXI_E2E_DB_OVERRIDE: '1',
+      SUXIOS_CACHE_PATH: isolatedCachePath,
+      SUXIOS_LOCAL_LOCK_PATH: isolatedLockPath,
     }
   : { ...process.env };
-const objectPrefix = `codex_e2e_${Date.now().toString(36)}_${randomBytes(6).toString('hex')}`;
 const password = `${randomBytes(36).toString('base64url')}Aa1!`;
 const businessOnly = process.argv.includes('--business-only');
 const dailyOnly = process.argv.includes('--daily-only');
@@ -63,6 +75,8 @@ const edgeOnly = process.argv.includes('--edge-only');
 const uiOnly = process.argv.includes('--ui-only');
 const moduleOnly = process.argv.includes('--module-only');
 const publicPageOnly = process.argv.includes('--public-page-only');
+const transitionOnly = process.argv.includes('--transition-only');
+const stabilityOnly = process.argv.includes('--stability-only');
 const fullClick = process.argv.includes('--full-click') || process.argv.includes('--full-click-bounded');
 const fullClickBounded = process.argv.includes('--full-click-bounded');
 const codexProfileArg = process.argv.find((arg) => arg.startsWith('--codex-profile='));
@@ -105,7 +119,14 @@ if (!/^[a-zA-Z0-9._-]+$/.test(performanceLabel)) {
 if (!['0', '1'].includes(performanceEnforceBudget)) {
   throw new Error('--performance-enforce-budget must be 0 or 1');
 }
-const specs = fullClick
+const specs = stabilityOnly
+  ? [
+      'tests/automation/ota-auth-strong-reminder.spec.js',
+      'tests/automation/security_monitoring_page.spec.js',
+    ]
+  : transitionOnly
+  ? ['tests/automation/frontend_full_render_transition.spec.js']
+  : fullClick
   ? ['tests/automation/full-click-coverage.spec.js']
   : publicPageOnly
     ? ['tests/automation/public-page-task-bridge.spec.js']
@@ -300,6 +321,13 @@ async function verifyIsolatedIdentity(seed) {
     headers: { Authorization: token },
   });
   await responseJson(protectedResponse, 'Isolated E2E protected-capability preflight');
+  for (const [label, endpoint] of [
+    ['collection health', `api/online-data/auto-fetch-status?system_hotel_id=${seed.hotel_id}&include_detail=0`],
+    ['platform profile', `api/online-data/platform-profile-status?system_hotel_id=${seed.hotel_id}`],
+  ]) {
+    const response = await fetch(new URL(endpoint, baseURL), { headers: { Authorization: token } });
+    await responseJson(response, `Isolated E2E ${label} read preflight`);
+  }
   console.log(`[e2e-isolation] preflight role_id=${seed.role_id} is_super_admin=false permissions=all permitted_hotels=1 tenant_id=${seed.tenant_id}`);
 }
 
@@ -448,6 +476,18 @@ try {
 
   if (isolatedServer) {
     await stopIsolatedServer(isolatedServer);
+  }
+
+  try {
+    if (path.dirname(isolatedStateRoot) !== isolatedStateParent) {
+      throw new Error('Refusing to remove an E2E state path outside runtime/e2e-state');
+    }
+    rmSync(isolatedStateRoot, { recursive: true, force: true });
+    console.log(`[e2e-isolation] local-state-cleanup prefix=${objectPrefix} removed=1`);
+  } catch (error) {
+    primaryError ||= error;
+    exitCode = 1;
+    console.error(`[e2e-isolation] local-state cleanup failed: ${error.message}`);
   }
 }
 

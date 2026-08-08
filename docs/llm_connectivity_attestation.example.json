@@ -6,6 +6,8 @@
   "model_key": "TODO: ai_model_configs.model_key",
   "model_name": "TODO: deployed model name",
   "base_url": "TODO: configured provider base URL",
+  "release_commit_sha": "TODO: full 40-character Git SHA tested in production",
+  "config_digest": "TODO: SHA-256 of the canonical provider/model_key/model_name/base_url binding described in release_evidence_collection.zh-CN.md",
   "ai_model_config_enabled": true,
   "ai_config_secret_checked": true,
   "redaction_checked": true,
@@ -18,7 +20,9 @@
     "status": "TODO: passed",
     "response_status": 200,
     "completed_at": "TODO: YYYY-MM-DDTHH:mm:ssZ",
-    "latency_ms": 0
+    "latency_ms": 0,
+    "release_commit_sha": "TODO: same full Git SHA as release_commit_sha",
+    "config_digest": "TODO: same SHA-256 as config_digest"
   },
   "evidence_ref": "TODO: internal ticket, deployment log, or secure runbook reference",
   "notes": "Do not place API keys, bearer tokens, cookies, raw provider secrets, Authorization headers, or unredacted secret fields in this file."

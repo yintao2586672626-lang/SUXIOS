@@ -47,7 +47,7 @@ $runThinkCommand = static function (string $name, array $args = []) use ($phpBin
 $maintenanceExitCode = 0;
 foreach ([
     ['online-data:cleanup-manual-fetch-tasks', []],
-    ['online-data:cleanup-dormant-profiles', ['--retention-days=30']],
+    ['online-data:cleanup-dormant-profiles', ['--retention-days=30', '--execute']],
     ['ai-daily-report:cleanup', []],
 ] as [$maintenanceCommand, $maintenanceArgs]) {
     $code = $runThinkCommand($maintenanceCommand, $maintenanceArgs);

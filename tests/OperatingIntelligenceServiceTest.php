@@ -92,8 +92,85 @@ final class OperatingIntelligenceServiceTest extends TestCase
         Db::execute(
             'CREATE TABLE online_daily_data ('
             . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, system_hotel_id INTEGER, data_date TEXT, '
-            . 'platform TEXT, source TEXT, data_type TEXT, readback_verified INTEGER, validation_status TEXT)'
+            . 'platform TEXT, source TEXT, data_type TEXT, dimension TEXT, readback_verified INTEGER, '
+            . 'readback_verified_at TEXT, validation_status TEXT, history_status TEXT, ingestion_method TEXT, source_trace_id TEXT)'
         );
+    }
+
+    public function testOperatingQuestionRejectsPartialReadbackAndAcceptsOnlySuccessfulHistoryTruth(): void
+    {
+        Db::name('online_daily_data')->insertAll([
+            [
+                'tenant_id' => 10,
+                'system_hotel_id' => 20,
+                'data_date' => '2026-08-01',
+                'platform' => 'ctrip',
+                'source' => 'ctrip',
+                'data_type' => 'traffic',
+                'dimension' => '',
+                'readback_verified' => 1,
+                'readback_verified_at' => '2026-08-01 10:00:00',
+                'validation_status' => 'normal',
+                'history_status' => 'partial',
+                'ingestion_method' => 'legacy',
+                'source_trace_id' => '',
+            ],
+        ]);
+
+        $factReader = new OperatingQuestionService();
+        $loadFacts = new \ReflectionMethod($factReader, 'loadFacts');
+        $loadFacts->setAccessible(true);
+        $partialFacts = $loadFacts->invoke($factReader, 10, 20, 'ctrip', '2026-08-01', '2026-08-01');
+        self::assertSame([], $partialFacts);
+
+        $blocked = (new OperatingQuestionService(static fn(): array => [
+            'facts' => $partialFacts,
+            'fact_count' => count($partialFacts),
+        ]))->create(
+            10,
+            20,
+            '旧来源回读能否形成结论？',
+            'ctrip',
+            '2026-08-01',
+            '2026-08-01',
+            7
+        );
+        self::assertSame('blocked_by_missing_facts', $blocked['question']['answer_status']);
+        self::assertSame([], $blocked['question']['fact_refs']);
+
+        Db::name('online_daily_data')->insert([
+            'tenant_id' => 10,
+            'system_hotel_id' => 20,
+            'data_date' => '2026-08-01',
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_type' => 'traffic',
+            'dimension' => '',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-08-01 10:05:00',
+            'validation_status' => 'verified',
+            'history_status' => 'success',
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => 'trace-ctrip-20260801',
+        ]);
+
+        $trustedFacts = $loadFacts->invoke($factReader, 10, 20, 'ctrip', '2026-08-01', '2026-08-01');
+        self::assertCount(1, $trustedFacts);
+        $ready = (new OperatingQuestionService(static fn(): array => [
+            'facts' => $trustedFacts,
+            'fact_count' => count($trustedFacts),
+        ]))->create(
+            10,
+            20,
+            '可信来源回读能否形成证据摘要？',
+            'ctrip',
+            '2026-08-01',
+            '2026-08-01',
+            7
+        );
+        self::assertSame('evidence_ready', $ready['question']['answer_status']);
+        self::assertCount(1, $ready['question']['fact_refs']);
+        self::assertSame('success', $ready['question']['answer']['fact_samples'][0]['history_status']);
     }
 
     public function testOperatingQuestionSavesExactEvidenceReadbackAndVisibleMissingState(): void

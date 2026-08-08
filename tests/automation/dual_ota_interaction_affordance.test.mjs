@@ -8,6 +8,7 @@ import { loadFrontendTemplateSource } from '../../scripts/lib/frontend_template_
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const css = readFileSync('public/style.css', 'utf8');
+const authenticatedStyle = readFileSync('public/style.min.css', 'utf8');
 const entry = readFileSync('public/index.html', 'utf8');
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const template = loadFrontendTemplateSource(repoRoot).template;
@@ -23,8 +24,8 @@ test('AI workbench buttons expose visible hover, press and keyboard feedback', (
 });
 
 test('AI workbench stylesheet cache key matches the current stylesheet content', () => {
-  const hash = createHash('sha256').update(css).digest('hex').slice(0, 10);
-  assert.match(entry, new RegExp(`style\\.css\\?v=[^"']*-h${hash}["']`));
+  const hash = createHash('sha256').update(authenticatedStyle).digest('hex').slice(0, 10);
+  assert.match(entry, new RegExp(`style\\.min\\.css\\?v=[^"']*-h${hash}["']`));
 });
 
 test('AI workbench metric cards expose drilldown and keyboard affordance', () => {

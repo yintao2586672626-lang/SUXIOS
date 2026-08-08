@@ -23,7 +23,7 @@ const automationMonitorLogic = appMain.slice(
 
 test('automation center keeps configuration, monitoring and execution pages focused', () => {
   assert.match(pmsPage, /运营自动化中心 · 数据事实/);
-  assert.match(pmsPage, /PMS经营数据/);
+  assert.match(pmsPage, /<term-help term="pms" \/>\s*经营数据/);
   assert.match(pmsPage, /data-testid="pms-selected-source"/);
   assert.match(pmsPage, /当前门店唯一 PMS/);
   assert.match(notificationPage, /data-testid="manual-notification-workspace-tabs"/);
