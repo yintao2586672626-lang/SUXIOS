@@ -280,6 +280,7 @@ trait AgentOtaDiagnosisPersistenceConcern
                 || (string)($storedContext['readback_identity_digest'] ?? '') !== $readbackIdentityDigest
                 || $this->otaDiagnosisReadbackIdentity($storedSnapshot, $resolvedHotelId, $platform) !== $readbackIdentity
                 || !is_array($storedSnapshot['evidence_sources'] ?? null)
+                || (string)($storedSnapshot['decision_route']['version'] ?? '') !== (string)($result['decision_route']['version'] ?? '')
             ) {
                 throw new \RuntimeException('OTA diagnosis save readback verification failed');
             }
@@ -307,6 +308,7 @@ trait AgentOtaDiagnosisPersistenceConcern
             if (($verifiedContext['diagnosis_result']['saved_record']['saved'] ?? false) !== true
                 || ($verifiedContext['diagnosis_result']['saved_record']['readback_verified'] ?? false) !== true
                 || (string)($verifiedContext['readback_identity_digest'] ?? '') !== $readbackIdentityDigest
+                || (string)($verifiedContext['diagnosis_result']['decision_route']['version'] ?? '') !== (string)($result['decision_route']['version'] ?? '')
                 || $this->otaDiagnosisReadbackIdentity(
                     is_array($verifiedContext['diagnosis_result'] ?? null) ? $verifiedContext['diagnosis_result'] : [],
                     $resolvedHotelId,
@@ -410,7 +412,7 @@ trait AgentOtaDiagnosisPersistenceConcern
             'recommended_actions', 'priority', 'source_policy', 'source_summary', 'evidence_sources',
             'action_items', 'ai_governance', 'decision_status', 'decision_closure', 'execution_policy',
             'evidence_report', 'no_action_reason', 'saved_record', 'record_status', 'superseded_by',
-            'validation_status', 'invalid_reason', 'analysis_runtime',
+            'validation_status', 'invalid_reason', 'analysis_runtime', 'decision_route',
         ];
         $snapshot = [];
         foreach ($allowed as $field) {
