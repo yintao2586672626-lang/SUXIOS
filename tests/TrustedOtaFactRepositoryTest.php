@@ -182,7 +182,7 @@ final class TrustedOtaFactRepositoryTest extends TestCase
             . 'config_json TEXT NULL)'
         );
         try {
-            Db::name('platform_data_sources')->insertAll([
+            $sourceRows = [
                 [
                     'id' => 91,
                     'system_hotel_id' => 80,
@@ -204,7 +204,10 @@ final class TrustedOtaFactRepositoryTest extends TestCase
                         'stable_profile_id' => '130079194',
                     ]),
                 ],
-            ]);
+            ];
+            foreach ($sourceRows as $sourceRow) {
+                Db::name('platform_data_sources')->insert($sourceRow);
+            }
             $method = new \ReflectionMethod(
                 TrustedOtaFactRepository::class,
                 'platformHotelIdsBySource'

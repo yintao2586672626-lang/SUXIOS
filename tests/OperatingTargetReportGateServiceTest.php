@@ -288,7 +288,7 @@ final class OperatingTargetReportGateServiceTest extends TestCase
             'contract_version' => 'suxios.single_hotel_digest.v1',
             'applies' => true,
             'tenant_id' => 1,
-            'hotel_id' => self::HOTEL_ID,
+            'hotel_id' => OperatingTargetReportGateService::TEST_HOTEL_ID,
             'hotel_name' => '敦煌漠蓝新',
             'business_date' => '2026-07-27',
             'status' => 'partial',
