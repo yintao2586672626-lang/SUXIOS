@@ -10,9 +10,9 @@ const dialogTemplate = fs.readFileSync(
   path.join(root, 'resources/frontend/templates/fragments/38-dialogs-knowledge-center.html'),
   'utf8',
 );
-const knowledgeController = fs.readFileSync(path.join(root, 'app/Controller/Knowledge.php'), 'utf8');
+const knowledgeController = fs.readFileSync(path.join(root, 'app/controller/Knowledge.php'), 'utf8');
 const ingestionService = fs.readFileSync(
-  path.join(root, 'app/Service/KnowledgeMaterialIngestionService.php'),
+  path.join(root, 'app/service/KnowledgeMaterialIngestionService.php'),
   'utf8',
 );
 

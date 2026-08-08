@@ -119,10 +119,15 @@ trait OtaLocalCollectorLeaseConcern
             ->whereIn('status', $this->leasedTaskStatuses())
             ->where('lease_expires_at', '>=', $now)
             ->update($extensionValues);
-        if ($updated !== 1) {
+        $readback = $this->scopedTaskQuery($locked, true)
+            ->where('lease_token_hash', $leaseHash)
+            ->where('attempt', $attempt)
+            ->whereIn('status', $this->leasedTaskStatuses())
+            ->where('lease_expires_at', '>=', $now)
+            ->find();
+        if ($updated !== 1 && (!is_array($readback) || !$this->exactWriteReadbackMatches($readback, $extensionValues))) {
             throw new OtaLocalCollectorLeaseConflict('local_collector_lease_lost_before_import', 409);
         }
-        $readback = $this->scopedTaskQuery($locked, true)->find();
         if (!is_array($readback) || !$this->exactWriteReadbackMatches($readback, $extensionValues)) {
             throw new OtaLocalCollectorLeaseConflict('local_collector_lease_extension_readback_mismatch', 409);
         }

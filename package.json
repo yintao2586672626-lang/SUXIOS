@@ -243,7 +243,7 @@
     "@playwright/test": "^1.60.0",
     "@vue/compiler-dom": "3.5.32",
     "acorn": "8.17.0",
-    "postcss": "8.5.18",
+    "postcss": "8.5.26",
     "purgecss": "8.0.0",
     "terser": "5.49.0",
     "vue": "3.5.32"
