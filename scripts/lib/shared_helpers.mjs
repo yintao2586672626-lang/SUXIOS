@@ -35,6 +35,13 @@ export function formatDateInTimeZone(date = new Date(), timeZone = 'Asia/Shangha
   return `${byType.year}-${byType.month}-${byType.day}`;
 }
 
+export function formatDateOffsetInTimeZone(date = new Date(), offsetDays = 0, timeZone = 'Asia/Shanghai') {
+  const businessDate = formatDateInTimeZone(date, timeZone);
+  const [year, month, day] = businessDate.split('-').map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + Number(offsetDays || 0)));
+  return shifted.toISOString().slice(0, 10);
+}
+
 export function safeName(value) {
   return String(value || 'default').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
 }

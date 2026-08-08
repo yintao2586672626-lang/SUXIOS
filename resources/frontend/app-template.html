@@ -12160,6 +12160,34 @@
                                                         </div>
                                                         <p class="text-sm text-blue-800 leading-relaxed">{{ otaDiagnosisResult.diagnosis?.summary || otaDiagnosisResult.core_conclusion || '-' }}</p>
                                                     </div>
+                                                    <div v-if="otaDiagnosisResult?.decision_route?.stages?.length" data-testid="ota-diagnosis-decision-route" class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                                        <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                                                            <div>
+                                                                <div class="font-semibold text-slate-900">可信决策路由</div>
+                                                                <p class="mt-1 text-xs leading-relaxed text-slate-500">真实证据优先；知识与模型只增强解释，运营动作必须经过人工确认。</p>
+                                                            </div>
+                                                            <span class="self-start rounded-full border px-2.5 py-1 text-xs"
+                                                                :class="otaDiagnosisResult.decision_route.final_status === 'blocked' ? 'border-amber-200 bg-amber-50 text-amber-700' : otaDiagnosisResult.decision_route.final_status === 'pending_manual_review' ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'">
+                                                                {{ otaDiagnosisResult.decision_route.final_status === 'blocked' ? '证据受阻' : otaDiagnosisResult.decision_route.final_status === 'pending_manual_review' ? '待人工确认' : '已就绪' }}
+                                                            </span>
+                                                        </div>
+                                                        <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                                                            <div v-for="(stage, stageIndex) in otaDiagnosisResult.decision_route.stages" :key="stage.key" class="rounded-lg border border-slate-200 bg-white p-3">
+                                                                <div class="flex items-start justify-between gap-2">
+                                                                    <div class="flex min-w-0 items-center gap-2">
+                                                                        <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">{{ stageIndex + 1 }}</span>
+                                                                        <div class="truncate text-sm font-medium text-slate-900">{{ stage.label }}</div>
+                                                                    </div>
+                                                                    <span class="shrink-0 rounded-full border px-2 py-0.5 text-[11px]"
+                                                                        :class="stage.status === 'used' || stage.status === 'not_required' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : stage.status === 'blocked' || stage.status === 'required' ? 'border-amber-200 bg-amber-50 text-amber-700' : stage.status === 'fallback' ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-100 text-slate-600'">
+                                                                        {{ stage.status_label }}
+                                                                    </span>
+                                                                </div>
+                                                                <p class="mt-2 text-xs leading-relaxed text-slate-600">{{ stage.detail }}</p>
+                                                                <p v-if="stage.refs?.length" class="mt-2 truncate text-[11px] text-slate-400" :title="stage.refs.join('、')">依据：{{ stage.refs.join('、') }}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                     <div v-if="otaDiagnosisBusinessLoopSteps.length" class="rounded-xl border border-slate-100 bg-white p-4">
                                                         <div class="flex items-center justify-between gap-3 mb-3">
                                                             <div class="font-semibold text-gray-900">业务闭环拆解</div>

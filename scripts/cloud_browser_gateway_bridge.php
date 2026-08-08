@@ -60,6 +60,14 @@ try {
             requiredDate($input, 'target_date'),
             requiredPmsPlatform($input)
         ),
+        'validate_ota_collection' => $service->validateOtaCollectionProfile(
+            requiredId($input, 'profile_id', 'cbp_'),
+            requiredPositiveInt($input, 'tenant_id'),
+            requiredPositiveInt($input, 'hotel_id'),
+            requiredPositiveInt($input, 'owner_user_id'),
+            requiredDate($input, 'target_date'),
+            requiredPlatform($input, ['ctrip', 'meituan'])
+        ),
         default => throw new RuntimeException('gateway_action_unsupported'),
     };
 } catch (Throwable $e) {
@@ -125,8 +133,14 @@ function requiredDate(array $input, string $key): string
 /** @param array<string,mixed> $input */
 function requiredPmsPlatform(array $input): string
 {
-    $value = strtolower(trim((string)($input['platform'] ?? '')));
-    if (!in_array($value, ['dingdandao', 'meituan_cloud_pms'], true)) {
+    return requiredPlatform($input, ['dingdandao', 'meituan_cloud_pms']);
+}
+
+/** @param array<string,mixed> $input @param array<int,string> $allowed */
+function requiredPlatform(array $input, array $allowed): string
+{
+    $value = strtolower(requiredText($input, 'platform', 24));
+    if (!in_array($value, $allowed, true)) {
         throw new RuntimeException('gateway_platform_invalid');
     }
     return $value;

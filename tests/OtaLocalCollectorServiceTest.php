@@ -422,6 +422,39 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame($revoked['device_token_hash'], $afterStaleTouch['device_token_hash']);
         self::assertSame($revoked['update_time'], $afterStaleTouch['update_time']);
 
+        $idempotencyKey = hash(
+            'sha256',
+            implode('|', [
+                (int)$staleAccount['id'],
+                (int)$staleMapping['system_hotel_id'],
+                'collection',
+                '2001-01-01',
+                'ota_yesterday_core',
+            ])
+        );
+        Db::name('ota_local_collector_tasks')->insert([
+            'tenant_id' => 12,
+            'user_id' => 7,
+            'device_id' => $deviceId,
+            'account_id' => (int)$staleAccount['id'],
+            'system_hotel_id' => (int)$staleMapping['system_hotel_id'],
+            'platform' => (string)$staleAccount['platform'],
+            'task_type' => 'backfill',
+            'data_date' => '2001-01-01',
+            'data_type' => 'business',
+            'status' => 'cancelled',
+            'priority' => 35,
+            'attempt' => 0,
+            'max_attempts' => 3,
+            'available_at' => date('Y-m-d H:i:s'),
+            'lease_token_hash' => '',
+            'idempotency_key' => $idempotencyKey,
+            'request_json' => '{}',
+            'created_by' => 7,
+            'create_time' => date('Y-m-d H:i:s'),
+            'update_time' => date('Y-m-d H:i:s'),
+        ]);
+
         $enqueue = new \ReflectionMethod(OtaLocalCollectorService::class, 'enqueueTask');
         $enqueue->setAccessible(true);
         try {
@@ -439,6 +472,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame(0, (int)Db::name('ota_local_collector_tasks')
             ->where('device_id', $deviceId)
             ->where('data_date', '2001-01-01')
+            ->whereIn('status', ['queued', 'leased', 'running', 'retry_wait'])
             ->count());
     }
 

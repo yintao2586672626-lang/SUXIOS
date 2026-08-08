@@ -116,6 +116,15 @@ test('agent review hides deltas without samples and labels competitor fields tru
   assert.match(appMain, /价格指数 \$\{priceIndex\}（非价格波动率）/);
 });
 
+test('OTA diagnosis exposes the persisted trust route without hiding unused layers', () => {
+  assert.match(agentPage, /data-testid="ota-diagnosis-decision-route"/);
+  assert.match(agentPage, /可信决策路由/);
+  assert.match(agentPage, /真实证据优先；知识与模型只增强解释/);
+  assert.match(agentPage, /stage\.status === 'fallback'/);
+  assert.match(agentPage, /证据受阻/);
+  assert.match(agentPage, /待人工确认/);
+});
+
 test('OTA collection result panels use explicit lifecycle states', async () => {
   for (const page of [ctripPage, meituanPage]) {
     assert.match(page, /otaFetchResultView\(/);

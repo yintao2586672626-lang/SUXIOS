@@ -178,6 +178,50 @@ final class OperatingTargetReportGateServiceTest extends TestCase
         );
     }
 
+    public function testSingleHotelIntegratedSourcesRenderTruthfulPartialMeituanFacts(): void
+    {
+        $service = new OperatingTargetReportGateService();
+        $preview = $this->readyPreview();
+        $preview['target_date'] = '2026-07-27';
+        $preview['facts']['fact_scope'] = 'accommodation_room_fee';
+        $preview['facts']['source_type'] = 'pms';
+        $preview['integrated_sources'] = $this->integratedSources();
+
+        $page = $service->pagePreview($preview, '敦煌漠蓝新');
+        $content = (string)$page['payload']['markdown']['content'];
+
+        self::assertTrue($page['formal_send_gate']['allowed']);
+        self::assertStringContainsString('敦煌漠蓝新单店经营日报', $content);
+        self::assertStringContainsString('房费：8275.67元', $content);
+        self::assertStringContainsString('平均每日间夜：13间夜', $content);
+        self::assertStringContainsString('渠道收入：1318元；订单：2单；间夜：2间夜', $content);
+        self::assertStringContainsString('曝光：1071次；意向访客：174人；转化率：16.25%', $content);
+        self::assertStringContainsString('房费：缺失；间夜：缺失', $content);
+        self::assertStringContainsString('目标日订单页汇总：0单', $content);
+        self::assertLessThanOrEqual(3800, strlen($content));
+    }
+
+    public function testSingleHotelIntegratedSourceBlockerStopsDelivery(): void
+    {
+        $service = new OperatingTargetReportGateService();
+        $preview = $this->readyPreview();
+        $preview['target_date'] = '2026-07-27';
+        $preview['integrated_sources'] = $this->integratedSources();
+        $preview['integrated_sources']['delivery_allowed'] = false;
+        $preview['integrated_sources']['blockers'] = [[
+            'code' => 'meituan_delivery_evidence_missing',
+            'message' => '美团来源证据未通过。',
+        ]];
+
+        $gate = $service->formalSendGate($preview);
+
+        self::assertFalse($gate['allowed']);
+        self::assertContains(
+            'meituan_delivery_evidence_missing',
+            array_column($gate['blockers'], 'code')
+        );
+    }
+
     public function testAdapterHasNoNetworkDatabaseOrSessionAccess(): void
     {
         $source = (string)file_get_contents(
@@ -234,6 +278,58 @@ final class OperatingTargetReportGateServiceTest extends TestCase
                 ],
             ],
             'delivery_status' => 'preview_only',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function integratedSources(): array
+    {
+        return [
+            'contract_version' => 'suxios.single_hotel_digest.v1',
+            'applies' => true,
+            'tenant_id' => 1,
+            'hotel_id' => OperatingTargetReportGateService::TEST_HOTEL_ID,
+            'hotel_name' => '敦煌漠蓝新',
+            'business_date' => '2026-07-27',
+            'status' => 'partial',
+            'delivery_allowed' => true,
+            'blockers' => [],
+            'sources' => [
+                'pms' => [
+                    'status' => 'ready',
+                    'reconciliation_status' => 'matched',
+                    'facts' => [
+                        'room_fee_revenue' => 8275.67,
+                        'adr' => 636.59,
+                        'occupancy_rate_percent' => 86.67,
+                        'revpar' => 551.71,
+                        'sold_room_nights' => 13,
+                        'average_daily_room_nights' => 13,
+                        'sellable_room_nights' => 15,
+                    ],
+                ],
+                'ctrip' => [
+                    'status' => 'ready',
+                    'collected_at' => '2026-07-27 22:30:00',
+                    'facts' => [
+                        'channel_revenue' => 1318,
+                        'orders' => 2,
+                        'room_nights' => 2,
+                    ],
+                ],
+                'meituan' => [
+                    'status' => 'partial',
+                    'facts' => [
+                        'list_exposure' => 1071,
+                        'detail_exposure' => 174,
+                        'flow_rate_percent' => 16.25,
+                        'paid_orders' => 5,
+                        'target_date_order_count' => 0,
+                        'channel_revenue' => null,
+                        'room_nights' => null,
+                    ],
+                ],
+            ],
         ];
     }
 }

@@ -1272,12 +1272,19 @@ final class AgentTest extends TestCase
             'record_status' => 'superseded',
             'superseded_by' => ['log_id' => 211],
             'saved_record' => ['id' => 210, 'status' => 'superseded'],
+            'decision_route' => [
+                'version' => 'ota_decision_route.v1',
+                'final_status' => 'blocked',
+                'stages' => [['key' => 'verified_evidence', 'status' => 'blocked']],
+            ],
             'unsafe_field' => 'must-not-persist',
         ]]);
 
         self::assertSame('superseded', $snapshot['record_status']);
         self::assertSame(211, $snapshot['superseded_by']['log_id']);
         self::assertSame('2026-07-14', $snapshot['requested_date_range']['start_date']);
+        self::assertSame('ota_decision_route.v1', $snapshot['decision_route']['version']);
+        self::assertSame('blocked', $snapshot['decision_route']['stages'][0]['status']);
         self::assertArrayNotHasKey('unsafe_field', $snapshot);
     }
 
@@ -2045,6 +2052,55 @@ final class AgentTest extends TestCase
         self::assertSame('online_daily_data#10', $payload['evidence_refs'][0]);
         self::assertSame('llm_abc', $payload['model_call']['call_id']);
         self::assertSame('ai_model_call_logs', $payload['log_sink']);
+    }
+
+    public function testOtaDiagnosisDecisionRouteExposesUsedAndMissingLayersTruthfully(): void
+    {
+        $controller = $this->controller();
+
+        $ready = $this->invokeNonPublic($controller, 'buildOtaDiagnosisDecisionRoute', [[
+            'decision_status' => 'action_required',
+            'analysis_runtime' => ['mode' => 'llm_augmented_rules', 'model_called' => true],
+            'knowledge_context' => ['items' => [[
+                'source' => 'knowledge_units',
+                'id' => 7,
+                'title' => 'OTA metric knowledge',
+            ]]],
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#10',
+                'table' => 'online_daily_data',
+                'record_id' => 10,
+            ]],
+            'ai_governance' => [
+                'human_confirmation_required' => true,
+                'human_confirmation_reason' => 'recommended actions are pending manual review',
+                'knowledge_citations' => [[
+                    'ref' => 'knowledge_units#7',
+                    'source' => 'knowledge_units',
+                ]],
+                'model_call' => [
+                    'call_id' => 'llm_abc',
+                    'status' => 'success',
+                    'model_key' => 'deepseek_chat',
+                ],
+            ],
+        ]]);
+
+        self::assertSame('ota_decision_route.v1', $ready['version']);
+        self::assertSame('pending_manual_review', $ready['final_status']);
+        self::assertSame(['used', 'used', 'used', 'required'], array_column($ready['stages'], 'status'));
+        self::assertSame(['online_daily_data#10'], $ready['stages'][0]['refs']);
+        self::assertSame(['knowledge_units#7'], $ready['stages'][1]['refs']);
+
+        $blocked = $this->invokeNonPublic($controller, 'buildOtaDiagnosisDecisionRoute', [[
+            'decision_status' => 'blocked_by_data',
+            'analysis_runtime' => ['mode' => 'not_run_no_data', 'model_called' => false],
+            'evidence_sources' => [['ref' => 'ota_no_data_scope', 'label' => 'no data']],
+        ]]);
+
+        self::assertSame('blocked', $blocked['final_status']);
+        self::assertSame(['blocked', 'skipped', 'skipped', 'required'], array_column($blocked['stages'], 'status'));
+        self::assertStringContainsString('未用 0、旧值或默认值补齐', $blocked['stages'][0]['detail']);
     }
 
     public function testDirectPriceSuggestionApplyIsDisabledForManualExecutionBoundary(): void
