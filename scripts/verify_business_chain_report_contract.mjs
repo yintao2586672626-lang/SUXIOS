@@ -25,6 +25,8 @@ function excludesAll(label, source, needles) {
 
 const report = read('scripts/report_business_chain_status.php');
 const runtimeTest = read('tests/automation/business_chain_status_report.test.mjs');
+const runtimeRunner = read('scripts/run_node_automation_tests.mjs');
+const runtimeContract = `${runtimeTest}\n${runtimeRunner}`;
 const p0ExecutionPlanTest = read('tests/BusinessChainP0ExecutionPlanTest.php');
 const revenueAi = read('app/service/RevenueAiOverviewService.php');
 const pkg = read('package.json');
@@ -53,14 +55,15 @@ includesAll('business-chain report exposes a machine-readable database blocker',
   "'database_ready' => $databaseUnavailable ? false : null",
 ]);
 
-includesAll('business-chain runtime tests use portable PHP and fail closed when runtime is required', runtimeTest, [
+includesAll('business-chain runtime tests use portable PHP and fail closed when runtime is required', runtimeContract, [
   'buildPhpBinaryCandidates',
   'resolvePhpBinary',
   'const php = resolvePhpBinary(phpCandidates)',
-  'function isRuntimeRequired(env = process.env)',
+  'function isBusinessChainRuntimeRequired(env = process.env)',
   'env.CI',
-  'env.SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME',
-  'isRuntimeRequired',
+  "const runtimeRequirementEnv = 'SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME'",
+  'env[runtimeRequirementEnv]',
+  'isBusinessChainRuntimeRequired',
   'failOrSkipRuntime',
   'skipWhenRuntimeUnavailable',
   "spawnErrorCode === 'ENOENT'",

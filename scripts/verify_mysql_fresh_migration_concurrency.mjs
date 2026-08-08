@@ -939,7 +939,7 @@ try {
        lease_expires_at, idempotency_key, request_json, created_by, started_at, create_time, update_time)
       VALUES (${tenantId}, ${userId}, @collector_device_id, @collector_account_id, ${hotelId}, 'ctrip',
        'collect', CURRENT_DATE(), 'business', 'leased', 100, 1, 3, NOW(), '${collectorLeaseHash}',
-       DATE_ADD(NOW(), INTERVAL 15 MINUTE), '${collectorTaskKey}', JSON_OBJECT('scope', 'atomic_lease_fence'),
+       DATE_ADD(NOW(), INTERVAL 24 HOUR), '${collectorTaskKey}', JSON_OBJECT('scope', 'atomic_lease_fence'),
        ${userId}, NOW(), NOW(), NOW());
     `,
     label: 'seed collector lease fencing fixture',
