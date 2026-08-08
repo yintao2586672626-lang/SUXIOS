@@ -54,6 +54,7 @@ import {
   evaluateCtripPlatformIdentity,
   extractCtripRequestPlatformIdentifiers,
 } from './lib/ctrip_platform_identity.mjs';
+import { parseCtripResponseBody } from './lib/ctrip_response_body.mjs';
 import {
   createOtaReadFallbackState,
   observeOtaReadFallbackRequest,
@@ -1322,9 +1323,40 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     }
 
     let body = null;
+    let parsedResponse = null;
     try {
       const text = await response.text();
-      body = parseResponseBody(text, contentType);
+      parsedResponse = parseCtripResponseBody(text, contentType);
+      if (!parsedResponse.ok) {
+        const failedSection = urlSection
+          || approvedMappingMatches[0]?.candidate_section
+          || activeSection
+          || 'unknown';
+        const responseEvidence = buildOtaCaptureEvidence('ctrip', {
+          url,
+          section: failedSection,
+          captureSource: `xhr:${requestType || 'unknown'}`,
+        });
+        target.responses.push({
+          url_hash: responseEvidence.source_url_hash || '',
+          source_trace_id: responseEvidence.source_trace_id || '',
+          section: failedSection,
+          section_label: sectionLabel(failedSection),
+          endpoint_id: endpoint?.id || '',
+          endpoint_label: endpoint?.label || '',
+          status: response.status(),
+          request_type: requestType,
+          row_count: 0,
+          parse_status: parsedResponse.evidence.status,
+          parse_reason: parsedResponse.evidence.reason,
+          response_body_format: parsedResponse.evidence.format,
+          response_body_sha256: parsedResponse.evidence.body_sha256 || '',
+          response_text_length: parsedResponse.evidence.text_length,
+          response_content_type: parsedResponse.evidence.content_type,
+        });
+        return;
+      }
+      body = parsedResponse.body;
     } catch (error) {
       const responseEvidence = buildOtaCaptureEvidence('ctrip', { url, section: urlSection || 'unknown', captureSource: `xhr:${requestType || 'unknown'}` });
       target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section: urlSection || 'unknown', endpoint_id: endpoint?.id || '', status: response.status(), request_type: requestType, error: error.message });
@@ -1500,6 +1532,9 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       request_type: requestType,
       keyword_hit: Boolean(urlSection),
       row_count: rows.length,
+      parse_status: parsedResponse.evidence.status,
+      parse_reason: parsedResponse.evidence.reason,
+      response_body_format: parsedResponse.evidence.format,
       request_date_source: requestDateEvidence.date_source || '',
       platform,
       catalog_fact_count: catalogFacts.length,
@@ -1639,18 +1674,6 @@ function inferSection(value, url) {
     return 'traffic';
   }
   return '';
-}
-
-function parseResponseBody(text, contentType) {
-  const trimmed = String(text || '').trim();
-  if (contentType.includes('json') || trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      return { _raw_text: trimmed.slice(0, 2000) };
-    }
-  }
-  return { _raw_text: trimmed.slice(0, 2000) };
 }
 
 function annotateCtripStandardRowDateSource(row, requestDateEvidence = {}) {
@@ -1872,13 +1895,20 @@ function looksLikeTrafficRow(row) {
 }
 
 function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
-  const listExposure = numberValue(firstValue(row, ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view']), 0);
-  const detailExposure = numberValue(firstValue(row, ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views', 'pageViews']), 0);
-  const orderFillingNum = numberValue(firstValue(row, ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clicks', 'clickNum', 'fillUsers']), 0);
-  const orderSubmitNum = numberValue(firstValue(row, ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders']), 0);
-  const flowRate = normalizePercent(firstValue(row, ['flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr']), listExposure > 0 ? (detailExposure / listExposure) * 100 : 0);
+  const listExposure = numberValue(firstValue(row, ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view'], undefined), null);
+  const detailExposure = numberValue(firstValue(row, ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views', 'pageViews'], undefined), null);
+  const orderFillingNum = numberValue(firstValue(row, ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clicks', 'clickNum', 'fillUsers'], undefined), null);
+  const orderSubmitNum = numberValue(firstValue(row, ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'], undefined), null);
+  const derivedFlowRate = listExposure !== null
+    && detailExposure !== null
+    && listExposure > 0
+    ? (detailExposure / listExposure) * 100
+    : null;
+  const flowRate = normalizePercent(firstValue(row, ['flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'], undefined), derivedFlowRate);
   const hasRank = firstValue(row, ['rank', 'ranking', 'competitionRank', 'competitorRank', 'competeRank', 'categoryRank', 'cateRank', 'categoryRanking', 'rankJson', 'rawRankJson', 'rankingJson'], '') !== '';
-  if (listExposure <= 0 && detailExposure <= 0 && orderFillingNum <= 0 && orderSubmitNum <= 0 && !hasRank) {
+  const hasTrafficMetric = [listExposure, detailExposure, orderFillingNum, orderSubmitNum, flowRate]
+    .some(value => value !== null);
+  if (!hasTrafficMetric && !hasRank) {
     return null;
   }
 
@@ -1907,11 +1937,11 @@ function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
       : 'capture_scope_default',
     date: dataDate,
     ...(dateSource ? { date_source: dateSource } : {}),
-    listExposure: Math.round(listExposure),
-    detailExposure: Math.round(detailExposure),
-    flowRate: Math.round(flowRate * 100) / 100,
-    orderFillingNum: Math.round(orderFillingNum),
-    orderSubmitNum: Math.round(orderSubmitNum),
+    listExposure: listExposure === null ? null : Math.round(listExposure),
+    detailExposure: detailExposure === null ? null : Math.round(detailExposure),
+    flowRate: flowRate === null ? null : Math.round(flowRate * 100) / 100,
+    orderFillingNum: orderFillingNum === null ? null : Math.round(orderFillingNum),
+    orderSubmitNum: orderSubmitNum === null ? null : Math.round(orderSubmitNum),
     _source_url: sourceUrl,
     _capture_source: 'xhr:traffic',
     _fingerprint: JSON.stringify([resolvedHotelId, dataDate, listExposure, detailExposure, orderFillingNum, orderSubmitNum]),
