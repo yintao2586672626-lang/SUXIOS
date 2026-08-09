@@ -212,6 +212,32 @@ test('Ctrip and Qunar order estimates stay unavailable during the 00:00-08:00 up
   assert.equal(beforeEight.channelOrderBreakdownMeta.displayLabel, '00:00–08:00 数据待更新，暂不可推算');
   assert.equal(beforeEight.bookOrderNum, 16);
 
+  const staleFallbackForCurrentTarget = api.attachCtripChannelOrderBreakdown({
+    ...row,
+    _channelOrderDataDate: '2026-08-02',
+    _channelOrderTargetDataDate: '2026-08-03',
+    _channelOrderFetchedAt: '2026-08-02T10:00:00+08:00',
+    earlyMorningFallback: {
+      status: 'applied',
+      source_data_date: '2026-08-02',
+      source_fetched_at: '2026-08-02T10:00:00+08:00',
+      applied_fields: ['totalDetailNum', 'convertionRate', 'qunarDetailVisitors', 'qunarDetailCR'],
+    },
+  }, {
+    enforceUpdateWindow: true,
+    now: '2026-08-03T07:59:00+08:00',
+  });
+  assert.equal(staleFallbackForCurrentTarget.channelOrderBreakdownMeta.status, 'traffic_pending_window');
+  assert.equal(staleFallbackForCurrentTarget.channelOrderBreakdownMeta.estimateAvailability.reason, 'current_update_window');
+  assert.deepEqual(
+    [
+      staleFallbackForCurrentTarget.ctripOrderEstimate,
+      staleFallbackForCurrentTarget.qunarOrderEstimate,
+      staleFallbackForCurrentTarget.ctripUndistributedOrderEstimate,
+    ],
+    [null, null, null],
+  );
+
   const atMidnight = api.buildCtripChannelOrderBreakdown(row, {
     enforceUpdateWindow: true,
     now: '2026-08-03T00:00:00+08:00',
@@ -345,6 +371,7 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.match(metricDefinitions, /field: 'totalOrderIncludingCancelledEstimate'/);
   assert.match(metricDefinitions, /tableLabel: '含取消总单'/);
   assert.match(metricDefinitions, /总平台订单 ÷ 0\.75[\s\S]*0\.725[\s\S]*0\.7/);
+  assert.doesNotMatch(metricDefinitions, /67\.5%|有效率32\.5%/);
   assert.doesNotMatch(metricDefinitions, /field: 'fullChannelRoomNightsEstimate'/);
   assert.doesNotMatch(metricDefinitions, /平均房价指数\(ARI\)|综合竞争力指数\(SCI\)/);
   const trafficColumnStart = appMain.indexOf('const ctripTrafficChannelColumns', salesColumnEnd);
@@ -373,17 +400,22 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.match(rankDownload, /label: '综合竞争力指数\(SCI\)'/);
   assert.match(salesDownload, /label: '携程APP订单\(含取消\)'/);
   assert.match(salesDownload, /label: '去哪儿订单\(含取消\)'/);
+  assert.match(salesDownload, /label: '酒店ID'/);
+  assert.match(salesDownload, /label: '离店销售额（元）'/);
   assert.match(salesDownload, /label: '离店间夜'/);
-  assert.match(salesDownload, /label: '平均卖价'/);
+  assert.match(salesDownload, /label: '平均卖价（元）'/);
   assert.match(salesDownload, /label: '总平台订单'/);
-  assert.match(salesDownload, /label: '同程艺龙和携程小程序以及其他分销渠道（含取消）'/);
+  assert.match(salesDownload, /label: '其他渠道订单（含取消）'/);
   assert.match(salesDownload, /label: '总订单（含取消）'/);
+  assert.match(salesDownload, /label: '访客\/转化来源'/);
   previous = -1;
-  ['总平台订单', '总订单（含取消）', '携程APP订单(含取消)', '去哪儿订单(含取消)', '同程艺龙和携程小程序以及其他分销渠道（含取消）'].forEach((label) => {
+  ['酒店ID', '离店销售额（元）', '离店间夜', '平均卖价（元）', '总平台订单', '总订单（含取消）', '携程APP订单(含取消)', '去哪儿订单(含取消)', '其他渠道订单（含取消）', '访客/转化来源'].forEach((label) => {
     const position = salesDownload.indexOf(label);
     assert.ok(position > previous, `${label} should follow the preceding exported sales column`);
     previous = position;
   });
+  assert.equal((salesDownload.match(/value: row => oneDecimalText\(row\.(?:amount|adr)\)/g) || []).length, 2);
+  assert.doesNotMatch(salesDownload, /Math\.round\(Number\(row\.(?:amount|adr)\)\)|`¥/);
   assert.doesNotMatch(salesDownload, /label: '(?:平均房价|携程间夜|携程离店间夜量|携程系预订订单数|同程订单数|总间夜|全渠道间夜推算)'/);
   assert.doesNotMatch(salesDownload, /label: '(?:携程点评分|去哪儿点评分)'/);
 
@@ -405,7 +437,14 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.match(appMain, /attachCtripChannelOrderBreakdown/);
   assert.equal((ctripTemplate.match(/hotel\.totalOrderIncludingCancelledEstimate/g) || []).length, 6);
   assert.doesNotMatch(ctripTemplate, /hotel\.fullChannelRoomNightsEstimate/);
-  assert.match(appMain, /enforceUpdateWindow: !usesLastValidTraffic/);
+  const scenarioListStart = appMain.indexOf('const ctripScenarioHotelsList');
+  const scenarioListEnd = appMain.indexOf('const ctripSortedHotelsList', scenarioListStart);
+  const scenarioListDefinition = appMain.slice(scenarioListStart, scenarioListEnd);
+  assert.match(scenarioListDefinition, /enforceUpdateWindow: true/);
+  assert.match(scenarioListDefinition, /dataDate: row\?\._channelOrderDataDate/);
+  assert.match(scenarioListDefinition, /targetDataDate: row\?\._channelOrderTargetDataDate/);
+  assert.match(scenarioListDefinition, /fetchedAt: row\?\._channelOrderFetchedAt/);
+  assert.doesNotMatch(scenarioListDefinition, /usesLastValidTraffic|fallback\.source_(?:data_date|fetched_at)|enforceUpdateWindow: false/);
   assert.match(appMain, /const ctripEarlyMorningTrafficText/);
   assert.match(appMain, /const ctripEarlyMorningTrafficNote/);
   assert.equal((ctripTemplate.match(/ctripEarlyMorningSourceNotice/g) || []).length, 4);
@@ -424,8 +463,8 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.equal((ctripTemplate.match(/' · 酒店ID ' \+ hotel\.hotelId/g) || []).length, 2);
   assert.doesNotMatch(ctripTemplate, /min-width:1470px/);
   assert.doesNotMatch(salesTable, /position:sticky|rowspan="2"|colspan=/);
-  assert.equal((ctripTemplate.match(/hasDisplayValue\(hotel\.(?:amount|adr)\) \? formatNumber\(Math\.round\(Number\(hotel\.(?:amount|adr)\)\)\) : '-'/g) || []).length, 4);
-  assert.doesNotMatch(salesTable, /'¥' \+ formatNumber\(Math\.round\(Number\(hotel\.(?:amount|adr)\)\)\)/);
+  assert.equal((ctripTemplate.match(/hasDisplayValue\(hotel\.(?:amount|adr)\) \? Number\(hotel\.(?:amount|adr)\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\) : '-'/g) || []).length, 4);
+  assert.doesNotMatch(salesTable, /formatNumber\(Math\.round\(Number\(hotel\.(?:amount|adr)\)\)\)|'¥' \+/);
   assert.equal((appMain.match(/tableLabel: '(?:含取消总单|携程APP订单|去哪儿订单|其他渠道订单)'/g) || []).length, 4);
   assert.doesNotMatch(appMain, /shortLabel: '(?:携程APP|去哪儿|其他渠道)'/);
   assert.match(styleSource, /\.ctrip-sales-table :where\(th, td\)[\s\S]*?border-right: 1px solid #cfd9e5 !important/);

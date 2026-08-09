@@ -144,6 +144,32 @@ final class AgentTest extends TestCase
             'readback_verified' => 0,
             'validation_status' => 'verified',
         ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+            'source' => 'ctrip',
+            'data_type' => 'traffic',
+            'readback_verified' => 1,
+            'validation_status' => 'normal',
+            'dimension' => '',
+            'raw_data' => json_encode([
+                'row' => ['endpoint_id' => 'traffic_hotel_seq', 'rank' => 604],
+            ], JSON_THROW_ON_ERROR),
+        ]]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+            'source' => 'ctrip',
+            'data_type' => 'traffic',
+            'readback_verified' => 1,
+            'validation_status' => 'normal',
+            'dimension' => 'catalog:business_overview:business_flow_transform:list_exposure',
+            'raw_data' => json_encode(['row' => ['listExposure' => 0]], JSON_THROW_ON_ERROR),
+        ]]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+            'source' => 'ctrip',
+            'data_type' => 'traffic',
+            'readback_verified' => 1,
+            'validation_status' => 'normal',
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+            'raw_data' => json_encode(['row' => ['listExposure' => 134]], JSON_THROW_ON_ERROR),
+        ]]));
     }
 
     public function testAllOtaDiagnosisKeepsCtripAndMeituanMetricsAndEvidenceSeparate(): void
@@ -168,6 +194,9 @@ final class AgentTest extends TestCase
                 'readback_verified' => 1,
                 'validation_status' => 'normal',
             ];
+            if ($platform === 'ctrip') {
+                $row['dimension'] = 'catalog:traffic_report:traffic_flow_transform:list_exposure';
+            }
             $dataSets[$platform] = [
                 'tenant_id' => 80,
                 'hotel' => ['id' => 80, 'name' => '敦煌漠蓝新'],
@@ -206,6 +235,7 @@ final class AgentTest extends TestCase
             'detail_exposure' => 10,
             'readback_verified' => 1,
             'validation_status' => 'normal',
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
         ];
         $result = $this->invokeNonPublic($controller, 'buildAllOtaDiagnosisResult', [[
             'ctrip' => [
@@ -232,6 +262,10 @@ final class AgentTest extends TestCase
         self::assertSame(['meituan'], $result['coverage']['missing_platforms']);
         self::assertContains('used_latest_available_data', $result['coverage']['per_platform']['meituan']['reason_codes']);
         self::assertSame([], $result['platform_summaries']);
+        self::assertSame('blocked_by_missing_facts', $result['workflow_status']);
+        self::assertSame(['all_ota_platform_source_missing'], $result['missing_fact_codes']);
+        self::assertSame([], $result['recommended_actions']);
+        self::assertSame([], $result['action_items']);
         self::assertStringContainsString('不会改写为 all_ota 结论', $result['core_conclusion']);
     }
 
@@ -607,6 +641,7 @@ final class AgentTest extends TestCase
                 'book_order_num' => null,
                 'list_exposure' => 1000,
                 'detail_visitors' => 40,
+                'detail_rate' => 4.0,
                 'flow_rate' => 4.0,
                 'order_visitors' => 2,
                 'submit_users' => 1,
@@ -914,7 +949,7 @@ final class AgentTest extends TestCase
         self::assertContains('missing_competitor_evidence', array_column($items[0]['missing_evidence'], 'code'));
     }
 
-    public function testOtaDiagnosisNoDataResultKeepsEvidenceGapsAndActionItems(): void
+    public function testOtaDiagnosisNoDataResultPersistsMissingFactsWithoutRecommendations(): void
     {
         $controller = $this->controller();
 
@@ -928,15 +963,17 @@ final class AgentTest extends TestCase
         self::assertSame('database_only_no_synthetic_conclusion', $result['source_policy']);
         self::assertSame('ota_same_period_source_rows_missing', $result['data_gaps'][0]['code']);
         self::assertSame('ota_no_data_scope', $result['evidence_sources'][0]['ref']);
-        self::assertSame('blocked_by_missing_ota_data', $result['action_items'][0]['status']);
-        self::assertContains('ota_no_data_scope', $result['action_items'][0]['evidence_refs']);
+        self::assertSame([], $result['recommended_actions']);
+        self::assertSame([], $result['action_items']);
+        self::assertSame('blocked_by_missing_facts', $result['workflow_status']);
+        self::assertSame(['ota_same_period_source_rows_missing'], $result['missing_fact_codes']);
         self::assertSame($result['data_gaps'], $result['evidence_report']['data_gaps']);
         self::assertSame('low', $result['ai_governance']['confidence_level']);
         self::assertTrue($result['ai_governance']['human_confirmation_required']);
-        self::assertSame('blocked_by_data', $result['decision_closure']['status']);
+        self::assertSame('blocked_by_missing_facts', $result['decision_closure']['status']);
         self::assertFalse($result['decision_closure']['data_evidence_input']['enough_for_executable_actions']);
-        self::assertSame(1, $result['decision_closure']['suggested_actions']['blocked_count']);
-        self::assertSame('blocked_by_data', $result['evidence_report']['decision_closure']['status']);
+        self::assertSame(0, $result['decision_closure']['suggested_actions']['blocked_count']);
+        self::assertSame('blocked_by_missing_facts', $result['evidence_report']['decision_closure']['status']);
         self::assertStringContainsString('不能生成可信经营诊断', $result['core_conclusion']);
     }
 
@@ -963,19 +1000,22 @@ final class AgentTest extends TestCase
         self::assertSame('database_only_latest_available_reference_not_execution_ready', $result['source_policy']);
         self::assertFalse($result['data_summary']['target_date_execution_ready']);
         self::assertSame('ota_requested_period_source_rows_missing_used_latest_available', $result['data_gaps'][0]['code']);
-        self::assertSame('ota_latest_available_not_target_date', $result['evidence_sources'][1]['ref']);
-        self::assertSame('blocked_by_non_target_date_data', $result['action_items'][0]['status']);
-        self::assertSame('pending_manual_review', $result['action_items'][0]['original_status']);
-        self::assertContains('ota_latest_available_not_target_date', $result['action_items'][0]['evidence_refs']);
+        self::assertSame('ota_latest_available_not_target_date', $result['evidence_sources'][0]['ref']);
+        self::assertSame([], $result['action_items']);
+        self::assertSame([], $result['recommended_actions']);
+        self::assertSame([], $result['metrics']);
+        self::assertSame('blocked_by_missing_facts', $result['workflow_status']);
+        self::assertSame('reference_only_not_decision_eligible', $result['reference_only_history']['status']);
+        self::assertFalse($result['reference_only_history']['evidence_sources'][0]['decision_eligible']);
 
         $report = $this->invokeNonPublic($controller, 'buildOtaEvidenceReport', [$result]);
         self::assertSame('database_only_latest_available_reference_not_execution_ready', $report['source_policy']);
         self::assertSame($result['data_gaps'], $report['data_gaps']);
 
         $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [$result]);
-        self::assertSame('blocked_by_data', $closure['status']);
+        self::assertSame('blocked_by_missing_facts', $closure['status']);
         self::assertFalse($closure['data_evidence_input']['enough_for_executable_actions']);
-        self::assertSame('missing_target_date_ota_evidence', $closure['suggested_actions']['items'][0]['missing_evidence'][0]['code']);
+        self::assertSame([], $closure['suggested_actions']['items']);
     }
 
     public function testOtaDiagnosisHealthyCoreMetricsCanFinishAsNoAction(): void
@@ -1059,7 +1099,7 @@ final class AgentTest extends TestCase
             'data_summary' => ['source_counts' => ['online_rows' => 1]],
         ]]);
 
-        self::assertSame('blocked_by_data', $closure['status']);
+        self::assertSame('blocked_by_missing_facts', $closure['status']);
         self::assertTrue($closure['blocked_state']['is_blocked']);
         self::assertSame('metric_missing:book_order_num', $closure['data_evidence_input']['blocking_data_gaps'][0]['code']);
 
@@ -1071,7 +1111,9 @@ final class AgentTest extends TestCase
             'data_summary' => ['source_counts' => ['online_rows' => 1]],
             'diagnosis' => ['summary' => '核心订单证据缺失', 'actions' => []],
         ]]);
-        self::assertSame('blocked_by_data', $final['decision_status']);
+        self::assertSame('blocked_by_missing_facts', $final['decision_status']);
+        self::assertSame('blocked_by_missing_facts', $final['workflow_status']);
+        self::assertSame(['metric_missing:book_order_num'], $final['missing_fact_codes']);
         self::assertSame('none', $final['priority']);
     }
 
@@ -1160,10 +1202,13 @@ final class AgentTest extends TestCase
         self::assertSame('meituan', $input['platform']);
         self::assertSame('campaign', $input['object_type']);
         self::assertSame('listing_conversion_optimization', $input['action_type']);
+        self::assertSame('detail_rate', $input['expected_metric']);
+        self::assertSame('detail_rate', $input['target_value']['target_metric']);
         self::assertSame(0, $input['current_value']['book_order_num'], 'A verified zero must remain observable.');
         self::assertSame('target_not_quantified_until_manual_confirmation', $input['target_value']['measurement_policy']);
         self::assertSame('increase', $input['target_value']['expected_direction']);
-        self::assertArrayNotHasKey('expected_delta', $input);
+        self::assertArrayHasKey('expected_delta', $input);
+        self::assertNull($input['expected_delta']);
         self::assertSame('not_quantified', $input['evidence']['expected_delta_status']);
         self::assertSame('increase', $input['evidence']['expected_direction']);
         self::assertSame(['online_daily_data#901'], $input['evidence']['evidence_refs']);
@@ -1171,6 +1216,144 @@ final class AgentTest extends TestCase
         self::assertSame('2099-07-18 18:00:00', $input['target_value']['due_at']);
         self::assertSame('2099-07-19 10:00:00', $input['target_value']['review_at']);
         self::assertSame($input['target_value']['workflow_schedule'], $input['evidence']['workflow_schedule']);
+    }
+
+    public function testCtripCapturedZeroExposureBuildsSemanticBoundPendingIntent(): void
+    {
+        $controller = $this->controller();
+        $source = [
+            'ref' => 'online_daily_data#81817',
+            'table' => 'online_daily_data',
+            'record_id' => 81817,
+            'date' => '2026-08-09',
+            'platform' => 'ctrip',
+            'system_hotel_id' => 80,
+            'tags' => ['online_daily_data', 'traffic'],
+            'label' => '携程 traffic',
+            'quality_status' => 'verified',
+            'readback_verified' => true,
+            'decision_eligible' => true,
+            'excluded_from_decision' => false,
+            'source_endpoint_id' => 'business_flow_transform',
+            'metrics' => ['list_exposure' => 0],
+            'metric_fact_statuses' => [
+                'list_exposure' => [
+                    'status' => 'ready',
+                    'captured_metric_keys' => ['list_exposure'],
+                    'missing_requested_metric_keys' => [],
+                    'field_fact_required' => true,
+                    'source_endpoint_id' => 'business_flow_transform',
+                    'source_key' => 'listExposure',
+                    'source_path' => '$.data.listExposure',
+                ],
+            ],
+        ];
+        $context = [
+            'hotel' => ['id' => 80],
+            'platform' => 'ctrip',
+            'date_range' => ['start_date' => '2026-08-09', 'end_date' => '2026-08-09'],
+            'decision_status' => 'action_required',
+            'priority' => 'high',
+            'metrics' => ['list_exposure' => 0, 'detail_rate' => null, 'book_order_num' => 0],
+            'evidence_sources' => [$source],
+            'core_conclusion' => '携程列表曝光为0，需要先核验可售与列表入口。',
+            'data_gaps' => [],
+        ];
+        $actionText = '检查2026-08-09目标日期门店可售状态、列表页内容完整性和平台曝光入口，确认携程列表曝光为0的原因。';
+        $actions = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActionItems', [
+            [$actionText],
+            [$source],
+            $context,
+        ]);
+
+        self::assertCount(1, $actions);
+        self::assertTrue($actions[0]['execution_ready'], json_encode($actions[0], JSON_UNESCAPED_UNICODE));
+        self::assertSame('listing_exposure_recovery', $actions[0]['action_type']);
+        self::assertSame('list_exposure', $actions[0]['expected_metric']);
+        self::assertSame('ctrip_datacenter_list_exposure_uv', $actions[0]['metric_semantic']['semantic_key']);
+        self::assertSame('unique_users', $actions[0]['metric_semantic']['unit']);
+        self::assertSame(
+            ['business_flow_transform', 'traffic_flow_transform'],
+            $actions[0]['metric_semantic']['source_endpoint_ids']
+        );
+
+        $input = $this->invokeNonPublic($controller, 'buildOtaDiagnosisExecutionIntentInput', [
+            $context,
+            $actions[0],
+            258,
+            80,
+            [
+                'assignee_id' => 9,
+                'due_at' => '2099-08-09 18:00:00',
+                'review_at' => '2099-08-10 10:00:00',
+            ],
+        ]);
+        self::assertSame(0, $input['current_value']['list_exposure']);
+        self::assertSame('list_exposure', $input['target_value']['target_metric']);
+        self::assertSame($actions[0]['metric_semantic'], $input['target_value']['metric_semantic']);
+        self::assertSame($actions[0]['metric_semantic'], $input['evidence']['metric_semantic']);
+        self::assertSame('pending_approval', $input['status']);
+        self::assertArrayHasKey('expected_delta', $input);
+        self::assertNull($input['expected_delta']);
+    }
+
+    public function testZeroExposureStaysBlockedWithoutFieldFactOrKnownPlatformSemantics(): void
+    {
+        $controller = $this->controller();
+        $baseSource = [
+            'ref' => 'online_daily_data#1',
+            'table' => 'online_daily_data',
+            'record_id' => 1,
+            'date' => '2026-08-09',
+            'system_hotel_id' => 80,
+            'tags' => ['traffic'],
+            'quality_status' => 'verified',
+            'readback_verified' => true,
+            'decision_eligible' => true,
+            'metrics' => ['list_exposure' => 0],
+        ];
+        $actionText = '检查2026-08-09门店可售状态和列表曝光入口，确认列表曝光为0的原因。';
+
+        $missingFact = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActionItems', [
+            [$actionText],
+            [[...$baseSource, 'platform' => 'ctrip']],
+            [
+                'hotel' => ['id' => 80],
+                'platform' => 'ctrip',
+                'date_range' => ['start_date' => '2026-08-09', 'end_date' => '2026-08-09'],
+                'metrics' => ['list_exposure' => 0],
+                'data_gaps' => [],
+            ],
+        ]);
+        self::assertFalse($missingFact[0]['execution_ready']);
+        self::assertContains(
+            'missing_verified_field_fact:list_exposure',
+            array_column($missingFact[0]['missing_evidence'], 'code')
+        );
+
+        $readyFact = [
+            'list_exposure' => [
+                'status' => 'ready',
+                'captured_metric_keys' => ['list_exposure'],
+                'missing_requested_metric_keys' => [],
+            ],
+        ];
+        $unknownSemantics = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActionItems', [
+            [$actionText],
+            [[...$baseSource, 'platform' => 'meituan', 'metric_fact_statuses' => $readyFact]],
+            [
+                'hotel' => ['id' => 80],
+                'platform' => 'meituan',
+                'date_range' => ['start_date' => '2026-08-09', 'end_date' => '2026-08-09'],
+                'metrics' => ['list_exposure' => 0],
+                'data_gaps' => [],
+            ],
+        ]);
+        self::assertFalse($unknownSemantics[0]['execution_ready']);
+        self::assertContains(
+            'unverified_metric_semantics:list_exposure:meituan',
+            array_column($unknownSemantics[0]['missing_evidence'], 'code')
+        );
     }
 
     public function testOtaDiagnosisExecutionIntentRejectsLegacyReadyFlagsWithoutV2DecisionQuality(): void
@@ -1272,12 +1455,19 @@ final class AgentTest extends TestCase
             'record_status' => 'superseded',
             'superseded_by' => ['log_id' => 211],
             'saved_record' => ['id' => 210, 'status' => 'superseded'],
+            'decision_route' => [
+                'version' => 'ota_decision_route.v1',
+                'final_status' => 'blocked',
+                'stages' => [['key' => 'verified_evidence', 'status' => 'blocked']],
+            ],
             'unsafe_field' => 'must-not-persist',
         ]]);
 
         self::assertSame('superseded', $snapshot['record_status']);
         self::assertSame(211, $snapshot['superseded_by']['log_id']);
         self::assertSame('2026-07-14', $snapshot['requested_date_range']['start_date']);
+        self::assertSame('ota_decision_route.v1', $snapshot['decision_route']['version']);
+        self::assertSame('blocked', $snapshot['decision_route']['stages'][0]['status']);
         self::assertArrayNotHasKey('unsafe_field', $snapshot);
     }
 
@@ -1315,6 +1505,158 @@ final class AgentTest extends TestCase
             $identity,
             $this->invokeNonPublic($controller, 'otaDiagnosisReadbackIdentity', [$snapshot, 80, 'all_ota'])
         );
+    }
+
+    public function testStoredOtaDiagnosisReadbackRejectsSnapshotIdentityDrift(): void
+    {
+        $controller = $this->controller();
+        $snapshot = [
+            'platform' => 'all_ota',
+            'requested_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+            'effective_date_range' => ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'],
+            'coverage' => [
+                'complete' => true,
+                'required_platforms' => ['ctrip', 'meituan'],
+                'covered_platforms' => ['ctrip', 'meituan'],
+            ],
+            'evidence_refs' => [
+                'ctrip' => ['online_daily_data#801'],
+                'meituan' => ['online_daily_data#802'],
+            ],
+            'saved_record' => [
+                'saved' => true,
+                'readback_verified' => true,
+            ],
+        ];
+        $range = ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'];
+        $identity = $this->invokeNonPublic($controller, 'otaDiagnosisReadbackIdentity', [$snapshot, 80, 'all_ota', 1]);
+        $digest = $this->invokeNonPublic($controller, 'otaDiagnosisReadbackIdentityDigest', [$identity]);
+        $context = [
+            'schema_version' => 1,
+            'record_status' => 'active',
+            'platform' => 'all_ota',
+            'requested_date_range' => $range,
+            'readback_identity_digest' => $digest,
+        ];
+
+        self::assertTrue($this->invokeNonPublic(
+            $controller,
+            'isStoredOtaDiagnosisReadbackVerified',
+            [$context, $snapshot, 80, 'all_ota', $range]
+        ));
+
+        $snapshot['decision_route'] = [
+            'version' => 'ota_decision_route.v1',
+            'policy' => 'legacy_route_not_bound',
+            'final_status' => 'ready',
+            'stages' => [],
+        ];
+        self::assertTrue($this->invokeNonPublic(
+            $controller,
+            'isStoredOtaDiagnosisReadbackVerified',
+            [$context, $snapshot, 80, 'all_ota', $range]
+        ));
+
+        $snapshot['evidence_refs']['meituan'] = ['online_daily_data#999'];
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'isStoredOtaDiagnosisReadbackVerified',
+            [$context, $snapshot, 80, 'all_ota', $range]
+        ));
+    }
+
+    public function testStoredOtaDiagnosisSchemaV2BindsDecisionRouteContent(): void
+    {
+        $controller = $this->controller();
+        $range = ['start_date' => '2026-08-01', 'end_date' => '2026-08-01'];
+        $snapshot = [
+            'platform' => 'all_ota',
+            'requested_date_range' => $range,
+            'effective_date_range' => $range,
+            'coverage' => [
+                'complete' => true,
+                'required_platforms' => ['ctrip', 'meituan'],
+                'covered_platforms' => ['ctrip', 'meituan'],
+            ],
+            'evidence_refs' => [
+                'ctrip' => ['online_daily_data#801'],
+                'meituan' => ['online_daily_data#802'],
+            ],
+            'decision_route' => [
+                'version' => 'ota_decision_route.v1',
+                'policy' => 'verified_evidence_then_knowledge_then_model_then_human_confirmation',
+                'final_status' => 'blocked',
+                'stages' => [[
+                    'key' => 'verified_evidence',
+                    'status' => 'blocked',
+                    'status_label' => '关键指标不完整',
+                    'detail' => '已有可追溯目标范围事实，但关键收益或流量指标不完整，暂不能行动。',
+                    'refs' => ['online_daily_data#801', 'online_daily_data#802'],
+                ], [
+                    'key' => 'model',
+                    'status' => 'skipped',
+                    'status_label' => '未调用',
+                    'detail' => '本次未调用模型。',
+                    'refs' => [],
+                ]],
+            ],
+            'saved_record' => [
+                'saved' => true,
+                'readback_verified' => true,
+            ],
+        ];
+        $identity = $this->invokeNonPublic(
+            $controller,
+            'otaDiagnosisReadbackIdentity',
+            [$snapshot, 80, 'all_ota', 2]
+        );
+        $context = [
+            'schema_version' => 2,
+            'record_status' => 'active',
+            'platform' => 'all_ota',
+            'requested_date_range' => $range,
+            'readback_identity_digest' => $this->invokeNonPublic(
+                $controller,
+                'otaDiagnosisReadbackIdentityDigest',
+                [$identity]
+            ),
+        ];
+
+        self::assertSame('blocked', $identity['decision_route']['final_status']);
+        self::assertSame(
+            'verified_evidence_then_knowledge_then_model_then_human_confirmation',
+            $identity['decision_route']['policy']
+        );
+        self::assertSame(
+            ['verified_evidence', 'model'],
+            array_column($identity['decision_route']['stages'], 'key')
+        );
+        self::assertSame('关键指标不完整', $identity['decision_route']['stages'][0]['status_label']);
+        self::assertSame(
+            ['online_daily_data#801', 'online_daily_data#802'],
+            $identity['decision_route']['stages'][0]['refs']
+        );
+        self::assertTrue($this->invokeNonPublic(
+            $controller,
+            'isStoredOtaDiagnosisReadbackVerified',
+            [$context, $snapshot, 80, 'all_ota', $range]
+        ));
+
+        $finalStatusDrift = $snapshot;
+        $finalStatusDrift['decision_route']['final_status'] = 'ready';
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'isStoredOtaDiagnosisReadbackVerified',
+            [$context, $finalStatusDrift, 80, 'all_ota', $range]
+        ));
+
+        $detailDrift = $snapshot;
+        $detailDrift['decision_route']['stages'][0]['detail'] = '关键指标已经完整。';
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'isStoredOtaDiagnosisReadbackVerified',
+            [$context, $detailDrift, 80, 'all_ota', $range]
+        ));
     }
 
     public function testNormalizeRequestedModelKeyCoversDefaultAliasesAndFallback(): void
@@ -2045,6 +2387,94 @@ final class AgentTest extends TestCase
         self::assertSame('online_daily_data#10', $payload['evidence_refs'][0]);
         self::assertSame('llm_abc', $payload['model_call']['call_id']);
         self::assertSame('ai_model_call_logs', $payload['log_sink']);
+    }
+
+    public function testOtaDiagnosisDecisionRouteExposesUsedAndMissingLayersTruthfully(): void
+    {
+        $controller = $this->controller();
+
+        $ready = $this->invokeNonPublic($controller, 'buildOtaDiagnosisDecisionRoute', [[
+            'decision_status' => 'action_required',
+            'analysis_runtime' => [
+                'mode' => 'llm_augmented_rules',
+                'model_called' => true,
+            ],
+            'knowledge_context' => [
+                'items' => [[
+                    'source' => 'knowledge_units',
+                    'id' => 7,
+                    'title' => 'OTA metric knowledge',
+                ]],
+            ],
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#10',
+                'table' => 'online_daily_data',
+                'record_id' => 10,
+            ]],
+            'ai_governance' => [
+                'human_confirmation_required' => true,
+                'human_confirmation_reason' => 'recommended actions are pending manual review',
+                'knowledge_citations' => [[
+                    'ref' => 'knowledge_units#7',
+                    'source' => 'knowledge_units',
+                ]],
+                'model_call' => [
+                    'call_id' => 'llm_abc',
+                    'status' => 'success',
+                    'model_key' => 'deepseek_chat',
+                ],
+            ],
+        ]]);
+
+        self::assertSame('ota_decision_route.v1', $ready['version']);
+        self::assertSame('pending_manual_review', $ready['final_status']);
+        self::assertSame(['used', 'used', 'used', 'required'], array_column($ready['stages'], 'status'));
+        self::assertSame(['online_daily_data#10'], $ready['stages'][0]['refs']);
+        self::assertSame(['knowledge_units#7'], $ready['stages'][1]['refs']);
+        self::assertSame('建议动作等待有权限人员人工确认。', $ready['stages'][3]['detail']);
+
+        $blockedWithFacts = $this->invokeNonPublic($controller, 'buildOtaDiagnosisDecisionRoute', [[
+            'decision_status' => 'blocked_by_data',
+            'data_quality' => ['is_reliable' => false],
+            'analysis_runtime' => [
+                'mode' => 'deterministic_rules',
+                'model_called' => false,
+            ],
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#11',
+                'table' => 'online_daily_data',
+                'record_id' => 11,
+            ]],
+        ]]);
+
+        self::assertSame('blocked', $blockedWithFacts['final_status']);
+        self::assertSame('blocked', $blockedWithFacts['stages'][0]['status']);
+        self::assertSame('关键指标不完整', $blockedWithFacts['stages'][0]['status_label']);
+        self::assertStringContainsString('已有可追溯目标范围事实', $blockedWithFacts['stages'][0]['detail']);
+        self::assertStringContainsString('关键收益或流量指标不完整，暂不能行动', $blockedWithFacts['stages'][0]['detail']);
+        self::assertStringContainsString('未用 0、旧值或默认值补齐', $blockedWithFacts['stages'][0]['detail']);
+        self::assertSame(['online_daily_data#11'], $blockedWithFacts['stages'][0]['refs']);
+        self::assertSame('skipped', $blockedWithFacts['stages'][2]['status']);
+        self::assertSame('required', $blockedWithFacts['stages'][3]['status']);
+
+        $blocked = $this->invokeNonPublic($controller, 'buildOtaDiagnosisDecisionRoute', [[
+            'decision_status' => 'blocked_by_data',
+            'analysis_runtime' => [
+                'mode' => 'not_run_no_data',
+                'model_called' => false,
+            ],
+            'evidence_sources' => [[
+                'ref' => 'ota_no_data_scope',
+                'label' => 'no data',
+            ]],
+        ]]);
+
+        self::assertSame('blocked', $blocked['final_status']);
+        self::assertSame(['blocked', 'skipped', 'skipped', 'required'], array_column($blocked['stages'], 'status'));
+        self::assertSame('证据不足', $blocked['stages'][0]['status_label']);
+        self::assertStringContainsString('目标范围缺少可用数据库证据', $blocked['stages'][0]['detail']);
+        self::assertStringContainsString('未用 0、旧值或默认值补齐', $blocked['stages'][0]['detail']);
+        self::assertSame([], $blocked['stages'][0]['refs']);
     }
 
     public function testDirectPriceSuggestionApplyIsDisabledForManualExecutionBoundary(): void

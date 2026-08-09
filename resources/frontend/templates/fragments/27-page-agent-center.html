@@ -1,4 +1,4 @@
-                    <div v-if="currentPage === 'agent-center'">
+                    <div v-if="currentPage === 'agent-center'" class="suxi-agent-center">
                         <div class="card overflow-hidden">
                             <div class="p-5 border-b border-gray-100 bg-white">
                                 <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
@@ -21,8 +21,7 @@
                             </div>
                             <div class="px-5 pt-4 bg-white border-b border-gray-100">
                                 <div class="flex flex-wrap gap-2">
-                                    <button v-for="tab in agentTabs" :key="tab.key" @click="switchAgentTab(tab.key)" :class="['inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium border transition',
-                                            agentTab === tab.key ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900']">
+                                    <button v-for="tab in agentTabs" :key="tab.key" @click="switchAgentTab(tab.key)" :class="['sx-agent-tab inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium', agentTab === tab.key ? 'sx-agent-tab--active' : '']">
                                         <i :class="tab.icon"></i>
                                         <span>{{ tab.name }}</span>
                                     </button>
@@ -32,8 +31,8 @@
                                 <div v-if="agentTab === 'overview'" class="space-y-5">
                                     <oq></oq>
                                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                                        <section class="lg:col-span-2 bg-white rounded-xl border border-gray-100 overflow-hidden">
-                                            <div class="px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                        <section class="sx-agent-diagnosis-card lg:col-span-2 bg-white rounded-xl border border-gray-100 overflow-hidden">
+                                            <div class="sx-agent-diagnosis-card__header px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                                 <div>
                                                     <h3 class="font-semibold text-gray-900">OTA诊断</h3>
                                                     <p class="text-sm text-gray-500 mt-1">按酒店、平台和日期范围生成经营诊断。</p>
@@ -110,9 +109,9 @@
                                                 </div>
                                                 <div class="flex flex-wrap items-center gap-2">
                                                     <span class="text-xs text-gray-400 mr-1">快捷范围</span>
-                                                    <button type="button" @click="setOtaDiagnosisRange(1)" class="px-3 py-1.5 rounded-lg text-xs border border-gray-200 text-gray-600 hover:bg-gray-50">今天</button>
-                                                    <button type="button" @click="setOtaDiagnosisRange(7)" class="px-3 py-1.5 rounded-lg text-xs border border-gray-200 text-gray-600 hover:bg-gray-50">近7天</button>
-                                                    <button type="button" @click="setOtaDiagnosisRange(30)" class="px-3 py-1.5 rounded-lg text-xs border border-gray-200 text-gray-600 hover:bg-gray-50">近30天</button>
+                                                    <button type="button" @click="setOtaDiagnosisRange(1)" class="sx-agent-range-button">今天</button>
+                                                    <button type="button" @click="setOtaDiagnosisRange(7)" class="sx-agent-range-button">近7天</button>
+                                                    <button type="button" @click="setOtaDiagnosisRange(30)" class="sx-agent-range-button">近30天</button>
                                                 </div>
 
                                                 <div v-if="otaDiagnosisError" class="rounded-lg border border-red-100 bg-red-50 text-red-700 px-4 py-3 text-sm">
@@ -209,6 +208,11 @@
                                                         </div>
                                                         <p class="text-sm text-blue-800 leading-relaxed">{{ otaDiagnosisResult.diagnosis?.summary || otaDiagnosisResult.core_conclusion || '-' }}</p>
                                                     </div>
+                                                    <section v-if="otaDiagnosisResult?.decision_route?.stages?.length" data-testid="ota-diagnosis-decision-route" class="sx-agent-route">
+                                                        <header class="sx-agent-route__header"><strong class="sx-agent-route__title">可信决策路由</strong><span class="sx-agent-route__badge" :data-state="otaDiagnosisResult.decision_route.final_status">{{ otaDiagnosisResult.decision_route.final_status === 'blocked' ? '证据受阻' : otaDiagnosisResult.decision_route.final_status === 'pending_manual_review' ? '待人工确认' : '已就绪' }}</span></header>
+                                                        <p class="sx-agent-route__lead">真实证据优先；知识与模型只增强解释，运营动作必须经过人工确认。</p>
+                                                        <ol class="sx-agent-route__list"><li v-for="(stage, stageIndex) in otaDiagnosisResult.decision_route.stages" :key="stage.key" class="sx-agent-route__stage"><span class="sx-agent-route__number">{{ stageIndex + 1 }}</span><strong>{{ stage.label }}</strong><span class="sx-agent-route__badge" :data-state="stage.status === 'fallback' ? 'fallback' : stage.status">{{ stage.status_label }}</span><span>{{ stage.detail }}</span><small v-if="stage.refs?.length" :title="stage.refs.join('、')">依据：{{ stage.refs.join('、') }}</small></li></ol>
+                                                    </section>
                                                     <div v-if="otaDiagnosisBusinessLoopSteps.length" class="rounded-xl border border-slate-100 bg-white p-4">
                                                         <div class="flex items-center justify-between gap-3 mb-3">
                                                             <div class="font-semibold text-gray-900">业务闭环拆解</div>

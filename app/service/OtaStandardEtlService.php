@@ -26,7 +26,11 @@ class OtaStandardEtlService
         $inputRowCount = count($rows);
         [$rows, $semanticRejectedRows] = $this->resolveLegacyMeituanBusinessSemantics($rows);
         [$rows, $supersededCtripCheckoutRows] = $this->selectCanonicalCtripCheckoutRows($rows);
-        [$rows, $supersededMeituanRevenueRows] = $this->selectCanonicalMeituanRevenueRows($rows);
+        [
+            $rows,
+            $supersededMeituanRevenueRows,
+            $meituanRevenueRepresentationConflicts,
+        ] = $this->selectCanonicalMeituanRevenueRows($rows);
         [$rows, $supersededPeriodRows] = $this->selectCanonicalPeriodRows($rows);
         $hotels = [];
         $platforms = [];
@@ -194,6 +198,8 @@ class OtaStandardEtlService
                 'superseded_period_rows' => $supersededPeriodRows,
                 'superseded_ctrip_checkout_rows' => $supersededCtripCheckoutRows,
                 'superseded_meituan_revenue_rows' => $supersededMeituanRevenueRows,
+                'meituan_revenue_representation_conflicts' =>
+                    $meituanRevenueRepresentationConflicts,
                 'accepted_rows' => $acceptedCount,
                 'trusted_rows' => $trustedCount,
                 'untrusted_rows' => $acceptedCount - $trustedCount,
@@ -389,7 +395,7 @@ class OtaStandardEtlService
      * prefer the business-card readback when both were captured in one run.
      *
      * @param array<int, mixed> $rows
-     * @return array{0:array<int, mixed>,1:int}
+     * @return array{0:array<int, mixed>,1:int,2:array<int,array<string,mixed>>}
      */
     private function selectCanonicalMeituanRevenueRows(array $rows): array
     {
@@ -422,6 +428,7 @@ class OtaStandardEtlService
         }
 
         $superseded = 0;
+        $conflicts = [];
         foreach ($grouped as $items) {
             usort($items, function (array $left, array $right): int {
                 $leftRow = $left['row'];
@@ -449,10 +456,65 @@ class OtaStandardEtlService
             $winner = $items[count($items) - 1];
             $selected[(int)$winner['index']] = $winner['row'];
             $superseded += max(0, count($items) - 1);
+            $winnerAmount = is_numeric($winner['row']['amount'] ?? null)
+                ? (float)$winner['row']['amount']
+                : null;
+            if ($winnerAmount === null) {
+                continue;
+            }
+            foreach ($items as $candidate) {
+                if ((int)$candidate['index'] === (int)$winner['index']) {
+                    continue;
+                }
+                $candidateAmount = is_numeric($candidate['row']['amount'] ?? null)
+                    ? (float)$candidate['row']['amount']
+                    : null;
+                if ($candidateAmount === null
+                    || abs($candidateAmount - $winnerAmount) <= 0.01
+                ) {
+                    continue;
+                }
+                $delta = round($candidateAmount - $winnerAmount, 2);
+                $conflicts[] = [
+                    'system_hotel_id' => max(
+                        0,
+                        (int)($winner['row']['system_hotel_id'] ?? 0)
+                    ) ?: null,
+                    'business_date' => (string)($winner['row']['data_date'] ?? ''),
+                    'winner_row_id' => max(
+                        0,
+                        (int)($winner['row']['id'] ?? 0)
+                    ) ?: null,
+                    'winner_data_type' => (string)$winner['data_type'],
+                    'winner_amount' => round($winnerAmount, 2),
+                    'winner_room_nights' => is_numeric(
+                        $winner['row']['quantity'] ?? null
+                    ) ? round((float)$winner['row']['quantity'], 2) : null,
+                    'winner_order_count' => is_numeric(
+                        $winner['row']['book_order_num'] ?? null
+                    ) ? round((float)$winner['row']['book_order_num'], 2) : null,
+                    'candidate_row_id' => max(
+                        0,
+                        (int)($candidate['row']['id'] ?? 0)
+                    ) ?: null,
+                    'candidate_data_type' => (string)$candidate['data_type'],
+                    'candidate_amount' => round($candidateAmount, 2),
+                    'candidate_room_nights' => is_numeric(
+                        $candidate['row']['quantity'] ?? null
+                    ) ? round((float)$candidate['row']['quantity'], 2) : null,
+                    'candidate_order_count' => is_numeric(
+                        $candidate['row']['book_order_num'] ?? null
+                    ) ? round((float)$candidate['row']['book_order_num'], 2) : null,
+                    'amount_delta' => $delta,
+                    'amount_delta_percent_of_winner' => $winnerAmount > 0
+                        ? round(abs($delta) / $winnerAmount * 100, 2)
+                        : null,
+                ];
+            }
         }
 
         ksort($selected);
-        return [array_values($selected), $superseded];
+        return [array_values($selected), $superseded, $conflicts];
     }
 
     /** @param array<string, mixed> $raw */
@@ -890,6 +952,8 @@ class OtaStandardEtlService
         $ourPrice = $this->nullableNumber($row, $raw, ['our_price', 'ourPrice', 'hotel_price', 'hotelPrice']);
         $competitorPrice = $this->nullableNumber($row, $raw, ['competitor_price', 'competitorPrice', 'market_price', 'marketPrice']);
         $priceGap = $this->nullableNumber($row, $raw, ['price_gap', 'priceGap', 'price_difference', 'priceDifference']);
+        $bookingDate = $this->dateValue($this->firstText($row, $raw, ['booking_date', 'bookingDate', 'order_date', 'orderDate', 'create_date', 'createDate']));
+        $checkinDate = $this->dateValue($this->firstText($row, $raw, ['checkin_date', 'checkinDate', 'arrival_date', 'arrivalDate', 'stay_date', 'stayDate']));
         if ($priceGap === null && $ourPrice !== null && $competitorPrice !== null) {
             $priceGap = round($ourPrice - $competitorPrice, 2);
         }
@@ -927,6 +991,8 @@ class OtaStandardEtlService
             'net_revpar' => $availableRoomNights !== null && $availableRoomNights > 0 && $netRevenue !== null
                 ? round($netRevenue / $availableRoomNights, 2)
                 : null,
+            'booking_date' => $bookingDate !== '' ? $bookingDate : null,
+            'checkin_date' => $checkinDate !== '' ? $checkinDate : null,
             'lead_time_days' => $this->leadTimeDays($row, $raw),
             'comment_score' => $this->nullableNumber($row, $raw, ['comment_score', 'commentScore', 'score']),
             'data_value' => $this->nullableNumber($row, $raw, ['data_value', 'dataValue']),
@@ -1321,6 +1387,8 @@ class OtaStandardEtlService
             'date_key' => $date,
             'collected_at' => $this->traceCollectionTimestamp($row),
             'updated_at' => $this->traceTimestamp($row),
+            'data_period' => trim((string)($row['data_period'] ?? '')),
+            'is_final' => $this->isFinalPeriodRow($row),
             'stored' => isset($row['id']) && trim((string)$row['id']) !== '',
             'readback_verified' => (int)($row['readback_verified'] ?? 0) === 1,
             'saved_success' => empty($failureReasons),

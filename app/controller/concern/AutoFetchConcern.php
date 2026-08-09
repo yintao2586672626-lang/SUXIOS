@@ -93,6 +93,29 @@ trait AutoFetchConcern
                     : date('Y-m-d'))
             );
         }
+        $requestedDataDateRaw = trim((string)($requestData['data_date'] ?? $requestData['dataDate'] ?? ''));
+        $requestedTargetDateRaw = trim((string)($requestData['target_date'] ?? $requestData['targetDate'] ?? ''));
+        if ($requestedDataDateRaw !== '' && $requestedTargetDateRaw !== ''
+            && $requestedDataDateRaw !== $requestedTargetDateRaw
+        ) {
+            return $this->error('data_date 与 target_date 不一致，已拒绝静默改写业务日期。', 422);
+        }
+        $requestedDataDate = $requestedDataDateRaw !== '' ? $requestedDataDateRaw : $requestedTargetDateRaw;
+        if ($requestedDataDate !== '') {
+            $dateParts = preg_match('/^\d{4}-\d{2}-\d{2}$/D', $requestedDataDate) === 1
+                ? array_map('intval', explode('-', $requestedDataDate))
+                : [];
+            if (count($dateParts) !== 3 || !checkdate($dateParts[1], $dateParts[2], $dateParts[0])) {
+                return $this->error('data_date 必须是有效的 YYYY-MM-DD 业务日期。', 422);
+            }
+            if ($requestedDataDate !== $targetDataDate) {
+                return $this->error(
+                    "请求业务日期 {$requestedDataDate} 与 {$dataPeriod} 当前允许日期 {$targetDataDate} 不一致；已拒绝改成其他日期。",
+                    422
+                );
+            }
+            $targetDataDate = $requestedDataDate;
+        }
         $interactiveBrowser = filter_var(
             $this->request->post('interactive_browser', $this->request->post('interactiveBrowser', false)),
             FILTER_VALIDATE_BOOLEAN
@@ -4362,7 +4385,9 @@ trait AutoFetchConcern
                     $trustedReady = $schedulePolicy->dailyTrustReceiptReady(
                         $executionReceipt,
                         (string)$run['data_date'],
-                        $hotelId
+                        $hotelId,
+                        null,
+                        ['ctrip', 'meituan']
                     );
                     if (!$trustedReady && $outcome['complete']) {
                         $receiptReadyPlatforms = array_values(array_unique(array_filter(array_map(
@@ -4510,7 +4535,9 @@ trait AutoFetchConcern
             && (new ScheduledAutoFetchPolicy())->dailyTrustReceiptReady(
                 $receipt,
                 (string)($run['data_date'] ?? ''),
-                $hotelId
+                $hotelId,
+                null,
+                ['ctrip', 'meituan']
             );
     }
 

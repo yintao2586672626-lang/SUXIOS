@@ -878,22 +878,25 @@ final class PlatformDataSyncService
             if ($this->fieldFactHasDesensitizedCaptureEvidence($rowCaptureEvidence)) {
                 $rowSourceUrlHash = strtolower(trim((string)($rowCaptureEvidence['source_url_hash'] ?? '')));
                 $raw['source_url_hash'] = $rowSourceUrlHash;
-                $raw['capture_evidence'] = [
+                // `fieldFactCaptureEvidence()` is already a strict safe-field
+                // projection. Keep the structured-response method/path/contract
+                // beside trace/hash so exact-run review can classify the saved
+                // row without reopening the original platform response.
+                $raw['capture_evidence'] = array_replace($rowCaptureEvidence, [
                     'source_trace_id' => $traceId,
                     'source_url_hash' => $rowSourceUrlHash,
-                ];
+                ]);
             }
-            $capturedAt = $this->normalizeDateTime(
-                $row['collected_at']
-                    ?? $row['collectedAt']
-                    ?? $row['captured_at']
-                    ?? $row['capturedAt']
-                    ?? $payload['collected_at']
-                    ?? $payload['collectedAt']
-                    ?? $payload['captured_at']
-                    ?? $payload['capturedAt']
-                    ?? null
-            );
+            $capturedAt = $this->normalizeCaptureDateTime($this->firstCaptureDateTimeValue([
+                $row['collected_at'] ?? null,
+                $row['collectedAt'] ?? null,
+                $row['captured_at'] ?? null,
+                $row['capturedAt'] ?? null,
+                $payload['collected_at'] ?? null,
+                $payload['collectedAt'] ?? null,
+                $payload['captured_at'] ?? null,
+                $payload['capturedAt'] ?? null,
+            ]));
             if ($capturedAt !== null) {
                 $raw['captured_at'] = $capturedAt;
             }
@@ -1252,6 +1255,33 @@ final class PlatformDataSyncService
         if ($this->isOtaBrowserAssistSource($source)) {
             return $this->assertBrowserAssistPayloadBinding($source, $payload);
         }
+        if ($this->isManualImportSource($source)) {
+            $sourceHotelId = (int)($source['system_hotel_id'] ?? 0);
+            if ($sourceHotelId <= 0) {
+                throw new RuntimeException('manual_import_system_hotel_binding_missing', 422);
+            }
+            $rows = $this->extractBusinessRows($payload);
+            if ($rows === []) {
+                throw new RuntimeException('manual_import_business_rows_missing', 422);
+            }
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $rowHotelId = (int)($row['system_hotel_id'] ?? 0);
+                if ($rowHotelId > 0 && $rowHotelId !== $sourceHotelId) {
+                    throw new RuntimeException('manual_import_system_hotel_binding_mismatch', 409);
+                }
+                $rowPlatform = strtolower(trim((string)($row['platform'] ?? '')));
+                if ($rowPlatform !== '' && $rowPlatform !== $platform) {
+                    throw new RuntimeException('manual_import_platform_binding_mismatch', 409);
+                }
+            }
+            return [
+                'status' => 'user_selected_system_hotel',
+                'proof' => 'tenant_scoped_manual_import_source',
+            ];
+        }
 
         $keys = $this->otaHotelIdentifierKeys($platform);
         $config = is_array($source['config'] ?? null)
@@ -1542,6 +1572,10 @@ final class PlatformDataSyncService
             'payload_hash' => ['payload_hash', '_payload_hash'],
             'method' => ['method', 'http_method', '_method'],
             'source_path' => ['source_path', '_source_path', 'json_path'],
+            'capture_source' => ['capture_source', '_capture_source'],
+            'capture_strategy' => ['capture_strategy'],
+            'response_evidence_type' => ['response_evidence_type'],
+            'contract_version' => ['contract_version'],
         ];
         foreach ($aliases as $target => $keys) {
             if (isset($evidence[$target]) && $this->safeFieldFactCaptureEvidenceValue($evidence[$target]) !== '') {
@@ -2522,6 +2556,76 @@ final class PlatformDataSyncService
         return $result;
     }
 
+    /**
+     * Read the exact aggregate rows written by one manual import. The caller
+     * receives the sanitized canonical input rows only after value-level
+     * persistence readback has succeeded for every saved row.
+     *
+     * @param mixed $user
+     * @param array<string, mixed> $result
+     * @return array<int, array<string, mixed>>
+     */
+    public function readImportedRows($user, array $result): array
+    {
+        $taskId = (int)($result['task_id'] ?? 0);
+        $sourceId = (int)($result['effective_import_source_id'] ?? $result['data_source_id'] ?? 0);
+        $savedCount = (int)($result['saved_count'] ?? 0);
+        $readbackCount = (int)($result['readback_count'] ?? 0);
+        if ($taskId <= 0 || $sourceId <= 0 || $savedCount <= 0
+            || $readbackCount !== $savedCount
+            || ($result['readback_verified'] ?? false) !== true
+        ) {
+            throw new RuntimeException('manual_import_exact_readback_not_verified', 422);
+        }
+
+        $source = $this->loadSource($sourceId, $user);
+        if (!$this->isManualImportSource($source)) {
+            throw new RuntimeException('manual_import_source_scope_invalid', 409);
+        }
+        [$tenantId, $hotelId] = $this->assertStoredSourceTenant($source);
+        $columns = $this->tableColumns('online_daily_data');
+        foreach (['id', 'tenant_id', 'system_hotel_id', 'data_source_id', 'sync_task_id', 'raw_data'] as $required) {
+            if (!isset($columns[$required])) {
+                throw new RuntimeException('manual_import_readback_column_missing:' . $required, 500);
+            }
+        }
+
+        $fields = array_values(array_filter([
+            'id', 'tenant_id', 'system_hotel_id', 'data_source_id', 'sync_task_id',
+            'platform', 'source', 'data_type', 'data_date', 'readback_verified', 'raw_data',
+        ], static fn(string $field): bool => isset($columns[$field])));
+        $query = Db::name('online_daily_data')
+            ->field(implode(',', $fields))
+            ->where('tenant_id', $tenantId)
+            ->where('system_hotel_id', $hotelId)
+            ->where('data_source_id', $sourceId)
+            ->where('sync_task_id', $taskId);
+        if (isset($columns['readback_verified'])) {
+            $query->where('readback_verified', 1);
+        }
+        $persistedRows = $query->order('id', 'asc')->select()->toArray();
+        $persistedRows = array_values(array_filter($persistedRows, 'is_array'));
+        if (count($persistedRows) !== $savedCount) {
+            throw new RuntimeException('manual_import_exact_readback_count_mismatch', 409);
+        }
+
+        $rows = [];
+        foreach ($persistedRows as $persistedRow) {
+            $raw = $this->decodeConfig($persistedRow['raw_data'] ?? []);
+            $canonical = is_array($raw['row'] ?? null) ? $raw['row'] : [];
+            if ($canonical === []
+                || (int)($canonical['system_hotel_id'] ?? 0) !== $hotelId
+                || trim((string)($canonical['data_date'] ?? '')) !== trim((string)($persistedRow['data_date'] ?? ''))
+            ) {
+                throw new RuntimeException('manual_import_exact_readback_identity_mismatch', 409);
+            }
+            $canonical['_persisted_row_id'] = (int)($persistedRow['id'] ?? 0);
+            $canonical['_readback_verified'] = true;
+            $rows[] = $canonical;
+        }
+        return $rows;
+    }
+
     /** @param array<string, mixed> $source */
     private function isManualImportSource(array $source): bool
     {
@@ -2739,16 +2843,20 @@ final class PlatformDataSyncService
         if (!is_file($path)) {
             throw new RuntimeException('Import file not found.', 422);
         }
-        if ((int)filesize($path) > 5 * 1024 * 1024) {
-            throw new RuntimeException('Import file exceeds 5MB.', 422);
+        $extension = strtolower(pathinfo($originalName ?: $path, PATHINFO_EXTENSION));
+        $maxBytes = in_array($extension, ['xls', 'xlsx'], true)
+            ? 20 * 1024 * 1024
+            : 5 * 1024 * 1024;
+        if ((int)filesize($path) > $maxBytes) {
+            throw new RuntimeException('Import file exceeds ' . ($maxBytes / 1024 / 1024) . 'MB.', 422);
         }
 
-        $extension = strtolower(pathinfo($originalName ?: $path, PATHINFO_EXTENSION));
         $rows = match ($extension) {
             'json' => $this->parseJsonImportFile($path),
             'csv' => $this->parseCsvImportFile($path),
+            'xls' => (new CtripOrderExportImportService())->parseLegacyXls($path, $originalName),
             'xlsx' => $this->parseXlsxImportFile($path),
-            default => throw new RuntimeException('Only JSON, CSV and XLSX imports are supported.', 422),
+            default => throw new RuntimeException('Only JSON, CSV, XLS and XLSX imports are supported.', 422),
         };
 
         if (empty($rows)) {

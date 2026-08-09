@@ -268,7 +268,40 @@ trait PlatformDataSourceConcern
             if ($file) {
                 $payload['rows'] = $service->parseImportFile($file->getPathname(), $file->getOriginalName());
             }
+            $payload['rows'] = (new \app\service\CtripOrderExportImportService())->normalizeRows(
+                is_array($payload['rows'] ?? null) ? $payload['rows'] : [],
+                [
+                    'system_hotel_id' => (int)($payload['system_hotel_id'] ?? 0),
+                    'hotel_name' => trim((string)($payload['hotel_name'] ?? '')),
+                    'test_fixture' => (string)($payload['fixture_status'] ?? '') === 'explicit_test_fixture',
+                ]
+            );
             $result = $service->importRows($this->currentUser, $payload);
+            $isCtripOrderImport = strtolower(trim((string)($payload['platform'] ?? ''))) === 'ctrip'
+                && strtolower(trim((string)($payload['data_type'] ?? ''))) === 'order'
+                && strtolower(trim((string)($payload['ingestion_method'] ?? 'manual'))) !== 'browser_assist_dom';
+            if ($isCtripOrderImport) {
+                try {
+                    $readbackRows = $service->readImportedRows($this->currentUser, $result);
+                    $result['import_readback'] = [
+                        'status' => 'verified',
+                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                        'readback_count' => count($readbackRows),
+                        'value_level_verified' => ($result['readback_verified'] ?? false) === true,
+                    ];
+                    $result['import_preview'] = $this->buildChannelOrderImportPreview($readbackRows, $payload);
+                } catch (\RuntimeException $readbackError) {
+                    $result['import_readback'] = [
+                        'status' => 'unverified',
+                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                        'readback_count' => (int)($result['readback_count'] ?? 0),
+                        'value_level_verified' => false,
+                        'failure_reason' => $readbackError->getMessage(),
+                    ];
+                    $result['status'] = 'partial_success';
+                    $result['message'] = $readbackError->getMessage();
+                }
+            }
             OperationLog::record('online_data', 'import_data_source_rows', '导入平台数据，状态: ' . $result['status'], $this->currentUser->id, null);
             return $this->platformDataTaskResponse($result, '导入');
         } catch (\RuntimeException $e) {
@@ -276,6 +309,201 @@ trait PlatformDataSourceConcern
         } catch (\Throwable $e) {
             return $this->error('导入数据失败: ' . $e->getMessage(), 500);
         }
+    }
+
+    /**
+     * Return a sanitized aggregate for immediate UI readback. The preview never
+     * upgrades a manual import to a verified platform fact.
+     *
+     * @param array<int, mixed> $rows
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function buildChannelOrderImportPreview(array $rows, array $payload): array
+    {
+        $channels = [];
+        $dates = [];
+        $missingOrderRows = 0;
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $channelValue = $this->channelOrderImportText($row, [
+                'source', 'platform', 'channel', 'sales_channel', 'ota_channel',
+                '渠道', '渠道名称', '平台',
+            ]);
+            $channelKey = strtolower($channelValue);
+            if ($channelKey === '') {
+                $channelKey = 'unknown';
+            }
+            $channelLabel = match ($channelKey) {
+                'ctrip', 'ctrip_app', '携程', '携程app' => '携程APP',
+                'qunar', 'qunar_app', '去哪儿', '去哪儿网' => '去哪儿',
+                'tongcheng', 'ly', '同程', '同程旅行' => '同程',
+                'distribution', 'distributor', 'other_distribution', '分销', '其他分销' => '其他分销',
+                'elong', '艺龙' => '艺龙',
+                'unknown' => '未标注渠道',
+                default => $channelValue,
+            };
+
+            $dataDate = $this->channelOrderImportText($row, ['data_date', 'date', 'business_date', '数据日期', '日期']);
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $dataDate) === 1) {
+                $dates[] = $dataDate;
+            }
+
+            $orders = $this->channelOrderImportNumber($row, [
+                'book_order_num', 'order_count', 'orders', 'order_num', '订单量', '订单数',
+            ]);
+            $grossOrders = $this->channelOrderImportNumber($row, [
+                'gross_order_num', 'total_order_including_cancelled', '含取消总单', '总订单数',
+            ]);
+            $cancelledOrders = $this->channelOrderImportNumber($row, [
+                'cancel_order_num', 'cancelled_order_num', '取消订单数', '取消单量',
+            ]);
+            $roomNights = $this->channelOrderImportNumber($row, [
+                'quantity', 'room_nights', 'room_night_count', '间夜量', '间夜数',
+            ]);
+            $amount = $this->channelOrderImportNumber($row, [
+                'amount', 'sales_amount', 'revenue', 'order_amount', '销售额', '订单金额',
+            ]);
+            $averageLos = $this->channelOrderImportNumber($row, ['avg_los', 'average_los', '平均连住']);
+            $averageLeadDays = $this->channelOrderImportNumber($row, ['avg_lead_days', 'average_booking_lead_days', '平均提前预订天数']);
+            $bottomPriceAdr = $this->channelOrderImportNumber($row, ['bottom_price_adr', 'reference_bottom_price_adr']);
+
+            if (!isset($channels[$channelKey])) {
+                $channels[$channelKey] = [
+                    'key' => $channelKey,
+                    'label' => $channelLabel,
+                    'row_count' => 0,
+                    'orders' => null,
+                    'gross_orders' => null,
+                    'cancelled_orders' => null,
+                    'room_nights' => null,
+                    'amount' => null,
+                    'bottom_price_adr' => null,
+                    '_los_weighted_sum' => 0.0,
+                    '_los_weight' => 0.0,
+                    '_lead_weighted_sum' => 0.0,
+                    '_lead_weight' => 0.0,
+                ];
+            }
+            $channels[$channelKey]['row_count']++;
+            foreach ([
+                'orders' => $orders,
+                'gross_orders' => $grossOrders,
+                'cancelled_orders' => $cancelledOrders,
+                'room_nights' => $roomNights,
+                'amount' => $amount,
+            ] as $metric => $value) {
+                if ($value === null) {
+                    continue;
+                }
+                $channels[$channelKey][$metric] = ($channels[$channelKey][$metric] ?? 0) + $value;
+            }
+            if ($averageLos !== null && $orders !== null && $orders > 0) {
+                $channels[$channelKey]['_los_weighted_sum'] += $averageLos * $orders;
+                $channels[$channelKey]['_los_weight'] += $orders;
+            }
+            if ($averageLeadDays !== null && $orders !== null && $orders > 0) {
+                $channels[$channelKey]['_lead_weighted_sum'] += $averageLeadDays * $orders;
+                $channels[$channelKey]['_lead_weight'] += $orders;
+            }
+            if ($bottomPriceAdr !== null && $roomNights !== null && $roomNights > 0) {
+                $channels[$channelKey]['bottom_price_adr'] = $channels[$channelKey]['bottom_price_adr'] === null
+                    ? $bottomPriceAdr
+                    : (($channels[$channelKey]['bottom_price_adr'] * max(0.0, (float)$channels[$channelKey]['room_nights'] - $roomNights))
+                        + ($bottomPriceAdr * $roomNights)) / max(1.0, (float)$channels[$channelKey]['room_nights']);
+            }
+            if ($orders === null) {
+                $missingOrderRows++;
+            }
+        }
+
+        $channelList = array_values($channels);
+        foreach ($channelList as &$channel) {
+            $channel['cancel_rate'] = $channel['gross_orders'] !== null && $channel['gross_orders'] > 0
+                ? $channel['cancelled_orders'] / $channel['gross_orders']
+                : null;
+            $channel['avg_los'] = $channel['_los_weight'] > 0
+                ? $channel['_los_weighted_sum'] / $channel['_los_weight']
+                : null;
+            $channel['avg_lead_days'] = $channel['_lead_weight'] > 0
+                ? $channel['_lead_weighted_sum'] / $channel['_lead_weight']
+                : null;
+            unset(
+                $channel['_los_weighted_sum'],
+                $channel['_los_weight'],
+                $channel['_lead_weighted_sum'],
+                $channel['_lead_weight']
+            );
+        }
+        unset($channel);
+        usort($channelList, static function (array $left, array $right): int {
+            $leftOrders = $left['orders'];
+            $rightOrders = $right['orders'];
+            if ($leftOrders === null && $rightOrders === null) {
+                return strcmp((string)$left['label'], (string)$right['label']);
+            }
+            if ($leftOrders === null) {
+                return 1;
+            }
+            if ($rightOrders === null) {
+                return -1;
+            }
+            return $rightOrders <=> $leftOrders;
+        });
+        sort($dates);
+
+        return [
+            'system_hotel_id' => (int)($payload['system_hotel_id'] ?? 0),
+            'hotel_name' => trim((string)($payload['hotel_name'] ?? '')),
+            'metric_scope' => 'ota_channel',
+            'quality_status' => 'user_provided_unverified',
+            'quality_label' => '人工导入 / 待核验',
+            'persistence_readback_status' => 'verified',
+            'real_file_acceptance' => (string)($payload['fixture_status'] ?? '') === 'explicit_test_fixture'
+                ? 'test_fixture_only'
+                : 'unverified',
+            'ai_usage' => 'supplementary_profile_only',
+            'ai_usage_label' => '可用于低置信度 OTA 画像，不单独用于定价或可信收益结论',
+            'row_count' => count(array_filter($rows, 'is_array')),
+            'missing_order_rows' => $missingOrderRows,
+            'date_from' => $dates !== [] ? $dates[0] : null,
+            'date_to' => $dates !== [] ? $dates[count($dates) - 1] : null,
+            'channels' => $channelList,
+        ];
+    }
+
+    /** @param array<string, mixed> $row @param array<int, string> $keys */
+    private function channelOrderImportText(array $row, array $keys): string
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $row) || !is_scalar($row[$key])) {
+                continue;
+            }
+            $value = trim((string)$row[$key]);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return '';
+    }
+
+    /** @param array<string, mixed> $row @param array<int, string> $keys */
+    private function channelOrderImportNumber(array $row, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $row) || $row[$key] === null || $row[$key] === '') {
+                continue;
+            }
+            $value = is_string($row[$key]) ? str_replace([',', '¥', '￥', ' '], '', $row[$key]) : $row[$key];
+            if (is_numeric($value)) {
+                return (float)$value;
+            }
+        }
+        return null;
     }
 
     /**

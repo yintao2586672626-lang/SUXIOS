@@ -295,12 +295,35 @@ trait PlatformDataSourceExecutionConcern
         }
         (new OtaProfileBindingService())->assertBound($hotelId, $platform, $profileKey);
 
+        $this->assertNoUntrustedInAppBrowserCapture($options);
+
         $executionSource = $source;
         unset($executionSource['secret'], $executionSource['secret_json']);
 
         return $this->sanitizeAdapterResultForCredentialBoundary(
             $adapter->fetch($executionSource, $options),
             []
+        );
+    }
+
+    /**
+     * Offline IAB JSON is user-provided input. Its timestamps, response status,
+     * origin and identity hashes can all be forged together, so it cannot prove
+     * an authorized live platform session. Keep the Profile collector as the
+     * verified path until a server-issued, single-use live capture handle is
+     * implemented and checked here.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function assertNoUntrustedInAppBrowserCapture(array $options): void
+    {
+        if (!array_key_exists('in_app_browser_capture', $options)) {
+            return;
+        }
+
+        throw new RuntimeException(
+            'user_provided_unverified: offline in-app browser JSON import is blocked; controlled_live_capture_handle_required.',
+            422
         );
     }
 

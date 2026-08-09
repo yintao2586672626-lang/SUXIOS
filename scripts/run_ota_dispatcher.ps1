@@ -43,6 +43,20 @@ New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
 $runId = Get-Date -Format 'yyyyMMdd_HHmmss'
 $logPath = Join-Path $logDirectory "ota_dispatcher_$runId.log"
 
+$dailyTargetDate = ''
+if ($Mode -eq 'Daily') {
+    # Windows Task Scheduler runs in the host timezone, but the OTA business
+    # date contract is explicitly Asia/Shanghai. Pin one exact previous-day
+    # date so stale historical retry records cannot expand a daily run into
+    # older business dates.
+    $shanghaiTimeZone = [System.TimeZoneInfo]::FindSystemTimeZoneById('China Standard Time')
+    $shanghaiNow = [System.TimeZoneInfo]::ConvertTime([System.DateTimeOffset]::UtcNow, $shanghaiTimeZone)
+    $dailyTargetDate = $shanghaiNow.Date.AddDays(-1).ToString(
+        'yyyy-MM-dd',
+        [System.Globalization.CultureInfo]::InvariantCulture
+    )
+}
+
 function ConvertTo-SafeDispatcherLine {
     param([AllowNull()][object]$Value)
 
@@ -74,6 +88,10 @@ $dispatcherArguments = @(
     'online-data:auto-fetch',
     $scheduleArgument
 )
+if ($Mode -eq 'Daily') {
+    $dispatcherArguments += "--target-date=$dailyTargetDate"
+    $lines += "dispatcher_target_date=$dailyTargetDate;timezone=Asia/Shanghai"
+}
 if ($explicitScopeComplete) {
     $dispatcherArguments += @(
         "--hotel-id=$HotelId",
@@ -82,6 +100,11 @@ if ($explicitScopeComplete) {
     )
     $lines += "dispatcher_scope=hotel:$HotelId;platforms:$Platforms;source_count:$(@($SourceIds.Split(',')).Count)"
 }
+$lines += 'dispatcher_terminal_status=started_without_terminal_receipt'
+# Persist the safe scope/start receipt before the child process begins. If the
+# Windows execution limit terminates this runner, the missing terminal status
+# remains explicit instead of looking like a task that never started.
+[System.IO.File]::WriteAllLines($logPath, [string[]]$lines, $utf8)
 try {
     $process = Start-Process `
         -FilePath $resolvedPhp `
@@ -114,8 +137,9 @@ try {
 }
 
 $finishedAt = Get-Date -Format 'yyyy-MM-dd HH:mm:ss K'
+$lines += "dispatcher_terminal_status=finished;exit_code=$exitCode"
 $lines += "[$finishedAt] SUXIOS OTA dispatcher finished. exit_code=$exitCode"
-[System.IO.File]::WriteAllLines($logPath, [string[]]$lines, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllLines($logPath, [string[]]$lines, $utf8)
 
 Write-Output "dispatcher_log=$logPath"
 Write-Output "dispatcher_exit_code=$exitCode"

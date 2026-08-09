@@ -59,7 +59,11 @@ class RevenueAiOverviewService
         $agentActivity = $this->agentActivity($businessDate, $hotelId);
         $executionSummary = $this->executionSummary($businessDate, $hotelId, $hotelIds);
         $revenueFactLayer = $hotelId !== null
-            ? (new RevenueFactLayerService())->build($hotelId, $businessDate)
+            ? (new RevenueFactLayerService())->build(
+                $hotelId,
+                $businessDate,
+                $channelDatasets
+            )
             : [];
 
         $context = [
@@ -72,6 +76,7 @@ class RevenueAiOverviewService
                 'agent_activity' => $agentActivity,
                 'execution_summary' => $executionSummary,
                 'revenue_fact_layer' => $revenueFactLayer,
+                'manual_order_imports' => $this->manualOrderImportSummary($businessDate, $hotelId),
         ];
         if (is_array($filters['p0_downstream_gate'] ?? null)) {
             $context['p0_downstream_gate'] = $filters['p0_downstream_gate'];
@@ -240,6 +245,17 @@ class RevenueAiOverviewService
         $executionSummary = is_array($context['execution_summary'] ?? null)
             ? $context['execution_summary']
             : $this->executionSummaryUnavailable($businessDate, $hotelId, 'not_loaded', 'operation_execution_not_loaded');
+        $manualOrderImports = is_array($context['manual_order_imports'] ?? null)
+            ? $context['manual_order_imports']
+            : [
+                'status' => 'not_loaded',
+                'quality_status' => 'unverified',
+                'business_date' => $businessDate,
+                'hotel_id' => $hotelId,
+                'rows' => [],
+                'summary' => [],
+                'note' => '人工订单导入回读未加载。',
+            ];
         $pricingReadiness = $this->pricingReadiness(
             $metricsSummary,
             $missingDatasets,
@@ -380,14 +396,141 @@ class RevenueAiOverviewService
             'execution_summary' => $executionSummary,
             'ai_to_operation_handoff' => $pricingReadiness['ai_to_operation_handoff'],
             'three_source_fact_layer' => $revenueFactLayer,
+            'manual_order_imports' => $manualOrderImports,
             'actions' => $this->actions($missingDatasets, $qualityIssues, $pricingReadiness, $reviewQueue, $pricingGenerationPreflight),
             'metric_summary' => [
                 'fact_table' => $metricsSummary['fact_table'] ?? [],
                 'credibility_gate' => $metricsSummary['credibility_gate'] ?? [],
                 'p1_revenue_closure' => $metricsSummary['p1_revenue_closure'] ?? [],
+                'booking_window_adr' => $metricsSummary['booking_window_adr'] ?? [],
+                'channel_booking_window_month' => $metricsSummary['channel_booking_window_month'] ?? [],
                 'data_gaps' => $metricsSummary['data_gaps'] ?? [],
             ],
             'generated_at' => date('Y-m-d H:i:s'),
+        ];
+    }
+
+    /**
+     * Read back only value-verified manual order aggregates. These rows remain
+     * user-provided/unverified and are deliberately kept outside confirmed
+     * room-revenue metrics and automated pricing readiness.
+     *
+     * @return array<string, mixed>
+     */
+    private function manualOrderImportSummary(string $businessDate, ?int $hotelId): array
+    {
+        $base = [
+            'status' => 'no_data',
+            'quality_status' => 'user_provided_unverified',
+            'business_date' => $businessDate,
+            'hotel_id' => $hotelId,
+            'rows' => [],
+            'summary' => [],
+            'note' => '仅展示已保存并精确回读的人工携程订单聚合；参考底价不是确认收入。',
+            'real_file_acceptance' => 'unverified',
+        ];
+        if ($hotelId === null || !$this->tableExists('online_daily_data')) {
+            $base['status'] = 'not_loaded';
+            return $base;
+        }
+        $columns = $this->tableColumns('online_daily_data');
+        foreach (['system_hotel_id', 'data_date', 'data_type', 'ingestion_method', 'raw_data', 'readback_verified'] as $required) {
+            if (!isset($columns[$required])) {
+                $base['status'] = 'readback_contract_unavailable';
+                $base['note'] = '人工订单导入缺少精确回读字段，当前不展示聚合结果。';
+                return $base;
+            }
+        }
+        $fields = array_values(array_filter([
+            'id', 'system_hotel_id', 'data_date', 'data_type', 'ingestion_method',
+            'validation_status', 'readback_verified', 'source_trace_id', 'raw_data',
+        ], static fn(string $field): bool => isset($columns[$field])));
+        try {
+            $rows = Db::name('online_daily_data')
+                ->field(implode(',', $fields))
+                ->where('system_hotel_id', $hotelId)
+                ->where('data_date', $businessDate)
+                ->where('data_type', 'order')
+                ->whereIn('ingestion_method', ['manual', 'import_excel', 'import_csv', 'import_json'])
+                ->where('readback_verified', 1)
+                ->order('id', 'asc')
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
+            $base['status'] = 'readback_query_failed';
+            $base['note'] = '人工订单导入回读查询失败，当前不展示聚合结果。';
+            return $base;
+        }
+
+        $items = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $item = $this->manualOrderImportItem($row, $businessDate);
+            if ($item !== null) {
+                $items[] = $item;
+            }
+        }
+        if ($items === []) {
+            return $base;
+        }
+
+        $base['status'] = 'available_unverified';
+        $base['rows'] = $items;
+        $base['summary'] = [
+            'row_count' => count($items),
+            'active_orders' => array_sum(array_map(static fn(array $item): float => (float)($item['active_orders'] ?? 0), $items)),
+            'cancelled_orders' => array_sum(array_map(static fn(array $item): float => (float)($item['cancelled_orders'] ?? 0), $items)),
+            'room_nights' => array_sum(array_map(static fn(array $item): float => (float)($item['room_nights'] ?? 0), $items)),
+            'readback_verified' => true,
+        ];
+        return $base;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>|null
+     */
+    private function manualOrderImportItem(array $row, string $businessDate): ?array
+    {
+        $stored = $this->jsonLikeArray($row['raw_data'] ?? []);
+        $canonical = is_array($stored['row'] ?? null) ? $stored['row'] : [];
+        $detail = is_array($canonical['raw_data'] ?? null) ? $canonical['raw_data'] : [];
+        $channelKey = strtolower(trim((string)($detail['channel_key'] ?? $canonical['source'] ?? '')));
+        if ($channelKey === '') {
+            return null;
+        }
+        $sourceFormatValue = $detail['source_format'] ?? null;
+        $sourceFormat = is_scalar($sourceFormatValue) ? trim((string)$sourceFormatValue) : null;
+        if ($sourceFormat === '') {
+            $sourceFormat = null;
+        }
+
+        return [
+            'row_id' => max(0, (int)($row['id'] ?? 0)),
+            'source' => 'ctrip_manual_order_import',
+            'source_label' => '携程订单文件人工导入',
+            'channel_key' => $channelKey,
+            'channel_label' => trim((string)($detail['channel_label'] ?? $channelKey)),
+            'business_date' => (string)($row['data_date'] ?? $businessDate),
+            'business_date_basis' => (string)($detail['business_date_basis'] ?? 'stay_date'),
+            'active_orders' => $this->numeric($canonical['book_order_num'] ?? $detail['active_order_num'] ?? null),
+            'gross_orders' => $this->numeric($canonical['gross_order_num'] ?? $detail['gross_order_num'] ?? null),
+            'cancelled_orders' => $this->numeric($canonical['cancel_order_num'] ?? $detail['cancel_order_num'] ?? null),
+            'unknown_status_orders' => $this->numeric($canonical['unknown_status_order_num'] ?? $detail['unknown_status_order_num'] ?? null),
+            'cancel_rate' => $this->numeric($canonical['cancel_rate'] ?? $detail['cancel_rate'] ?? null),
+            'room_nights' => $this->numeric($canonical['quantity'] ?? $detail['room_nights'] ?? null),
+            'average_booking_lead_days' => $this->numeric($canonical['avg_lead_days'] ?? $detail['average_booking_lead_days'] ?? null),
+            'reference_bottom_price_total' => $this->numeric($canonical['amount'] ?? $detail['bottom_price_sum'] ?? null),
+            'reference_bottom_price_adr' => $this->numeric($canonical['bottom_price_adr'] ?? $detail['bottom_price_adr'] ?? null),
+            'amount_semantics' => 'reference_bottom_price_not_confirmed_revenue',
+            'source_format' => $sourceFormat,
+            'quality_status' => 'user_provided_unverified',
+            'readback_verified' => true,
+            'real_file_acceptance' => (string)($detail['fixture_status'] ?? '') === 'explicit_test_fixture'
+                ? 'test_fixture_only'
+                : 'unverified',
         ];
     }
 
@@ -940,6 +1083,8 @@ class RevenueAiOverviewService
             'holiday_event' => $holidaySignal,
             'demand_7d' => $demandSignal,
             'competitor_price_warning' => $competitorSignal,
+            'booking_window_adr' => $this->bookingWindowAdrSignal($metricsSummary, $sourceChannels),
+            'channel_booking_window_month' => $this->channelBookingWindowMonthSignal($metricsSummary, $sourceChannels),
             'pricing_advice' => [
                 'label' => '今日调价建议',
                 'value' => '--',
@@ -948,6 +1093,125 @@ class RevenueAiOverviewService
                 'detail' => 'Phase 1A 只做调价前置条件检查，未生成可审核建议。',
                 'scope' => 'hotel',
             ],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $metricsSummary
+     * @param array<int, string> $sourceChannels
+     * @return array<string, mixed>
+     */
+    private function bookingWindowAdrSignal(array $metricsSummary, array $sourceChannels): array
+    {
+        $summary = is_array($metricsSummary['booking_window_adr'] ?? null)
+            ? $metricsSummary['booking_window_adr']
+            : [];
+        $buckets = array_values(array_filter(
+            is_array($summary['buckets'] ?? null) ? $summary['buckets'] : [],
+            static fn(mixed $item): bool => is_array($item) && is_numeric($item['adr'] ?? null)
+        ));
+        $reason = trim((string)($summary['reason'] ?? ''));
+        if ($buckets === []) {
+            return [
+                'label' => '提前期房费结构',
+                'value' => '--',
+                'status' => 'not_calculable',
+                'reason' => $reason !== '' ? $reason : 'lead_time_fields_missing',
+                'detail' => '需要同一 OTA 事实同时具备提前预订天数、已验证房费收入和正数间夜；缺失时不生成价格结构。',
+                'scope' => 'ota',
+                'date_basis' => 'lead_time_days',
+                'source_channels' => $sourceChannels,
+                'detail_metrics' => [
+                    'lead_time_row_count' => (int)($summary['lead_time_row_count'] ?? 0),
+                    'aligned_row_count' => (int)($summary['aligned_row_count'] ?? 0),
+                    'bucket_count' => 0,
+                    'buckets' => [],
+                ],
+            ];
+        }
+
+        $parts = array_map(
+            static fn(array $bucket): string => (string)($bucket['label'] ?? '') . ' ¥' . number_format((float)$bucket['adr'], 2),
+            array_slice($buckets, 0, 3)
+        );
+        $bucketCount = count($buckets);
+        $status = $bucketCount >= 2 && $reason === '' ? 'ok' : 'partial';
+        $signalReason = $reason !== ''
+            ? $reason
+            : ($bucketCount >= 2 ? 'booking_window_adr_structure_available' : 'booking_window_adr_single_bucket');
+
+        return [
+            'label' => '提前期房费结构',
+            'value' => implode(' · ', $parts),
+            'status' => $status,
+            'reason' => $signalReason,
+            'detail' => '按提前预订天数分组，以已验证 OTA 房费收入 / 间夜计算加权 ADR；仅反映当前 OTA 渠道历史结构，不自动生成调价建议。',
+            'scope' => 'ota',
+            'date_basis' => 'lead_time_days',
+            'source_channels' => $sourceChannels,
+            'detail_metrics' => [
+                'lead_time_row_count' => (int)($summary['lead_time_row_count'] ?? 0),
+                'aligned_row_count' => (int)($summary['aligned_row_count'] ?? 0),
+                'bucket_count' => $bucketCount,
+                'buckets' => $buckets,
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $metricsSummary
+     * @param array<int, string> $sourceChannels
+     * @return array<string, mixed>
+     */
+    private function channelBookingWindowMonthSignal(array $metricsSummary, array $sourceChannels): array
+    {
+        $summary = is_array($metricsSummary['channel_booking_window_month'] ?? null)
+            ? $metricsSummary['channel_booking_window_month']
+            : [];
+        $cells = array_values(array_filter(
+            is_array($summary['cells'] ?? null) ? $summary['cells'] : [],
+            static fn(mixed $item): bool => is_array($item)
+                && ($item['sample_status'] ?? '') === 'supported'
+                && is_numeric($item['order_share'] ?? null)
+        ));
+        $reason = trim((string)($summary['reason'] ?? ''));
+        if ($cells === []) {
+            return [
+                'label' => '渠道预售窗口',
+                'value' => '--',
+                'status' => ($summary['aligned_row_count'] ?? 0) > 0 ? 'partial' : 'not_calculable',
+                'reason' => $reason !== '' ? $reason : 'channel_booking_window_month_fields_missing',
+                'detail' => ($summary['aligned_row_count'] ?? 0) > 0
+                    ? '已有渠道、入住月和提前期交叉记录，但所有格子的订单量均低于最小样本门槛，暂不生成预售窗口信号。'
+                    : '需要同一 OTA 事实具备真实入住日期、提前预订天数、渠道和正数订单量；缺失时不生成月份交叉结论。',
+                'scope' => 'ota',
+                'date_basis' => 'checkin_month',
+                'source_channels' => $sourceChannels,
+                'detail_metrics' => $summary,
+            ];
+        }
+
+        usort($cells, static function (array $left, array $right): int {
+            return [(int)($right['order_count'] ?? 0), (float)($right['order_share'] ?? 0)]
+                <=> [(int)($left['order_count'] ?? 0), (float)($left['order_share'] ?? 0)];
+        });
+        $parts = array_map(function (array $cell): string {
+            return (string)($cell['stay_month'] ?? '')
+                . ' ' . $this->channelLabel((string)($cell['platform_key'] ?? ''))
+                . ' ' . (string)($cell['booking_window_label'] ?? '')
+                . ' ' . number_format((float)($cell['order_share'] ?? 0), 1) . '%';
+        }, array_slice($cells, 0, 3));
+
+        return [
+            'label' => '渠道预售窗口',
+            'value' => implode(' · ', $parts),
+            'status' => $reason === '' ? 'ok' : 'partial',
+            'reason' => $reason !== '' ? $reason : 'channel_booking_window_month_structure_available',
+            'detail' => '按真实入住月、OTA渠道和提前期分组展示当前快照的订单结构；仅用于观察预售窗口，不证明价格、投放或促销因果。',
+            'scope' => 'ota',
+            'date_basis' => 'checkin_month',
+            'source_channels' => $sourceChannels,
+            'detail_metrics' => $summary,
         ];
     }
 

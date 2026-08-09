@@ -8,6 +8,7 @@ import test from 'node:test';
 import {
   buildCtripEndpointCandidates,
   buildCtripStandardRowsFromFacts,
+  ctripCaptureRowPeriodMetadata,
   ctripCatalogSummary,
   extractCtripCatalogFacts,
   filterCtripCatalogFactsForProfileFields,
@@ -39,10 +40,53 @@ test('keeps structural date facts when Profile fields filter business metrics', 
   const rows = buildCtripStandardRowsFromFacts(filtered, {
     dataDate: '2026-08-03',
     defaultDataDate: '2026-08-03',
+    capturePlan: 'realtime_broadcast',
   });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].data_date, '2026-08-02');
+  assert.equal(rows[0].data_period, 'historical_daily');
+  assert.equal(rows[0].is_final, 1);
   assert.equal(rows[0].list_exposure, 547);
+});
+
+test('marks same-day realtime broadcast facts as non-final snapshots', () => {
+  const base = {
+    platform: 'ctrip',
+    section: 'traffic_report',
+    endpoint_id: 'traffic_flow_transform',
+    data_type: 'traffic',
+    data_date: '2026-08-03',
+    captured_at: '2026-08-03T11:00:00.000Z',
+    source_parent_path: '0',
+  };
+  const rows = buildCtripStandardRowsFromFacts([
+    { ...base, metric_key: 'date', value: '2026-08-03', source_key: 'date', source_path: '0.date' },
+    { ...base, metric_key: 'list_exposure', value: 321, source_key: 'listExposure', source_path: '0.listExposure' },
+  ], {
+    dataDate: '2026-08-03',
+    defaultDataDate: '2026-08-03',
+    capturePlan: 'realtime_broadcast',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_period, 'realtime_snapshot');
+  assert.equal(rows[0].is_final, 0);
+});
+
+test('classifies raw response rows by their own business date', () => {
+  const context = {
+    capturePlan: 'realtime_broadcast',
+    defaultDataDate: '2026-08-09',
+  };
+
+  assert.deepEqual(ctripCaptureRowPeriodMetadata('2026-08-08', context), {
+    data_period: 'historical_daily',
+    is_final: 1,
+  });
+  assert.deepEqual(ctripCaptureRowPeriodMetadata('2026-08-09', context), {
+    data_period: 'realtime_snapshot',
+    is_final: 0,
+  });
 });
 
 test('normalizes Ctrip capture presets for core and wide collection', () => {
@@ -370,6 +414,63 @@ test('persists an explicit historical review window without storing request payl
     window_days: 7,
   });
   assert.equal(Object.hasOwn(rows[0].raw_data, 'request_payload'), false);
+});
+
+test('marks catalog traffic rows authoritative only when all five captured facts are present', () => {
+  const metricFacts = [
+    ['list_exposure', 'listExposure', 510],
+    ['detail_visitor', 'detailExposure', 96],
+    ['flow_rate', 'flowRate', 18.82],
+    ['order_page_visitor', 'orderFillingNum', 0],
+    ['order_submit_user', 'orderSubmitNum', 0],
+  ].map(([metricKey, sourceKey, value]) => ({
+    metric_key: metricKey,
+    metric_label: metricKey,
+    value,
+    value_type: 'number',
+    source_key: sourceKey,
+    source_path: `data.0.${sourceKey}`,
+    source_parent_path: 'data.0',
+    endpoint_id: 'traffic_flow_transform',
+    endpoint_label: 'APP traffic funnel',
+    section: 'traffic_report',
+    platform: 'ctrip',
+    data_date: '2026-08-08',
+    hotel_id: '130079194',
+    captured_at: '2026-08-09T00:40:00.000Z',
+  }));
+
+  const expected = [
+    'list_exposure',
+    'detail_exposure',
+    'flow_rate',
+    'order_filling_num',
+    'order_submit_num',
+  ];
+  const completeRows = buildCtripStandardRowsFromFacts(metricFacts, {
+    capturePlan: 'historical_review',
+    hotelId: '130079194',
+    systemHotelId: 80,
+    dataDate: '2026-08-08',
+  });
+
+  assert.equal(completeRows.length, 1);
+  assert.deepEqual(completeRows[0]._observed_traffic_metric_keys, expected);
+  assert.deepEqual(completeRows[0].raw_data._observed_traffic_metric_keys, expected);
+
+  const incompleteRows = buildCtripStandardRowsFromFacts(
+    metricFacts.filter((fact) => fact.metric_key !== 'flow_rate'),
+    {
+      capturePlan: 'historical_review',
+      hotelId: '130079194',
+      systemHotelId: 80,
+      dataDate: '2026-08-08',
+    },
+  );
+
+  assert.equal(incompleteRows.length, 1);
+  assert.equal(Object.hasOwn(incompleteRows[0], '_observed_traffic_metric_keys'), false);
+  assert.equal(Object.hasOwn(incompleteRows[0].raw_data, '_observed_traffic_metric_keys'), false);
 });
 
 test('defines Ctrip section interaction plans for tabbed capture pages', () => {

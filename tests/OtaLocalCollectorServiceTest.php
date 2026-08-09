@@ -422,6 +422,42 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame($revoked['device_token_hash'], $afterStaleTouch['device_token_hash']);
         self::assertSame($revoked['update_time'], $afterStaleTouch['update_time']);
 
+        // A deterministic non-manual backfill key can already exist as a
+        // historical cancelled row. It must not turn the revoke fence failure
+        // into a successful historical-task replay.
+        $idempotencyKey = hash(
+            'sha256',
+            implode('|', [
+                (int)$staleAccount['id'],
+                (int)$staleMapping['system_hotel_id'],
+                'collection',
+                '2001-01-01',
+                'ota_yesterday_core',
+            ])
+        );
+        Db::name('ota_local_collector_tasks')->insert([
+            'tenant_id' => 12,
+            'user_id' => 7,
+            'device_id' => $deviceId,
+            'account_id' => (int)$staleAccount['id'],
+            'system_hotel_id' => (int)$staleMapping['system_hotel_id'],
+            'platform' => (string)$staleAccount['platform'],
+            'task_type' => 'backfill',
+            'data_date' => '2001-01-01',
+            'data_type' => 'business',
+            'status' => 'cancelled',
+            'priority' => 35,
+            'attempt' => 0,
+            'max_attempts' => 3,
+            'available_at' => date('Y-m-d H:i:s'),
+            'lease_token_hash' => '',
+            'idempotency_key' => $idempotencyKey,
+            'request_json' => '{}',
+            'created_by' => 7,
+            'create_time' => date('Y-m-d H:i:s'),
+            'update_time' => date('Y-m-d H:i:s'),
+        ]);
+
         $enqueue = new \ReflectionMethod(OtaLocalCollectorService::class, 'enqueueTask');
         $enqueue->setAccessible(true);
         try {
@@ -439,6 +475,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame(0, (int)Db::name('ota_local_collector_tasks')
             ->where('device_id', $deviceId)
             ->where('data_date', '2001-01-01')
+            ->whereIn('status', ['queued', 'leased', 'running', 'retry_wait'])
             ->count());
     }
 
@@ -2411,6 +2448,30 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame('ready', $ready['status']);
         self::assertTrue($ready['formal_report_allowed']);
         self::assertSame([], $ready['missing_platforms']);
+    }
+
+    public function testOnlyTheIdempotencyUniqueConstraintCanReuseAnExistingTask(): void
+    {
+        $method = new \ReflectionMethod(OtaLocalCollectorService::class, 'isIdempotencyKeyConflict');
+        $method->setAccessible(true);
+        $service = new OtaLocalCollectorService();
+
+        self::assertTrue($method->invoke($service, new RuntimeException(
+            "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry for key 'uniq_task_idempotency'",
+            23000
+        )));
+        self::assertTrue($method->invoke($service, new RuntimeException(
+            'UNIQUE constraint failed: ota_local_collector_tasks.idempotency_key',
+            23000
+        )));
+        self::assertFalse($method->invoke($service, new RuntimeException(
+            'SQLSTATE[23000]: Integrity constraint violation: foreign key constraint fails',
+            23000
+        )));
+        self::assertFalse($method->invoke($service, new RuntimeException(
+            "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry for key 'other_unique_key'",
+            23000
+        )));
     }
 
     private function actor(): object

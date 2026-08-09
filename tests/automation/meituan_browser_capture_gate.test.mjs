@@ -81,8 +81,8 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(source, /locateMeituanTrafficFunnelPeriod/);
   assert.match(source, /\\u6d41\\u91cf\\u8f6c\\u5316\\u6f0f\\u6597/);
   assert.ok(
-    trafficPlanBlock.indexOf('restore target traffic period') > trafficPlanBlock.lastIndexOf('await selectMeituanForecastTab'),
-    'target funnel period must be restored after all traffic interactions',
+    trafficPlanBlock.indexOf('await captureMeituanTrafficFunnelPeriod') > trafficPlanBlock.lastIndexOf('await selectMeituanForecastTab'),
+    'target funnel period must be captured after all traffic interactions',
   );
   assert.match(source, /\['data', 'results'\]/);
   assert.match(source, /meituan_orders_purchase_date_query/);
@@ -90,6 +90,12 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(source, /requestQueryEvidence/);
   assert.match(source, /requestBusinessTabEvidence/);
   assert.match(source, /business_capture_epoch/);
+  assert.match(source, /requestTrafficTabEvidence/);
+  assert.match(source, /traffic_capture_epoch/);
+  assert.match(source, /traffic_request_sequence/);
+  assert.match(source, /selected_request_sequence/);
+  assert.match(source, /switch away before verified target traffic period/);
+  assert.match(source, /funnel_row_count/);
   assert.match(source, /newhb-sub-app\/data-center-pc\/home\/index\.html#\/index/);
   assert.match(source, /\\u57fa\\u7840\\u7ecf\\u8425/);
   assert.match(source, /request_data_date: requestDateEvidence\.date \|\| ''/);
@@ -225,6 +231,10 @@ test('uses independent yesterday readback for traffic source exposure rows', () 
         relative_range: '今日实时',
         evidence_source: 'page.traffic_period_selection.readback',
         marker: 'meituan_traffic_today_realtime_tab',
+        traffic_capture_epoch: 9,
+        response_count: 1,
+        selected_request_sequence: 14,
+        funnel_row_count: 1,
       },
     },
     traffic: [sourceRow],
@@ -241,6 +251,10 @@ test('uses today realtime selector readback, not refresh time, for same-day traf
         relative_range: '\u4eca\u65e5\u5b9e\u65f6',
         evidence_source: 'page.traffic_period_selection.readback',
         marker: 'meituan_traffic_today_realtime_tab',
+        traffic_capture_epoch: 9,
+        response_count: 1,
+        selected_request_sequence: 14,
+        funnel_row_count: 1,
       },
     },
     traffic: [{
@@ -270,14 +284,24 @@ test('applies the selected funnel date to flow-conversion responses but not tren
         relative_range: '今日实时',
         evidence_source: 'page.traffic_period_selection.readback',
         marker: 'meituan_traffic_today_realtime_tab',
+        traffic_capture_epoch: 9,
+        response_count: 1,
+        selected_request_sequence: 14,
+        funnel_row_count: 1,
       },
     },
     flowAnalysis: [
       {
         dataDate: '2026-07-29',
         date_source: 'request.query.dateRange=0',
+        _capture_source: 'xhr:traffic:traffic',
         data_type: 'traffic',
         dimension: 'flow_conversion',
+        traffic_capture_epoch: 9,
+        traffic_request_sequence: 14,
+        traffic_relative_range: '\u4eca\u65e5\u5b9e\u65f6',
+        traffic_evidence_source: 'page.traffic_period_selection.readback',
+        traffic_marker: 'meituan_traffic_today_realtime_tab',
         exposureUV: 8,
         intentionUV: 2,
         payOrderCnt: 0,
@@ -285,6 +309,7 @@ test('applies the selected funnel date to flow-conversion responses but not tren
       {
         dataDate: '2026-07-29',
         date_source: 'request.query.dateRange=0',
+        _capture_source: 'xhr:traffic:traffic',
         data_type: 'traffic_analysis',
         dimension: 'flow_trend',
         data_value: 100,
@@ -298,6 +323,95 @@ test('applies the selected funnel date to flow-conversion responses but not tren
   const filtered = filterMeituanCumulativeRowsByTargetDate(result, '2026-07-30');
   assert.equal(filtered.flowAnalysis.length, 1);
   assert.equal(filtered.flowAnalysis[0].dimension, 'flow_conversion');
+});
+
+test('accepts capture-context funnel date only when response and row share the verified traffic epoch', () => {
+  const result = filterMeituanCumulativeRowsByTargetDate({
+    section_evidence: {
+      traffic: {
+        status: 'target_date_relative_range_selected',
+        target_date: '2026-08-08',
+        relative_range: '\u6628\u65e5',
+        evidence_source: 'page.traffic_period_selection.readback',
+        marker: 'meituan_traffic_yesterday_tab',
+        traffic_capture_epoch: 12,
+        response_count: 1,
+        selected_request_sequence: 22,
+        funnel_row_count: 1,
+      },
+    },
+    flowAnalysis: [
+      {
+        dataDate: '2026-08-08',
+        date_source: 'capture_context.default_data_date',
+        _capture_source: 'xhr:traffic:traffic',
+        data_type: 'traffic',
+        dimension: 'flow_conversion',
+        exposureUV: 81,
+        intentionUV: 14,
+        payOrderPerIntention: 14.29,
+        traffic_capture_epoch: 12,
+        traffic_request_sequence: 22,
+        traffic_relative_range: '\u6628\u65e5',
+        traffic_evidence_source: 'page.traffic_period_selection.readback',
+        traffic_marker: 'meituan_traffic_yesterday_tab',
+      },
+      {
+        dataDate: '2026-08-08',
+        date_source: 'capture_context.default_data_date',
+        _capture_source: 'xhr:traffic:traffic',
+        data_type: 'traffic',
+        dimension: 'flow_conversion',
+        exposureUV: 999,
+        intentionUV: 999,
+        payOrderPerIntention: 99.9,
+        traffic_capture_epoch: 12,
+        traffic_request_sequence: 21,
+        traffic_relative_range: '\u6628\u65e5',
+        traffic_evidence_source: 'page.traffic_period_selection.readback',
+        traffic_marker: 'meituan_traffic_yesterday_tab',
+      },
+    ],
+  }, '2026-08-08');
+
+  assert.equal(result.flowAnalysis.length, 1);
+  assert.equal(result.flowAnalysis[0].exposureUV, 81);
+  assert.equal(result.flowAnalysis[0].dataDate, '2026-08-08');
+  assert.equal(result.flowAnalysis[0].date_source, 'page.traffic_period_selection.readback');
+  assert.equal(result.flowAnalysis[0].date_scope_evidence, 'meituan_traffic_yesterday_tab');
+});
+
+test('rejects capture-context funnel date without positive verified traffic epoch counts', () => {
+  const result = filterMeituanCumulativeRowsByTargetDate({
+    section_evidence: {
+      traffic: {
+        status: 'target_date_relative_range_selected',
+        target_date: '2026-08-08',
+        relative_range: '\u6628\u65e5',
+        evidence_source: 'page.traffic_period_selection.readback',
+        marker: 'meituan_traffic_yesterday_tab',
+        traffic_capture_epoch: 12,
+        response_count: 0,
+        selected_request_sequence: 22,
+        funnel_row_count: 1,
+      },
+    },
+    flowAnalysis: [{
+      dataDate: '2026-08-08',
+      date_source: 'capture_context.default_data_date',
+      _capture_source: 'xhr:traffic:traffic',
+      data_type: 'traffic',
+      dimension: 'flow_conversion',
+      exposureUV: 81,
+      traffic_capture_epoch: 12,
+      traffic_request_sequence: 22,
+      traffic_relative_range: '\u6628\u65e5',
+      traffic_evidence_source: 'page.traffic_period_selection.readback',
+      traffic_marker: 'meituan_traffic_yesterday_tab',
+    }],
+  }, '2026-08-08');
+
+  assert.equal(result.flowAnalysis.length, 0);
 });
 
 test('retains yesterday-selected traffic after the target-date filter runs', () => {

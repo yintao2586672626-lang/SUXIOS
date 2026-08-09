@@ -1442,6 +1442,18 @@ test('Revenue AI signal rows display competitor price position without pricing a
           reason: 'competitor_price_above_competitor',
           detail: '本店均价高于竞对均价，需人工复核。',
         },
+        booking_window_adr: {
+          label: '提前期房费结构',
+          value: '当天 ¥300.00 · 8-14天 ¥200.00',
+          status: 'ok',
+          reason: 'booking_window_adr_structure_available',
+        },
+        channel_booking_window_month: {
+          label: '渠道预售窗口',
+          value: '2026-07 携程 8-14天 62.5%',
+          status: 'ok',
+          reason: 'channel_booking_window_month_structure_available',
+        },
         pricing_advice: {
           label: '今日调价建议',
           value: '--',
@@ -1455,6 +1467,8 @@ test('Revenue AI signal rows display competitor price position without pricing a
   const competitor = rows.find((row) => row.key === 'competitor_price_warning');
   const holiday = rows.find((row) => row.key === 'holiday_event');
   const demand = rows.find((row) => row.key === 'demand_7d');
+  const bookingWindow = rows.find((row) => row.key === 'booking_window_adr');
+  const channelWindow = rows.find((row) => row.key === 'channel_booking_window_month');
   const pricing = rows.find((row) => row.key === 'pricing_advice');
   assert.equal(holiday.value, '测试节日 T-5');
   assert.match(holiday.reasonText, /节假日窗口/);
@@ -1463,6 +1477,12 @@ test('Revenue AI signal rows display competitor price position without pricing a
   assert.equal(competitor.value, '本店高于竞对 ¥20.00');
   assert.equal(competitor.statusLabel, '需复核');
   assert.match(competitor.reasonText, /人工复核/);
+  assert.equal(bookingWindow.value, '当天 ¥300.00 · 8-14天 ¥200.00');
+  assert.equal(bookingWindow.statusLabel, '正常');
+  assert.match(bookingWindow.reasonText, /历史结构/);
+  assert.equal(channelWindow.value, '2026-07 携程 8-14天 62.5%');
+  assert.equal(channelWindow.statusLabel, '正常');
+  assert.match(channelWindow.reasonText, /预售窗口/);
   assert.equal(pricing.value, '--');
   assert.match(pricing.reasonText, /未生成调价建议/);
 });

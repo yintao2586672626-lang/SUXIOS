@@ -237,17 +237,11 @@
                             <section class="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
                                 <div class="border-b border-slate-100 px-6 py-4">
                                     <h3 id="operation-evidence-modal-title" class="text-lg font-bold text-slate-900">记录执行证据</h3>
-                                    <p class="mt-1 text-xs leading-5 text-slate-500">只记录实际完成的动作或真实财务证据；未观察到的收入、成本和 ROI 保持为空。</p>
+                                    <p class="mt-1 text-xs leading-5 text-slate-500">这里只记录实际完成的动作、人员、时间和回执。收入、成本、指标变化与效果结论统一在“效果复盘”中保存。</p>
                                 </div>
                                 <div class="max-h-[65vh] space-y-4 overflow-y-auto px-6 py-5">
-                                    <label class="block">
-                                        <span class="text-xs font-medium text-slate-600">证据类型</span>
-                                        <select v-model="operationEvidenceForm.mode" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                                            <option value="1">已完成运营动作（效果待观察）</option>
-                                            <option value="2">真实收入/成本证据</option>
-                                        </select>
-                                    </label>
-                                    <template v-if="operationEvidenceForm.mode === '1'">
+                                    <div class="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">执行证据与效果证据分开保存：本窗口不会接收执行前后收入、成本或 ROI。</div>
+                                    <template>
                                         <label class="block">
                                             <span class="text-xs font-medium text-slate-600">实际完成的动作 *</span>
                                             <textarea v-model.trim="operationEvidenceForm.completed_action" rows="4" placeholder="填写已经执行的动作，不要填写计划或预期效果" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
@@ -266,31 +260,11 @@
                                                 <input v-model="operationEvidenceForm.executed_at" type="datetime-local" step="1" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                             </label>
                                             <label class="block md:col-span-2">
-                                                <span class="text-xs font-medium text-slate-600">效果复盘日期</span>
+                                                <span class="text-xs font-medium text-slate-600">计划读取次日同口径事实的日期</span>
                                                 <input v-model="operationEvidenceForm.next_review_date" type="date" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                             </label>
                                         </div>
                                         <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">保存后标记为“已执行、效果待观察”，不会自动生成收入或 ROI。</div>
-                                    </template>
-                                    <template v-else="">
-                                        <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
-                                            <label class="block">
-                                                <span class="text-xs font-medium text-slate-600">执行前收入 *</span>
-                                                <input v-model="operationEvidenceForm.before_revenue" type="number" step="0.01" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                                            </label>
-                                            <label class="block">
-                                                <span class="text-xs font-medium text-slate-600">执行后收入 *</span>
-                                                <input v-model="operationEvidenceForm.after_revenue" type="number" step="0.01" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                                            </label>
-                                            <label class="block">
-                                                <span class="text-xs font-medium text-slate-600">执行成本 *</span>
-                                                <input v-model="operationEvidenceForm.cost" type="number" step="0.01" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                                            </label>
-                                        </div>
-                                        <label class="block">
-                                            <span class="text-xs font-medium text-slate-600">证据备注</span>
-                                            <textarea v-model.trim="operationEvidenceForm.remark" rows="3" placeholder="填写日期口径、来源和回执位置" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
-                                        </label>
                                     </template>
                                 </div>
                                 <div class="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
@@ -320,22 +294,8 @@
                                         <span class="text-xs font-medium text-slate-600">复盘说明</span>
                                         <textarea v-model.trim="operationReviewForm.summary" rows="5" placeholder="说明已完成什么、等待什么证据，以及当前不能判断的原因" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
                                     </label>
-                                    <div v-if="['success', 'near_success'].includes(operationReviewForm.status)" class="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4" data-testid="operation-review-readback-gate">
-                                        <label class="flex items-start gap-3 text-sm text-amber-900">
-                                            <input v-model="operationReviewForm.operator_attested" type="checkbox" class="mt-0.5 rounded border-amber-300 text-amber-600">
-                                            <span>我声明已在对应 OTA 平台人工复查，并确认本次执行结果与复盘结论一致。</span>
-                                        </label>
-                                        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                                            <label class="block">
-                                                <span class="text-xs font-medium text-amber-900">截图 / 回执 / 来源记录 *</span>
-                                                <input v-model.trim="operationReviewForm.source_ref" placeholder="例如 screenshot#20260717-01" class="mt-1 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm">
-                                            </label>
-                                            <label class="block">
-                                                <span class="text-xs font-medium text-amber-900">人工复查声明时间 *</span>
-                                                <input v-model="operationReviewForm.operator_attested_at" type="datetime-local" step="1" class="mt-1 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm">
-                                            </label>
-                                        </div>
-                                        <p class="text-xs leading-5 text-amber-800">这里只记录操作者人工声明，不代表 OTA 来源已被服务端验证；不会自动向 OTA 写入价格、库存或活动。</p>
+                                    <div v-if="['success', 'near_success', 'failed'].includes(operationReviewForm.status)" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800" data-testid="operation-review-readback-gate">
+                                        达成、接近达成或未达成只能基于已读取的同酒店、同平台、同指标来源事实。人工在此确认结论；系统会把效果复盘独立保存，不会把人工填值写成来源事实，也不会自动修改 OTA。
                                     </div>
                                 </div>
                                 <div class="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">

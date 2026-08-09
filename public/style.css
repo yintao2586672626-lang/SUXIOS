@@ -14224,6 +14224,95 @@ main[data-current-page="ai-workbench"] .holiday-advice-number {
     min-width: 0;
 }
 
+.suxi-app-shell .header .platform-hotel-context-search-wrap {
+    position: relative;
+    display: block;
+    min-width: 0;
+}
+
+.suxi-app-shell .header .platform-hotel-context-search {
+    width: 100%;
+    height: 32px;
+    padding: 0 30px 0 28px;
+    border: 1px solid rgba(220, 197, 145, .32);
+    border-radius: 8px;
+    background: rgba(251, 250, 247, .92);
+    color: #13231e;
+    font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    font-size: 12px;
+    outline: none;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.suxi-app-shell .header .platform-hotel-context-search::placeholder {
+    color: #7a817d;
+}
+
+.suxi-app-shell .header .platform-hotel-context-search:focus-visible {
+    border-color: #dcc591;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(220, 197, 145, .18);
+}
+
+.suxi-app-shell .header .platform-hotel-context-search:disabled {
+    cursor: not-allowed;
+    color: #64748b;
+}
+
+.suxi-app-shell .header .platform-hotel-context-search-icon {
+    position: absolute;
+    top: 50%;
+    left: 9px;
+    z-index: 1;
+    color: #79613a;
+    font-size: 10px;
+    pointer-events: none;
+    transform: translateY(-50%);
+}
+
+.suxi-app-shell .header .platform-hotel-context-options {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    left: 0;
+    z-index: 60;
+    display: flex;
+    max-height: 260px;
+    overflow-y: auto;
+    flex-direction: column;
+    padding: 5px;
+    border: 1px solid #d7c59e;
+    border-radius: 9px;
+    background: #fffdf8;
+    box-shadow: 0 14px 32px rgba(16, 31, 25, .22);
+}
+
+.suxi-app-shell .header .platform-hotel-context-option {
+    width: 100%;
+    padding: 8px 9px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #24332e;
+    font-size: 12px;
+    line-height: 1.35;
+    text-align: left;
+    cursor: pointer;
+}
+
+.suxi-app-shell .header .platform-hotel-context-option:hover,
+.suxi-app-shell .header .platform-hotel-context-option.is-selected {
+    background: #f1eadb;
+    color: #5f461f;
+}
+
+.suxi-app-shell .header .platform-hotel-context-empty {
+    padding: 10px 9px;
+    color: #7a817d;
+    font-size: 12px;
+    text-align: center;
+}
+
 .suxi-app-shell .header .platform-hotel-context-select {
     width: 100%;
     height: 32px;
@@ -14290,7 +14379,7 @@ main[data-current-page="ai-workbench"] .holiday-advice-number {
     outline-offset: 2px;
 }
 
-.suxi-app-shell .header .platform-hotel-context-select-wrap > i {
+.suxi-app-shell .header .platform-hotel-context-chevron {
     position: absolute;
     top: 50%;
     right: 11px;
@@ -15085,6 +15174,118 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
 
 }
 
+.ctrip-summary-card-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    color: #66736d;
+    font-size: 11px;
+}
+
+.ctrip-summary-card-toolbar > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ctrip-summary-card-toolbar button {
+    padding: 4px 8px;
+    border: 1px solid #d7c59e;
+    border-radius: 999px;
+    background: #fffdf8;
+    color: #6f572f;
+    font-size: 11px;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.ctrip-summary-card-toolbar button:hover {
+    border-color: #b9975b;
+    background: #f8f1e4;
+}
+
+.ctrip-summary-card {
+    position: relative;
+    display: flex;
+    min-height: 96px;
+    overflow: hidden;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 13px !important;
+    box-shadow: 0 8px 20px rgba(32, 48, 42, .07);
+    cursor: grab;
+    user-select: none;
+    transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease, outline-color 180ms ease;
+}
+
+.ctrip-summary-card::after {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(145deg, rgba(255, 255, 255, .22), transparent 48%);
+    content: "";
+    pointer-events: none;
+}
+
+.ctrip-summary-card:hover {
+    z-index: 1;
+    box-shadow: 0 13px 28px rgba(32, 48, 42, .13);
+    transform: translateY(-2px);
+}
+
+.ctrip-summary-card:active {
+    cursor: grabbing;
+}
+
+.ctrip-summary-card.is-dragging {
+    opacity: .34;
+    transform: scale(.97);
+}
+
+.ctrip-summary-card.is-drag-over {
+    outline: 2px dashed #b9975b;
+    outline-offset: 3px;
+    transform: translateY(-3px) scale(1.015);
+}
+
+.ctrip-summary-card-handle {
+    position: absolute;
+    top: 7px;
+    right: 9px;
+    z-index: 2;
+    color: rgba(83, 101, 93, .52);
+    font-size: 11px;
+    opacity: .34;
+    transition: opacity 180ms ease, color 180ms ease;
+}
+
+.ctrip-summary-card:hover .ctrip-summary-card-handle {
+    color: #8b6c36;
+    opacity: 1;
+}
+
+.ctrip-summary-card-value {
+    position: relative;
+    z-index: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+}
+
+@media (max-width: 640px) {
+    .ctrip-summary-card-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .ctrip-summary-card-handle {
+        opacity: .62;
+    }
+}
+
 .ctrip-sales-table :where(th, td),
 .ctrip-rank-table :where(th, td) {
     vertical-align: middle;
@@ -15176,9 +15377,9 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
 
 .ctrip-rank-groups > th:nth-child(n + 3),
 .ctrip-rank-head > th:nth-child(1),
-.ctrip-rank-head > th:nth-child(3),
+.ctrip-rank-head > th:nth-child(2),
 .ctrip-rank-table tbody td:nth-child(3),
-.ctrip-rank-table tbody td:nth-child(5) {
+.ctrip-rank-table tbody td:nth-child(4) {
     border-left: 1px solid #bcc8d5 !important;
 }
 
@@ -15203,6 +15404,10 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     line-height: 1.45;
+}
+
+.ctrip-sales-table tbody td:nth-child(3) {
+    text-align: center !important;
 }
 
 .ctrip-sales-order-value {
@@ -15236,4 +15441,306 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
 
 @media (max-width: 940px) {
     .ctrip-sales-table { min-width: 920px; }
+}
+
+/* Agent Center visual adaptation: compact public-reference controls on SUXIOS luxury tokens. */
+.suxi-agent-center {
+    --sx-agent-ink: #06110d;
+    --sx-agent-green: #143a31;
+    --sx-agent-gold: #dcc591;
+    --sx-agent-gold-deep: #9b7b43;
+    --sx-agent-surface: #fffdf8;
+    --sx-agent-line: rgba(202, 178, 123, .34);
+    --sx-agent-shadow: 0 8px 24px rgba(15, 31, 23, .09);
+}
+
+.suxi-agent-center .sx-agent-tab {
+    border: 1px solid #e3e8e5;
+    border-radius: 10px;
+    background: #fff;
+    color: #52625a;
+    box-shadow: 0 3px 10px rgba(15, 31, 23, .035);
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease, color 180ms ease;
+}
+
+.suxi-agent-center .sx-agent-tab:hover {
+    border-color: rgba(168, 138, 82, .52);
+    background: #fffdf8;
+    color: var(--sx-agent-ink);
+    box-shadow: 0 7px 18px rgba(15, 31, 23, .08);
+    transform: translateY(-1px);
+}
+
+.suxi-agent-center .sx-agent-tab--active,
+.suxi-agent-center .sx-agent-tab--active:hover {
+    border-color: rgba(220, 197, 145, .55);
+    background: linear-gradient(135deg, var(--sx-agent-ink), var(--sx-agent-green));
+    color: #fffdf7;
+    box-shadow: 0 8px 20px rgba(6, 17, 13, .2);
+}
+
+.suxi-agent-center .sx-agent-diagnosis-card {
+    border-color: rgba(202, 178, 123, .3) !important;
+    box-shadow: 0 14px 36px rgba(15, 31, 23, .09);
+}
+
+.suxi-agent-center .sx-agent-diagnosis-card__header {
+    border-bottom-color: rgba(220, 197, 145, .32) !important;
+    background:
+        radial-gradient(520px 180px at 90% -35%, rgba(220, 197, 145, .2), transparent 68%),
+        linear-gradient(135deg, #06110d 0%, #143a31 100%) !important;
+}
+
+.suxi-agent-center .sx-agent-diagnosis-card__header h3 {
+    color: #fffdf7 !important;
+    letter-spacing: .01em;
+}
+
+.suxi-agent-center .sx-agent-diagnosis-card__header p {
+    color: rgba(248, 250, 252, .68) !important;
+}
+
+.suxi-agent-center .btn-primary {
+    padding: 10px 22px !important;
+    border: 1px solid rgba(220, 197, 145, .58) !important;
+    border-radius: 11px !important;
+    background: linear-gradient(135deg, #ead8ad 0%, #b9975b 58%, #8b6c36 100%) !important;
+    color: #07110d !important;
+    -webkit-text-fill-color: #07110d !important;
+    font-weight: 700 !important;
+    box-shadow: 0 6px 18px rgba(111, 87, 47, .25) !important;
+    transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease, border-color 180ms ease !important;
+}
+
+.suxi-agent-center .btn-primary:hover {
+    border-color: #ecdcb6 !important;
+    box-shadow: 0 10px 24px rgba(111, 87, 47, .32) !important;
+    filter: brightness(1.025) !important;
+    transform: translateY(-1px) !important;
+}
+
+.suxi-agent-center .btn-primary:focus-visible,
+.suxi-agent-center .btn-secondary:focus-visible,
+.suxi-agent-center .sx-agent-tab:focus-visible,
+.suxi-agent-center .sx-agent-range-button:focus-visible {
+    outline: 3px solid rgba(220, 197, 145, .34);
+    outline-offset: 2px;
+}
+
+.suxi-agent-center .btn-primary:disabled {
+    border-color: #d7dcd9 !important;
+    background: #e5e9e7 !important;
+    color: #8c9892 !important;
+    -webkit-text-fill-color: #8c9892 !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+.suxi-agent-center .btn-secondary,
+.suxi-agent-center .sx-agent-range-button {
+    border: 1px solid #dfe6e2 !important;
+    border-radius: 10px !important;
+    background: #fff !important;
+    color: #34463d !important;
+    box-shadow: 0 3px 10px rgba(15, 31, 23, .04) !important;
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease, color 180ms ease !important;
+}
+
+.suxi-agent-center .btn-secondary:hover,
+.suxi-agent-center .sx-agent-range-button:hover {
+    border-color: rgba(168, 138, 82, .58) !important;
+    background: #fffaf0 !important;
+    color: #6f572f !important;
+    box-shadow: 0 7px 16px rgba(15, 31, 23, .08) !important;
+    transform: translateY(-1px) !important;
+}
+
+.suxi-agent-center .sx-agent-range-button {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.suxi-agent-center .sx-agent-route {
+    padding: 16px;
+    border: 1px solid rgba(220, 197, 145, .38);
+    border-radius: 12px;
+    border-color: rgba(220, 197, 145, .38) !important;
+    background:
+        radial-gradient(560px 220px at 100% 0%, rgba(220, 197, 145, .14), transparent 65%),
+        linear-gradient(135deg, #06110d 0%, #102d26 100%) !important;
+    box-shadow: 0 14px 34px rgba(6, 17, 13, .18);
+}
+
+.suxi-agent-center .sx-agent-route__header,
+.suxi-agent-center .sx-agent-route__stage-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.suxi-agent-center .sx-agent-route__lead {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.suxi-agent-center .sx-agent-route__grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.suxi-agent-center .sx-agent-route__list {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.suxi-agent-center .sx-agent-route__badge {
+    flex: 0 0 auto;
+    padding: 2px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 11px;
+}
+
+.suxi-agent-center .sx-agent-route__badge[data-state="blocked"],
+.suxi-agent-center .sx-agent-route__badge[data-state="required"] {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #b45309;
+}
+
+.suxi-agent-center .sx-agent-route__badge[data-state="pending_manual_review"] {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.suxi-agent-center .sx-agent-route__badge[data-state="used"],
+.suxi-agent-center .sx-agent-route__badge[data-state="not_required"],
+.suxi-agent-center .sx-agent-route__badge[data-state="ready"] {
+    border-color: #a7f3d0;
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.suxi-agent-center .sx-agent-route__badge[data-state="fallback"] {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+.suxi-agent-center .sx-agent-route__title {
+    color: #fffdf7 !important;
+}
+
+.suxi-agent-center .sx-agent-route__lead {
+    color: rgba(248, 250, 252, .66) !important;
+}
+
+.suxi-agent-center .sx-agent-route__stage {
+    display: grid;
+    grid-template-columns: 20px minmax(90px, auto) auto 1fr;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid rgba(220, 197, 145, .28);
+    border-radius: 8px;
+    border-color: rgba(220, 197, 145, .28) !important;
+    background: rgba(255, 253, 248, .97) !important;
+    box-shadow: 0 6px 18px rgba(1, 8, 6, .12);
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.suxi-agent-center .sx-agent-route__stage > span:nth-of-type(3) {
+    min-width: 0;
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.suxi-agent-center .sx-agent-route__stage > small {
+    grid-column: 4;
+}
+
+.suxi-agent-center .sx-agent-route__stage-head strong {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suxi-agent-center .sx-agent-route__stage > p {
+    margin-top: 8px;
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.suxi-agent-center .sx-agent-route__stage > small {
+    display: block;
+    margin-top: 8px;
+    overflow: hidden;
+    color: #94a3b8;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suxi-agent-center .sx-agent-route__stage:hover {
+    border-color: rgba(185, 151, 91, .62) !important;
+    box-shadow: 0 10px 24px rgba(1, 8, 6, .18);
+    transform: translateY(-1px);
+}
+
+.suxi-agent-center .sx-agent-route__number {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #ead8ad, #b9975b) !important;
+    color: #07110d !important;
+}
+
+@media (max-width: 640px) {
+    .suxi-agent-center .btn-primary,
+    .suxi-agent-center .btn-secondary {
+        min-height: 42px;
+    }
+
+    .suxi-agent-center .sx-agent-route__stage:hover,
+    .suxi-agent-center .sx-agent-tab:hover,
+    .suxi-agent-center .sx-agent-range-button:hover {
+        transform: none;
+    }
+
+    .suxi-agent-center .sx-agent-route__header {
+        flex-direction: column;
+    }
+}
+
+@media (max-width: 1279px) {
+    .suxi-agent-center .sx-agent-route__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 639px) {
+    .suxi-agent-center .sx-agent-route__grid { grid-template-columns: 1fr; }
+    .suxi-agent-center .sx-agent-route__stage { grid-template-columns: 20px 1fr auto; }
+    .suxi-agent-center .sx-agent-route__stage > span:nth-of-type(3),
+    .suxi-agent-center .sx-agent-route__stage > small { grid-column: 2 / -1; }
 }

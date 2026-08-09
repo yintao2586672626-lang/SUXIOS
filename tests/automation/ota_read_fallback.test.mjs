@@ -167,6 +167,48 @@ test('Meituan historical business replay requires matching visible period eviden
   );
 });
 
+test('target-date replay blocks Ctrip templates without request-date evidence', () => {
+  assert.deepEqual(
+    evaluateOtaReadFallbackEligibility({
+      platform: 'ctrip',
+      endpoint_id: 'traffic_flow_transform',
+      request_date: '',
+    }, {
+      targetDate: '2026-08-08',
+    }),
+    { eligible: false, reason: 'target_date_unverified' },
+  );
+});
+
+test('blocked replay diagnostics expose only the safe request business date', async () => {
+  const state = createOtaReadFallbackState('ctrip');
+  observeOtaReadFallbackRequest(state, fakeRequest({
+    url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/queryFlowTransformNewV1',
+    method: 'POST',
+    body: '{"startDate":"2026-08-08","hotelId":"must-not-leak"}',
+    headers: { 'Content-Type': 'application/json' },
+    frame: fakeFrame('https://ebooking.ctrip.com/datacenter/report'),
+  }), {
+    section: 'traffic_report',
+    endpointId: 'traffic_flow_transform',
+    requestDateEvidence: {
+      date: '2026-08-08',
+      date_source: 'request.payload.startDate',
+    },
+  });
+
+  const diagnostics = await replayObservedOtaReadRequests(
+    { url: () => 'about:blank', frames: () => [] },
+    state,
+    { section: 'traffic_report', targetDate: '2026-08-09', shouldReplay: () => true },
+  );
+  assert.equal(diagnostics[0].status, 'blocked');
+  assert.equal(diagnostics[0].reason, 'target_date_mismatch');
+  assert.equal(diagnostics[0].request_date, '2026-08-08');
+  assert.equal(diagnostics[0].request_date_source, 'request.payload.startDate');
+  assert.doesNotMatch(JSON.stringify(diagnostics), /must-not-leak/);
+});
+
 test('same-origin replay reuses the observed request but diagnostics remain redacted', async () => {
   let evaluatedInput = null;
   const frame = fakeFrame(

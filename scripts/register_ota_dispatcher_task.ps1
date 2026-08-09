@@ -6,6 +6,9 @@ param(
     [Parameter(ParameterSetName = 'Enable')]
     [switch]$ReplaceExisting,
 
+    [Parameter(ParameterSetName = 'Enable')]
+    [switch]$AllowScopeReduction,
+
     [switch]$Realtime,
 
     [ValidateRange(0, 2147483647)]
@@ -54,6 +57,8 @@ $taskPath = '\'
 $dispatcherCommand = 'online-data:auto-fetch'
 $dispatcherMode = if ($Realtime) { 'Realtime' } else { 'Daily' }
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$realtimePollIntervalMinutes = 15
+$dailyRetryOffsetsMinutes = @(0, 14, 28)
 
 function Resolve-ExecutablePath {
     param([Parameter(Mandatory = $true)][string]$Candidate)
@@ -70,6 +75,23 @@ function Resolve-ExecutablePath {
         return $null
     }
     return $command.Source
+}
+
+function New-DispatcherRepetitionPattern {
+    param(
+        [Parameter(Mandatory = $true)][string]$Interval,
+        [Parameter(Mandatory = $true)][string]$Duration
+    )
+
+    return New-CimInstance `
+        -Namespace Root/Microsoft/Windows/TaskScheduler `
+        -ClassName MSFT_TaskRepetitionPattern `
+        -ClientOnly `
+        -Property @{
+            Interval = $Interval
+            Duration = $Duration
+            StopAtDurationEnd = $false
+        }
 }
 
 function Test-SafeInteractiveUser {
@@ -114,6 +136,23 @@ function Test-CredentialFreeTaskArguments {
 
     $credentialPattern = '(?i)(--?(cookie|token|password|authorization|spidertoken|secret|session|credential)\b|(?:cookie|token|password|authorization|spidertoken|secret|session|credential)\s*=)'
     return $Arguments -notmatch $credentialPattern
+}
+
+function Get-DispatcherTaskScopeFromArguments {
+    param([Parameter(Mandatory = $true)][string]$Arguments)
+
+    $hotelMatch = [regex]::Match($Arguments, '(?i)(?:^|\s)-HotelId\s+(?<value>[1-9][0-9]*)(?:\s|$)')
+    $sourceMatch = [regex]::Match($Arguments, '(?i)(?:^|\s)-SourceIds\s+"(?<value>[1-9][0-9]*(?:,[1-9][0-9]*)*)"')
+    $platformMatch = [regex]::Match($Arguments, '(?i)(?:^|\s)-Platforms\s+"(?<value>ctrip|meituan|ctrip,meituan|meituan,ctrip)"')
+    if (-not ($hotelMatch.Success -and $sourceMatch.Success -and $platformMatch.Success)) {
+        return $null
+    }
+
+    return [pscustomobject]@{
+        hotel_id = [int]$hotelMatch.Groups['value'].Value
+        source_ids = @($sourceMatch.Groups['value'].Value.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+        platforms = @($platformMatch.Groups['value'].Value.Split(',') | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ -ne '' })
+    }
 }
 
 function New-PreflightCheck {
@@ -211,6 +250,29 @@ $preflight += New-PreflightCheck -Name 'credential_free_arguments' -Passed $cred
     if ($credentialFreeArguments) { 'task arguments contain only the local runner, project root, and PHP path' } else { 'credential-shaped task arguments are forbidden' }
 )
 
+$realtimeRetryWindowReady = -not $Realtime -or $RealtimeMinute -le 14
+$preflight += New-PreflightCheck -Name 'realtime_retry_window' -Passed $realtimeRetryWindowReady -Detail $(
+    if (-not $Realtime) {
+        'not applicable to the daily dispatcher'
+    } elseif ($realtimeRetryWindowReady) {
+        '15-minute polling gives bounded retry opportunities inside each hourly idempotency slot without colliding with the 08:30 daily run'
+    } else {
+        'RealtimeMinute must be 0-14 so the 15-minute retry cadence stays aligned to one hourly slot'
+    }
+)
+
+$dailyTimeSpan = [timespan]::ParseExact($DailyAt, 'hh\:mm', $null)
+$dailyRetryWindowReady = $Realtime -or $dailyTimeSpan.TotalMinutes -le (24 * 60 - 1 - $dailyRetryOffsetsMinutes[-1])
+$preflight += New-PreflightCheck -Name 'daily_retry_window' -Passed $dailyRetryWindowReady -Detail $(
+    if ($Realtime) {
+        'not applicable to the realtime dispatcher'
+    } elseif ($dailyRetryWindowReady) {
+        'daily base attempt and +14/+28 minute retries stay on the same business-date window'
+    } else {
+        'DailyAt must leave 28 minutes before midnight so retries cannot change the target business date'
+    }
+)
+
 $requiredScheduledTaskCommands = @(
     'Get-ScheduledTask',
     'New-ScheduledTaskAction',
@@ -232,6 +294,48 @@ $existingTask = $null
 if ($scheduledTaskCommandsReady) {
     $existingTask = Get-ScheduledTask -TaskName $taskName -TaskPath $taskPath -ErrorAction SilentlyContinue
 }
+$deferredDailyStartBoundary = $null
+if (-not $Realtime -and $null -ne $existingTask -and $ReplaceExisting) {
+    $existingTriggers = @($existingTask.Triggers)
+    if ($existingTriggers.Count -eq 1) {
+        [datetimeoffset]$candidateStartBoundary = [datetimeoffset]::MinValue
+        $candidateText = [string]$existingTriggers[0].StartBoundary
+        $candidateParsed = [datetimeoffset]::TryParse($candidateText, [ref]$candidateStartBoundary)
+        if ($candidateParsed -and $candidateStartBoundary.Date -gt [datetimeoffset]::Now.Date) {
+            # Preserve an explicitly deferred first run while replacing the
+            # action/scope. Recomputing Today + DailyAt would otherwise turn a
+            # safe next-day registration into an unintended same-day run.
+            $deferredDailyStartBoundary = $candidateStartBoundary
+        }
+    }
+}
+
+$scopeReductionDetected = $false
+$removedSourceIds = @()
+$removedPlatforms = @()
+if ($null -ne $existingTask -and $ReplaceExisting -and $explicitScopeComplete) {
+    $existingActions = @($existingTask.Actions)
+    if ($existingActions.Count -eq 1) {
+        $existingScope = Get-DispatcherTaskScopeFromArguments -Arguments ([string]$existingActions[0].Arguments)
+        if ($null -ne $existingScope -and $existingScope.hotel_id -eq $HotelId) {
+            $requestedSourceIds = @($SourceIds.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+            $requestedPlatforms = @($Platforms.Split(',') | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ -ne '' })
+            $removedSourceIds = @($existingScope.source_ids | Where-Object { $_ -notin $requestedSourceIds })
+            $removedPlatforms = @($existingScope.platforms | Where-Object { $_ -notin $requestedPlatforms })
+            $scopeReductionDetected = $removedSourceIds.Count -gt 0 -or $removedPlatforms.Count -gt 0
+        }
+    }
+}
+$scopeNonReductionPassed = -not $scopeReductionDetected -or $AllowScopeReduction
+$preflight += New-PreflightCheck -Name 'scope_non_reduction' -Passed $scopeNonReductionPassed -Detail $(
+    if (-not $scopeReductionDetected) {
+        'requested scope does not remove an existing source or platform'
+    } elseif ($AllowScopeReduction) {
+        'explicit scope reduction allowed; removed sources=' + ($removedSourceIds -join ',') + '; removed platforms=' + ($removedPlatforms -join ',')
+    } else {
+        'scope reduction refused; removed sources=' + ($removedSourceIds -join ',') + '; removed platforms=' + ($removedPlatforms -join ',') + '; use -AllowScopeReduction only after explicit review'
+    }
+)
 
 $preflightFailures = @($preflight | Where-Object { -not $_.passed })
 $mode = if ($Unregister) { 'unregister' } elseif ($Enable) { 'enable' } else { 'plan' }
@@ -244,8 +348,10 @@ $plan = [ordered]@{
         path = $taskPath
         exists = $null -ne $existingTask
         state = if ($null -ne $existingTask) { [string]$existingTask.State } else { 'absent' }
-        schedule = if ($Realtime) { "hourly at :$('{0:d2}' -f $RealtimeMinute) Asia/Shanghai" } else { "daily $DailyAt Asia/Shanghai" }
-        trigger_count = if ($Realtime) { 24 } else { 1 }
+        schedule = if ($Realtime) { "hourly base at :$('{0:d2}' -f $RealtimeMinute), polled every $($realtimePollIntervalMinutes)m for bounded retries Asia/Shanghai" } else { "daily $DailyAt with bounded retries +14m/+28m Asia/Shanghai" }
+        trigger_count = 1
+        start_boundary = if ($null -ne $deferredDailyStartBoundary) { $deferredDailyStartBoundary.ToString('o') } else { $null }
+        effective_runs_per_day = if ($Realtime) { 96 } else { $dailyRetryOffsetsMinutes.Count }
         multiple_instances = 'IgnoreNew'
         execution_time_limit_minutes = if ($Realtime) { 25 } else { 120 }
     }
@@ -272,6 +378,8 @@ $plan = [ordered]@{
         enable_requires_switch = '-Enable'
         unregister_requires_switches = @('-Unregister', '-ConfirmUnregister')
         replace_existing_requires_switch = '-ReplaceExisting'
+        scope_reduction_requires_switch = '-AllowScopeReduction'
+        preserves_deferred_daily_start = $true
     }
     preflight = $preflight
     enable_ready = $preflightFailures.Count -eq 0 -and ($null -eq $existingTask -or $ReplaceExisting)
@@ -319,12 +427,15 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
         -Argument $actionArguments `
         -WorkingDirectory $effectiveProjectRoot
     if ($Realtime) {
-        $taskTrigger = @(0..23 | ForEach-Object {
-            New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.Date.AddHours($_).AddMinutes($RealtimeMinute))
-        })
+        $taskTrigger = New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.Date.AddMinutes($RealtimeMinute))
+        $taskTrigger.Repetition = New-DispatcherRepetitionPattern -Interval 'PT15M' -Duration 'P1D'
     } else {
         $triggerTime = [datetime]::Today.Add([timespan]::ParseExact($DailyAt, 'hh\:mm', $null))
+        if ($null -ne $deferredDailyStartBoundary) {
+            $triggerTime = $deferredDailyStartBoundary.LocalDateTime
+        }
         $taskTrigger = New-ScheduledTaskTrigger -Daily -At $triggerTime
+        $taskTrigger.Repetition = New-DispatcherRepetitionPattern -Interval 'PT14M' -Duration 'PT29M'
     }
     $taskPrincipal = New-ScheduledTaskPrincipal `
         -UserId $RunAsUser `
@@ -345,7 +456,7 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
         Trigger = $taskTrigger
         Principal = $taskPrincipal
         Settings = $taskSettings
-        Description = $(if ($Realtime) { 'Authorized local-profile OTA realtime dispatcher. Runs one idempotent current-day slot per hour; fixed scope when provided, no external delivery, hidden window, and registration does not start it.' } else { 'Authorized local-profile OTA daily dispatcher. Runs yesterday final collection once; fixed scope when provided, no external delivery, hidden window, and registration does not start it.' })
+        Description = $(if ($Realtime) { 'Authorized local-profile OTA realtime dispatcher. Polls every 15 minutes for bounded retries while avoiding the 08:30 daily trigger; fixed scope when provided, no external delivery, hidden window, and registration does not start it.' } else { 'Authorized local-profile OTA daily dispatcher. Runs yesterday final collection with bounded +14/+28 minute retry opportunities; fixed scope when provided, no external delivery, hidden window, and registration does not start it.' })
     }
     if ($null -ne $existingTask) {
         $registrationParameters['Force'] = $true

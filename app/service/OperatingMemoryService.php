@@ -641,6 +641,7 @@ final class OperatingMemoryService
         $platform = strtolower(trim((string)($intent['platform'] ?? '')));
         $businessDate = $this->businessDate($intent);
         $evidenceRows = is_array($task['evidence'] ?? null) ? $task['evidence'] : [];
+        $effectReviews = is_array($task['effect_reviews'] ?? null) ? $task['effect_reviews'] : [];
         $evidenceRefs = [
             ['type' => 'operation_execution_intent', 'id' => $intentId],
             ['type' => 'operation_execution_task', 'id' => $taskId],
@@ -654,6 +655,15 @@ final class OperatingMemoryService
                 $evidenceRefs[] = ['type' => 'operation_execution_evidence', 'id' => $evidenceId];
             }
         }
+        foreach ($effectReviews as $review) {
+            if (!is_array($review)) {
+                continue;
+            }
+            $reviewId = (int)($review['id'] ?? 0);
+            if ($reviewId > 0) {
+                $evidenceRefs[] = ['type' => 'operation_effect_review', 'id' => $reviewId];
+            }
+        }
         $originalSourceModule = trim((string)($intent['source_module'] ?? ''));
         $originalSourceRecordId = (int)($intent['source_record_id'] ?? 0);
         if ($originalSourceModule !== '' && $originalSourceRecordId > 0) {
@@ -664,7 +674,21 @@ final class OperatingMemoryService
         $evidenceTruth = is_array($task['evidence_truth'] ?? null) ? $task['evidence_truth'] : [];
         $outcomeTruth = is_array($task['outcome_truth'] ?? null) ? $task['outcome_truth'] : [];
         $sopCandidate = is_array($task['sop_candidate'] ?? null) ? $task['sop_candidate'] : [];
+        $activeEffectReview = is_array($task['active_effect_review'] ?? null)
+            ? $task['active_effect_review']
+            : [];
+        $activeEffectReviewVerified = $activeEffectReview !== []
+            && ($activeEffectReview['readback_verified'] ?? false) === true
+            && ($activeEffectReview['outcome']['source_verified'] ?? false) === true
+            && ($activeEffectReview['outcome']['outcome_verified'] ?? false) === true
+            && ($activeEffectReview['causality_claimed'] ?? true) === false
+            && (string)($activeEffectReview['result_status'] ?? '') === (string)($task['result_status'] ?? '')
+            && (string)($activeEffectReview['result_summary'] ?? '') === (string)($task['result_summary'] ?? '');
+        $requiresSeparateEffectReview = strtolower($originalSourceModule) === 'ota_diagnosis_saved';
         $qualityStatus = $this->qualityStatus($truthContext);
+        if ($requiresSeparateEffectReview && !$activeEffectReviewVerified && $qualityStatus === 'verified') {
+            $qualityStatus = 'partial';
+        }
         $usageLevel = match ($qualityStatus) {
             'verified' => 'decision_support',
             'partial' => 'reference',
@@ -676,6 +700,13 @@ final class OperatingMemoryService
             'truth_failure_reason' => $truthContext['failure_reason'] ?? null,
             'evidence_status' => (string)($evidenceTruth['status'] ?? 'unverified'),
             'evidence_count' => count($evidenceRows),
+            'execution_evidence_count' => count((array)($task['execution_evidence'] ?? [])),
+            'effect_source_evidence_count' => count((array)($task['effect_source_evidence'] ?? [])),
+            'effect_review_count' => count($effectReviews),
+            'active_effect_review_id' => (int)($activeEffectReview['id'] ?? 0),
+            'active_effect_review_digest' => (string)($activeEffectReview['content_digest'] ?? ''),
+            'separate_effect_review_required' => $requiresSeparateEffectReview,
+            'separate_effect_review_verified' => !$requiresSeparateEffectReview || $activeEffectReviewVerified,
             'operator_attested' => ($evidenceTruth['operator_attested'] ?? false) === true,
             'source_verified' => ($evidenceTruth['source_verified'] ?? false) === true,
             'outcome_status' => (string)($outcomeTruth['status'] ?? 'unverified'),

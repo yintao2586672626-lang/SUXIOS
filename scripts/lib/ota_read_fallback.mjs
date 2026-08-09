@@ -209,14 +209,16 @@ export function listOtaReadFallbackTemplates(state) {
 export function evaluateOtaReadFallbackEligibility(template, context = {}) {
   const targetDate = normalizeDate(context.targetDate || context.target_date);
   const requestDate = normalizeDate(template?.request_date);
-  if (targetDate && requestDate && requestDate !== targetDate) {
-    return { eligible: false, reason: 'target_date_mismatch' };
-  }
-
   const dataPeriod = String(context.dataPeriod || context.data_period || '').trim().toLowerCase();
   const isHistoricalMeituanBusiness = template?.platform === 'meituan'
     && template?.endpoint_id === 'meituan_business_data'
     && dataPeriod === 'historical_daily';
+  if (targetDate && requestDate && requestDate !== targetDate) {
+    return { eligible: false, reason: 'target_date_mismatch' };
+  }
+  if (targetDate && !requestDate && !isHistoricalMeituanBusiness) {
+    return { eligible: false, reason: 'target_date_unverified' };
+  }
   if (!isHistoricalMeituanBusiness) {
     return { eligible: true, reason: 'observed_read_template' };
   }
@@ -574,6 +576,8 @@ function buildDiagnostic(template, result) {
     endpoint_id: template.endpointId,
     safe_route: template.safeRoute,
     request_fingerprint: template.fingerprint,
+    request_date: template.requestDateEvidence.date,
+    request_date_source: template.requestDateEvidence.date_source,
     status: result.status,
     reason: result.reason,
     ...(result.httpStatus > 0 ? { http_status: result.httpStatus } : {}),

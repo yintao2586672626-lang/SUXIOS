@@ -7,6 +7,7 @@ import {
   buildCtripEndpointCandidates,
   buildCtripStandardRowsFromFacts,
   buildCtripPageUrls,
+  ctripCaptureRowPeriodMetadata,
   ctripCatalogSummary,
   extractCtripCatalogFacts,
   filterCtripCatalogFactsForProfileFields,
@@ -60,6 +61,10 @@ import {
   replayObservedOtaReadRequests,
 } from './lib/ota_read_fallback.mjs';
 import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
+import {
+  normalizeObservedCtripTrafficMetrics,
+  observedCtripTrafficMetricKeys,
+} from './lib/ctrip_observed_traffic_metrics.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const PAGE_URLS = buildCtripPageUrls();
@@ -836,13 +841,16 @@ function sectionHasUsableData(target, section) {
   ));
 }
 
-function ctripEndpointNeedsReadFallback(target, endpointId) {
+function ctripEndpointNeedsReadFallback(target, endpointId, targetDate = '') {
   const normalizedEndpointId = String(endpointId || '').trim();
   if (!normalizedEndpointId) {
     return false;
   }
   return !(Array.isArray(target.responses) ? target.responses : []).some(response => (
     String(response?.endpoint_id || '').trim() === normalizedEndpointId
+    && (!targetDate
+      || !['business_flow_transform', 'traffic_flow_transform'].includes(normalizedEndpointId)
+      || String(response?.request_date || '').trim() === targetDate)
     && (
       Number(response?.standard_row_count || 0) > 0
       || Number(response?.catalog_fact_count || 0) > 0
@@ -923,7 +931,11 @@ async function captureSection(page, section, url, confidence = '', target = payl
         section,
         targetDate: defaultDataDate,
         maxAttempts: capturePlan.lightweight ? 1 : 3,
-        shouldReplay: template => ctripEndpointNeedsReadFallback(target, template.endpoint_id),
+        shouldReplay: template => ctripEndpointNeedsReadFallback(
+          target,
+          template.endpoint_id,
+          defaultDataDate,
+        ),
       },
     );
     target.read_fallbacks.push(...fallbackDiagnostics);
@@ -1423,7 +1435,13 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     });
     const rows = normalizeRows(safeBody, dataType, url, requestDateEvidence, {
       allowDiscoveredBusiness: Boolean(discoveryCandidate?.auto_capture),
-    }).map(row => attachCtripCaptureEvidence({
+    }).map(row => ({
+      ...row,
+      ...ctripCaptureRowPeriodMetadata(row.data_date || row.date || row.dataDate || '', {
+        capturePlan: capturePlan.id,
+        defaultDataDate,
+      }),
+    })).map(row => attachCtripCaptureEvidence({
       ...row,
       section,
       data_type: dataType,
@@ -1494,6 +1512,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       request_type: requestType,
       keyword_hit: Boolean(urlSection),
       row_count: rows.length,
+      request_date: requestDateEvidence.date || '',
       request_date_source: requestDateEvidence.date_source || '',
       platform,
       catalog_fact_count: catalogFacts.length,
@@ -1866,13 +1885,20 @@ function looksLikeTrafficRow(row) {
 }
 
 function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
-  const listExposure = numberValue(firstValue(row, ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view']), 0);
-  const detailExposure = numberValue(firstValue(row, ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views', 'pageViews']), 0);
-  const orderFillingNum = numberValue(firstValue(row, ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clicks', 'clickNum', 'fillUsers']), 0);
-  const orderSubmitNum = numberValue(firstValue(row, ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders']), 0);
-  const flowRate = normalizePercent(firstValue(row, ['flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr']), listExposure > 0 ? (detailExposure / listExposure) * 100 : 0);
+  const observedMetrics = normalizeObservedCtripTrafficMetrics(row);
+  const observedMetricKeys = observedCtripTrafficMetricKeys(observedMetrics);
+  const listExposure = observedMetrics.listExposure ?? null;
+  const detailExposure = observedMetrics.detailExposure ?? null;
+  const orderFillingNum = observedMetrics.orderFillingNum ?? null;
+  const orderSubmitNum = observedMetrics.orderSubmitNum ?? null;
   const hasRank = firstValue(row, ['rank', 'ranking', 'competitionRank', 'competitorRank', 'competeRank', 'categoryRank', 'cateRank', 'categoryRanking', 'rankJson', 'rawRankJson', 'rankingJson'], '') !== '';
-  if (listExposure <= 0 && detailExposure <= 0 && orderFillingNum <= 0 && orderSubmitNum <= 0 && !hasRank) {
+  if (listExposure === null
+    && detailExposure === null
+    && orderFillingNum === null
+    && orderSubmitNum === null
+    && observedMetrics.flowRate === undefined
+    && !hasRank
+  ) {
     return null;
   }
 
@@ -1901,14 +1927,19 @@ function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
       : 'capture_scope_default',
     date: dataDate,
     ...(dateSource ? { date_source: dateSource } : {}),
-    listExposure: Math.round(listExposure),
-    detailExposure: Math.round(detailExposure),
-    flowRate: Math.round(flowRate * 100) / 100,
-    orderFillingNum: Math.round(orderFillingNum),
-    orderSubmitNum: Math.round(orderSubmitNum),
+    ...observedMetrics,
+    _observed_traffic_metric_keys: observedMetricKeys,
     _source_url: sourceUrl,
     _capture_source: 'xhr:traffic',
-    _fingerprint: JSON.stringify([resolvedHotelId, dataDate, listExposure, detailExposure, orderFillingNum, orderSubmitNum]),
+    _fingerprint: JSON.stringify([
+      resolvedHotelId,
+      dataDate,
+      listExposure,
+      detailExposure,
+      orderFillingNum,
+      orderSubmitNum,
+      observedMetrics.flowRate ?? null,
+    ]),
   };
 }
 

@@ -45,9 +45,12 @@ trait AgentOtaDiagnosisPersistenceConcern
             'strval',
             (array)($result['recommended_actions'] ?? $result['diagnosis']['actions'] ?? [])
         )));
-        $status = (!$coverageComplete || $blockingDataGaps !== [])
-            ? 'blocked_by_data'
-            : (($mainProblems !== [] || $recommendedActions !== []) ? 'action_required' : 'no_action');
+        $missingTargetFacts = !$coverageComplete || $this->otaDiagnosisHasMissingTargetFacts($result, $dataGaps);
+        $status = $missingTargetFacts
+            ? 'blocked_by_missing_facts'
+            : ($blockingDataGaps !== []
+                ? 'blocked_by_data'
+                : (($mainProblems !== [] || $recommendedActions !== []) ? 'action_required' : 'no_action'));
 
         $result['decision_status'] = $status;
         $result['blocking_data_gaps'] = $blockingDataGaps;
@@ -60,7 +63,7 @@ trait AgentOtaDiagnosisPersistenceConcern
             }
             return true;
         }));
-        if ($status === 'blocked_by_data') {
+        if (in_array($status, ['blocked_by_data', 'blocked_by_missing_facts'], true)) {
             $result['priority'] = 'none';
         }
         if ($status === 'no_action') {
@@ -72,7 +75,7 @@ trait AgentOtaDiagnosisPersistenceConcern
         }
         $result['decision_closure'] = [
             'status' => $status,
-            'legacy_status' => $status === 'blocked_by_data'
+            'legacy_status' => in_array($status, ['blocked_by_data', 'blocked_by_missing_facts'], true)
                 ? 'blocked'
                 : ($status === 'no_action' ? 'ready' : 'pending_platform_specific_diagnosis'),
             'scope' => 'ctrip_meituan_ota_channels',
@@ -85,7 +88,7 @@ trait AgentOtaDiagnosisPersistenceConcern
                 'data_gaps' => $dataGaps,
                 'blocking_data_gaps' => $blockingDataGaps,
                 'optional_data_gaps' => $result['optional_data_gaps'],
-                'enough_for_decision' => $status !== 'blocked_by_data',
+                'enough_for_decision' => !in_array($status, ['blocked_by_data', 'blocked_by_missing_facts'], true),
                 'enough_for_executable_actions' => false,
             ],
             'diagnostic_conclusion' => [
@@ -103,7 +106,7 @@ trait AgentOtaDiagnosisPersistenceConcern
                 'items' => $result['action_items'] ?? [],
             ],
             'blocked_state' => [
-                'is_blocked' => $status === 'blocked_by_data',
+                'is_blocked' => in_array($status, ['blocked_by_data', 'blocked_by_missing_facts'], true),
                 'blocked_reasons' => array_values(array_filter(array_map(
                     static fn(array $gap): string => (string)($gap['code'] ?? ''),
                     $blockingDataGaps
@@ -115,7 +118,7 @@ trait AgentOtaDiagnosisPersistenceConcern
                 'status' => $status === 'action_required' ? 'platform_specific_diagnosis_required' : 'not_required',
                 'reason' => $status === 'action_required'
                     ? '跨渠道诊断不直接创建执行意图；先打开对应单平台诊断，再按原人工确认策略转运营执行。'
-                    : ($status === 'blocked_by_data' ? '先补齐携程和美团目标日期证据。' : '本次没有达到行动阈值的逐平台信号。'),
+                    : (in_array($status, ['blocked_by_data', 'blocked_by_missing_facts'], true) ? '先补齐携程和美团目标日期证据。' : '本次没有达到行动阈值的逐平台信号。'),
                 'ready_action_ids' => [],
                 'confirm_before_execution' => false,
             ],
@@ -132,6 +135,23 @@ trait AgentOtaDiagnosisPersistenceConcern
         $result['decision_status'] = (string)($result['decision_closure']['status'] ?? 'blocked_by_data');
         $result['blocking_data_gaps'] = $result['decision_closure']['data_evidence_input']['blocking_data_gaps'] ?? [];
         $result['optional_data_gaps'] = $result['decision_closure']['data_evidence_input']['optional_data_gaps'] ?? [];
+
+        if ($result['decision_status'] === 'blocked_by_missing_facts') {
+            $missingFactCodes = array_values(array_unique(array_filter(array_map(
+                static fn(array $gap): string => trim((string)($gap['code'] ?? '')),
+                (array)$result['blocking_data_gaps']
+            ))));
+            $result['workflow_status'] = 'blocked_by_missing_facts';
+            $result['missing_fact_codes'] = $missingFactCodes;
+            $result['recommended_actions'] = [];
+            $result['action_items'] = [];
+            if (is_array($result['diagnosis'] ?? null)) {
+                $result['diagnosis']['actions'] = [];
+            }
+            $result['decision_closure'] = $this->buildAiDecisionClosure($result);
+            $result['blocking_data_gaps'] = $result['decision_closure']['data_evidence_input']['blocking_data_gaps'] ?? [];
+            $result['optional_data_gaps'] = $result['decision_closure']['data_evidence_input']['optional_data_gaps'] ?? [];
+        }
 
         if ($result['decision_status'] === 'no_action') {
             $platformLabel = (string)($result['platform'] ?? '') === 'meituan' ? '美团' : 'OTA';
@@ -157,7 +177,7 @@ trait AgentOtaDiagnosisPersistenceConcern
             );
             $result['decision_closure'] = $this->buildAiDecisionClosure($result);
         }
-        if ($result['decision_status'] === 'blocked_by_data') {
+        if (in_array($result['decision_status'], ['blocked_by_data', 'blocked_by_missing_facts'], true)) {
             $result['priority'] = 'none';
         }
 
@@ -171,6 +191,7 @@ trait AgentOtaDiagnosisPersistenceConcern
 
     private function persistOtaDiagnosisResult(array $result, int $hotelId, string $platform): array
     {
+        $schemaVersion = 2;
         $resolvedHotelId = $hotelId > 0 ? $hotelId : (int)($result['hotel']['id'] ?? 0);
         if ($resolvedHotelId <= 0) {
             $result['saved_record'] = [
@@ -185,12 +206,18 @@ trait AgentOtaDiagnosisPersistenceConcern
             'action_required' => '需要人工确认行动',
             'no_action' => '无需新增行动',
             'blocked_by_data' => '数据不足，暂不能行动',
+            'blocked_by_missing_facts' => '目标日期可信事实缺失，已阻断建议',
         ];
         $dateRange = is_array($result['date_range'] ?? null) ? $result['date_range'] : [];
         $requestedDateRange = $this->normalizeOtaDiagnosisScopeDateRange(
             is_array($result['requested_date_range'] ?? null) ? $result['requested_date_range'] : $dateRange
         );
-        $readbackIdentity = $this->otaDiagnosisReadbackIdentity($result, $resolvedHotelId, $platform);
+        $readbackIdentity = $this->otaDiagnosisReadbackIdentity(
+            $result,
+            $resolvedHotelId,
+            $platform,
+            $schemaVersion
+        );
         $readbackIdentityDigest = $this->otaDiagnosisReadbackIdentityDigest($readbackIdentity);
         $platformLabel = match (strtolower($platform)) {
             'meituan' => '美团',
@@ -205,7 +232,9 @@ trait AgentOtaDiagnosisPersistenceConcern
             (string)($dateRange['start_date'] ?? ''),
             (string)($dateRange['end_date'] ?? '')
         );
-        $level = $decisionStatus === 'blocked_by_data' ? AgentLog::LEVEL_WARNING : AgentLog::LEVEL_INFO;
+        $level = in_array($decisionStatus, ['blocked_by_data', 'blocked_by_missing_facts'], true)
+            ? AgentLog::LEVEL_WARNING
+            : AgentLog::LEVEL_INFO;
         Db::transaction(function () use (
             &$result,
             $resolvedHotelId,
@@ -216,7 +245,8 @@ trait AgentOtaDiagnosisPersistenceConcern
             $requestedDateRange,
             $decisionStatus,
             $readbackIdentity,
-            $readbackIdentityDigest
+            $readbackIdentityDigest,
+            $schemaVersion
         ): void {
             $log = AgentLog::record(
                 $resolvedHotelId,
@@ -225,7 +255,7 @@ trait AgentOtaDiagnosisPersistenceConcern
                 $message,
                 $level,
                 [
-                    'schema_version' => 1,
+                    'schema_version' => $schemaVersion,
                     'record_type' => 'ota_diagnosis',
                     'platform' => strtolower($platform),
                     'date_range' => $dateRange,
@@ -247,7 +277,7 @@ trait AgentOtaDiagnosisPersistenceConcern
                 'readback_identity_digest' => $readbackIdentityDigest,
             ];
             $context = [
-                'schema_version' => 1,
+                'schema_version' => $schemaVersion,
                 'record_type' => 'ota_diagnosis',
                 'record_status' => 'active',
                 'platform' => strtolower($platform),
@@ -273,13 +303,19 @@ trait AgentOtaDiagnosisPersistenceConcern
                 ? $storedContext['diagnosis_result']
                 : [];
             if (!is_array($storedContext)
-                || (int)($storedContext['schema_version'] ?? 0) !== 1
+                || (int)($storedContext['schema_version'] ?? 0) !== $schemaVersion
                 || (string)($storedContext['record_status'] ?? '') !== 'active'
                 || strtolower((string)($storedContext['platform'] ?? '')) !== strtolower($platform)
                 || $this->normalizeOtaDiagnosisScopeDateRange((array)($storedContext['requested_date_range'] ?? [])) !== $requestedDateRange
                 || (string)($storedContext['readback_identity_digest'] ?? '') !== $readbackIdentityDigest
-                || $this->otaDiagnosisReadbackIdentity($storedSnapshot, $resolvedHotelId, $platform) !== $readbackIdentity
+                || $this->otaDiagnosisReadbackIdentity(
+                    $storedSnapshot,
+                    $resolvedHotelId,
+                    $platform,
+                    $schemaVersion
+                ) !== $readbackIdentity
                 || !is_array($storedSnapshot['evidence_sources'] ?? null)
+                || (string)($storedSnapshot['decision_route']['version'] ?? '') !== (string)($result['decision_route']['version'] ?? '')
             ) {
                 throw new \RuntimeException('OTA diagnosis save readback verification failed');
             }
@@ -307,10 +343,12 @@ trait AgentOtaDiagnosisPersistenceConcern
             if (($verifiedContext['diagnosis_result']['saved_record']['saved'] ?? false) !== true
                 || ($verifiedContext['diagnosis_result']['saved_record']['readback_verified'] ?? false) !== true
                 || (string)($verifiedContext['readback_identity_digest'] ?? '') !== $readbackIdentityDigest
+                || (string)($verifiedContext['diagnosis_result']['decision_route']['version'] ?? '') !== (string)($result['decision_route']['version'] ?? '')
                 || $this->otaDiagnosisReadbackIdentity(
                     is_array($verifiedContext['diagnosis_result'] ?? null) ? $verifiedContext['diagnosis_result'] : [],
                     $resolvedHotelId,
-                    $platform
+                    $platform,
+                    $schemaVersion
                 ) !== $readbackIdentity
             ) {
                 throw new \RuntimeException('OTA diagnosis final readback verification failed');
@@ -410,7 +448,8 @@ trait AgentOtaDiagnosisPersistenceConcern
             'recommended_actions', 'priority', 'source_policy', 'source_summary', 'evidence_sources',
             'action_items', 'ai_governance', 'decision_status', 'decision_closure', 'execution_policy',
             'evidence_report', 'no_action_reason', 'saved_record', 'record_status', 'superseded_by',
-            'validation_status', 'invalid_reason', 'analysis_runtime',
+            'validation_status', 'invalid_reason', 'analysis_runtime', 'decision_route',
+            'workflow_status', 'missing_fact_codes', 'reference_only_history',
         ];
         $snapshot = [];
         foreach ($allowed as $field) {
@@ -426,7 +465,12 @@ trait AgentOtaDiagnosisPersistenceConcern
     }
 
     /** @return array<string,mixed> */
-    private function otaDiagnosisReadbackIdentity(array $snapshot, int $hotelId, string $platform): array
+    private function otaDiagnosisReadbackIdentity(
+        array $snapshot,
+        int $hotelId,
+        string $platform,
+        int $schemaVersion = 1
+    ): array
     {
         $requestedRange = $this->normalizeOtaDiagnosisScopeDateRange(
             is_array($snapshot['requested_date_range'] ?? null)
@@ -461,14 +505,49 @@ trait AgentOtaDiagnosisPersistenceConcern
         }
         ksort($evidenceRefs, SORT_STRING);
 
-        return $this->canonicalizeOtaDiagnosisReadbackIdentity([
+        $identity = [
             'hotel_id' => $hotelId,
             'platform' => strtolower(trim($platform)),
             'requested_date_range' => $requestedRange,
             'effective_date_range' => $effectiveRange,
             'coverage' => is_array($snapshot['coverage'] ?? null) ? $snapshot['coverage'] : [],
             'evidence_refs' => $evidenceRefs,
-        ]);
+        ];
+        if ($schemaVersion >= 2) {
+            $identity['decision_route'] = $this->otaDiagnosisDecisionRouteReadbackIdentity(
+                is_array($snapshot['decision_route'] ?? null) ? $snapshot['decision_route'] : []
+            );
+        }
+
+        return $this->canonicalizeOtaDiagnosisReadbackIdentity($identity);
+    }
+
+    /** @return array<string,mixed> */
+    private function otaDiagnosisDecisionRouteReadbackIdentity(array $decisionRoute): array
+    {
+        $stages = [];
+        foreach ((array)($decisionRoute['stages'] ?? []) as $stage) {
+            if (!is_array($stage)) {
+                continue;
+            }
+            $stages[] = [
+                'key' => (string)($stage['key'] ?? ''),
+                'status' => (string)($stage['status'] ?? ''),
+                'status_label' => (string)($stage['status_label'] ?? ''),
+                'detail' => (string)($stage['detail'] ?? ''),
+                'refs' => array_values(array_map(
+                    'strval',
+                    is_array($stage['refs'] ?? null) ? $stage['refs'] : []
+                )),
+            ];
+        }
+
+        return [
+            'version' => (string)($decisionRoute['version'] ?? ''),
+            'policy' => (string)($decisionRoute['policy'] ?? ''),
+            'final_status' => (string)($decisionRoute['final_status'] ?? ''),
+            'stages' => $stages,
+        ];
     }
 
     private function otaDiagnosisReadbackIdentityDigest(array $identity): string
@@ -477,6 +556,31 @@ trait AgentOtaDiagnosisPersistenceConcern
             $identity,
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR
         ));
+    }
+
+    private function isStoredOtaDiagnosisReadbackVerified(
+        array $context,
+        array $snapshot,
+        int $hotelId,
+        string $platform,
+        array $requestedDateRange
+    ): bool {
+        $storedDigest = trim((string)($context['readback_identity_digest'] ?? ''));
+        $schemaVersion = (int)($context['schema_version'] ?? 0);
+        if ($storedDigest === ''
+            || !in_array($schemaVersion, [1, 2], true)
+            || (string)($context['record_status'] ?? '') !== 'active'
+            || strtolower(trim((string)($context['platform'] ?? ''))) !== strtolower(trim($platform))
+            || $this->normalizeOtaDiagnosisScopeDateRange((array)($context['requested_date_range'] ?? []))
+                !== $this->normalizeOtaDiagnosisScopeDateRange($requestedDateRange)
+        ) {
+            return false;
+        }
+
+        $identity = $this->otaDiagnosisReadbackIdentity($snapshot, $hotelId, $platform, $schemaVersion);
+        return hash_equals($storedDigest, $this->otaDiagnosisReadbackIdentityDigest($identity))
+            && ($snapshot['saved_record']['saved'] ?? false) === true
+            && ($snapshot['saved_record']['readback_verified'] ?? false) === true;
     }
 
     private function canonicalizeOtaDiagnosisReadbackIdentity(mixed $value): mixed
@@ -526,7 +630,22 @@ trait AgentOtaDiagnosisPersistenceConcern
         if ($actionText === '') {
             throw new \InvalidArgumentException('saved OTA diagnosis action text is missing');
         }
-        [$actionType, $targetMetric] = $this->classifyOtaDiagnosisExecutionAction($actionText);
+        $snapshotMetrics = is_array($snapshot['metrics'] ?? null) ? $snapshot['metrics'] : [];
+        [$actionType, $targetMetric] = $this->classifyOtaDiagnosisExecutionAction($actionText, $snapshotMetrics);
+        $savedActionType = trim((string)($action['action_type'] ?? ''));
+        $savedTargetMetric = strtolower(trim((string)($action['expected_metric'] ?? '')));
+        if (($savedActionType !== '' && $savedActionType !== $actionType)
+            || ($savedTargetMetric !== '' && $savedTargetMetric !== $targetMetric)
+        ) {
+            throw new \InvalidArgumentException(
+                'saved OTA diagnosis action metric binding is stale; regenerate the diagnosis before creating an execution intent'
+            );
+        }
+        if (!array_key_exists($targetMetric, $snapshotMetrics) || !is_numeric($snapshotMetrics[$targetMetric])) {
+            throw new \InvalidArgumentException(
+                'saved OTA diagnosis action is missing a numeric same-criterion baseline for ' . $targetMetric
+            );
+        }
         $evidenceRefs = array_values(array_unique(array_filter(array_map('strval', (array)($action['evidence_refs'] ?? [])))));
         if (empty($evidenceRefs)) {
             throw new \InvalidArgumentException('saved OTA diagnosis action evidence refs are missing');
@@ -538,6 +657,34 @@ trait AgentOtaDiagnosisPersistenceConcern
                 continue;
             }
             $referencedEvidence[] = $source;
+        }
+        $metricEvidenceStatus = $this->otaDiagnosisExecutionMetricEvidenceStatus(
+            $targetMetric,
+            $platform,
+            $evidenceRefs,
+            $referencedEvidence
+        );
+        $metricSemantic = is_array($metricEvidenceStatus['semantic'] ?? null)
+            ? $metricEvidenceStatus['semantic']
+            : [];
+        if (($metricEvidenceStatus['status'] ?? '') !== 'ready') {
+            throw new \InvalidArgumentException(
+                (string)($metricEvidenceStatus['message'] ?? 'saved OTA diagnosis metric evidence is not execution ready')
+            );
+        }
+        if ($targetMetric === 'list_exposure') {
+            $baseline = (float)$snapshotMetrics[$targetMetric];
+            if ($platform !== 'ctrip'
+                || $baseline < 0.0
+                || floor($baseline) !== $baseline
+                || $metricSemantic === []
+                || !is_array($action['metric_semantic'] ?? null)
+                || $action['metric_semantic'] !== $metricSemantic
+            ) {
+                throw new \InvalidArgumentException(
+                    'saved OTA diagnosis list_exposure binding must use the frozen Ctrip unique-user integer definition'
+                );
+            }
         }
         $currentValue = [];
         foreach ([
@@ -567,6 +714,7 @@ trait AgentOtaDiagnosisPersistenceConcern
                 'campaign_type' => $actionType,
                 'target_metric' => $targetMetric,
                 'expected_direction' => 'increase',
+                'metric_semantic' => $metricSemantic,
                 'action_text' => $actionText,
                 'measurement_policy' => 'target_not_quantified_until_manual_confirmation',
                 'assignee_id' => $workflowSchedule['assignee_id'],
@@ -587,12 +735,14 @@ trait AgentOtaDiagnosisPersistenceConcern
                 'action_item_status' => (string)($action['status'] ?? ''),
                 'diagnosis_summary' => (string)($snapshot['core_conclusion'] ?? $snapshot['diagnosis']['summary'] ?? ''),
                 'metric_scope' => 'ota_channel',
+                'metric_semantic' => $metricSemantic,
                 'expected_delta_status' => 'not_quantified',
                 'expected_direction' => 'increase',
                 'workflow_schedule' => $workflowSchedule,
                 'decision_recommendation' => $action,
             ],
             'expected_metric' => $targetMetric,
+            'expected_delta' => null,
             'risk_level' => $priority === 'high' ? 'high' : ($priority === 'low' ? 'low' : 'medium'),
             'status' => 'pending_approval',
         ];
@@ -645,7 +795,7 @@ trait AgentOtaDiagnosisPersistenceConcern
         }
     }
 
-    private function classifyOtaDiagnosisExecutionAction(string $action): array
+    private function classifyOtaDiagnosisExecutionAction(string $action, array $metrics = []): array
     {
         if ($this->textContainsAny($action, ['广告', '投放', 'ROAS', 'roas'])) {
             return ['advertising_optimization', 'advertising_roas'];
@@ -653,7 +803,14 @@ trait AgentOtaDiagnosisPersistenceConcern
         if ($this->textContainsAny($action, ['服务质量', '服务分', 'PSI', 'psi'])) {
             return ['service_quality_improvement', 'avg_psi_score'];
         }
-        if ($this->textContainsAny($action, ['曝光', '列表页', '主图', '标题'])) {
+        if ($this->textContainsAny($action, ['曝光', '列表页', '可售状态', '曝光入口', 'exposure', 'listing'])
+            && array_key_exists('list_exposure', $metrics)
+            && is_numeric($metrics['list_exposure'])
+            && (float)$metrics['list_exposure'] === 0.0
+        ) {
+            return ['listing_exposure_recovery', 'list_exposure'];
+        }
+        if ($this->textContainsAny($action, ['曝光', '列表页', '主图', '标题', 'exposure', 'listing', 'main image', 'title'])) {
             return ['listing_conversion_optimization', 'detail_rate'];
         }
         if ($this->textContainsAny($action, ['下单', '订单', '转化', '房型', '取消政策'])) {
@@ -702,8 +859,11 @@ trait AgentOtaDiagnosisPersistenceConcern
             $blockedReasons[] = 'unresolved_diagnostic_signal_without_evidence_backed_action';
         }
         $blockedReasons = array_values(array_unique($blockedReasons));
+        $missingTargetFacts = $this->otaDiagnosisHasMissingTargetFacts($result, $dataGaps);
         $status = 'action_required';
-        if (!empty($blockingDataGaps) || (empty($actionItems) && !empty($unresolvedProblems))) {
+        if ($missingTargetFacts) {
+            $status = 'blocked_by_missing_facts';
+        } elseif (!empty($blockingDataGaps) || (empty($actionItems) && !empty($unresolvedProblems))) {
             $status = 'blocked_by_data';
         } elseif (!empty($readyItems)) {
             $status = 'action_required';
@@ -712,7 +872,7 @@ trait AgentOtaDiagnosisPersistenceConcern
         } else {
             $status = 'blocked_by_data';
         }
-        $isBlocked = $status === 'blocked_by_data';
+        $isBlocked = in_array($status, ['blocked_by_data', 'blocked_by_missing_facts'], true);
         $isNoAction = $status === 'no_action';
         $legacyStatus = $isBlocked ? 'blocked' : ($isNoAction ? 'ready' : 'pending_human_confirmation');
 
@@ -765,6 +925,40 @@ trait AgentOtaDiagnosisPersistenceConcern
                 'confirm_before_execution' => $status === 'action_required',
             ],
         ];
+    }
+
+    /** @param list<array<string,mixed>> $dataGaps */
+    private function otaDiagnosisHasMissingTargetFacts(array $result, array $dataGaps = []): bool
+    {
+        if (($result['workflow_status'] ?? '') === 'blocked_by_missing_facts') {
+            return true;
+        }
+        if (($result['data_summary']['used_latest_available_data'] ?? false) === true
+            || ($result['data_summary']['has_ota_data'] ?? null) === false
+        ) {
+            return true;
+        }
+
+        $blockingGaps = $this->blockingOtaDiagnosisDataGaps($dataGaps, $result);
+        $codes = array_values(array_filter(array_map(
+            static fn(array $gap): string => strtolower(trim((string)($gap['code'] ?? ''))),
+            $blockingGaps
+        )));
+        foreach ($codes as $code) {
+            if (in_array($code, [
+                'ota_same_period_source_rows_missing',
+                'ota_requested_period_source_rows_missing_used_latest_available',
+                'all_ota_platform_source_missing',
+            ], true)
+                || str_contains($code, 'same_period_source_rows_missing')
+                || str_starts_with($code, 'metric_missing:')
+                || str_starts_with($code, 'missing_verified_field_fact:')
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function buildOtaEvidenceTags(string $table, array $row): array

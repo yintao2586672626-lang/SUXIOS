@@ -1377,21 +1377,35 @@ trait PlatformDataPersistenceConcern
             $period = 'realtime_snapshot';
         }
 
+        $providedCaptureValue = $this->firstCaptureDateTimeValue([
+            $row['snapshot_time'] ?? null,
+            $row['snapshotTime'] ?? null,
+            $row['captured_at'] ?? null,
+            $row['capturedAt'] ?? null,
+            $payload['snapshot_time'] ?? null,
+            $payload['snapshotTime'] ?? null,
+            $payload['captured_at'] ?? null,
+            $payload['capturedAt'] ?? null,
+        ]);
+        $providedSnapshotTime = $this->normalizeCaptureDateTime($providedCaptureValue);
+        $captureTimeProvided = $providedCaptureValue !== null;
         $snapshotTime = null;
         $snapshotBucket = '';
         if ($period === 'realtime_snapshot') {
-            $snapshotTime = $this->normalizeDateTime(
-                $row['snapshot_time']
-                ?? $row['snapshotTime']
-                ?? $row['captured_at']
-                ?? $row['capturedAt']
-                ?? $payload['snapshot_time']
-                ?? $payload['snapshotTime']
-                ?? $payload['captured_at']
-                ?? $payload['capturedAt']
-                ?? null
-            ) ?? date('Y-m-d H:i:s');
-            $snapshotBucket = date('YmdHi', strtotime($snapshotTime) ?: time());
+            // Missing realtime capture metadata may use the actual persistence
+            // clock. An explicitly supplied but invalid value must stay null
+            // so it cannot be disguised as a trustworthy current timestamp.
+            $snapshotTime = $captureTimeProvided
+                ? $providedSnapshotTime
+                : date('Y-m-d H:i:s');
+            if ($snapshotTime !== null) {
+                $snapshotBucket = date('YmdHi', strtotime($snapshotTime) ?: time());
+            }
+        } elseif ($period === 'historical_daily') {
+            // A historical capture time is provenance, not an identity bucket.
+            // Preserve it only when the collector actually supplied one; never
+            // fabricate a historical timestamp from the current clock.
+            $snapshotTime = $providedSnapshotTime;
         }
 
         return [
@@ -1413,6 +1427,47 @@ trait PlatformDataPersistenceConcern
         };
     }
 
+    /** @param array<int,mixed> $values */
+    private function firstCaptureDateTimeValue(array $values): ?string
+    {
+        foreach ($values as $value) {
+            if (is_scalar($value) && trim((string)$value) !== '') {
+                return trim((string)$value);
+            }
+        }
+        return null;
+    }
+
+    private function normalizeCaptureDateTime($value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+        $value = trim((string)$value);
+        if ($value === '' || preg_match(
+            '/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})?$/D',
+            $value
+        ) !== 1) {
+            return null;
+        }
+        try {
+            $time = new \DateTimeImmutable($value, new \DateTimeZone('Asia/Shanghai'));
+            $errors = \DateTimeImmutable::getLastErrors();
+            if (is_array($errors)
+                && ((int)($errors['warning_count'] ?? 0) > 0 || (int)($errors['error_count'] ?? 0) > 0)
+            ) {
+                return null;
+            }
+            return $time->setTimezone(new \DateTimeZone('Asia/Shanghai'))->format('Y-m-d H:i:s');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Generic payload timestamp normalization retained for non-provenance
+     * fields. Capture provenance must use normalizeCaptureDateTime().
+     */
     private function normalizeDateTime($value): ?string
     {
         $value = trim((string)($value ?? ''));
@@ -1436,9 +1491,15 @@ trait PlatformDataPersistenceConcern
             $payload['data_date'] = $dataDate;
         }
 
-        $snapshotTime = $this->normalizeDateTime($options['snapshot_time'] ?? $options['snapshotTime'] ?? null);
-        if ($snapshotTime !== null && empty($payload['snapshot_time'])) {
-            $payload['snapshot_time'] = $snapshotTime;
+        $snapshotValue = $this->firstCaptureDateTimeValue([
+            $options['snapshot_time'] ?? null,
+            $options['snapshotTime'] ?? null,
+        ]);
+        $snapshotTime = $this->normalizeCaptureDateTime($snapshotValue);
+        if ($snapshotValue !== null && empty($payload['snapshot_time'])) {
+            // Keep an invalid supplied value visible to the downstream strict
+            // resolver; do not silently drop it and fall back to the clock.
+            $payload['snapshot_time'] = $snapshotTime ?? $snapshotValue;
         }
 
         return $payload;

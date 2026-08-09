@@ -324,6 +324,7 @@ test('session response metadata accepts only known protected JSON endpoints on e
     url: 'https://eb.meituan.com/api/v1/ebooking/business/flowTrend',
   }), true);
   for (const url of [
+    'https://eb.meituan.com/api/v1/ebooking/workbench/business/analysis',
     'https://eb.meituan.com/api/v1/ebooking/business/peertrends',
     'https://eb.meituan.com/api/v1/ebooking/commentsinfo',
     'https://eb.meituan.com/api/v1/ebooking/order-eb/list',

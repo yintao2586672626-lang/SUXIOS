@@ -2391,13 +2391,16 @@ trait CollectionReliabilityConcern
         $hotelId = $this->resolveOnlineDataSystemHotelId($hotelIdRaw);
         [$startDate, $endDate] = $this->resolveDashboardDateRange();
         $mode = $this->normalizeCollectionReliabilityMode($this->request->get('mode', 'full'));
+        $forceRefresh = filter_var($this->request->get('force', false), FILTER_VALIDATE_BOOLEAN);
 
         try {
             if ($mode === 'light') {
                 $cacheKey = $this->collectionReliabilityCacheKey($hotelId, $startDate, $endDate, $mode);
-                $cached = cache($cacheKey);
-                if (is_array($cached)) {
-                    return $this->success($cached);
+                if (!$forceRefresh) {
+                    $cached = cache($cacheKey);
+                    if (is_array($cached)) {
+                        return $this->success($cached);
+                    }
                 }
                 $payload = $this->withPhase1EmployeeQuestions(
                     $this->buildCollectionReliabilityLightPayload($hotelId, $startDate, $endDate)

@@ -2507,7 +2507,7 @@ final class OtaLocalCollectorService
                 ->where('system_hotel_id', (int)$mapping['system_hotel_id'])
                 ->where('platform', (string)$account['platform'])
                 ->find();
-            if (!is_array($existing)) {
+            if (!is_array($existing) || !$this->isIdempotencyKeyConflict($e)) {
                 throw $e;
             }
             $existing['_created'] = false;
@@ -2528,7 +2528,19 @@ final class OtaLocalCollectorService
         $row['_created'] = true;
         return $row;
     }
+    private function isIdempotencyKeyConflict(Throwable $exception): bool
+    {
+        $code = (int)$exception->getCode();
+        $message = strtolower(trim($exception->getMessage()));
+        $duplicateConstraint = str_contains($message, 'duplicate')
+            || str_contains($message, 'unique constraint');
+        $idempotencyConstraint = str_contains($message, 'idempotency_key')
+            || str_contains($message, 'idempotency');
 
+        return ($code === 1062 || $code === 23000 || $duplicateConstraint)
+            && $duplicateConstraint
+            && $idempotencyConstraint;
+    }
     /** @return array<string, mixed>|null */
     private function latestTaskForScope(
         int $tenantId,

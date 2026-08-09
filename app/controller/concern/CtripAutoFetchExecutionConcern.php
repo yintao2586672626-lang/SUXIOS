@@ -1169,10 +1169,17 @@ trait CtripAutoFetchExecutionConcern
             $platform = $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? ''));
             $source = $this->sourceForCtripProfileTrafficPlatform((string)($row['source'] ?? ''), $platform);
             $rawData = $row['raw_data'] ?? $row;
+            $observedTrafficMetricKeys = $this->ctripCatalogObservedTrafficMetricKeys(
+                $row,
+                is_array($rawData) ? $rawData : []
+            );
             $rawDataForTrace = is_array($rawData) ? $rawData : [];
             if (is_array($rawData)) {
                 $rawData['capture_section'] = $captureSection;
                 $rawData['endpoint_id'] = (string)($row['endpoint_id'] ?? ($rawData['endpoint_id'] ?? ''));
+                if ($observedTrafficMetricKeys !== []) {
+                    $rawData['_observed_traffic_metric_keys'] = $observedTrafficMetricKeys;
+                }
                 $sourceUrl = trim((string)($row['source_url'] ?? ($rawData['source_url'] ?? '')));
                 if ($sourceUrl !== '') {
                     $rawData['source_url'] = $this->sanitizeCtripStandardRowSourceUrl($sourceUrl);
@@ -1236,6 +1243,9 @@ trait CtripAutoFetchExecutionConcern
             if ($dataSourceId !== null && $dataSourceId > 0) {
                 $standardRow['data_source_id'] = $dataSourceId;
             }
+            if ($observedTrafficMetricKeys !== []) {
+                $standardRow['_observed_traffic_metric_keys'] = $observedTrafficMetricKeys;
+            }
             $rows[] = $standardRow;
         }
 
@@ -1288,6 +1298,44 @@ trait CtripAutoFetchExecutionConcern
             }
         }
         return $row;
+    }
+
+    /** @return array<int, string> */
+    private function ctripCatalogObservedTrafficMetricKeys(array $row, array $rawData): array
+    {
+        $endpointId = strtolower(trim((string)($row['endpoint_id'] ?? ($rawData['endpoint_id'] ?? ''))));
+        if (!in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)
+            || strtolower(trim((string)($rawData['source'] ?? ''))) !== 'ctrip_catalog_facts'
+            || !is_array($rawData['field_facts'] ?? null)
+        ) {
+            return [];
+        }
+
+        $required = [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
+        $captured = [];
+        foreach ($rawData['field_facts'] as $fact) {
+            if (!is_array($fact)
+                || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured'
+                || ($fact['stored_value_present'] ?? false) !== true
+            ) {
+                continue;
+            }
+            $storageField = trim((string)($fact['storage_field'] ?? ''));
+            if (str_starts_with($storageField, 'online_daily_data.')) {
+                $storageField = substr($storageField, strlen('online_daily_data.'));
+            }
+            if (in_array($storageField, $required, true)) {
+                $captured[$storageField] = true;
+            }
+        }
+
+        return array_diff($required, array_keys($captured)) === [] ? $required : [];
     }
 
     private function ctripStandardRowFloatMetric(array $row, string $field): ?float

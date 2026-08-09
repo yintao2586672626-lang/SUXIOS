@@ -238,6 +238,91 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertFalse($overview['actions'][0]['auto_write_ota']);
     }
 
+    public function testOverviewExposesBookingWindowAdrStructureAndDoesNotHideMissingLeadTime(): void
+    {
+        $facts = [
+            $this->dailyFact('ctrip', 300, 1, null, ['lead_time_days' => 0, 'checkin_date' => '2026-07-01', 'order_count' => 12]),
+            $this->dailyFact('ctrip', 400, 2, null, ['lead_time_days' => 10, 'checkin_date' => '2026-07-15', 'order_count' => 20]),
+        ];
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $this->dataset($facts),
+            ['ctrip' => $this->dataset($facts)],
+            ['ctrip' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-06-25 08:00:00']],
+            ['business_date' => '2026-06-25', 'hotel_id' => 7]
+        );
+
+        $signal = $overview['signals']['booking_window_adr'];
+        self::assertSame('当天 ¥300.00 · 8-14天 ¥200.00', $signal['value']);
+        self::assertSame('ok', $signal['status']);
+        self::assertSame('booking_window_adr_structure_available', $signal['reason']);
+        self::assertSame('ota', $signal['scope']);
+        self::assertSame('lead_time_days', $signal['date_basis']);
+        self::assertSame(2, $signal['detail_metrics']['bucket_count']);
+        self::assertSame(2, $overview['metric_summary']['booking_window_adr']['aligned_row_count']);
+        $channelWindow = $overview['signals']['channel_booking_window_month'];
+        self::assertSame('ok', $channelWindow['status']);
+        self::assertSame('channel_booking_window_month_structure_available', $channelWindow['reason']);
+        self::assertStringContainsString('2026-07 携程 8-14天 62.5%', $channelWindow['value']);
+        self::assertSame(2, $channelWindow['detail_metrics']['supported_cell_count']);
+
+        $missingFact = $this->dailyFact('ctrip', 300, 1, null, ['lead_time_days' => null]);
+        $missing = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $this->dataset([$missingFact]),
+            ['ctrip' => $this->dataset([$missingFact])],
+            ['ctrip' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-06-25 08:00:00']],
+            ['business_date' => '2026-06-25', 'hotel_id' => 7]
+        );
+        self::assertSame('--', $missing['signals']['booking_window_adr']['value']);
+        self::assertSame('not_calculable', $missing['signals']['booking_window_adr']['status']);
+        self::assertSame('lead_time_fields_missing', $missing['signals']['booking_window_adr']['reason']);
+        self::assertSame([], $missing['signals']['booking_window_adr']['detail_metrics']['buckets']);
+        self::assertSame('not_calculable', $missing['signals']['channel_booking_window_month']['status']);
+        self::assertSame('lead_time_fields_missing', $missing['signals']['channel_booking_window_month']['reason']);
+    }
+
+    public function testManualOrderImportItemPassesThroughSourceFormatAndKeepsMissingFormatNull(): void
+    {
+        $service = new RevenueAiOverviewService();
+        $method = new \ReflectionMethod($service, 'manualOrderImportItem');
+        $baseCanonical = [
+            'source' => 'ctrip',
+            'book_order_num' => 2,
+            'gross_order_num' => 2,
+            'cancel_order_num' => 0,
+            'quantity' => 4,
+            'amount' => 900,
+            'raw_data' => [
+                'channel_key' => 'ctrip',
+                'fixture_status' => 'explicit_test_fixture',
+                'source_format' => 'html_table_xls',
+            ],
+        ];
+
+        $htmlItem = $method->invoke($service, [
+            'id' => 101,
+            'data_date' => '2026-08-08',
+            'raw_data' => ['row' => $baseCanonical],
+        ], '2026-08-08');
+        self::assertSame('html_table_xls', $htmlItem['source_format']);
+
+        $baseCanonical['raw_data']['source_format'] = 'future_unknown_xls';
+        $unknownItem = $method->invoke($service, [
+            'id' => 102,
+            'data_date' => '2026-08-08',
+            'raw_data' => ['row' => $baseCanonical],
+        ], '2026-08-08');
+        self::assertSame('future_unknown_xls', $unknownItem['source_format']);
+
+        unset($baseCanonical['raw_data']['source_format']);
+        $missingItem = $method->invoke($service, [
+            'id' => 103,
+            'data_date' => '2026-08-08',
+            'raw_data' => ['row' => $baseCanonical],
+        ], '2026-08-08');
+        self::assertArrayHasKey('source_format', $missingItem);
+        self::assertNull($missingItem['source_format']);
+    }
+
     public function testP0DownstreamGateBlocksRevenueAiClosureClaimsFromContext(): void
     {
         $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(

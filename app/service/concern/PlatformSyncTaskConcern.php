@@ -428,6 +428,69 @@ trait PlatformSyncTaskConcern
 
     private function finishTask(int $taskId, array $source, string $status, string $message, int $normalizedCount, int $savedCount, array $payload, array $timing = [], ?float $syncStartedAt = null): array
     {
+        [$tenantId, $hotelId] = $this->assertStoredSourceTenant($source);
+        $taskQuery = Db::name('platform_data_sync_tasks')->where('id', $taskId);
+        $this->applyTaskSourceIdentity($taskQuery, $source, $tenantId, $hotelId);
+        $task = $taskQuery->find();
+        if (!is_array($task)) {
+            throw new RuntimeException('Sync task identity does not match the source scope.', 409);
+        }
+
+        try {
+            return $this->finishTaskWithinValidatedScope(
+                $taskId,
+                $source,
+                $status,
+                $message,
+                $normalizedCount,
+                $savedCount,
+                $payload,
+                $timing,
+                $syncStartedAt,
+                $tenantId,
+                $hotelId,
+                $task
+            );
+        } catch (\Throwable $exception) {
+            return $this->failSyncTaskFinalization(
+                $taskId,
+                $source,
+                $tenantId,
+                $hotelId,
+                $exception,
+                $normalizedCount,
+                $savedCount,
+                $payload
+            );
+        }
+    }
+
+    /**
+     * Complete the rich task receipt only after the task/source scope has been
+     * verified. The wrapper above keeps an auxiliary receipt failure from
+     * leaving the exact task permanently active.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $timing
+     * @param array<string, mixed> $existingTask
+     * @return array<string, mixed>
+     */
+    private function finishTaskWithinValidatedScope(
+        int $taskId,
+        array $source,
+        string $status,
+        string $message,
+        int $normalizedCount,
+        int $savedCount,
+        array $payload,
+        array $timing,
+        ?float $syncStartedAt,
+        int $tenantId,
+        int $hotelId,
+        array $existingTask
+    ): array
+    {
         $finishStartedAt = microtime(true);
         $now = date('Y-m-d H:i:s');
         $timing = $this->normalizeSyncTiming($timing);
@@ -436,13 +499,7 @@ trait PlatformSyncTaskConcern
             is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : [],
             $status
         );
-        [$tenantId, $hotelId] = $this->assertStoredSourceTenant($source);
-        $existingTaskQuery = Db::name('platform_data_sync_tasks')->where('id', $taskId);
-        $this->applyTaskSourceIdentity($existingTaskQuery, $source, $tenantId, $hotelId);
-        $existingTask = $existingTaskQuery->find();
-        $existingTaskStats = is_array($existingTask)
-            ? $this->decodeConfig($existingTask['stats_json'] ?? [])
-            : [];
+        $existingTaskStats = $this->decodeConfig($existingTask['stats_json'] ?? []);
         $stats = [
             'normalized_count' => $normalizedCount,
             'saved_count' => $savedCount,
@@ -471,7 +528,7 @@ trait PlatformSyncTaskConcern
             $source,
             $saveReceipt,
             $payload,
-            is_array($existingTask) ? $existingTask : []
+            $existingTask
         );
         if ($safeDiagnostics !== []) {
             $stats['sync_diagnostics'] = $safeDiagnostics;
@@ -575,6 +632,311 @@ trait PlatformSyncTaskConcern
     }
 
     /**
+     * Last-resort terminalization for failures inside finishTask itself. Keep
+     * this path deliberately independent from receipt, diagnostics, logging,
+     * and timestamp-normalization helpers: one of those helpers is what failed.
+     *
+     * Identity validation is repeated and deliberately allowed to throw. A
+     * tenant/hotel/source mismatch must never be converted into a task update.
+     *
+     * @param array<string, mixed> $source
+     * @return array<string, mixed>
+     */
+    private function failSyncTaskFinalization(
+        int $taskId,
+        array $source,
+        int $tenantId,
+        int $hotelId,
+        \Throwable $exception,
+        int $normalizedCount,
+        int $savedCount,
+        array $payload
+    ): array {
+        [$currentTenantId, $currentHotelId] = $this->assertStoredSourceTenant($source);
+        $sourceId = (int)($source['id'] ?? 0);
+        if ($sourceId <= 0
+            || $currentTenantId !== $tenantId
+            || $currentHotelId !== $hotelId
+        ) {
+            throw new RuntimeException(
+                'Sync task identity changed during finalization.',
+                409,
+                $exception
+            );
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $nextRetryAt = date('Y-m-d H:i:s', time() + 900);
+        $saveReceipt = is_array($payload['_save_receipt'] ?? null)
+            ? $payload['_save_receipt']
+            : [];
+        $receiptCount = static function (array $receipt, string $key): ?int {
+            return array_key_exists($key, $receipt) && is_numeric($receipt[$key])
+                ? max(0, (int)$receipt[$key])
+                : null;
+        };
+        $attemptedCount = $receiptCount($saveReceipt, 'attempted_count');
+        $insertedCount = $receiptCount($saveReceipt, 'inserted_count');
+        $updatedCount = $receiptCount($saveReceipt, 'updated_count');
+        $deduplicatedCount = $receiptCount($saveReceipt, 'deduplicated_count');
+        $readbackCount = $receiptCount($saveReceipt, 'readback_count');
+        $readbackKnown = array_key_exists('readback_verified', $saveReceipt)
+            && is_bool($saveReceipt['readback_verified']);
+        $readbackVerified = $readbackKnown && $saveReceipt['readback_verified'] === true;
+        $rolledBackKnown = array_key_exists('rolled_back', $saveReceipt)
+            && is_bool($saveReceipt['rolled_back']);
+        $rolledBack = $rolledBackKnown && $saveReceipt['rolled_back'] === true;
+        $rowIds = [];
+        foreach (is_array($saveReceipt['row_ids'] ?? null) ? $saveReceipt['row_ids'] : [] as $rowId) {
+            if ((is_int($rowId) || (is_string($rowId) && ctype_digit($rowId))) && (int)$rowId > 0) {
+                $rowIds[] = (int)$rowId;
+            }
+        }
+        $rowIds = array_values(array_unique($rowIds));
+        sort($rowIds, SORT_NUMERIC);
+        $payloadKeys = array_values(array_filter(array_map(
+            static fn($key): string => is_int($key) || is_string($key) ? (string)$key : '',
+            array_slice(array_keys($payload), 0, 30)
+        ), static fn(string $key): bool => $key !== ''));
+        $persistenceFactStatus = $saveReceipt !== []
+            ? 'preserved_from_save_receipt'
+            : (($normalizedCount > 0 || $savedCount > 0) ? 'known_counts_without_save_receipt' : 'unknown');
+        $minimalStats = [
+            'normalized_count' => max(0, $normalizedCount),
+            'saved_count' => max(0, $savedCount),
+            'attempted_count' => $attemptedCount,
+            'inserted_count' => $insertedCount,
+            'updated_count' => $updatedCount,
+            'deduplicated_count' => $deduplicatedCount,
+            'readback_count' => $readbackCount,
+            'readback_verified' => $readbackVerified,
+            'readback_status' => $readbackKnown
+                ? ($readbackVerified ? 'verified' : 'unverified')
+                : 'unknown',
+            'rolled_back' => $rolledBack,
+            'rolled_back_status' => $rolledBackKnown ? 'known' : 'unknown',
+            'row_ids' => $rowIds,
+            'row_ids_status' => $rowIds !== [] ? 'known' : 'unknown',
+            'persistence_fact_status' => $persistenceFactStatus,
+            'saved_rows_may_exist' => $savedCount > 0
+                || ($insertedCount ?? 0) > 0
+                || ($updatedCount ?? 0) > 0,
+            'run_readback_status' => 'unavailable_due_to_finalization_failure',
+            'failure_reason' => 'sync_task_finalization_failed',
+            'save_failure_reason' => $this->failSafeFinalizationCode($saveReceipt['failure_reason'] ?? null),
+            'mismatch_field' => $this->failSafeFinalizationCode($saveReceipt['mismatch_field'] ?? null),
+            'payload_keys' => $payloadKeys,
+            'fact_status' => [
+                'normalized_count' => 'known',
+                'saved_count' => 'known',
+                'attempted_count' => $attemptedCount === null ? 'unknown' : 'known',
+                'inserted_count' => $insertedCount === null ? 'unknown' : 'known',
+                'updated_count' => $updatedCount === null ? 'unknown' : 'known',
+                'deduplicated_count' => $deduplicatedCount === null ? 'unknown' : 'known',
+                'readback_count' => $readbackCount === null ? 'unknown' : 'known',
+                'readback_verified' => $readbackKnown
+                    ? ($readbackVerified ? 'verified' : 'unverified')
+                    : 'unknown',
+            ],
+        ];
+        $minimalStatsJson = json_encode(
+            $minimalStats,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+        if (!is_string($minimalStatsJson)) {
+            $minimalStatsJson = '{"normalized_count":0,"saved_count":0,"readback_count":null,"readback_verified":false,"readback_status":"unknown","persistence_fact_status":"unknown","failure_reason":"sync_task_finalization_failed"}';
+        }
+
+        $finalized = (int)Db::name('platform_data_sync_tasks')
+            ->where('id', $taskId)
+            ->where('data_source_id', $sourceId)
+            ->where('tenant_id', $tenantId)
+            ->where('system_hotel_id', $hotelId)
+            ->where('status', 'running')
+            ->update([
+                'status' => 'failed',
+                'finished_at' => $now,
+                'next_retry_at' => $nextRetryAt,
+                'message' => 'collection_failed',
+                'stats_json' => $minimalStatsJson,
+                'update_time' => $now,
+            ]);
+
+        $persistedTask = Db::name('platform_data_sync_tasks')
+            ->field('id,status,finished_at,next_retry_at,message,stats_json,update_time')
+            ->where('id', $taskId)
+            ->where('data_source_id', $sourceId)
+            ->where('tenant_id', $tenantId)
+            ->where('system_hotel_id', $hotelId)
+            ->find();
+        if (!is_array($persistedTask)) {
+            throw new RuntimeException(
+                'Sync task identity does not match the source scope.',
+                409,
+                $exception
+            );
+        }
+
+        $persistedStatus = strtolower(trim((string)($persistedTask['status'] ?? '')));
+        if ($finalized !== 1 && in_array($persistedStatus, self::ACTIVE_SYNC_TASK_STATUSES, true)) {
+            throw new RuntimeException(
+                'Sync task fail-safe terminalization did not apply.',
+                409,
+                $exception
+            );
+        }
+        if ($persistedStatus === '') {
+            $persistedStatus = 'failed';
+        }
+        if ($finalized !== 1) {
+            return $this->postFinalizeWarningResult(
+                $taskId,
+                $sourceId,
+                $persistedTask,
+                $persistedStatus
+            );
+        }
+
+        $persistedStats = $this->decodeFailSafeFinalizationStats($persistedTask['stats_json'] ?? null);
+        $persistedReadbackCount = isset($persistedStats['readback_count'])
+            && is_numeric($persistedStats['readback_count'])
+            ? max(0, (int)$persistedStats['readback_count'])
+            : 0;
+
+        return [
+            'task_id' => $taskId,
+            'data_source_id' => $sourceId,
+            'status' => $persistedStatus,
+            'message' => 'collection_failed',
+            'normalized_count' => max(0, (int)($persistedStats['normalized_count'] ?? 0)),
+            'saved_count' => max(0, (int)($persistedStats['saved_count'] ?? 0)),
+            'inserted_count' => isset($persistedStats['inserted_count']) && is_numeric($persistedStats['inserted_count'])
+                ? max(0, (int)$persistedStats['inserted_count'])
+                : 0,
+            'updated_count' => isset($persistedStats['updated_count']) && is_numeric($persistedStats['updated_count'])
+                ? max(0, (int)$persistedStats['updated_count'])
+                : 0,
+            'readback_count' => $persistedReadbackCount,
+            'readback_verified' => ($persistedStats['readback_verified'] ?? false) === true,
+            'run_readback' => [],
+            'rolled_back' => ($persistedStats['rolled_back'] ?? false) === true,
+            'failure_reason' => 'sync_task_finalization_failed',
+            'predecessor_task_id' => 0,
+            'recovery_context_status' => '',
+            'next_retry_at' => trim((string)($persistedTask['next_retry_at'] ?? '')) ?: null,
+            'timing' => [],
+            'sync_diagnostics' => null,
+            'collection_quality' => [],
+            'read_fallback_summary' => null,
+            'module_status' => null,
+            'persistence_fact_status' => (string)($persistedStats['persistence_fact_status'] ?? 'unknown'),
+            'fact_status' => is_array($persistedStats['fact_status'] ?? null)
+                ? $persistedStats['fact_status']
+                : [],
+            'saved_rows_may_exist' => ($persistedStats['saved_rows_may_exist'] ?? false) === true,
+            'finalization_status' => 'failed_before_task_terminalization',
+            'post_finalize_warning' => false,
+            'post_finalize_warning_code' => '',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function postFinalizeWarningResult(
+        int $taskId,
+        int $sourceId,
+        array $persistedTask,
+        string $persistedStatus
+    ): array {
+        $stats = $this->decodeFailSafeFinalizationStats($persistedTask['stats_json'] ?? null);
+        $countFact = static function (array $values, string $key): array {
+            if (!array_key_exists($key, $values) || !is_numeric($values[$key])) {
+                return [0, 'unknown'];
+            }
+            return [max(0, (int)$values[$key]), 'known'];
+        };
+        [$normalizedCount, $normalizedStatus] = $countFact($stats, 'normalized_count');
+        [$savedCount, $savedStatus] = $countFact($stats, 'saved_count');
+        [$insertedCount, $insertedStatus] = $countFact($stats, 'inserted_count');
+        [$updatedCount, $updatedStatus] = $countFact($stats, 'updated_count');
+        [$readbackCount, $readbackCountStatus] = $countFact($stats, 'readback_count');
+        $readbackKnown = array_key_exists('readback_verified', $stats)
+            && is_bool($stats['readback_verified']);
+        $readbackVerified = $readbackKnown && $stats['readback_verified'] === true;
+        $nextRetryAt = is_string($persistedTask['next_retry_at'] ?? null)
+            ? trim((string)$persistedTask['next_retry_at'])
+            : '';
+        $terminalStatuses = ['success', 'failed', 'partial_success', 'not_applicable', 'cancelled'];
+        if (!in_array($persistedStatus, $terminalStatuses, true)) {
+            $persistedStatus = 'failed';
+        }
+
+        return [
+            'task_id' => $taskId,
+            'data_source_id' => $sourceId,
+            'status' => $persistedStatus,
+            'message' => 'sync_task_post_finalize_warning',
+            'normalized_count' => $normalizedCount,
+            'saved_count' => $savedCount,
+            'inserted_count' => $insertedCount,
+            'updated_count' => $updatedCount,
+            'readback_count' => $readbackCount,
+            'readback_verified' => $readbackVerified,
+            'run_readback' => is_array($stats['run_readback'] ?? null) ? $stats['run_readback'] : [],
+            'rolled_back' => ($stats['rolled_back'] ?? false) === true,
+            'failure_reason' => $this->failSafeFinalizationCode($stats['failure_reason'] ?? null),
+            'predecessor_task_id' => isset($stats['predecessor_task_id']) && is_numeric($stats['predecessor_task_id'])
+                ? max(0, (int)$stats['predecessor_task_id'])
+                : 0,
+            'recovery_context_status' => $this->failSafeFinalizationCode($stats['recovery_context_status'] ?? null),
+            'next_retry_at' => $nextRetryAt !== '' ? $nextRetryAt : null,
+            'timing' => is_array($stats['timing'] ?? null) ? $stats['timing'] : [],
+            'sync_diagnostics' => is_array($stats['sync_diagnostics'] ?? null) ? $stats['sync_diagnostics'] : null,
+            'collection_quality' => is_array($stats['collection_quality'] ?? null) ? $stats['collection_quality'] : [],
+            'read_fallback_summary' => is_array($stats['read_fallback_summary'] ?? null)
+                ? $stats['read_fallback_summary']
+                : null,
+            'module_status' => null,
+            'persistence_fact_status' => (string)($stats['persistence_fact_status'] ?? 'persisted_task_receipt'),
+            'fact_status' => [
+                'normalized_count' => $normalizedStatus,
+                'saved_count' => $savedStatus,
+                'inserted_count' => $insertedStatus,
+                'updated_count' => $updatedStatus,
+                'readback_count' => $readbackCountStatus,
+                'readback_verified' => $readbackKnown
+                    ? ($readbackVerified ? 'verified' : 'unverified')
+                    : 'unknown',
+            ],
+            'saved_rows_may_exist' => $savedCount > 0 || $insertedCount > 0 || $updatedCount > 0,
+            'finalization_status' => 'post_finalize_warning',
+            'post_finalize_warning' => true,
+            'post_finalize_warning_code' => 'sync_task_post_finalize_failed',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function decodeFailSafeFinalizationStats(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function failSafeFinalizationCode(mixed $value): string
+    {
+        if (!is_string($value)) {
+            return '';
+        }
+        $value = strtolower(trim($value));
+        return preg_match('/^[a-z0-9_.:-]{1,120}$/D', $value) === 1 ? $value : '';
+    }
+
+    /**
      * Return the task state already persisted by a newer recovery attempt.
      * A late worker must not overwrite the terminal task, source state, or logs.
      *
@@ -649,6 +1011,15 @@ trait PlatformSyncTaskConcern
                 ?? ''
             ));
         }
+        $runReadback = is_array($result['run_readback'] ?? null)
+            ? $result['run_readback']
+            : [];
+        $requiredTrafficMetricKeys = $this->sanitizeSyncDiagnosticMetricKeys(
+            $runReadback['required_traffic_metric_keys'] ?? []
+        );
+        $businessModule = $requiredTrafficMetricKeys !== []
+            ? 'traffic'
+            : trim((string)($source['data_type'] ?? ''));
         return (new CollectionResultContractService())->fromOtaRunReadback(
             $result,
             [
@@ -656,7 +1027,7 @@ trait PlatformSyncTaskConcern
                 'system_hotel_id' => max(0, (int)($source['system_hotel_id'] ?? 0)),
                 'platform' => $platform,
                 'platform_hotel_id' => $platformHotelId,
-                'business_module' => trim((string)($source['data_type'] ?? '')),
+                'business_module' => $businessModule,
                 'source_method' => trim((string)($source['ingestion_method'] ?? '')),
             ]
         );
@@ -684,7 +1055,14 @@ trait PlatformSyncTaskConcern
         $platform = strtolower(trim((string)($source['platform'] ?? '')));
         $targetDate = $this->normalizeDate($payload['data_date'] ?? $payload['dataDate'] ?? null) ?? '';
         $dataPeriod = $this->normalizeDataPeriod($payload['data_period'] ?? $payload['dataPeriod'] ?? '');
-        $startedAt = $this->normalizeDateTime($task['started_at'] ?? '') ?? '';
+        $startedAt = $this->normalizeDateTime(
+            $payload['captured_at']
+                ?? $payload['capturedAt']
+                ?? $payload['snapshot_time']
+                ?? $payload['snapshotTime']
+                ?? $task['started_at']
+                ?? ''
+        ) ?? '';
         $diagnostics = is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : [];
         $receipt = [
             'readback_verified' => false,
@@ -749,7 +1127,9 @@ trait PlatformSyncTaskConcern
             $fields = array_values(array_filter([
                 'id', 'sync_task_id', 'data_source_id', 'system_hotel_id', 'data_date', 'data_period',
                 'readback_verified', 'source_trace_id', 'platform', 'source', 'hotel_id', 'hotel_name',
-                'data_type', 'dimension', 'compare_type', 'amount', 'quantity', 'data_value', 'raw_data',
+                'data_type', 'dimension', 'compare_type', 'amount', 'quantity', 'data_value',
+                'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num',
+                'raw_data',
             ], static fn(string $field): bool => isset($columns[$field])));
             $query = Db::name('online_daily_data')
                 ->field(implode(',', $fields))
@@ -1071,6 +1451,7 @@ trait PlatformSyncTaskConcern
             'recipe_count' => null,
         ];
         $ingestionMethod = strtolower(trim((string)($source['ingestion_method'] ?? '')));
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
         if ($rows === []
             || !in_array(
                 $ingestionMethod,
@@ -1082,7 +1463,72 @@ trait PlatformSyncTaskConcern
         }
 
         $policy = new OtaStructuredCaptureEvidenceService();
-        foreach ($rows as $row) {
+        $authoritativeTrafficRows = array_values(array_filter(
+            $rows,
+            static function (array $row) use ($source): bool {
+                $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+                $platform = strtolower(trim((string)(
+                    $row['platform']
+                        ?? $row['source']
+                        ?? $source['platform']
+                        ?? ''
+                )));
+                return in_array($dataType, ['traffic', 'flow', 'conversion'], true)
+                    && OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic(
+                        $row,
+                        $platform
+                    );
+            }
+        ));
+        // A mixed realtime run can contain auxiliary business/rank rows that
+        // are useful diagnostics but are not part of the P0 traffic contract.
+        // When canonical traffic exists, only those rows may determine the
+        // traffic run's structured-response acceptance status.
+        $strategyRows = $authoritativeTrafficRows !== []
+            ? $authoritativeTrafficRows
+            : $rows;
+        if ($authoritativeTrafficRows !== []) {
+            $structuredTrafficRows = [];
+            foreach ($authoritativeTrafficRows as $row) {
+                if (($policy->classifyRow($row, $source)['allowed'] ?? false) === true) {
+                    $structuredTrafficRows[] = $row;
+                }
+            }
+            $requiredStorageFields = $platform === 'ctrip'
+                ? [
+                    'list_exposure',
+                    'detail_exposure',
+                    'flow_rate',
+                    'order_filling_num',
+                    'order_submit_num',
+                ]
+                : ['list_exposure', 'detail_exposure', 'flow_rate'];
+            $structuredMetricValues = array_fill_keys($requiredStorageFields, []);
+            foreach ($structuredTrafficRows as $row) {
+                foreach ($requiredStorageFields as $storageField) {
+                    if (!array_key_exists($storageField, $row) || !is_numeric($row[$storageField])) {
+                        continue;
+                    }
+                    $structuredMetricValues[$storageField][(string)(float)$row[$storageField]] = true;
+                }
+            }
+            $structuredP0Complete = $structuredTrafficRows !== [];
+            foreach ($structuredMetricValues as $values) {
+                if (count($values) !== 1) {
+                    // Missing and conflicting structured values both remain
+                    // fail-closed; DOM rows cannot complete a structured claim.
+                    $structuredP0Complete = false;
+                    break;
+                }
+            }
+            if ($structuredP0Complete) {
+                // DOM rows remain useful diagnostics, but once one exact-run
+                // structured set closes every P0 metric they must not downgrade
+                // the authoritative response evidence for that same task.
+                $strategyRows = $structuredTrafficRows;
+            }
+        }
+        foreach ($strategyRows as $row) {
             $classification = $policy->classifyRow($row, $source);
             if (($classification['allowed'] ?? false) === true) {
                 continue;

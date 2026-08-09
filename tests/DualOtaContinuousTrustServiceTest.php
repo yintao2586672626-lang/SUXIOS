@@ -26,9 +26,32 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         );
 
         self::assertSame('verified', $result['status']);
+        self::assertSame('verified', $result['acceptance_status']);
         self::assertSame(2, $result['verified_days']);
         self::assertSame(2, $result['consecutive_verified_days']);
+        self::assertSame(2, $result['accepted_days']);
+        self::assertSame(2, $result['consecutive_accepted_days']);
         self::assertSame(['verified', 'verified'], array_column($result['days'], 'status'));
+        self::assertSame(['verified', 'verified'], array_column($result['days'], 'acceptance_status'));
+        foreach ($result['days'] as $day) {
+            foreach ($day['platforms'] as $platform) {
+                $receipt = $platform['acceptance_receipt'];
+                self::assertSame('verified', $platform['acceptance_status']);
+                self::assertSame(58, $receipt['system_hotel_id']);
+                self::assertSame($day['date'], $receipt['target_date']);
+                self::assertSame('matched', $receipt['target_date_status']);
+                self::assertSame('verified', $receipt['platform_hotel_status']);
+                self::assertSame(1, $receipt['counts']['saved']);
+                self::assertSame(1, $receipt['counts']['readback']);
+                self::assertTrue($receipt['counts']['saved_readback_match']);
+                self::assertSame(1, $receipt['counts']['target_saved']);
+                self::assertSame(1, $receipt['counts']['target_readback']);
+                self::assertTrue($receipt['counts']['target_saved_readback_match']);
+                self::assertSame([], $receipt['critical_fields']['missing']);
+                self::assertTrue($receipt['claim_allowed']);
+                self::assertSame('not_evaluated', $receipt['live_page_verification_status']);
+            }
+        }
         self::assertSame(
             [
                 'source', 'account_profile_binding', 'hotel', 'date', 'field_facts',
@@ -37,6 +60,104 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
             ],
             $result['required_steps']
         );
+    }
+
+    public function testTrafficAcceptanceDoesNotUseReusableSourceAllTypeAsRevenueScope(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        foreach ($sources as &$source) {
+            $source['data_type'] = 'all';
+        }
+        unset($source);
+        foreach ($tasks as &$task) {
+            $task['data_type'] = 'all';
+        }
+        unset($task);
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+
+        self::assertSame('verified', $result['acceptance_status']);
+        foreach ($result['days'][0]['platforms'] as $platform) {
+            self::assertSame('verified', $platform['acceptance_status']);
+            self::assertTrue($platform['acceptance_receipt']['contract_claim_allowed']);
+            self::assertTrue($platform['acceptance_receipt']['claim_allowed']);
+        }
+    }
+
+    public function testExplicitZeroMetricsRemainVerifiedWithCompleteCaptureEvidence(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        foreach ($rows as &$row) {
+            foreach (['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'] as $metricKey) {
+                if (array_key_exists($metricKey, $row)) {
+                    $row[$metricKey] = 0;
+                }
+            }
+        }
+        unset($row);
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+
+        self::assertSame('verified', $result['status']);
+        foreach ($result['days'][0]['platforms'] as $platform) {
+            self::assertSame('verified', $platform['status']);
+            self::assertTrue($platform['steps']['field_facts']);
+            self::assertTrue($platform['steps']['p0']);
+            self::assertNotContains('required_metric_explicit_evidence_missing', $platform['gap_codes']);
+        }
+    }
+
+    public function testStoredValueFlagCannotReplaceAMissingMetricValue(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        foreach ($rows as &$row) {
+            if ($row['platform'] === 'ctrip') {
+                $row['flow_rate'] = null;
+            }
+        }
+        unset($row);
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+
+        self::assertSame('partial', $result['status']);
+        $ctrip = $this->platform($result['days'][0], 'ctrip');
+        self::assertSame('partial', $ctrip['status']);
+        self::assertContains('flow_rate', $ctrip['missing_metric_keys']);
+        self::assertContains('field_facts_incomplete', $ctrip['gap_codes']);
+        self::assertContains('required_metric_explicit_evidence_missing', $ctrip['gap_codes']);
     }
 
     public function testOlderReadyRowCannotReplaceLatestDateMissingFieldFact(): void
@@ -73,8 +194,11 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         self::assertSame('partial', $result['days'][0]['status']);
         $meituan = $this->platform($result['days'][0], 'meituan');
         self::assertSame('partial', $meituan['status']);
+        self::assertSame('partial', $meituan['acceptance_status']);
+        self::assertFalse($meituan['acceptance_receipt']['claim_allowed']);
         self::assertContains('field_facts', $meituan['missing_steps']);
         self::assertContains('flow_rate', $meituan['missing_metric_keys']);
+        self::assertContains('flow_rate', $meituan['acceptance_receipt']['critical_fields']['missing']);
     }
 
     public function testExactDateCollectionFailureIsExplicitAtPlatformLevel(): void
@@ -109,6 +233,8 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         self::assertSame('partial', $result['status']);
         $ctrip = $this->platform($result['days'][0], 'ctrip');
         self::assertSame('collection_failed', $ctrip['status']);
+        self::assertSame('blocked', $ctrip['acceptance_status']);
+        self::assertSame('blocked', $ctrip['acceptance_receipt']['status']);
         self::assertSame('target_date_profile_collection_failed', $ctrip['failure_reason']);
         self::assertFalse($ctrip['steps']['date']);
         self::assertSame('verified', $this->platform($result['days'][0], 'meituan')['status']);
@@ -582,6 +708,138 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         self::assertNotSame(9999, $ctrip['sync_task_id']);
     }
 
+    public function testLatestExactTaskIdFailureCannotBeMaskedByOlderSuccessfulTask(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        $tasks[] = [
+            'id' => 9999,
+            'tenant_id' => 9,
+            'data_source_id' => 25,
+            'system_hotel_id' => 58,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'status' => 'failed',
+            'message' => 'target_date_profile_collection_failed',
+            // A failed retry may finish without a trustworthy later timestamp.
+            'finished_at' => '2026-07-22 07:00:00',
+            'stats_json' => [
+                'sync_diagnostics' => [
+                    'target_date' => '2026-07-22',
+                    'p0_status' => 'blocked',
+                ],
+            ],
+        ];
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+
+        $ctrip = $this->platform($result['days'][0], 'ctrip');
+        self::assertSame(9999, $ctrip['sync_task_id']);
+        self::assertSame('collection_failed', $ctrip['status']);
+        self::assertSame('blocked', $ctrip['acceptance_status']);
+        self::assertFalse($ctrip['steps']['organized_save']);
+    }
+
+    public function testCtripRequiredFieldsCanCloseAcrossRowsFromTheSameExactTask(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        foreach ($rows as $index => $row) {
+            if ($row['platform'] !== 'ctrip') {
+                continue;
+            }
+            $firstRaw = json_decode((string)$row['raw_data'], true, 64, JSON_THROW_ON_ERROR);
+            $secondRow = $row;
+            $secondRow['id'] = 1998;
+            $secondRaw = $firstRaw;
+            $firstRaw['field_facts'] = array_values(array_filter(
+                $firstRaw['field_facts'],
+                static fn(array $fact): bool => in_array($fact['metric_key'], ['list_exposure', 'detail_exposure'], true)
+            ));
+            $secondRaw['field_facts'] = array_values(array_filter(
+                $secondRaw['field_facts'],
+                static fn(array $fact): bool => in_array($fact['metric_key'], ['flow_rate', 'order_filling_num', 'order_submit_num'], true)
+            ));
+            $rows[$index]['raw_data'] = json_encode($firstRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $secondRow['raw_data'] = json_encode($secondRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $rows[] = $secondRow;
+            foreach ($tasks as &$task) {
+                if ($task['platform'] !== 'ctrip') {
+                    continue;
+                }
+                $task['stats_json']['normalized_count'] = 2;
+                $task['stats_json']['saved_count'] = 2;
+                $task['stats_json']['readback_count'] = 2;
+                $task['stats_json']['run_readback']['row_ids'][] = 1998;
+                $task['stats_json']['run_readback']['readback_count'] = 2;
+            }
+            unset($task);
+            break;
+        }
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+
+        $ctrip = $this->platform($result['days'][0], 'ctrip');
+        self::assertSame('verified', $ctrip['status']);
+        self::assertSame('verified', $ctrip['acceptance_status']);
+        self::assertTrue($ctrip['steps']['field_facts']);
+        self::assertTrue($ctrip['steps']['page_status']);
+        self::assertSame([], $ctrip['missing_metric_keys']);
+        self::assertSame(2, $ctrip['acceptance_receipt']['counts']['target_saved']);
+        self::assertSame(2, $ctrip['acceptance_receipt']['counts']['target_readback']);
+    }
+
+    public function testRawSaveMustMatchTheExactTenantScope(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        foreach ($rawRecords as &$record) {
+            if ($record['platform'] === 'ctrip') {
+                $record['tenant_id'] = 99;
+            }
+        }
+        unset($record);
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+
+        $ctrip = $this->platform($result['days'][0], 'ctrip');
+        self::assertFalse($ctrip['steps']['raw_save']);
+        self::assertFalse($ctrip['steps']['p0']);
+        self::assertContains('raw_save_scope_conflict', $ctrip['gap_codes']);
+        self::assertSame('blocked', $ctrip['acceptance_status']);
+    }
+
     /**
      * @param array<int, string> $dates
      * @return array{
@@ -643,7 +901,10 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
                 'status' => 'ready',
                 'last_sync_status' => 'success',
                 'config_json' => json_encode(
-                    ['profile_id' => $profileKeys['ctrip']],
+                    [
+                        'profile_id' => $profileKeys['ctrip'],
+                        'external_hotel_id' => 'platform-hotel-ctrip',
+                    ],
                     JSON_THROW_ON_ERROR
                 ),
             ],
@@ -659,7 +920,10 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
                 'status' => 'ready',
                 'last_sync_status' => 'success',
                 'config_json' => json_encode(
-                    ['store_id' => $profileKeys['meituan']],
+                    [
+                        'store_id' => $profileKeys['meituan'],
+                        'external_hotel_id' => 'platform-hotel-meituan',
+                    ],
                     JSON_THROW_ON_ERROR
                 ),
             ],
@@ -688,6 +952,9 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
                 $rowId++;
                 $rawId++;
                 $trace = $platform . ':' . $date . ':trace';
+                $requiredMetricKeys = $platform === 'ctrip'
+                    ? ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num']
+                    : ['list_exposure', 'detail_exposure', 'flow_rate'];
                 $rows[] = $this->trafficRow($rowId, $taskId, $sourceId, $platform, $date, $trace);
                 $tasks[] = [
                     'id' => $taskId,
@@ -695,18 +962,45 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
                     'data_source_id' => $sourceId,
                     'system_hotel_id' => 58,
                     'platform' => $platform,
+                    'data_type' => 'traffic',
                     'ingestion_method' => 'browser_profile',
                     'status' => 'success',
                     'message' => 'profile_collection_saved_and_read_back',
+                    'started_at' => $date . ' 07:59:50',
                     'finished_at' => $date . ' 08:00:00',
                     'stats_json' => [
+                        'normalized_count' => 1,
+                        'saved_count' => 1,
+                        'readback_count' => 1,
+                        'readback_verified' => true,
                         'sync_diagnostics' => [
                             'target_date' => $date,
                             'p0_status' => 'ready',
                         ],
                         'run_readback' => [
+                            'sync_task_id' => $taskId,
+                            'data_source_id' => $sourceId,
+                            'system_hotel_id' => 58,
+                            'platform' => $platform,
                             'target_date' => $date,
+                            'data_period' => 'historical_daily',
+                            'started_at' => $date . ' 07:59:50',
+                            'row_ids' => [$rowId],
+                            'source_trace_ids' => [$trace],
+                            'observed_platform_hotel_id' => 'platform-hotel-' . $platform,
+                            'verified_metric_keys' => [],
+                            'capture_strategy' => 'browser_response',
+                            'response_evidence_type' => 'structured_json',
+                            'p0_status' => 'ready',
+                            'field_fact_status' => 'ready',
+                            'required_traffic_metric_keys' => $requiredMetricKeys,
+                            'complete_traffic_metric_keys' => $requiredMetricKeys,
+                            'missing_traffic_metric_keys' => [],
+                            'platform_hotel_identifier_status' => 'ready',
+                            'page_field_fact_status' => 'ready',
+                            'readback_count' => 1,
                             'readback_verified' => true,
+                            'failure_reason' => '',
                         ],
                     ],
                 ];

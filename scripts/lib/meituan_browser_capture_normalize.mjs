@@ -1156,6 +1156,14 @@ function decorateSupplementalRow(row, dataType, sourcePath, options = {}) {
   if (['pv', 'uv', 'advance_orders'].includes(semanticForecastType) && !next.forecast_type) {
     next.forecast_type = semanticForecastType;
   }
+  const trafficCaptureEpoch = Number(options.trafficCaptureEpoch || 0);
+  if (trafficCaptureEpoch > 0) {
+    next.traffic_capture_epoch = trafficCaptureEpoch;
+    next.traffic_relative_range = String(options.trafficRelativeRange || '').trim();
+    next.traffic_evidence_source = String(options.trafficEvidenceSource || '').trim();
+    next.traffic_marker = String(options.trafficMarker || '').trim();
+    next.traffic_request_sequence = Number(options.trafficRequestSequence || 0);
+  }
   if (hasOwnDate(next)) {
     if (!next.date_source && !next.dateSource) {
       next.date_source = supplementalRowDateSource(next);

@@ -3098,7 +3098,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             }
             formulas.totalOrdersIncludingCancelled = `四舍五入（总平台订单 ÷ ${totalOrderConversionRatioText()}）`;
             provenance.totalOrdersIncludingCancelled.formula = formulas.totalOrdersIncludingCancelled;
-            provenance.totalOrdersIncludingCancelled.caveat = `默认 0.75 计算后渠道残差为负，本行改用 ${totalOrderConversionRatioText()}；非平台直接返回字段`;
+            provenance.totalOrdersIncludingCancelled.caveat = `默认75%有效率计算后同程及分销渠道为负，本行逐级改用${totalOrderConversionRatioText()}有效率；非平台直接返回字段`;
         }
         const ctripEstimateExcessOrders = !hasAllInputs
             ? null
@@ -3108,7 +3108,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             : `${residualOrders > 0 ? '+' : ''}${residualOrders}`;
         const sourceLabel = !hasAllInputs
             ? `缺少推算输入：${missingInputs.join('、')}；未用 0 或旧数据补位`
-            : `总订单（含取消）按总平台订单÷${totalOrderConversionRatioText()} 四舍五入推算${totalOrderConversionRatio === 0.75 ? '' : '；本行按0.75计算时渠道残差为负，已逐级调整换算系数'}；同程艺龙和携程小程序以及其他分销渠道（含取消）为该总数减去携程APP、去哪儿含取消推算订单的残差，非平台返回明细`;
+            : `总订单（含取消）按总平台订单÷${totalOrderConversionRatioText()} 四舍五入推算${totalOrderConversionRatio === 0.75 ? '' : `；本行默认计算为负，已逐级改用${totalOrderConversionRatioText()}有效率`}；同程艺龙和携程小程序以及其他分销渠道（含取消）为该总数减去携程APP、去哪儿含取消推算订单的残差，非平台返回明细`;
 
         return {
             totalOrdersIncludingCancelled,

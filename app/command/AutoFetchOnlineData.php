@@ -8,8 +8,9 @@ use app\service\PlatformDataSyncService;
 use app\service\CloudOtaCollectionScopeService;
 use app\service\CtripCollectorWorkflowService;
 use app\service\OtaFailureNotificationService;
+use app\service\OtaCanonicalHistoryPromotionCoordinator;
 use app\service\OtaOrderedCollectionPlanner;
-use app\service\P0OtaFieldLoopVerifierRunner;
+use app\service\OtaTrafficAttributionService;
 use app\service\ScheduledAutoFetchPolicy;
 use think\console\Command;
 use think\console\Input;
@@ -355,6 +356,7 @@ class AutoFetchOnlineData extends Command
 
         foreach ($hotels as $hotel) {
             $hotelId = (int)$hotel['id'];
+            $tenantId = (int)($hotel['tenant_id'] ?? 0);
             $hotelName = (string)($hotel['name'] ?? $hotelId);
             $status = Cache::get("online_data_auto_fetch_status_{$hotelId}", []);
             $status = is_array($status) ? $status : [];
@@ -370,7 +372,7 @@ class AutoFetchOnlineData extends Command
             $retryMaxAttempts = $this->normalizeScheduleRetryMaxAttempts($status['retry_max_attempts'] ?? 3);
             $retryDelayMinutes = $this->normalizeScheduleRetryDelayMinutes($status['retry_delay_minutes'] ?? 5);
             $dueRuns = $targetDateOverride !== null
-                ? [$this->explicitHistoricalRun($hotelId, $targetDateOverride, $sourceIds)]
+                ? [$this->explicitHistoricalRun($hotelId, $targetDateOverride)]
                 : ($runMode === 'realtime'
                     ? [$this->explicitRealtimeRun($hotelId, $now)]
                     : $this->buildDueRuns($hotelId, $status, $now));
@@ -392,6 +394,10 @@ class AutoFetchOnlineData extends Command
                     static fn(array $run): bool => (string)($run['period'] ?? '') === 'realtime_snapshot'
                 ));
             }
+            $dueRuns = array_map(
+                fn(array $run): array => $this->bindRunCacheScope($run, $sourceIds),
+                $dueRuns
+            );
             if (empty($dueRuns)) {
                 continue;
             }
@@ -405,9 +411,15 @@ class AutoFetchOnlineData extends Command
                     if (is_array($executedReceipt) && $this->machineReceiptDailyTrustReady(
                         $executedReceipt,
                         (string)$run['data_date'],
-                        $hotelId
+                        $hotelId,
+                        ($run['cache_scope_sources_fixed'] ?? false) === true
+                            ? (array)($run['cache_scope_source_ids'] ?? [])
+                            : null,
+                        ($run['cache_scope_platforms_fixed'] ?? false) === true
+                            ? (array)($run['cache_scope_platforms'] ?? [])
+                            : null
                     )) {
-                        $output->writeln("Hotel {$hotelName} {$run['label']} already executed with dual-OTA P0 proof, skipped.");
+                        $output->writeln("Hotel {$hotelName} {$run['label']} already executed with requested-scope P0 proof, skipped.");
                         $this->writeMachineReceipt($output, $executedReceipt);
                         continue;
                     }
@@ -510,7 +522,8 @@ class AutoFetchOnlineData extends Command
                             (string)($status['ctrip_request_url'] ?? ''),
                             (string)($status['ctrip_node_id'] ?? ''),
                             (new ScheduledAutoFetchPolicy())->normalizePlatforms($run['target_platforms'] ?? []),
-                            $sourceIds
+                            $sourceIds,
+                            $forceRerun
                         );
                     } catch (\Throwable $e) {
                         Log::error('Scheduled OTA collection execution failed', [
@@ -562,18 +575,22 @@ class AutoFetchOnlineData extends Command
                         $result,
                         (string)$run['period']
                     );
-                    if ((string)$run['period'] === 'historical_daily') {
-                        $verifier = (new P0OtaFieldLoopVerifierRunner())->verify(
-                            $hotelId,
-                            (string)$run['data_date'],
-                            ['ctrip', 'meituan'],
-                            (string)($receipt['collection_anchor_hash'] ?? '')
-                        );
+                    $canonicalFinalization = (new OtaCanonicalHistoryPromotionCoordinator())
+                        ->finalize($receipt, $tenantId, $hotelId);
+                    $receipt['canonical_history_finalization'] = $canonicalFinalization;
+                    $receipt['canonical_history_complete'] =
+                        ($canonicalFinalization['canonical_history_complete'] ?? false) === true;
+                    $verifier = is_array($canonicalFinalization['overall_verifier'] ?? null)
+                        ? $canonicalFinalization['overall_verifier']
+                        : [];
+                    if ($verifier !== []) {
                         Cache::set(
                             "online_data_p0_authority_receipt_{$hotelId}_{$run['data_date']}",
                             $verifier,
                             86400 * 2
                         );
+                    }
+                    if ((string)$run['period'] === 'historical_daily') {
                         $receipt = (new ScheduledAutoFetchPolicy())->attachAuthorityVerifier(
                             $receipt,
                             $verifier
@@ -582,8 +599,14 @@ class AutoFetchOnlineData extends Command
                     $trustedReady = $this->machineReceiptDailyTrustReady(
                         $receipt,
                         (string)$run['data_date'],
-                        $hotelId
-                    );
+                        $hotelId,
+                        ($run['cache_scope_sources_fixed'] ?? false) === true
+                            ? (array)($run['cache_scope_source_ids'] ?? [])
+                            : null,
+                        ($run['cache_scope_platforms_fixed'] ?? false) === true
+                            ? (array)($run['cache_scope_platforms'] ?? [])
+                            : null
+                    ) && ($receipt['canonical_history_complete'] ?? false) === true;
                     if (!$trustedReady && $outcome['complete']) {
                         $outcome['complete'] = false;
                         $outcome['status'] = 'partial_success';
@@ -593,7 +616,7 @@ class AutoFetchOnlineData extends Command
                             $outcome['failed_platforms']
                         ));
                         $result['message'] = trim(
-                            (string)($result['message'] ?? '') . '; dual_ota_authority_verifier_incomplete',
+                            (string)($result['message'] ?? '') . '; requested_scope_authority_or_history_incomplete',
                             '; '
                         );
                     }
@@ -633,11 +656,14 @@ class AutoFetchOnlineData extends Command
                     $this->writeMachineReceipt($output, $receipt);
                     if ($trustedReady) {
                         Cache::set($run['executed_key'], $receipt, 86400);
-                        // Explicit source-scoped runs are still the same
-                        // hotel/date daily receipt. Downstream report gates
-                        // intentionally consume the canonical key, so publish
-                        // the already-verified receipt there as well.
-                        if ((string)$run['period'] === 'historical_daily') {
+                        // The unscoped canonical key belongs to the legacy
+                        // dynamic full-range scheduler. A fixed single-source
+                        // or single-platform receipt must never make that
+                        // scheduler skip another platform's real collection.
+                        if ((string)$run['period'] === 'historical_daily'
+                            && ($run['cache_scope_sources_fixed'] ?? true) === false
+                            && ($run['cache_scope_platforms_fixed'] ?? true) === false
+                        ) {
                             Cache::set(
                                 $this->canonicalHistoricalExecutedKey($hotelId, (string)$run['data_date']),
                                 $receipt,
@@ -1233,20 +1259,14 @@ class AutoFetchOnlineData extends Command
     }
 
     /** @return array{slot_id: string, period: string, data_date: string, executed_key: string, retry_key: string, label: string, executed_message: string} */
-    private function explicitHistoricalRun(int $hotelId, string $targetDate, array $sourceIds = []): array
+    private function explicitHistoricalRun(int $hotelId, string $targetDate): array
     {
-        $sourceIds = array_values(array_unique(array_filter(
-            array_map('intval', $sourceIds),
-            static fn(int $id): bool => $id > 0
-        )));
-        sort($sourceIds, SORT_NUMERIC);
-        $scopeSuffix = $sourceIds === [] ? '' : '_sources_' . implode('-', $sourceIds);
         return [
             'slot_id' => "historical:{$targetDate}",
             'period' => 'historical_daily',
             'data_date' => $targetDate,
-            'executed_key' => "online_data_historical_executed_{$hotelId}_{$targetDate}{$scopeSuffix}",
-            'retry_key' => "online_data_historical_retry_{$hotelId}_{$targetDate}{$scopeSuffix}",
+            'executed_key' => "online_data_historical_executed_{$hotelId}_{$targetDate}",
+            'retry_key' => "online_data_historical_retry_{$hotelId}_{$targetDate}",
             'label' => 'historical-explicit',
             'executed_message' => 'Explicit historical data already executed.',
         ];
@@ -1275,6 +1295,30 @@ class AutoFetchOnlineData extends Command
         ];
     }
 
+    /**
+     * @param array<string, mixed> $run
+     * @param array<int, int> $sourceIds
+     * @return array<string, mixed>
+     */
+    private function bindRunCacheScope(array $run, array $sourceIds): array
+    {
+        $sourceIds = array_values(array_unique(array_filter(
+            array_map('intval', $sourceIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($sourceIds, SORT_NUMERIC);
+        $policy = new ScheduledAutoFetchPolicy();
+        $platforms = $policy->normalizePlatforms($run['target_platforms'] ?? []);
+        $suffix = $policy->cacheScopeSuffix($sourceIds, $platforms);
+        $run['executed_key'] = (string)($run['executed_key'] ?? '') . $suffix;
+        $run['retry_key'] = (string)($run['retry_key'] ?? '') . $suffix;
+        $run['cache_scope_source_ids'] = $sourceIds;
+        $run['cache_scope_platforms'] = $platforms;
+        $run['cache_scope_sources_fixed'] = $sourceIds !== [];
+        $run['cache_scope_platforms_fixed'] = $platforms !== [];
+        return $run;
+    }
+
     private function fetchDataForHotel(
         int $hotelId,
         string $dataDate,
@@ -1286,7 +1330,8 @@ class AutoFetchOnlineData extends Command
         string $ctripRequestUrl = '',
         string $ctripNodeId = '',
         array $targetPlatforms = [],
-        array $sourceIds = []
+        array $sourceIds = [],
+        bool $forceRerun = false
     ): array
     {
         $startedAt = microtime(true);
@@ -1297,7 +1342,17 @@ class AutoFetchOnlineData extends Command
         if ($targetPlatforms === []) {
             $targetPlatforms = ['ctrip', 'meituan'];
         }
-        $profileResult = $this->syncBrowserProfileSources($hotelId, $dataDate, $browserHeadless, $dataPeriod, $snapshotTime, $ctripSectionConcurrency, $targetPlatforms, $sourceIds);
+        $profileResult = $this->syncBrowserProfileSources(
+            $hotelId,
+            $dataDate,
+            $browserHeadless,
+            $dataPeriod,
+            $snapshotTime,
+            $ctripSectionConcurrency,
+            $targetPlatforms,
+            $sourceIds,
+            $forceRerun
+        );
         if ($profileResult['attempted']) {
             return [
                 'success' => (bool)$profileResult['success'],
@@ -1330,7 +1385,7 @@ class AutoFetchOnlineData extends Command
         ];
     }
 
-    private function syncBrowserProfileSources(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3, array $targetPlatforms = [], array $sourceIds = []): array
+    private function syncBrowserProfileSources(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3, array $targetPlatforms = [], array $sourceIds = [], bool $forceRerun = false): array
     {
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($dataPeriod) ?: 'historical_daily';
         $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
@@ -1480,11 +1535,13 @@ class AutoFetchOnlineData extends Command
             $orderedExecution = $this->orderedBrowserProfileExecution(
                 $source,
                 $dataDate,
-                $dataPeriod
+                $dataPeriod,
+                $forceRerun
             );
             $orderedPlan = $orderedExecution['plan'];
             $reusedRunReadback = $orderedExecution['reused_run_readback'];
-            if ($dataPeriod === 'historical_daily'
+            if (!$forceRerun
+                && $dataPeriod === 'historical_daily'
                 && ($orderedPlan['sections'] ?? []) === []
                 && $reusedRunReadback !== []
             ) {
@@ -1508,6 +1565,7 @@ class AutoFetchOnlineData extends Command
             try {
                 $syncOptions = [
                     'trigger_type' => 'daily_profile_reuse',
+                    'force_rerun' => $forceRerun,
                     'data_date' => $dataDate,
                     'data_period' => $dataPeriod,
                     'snapshot_time' => $snapshotTime,
@@ -1602,8 +1660,9 @@ class AutoFetchOnlineData extends Command
                 $dataPeriod,
                 $runReadback
             );
-            $coreReadbackVerified = $this->runReadbackCoreVerified($runReadback)
-                || $compositeReadbackVerified;
+            $coreReadbackVerified = $dataPeriod === 'historical_daily'
+                ? $compositeReadbackVerified
+                : $this->runReadbackCoreVerified($runReadback);
             if ($coreReadbackVerified) {
                 $evidenceByPlatform[$platform] = ($evidenceByPlatform[$platform] ?? 0) + $sourceSavedCount;
             }
@@ -1695,17 +1754,21 @@ class AutoFetchOnlineData extends Command
     private function orderedBrowserProfileExecution(
         array $source,
         string $dataDate,
-        string $dataPeriod
+        string $dataPeriod,
+        bool $forceRerun = false
     ): array {
         $platform = strtolower(trim((string)($source['platform'] ?? '')));
         if ($dataPeriod !== 'historical_daily') {
+            $plan = OtaOrderedCollectionPlanner::requestPlan(
+                $platform,
+                $dataDate,
+                [],
+                'realtime_collection_outside_yesterday_contract'
+            );
+            $plan['force_rerun'] = $forceRerun;
+            $plan['reuse_existing_run_readback'] = false;
             return [
-                'plan' => OtaOrderedCollectionPlanner::requestPlan(
-                    $platform,
-                    $dataDate,
-                    [],
-                    'realtime_collection_outside_yesterday_contract'
-                ),
+                'plan' => $plan,
                 'reused_run_readback' => [],
             ];
         }
@@ -1722,12 +1785,30 @@ class AutoFetchOnlineData extends Command
             $platform,
             $dataDate
         );
+        $eligibleRows = OtaOrderedCollectionPlanner::storedCoreRows($platform, $rows);
+        if ($forceRerun
+            && $platform === 'ctrip'
+            && $eligibleRows !== []
+            && OtaOrderedCollectionPlanner::missingFieldKeys($platform, $eligibleRows) === []
+        ) {
+            return [
+                'plan' => $this->historicalCtripAuthorityRecollectionPlan(
+                    $dataDate,
+                    $rows,
+                    true,
+                    'explicit_force_rerun_authority_recollection'
+                ),
+                'reused_run_readback' => [],
+            ];
+        }
         $plan = OtaOrderedCollectionPlanner::requestPlanFromStoredRows(
             $platform,
             $dataDate,
             $rows,
             $sourceRecoveryRequired
         );
+        $plan['force_rerun'] = $forceRerun;
+        $plan['reuse_existing_run_readback'] = !$forceRerun;
         if (($plan['sections'] ?? []) !== []) {
             $plannedSections = array_values(array_filter(
                 array_merge(...array_map(
@@ -1750,14 +1831,63 @@ class AutoFetchOnlineData extends Command
             return ['plan' => $plan, 'reused_run_readback' => []];
         }
 
-        $readback = $this->existingVerifiedProfileRunReadback(
-            (int)($source['system_hotel_id'] ?? 0),
-            (int)($source['id'] ?? 0),
+        $readback = $forceRerun
+            ? []
+            : $this->existingVerifiedProfileRunReadback(
+                (int)($source['system_hotel_id'] ?? 0),
+                (int)($source['id'] ?? 0),
+                $platform,
+                $dataDate,
+                $rows
+            );
+        return $this->resolveVerifiedCompleteHistoricalExecution(
             $platform,
-            $dataDate
+            $dataDate,
+            $rows,
+            $plan,
+            $readback,
+            $forceRerun
         );
-        if ($readback !== []) {
-            return ['plan' => $plan, 'reused_run_readback' => $readback];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<string, mixed> $verifiedCompletePlan
+     * @param array<string, mixed> $existingReadback
+     * @return array{plan: array<string, mixed>, reused_run_readback: array<string, mixed>}
+     */
+    private function resolveVerifiedCompleteHistoricalExecution(
+        string $platform,
+        string $dataDate,
+        array $rows,
+        array $verifiedCompletePlan,
+        array $existingReadback,
+        bool $forceRerun
+    ): array {
+        if ($platform === 'ctrip' && $forceRerun) {
+            return [
+                'plan' => $this->historicalCtripAuthorityRecollectionPlan(
+                    $dataDate,
+                    $rows,
+                    true,
+                    'explicit_force_rerun_authority_recollection'
+                ),
+                'reused_run_readback' => [],
+            ];
+        }
+        if (!$forceRerun && $existingReadback !== []) {
+            return ['plan' => $verifiedCompletePlan, 'reused_run_readback' => $existingReadback];
+        }
+        if ($platform === 'ctrip') {
+            return [
+                'plan' => $this->historicalCtripAuthorityRecollectionPlan(
+                    $dataDate,
+                    $rows,
+                    false,
+                    'verified_rows_without_current_bound_run_readback'
+                ),
+                'reused_run_readback' => [],
+            ];
         }
 
         $plan = OtaOrderedCollectionPlanner::requestPlan(
@@ -1782,7 +1912,54 @@ class AutoFetchOnlineData extends Command
         $plan['stage'] = 'conflict_recovery';
         $plan['source_recovery_required'] = true;
         $plan['eligible_row_count'] = count(OtaOrderedCollectionPlanner::storedCoreRows($platform, $rows));
+        $plan['force_rerun'] = $forceRerun;
+        $plan['reuse_existing_run_readback'] = false;
         return ['plan' => $plan, 'reused_run_readback' => []];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private function historicalCtripAuthorityRecollectionPlan(
+        string $dataDate,
+        array $rows,
+        bool $forceRerun,
+        string $reason
+    ): array {
+        $trafficFieldKeys = [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
+        $eligibleRows = OtaOrderedCollectionPlanner::storedCoreRows('ctrip', $rows);
+        $plan = OtaOrderedCollectionPlanner::requestPlan(
+            'ctrip',
+            $dataDate,
+            $trafficFieldKeys,
+            $reason
+        );
+        $plan['mode'] = 'bounded_authority_recollection';
+        $plan['scope'] = 'ctrip_target_date_traffic_authority';
+        $plan['stage'] = 'authority_recollection';
+        $plan['execution_mode'] = 'single_section_bounded';
+        $plan['planned_sections'] = ['traffic_report'];
+        $plan['pending_sections'] = [];
+        $plan['sections'] = ['traffic_report'];
+        $plan['captured_field_keys'] = OtaOrderedCollectionPlanner::capturedFieldKeys(
+            'ctrip',
+            $eligibleRows
+        );
+        $plan['missing_field_keys'] = [];
+        $plan['recollection_field_keys'] = $trafficFieldKeys;
+        $plan['source_recovery_required'] = false;
+        $plan['eligible_row_count'] = count($eligibleRows);
+        $plan['force_rerun'] = $forceRerun;
+        $plan['reuse_existing_run_readback'] = false;
+        $plan['date_policy'] = 'exact_target_date_no_replay_or_rewrite';
+        return $plan;
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -1805,7 +1982,8 @@ class AutoFetchOnlineData extends Command
         int $hotelId,
         int $sourceId,
         string $platform,
-        string $dataDate
+        string $dataDate,
+        array $currentRows = []
     ): array {
         if ($hotelId <= 0 || $sourceId <= 0) {
             return [];
@@ -1830,16 +2008,197 @@ class AutoFetchOnlineData extends Command
                 ? $stats['run_readback']
                 : [];
             if ($this->runReadbackCoreVerified($readback)
+                && (int)($readback['sync_task_id'] ?? 0) === (int)($task['id'] ?? 0)
                 && (int)($readback['system_hotel_id'] ?? 0) === $hotelId
                 && (int)($readback['data_source_id'] ?? 0) === $sourceId
                 && strtolower(trim((string)($readback['platform'] ?? ''))) === $platform
                 && substr(trim((string)($readback['target_date'] ?? '')), 0, 10) === $dataDate
                 && strtolower(trim((string)($readback['data_period'] ?? ''))) === 'historical_daily'
+                && $this->profileRunReadbackRowsStillCurrent(
+                    $readback,
+                    $currentRows,
+                    $hotelId,
+                    $sourceId,
+                    $platform,
+                    $dataDate
+                )
+                && $this->exactTaskP0RowsComplete(
+                    $readback,
+                    $currentRows,
+                    $hotelId,
+                    $sourceId,
+                    $platform,
+                    $dataDate
+                )
             ) {
                 return $readback;
             }
         }
         return [];
+    }
+
+    /**
+     * A prior task receipt is reusable only while every referenced row still
+     * belongs to that exact task/scope. Later upserts can retain the row id but
+     * replace sync_task_id; such a receipt is stale and must trigger a bounded
+     * authority recollection instead of silently inheriting the newer facts.
+     *
+     * @param array<string, mixed> $readback
+     * @param array<int, array<string, mixed>> $currentRows
+     */
+    private function profileRunReadbackRowsStillCurrent(
+        array $readback,
+        array $currentRows,
+        int $hotelId,
+        int $sourceId,
+        string $platform,
+        string $dataDate
+    ): bool {
+        $taskId = (int)($readback['sync_task_id'] ?? 0);
+        $rowIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            is_array($readback['row_ids'] ?? null) ? $readback['row_ids'] : []
+        ), static fn(int $rowId): bool => $rowId > 0)));
+        if ($taskId <= 0 || $rowIds === []) {
+            return false;
+        }
+
+        $rowsById = [];
+        foreach ($currentRows as $row) {
+            if (is_array($row) && (int)($row['id'] ?? 0) > 0) {
+                $rowsById[(int)$row['id']] = $row;
+            }
+        }
+
+        $authoritativeMarkerTrafficPresent = false;
+        foreach ($rowIds as $rowId) {
+            $row = $rowsById[$rowId] ?? null;
+            if (!is_array($row)) {
+                return false;
+            }
+            $rowPlatform = strtolower(trim((string)($row['platform'] ?? '')));
+            if ($rowPlatform === '') {
+                $rowPlatform = strtolower(trim((string)($row['source'] ?? '')));
+            }
+            if ((int)($row['sync_task_id'] ?? 0) !== $taskId
+                || (int)($row['data_source_id'] ?? 0) !== $sourceId
+                || (int)($row['system_hotel_id'] ?? 0) !== $hotelId
+                || substr(trim((string)($row['data_date'] ?? '')), 0, 10) !== $dataDate
+                || strtolower(trim((string)($row['data_period'] ?? ''))) !== 'historical_daily'
+                || $rowPlatform !== $platform
+                || (int)($row['readback_verified'] ?? 0) !== 1
+            ) {
+                return false;
+            }
+            if ($platform === 'ctrip' && $this->rowHasAuthoritativeObservedTrafficMarker($row)) {
+                $authoritativeMarkerTrafficPresent = true;
+            }
+        }
+
+        return $platform !== 'ctrip' || $authoritativeMarkerTrafficPresent;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function rowHasAuthoritativeObservedTrafficMarker(array $row): bool
+    {
+        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        if (!in_array($dataType, ['traffic', 'flow', 'conversion'], true)
+            || !OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic($row, 'ctrip')
+        ) {
+            return false;
+        }
+
+        $rawValue = $row['raw_data'] ?? null;
+        if (is_string($rawValue) && trim($rawValue) !== '') {
+            $decoded = json_decode($rawValue, true);
+            $raw = is_array($decoded) ? $decoded : [];
+        } else {
+            $raw = is_array($rawValue) ? $rawValue : [];
+        }
+        $sourceRow = is_array($raw['row'] ?? null) ? $raw['row'] : [];
+        $marker = $sourceRow['_observed_traffic_metric_keys'] ?? null;
+        if (!is_array($marker) || !array_is_list($marker)) {
+            return false;
+        }
+        $observed = [];
+        foreach ($marker as $value) {
+            if (!is_string($value)
+                || trim($value) !== $value
+                || preg_match('/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/D', $value) !== 1
+            ) {
+                return false;
+            }
+            $observed[$value] = $value;
+        }
+        return array_diff([
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ], $observed) === [];
+    }
+
+    /**
+     * Historical success and receipt reuse must be supported by P0 facts that
+     * still belong to this exact task. Same-date rows from an older task (or a
+     * realtime task) cannot complete the current task's field set.
+     *
+     * @param array<string, mixed> $readback
+     * @param array<int, array<string, mixed>> $currentRows
+     */
+    private function exactTaskP0RowsComplete(
+        array $readback,
+        array $currentRows,
+        int $hotelId,
+        int $sourceId,
+        string $platform,
+        string $dataDate
+    ): bool {
+        $taskId = (int)($readback['sync_task_id'] ?? 0);
+        $requiredMetricKeys = match ($platform) {
+            'ctrip' => [
+                'list_exposure',
+                'detail_exposure',
+                'flow_rate',
+                'order_filling_num',
+                'order_submit_num',
+            ],
+            'meituan' => [
+                'list_exposure',
+                'detail_exposure',
+                'flow_rate',
+            ],
+            default => [],
+        };
+        if ($taskId <= 0 || $requiredMetricKeys === []) {
+            return false;
+        }
+
+        $exactRows = array_values(array_filter(
+            $currentRows,
+            static function ($row) use ($taskId, $hotelId, $sourceId, $platform, $dataDate): bool {
+                if (!is_array($row)) {
+                    return false;
+                }
+                $rowPlatform = strtolower(trim((string)($row['platform'] ?? '')));
+                if ($rowPlatform === '') {
+                    $rowPlatform = strtolower(trim((string)($row['source'] ?? '')));
+                }
+                return (int)($row['sync_task_id'] ?? 0) === $taskId
+                    && (int)($row['data_source_id'] ?? 0) === $sourceId
+                    && (int)($row['system_hotel_id'] ?? 0) === $hotelId
+                    && substr(trim((string)($row['data_date'] ?? '')), 0, 10) === $dataDate
+                    && strtolower(trim((string)($row['data_period'] ?? ''))) === 'historical_daily'
+                    && $rowPlatform === $platform
+                    && (int)($row['readback_verified'] ?? 0) === 1;
+            }
+        ));
+        $capturedMetricKeys = OtaOrderedCollectionPlanner::capturedFieldKeys(
+            $platform,
+            OtaOrderedCollectionPlanner::storedCoreRows($platform, $exactRows)
+        );
+        return array_diff($requiredMetricKeys, $capturedMetricKeys) === [];
     }
 
     /**
@@ -1882,10 +2241,21 @@ class AutoFetchOnlineData extends Command
             return false;
         }
         $rows = $this->storedProfileRowsForPlan($hotelId, $sourceId, $platform, $dataDate);
-        return OtaOrderedCollectionPlanner::missingFieldKeys(
+        return $this->profileRunReadbackRowsStillCurrent(
+            $readback,
+            $rows,
+            $hotelId,
+            $sourceId,
             $platform,
-            OtaOrderedCollectionPlanner::storedCoreRows($platform, $rows)
-        ) === [];
+            $dataDate
+        ) && $this->exactTaskP0RowsComplete(
+            $readback,
+            $rows,
+            $hotelId,
+            $sourceId,
+            $platform,
+            $dataDate
+        );
     }
 
     /**
@@ -1917,13 +2287,17 @@ class AutoFetchOnlineData extends Command
     private function machineReceiptDailyTrustReady(
         array $receipt,
         ?string $expectedDate = null,
-        ?int $expectedHotelId = null
+        ?int $expectedHotelId = null,
+        ?array $expectedSourceIds = null,
+        ?array $expectedPlatforms = null
     ): bool
     {
         return (new ScheduledAutoFetchPolicy())->dailyTrustReceiptReady(
             $receipt,
             $expectedDate,
-            $expectedHotelId
+            $expectedHotelId,
+            $expectedSourceIds,
+            $expectedPlatforms
         );
     }
 
@@ -1977,11 +2351,24 @@ class AutoFetchOnlineData extends Command
 
     private function runReadbackCoreVerified(array $receipt): bool
     {
+        $normalizeMetricKeys = static function (mixed $values): array {
+            if (!is_array($values)) {
+                return [];
+            }
+            $normalized = [];
+            foreach ($values as $value) {
+                $key = strtolower(trim((string)$value));
+                if ($key !== '') {
+                    $normalized[$key] = $key;
+                }
+            }
+            return array_values($normalized);
+        };
         $metricKeys = array_values(array_unique(array_map(
             static fn($value): string => strtolower(trim((string)$value)),
             is_array($receipt['verified_metric_keys'] ?? null) ? $receipt['verified_metric_keys'] : []
         )));
-        return ($receipt['readback_verified'] ?? false) === true
+        $anchorVerified = ($receipt['readback_verified'] ?? false) === true
             && strtolower(trim((string)($receipt['p0_status'] ?? ''))) === 'ready'
             && (int)($receipt['sync_task_id'] ?? 0) > 0
             && (int)($receipt['data_source_id'] ?? 0) > 0
@@ -1993,8 +2380,28 @@ class AutoFetchOnlineData extends Command
             && array_values(array_filter(
                 is_array($receipt['source_trace_ids'] ?? null) ? $receipt['source_trace_ids'] : [],
                 static fn($value): bool => trim((string)$value) !== ''
-            )) !== []
-            && count(array_intersect(['revenue', 'room_nights', 'adr'], $metricKeys)) === 3;
+            )) !== [];
+        if (!$anchorVerified) {
+            return false;
+        }
+
+        if (strtolower(trim((string)($receipt['data_period'] ?? ''))) === 'realtime_snapshot') {
+            $requiredTrafficMetricKeys = $normalizeMetricKeys(
+                $receipt['required_traffic_metric_keys'] ?? []
+            );
+            $completeTrafficMetricKeys = $normalizeMetricKeys(
+                $receipt['complete_traffic_metric_keys'] ?? []
+            );
+            $missingTrafficMetricKeys = $normalizeMetricKeys(
+                $receipt['missing_traffic_metric_keys'] ?? []
+            );
+            return strtolower(trim((string)($receipt['field_fact_status'] ?? ''))) === 'ready'
+                && $requiredTrafficMetricKeys !== []
+                && $missingTrafficMetricKeys === []
+                && array_diff($requiredTrafficMetricKeys, $completeTrafficMetricKeys) === [];
+        }
+
+        return count(array_intersect(['revenue', 'room_nights', 'adr'], $metricKeys)) === 3;
     }
 
     /**

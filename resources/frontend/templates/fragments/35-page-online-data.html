@@ -43,29 +43,30 @@
                                             <div>
                                                 <div class="text-[11px] font-semibold tracking-[0.18em] text-slate-400">双 OTA 连续可信闭环</div>
                                                 <h4 class="mt-1 text-lg font-bold text-slate-950">来源 → 门店 → 日期 → 字段事实 → 保存 → 回读 → 页面 → P0</h4>
-                                                <p class="mt-1 text-xs leading-5 text-slate-500">{{ dualOtaContinuousSummaryText }}</p>
+                                                <p data-testid="dual-ota-current-target-date" class="mt-1 text-xs leading-5 text-slate-500">当前单日验收：{{ dualOtaContinuousTrust.end_date || '未返回' }}；状态只取该目标日回执。</p>
                                             </div>
                                             <div class="flex flex-col items-start gap-1 sm:items-end">
-                                                <span :class="['rounded-full border px-3 py-1 font-mono text-xs font-semibold', dualOtaContinuousStatusClass(dualOtaContinuousTrust.status)]">{{ dualOtaContinuousStatusText(dualOtaContinuousTrust.status) }}</span>
-                                                <span class="text-[11px] text-slate-500">{{ dualOtaContinuousTrust.start_date || '未返回' }} ~ {{ dualOtaContinuousTrust.end_date || '未返回' }}</span>
+                                                <span :class="['rounded-full border px-3 py-1 font-mono text-xs font-semibold', dualOtaContinuousStatusClass(dualOtaCurrentAcceptanceStatus)]">{{ dualOtaContinuousStatusText(dualOtaCurrentAcceptanceStatus) }}</span>
+                                                <span class="text-[11px] text-slate-500">{{ dualOtaContinuousTrust.end_date || '未返回' }}</span>
                                             </div>
                                         </div>
 
-                                        <div v-if="dualOtaContinuousDays.length" class="mt-4 space-y-3">
-                                            <article v-for="day in dualOtaContinuousDays.slice(0, 7)" :key="day.date" class="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                                        <div v-if="dualOtaCurrentTargetDays.length" class="mt-4 space-y-3">
+                                            <article v-for="day in dualOtaCurrentTargetDays" :key="day.date" class="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                                                 <div class="flex items-center justify-between gap-3">
                                                     <span class="font-mono text-xs font-semibold text-slate-700">{{ day.date }}</span>
-                                                    <span :class="['rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold', dualOtaContinuousStatusClass(day.status)]">{{ dualOtaContinuousStatusText(day.status) }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold', dualOtaContinuousStatusClass(day.acceptance_status)]">{{ dualOtaContinuousStatusText(day.acceptance_status) }}</span>
                                                 </div>
                                                 <div class="mt-3 grid gap-3 lg:grid-cols-2">
-                                                    <div v-for="platform in day.platforms" :key="day.date + '-' + platform.platform" class="rounded-lg border border-slate-200 bg-white p-3">
+                                                    <div v-for="platform in day.platforms" :key="day.date + '-' + platform.platform" :data-testid="'dual-ota-acceptance-card-' + platform.platform" class="rounded-lg border border-slate-200 bg-white p-3">
                                                         <div class="flex items-start justify-between gap-3">
                                                             <div>
                                                                 <div class="text-sm font-bold text-slate-900">{{ dualOtaContinuousPlatformLabel(platform.platform) }}</div>
                                                                 <div class="mt-0.5 text-[11px] text-slate-500">来源：{{ platform.source_method || '未验证' }} · P0：{{ platform.p0_status || 'blocked' }}</div>
                                                             </div>
-                                                            <span :class="['rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold', dualOtaContinuousStatusClass(platform.status)]">{{ dualOtaContinuousStatusText(platform.status) }}</span>
+                                                            <span :data-testid="'dual-ota-acceptance-status-' + platform.platform" :class="['rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold', dualOtaContinuousStatusClass(dualOtaContinuousReceiptStatus(platform))]">{{ dualOtaContinuousReceiptStatus(platform) }}</span>
                                                         </div>
+                                                        <dual-ota-acceptance-receipt :receipt="dualOtaContinuousReceipt(platform)" :hotel-name="dualOtaContinuousTrust.hotel_name || ''" :platform="platform.platform"></dual-ota-acceptance-receipt>
                                                         <div class="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
                                                             <div v-for="step in dualOtaContinuousStepRows(platform)" :key="step.key" :class="['rounded-md border px-2 py-1.5 text-[10px]', step.ready ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-red-100 bg-red-50 text-red-700']">
                                                                 <i :class="step.ready ? 'fas fa-check-circle mr-1' : 'fas fa-times-circle mr-1'"></i>{{ step.label }}
@@ -78,7 +79,10 @@
                                                     </div>
                                                 </div>
                                             </article>
-                                            <p v-if="dualOtaContinuousDays.length > 7" class="text-[11px] text-slate-400">页面展示最近 7 天；顶部连续天数按完整查询周期计算。</p>
+                                            <div data-testid="dual-ota-continuous-history" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] leading-5 text-slate-500">
+                                                <div class="font-semibold text-slate-700">连续多日定时验证（独立统计）</div>
+                                                <div>{{ dualOtaContinuousSummaryText }} · {{ dualOtaContinuousTrust.start_date || '未返回' }} ~ {{ dualOtaContinuousTrust.end_date || '未返回' }}</div>
+                                            </div>
                                         </div>
                                         <div v-else class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                                             {{ dualOtaContinuousTrust.reason || '当前门店尚无可验证的双 OTA 连续证据，状态保持 partial。' }}
@@ -324,7 +328,7 @@
                                                          <div class="mt-3 text-xs leading-5 text-slate-600">证据/缺口：{{ item.evidence }}</div>
                                                          <div class="mt-2 text-[11px] leading-5 text-slate-500">{{ item.boundary }}</div>
                                                          <button v-if="item.ready &amp;&amp; coreOperationsCanExecute" data-testid="core-loop-ai-to-operation" type="button" @click="createCoreOperationsDiagnosisIntent(item)" :disabled="coreOperationsDiagnosisIntentLoading === item.key" class="mt-3 inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-                                                             <i :class="coreOperationsDiagnosisIntentLoading === item.key ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-arrow-right mr-2'"></i>{{ coreOperationsDiagnosisIntentLoading === item.key ? '转入中' : '转运营任务' }}
+                                                             <i :class="coreOperationsDiagnosisIntentLoading === item.key ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-arrow-right mr-2'"></i>{{ coreOperationsDiagnosisIntentLoading === item.key ? '送审中' : '送人工审批' }}
                                                          </button>
                                                          <div v-else-if="item.ready" class="mt-3 text-[11px] text-amber-700">当前账号只有运营查看权限，不能转任务。</div>
                                                      </article>
@@ -336,8 +340,8 @@
                                                 <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                                     <div>
                                                         <div class="text-[11px] font-semibold tracking-[0.18em] text-slate-400">05 · 运营任务</div>
-                                                         <h5 class="mt-1 text-base font-bold text-slate-900">运营任务与补充数据</h5>
-                                                         <p class="mt-1 text-xs leading-5 text-slate-500">把建议转为任务；补充清单只用于补数据，不会自动改价、改库存或写入平台。</p>
+                                                         <h5 class="mt-1 text-base font-bold text-slate-900">待审批意图、运营任务与补充数据</h5>
+                                                         <p class="mt-1 text-xs leading-5 text-slate-500">建议先进入人工审批；只有批准并冻结成功标准后才生成运营任务。补充清单不会自动改价、改库存或写入平台。</p>
                                                     </div>
                                                     <template v-if="!dailyWorkbenchPatrolLatest &amp;&amp; coreOperationsCanExecute">
                                                         <button data-testid="core-loop-generate-action-list" @click="runDailyWorkbenchPatrol" :disabled="dailyWorkbenchPatrolRunning || dailyWorkbenchLoading" class="bg-slate-900 text-white">{{ dailyWorkbenchPatrolRunning ? '生成中' : dailyWorkbenchPatrolConfirming ? '确认生成' : '生成清单' }}</button>
@@ -411,9 +415,11 @@
                                                                         <button v-if="coreOperationsCanExecute &amp;&amp; operationCanApproveExecution(item)" :disabled="operationLoading.actions" @click="approveOperationExecutionIntent(item, true)" class="rounded bg-emerald-600 px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-50">{{ operationApprovalText(item) }}</button>
                                                                         <button v-if="coreOperationsCanExecute &amp;&amp; operationCanApproveExecution(item)" :disabled="operationLoading.actions" @click="rejectOrCancelOperationApproval(item)" class="rounded border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50">{{ operationRejectText(item) }}</button>
                                                                         <button v-if="coreOperationsCanExecute &amp;&amp; operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">执行留证</button>
-                                                                        <button v-if="coreOperationsCanExecute &amp;&amp; operationCanReviewExecution(item)" @click="reviewOperationExecutionTask(item)" class="rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">次日复盘</button>
+                                                                     <button v-if="coreOperationsCanExecute &amp;&amp; operationCanReconcileExecution(item)" @click="reconcileOperationExecutionReview(item)" class="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100">读取次日同口径事实</button>
+                                                                     <button v-if="coreOperationsCanExecute &amp;&amp; operationCanReviewExecution(item) &amp;&amp; !operationCanReconcileExecution(item)" @click="reviewOperationExecutionTask(item)" class="rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">记录效果复盘</button>
+                                                                     <button v-if="canSaveMemo(item)" @click="saveMemo(item)" :disabled="operatingMemorySavingTaskId === Number(item.execution?.task_id || 0)" class="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60">{{ operatingMemorySavingTaskId === Number(item.execution?.task_id || 0) ? '沉淀中' : '沉淀运营记忆' }}</button>
                                                                         <span v-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_on || '次日' }} 可复盘</span>
-                                                                        <span v-else-if="!operationExecutionActionAvailable(item)" class="text-xs text-slate-400">等待下一阶段</span>
+                                                                         <span v-else-if="!operationExecutionActionAvailable(item) &amp;&amp; !canSaveMemo(item)" class="text-xs text-slate-400">等待下一阶段</span>
                                                                     </div>
                                                                 </td>
                                                             </tr>
@@ -421,8 +427,23 @@
                                                     </table>
                                                      <div v-if="!coreOperationsExecutionItems.length &amp;&amp; !operationLoading.actions" class="p-6 text-center text-xs text-slate-500">尚无该门店的执行任务；可从智能建议直接转任务，或先生成补充数据清单。</div>
                                                     <div v-if="operationLoading.actions" class="p-6 text-center text-xs text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i>正在读取执行闭环...</div>
+                                                 </div>
+                                                 <div data-testid="core-loop-sop-progress" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                                     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                         <div>
+                                                             <div class="text-xs font-semibold text-slate-900">SOP 候选验证门槛</div>
+                                                             <div class="mt-1 text-[11px] text-slate-500">只统计同平台、同事实范围且来源与正向效果均已核验的执行复盘记忆。</div>
+                                                         </div>
+                                                         <span :class="coreOperationsSopProgress.ready ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'" class="rounded-full border px-3 py-1 text-[11px] font-semibold">{{ coreOperationsSopProgress.ready ? '可进入候选验证' : '继续积累真实复盘' }}</span>
+                                                     </div>
+                                                     <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                                         <div class="rounded-lg border border-white bg-white px-3 py-2"><div class="text-[10px] text-slate-500">合格复盘记忆</div><div class="mt-1 text-lg font-bold text-slate-900">{{ coreOperationsSopProgress.memoryCount }}/3</div></div>
+                                                         <div class="rounded-lg border border-white bg-white px-3 py-2"><div class="text-[10px] text-slate-500">独立运营任务</div><div class="mt-1 text-lg font-bold text-slate-900">{{ coreOperationsSopProgress.taskCount }}/3</div></div>
+                                                         <div class="rounded-lg border border-white bg-white px-3 py-2"><div class="text-[10px] text-slate-500">经营日期</div><div class="mt-1 text-lg font-bold text-slate-900">{{ coreOperationsSopProgress.businessDateCount }}/2</div></div>
+                                                    </div>
+                                                    <div class="mt-2 text-[11px] text-slate-500">当前范围：{{ coreOperationsSopProgress.scopeText }}<span v-if="coreOperationsSopProgress.excludedCount"> · {{ coreOperationsSopProgress.excludedCount }} 条记录未纳入当前同范围门槛</span></div>
                                                 </div>
-                                            </section>
+                                             </section>
                                         </div>
                                     </section>
                                     <template v-if="coreOperationsHasAccessibleHotel">
@@ -3387,22 +3408,8 @@ Authorization: Bearer xxx"></textarea>
                                         <span class="text-xs font-medium text-slate-600">复盘说明</span>
                                         <textarea v-model.trim="operationReviewForm.summary" rows="5" placeholder="说明次日证据、同口径变化和仍待确认的原因" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
                                     </label>
-                                    <div v-if="['success', 'near_success'].includes(operationReviewForm.status)" class="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                                        <label class="flex items-start gap-3 text-sm text-amber-900">
-                                            <input v-model="operationReviewForm.operator_attested" type="checkbox" class="mt-0.5 rounded border-amber-300 text-amber-600">
-                                            <span>我已在对应 OTA 平台人工复查，并确认回执与本次复盘结论一致。</span>
-                                        </label>
-                                        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                                            <label class="block">
-                                                <span class="text-xs font-medium text-amber-900">截图 / 回执 / 来源记录 *</span>
-                                                <input v-model.trim="operationReviewForm.source_ref" placeholder="例如 screenshot#20260720-01" class="mt-1 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm">
-                                            </label>
-                                            <label class="block">
-                                                <span class="text-xs font-medium text-amber-900">人工复查声明时间 *</span>
-                                                <input v-model="operationReviewForm.operator_attested_at" placeholder="YYYY-MM-DD HH:mm:ss" class="mt-1 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm">
-                                            </label>
-                                        </div>
-                                        <p class="text-xs leading-5 text-amber-800">人工声明不等于 OTA 来源已被服务端验证；本页不会自动向 OTA 写入价格、库存或活动。</p>
+                                    <div v-if="['success', 'near_success', 'failed'].includes(operationReviewForm.status)" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800">
+                                        复盘结论只采用已读取的同酒店、同平台、同指标来源事实。人工在此确认结论；系统会把效果复盘独立保存，不会把人工填值写成来源事实，也不会自动修改 OTA。
                                     </div>
                                 </div>
                                 <div class="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">

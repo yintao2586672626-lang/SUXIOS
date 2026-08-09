@@ -295,7 +295,7 @@
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -445,7 +445,7 @@
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -555,7 +555,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -655,7 +655,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -762,7 +762,7 @@
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -1100,7 +1100,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -1169,7 +1169,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -1232,7 +1232,7 @@
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -1295,7 +1295,7 @@
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -1668,7 +1668,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -1767,7 +1767,7 @@
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |
@@ -2585,7 +2585,7 @@
 | competitor_average | 竞争圈平均值 | competitorsAverageOrderQuantity, competitorsAverageOccupiedRooms, competitorAvgNumber, competitorTensityScore | - |
 | page_views | 列表页曝光量旧映射 | listExposure, pvDataList, pageViewDataList, PV, pv, pageViews | legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure |
 | visitor_count | 访客量 | lastVisitorTotal, visitorTotal, UV, uv, visitorCount, pageViews | - |
-| list_exposure | 列表页曝光量 | listExposure, exposure, exposureCount, impressions | 取 queryFlowTransforNewV1 本店行 listExposure |
+| list_exposure | 列表页曝光人数 | listExposure | 仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代 |
 | competitor_list_exposure | 竞争圈平均列表页曝光量 | listExposure, competitorListExposure, competitorExposure, avgListExposure | 取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure |
 | detail_visitor | 详情页访客量 | detailExposure, detailUv, detailVisitors | 取 queryFlowTransforNewV1 本店行 detailExposure |
 | competitor_detail_visitor | 竞争圈平均详情页访客量 | detailExposure, competitorDetailUv, competitorDetailVisitors, avgDetailUv | 取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure |

@@ -1,0 +1,159 @@
+{
+  "schema_version": "suxi-gauntlet-review-packet.v1",
+  "created_at": "2026-08-09T06:15:00+08:00",
+  "evaluation_level": "integration",
+  "manifest": {
+    "path": "evals/ctrip_order_import_gauntlet_v2/run_manifest.json",
+    "sha256": "D8E1050B2C4BFC29453D88BBE1921E315F6A0E98D6FC91A556D5906A958DDC52"
+  },
+  "review_scope": {
+    "allowed_read_paths": [
+      "evals/ctrip_order_import_gauntlet_v2/run_manifest.json",
+      "evals/ctrip_order_import_gauntlet_v2/review_packet.json",
+      "app/service/CtripOrderExportImportService.php",
+      "tests/CtripOrderExportImportServiceTest.php",
+      "tests/automation/ctrip_order_import_closure.test.mjs",
+      "scripts/verify_ctrip_order_import_smoke.php",
+      "app/controller/concern/PlatformDataSourceConcern.php",
+      "app/service/RevenueAiOverviewService.php",
+      "resources/frontend/templates/fragments/24-page-ctrip-ebooking.html",
+      "resources/frontend/templates/fragments/23c-page-compass-detail.html",
+      "tests/RevenueAiOverviewServiceTest.php",
+      "tests/RevenueAiManualOrderImportTest.php"
+    ],
+    "writes_forbidden": true,
+    "database_commands_forbidden": true,
+    "external_actions_forbidden": true,
+    "builder_dialogue_included": false
+  },
+  "candidate_hashes": {
+    "app/service/CtripOrderExportImportService.php": "6E0055E968708CEF7D8BCE2C994F469C4A9BEE399B9E85CAC94A1E525569095A",
+    "tests/CtripOrderExportImportServiceTest.php": "9DB94C116BD49020CD1F0FBB57D0DE2FC68B835B693E95D9301223AF567D3F57",
+    "tests/automation/ctrip_order_import_closure.test.mjs": "3472C0C2BE5B6CD79F4F8DE751E2C85622818572B9BEE37215C49DCEDDCC8F9A",
+    "scripts/verify_ctrip_order_import_smoke.php": "589BA410B9E9E727B59C24D0D258D25D9472BE2CE522EEA22A40F9BFA5F686E6",
+    "app/controller/concern/PlatformDataSourceConcern.php": "1112077275E4A2E91DFEC5A412177D009822E11FF7E0F770F770AAB5871CEF1A",
+    "app/service/RevenueAiOverviewService.php": "DB7825E4D778FDA3F0DEC5B8303CA4A12264323EC21C259CCC1E18AD22F0394E",
+    "resources/frontend/templates/fragments/24-page-ctrip-ebooking.html": "6D35F0FDCECFBBE79326AF1C930A99779F198EC94F558A20FE75EC10AACDCBE2",
+    "resources/frontend/templates/fragments/23c-page-compass-detail.html": "9610BD3E3DE421E1502642B752607BB6E6D20F34AF3E31603DF65C030B975AB1",
+    "tests/RevenueAiOverviewServiceTest.php": "09A43AD98DFE24572F6DA597071304E33FD29BC5C56CFEEBA71280EE4636997A",
+    "tests/RevenueAiManualOrderImportTest.php": "3B6D63E8A3352A777B8E4EEC708A669418E6B6A2365A262134A0DBBE88B16A78"
+  },
+  "deterministic_results": [
+    {
+      "check": "focused_phpunit",
+      "command": "C:\\xampp\\php\\php.exe vendor\\bin\\phpunit tests\\RevenueAiOverviewServiceTest.php tests\\CtripOrderExportImportServiceTest.php tests\\RevenueAiManualOrderImportTest.php",
+      "result": "PASS",
+      "evidence": "41 tests, 722 assertions, exit 0"
+    },
+    {
+      "check": "node_contract",
+      "command": "node --test tests\\automation\\ctrip_order_import_closure.test.mjs",
+      "result": "PASS",
+      "evidence": "1 test, 1 pass, 0 fail, exit 0"
+    },
+    {
+      "check": "frontend_template_verify",
+      "command": "npm.cmd run verify:frontend-template",
+      "result": "PASS",
+      "evidence": "failures=[], template snapshot and pin match, exit 0"
+    },
+    {
+      "check": "frontend_template_tests",
+      "command": "npm.cmd run test:frontend-template",
+      "result": "PASS",
+      "evidence": "4 tests, 4 pass, 0 fail, exit 0"
+    },
+    {
+      "check": "database_schema",
+      "command": "C:\\xampp\\php\\php.exe think db:check",
+      "result": "PASS",
+      "evidence": "144/144 registered; current schema 20260809_f_widen_operation_execution_intent_expected_delta; exit 0"
+    },
+    {
+      "check": "local_health",
+      "command": "GET http://127.0.0.1:8080/api/health",
+      "result": "PASS_LOCAL_ONLY",
+      "evidence": "HTTP 200; application, database and database_schema ok; runtime development_fallback; production_runtime_ready=false"
+    },
+    {
+      "check": "served_page_assets_and_contract_copy",
+      "command": "GET /, /app-startup-render.min.js, /app-render.min.js, /app-main.min.js",
+      "result": "PASS",
+      "evidence": "all HTTP 200; upload help, readback test id/label, source-date value-readback copy and reference-bottom-price-not-confirmed-revenue disclaimer all present"
+    }
+  ],
+  "environment_acceptance": [
+    {
+      "format": "biff_xls",
+      "fixture_scope": "local_explicit_test_fixture_only",
+      "sync_task_id": 3037,
+      "upload_http_status": 200,
+      "revenue_overview_http_status": 200,
+      "saved_count": 2,
+      "readback_count": 2,
+      "value_level_readback_verified": true,
+      "database_source_formats": ["biff_xls"],
+      "revenue_overview_source_format_verified": true,
+      "revenue_overview_verified_channels": ["ctrip", "qunar"],
+      "runtime_oracle": "database plus Revenue AI service plus Revenue AI HTTP rows matched source, business date, active/gross/cancel orders, room nights, cancel rate, average booking lead days, reference bottom price, amount semantics and source format; service and HTTP source format was read from each overview row",
+      "privacy_status": "raw_order_id_and_guest_pii_not_persisted",
+      "amount_semantics": "reference_bottom_price_not_confirmed_revenue",
+      "real_ctrip_file_acceptance": "unverified"
+    },
+    {
+      "format": "html_table_xls",
+      "fixture_scope": "local_explicit_test_fixture_only",
+      "sync_task_id": 3038,
+      "upload_http_status": 200,
+      "revenue_overview_http_status": 200,
+      "saved_count": 2,
+      "readback_count": 2,
+      "value_level_readback_verified": true,
+      "database_source_formats": ["html_table_xls"],
+      "revenue_overview_source_format_verified": true,
+      "revenue_overview_verified_channels": ["ctrip", "qunar"],
+      "runtime_oracle": "database plus Revenue AI service plus Revenue AI HTTP rows matched source, business date, active/gross/cancel orders, room nights, cancel rate, average booking lead days, reference bottom price, amount semantics and source format; service and HTTP source format was read from each overview row",
+      "privacy_status": "raw_order_id_and_guest_pii_not_persisted",
+      "amount_semantics": "reference_bottom_price_not_confirmed_revenue",
+      "real_ctrip_file_acceptance": "unverified"
+    }
+  ],
+  "comparative_evidence": {
+    "baseline_supported_safe_legacy_formats": "1/2",
+    "candidate_supported_safe_legacy_formats": "2/2",
+    "formats": ["biff_xls", "html_table_xls"],
+    "hard_gate_regressions": 0,
+    "field_validation": "not_available_no_real_ctrip_order_export_in_scope"
+  },
+  "post_acceptance_state": {
+    "status": "external_shared_runtime_drift",
+    "captured_after_tasks": [3037, 3038],
+    "current_replay": "blocked",
+    "reason": "A separate active goal changed the shared migration catalog after acceptance; workers now fail closed with database schema drift. No migration from that unrelated goal was run by this task.",
+    "claim_boundary": "Tasks 3037 and 3038 are successful point-in-time local acceptance evidence; this packet does not claim the current shared runtime remains healthy."
+  },
+  "external_benchmarks": [
+    {
+      "name": "PhpSpreadsheet Reading Files",
+      "url": "https://phpspreadsheet.readthedocs.io/en/latest/topics/reading-files/",
+      "applicability": "format identification and allowed-reader selection"
+    },
+    {
+      "name": "PhpSpreadsheet Reading and Writing to File",
+      "url": "https://phpspreadsheet.readthedocs.io/en/stable/topics/reading-and-writing-to-file/",
+      "applicability": "legacy .xls may contain BIFF or HTML-table content"
+    },
+    {
+      "name": "OWASP File Upload Cheat Sheet",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html",
+      "applicability": "server-side allowlist, content validation, size and authorization boundaries"
+    }
+  ],
+  "known_limits": [
+    "No real Ctrip order export was found; real-file acceptance and field validation remain unverified.",
+    "The HTML-table XLS example is an explicit synthetic fixture, not a hotel fact.",
+    "Local HTTP health at acceptance used development_fallback and is not production readiness evidence.",
+    "After tasks 3037 and 3038 passed, an unrelated active goal changed the shared migration catalog; current local replay is blocked and current runtime health is not claimed.",
+    "No real OTA write, external send, commit or push was performed."
+  ]
+}

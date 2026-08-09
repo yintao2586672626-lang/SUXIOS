@@ -369,17 +369,17 @@ final class Tc296ExecutionIdempotencyL8Test extends TestCase
         if ($factors['data_completeness'] === 'complete') {
             $input['evidence_type'] = 'manual_test_receipt';
             $input['evidence'] = [
-                'before' => ['orders' => 10, 'scope' => 'test_only'],
+                'before' => ['task_status' => 'pending_execute', 'scope' => 'test_only'],
                 'after' => [
-                    'orders' => $status === 'executed' ? 12 : 10,
-                    'status' => $status,
+                    'task_status' => $status,
+                    'receipt_state' => 'recorded',
                     'scope' => 'test_only',
                 ],
                 'platform_response' => [
                     'execution_id' => $executionId,
                     'receipt_id' => 'receipt-' . strtolower($caseId),
                     'reported_at' => '2026-07-15T10:01:00+08:00',
-                    'outcome' => $factors['upstream_state'],
+                    'upstream_execution_state' => $factors['upstream_state'],
                     'mode' => 'test_fixture',
                     'external_write' => false,
                 ],

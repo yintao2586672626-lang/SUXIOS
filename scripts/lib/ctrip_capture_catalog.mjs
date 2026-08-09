@@ -298,7 +298,7 @@ const capacityOverviewFields = [
 const trafficFields = [
   field('page_views', '列表页曝光量旧映射', ['listExposure', 'pvDataList', 'pageViewDataList', 'PV', 'pv', 'pageViews'], 'legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure'),
   field('visitor_count', '访客量', ['lastVisitorTotal', 'visitorTotal', 'UV', 'uv', 'visitorCount', 'pageViews']),
-  field('list_exposure', '列表页曝光量', ['listExposure', 'exposure', 'exposureCount', 'impressions'], '取 queryFlowTransforNewV1 本店行 listExposure'),
+  field('list_exposure', '列表页曝光人数', ['listExposure'], '仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代', { unit: '人', valueType: 'integer' }),
   field('competitor_list_exposure', '竞争圈平均列表页曝光量', ['listExposure', 'competitorListExposure', 'competitorExposure', 'avgListExposure'], '取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure'),
   field('detail_visitor', '详情页访客量', ['detailExposure', 'detailUv', 'detailVisitors'], '取 queryFlowTransforNewV1 本店行 detailExposure'),
   field('competitor_detail_visitor', '竞争圈平均详情页访客量', ['detailExposure', 'competitorDetailUv', 'competitorDetailVisitors', 'avgDetailUv'], '取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure'),
@@ -4022,8 +4022,17 @@ function buildStandardRow(facts, context) {
   for (const fact of facts) {
     applyFactToStandardRow(row, fact);
   }
+  Object.assign(row, ctripCaptureRowPeriodMetadata(row.data_date, context));
   finalizeTrafficStandardRow(row);
   applyCtripStandardFieldFactTruth(row, fieldFacts);
+  const observedTrafficMetricKeys = ctripCatalogObservedTrafficMetricKeys(
+    String(first.endpoint_id || ''),
+    fieldFacts,
+  );
+  if (observedTrafficMetricKeys.length > 0) {
+    row._observed_traffic_metric_keys = observedTrafficMetricKeys;
+    row.raw_data._observed_traffic_metric_keys = observedTrafficMetricKeys;
+  }
 
   if (!row.hotel_id) {
     row.hotel_id = contextHotelId;
@@ -4053,6 +4062,25 @@ function buildStandardRow(facts, context) {
     return row;
   }
   return null;
+}
+
+export function ctripCaptureRowPeriodMetadata(value, context = {}) {
+  const dataDate = normalizeFactDate(value);
+  const capturePlan = String(context.capturePlan || context.capture_plan || '').trim().toLowerCase();
+  if (capturePlan === 'historical_review') {
+    return { data_period: 'historical_daily', is_final: 1 };
+  }
+  if (capturePlan !== 'realtime_broadcast') {
+    return {};
+  }
+
+  const targetDate = normalizeFactDate(context.defaultDataDate || context.dataDate || '');
+  if (!targetDate || !dataDate || dataDate > targetDate) {
+    return {};
+  }
+  return dataDate < targetDate
+    ? { data_period: 'historical_daily', is_final: 1 }
+    : { data_period: 'realtime_snapshot', is_final: 0 };
 }
 
 function ctripHistoricalRequestWindow(endpointId, capturePlan, requestPayload) {
@@ -4198,6 +4226,35 @@ function applyCtripStandardFieldFactTruth(row, fieldFacts) {
       row[field] = null;
     }
   }
+}
+
+function ctripCatalogObservedTrafficMetricKeys(endpointId, fieldFacts) {
+  if (!['business_flow_transform', 'traffic_flow_transform'].includes(
+    String(endpointId || '').trim().toLowerCase(),
+  )) {
+    return [];
+  }
+  const required = [
+    'list_exposure',
+    'detail_exposure',
+    'flow_rate',
+    'order_filling_num',
+    'order_submit_num',
+  ];
+  const captured = new Set();
+  for (const fact of Array.isArray(fieldFacts) ? fieldFacts : []) {
+    if (fact?.status !== 'captured' || fact?.stored_value_present !== true) {
+      continue;
+    }
+    const storageField = String(fact.storage_field || '').trim();
+    const column = storageField.startsWith('online_daily_data.')
+      ? storageField.slice('online_daily_data.'.length)
+      : storageField;
+    if (required.includes(column)) {
+      captured.add(column);
+    }
+  }
+  return required.every((key) => captured.has(key)) ? required : [];
 }
 
 function ctripStandardFactStorage(fact) {

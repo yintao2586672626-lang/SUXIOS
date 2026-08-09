@@ -986,6 +986,7 @@ class AiDecisionQualityService
             'data_completeness' => '数据完整性与回读状态',
             'advertising_roas' => 'OTA广告ROAS',
             'avg_psi_score' => 'OTA服务质量分',
+            'list_exposure' => '携程列表页曝光去重浏览人数',
             'detail_rate' => '曝光到访问转化率',
             'order_rate' => '访问到订单转化率',
             'ota_adr' => 'OTA渠道ADR/价格竞争力',

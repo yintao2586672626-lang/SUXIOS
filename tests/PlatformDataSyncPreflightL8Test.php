@@ -328,6 +328,142 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
         self::assertSame('run_readback_receipt_mismatch', $missingTargetReceipt['failure_reason']);
     }
 
+    public function testRunReadbackLoadsP0ColumnsBeforeChoosingStructuredTrafficOverDomDuplicate(): void
+    {
+        $sourceId = 68;
+        $taskId = 900;
+        $platformHotelId = 'MEITUAN-TC145-101';
+        $source = [
+            'id' => $sourceId,
+            'tenant_id' => self::TENANT_ID,
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+            'platform' => 'meituan',
+            'data_type' => 'all',
+            'ingestion_method' => 'browser_profile',
+            'config_json' => json_encode([
+                'poi_id' => $platformHotelId,
+                'capture_sections' => ['traffic'],
+            ], JSON_THROW_ON_ERROR),
+        ];
+        $common = [
+            'tenant_id' => self::TENANT_ID,
+            'hotel_id' => $platformHotelId,
+            'hotel_name' => 'TC-145 Hotel',
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+            'data_date' => self::TARGET_DATE,
+            'data_period' => 'historical_daily',
+            'source' => 'meituan',
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'compare_type' => 'self',
+            'list_exposure' => 1277,
+            'detail_exposure' => 176,
+            'flow_rate' => 4.55,
+            'validation_status' => 'verified',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-07-15 08:01:00',
+            'data_source_id' => $sourceId,
+            'sync_task_id' => $taskId,
+            'ingestion_method' => 'browser_profile',
+            'create_time' => '2026-07-15 08:00:30',
+            'update_time' => '2026-07-15 08:00:30',
+        ];
+        $raw = static function (string $captureSource, string $sourcePath, string $traceSeed): string {
+            $traceId = 'meituan:' . str_repeat($traceSeed, 64);
+            $urlHash = hash('sha256', $captureSource . ':' . $traceSeed);
+            $isDom = str_starts_with($captureSource, 'dom:');
+            $strategy = $isDom ? 'dom_fallback' : 'browser_response';
+            $responseType = $isDom ? 'dom_fields' : 'structured_json';
+            $fieldFacts = [];
+            foreach (['list_exposure', 'detail_exposure', 'flow_rate'] as $metricKey) {
+                $fieldFacts[] = [
+                    'metric_key' => $metricKey,
+                    'source_path' => $sourcePath . '.' . $metricKey,
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                    'capture_evidence' => [
+                        'capture_source' => $captureSource,
+                        'source_path' => $sourcePath,
+                        'source_trace_id' => $traceId,
+                        'source_url_hash' => $urlHash,
+                    ],
+                ];
+            }
+            return json_encode([
+                'date_source' => 'page.traffic_period_selection.readback',
+                'source_trace_id' => $traceId,
+                'source_url_hash' => $urlHash,
+                'capture_evidence' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $urlHash,
+                ],
+                'row' => [
+                    '_capture_source' => $captureSource,
+                    '_source_path' => $sourcePath,
+                    'capture_evidence' => [
+                        'capture_source' => $captureSource,
+                        'source_path' => $sourcePath,
+                        'source_trace_id' => $traceId,
+                        'source_url_hash' => $urlHash,
+                        'capture_strategy' => $strategy,
+                        'response_evidence_type' => $responseType,
+                    ],
+                ],
+                'platform_hotel_identifier_proof' => 'row_field_present',
+                'field_facts' => $fieldFacts,
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        };
+
+        $structuredTrace = 'meituan:' . str_repeat('s', 64);
+        $domTrace = 'meituan:' . str_repeat('d', 64);
+        $structuredRowId = (int)Db::name('online_daily_data')->insertGetId(array_merge($common, [
+            'dimension' => 'flow_conversion',
+            'source_trace_id' => $structuredTrace,
+            'raw_data' => $raw('xhr:traffic:traffic', 'data.myHotel', 's'),
+        ]));
+        $domRowId = (int)Db::name('online_daily_data')->insertGetId(array_merge($common, [
+            'dimension' => '',
+            'source_trace_id' => $domTrace,
+            'raw_data' => $raw('dom:traffic:flow_funnel', 'dom.traffic.flow_funnel', 'd'),
+        ]));
+
+        $service = $this->service($this->adapterFor(
+            'DX-1161-STRUCTURED',
+            self::factors('authorized', 'complete', 'fresh', 'success')
+        ));
+        $method = new \ReflectionMethod($service, 'buildRunReadbackReceipt');
+        $method->setAccessible(true);
+        $receipt = $method->invoke(
+            $service,
+            $taskId,
+            $source,
+            [
+                'readback_verified' => true,
+                'readback_count' => 2,
+                'row_ids' => [$structuredRowId, $domRowId],
+            ],
+            [
+                'data_date' => self::TARGET_DATE,
+                'data_period' => 'historical_daily',
+                'captured_at' => '2026-07-15 08:00:00',
+                'sync_diagnostics' => [
+                    'p0_status' => 'ready',
+                    'field_fact_status' => 'ready',
+                    'required_traffic_metric_keys' => ['list_exposure', 'detail_exposure', 'flow_rate'],
+                    'complete_traffic_metric_keys' => ['list_exposure', 'detail_exposure', 'flow_rate'],
+                    'missing_traffic_metric_keys' => [],
+                ],
+            ],
+            ['started_at' => '2026-07-15 07:59:00']
+        );
+
+        self::assertTrue($receipt['readback_verified']);
+        self::assertSame(2, $receipt['readback_count']);
+        self::assertSame('browser_response', $receipt['capture_strategy']);
+        self::assertSame('structured_json', $receipt['response_evidence_type']);
+        self::assertSame('ready', $receipt['platform_hotel_identifier_status']);
+    }
+
     public function testExactDateProfileRequestReusesActiveTaskAndFailedTerminalCreatesNewAttempt(): void
     {
         $sourceId = $this->createBrowserProfileSource('DX-1163');

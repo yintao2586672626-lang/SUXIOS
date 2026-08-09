@@ -53,6 +53,148 @@ const temporalData = {
   },
 };
 
+const buildRevenueFactLayer = ({ pmsDate = '2026-07-23', hotelId = 80 } = {}) => {
+  const mismatch = pmsDate !== '2026-07-23';
+  return {
+    hotel: { system_hotel_id: hotelId, tenant_id: 80, name: '测试酒店' },
+    business_date: '2026-07-23',
+    date_alignment: {
+      status: mismatch ? 'blocked_date_mismatch' : 'aligned',
+      comparison_allowed: !mismatch,
+      target_business_date: '2026-07-23',
+      message: mismatch
+        ? '发现来源实际业务日期与目标日不一致，本次不可对账，也不可自动改日或合并。'
+        : 'PMS、携程、美团均已按同一目标业务日精确回读。',
+      sources: {
+        dingdandao_pms: {
+          observed_date: pmsDate,
+          data_status: mismatch ? 'not_verified' : 'readback_verified',
+        },
+        ctrip_ota: { observed_date: '2026-07-23', data_status: 'readback_verified' },
+        meituan_ota: { observed_date: '2026-07-23', data_status: 'readback_verified' },
+      },
+    },
+    sources: {
+      dingdandao_pms: {
+        data_status: mismatch ? 'not_verified' : 'readback_verified',
+        actual_business_date: pmsDate,
+      },
+      ctrip_ota: {
+        data_status: 'readback_verified',
+        actual_business_date: '2026-07-23',
+        analysis_readiness: { allowed: true, status: 'allowed' },
+        fact_statuses: {
+          revenue: { status: 'readback_verified' },
+          list_exposure: { status: 'readback_verified' },
+          detail_exposure: { status: 'readback_verified' },
+          flow_rate_percent: { status: 'readback_verified' },
+          submit_rate_percent: { status: 'readback_verified' },
+          cancellation_rate_percent: { status: 'missing' },
+        },
+      },
+      meituan_ota: {
+        data_status: 'readback_verified',
+        actual_business_date: '2026-07-23',
+        analysis_readiness: { allowed: true, status: 'allowed' },
+        fact_statuses: {
+          revenue: { status: 'readback_verified' },
+          list_exposure: { status: 'readback_verified' },
+          detail_exposure: { status: 'readback_verified' },
+          flow_rate_percent: { status: 'readback_verified' },
+          submit_rate_percent: { status: 'readback_verified' },
+          cancellation_rate_percent: { status: 'readback_verified' },
+        },
+      },
+    },
+    facts: {
+      whole_hotel_accommodation: mismatch ? {
+        room_revenue: null,
+        payment_collected_amount: null,
+        sold_room_nights: null,
+        sellable_room_nights: null,
+        occupancy_rate_percent: null,
+      } : {
+        room_revenue: 7930.11,
+        payment_collected_amount: null,
+        sold_room_nights: 15,
+        sellable_room_nights: 15,
+        occupancy_rate_percent: 100,
+      },
+      ota_channel: {
+        ctrip: {
+          revenue: 0,
+          orders: 0,
+          room_nights: 0,
+          adr: null,
+          list_exposure: 1200,
+          detail_exposure: 680,
+          flow_rate_percent: 56.67,
+          submit_rate_percent: 0,
+          cancellation_rate_percent: null,
+        },
+        meituan: {
+          revenue: 1032.39,
+          orders: 1,
+          room_nights: 1,
+          adr: 1032.39,
+          list_exposure: 920,
+          detail_exposure: 310,
+          flow_rate_percent: 33.7,
+          submit_rate_percent: 4.2,
+          cancellation_rate_percent: 12,
+        },
+        combined: {
+          orders: 1,
+          room_nights: 1,
+          revenue: 1032.39,
+          adr: 1032.39,
+        },
+      },
+    },
+    derived_metrics: {
+      whole_hotel_adr: { status: mismatch ? 'not_calculable' : 'ready', value: mismatch ? null : 528.67 },
+      whole_hotel_revpar: { status: mismatch ? 'not_calculable' : 'ready', value: mismatch ? null : 528.67 },
+      ota_adr: { status: 'ready', value: 1032.39 },
+      ota_room_night_share_percent: { status: mismatch ? 'not_calculable' : 'ready', value: mismatch ? null : 6.67 },
+      ota_room_revenue_share_percent: { status: mismatch ? 'not_calculable' : 'ready', value: mismatch ? null : 13.02 },
+      ota_cancellation_rate_percent: { status: 'ready', value: 12 },
+    },
+    reconciliation: {
+      status: mismatch ? 'blocked' : 'partial',
+      checks: [
+        {
+          key: 'business_date',
+          label: '业务日期',
+          status: mismatch ? 'blocked' : 'matched',
+          detail: mismatch ? 'PMS实际业务日为2026-07-22。' : '三源同日。',
+        },
+        {
+          key: 'payment_caliber',
+          label: '支付与收入口径',
+          status: 'not_comparable',
+          detail: 'PMS住宿房费不等于支付实收。',
+        },
+        {
+          key: 'cancellation',
+          label: '取消订单',
+          status: 'ota_only_ready',
+          combined_rate_percent: 12,
+          detail: 'OTA取消率只按渠道订单口径。',
+        },
+        {
+          key: 'floor_vs_sales',
+          label: '底价与销售收入',
+          status: 'reference_only',
+          minimum_floor_price: 350,
+          combined_ota_adr: 1032.39,
+          reference_gap: 682.39,
+          detail: '房型粒度未对齐，只作参考。',
+        },
+      ],
+    },
+  };
+};
+
 test('home business time model uses the exact yesterday row and preserves captured zero facts', () => {
   const model = buildHomeBusinessTimeModel({
     temporalData,
@@ -110,6 +252,222 @@ test('home business time model never substitutes an older historical row for yes
   assert.match(model.yesterday.summary, /最近历史日 2026-07-22 不用于替代/);
   assert.equal(model.today.status, '未取得');
   assert.equal(model.future.status, '尚未形成');
+});
+
+test('home business time model exposes PMS whole-hotel and OTA channel facts at the same time', () => {
+  const model = buildHomeBusinessTimeModel({
+    temporalData,
+    hotelName: '测试酒店',
+    selectedHotelId: 80,
+    revenueFactLayer: buildRevenueFactLayer(),
+  });
+
+  assert.equal(model.yesterday.requiresHotelSelection, false);
+  assert.equal(model.yesterday.dualScopeReady, true);
+  assert.equal(model.yesterday.wholeHotelFacts.find((fact) => fact.key === 'sold_room_nights')?.ready, true);
+  assert.equal(
+    model.yesterday.wholeHotelFacts.find((fact) => fact.key === 'payment_collected_amount')?.label,
+    '支付实收（非会计收入）',
+  );
+  assert.equal(model.yesterday.wholeHotelFacts.find((fact) => fact.key === 'payment_collected_amount')?.value, '未取得');
+  assert.match(
+    model.yesterday.wholeHotelFacts.find((fact) => fact.key === 'payment_collected_amount')?.detail || '',
+    /支付实收字段未接入/,
+  );
+  assert.equal(model.yesterday.otaChannelFacts.find((fact) => fact.key === 'ota_orders')?.ready, true);
+  assert.equal(model.yesterday.otaChannelFacts.find((fact) => fact.key === 'ota_room_night_share_percent')?.ready, true);
+  assert.equal(model.yesterday.otaChannelFacts.find((fact) => fact.key === 'ota_room_revenue_share_percent')?.ready, true);
+  assert.equal(model.yesterday.otaPlatformRows.find((row) => row.key === 'ctrip')?.facts.find((fact) => fact.label === '详情曝光')?.ready, true);
+  assert.equal(model.yesterday.otaPlatformRows.find((row) => row.key === 'ctrip')?.facts.find((fact) => fact.label === '流量转化')?.ready, true);
+  assert.equal(model.yesterday.otaPlatformRows.find((row) => row.key === 'ctrip')?.facts.find((fact) => fact.label === '取消率')?.value, '未取得');
+  assert.equal(model.yesterday.otaChannelFacts.find((fact) => fact.key === 'ota_cancellation_rate_percent')?.ready, true);
+  assert.equal(model.yesterday.dateSourceRows.every((row) => row.status === '同日已验证'), true);
+  assert.match(model.yesterday.reconciliationRows.find((row) => row.key === 'cancellation')?.value || '', /12%/);
+  assert.match(model.yesterday.reconciliationRows.find((row) => row.key === 'floor_vs_sales')?.value || '', /最低保护价/);
+  assert.match(model.yesterday.summary, /两个口径分开显示/);
+});
+
+test('verified OTA metrics remain visible when the strict platform envelope is partial', () => {
+  const partialLayer = buildRevenueFactLayer();
+  partialLayer.date_alignment.status = 'incomplete';
+  partialLayer.date_alignment.comparison_allowed = false;
+  partialLayer.date_alignment.sources.ctrip_ota = {
+    observed_date: '2026-07-23',
+    data_status: 'partial',
+  };
+  partialLayer.date_alignment.sources.meituan_ota = {
+    observed_date: null,
+    data_status: 'missing',
+  };
+  partialLayer.sources.ctrip_ota.data_status = 'partial';
+  partialLayer.sources.ctrip_ota.fact_statuses = {
+    ...partialLayer.sources.ctrip_ota.fact_statuses,
+    revenue: { status: 'readback_verified' },
+    orders: { status: 'readback_verified' },
+    room_nights: { status: 'readback_verified' },
+    adr: { status: 'readback_verified' },
+  };
+  partialLayer.sources.meituan_ota = {
+    data_status: 'missing',
+    actual_business_date: null,
+    fact_statuses: {},
+  };
+  partialLayer.facts.ota_channel.ctrip = {
+    ...partialLayer.facts.ota_channel.ctrip,
+    revenue: 8468,
+    orders: 0,
+    room_nights: 2,
+    adr: 973,
+  };
+  partialLayer.facts.ota_channel.meituan = {
+    orders: null,
+    room_nights: null,
+    adr: null,
+    list_exposure: null,
+    detail_exposure: null,
+    flow_rate_percent: null,
+    submit_rate_percent: null,
+    cancellation_rate_percent: null,
+  };
+  partialLayer.facts.ota_channel.combined = {
+    revenue: null,
+    orders: null,
+    room_nights: null,
+    adr: null,
+  };
+  partialLayer.derived_metrics.ota_adr = { status: 'not_calculable', value: null };
+  partialLayer.derived_metrics.ota_room_night_share_percent = { status: 'not_calculable', value: null };
+  partialLayer.derived_metrics.ota_room_revenue_share_percent = { status: 'not_calculable', value: null };
+  partialLayer.derived_metrics.ota_cancellation_rate_percent = { status: 'not_calculable', value: null };
+
+  const model = buildHomeBusinessTimeModel({
+    temporalData,
+    hotelName: '测试酒店',
+    selectedHotelId: 80,
+    revenueFactLayer: partialLayer,
+  });
+  const ctrip = model.yesterday.otaPlatformRows.find((row) => row.key === 'ctrip');
+  const meituan = model.yesterday.otaPlatformRows.find((row) => row.key === 'meituan');
+
+  assert.equal(ctrip?.status, '部分取得');
+  assert.equal(ctrip?.facts.find((fact) => fact.key === 'ctrip-revenue')?.ready, true);
+  assert.match(ctrip?.facts.find((fact) => fact.key === 'ctrip-revenue')?.value || '', /8,?468/);
+  assert.equal(ctrip?.facts.find((fact) => fact.key === 'ctrip-orders')?.ready, true);
+  assert.equal(ctrip?.facts.find((fact) => fact.key === 'ctrip-orders')?.value, '0单');
+  assert.equal(ctrip?.facts.find((fact) => fact.key === 'ctrip-room-nights')?.value, '2间夜');
+  assert.equal(ctrip?.facts.find((fact) => fact.key === 'ctrip-adr')?.ready, true);
+  assert.equal(ctrip?.facts.find((fact) => fact.key === 'ctrip-detail-exposure')?.ready, true);
+  assert.equal(meituan?.facts.every((fact) => fact.ready === false), true);
+  assert.equal(model.yesterday.otaChannelFacts.find((fact) => fact.key === 'ota_orders')?.ready, false);
+  assert.equal(
+    model.yesterday.dateSourceRows.find((row) => row.key === 'ctrip_ota')?.status,
+    '同日部分已验证',
+  );
+});
+
+test('fact readback is labeled as analysis limited when revenue credibility blocks', () => {
+  const limitedLayer = buildRevenueFactLayer();
+  limitedLayer.sources.meituan_ota.analysis_readiness = {
+    allowed: false,
+    status: 'blocked',
+  };
+
+  const model = buildHomeBusinessTimeModel({
+    temporalData,
+    hotelName: '测试酒店',
+    selectedHotelId: 80,
+    revenueFactLayer: limitedLayer,
+  });
+  const meituan = model.yesterday.otaPlatformRows.find((row) => row.key === 'meituan');
+
+  assert.equal(meituan?.status, '事实已回读·分析受限');
+  assert.equal(meituan?.facts.find((fact) => fact.key === 'meituan-revenue')?.ready, true);
+  assert.match(meituan?.facts.find((fact) => fact.key === 'meituan-revenue')?.value || '', /1,?032\.39/);
+});
+
+test('platform raw metrics reject derived status while ADR may use it', () => {
+  const partialLayer = buildRevenueFactLayer();
+  partialLayer.sources.ctrip_ota.data_status = 'partial';
+  partialLayer.sources.ctrip_ota.fact_statuses.orders = {
+    status: 'derived_verified',
+  };
+  partialLayer.sources.ctrip_ota.fact_statuses.adr = {
+    status: 'derived_verified',
+  };
+  partialLayer.facts.ota_channel.ctrip.orders = 0;
+  partialLayer.facts.ota_channel.ctrip.adr = 973;
+
+  const model = buildHomeBusinessTimeModel({
+    temporalData,
+    hotelName: '测试酒店',
+    selectedHotelId: 80,
+    revenueFactLayer: partialLayer,
+  });
+  const ctrip = model.yesterday.otaPlatformRows.find((row) => row.key === 'ctrip');
+
+  assert.equal(ctrip?.facts.find((fact) => fact.key === 'ctrip-orders')?.ready, false);
+  assert.equal(ctrip?.facts.find((fact) => fact.key === 'ctrip-orders')?.value, '未取得');
+  assert.equal(ctrip?.facts.find((fact) => fact.key === 'ctrip-adr')?.ready, true);
+  assert.match(ctrip?.facts.find((fact) => fact.key === 'ctrip-adr')?.value || '', /973/);
+});
+
+test('date mismatch keeps exact OTA facts visible but blocks PMS and cross-source derivatives', () => {
+  const model = buildHomeBusinessTimeModel({
+    temporalData,
+    hotelName: '测试酒店',
+    selectedHotelId: 80,
+    revenueFactLayer: buildRevenueFactLayer({ pmsDate: '2026-07-22' }),
+  });
+
+  assert.equal(model.yesterday.dualScopeReady, false);
+  assert.equal(model.yesterday.dateAlignmentStatus, 'blocked_date_mismatch');
+  assert.equal(model.yesterday.wholeHotelFacts.every((fact) => fact.ready === false), true);
+  assert.equal(model.yesterday.otaChannelFacts.find((fact) => fact.key === 'ota_orders')?.ready, true);
+  assert.equal(model.yesterday.otaChannelFacts.find((fact) => fact.key === 'ota_adr')?.ready, true);
+  assert.equal(model.yesterday.otaChannelFacts.find((fact) => fact.key === 'ota_room_night_share_percent')?.ready, false);
+  assert.equal(model.yesterday.otaChannelFacts.find((fact) => fact.key === 'ota_room_revenue_share_percent')?.ready, false);
+  assert.equal(model.yesterday.otaPlatformRows.every((row) => row.status === '已验证'), true);
+  assert.equal(model.yesterday.dateSourceRows.find((row) => row.key === 'dingdandao_pms')?.status, '日期错位');
+  assert.equal(model.yesterday.reconciliationStatus, '日期阻断');
+  assert.match(model.yesterday.summary, /不会自动改日或混合口径/);
+});
+
+test('exact fact layer remains usable when the temporal insight request fails', () => {
+  const model = buildHomeBusinessTimeModel({
+    temporalData: {
+      metric_scope: 'ota_channel',
+      past: { status: 'empty', series: [] },
+      present: { status: 'empty', snapshot_row_count: 0 },
+      future: { status: 'empty', series: [] },
+    },
+    hotelName: '测试酒店',
+    selectedHotelId: 80,
+    revenueFactLayer: buildRevenueFactLayer(),
+    error: '时间趋势接口暂时不可用',
+  });
+
+  assert.equal(model.yesterday.date, '2026-07-23');
+  assert.equal(model.yesterday.status, '已取得');
+  assert.equal(model.yesterday.dualScopeReady, true);
+  assert.equal(model.yesterday.wholeHotelFacts.find((fact) => fact.key === 'sold_room_nights')?.ready, true);
+  assert.equal(model.yesterday.otaChannelFacts.find((fact) => fact.key === 'ota_orders')?.ready, true);
+  assert.match(model.yesterday.summary, /两个口径分开显示/);
+});
+
+test('fact layer from another hotel is never reused after hotel selection changes', () => {
+  const model = buildHomeBusinessTimeModel({
+    temporalData,
+    hotelName: '所选酒店',
+    selectedHotelId: 80,
+    revenueFactLayer: buildRevenueFactLayer({ hotelId: 81 }),
+  });
+
+  assert.equal(model.yesterday.requiresHotelSelection, false);
+  assert.equal(model.yesterday.hotelScopeMismatch, true);
+  assert.equal(model.yesterday.dualScopeReady, false);
+  assert.equal(model.yesterday.wholeHotelFacts.every((fact) => fact.ready === false), true);
+  assert.equal(model.yesterday.otaChannelFacts.every((fact) => fact.ready === false), true);
+  assert.match(model.yesterday.summary, /不属于所选门店/);
 });
 
 test('competitor data is diagnostic reference and does not raise core fact readiness', () => {

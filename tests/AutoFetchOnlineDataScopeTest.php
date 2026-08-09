@@ -11,6 +11,20 @@ use think\console\Output;
 
 final class AutoFetchOnlineDataScopeTest extends TestCase
 {
+    public function testAuthenticatedManualAutoFetchKeepsTheExplicitBusinessDateFailClosed(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php'
+        );
+
+        self::assertStringContainsString("\$requestData['data_date']", $source);
+        self::assertStringContainsString("\$requestData['target_date']", $source);
+        self::assertStringContainsString('data_date 与 target_date 不一致，已拒绝静默改写业务日期。', $source);
+        self::assertStringContainsString('data_date 必须是有效的 YYYY-MM-DD 业务日期。', $source);
+        self::assertStringContainsString('if ($requestedDataDate !== $targetDataDate)', $source);
+        self::assertStringContainsString('$targetDataDate = $requestedDataDate;', $source);
+    }
+
     public function testExplicitInvalidHotelIdFailsBeforeDatabaseOrCollectionWork(): void
     {
         foreach (['abc', '0', '-1', '1.5', ''] as $invalidHotelId) {
@@ -59,28 +73,35 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         }
     }
 
-    public function testExplicitHistoricalRunUsesTheNormalIdempotencyAndRetryKeys(): void
+    public function testExplicitHistoricalAndRealtimeRunsBindCacheKeysToSourceAndPlatformScope(): void
     {
         $command = new AutoFetchOnlineData();
-        $method = new \ReflectionMethod($command, 'explicitHistoricalRun');
-        $run = $method->invoke($command, 80, '2026-07-21');
+        $historical = new \ReflectionMethod($command, 'explicitHistoricalRun');
+        $bind = new \ReflectionMethod($command, 'bindRunCacheScope');
+        $run = $historical->invoke($command, 80, '2026-07-21');
+        $run['target_platforms'] = ['ctrip'];
+        $scoped = $bind->invoke($command, $run, [68, 25, 68]);
+        $sameScope = $bind->invoke($command, $run, [25, 68]);
+        $otherSource = $bind->invoke($command, $run, [26]);
+        $otherPlatformRun = $run;
+        $otherPlatformRun['target_platforms'] = ['meituan'];
+        $otherPlatform = $bind->invoke($command, $otherPlatformRun, [25, 68]);
 
         self::assertSame('historical:2026-07-21', $run['slot_id']);
         self::assertSame('historical_daily', $run['period']);
         self::assertSame('online_data_historical_executed_80_2026-07-21', $run['executed_key']);
         self::assertSame('online_data_historical_retry_80_2026-07-21', $run['retry_key']);
-
-        $scoped = $method->invoke($command, 80, '2026-07-21', [68, 25, 68]);
-        self::assertSame('online_data_historical_executed_80_2026-07-21_sources_25-68', $scoped['executed_key']);
-        self::assertSame('online_data_historical_retry_80_2026-07-21_sources_25-68', $scoped['retry_key']);
+        self::assertMatchesRegularExpression('/_scope_[a-f0-9]{16}$/D', $scoped['executed_key']);
+        self::assertSame($scoped['executed_key'], $sameScope['executed_key']);
+        self::assertSame($scoped['retry_key'], $sameScope['retry_key']);
+        self::assertNotSame($scoped['executed_key'], $otherSource['executed_key']);
+        self::assertNotSame($scoped['executed_key'], $otherPlatform['executed_key']);
+        self::assertSame([25, 68], $scoped['cache_scope_source_ids']);
+        self::assertSame(['ctrip'], $scoped['cache_scope_platforms']);
         self::assertNotSame($run['executed_key'], $scoped['executed_key']);
-    }
 
-    public function testExplicitRealtimeRunUsesOneIndependentCurrentHourSlot(): void
-    {
-        $command = new AutoFetchOnlineData();
-        $method = new \ReflectionMethod($command, 'explicitRealtimeRun');
-        $run = $method->invoke($command, 80, new \DateTimeImmutable('2026-07-25 14:23:00', new \DateTimeZone('Asia/Shanghai')));
+        $realtime = new \ReflectionMethod($command, 'explicitRealtimeRun');
+        $run = $realtime->invoke($command, 80, new \DateTimeImmutable('2026-07-25 14:23:00', new \DateTimeZone('Asia/Shanghai')));
 
         self::assertSame('realtime:2026-07-25:14', $run['slot_id']);
         self::assertSame('realtime_snapshot', $run['period']);
@@ -484,6 +505,50 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         );
     }
 
+    public function testRealtimeTrafficReadbackUsesTrafficFactsInsteadOfDailyRevenueTriple(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'runReadbackCoreVerified');
+        $receipt = [
+            'readback_verified' => true,
+            'p0_status' => 'ready',
+            'sync_task_id' => 3028,
+            'data_source_id' => 25,
+            'started_at' => '2026-08-09 04:10:09',
+            'row_ids' => [81368, 81369],
+            'source_trace_ids' => ['ctrip:traffic:2026-08-09'],
+            'verified_metric_keys' => [],
+            'data_period' => 'realtime_snapshot',
+            'field_fact_status' => 'ready',
+            'required_traffic_metric_keys' => [
+                'list_exposure',
+                'detail_exposure',
+                'flow_rate',
+                'order_filling_num',
+                'order_submit_num',
+            ],
+            'complete_traffic_metric_keys' => [
+                'list_exposure',
+                'detail_exposure',
+                'flow_rate',
+                'order_filling_num',
+                'order_submit_num',
+            ],
+            'missing_traffic_metric_keys' => [],
+        ];
+
+        self::assertTrue($method->invoke($command, $receipt));
+
+        $receipt['missing_traffic_metric_keys'] = ['flow_rate'];
+        self::assertFalse($method->invoke($command, $receipt));
+
+        $receipt['missing_traffic_metric_keys'] = [];
+        $receipt['data_period'] = 'historical_daily';
+        self::assertFalse($method->invoke($command, $receipt));
+        $receipt['verified_metric_keys'] = ['revenue', 'room_nights', 'adr'];
+        self::assertTrue($method->invoke($command, $receipt));
+    }
+
     public function testExplicitCtripTemporalFlowSurvivesBackgroundAndDataSourceSyncBoundaries(): void
     {
         $source = SourceAggregate::read(
@@ -584,6 +649,378 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertStringContainsString('if ($executedReceipt && !$forceRerun)', $source);
         self::assertStringContainsString('$retryState = $forceRerun ? [] : Cache::get', $source);
         self::assertStringContainsString('if (!$forceRerun && !$this->isScheduleRetryDue', $source);
+        self::assertGreaterThanOrEqual(3, substr_count($source, 'bool $forceRerun = false'));
+        self::assertStringContainsString("'force_rerun' => \$forceRerun", $source);
+        self::assertStringContainsString("'trigger_type' => 'daily_profile_reuse'", $source);
+        self::assertMatchesRegularExpression(
+            '/if \(!\$forceRerun\s*&& \$dataPeriod === \'historical_daily\'/s',
+            $source
+        );
+        self::assertMatchesRegularExpression('/\$sourceIds,\s*\$forceRerun\s*\);/', $source);
+    }
+
+    public function testForceRerunIgnoresOldReadbackAndBuildsExactCtripTrafficAuthorityPlan(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $resolve = new \ReflectionMethod($command, 'resolveVerifiedCompleteHistoricalExecution');
+        $rows = [
+            [
+                'id' => 81818,
+                'platform' => 'ctrip',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_period' => 'historical_daily',
+                'readback_verified' => 1,
+                'order_amount' => 100,
+                'room_nights' => 2,
+                'order_count' => 1,
+            ],
+            [
+                'id' => 81819,
+                'platform' => 'ctrip',
+                'source' => 'ctrip',
+                'data_type' => 'traffic',
+                'data_period' => 'historical_daily',
+                'readback_verified' => 1,
+                'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+                'list_exposure' => 0,
+                'detail_exposure' => 0,
+                'flow_rate' => 0,
+                'order_filling_num' => 0,
+                'order_submit_num' => 0,
+            ],
+        ];
+        $verifiedCompletePlan = [
+            'platform' => 'ctrip',
+            'target_date' => '2026-08-08',
+            'stage' => 'verified_complete',
+            'sections' => [],
+        ];
+        $oldReadback = [
+            'sync_task_id' => 3084,
+            'row_ids' => [81818, 81819],
+        ];
+
+        $forced = $resolve->invoke(
+            $command,
+            'ctrip',
+            '2026-08-08',
+            $rows,
+            $verifiedCompletePlan,
+            $oldReadback,
+            true
+        );
+
+        self::assertSame([], $forced['reused_run_readback']);
+        self::assertSame(['traffic_report'], $forced['plan']['sections']);
+        self::assertSame(['traffic_report'], $forced['plan']['planned_sections']);
+        self::assertSame([], $forced['plan']['pending_sections']);
+        self::assertSame('ctrip', $forced['plan']['platform']);
+        self::assertSame('2026-08-08', $forced['plan']['target_date']);
+        self::assertSame('authority_recollection', $forced['plan']['stage']);
+        self::assertSame('single_section_bounded', $forced['plan']['execution_mode']);
+        self::assertSame('explicit_force_rerun_authority_recollection', $forced['plan']['reason']);
+        self::assertSame('exact_target_date_no_replay_or_rewrite', $forced['plan']['date_policy']);
+        self::assertTrue($forced['plan']['force_rerun']);
+        self::assertFalse($forced['plan']['reuse_existing_run_readback']);
+        self::assertNotContains('meituan', $forced['plan']);
+
+        $ordinary = $resolve->invoke(
+            $command,
+            'ctrip',
+            '2026-08-08',
+            $rows,
+            $verifiedCompletePlan,
+            $oldReadback,
+            false
+        );
+        self::assertSame($oldReadback, $ordinary['reused_run_readback']);
+        self::assertSame([], $ordinary['plan']['sections']);
+
+        $meituan = $resolve->invoke(
+            $command,
+            'meituan',
+            '2026-08-08',
+            [],
+            ['platform' => 'meituan', 'target_date' => '2026-08-08', 'sections' => []],
+            $oldReadback,
+            true
+        );
+        self::assertNotContains('traffic_report', $meituan['plan']['sections']);
+    }
+
+    public function testStaleRunReadbackCannotReuseRowsNowOwnedByAnotherTask(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $stillCurrent = new \ReflectionMethod($command, 'profileRunReadbackRowsStillCurrent');
+        $resolve = new \ReflectionMethod($command, 'resolveVerifiedCompleteHistoricalExecution');
+        $readback = [
+            'sync_task_id' => 3084,
+            'row_ids' => [81818, 81819],
+        ];
+        $base = [
+            'system_hotel_id' => 80,
+            'data_source_id' => 25,
+            'sync_task_id' => 3084,
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'readback_verified' => 1,
+        ];
+        $currentRows = [
+            array_replace($base, [
+                'id' => 81818,
+                'data_type' => 'business',
+                'order_amount' => 100,
+                'room_nights' => 2,
+                'order_count' => 1,
+                'raw_data' => '{}',
+            ]),
+            array_replace($base, [
+                'id' => 81819,
+                'data_type' => 'traffic',
+                'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+                'list_exposure' => 0,
+                'detail_exposure' => 0,
+                'flow_rate' => 0,
+                'order_filling_num' => 0,
+                'order_submit_num' => 0,
+                'raw_data' => json_encode([
+                    'row' => [
+                        'endpoint_id' => 'traffic_flow_transform',
+                        '_observed_traffic_metric_keys' => [
+                            'list_exposure',
+                            'detail_exposure',
+                            'flow_rate',
+                            'order_filling_num',
+                            'order_submit_num',
+                        ],
+                    ],
+                ], JSON_THROW_ON_ERROR),
+            ]),
+        ];
+
+        self::assertTrue($stillCurrent->invoke(
+            $command,
+            $readback,
+            $currentRows,
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
+
+        $rowsNowOwnedByTask3085 = array_map(
+            static fn(array $row): array => array_replace($row, ['sync_task_id' => 3085]),
+            $currentRows
+        );
+        self::assertFalse($stillCurrent->invoke(
+            $command,
+            $readback,
+            $rowsNowOwnedByTask3085,
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
+
+        foreach ([
+            ' flow_rate',
+            'Flow_Rate',
+            123,
+        ] as $invalidMarkerValue) {
+            $invalidMarkerRows = $currentRows;
+            $marker = [
+                'list_exposure',
+                'detail_exposure',
+                'flow_rate',
+                'order_filling_num',
+                'order_submit_num',
+            ];
+            $marker[2] = $invalidMarkerValue;
+            $invalidMarkerRows[1]['raw_data'] = json_encode([
+                'row' => [
+                    'endpoint_id' => 'traffic_flow_transform',
+                    '_observed_traffic_metric_keys' => $marker,
+                ],
+            ], JSON_THROW_ON_ERROR);
+            self::assertFalse($stillCurrent->invoke(
+                $command,
+                $readback,
+                $invalidMarkerRows,
+                80,
+                25,
+                'ctrip',
+                '2026-08-08'
+            ));
+        }
+
+        foreach ([
+            ['data_source_id' => 26],
+            ['system_hotel_id' => 81],
+            ['data_date' => '2026-08-07'],
+            ['data_period' => 'realtime_snapshot'],
+        ] as $scopeMismatch) {
+            $mismatchedRows = $currentRows;
+            $mismatchedRows[0] = array_replace($mismatchedRows[0], $scopeMismatch);
+            self::assertFalse($stillCurrent->invoke(
+                $command,
+                $readback,
+                $mismatchedRows,
+                80,
+                25,
+                'ctrip',
+                '2026-08-08'
+            ));
+        }
+
+        $withoutMarker = $currentRows;
+        $withoutMarker[1]['raw_data'] = json_encode([
+            'row' => ['endpoint_id' => 'traffic_flow_transform'],
+        ], JSON_THROW_ON_ERROR);
+        self::assertFalse($stillCurrent->invoke(
+            $command,
+            $readback,
+            $withoutMarker,
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
+
+        $auxiliaryMarker = $currentRows;
+        $auxiliaryMarker[1]['dimension'] = '';
+        $auxiliaryMarker[1]['raw_data'] = json_encode([
+            'row' => [
+                'endpoint_id' => 'traffic_hotel_seq',
+                '_observed_traffic_metric_keys' => [
+                    'list_exposure',
+                    'detail_exposure',
+                    'flow_rate',
+                    'order_filling_num',
+                    'order_submit_num',
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR);
+        self::assertFalse($stillCurrent->invoke(
+            $command,
+            $readback,
+            $auxiliaryMarker,
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
+
+        $recollection = $resolve->invoke(
+            $command,
+            'ctrip',
+            '2026-08-08',
+            $rowsNowOwnedByTask3085,
+            ['platform' => 'ctrip', 'target_date' => '2026-08-08', 'sections' => []],
+            [],
+            false
+        );
+        self::assertSame([], $recollection['reused_run_readback']);
+        self::assertSame(['traffic_report'], $recollection['plan']['sections']);
+        self::assertSame(
+            'verified_rows_without_current_bound_run_readback',
+            $recollection['plan']['reason']
+        );
+        self::assertFalse($recollection['plan']['force_rerun']);
+
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+        self::assertStringContainsString(
+            "(int)(\$readback['sync_task_id'] ?? 0) === (int)(\$task['id'] ?? 0)",
+            $source
+        );
+    }
+
+    public function testHistoricalTaskCannotBorrowP0MetricsFromAnotherTaskOrPeriod(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $complete = new \ReflectionMethod($command, 'exactTaskP0RowsComplete');
+        $readback = ['sync_task_id' => 3086];
+        $base = [
+            'system_hotel_id' => 80,
+            'data_source_id' => 25,
+            'sync_task_id' => 3086,
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'readback_verified' => 1,
+        ];
+        $businessRow = array_replace($base, [
+            'id' => 91001,
+            'data_type' => 'business',
+            'order_amount' => 100,
+            'room_nights' => 2,
+            'order_count' => 1,
+            'raw_data' => '{}',
+        ]);
+        $trafficRow = array_replace($base, [
+            'id' => 91002,
+            'data_type' => 'traffic',
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+            'list_exposure' => 10,
+            'detail_exposure' => 4,
+            'flow_rate' => 40,
+            'order_filling_num' => 2,
+            'order_submit_num' => 1,
+            'raw_data' => json_encode([
+                'row' => [
+                    'endpoint_id' => 'traffic_flow_transform',
+                    '_observed_traffic_metric_keys' => [
+                        'list_exposure',
+                        'detail_exposure',
+                        'flow_rate',
+                        'order_filling_num',
+                        'order_submit_num',
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+
+        self::assertTrue($complete->invoke(
+            $command,
+            $readback,
+            [$businessRow, $trafficRow],
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
+        self::assertFalse($complete->invoke(
+            $command,
+            $readback,
+            [$businessRow, array_replace($trafficRow, ['sync_task_id' => 3084])],
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
+        self::assertFalse($complete->invoke(
+            $command,
+            $readback,
+            [$businessRow, array_replace($trafficRow, ['data_period' => 'realtime_snapshot'])],
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
+
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+        self::assertStringContainsString(
+            "\$coreReadbackVerified = \$dataPeriod === 'historical_daily'",
+            $source
+        );
+        self::assertStringContainsString('? $compositeReadbackVerified', $source);
+        self::assertStringNotContainsString(
+            "\$this->runReadbackCoreVerified(\$runReadback)\n                || \$compositeReadbackVerified",
+            $source
+        );
     }
 
     public function testMachineReceiptRequiresEveryExplicitSourceTaskIdentity(): void

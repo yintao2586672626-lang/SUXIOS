@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\OnlineDataFieldFactService;
 use app\service\OperationManagementService;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ReflectionHelper;
@@ -1385,6 +1386,336 @@ final class OperationManagementServiceTest extends TestCase
                 ]],
             ],
         ], 'all_ota']);
+    }
+
+    public function testSavedOtaDiagnosisApprovalFreezesTargetAndExactReadbackDigest(): void
+    {
+        $service = new OperationManagementService();
+        $approvedAt = '2026-08-09 09:30:00';
+        $intent = [
+            'id' => 91,
+            'hotel_id' => 80,
+            'source_module' => 'ota_diagnosis_saved',
+            'source_record_id' => 251,
+            'platform' => 'ctrip',
+            'date_start' => '2026-08-08',
+            'date_end' => '2026-08-08',
+            'expected_metric' => 'order_rate',
+            'target_value' => [
+                'target_metric' => 'order_rate',
+                'expected_direction' => 'increase',
+                'due_at' => '2026-08-08 18:00:00',
+                'review_at' => '2026-08-09 10:00:00',
+                'workflow_schedule' => [
+                    'assignee_id' => 9,
+                    'due_at' => '2026-08-08 18:00:00',
+                    'review_at' => '2026-08-09 10:00:00',
+                ],
+            ],
+            'evidence' => ['decision_recommendation_digest' => str_repeat('a', 64)],
+        ];
+
+        $result = $this->invokeNonPublic($service, 'buildSavedOtaDiagnosisApprovalTarget', [
+            $intent,
+            [
+                'expected_metric' => 'order_rate',
+                'expected_direction' => 'increase',
+                'target_type' => 'delta',
+                'expected_delta' => 1.5,
+                'review_business_date' => '2026-08-09',
+            ],
+            3,
+            $approvedAt,
+        ]);
+
+        self::assertSame('manual_confirmed', $result['target_value']['expected_delta_status']);
+        self::assertSame('2026-08-09', $result['target_value']['review_business_date']);
+        self::assertSame(1.5, $result['expected_delta']);
+        self::assertSame('1.500000', $result['evidence']['approval_target']['expected_delta']);
+        self::assertSame(
+            $result['evidence']['approval_target']['metric_definition'],
+            $result['target_value']['metric_definition']
+        );
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $result['evidence']['approval_target']['content_digest']);
+        self::assertSame(
+            $result['evidence']['approval_target']['content_digest'],
+            $result['target_value']['approval_target_digest']
+        );
+
+        $this->invokeNonPublic($service, 'assertSavedOtaDiagnosisApprovalTargetReadback', [[
+            ...$intent,
+            'approved_by' => 3,
+            'approved_at' => $approvedAt,
+            'target_value' => $result['target_value'],
+            'evidence' => $result['evidence'],
+            'expected_delta' => $result['expected_delta'],
+            'tasks' => [['target_value' => $result['target_value']]],
+        ]]);
+        self::assertTrue(true);
+    }
+
+    public function testSavedOtaDiagnosisApprovalRejectsSameDayOrUnquantifiedTarget(): void
+    {
+        $service = new OperationManagementService();
+        $intent = [
+            'id' => 91,
+            'hotel_id' => 80,
+            'source_module' => 'ota_diagnosis_saved',
+            'source_record_id' => 251,
+            'platform' => 'ctrip',
+            'date_start' => '2026-08-08',
+            'date_end' => '2026-08-08',
+            'expected_metric' => 'order_rate',
+            'target_value' => ['review_at' => '2026-08-09 10:00:00'],
+            'evidence' => [],
+        ];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('review_business_date must be exactly the next calendar business date');
+        $this->invokeNonPublic($service, 'buildSavedOtaDiagnosisApprovalTarget', [
+            $intent,
+            [
+                'expected_metric' => 'order_rate',
+                'expected_direction' => 'increase',
+                'target_type' => 'delta',
+                'expected_delta' => 0,
+                'review_business_date' => '2026-08-08',
+            ],
+            3,
+            '2026-08-09 09:30:00',
+        ]);
+    }
+
+    public function testSavedOtaDiagnosisApprovalRejectsZeroDeltaOnValidNextDay(): void
+    {
+        $service = new OperationManagementService();
+        $intent = [
+            'id' => 91,
+            'hotel_id' => 80,
+            'source_module' => 'ota_diagnosis_saved',
+            'source_record_id' => 251,
+            'platform' => 'ctrip',
+            'date_start' => '2026-08-08',
+            'date_end' => '2026-08-08',
+            'expected_metric' => 'order_rate',
+            'target_value' => ['review_at' => '2026-08-09 10:00:00'],
+            'evidence' => [],
+        ];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('approval expected_delta must be a positive number');
+        $this->invokeNonPublic($service, 'buildSavedOtaDiagnosisApprovalTarget', [
+            $intent,
+            [
+                'expected_metric' => 'order_rate',
+                'expected_direction' => 'increase',
+                'target_type' => 'delta',
+                'expected_delta' => 0,
+                'review_business_date' => '2026-08-09',
+            ],
+            3,
+            '2026-08-09 09:30:00',
+        ]);
+    }
+
+    public function testCtripListExposureDefinitionAndApprovalFreezeUniqueUserIntegerSemantics(): void
+    {
+        $service = new OperationManagementService();
+        $definition = $this->invokeNonPublic(
+            $service,
+            'savedOtaDiagnosisMetricDefinition',
+            ['list_exposure', 'ctrip']
+        );
+        self::assertSame('ota_execution_metric_definition.v3', $definition['version']);
+        self::assertSame('ctrip', $definition['platform']);
+        self::assertSame('ctrip_query_flow_transform_new_v1', $definition['source_endpoint_family']);
+        self::assertSame(
+            ['business_flow_transform', 'traffic_flow_transform'],
+            $definition['source_endpoint_ids']
+        );
+        self::assertSame('ctrip_datacenter_list_exposure_uv', $definition['semantic_key']);
+        self::assertSame('unique_users', $definition['unit']);
+        self::assertSame('non_negative_integer', $definition['value_type']);
+        self::assertTrue($definition['field_fact_required']);
+
+        $intent = [
+            'id' => 93,
+            'hotel_id' => 80,
+            'source_module' => 'ota_diagnosis_saved',
+            'source_record_id' => 258,
+            'platform' => 'ctrip',
+            'date_start' => '2026-08-09',
+            'date_end' => '2026-08-09',
+            'current_value' => ['list_exposure' => 0],
+            'expected_metric' => 'list_exposure',
+            'target_value' => [
+                'target_metric' => 'list_exposure',
+                'review_at' => '2026-08-10 10:00:00',
+                'workflow_schedule' => ['review_at' => '2026-08-10 10:00:00'],
+            ],
+            'evidence' => ['decision_recommendation_digest' => str_repeat('b', 64)],
+        ];
+        try {
+            $this->invokeNonPublic($service, 'buildSavedOtaDiagnosisApprovalTarget', [
+                $intent,
+                [
+                    'expected_metric' => 'list_exposure',
+                    'expected_direction' => 'increase',
+                    'target_type' => 'delta',
+                    'expected_delta' => 0.5,
+                    'review_business_date' => '2026-08-10',
+                ],
+                3,
+                '2026-08-09 12:00:00',
+            ]);
+            self::fail('Exposure targets must not approve fractional people.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('whole-user', $exception->getMessage());
+        }
+
+        $approved = $this->invokeNonPublic($service, 'buildSavedOtaDiagnosisApprovalTarget', [
+            $intent,
+            [
+                'expected_metric' => 'list_exposure',
+                'expected_direction' => 'increase',
+                'target_type' => 'delta',
+                'expected_delta' => 1,
+                'review_business_date' => '2026-08-10',
+            ],
+            3,
+            '2026-08-09 12:00:00',
+        ]);
+        self::assertSame('1.000000', $approved['evidence']['approval_target']['expected_delta']);
+        self::assertSame($definition, $approved['evidence']['approval_target']['metric_definition']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('supported only for Ctrip');
+        $this->invokeNonPublic($service, 'savedOtaDiagnosisMetricDefinition', ['list_exposure', 'meituan']);
+    }
+
+    public function testListExposureReadbackRejectsDefaultZeroButAcceptsCapturedZero(): void
+    {
+        $service = new OperationManagementService();
+        $base = $this->trustedOtaOperatingRow([
+            'id' => 81817,
+            'system_hotel_id' => 80,
+            'data_date' => '2026-08-09',
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'dimension' => 'catalog:traffic_report:business_flow_transform:list_exposure',
+            'list_exposure' => 0,
+            'detail_exposure' => 0,
+            'data_period' => 'realtime_snapshot',
+            'is_final' => 0,
+            'snapshot_time' => '2026-08-09 09:00:00',
+            'create_time' => '2026-08-09 09:00:00',
+            'update_time' => '2026-08-09 09:00:00',
+            'source_trace_id' => 'trace-list-exposure-zero',
+            'source_url_hash' => str_repeat('c', 64),
+            'raw_data' => json_encode([
+                'source_trace_id' => 'trace-list-exposure-zero',
+                'source_url_hash' => str_repeat('c', 64),
+                '_source_path' => '$.data',
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        $defaultZeroRows = $this->invokeNonPublic(
+            $service,
+            'canonicalExecutionReadbackRows',
+            [[$base], 'list_exposure']
+        );
+        self::assertSame([], $defaultZeroRows, 'A schema default zero must not become an observed source fact.');
+
+        $captured = OnlineDataFieldFactService::attachToOnlineDailyRow($base, [
+            'listExposure' => 0,
+            '_source_path' => '$.data',
+            '_source_trace_id' => 'trace-list-exposure-zero',
+            '_source_url_hash' => str_repeat('c', 64),
+        ]);
+        $capturedRows = $this->invokeNonPublic(
+            $service,
+            'canonicalExecutionReadbackRows',
+            [[$captured], 'list_exposure']
+        );
+        self::assertCount(1, $capturedRows);
+        self::assertSame(0.0, $this->invokeNonPublic(
+            $service,
+            'executionReadbackMetricValue',
+            ['list_exposure', $capturedRows, 80, '2026-08-09']
+        ));
+
+        $trafficFlow = array_replace($captured, [
+            'id' => 81818,
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+        ]);
+        self::assertCount(1, $this->invokeNonPublic(
+            $service,
+            'canonicalExecutionReadbackRows',
+            [[$trafficFlow], 'list_exposure']
+        ), 'The traffic-report alias of queryFlowTransforNewV1 must remain eligible for same-criterion readback.');
+
+        $genericImpressions = OnlineDataFieldFactService::attachToOnlineDailyRow($base, [
+            'impressions' => 0,
+            '_source_path' => '$.data',
+            '_source_trace_id' => 'trace-list-exposure-zero',
+            '_source_url_hash' => str_repeat('c', 64),
+        ]);
+        self::assertSame([], $this->invokeNonPublic(
+            $service,
+            'canonicalExecutionReadbackRows',
+            [[$genericImpressions], 'list_exposure']
+        ), 'Generic impressions must not satisfy the frozen Ctrip list-exposure user semantic.');
+
+        $rankOnly = OnlineDataFieldFactService::attachToOnlineDailyRow(
+            array_replace($base, [
+                'dimension' => '',
+                'raw_data' => json_encode([
+                    'row' => ['endpoint_id' => 'traffic_hotel_seq', 'rank' => 604],
+                    'source_trace_id' => 'trace-rank-only',
+                    'source_url_hash' => str_repeat('d', 64),
+                ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                'source_trace_id' => 'trace-rank-only',
+                'source_url_hash' => str_repeat('d', 64),
+            ]),
+            [
+                'listExposure' => 0,
+                '_source_path' => '$.data',
+                '_source_trace_id' => 'trace-rank-only',
+                '_source_url_hash' => str_repeat('d', 64),
+            ]
+        );
+        $rankRaw = json_decode((string)$rankOnly['raw_data'], true, 512, JSON_THROW_ON_ERROR);
+        $rankRaw['row']['endpoint_id'] = 'traffic_hotel_seq';
+        $rankOnly['raw_data'] = json_encode($rankRaw, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        self::assertSame([], $this->invokeNonPublic(
+            $service,
+            'canonicalExecutionReadbackRows',
+            [[$rankOnly], 'list_exposure']
+        ), 'A rank endpoint with normalized zero columns must never become a list-exposure fact.');
+    }
+
+    public function testExecutionEvidenceBoundaryRejectsOutcomeMetrics(): void
+    {
+        $service = new OperationManagementService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('saved separately from execution evidence');
+        $this->invokeNonPublic($service, 'assertOperatorExecutionEvidenceBoundary', [
+            'manual_operation_execution',
+            ['before' => ['revenue' => 1000], 'after' => ['revenue' => 1200]],
+        ]);
+    }
+
+    public function testExecutionEvidenceBoundaryKeepsListExposureOutOfExecutionReceipts(): void
+    {
+        $service = new OperationManagementService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('saved separately from execution evidence');
+        $this->invokeNonPublic($service, 'assertOperatorExecutionEvidenceBoundary', [
+            'manual_operation_execution',
+            ['before' => ['list_exposure' => 0], 'after' => ['list_exposure' => 10]],
+        ]);
     }
 
     private function metricValue(array $summary, string $key): mixed

@@ -420,6 +420,8 @@ final class OnlineDataTrustStatusService
         $hotels = self::hotelList($source['hotels'] ?? [], $context);
         $sourceMethods = self::scalarList($source['source_methods'] ?? []);
         $traceIds = self::scalarList($source['trace_ids'] ?? []);
+        $dataSourceIds = self::scalarList($source['data_source_ids'] ?? []);
+        $syncTaskIds = self::scalarList($source['sync_task_ids'] ?? []);
         $dataTypes = self::scalarList($source['data_types'] ?? []);
         $dateRange = is_array($source['date_range'] ?? null) ? $source['date_range'] : [];
         $startDate = self::firstText([$dateRange['start'] ?? null, $context['start_date'] ?? null, $context['data_date'] ?? null]);
@@ -492,6 +494,8 @@ final class OnlineDataTrustStatusService
                 'table' => trim((string)($source['table'] ?? '')),
                 'row_ids' => $rowIds,
                 'trace_ids' => $traceIds,
+                'data_source_ids' => $dataSourceIds,
+                'sync_task_ids' => $syncTaskIds,
                 'methods' => $sourceMethods,
                 'data_types' => $dataTypes,
                 'caliber' => trim((string)($metricTrust['caliber'] ?? '')),

@@ -83,6 +83,59 @@ final class OtaTrafficAttributionServiceTest extends TestCase
             'raw_data' => '{}',
         ], 'ctrip'));
 
+        self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => '',
+            'dimension' => '',
+            'raw_data' => json_encode(['row' => ['endpoint_id' => 'traffic_flow_transform']]),
+        ], 'ctrip'));
+
+        self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => '',
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+            'raw_data' => json_encode(['row' => ['endpoint_id' => 'traffic_flow_transform']]),
+        ], 'ctrip'));
+
+        foreach (['traffic_hotel_seq', 'traffic_flow_source'] as $auxiliaryEndpoint) {
+            self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+                'platform' => 'ctrip',
+                'compare_type' => '',
+                'dimension' => '',
+                'raw_data' => json_encode(['row' => ['endpoint_id' => $auxiliaryEndpoint]]),
+            ], 'ctrip'));
+        }
+
+        foreach ([
+            ['row' => ['capture' => ['endpoint_id' => 'traffic_hotel_seq']]],
+            ['source_row' => ['endpoint_id' => 'traffic_flow_source']],
+            ['source_row' => ['capture' => ['endpointId' => 'traffic_hotel_seq']]],
+        ] as $nestedAuxiliaryRaw) {
+            self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+                'platform' => 'ctrip',
+                'compare_type' => '',
+                'dimension' => '',
+                'raw_data' => json_encode($nestedAuxiliaryRaw),
+            ], 'ctrip'));
+        }
+
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => '',
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+            'raw_data' => json_encode(['row' => ['endpoint_id' => 'traffic_hotel_seq']]),
+        ], 'ctrip'));
+
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => '',
+            'dimension' => '',
+            'raw_data' => json_encode([
+                'endpoint_id' => 'traffic_flow_transform',
+                'row' => ['endpoint_id' => 'traffic_flow_source'],
+            ]),
+        ], 'ctrip'));
+
         self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
             'platform' => 'ctrip',
             'compare_type' => 'self',

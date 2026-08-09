@@ -430,11 +430,17 @@ class OperationManagement extends Base
 
             $input = $this->requestData();
             [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
-            $approved = !array_key_exists('approved', $input) || filter_var($input['approved'], FILTER_VALIDATE_BOOL);
+            if (!array_key_exists('approved', $input)) {
+                return $this->error('approved must be explicitly provided', 422);
+            }
+            $approved = filter_var($input['approved'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+            if (!is_bool($approved)) {
+                return $this->error('approved must be a boolean', 422);
+            }
             $remark = trim((string)($input['remark'] ?? ''));
             $userId = (int)($this->currentUser->id ?? 0);
 
-            return $this->success($this->service->approveExecutionIntent($id, $approved, $remark, $userId, $hotelIds));
+            return $this->success($this->service->approveExecutionIntent($id, $approved, $remark, $userId, $hotelIds, $input));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'execution intent approval failed'), $this->operationThrowableStatus($e));
         }

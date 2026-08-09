@@ -1985,6 +1985,114 @@ trait AgentCapturedOtaAnalysisConcern
         ];
     }
 
+    /**
+     * Expose the actual OTA decision path without pretending that a missing
+     * knowledge or model layer produced an answer.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildOtaDiagnosisDecisionRoute(array $context): array
+    {
+        $governance = is_array($context['ai_governance'] ?? null) ? $context['ai_governance'] : [];
+        $runtime = is_array($context['analysis_runtime'] ?? null) ? $context['analysis_runtime'] : [];
+        $evidenceRefs = array_values(array_filter(
+            $this->extractAiEvidenceRefs($context),
+            static fn(string $ref): bool => $ref !== '' && !str_contains($ref, 'no_data')
+        ));
+        $knowledgeCitations = is_array($governance['knowledge_citations'] ?? null)
+            ? array_values($governance['knowledge_citations'])
+            : $this->extractAiKnowledgeCitations($context['knowledge_context'] ?? []);
+
+        $decisionStatus = strtolower(trim((string)($context['decision_status'] ?? $context['decision_closure']['status'] ?? '')));
+        $dataQuality = is_array($context['data_quality'] ?? null) ? $context['data_quality'] : [];
+        $evidenceReady = $evidenceRefs !== []
+            && ($dataQuality['is_reliable'] ?? true) !== false
+            && !in_array($decisionStatus, ['blocked', 'blocked_by_data', 'blocked_by_missing_facts'], true);
+        $evidenceStatusLabel = match (true) {
+            $evidenceReady => '已使用',
+            $evidenceRefs !== [] => '关键指标不完整',
+            default => '证据不足',
+        };
+        $evidenceDetail = match (true) {
+            $evidenceReady => sprintf('已绑定 %d 条可追溯数据库证据，并先执行确定性规则。', count($evidenceRefs)),
+            $evidenceRefs !== [] => '已有可追溯目标范围事实，但关键收益或流量指标不完整，暂不能行动；未用 0、旧值或默认值补齐。',
+            default => '目标范围缺少可用数据库证据；未用 0、旧值或默认值补齐。',
+        };
+
+        $modelCalled = ($runtime['model_called'] ?? false) === true;
+        $modelCall = is_array($governance['model_call'] ?? null) ? $governance['model_call'] : [];
+        $modelStatus = strtolower(trim((string)($modelCall['status'] ?? '')));
+        $modelSucceeded = $modelCalled && in_array($modelStatus, ['success', 'ok', 'completed'], true);
+        $modelFallback = $modelCalled && !$modelSucceeded;
+
+        $humanRequired = ($governance['human_confirmation_required'] ?? false) === true || !$evidenceReady;
+        $finalStatus = !$evidenceReady
+            ? 'blocked'
+            : ($humanRequired ? 'pending_manual_review' : 'ready');
+        $humanReason = strtolower(trim((string)($governance['human_confirmation_reason'] ?? '')));
+        $humanDetail = match (true) {
+            str_contains($humanReason, 'blocked until required evidence') => '建议动作证据尚未补齐，暂不能进入执行。',
+            str_contains($humanReason, 'pending manual review') => '建议动作等待有权限人员人工确认。',
+            str_contains($humanReason, 'confidence level') => '当前置信度不足，需要有权限人员复核。',
+            str_contains($humanReason, 'operational decision') => '运营决策必须由有权限人员确认。',
+            default => '证据不足或建议将影响运营，必须由有权限人员确认。',
+        };
+
+        return [
+            'version' => 'ota_decision_route.v1',
+            'policy' => 'verified_evidence_then_knowledge_then_model_then_human_confirmation',
+            'final_status' => $finalStatus,
+            'stages' => [
+                [
+                    'key' => 'verified_evidence',
+                    'label' => '真实数据与规则',
+                    'status' => $evidenceReady ? 'used' : 'blocked',
+                    'status_label' => $evidenceStatusLabel,
+                    'detail' => $evidenceDetail,
+                    'refs' => array_slice($evidenceRefs, 0, 6),
+                ],
+                [
+                    'key' => 'knowledge',
+                    'label' => '知识解释',
+                    'status' => $knowledgeCitations !== [] ? 'used' : 'skipped',
+                    'status_label' => $knowledgeCitations !== [] ? '已引用' : '未参与',
+                    'detail' => $knowledgeCitations !== []
+                        ? sprintf('引用 %d 条知识，只解释口径与行动，不替代本次经营事实。', count($knowledgeCitations))
+                        : '当前没有可追溯知识引用；系统保留规则结论，不臆造知识答案。',
+                    'refs' => array_values(array_filter(array_map(
+                        static fn($item): string => is_array($item) ? trim((string)($item['ref'] ?? '')) : '',
+                        array_slice($knowledgeCitations, 0, 6)
+                    ))),
+                ],
+                [
+                    'key' => 'model',
+                    'label' => '模型增强',
+                    'status' => $modelSucceeded ? 'used' : ($modelFallback ? 'fallback' : 'skipped'),
+                    'status_label' => $modelSucceeded ? '已增强' : ($modelFallback ? '已降级' : '未调用'),
+                    'detail' => $modelSucceeded
+                        ? '模型只补充解释与建议，确定性规则和证据门禁仍保留。'
+                        : ($modelFallback
+                            ? '模型调用未成功，已回退到真实数据与系统规则。'
+                            : '本次未调用模型，结果来自真实数据与确定性规则。'),
+                    'refs' => array_values(array_filter([
+                        trim((string)($modelCall['call_id'] ?? '')),
+                        trim((string)($modelCall['model_key'] ?? '')),
+                    ])),
+                ],
+                [
+                    'key' => 'human_confirmation',
+                    'label' => '人工确认',
+                    'status' => $humanRequired ? 'required' : 'not_required',
+                    'status_label' => $humanRequired ? '必须确认' : '无需确认',
+                    'detail' => $humanRequired
+                        ? $humanDetail
+                        : '当前结果仅供读取，不包含待执行的运营动作。',
+                    'refs' => [],
+                ],
+            ],
+        ];
+    }
+
     private function extractAiKnowledgeCitations($knowledgeContext): array
     {
         $context = is_array($knowledgeContext) ? $knowledgeContext : [];

@@ -121,6 +121,7 @@ final class DualOtaContinuousTrustService
         $tenantId = (int)($hotel['tenant_id'] ?? 0);
         $days = [];
         $verifiedDays = 0;
+        $acceptedDays = 0;
 
         foreach (array_reverse(self::dateRange($startDate, $endDate)) as $date) {
             $platformRows = [];
@@ -149,9 +150,21 @@ final class DualOtaContinuousTrustService
             } else {
                 $dayStatus = 'partial';
             }
+            $platformAcceptanceStatuses = array_column($platformRows, 'acceptance_status');
+            if ($platformAcceptanceStatuses === ['verified', 'verified']) {
+                $dayAcceptanceStatus = 'verified';
+                $acceptedDays++;
+            } elseif (in_array('blocked', $platformAcceptanceStatuses, true)) {
+                $dayAcceptanceStatus = 'blocked';
+            } elseif ($platformAcceptanceStatuses === ['unverified', 'unverified']) {
+                $dayAcceptanceStatus = 'unverified';
+            } else {
+                $dayAcceptanceStatus = 'partial';
+            }
             $days[] = [
                 'date' => $date,
                 'status' => $dayStatus,
+                'acceptance_status' => $dayAcceptanceStatus,
                 'platforms' => $platformRows,
             ];
         }
@@ -163,13 +176,26 @@ final class DualOtaContinuousTrustService
             }
             $consecutiveVerifiedDays++;
         }
+        $consecutiveAcceptedDays = 0;
+        foreach ($days as $day) {
+            if (($day['acceptance_status'] ?? '') !== 'verified') {
+                break;
+            }
+            $consecutiveAcceptedDays++;
+        }
         $latestStatus = (string)($days[0]['status'] ?? 'partial');
         $status = $verifiedDays === count($days) && $days !== []
             ? 'verified'
             : ($latestStatus === 'collection_failed' ? 'collection_failed' : 'partial');
+        $latestAcceptanceStatus = (string)($days[0]['acceptance_status'] ?? 'unverified');
+        $acceptanceStatus = $acceptedDays === count($days) && $days !== []
+            ? 'verified'
+            : (in_array($latestAcceptanceStatus, ['blocked', 'partial', 'unverified'], true)
+                ? $latestAcceptanceStatus
+                : 'unverified');
 
         return [
-            'schema_version' => 1,
+            'schema_version' => 2,
             'metric_scope' => 'ota_channel',
             'hotel_id' => $hotelId > 0 ? $hotelId : null,
             'hotel_name' => trim((string)($hotel['name'] ?? '')),
@@ -177,9 +203,12 @@ final class DualOtaContinuousTrustService
             'start_date' => $startDate,
             'end_date' => $endDate,
             'status' => $tenantId > 0 ? $status : 'partial',
+            'acceptance_status' => $tenantId > 0 ? $acceptanceStatus : 'unverified',
             'evaluated_days' => count($days),
             'verified_days' => $verifiedDays,
             'consecutive_verified_days' => $consecutiveVerifiedDays,
+            'accepted_days' => $acceptedDays,
+            'consecutive_accepted_days' => $consecutiveAcceptedDays,
             'required_platforms' => self::PLATFORMS,
             'required_steps' => [
                 'source',
@@ -204,7 +233,7 @@ final class DualOtaContinuousTrustService
                 'page_status' => 'field_fact_projection_contract',
             ],
             'days' => $days,
-            'boundary' => 'Only exact-date, tenant/hotel/account-Profile-bound, raw-saved, organized-saved and database-read-back Ctrip and Meituan facts can become verified. Profile keys and hashes are never returned. page_status confirms the stored field-fact projection contract only; it does not claim that a live browser render was observed. Old rows and numeric zero never replace missing evidence.',
+            'boundary' => 'Only exact-date, tenant/hotel/account-Profile-bound, raw-saved, organized-saved and database-read-back Ctrip and Meituan facts can become verified. Profile keys and hashes are never returned. page_status confirms the stored field-fact projection contract only; it does not claim that a live browser render was observed. An explicit numeric zero is accepted only with matching field and capture evidence; old rows, defaults and missing values never replace evidence.',
         ];
     }
 
@@ -318,6 +347,7 @@ final class DualOtaContinuousTrustService
         $rawSave = self::rawSaveClosure(
             $platform,
             $hotelId,
+            $tenantId,
             $taskId,
             $taskSourceId,
             $rawRecords
@@ -362,7 +392,7 @@ final class DualOtaContinuousTrustService
             $organizedScopeConflict,
             $readbackReady,
             $p0TaskReady,
-            (bool)($facts['nonzero_required_metric_ready'] ?? false)
+            (bool)($facts['explicit_required_metric_ready'] ?? false)
         );
         $hasScopeConflict = (bool)($accountBinding['conflict'] ?? false)
             || (bool)($rawSave['conflict'] ?? false)
@@ -388,7 +418,7 @@ final class DualOtaContinuousTrustService
             && $organizedSaveReady
             && $readbackReady
             && $conflictRecollectReady
-            && (bool)($facts['nonzero_required_metric_ready'] ?? false)
+            && (bool)($facts['explicit_required_metric_ready'] ?? false)
             && (bool)($facts['platform_hotel_identifier_ready'] ?? false);
 
         $steps = [
@@ -411,10 +441,25 @@ final class DualOtaContinuousTrustService
         $status = $missingSteps === []
             ? 'verified'
             : ($collectionFailed ? 'collection_failed' : 'partial');
+        $acceptanceReceipt = self::buildAcceptanceReceipt(
+            $platform,
+            $date,
+            $hotelId,
+            $task,
+            $taskStats,
+            $taskDiagnostics,
+            $platformSources,
+            $facts,
+            $gapCodes,
+            $p0Ready,
+            $collectionFailed
+        );
 
         return [
             'platform' => $platform,
             'status' => $status,
+            'acceptance_status' => $acceptanceReceipt['status'],
+            'acceptance_receipt' => $acceptanceReceipt,
             'target_date' => $date,
             'source_method' => $sourceReady
                 ? ($cloudP0TaskReady
@@ -444,6 +489,274 @@ final class DualOtaContinuousTrustService
                 ? (trim((string)($task['message'] ?? '')) ?: 'target_date_collection_failed')
                 : null,
         ];
+    }
+
+    /**
+     * Project one safe, exact-task acceptance receipt for the selected platform
+     * and business date. Counts absent from the task remain null; zero is kept
+     * only when the persisted task explicitly returned zero.
+     *
+     * @param array<string, mixed> $task
+     * @param array<string, mixed> $taskStats
+     * @param array<string, mixed> $taskDiagnostics
+     * @param array<int, array<string, mixed>> $platformSources
+     * @param array<string, mixed> $facts
+     * @param array<int, string> $gapCodes
+     * @return array<string, mixed>
+     */
+    private static function buildAcceptanceReceipt(
+        string $platform,
+        string $date,
+        int $hotelId,
+        array $task,
+        array $taskStats,
+        array $taskDiagnostics,
+        array $platformSources,
+        array $facts,
+        array $gapCodes,
+        bool $p0Ready,
+        bool $collectionFailed
+    ): array {
+        $taskId = (int)($task['id'] ?? 0);
+        $sourceId = (int)($task['data_source_id'] ?? 0);
+        $taskSource = [];
+        foreach ($platformSources as $source) {
+            if ((int)($source['id'] ?? 0) === $sourceId) {
+                $taskSource = $source;
+                break;
+            }
+        }
+        $platformHotelId = self::sourcePlatformHotelId($taskSource);
+        $runReadback = is_array($taskStats['run_readback'] ?? null)
+            ? $taskStats['run_readback']
+            : [];
+
+        $collectionResult = (new CollectionResultContractService())->fromOtaRunReadback(
+            $taskStats,
+            [
+                'tenant_id' => (int)($task['tenant_id'] ?? $taskSource['tenant_id'] ?? 0),
+                'system_hotel_id' => $hotelId,
+                'platform' => $platform,
+                'platform_hotel_id' => $platformHotelId,
+                // This projection evaluates the required OTA traffic field
+                // loop even when the reusable Profile source is configured as
+                // `all` or `business` for other sections.
+                'business_module' => 'traffic',
+                'source_method' => trim((string)($task['ingestion_method'] ?? $taskSource['ingestion_method'] ?? '')),
+                'status' => trim((string)($task['status'] ?? '')),
+                'saved_count' => self::nullableTaskCount($taskStats, 'saved_count'),
+                'normalized_count' => self::nullableTaskCount($taskStats, 'normalized_count'),
+                'task_id' => $taskId > 0 ? $taskId : null,
+                'data_source_id' => $sourceId > 0 ? $sourceId : null,
+                'target_date' => $date,
+            ]
+        );
+
+        $taskSavedCount = self::nullableTaskCount($taskStats, 'saved_count');
+        $taskReadbackCount = self::nullableTaskCount($taskStats, 'readback_count');
+        $taskReadbackVerified = array_key_exists('readback_verified', $taskStats)
+            ? ($taskStats['readback_verified'] === true)
+            : null;
+        $runRowIds = array_key_exists('row_ids', $runReadback) && is_array($runReadback['row_ids'])
+            ? array_values(array_unique(array_filter(array_map(
+                static fn($value): int => max(0, (int)$value),
+                $runReadback['row_ids']
+            ))))
+            : null;
+        $targetSavedCount = is_array($runRowIds) ? count($runRowIds) : null;
+        $targetReadbackCount = self::nullableTaskCount($runReadback, 'readback_count');
+        $targetReadbackVerified = array_key_exists('readback_verified', $runReadback)
+            ? ($runReadback['readback_verified'] === true)
+            : null;
+        $taskCountsMatch = $taskSavedCount !== null
+            && $taskReadbackCount !== null
+            && $taskSavedCount > 0
+            && $taskSavedCount === $taskReadbackCount
+            && $taskReadbackVerified === true;
+        $targetCountsMatch = $targetSavedCount !== null
+            && $targetReadbackCount !== null
+            && $targetSavedCount > 0
+            && $targetSavedCount === $targetReadbackCount
+            && $targetReadbackVerified === true;
+
+        $receiptTargetDate = substr(trim((string)($runReadback['target_date'] ?? '')), 0, 10);
+        $declaredTargetDate = substr(trim((string)($taskDiagnostics['target_date'] ?? '')), 0, 10);
+        $targetDateStatus = $receiptTargetDate !== ''
+            ? ($receiptTargetDate === $date ? 'matched' : 'mismatch')
+            : ($declaredTargetDate !== '' && $declaredTargetDate !== $date ? 'mismatch' : 'unverified');
+        $completeMetricKeys = array_values(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            is_array($facts['complete_metric_keys'] ?? null) ? $facts['complete_metric_keys'] : []
+        )));
+        $missingMetricKeys = array_values(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            is_array($facts['missing_metric_keys'] ?? null) ? $facts['missing_metric_keys'] : []
+        )));
+
+        $reasonCodes = [];
+        foreach ([$collectionResult['blockers'] ?? [], $gapCodes] as $codes) {
+            foreach (is_array($codes) ? $codes : [] as $code) {
+                $normalized = strtolower(trim((string)$code));
+                if ($normalized !== '' && preg_match('/^[a-z0-9][a-z0-9._:-]{0,159}$/D', $normalized) === 1) {
+                    $reasonCodes[] = $normalized;
+                }
+            }
+        }
+        if ($targetDateStatus === 'mismatch') {
+            $reasonCodes[] = 'target_date_mismatch';
+        }
+        if (!$taskCountsMatch || !$targetCountsMatch) {
+            $reasonCodes[] = 'saved_readback_count_unverified';
+        }
+        if ($missingMetricKeys !== []) {
+            $reasonCodes[] = 'critical_fields_incomplete';
+        }
+        if (!$p0Ready) {
+            $reasonCodes[] = 'p0_not_ready';
+        }
+        $reasonCodes = array_values(array_unique($reasonCodes));
+
+        $contractClaimAllowed = ($collectionResult['claim']['allowed'] ?? false) === true;
+        $claimAllowed = $contractClaimAllowed
+            && $p0Ready
+            && $taskCountsMatch
+            && $targetCountsMatch
+            && $targetDateStatus === 'matched'
+            && $missingMetricKeys === [];
+        $hasBlockingReason = $collectionFailed || $targetDateStatus === 'mismatch';
+        $hasUnverifiedReason = false;
+        foreach ($reasonCodes as $reasonCode) {
+            if (str_starts_with($reasonCode, 'account_profile_binding_')
+                || str_contains($reasonCode, 'hotel_binding')
+                || str_contains($reasonCode, 'hotel_identity_mismatch')
+                || str_contains($reasonCode, 'scope_conflict')
+                || in_array($reasonCode, [
+                    'target_date_data_missing',
+                    'target_date_scope_mismatch',
+                    'target_date_mismatch',
+                    'binding_missing',
+                    'collection_outcome_not_success',
+                ], true)
+            ) {
+                $hasBlockingReason = true;
+            }
+            if (in_array($reasonCode, [
+                'collection_strategy_unverified',
+                'structured_response_required',
+                'database_readback_not_verified',
+                'readback_mismatch',
+                'saved_readback_count_unverified',
+                'raw_save_missing',
+                'raw_save_payload_incomplete',
+                'organized_save_missing',
+            ], true)) {
+                $hasUnverifiedReason = true;
+            }
+        }
+        if ($claimAllowed) {
+            $status = 'verified';
+        } elseif ($hasBlockingReason) {
+            $status = 'blocked';
+        } elseif ($hasUnverifiedReason
+            || !$taskCountsMatch
+            || !$targetCountsMatch
+            || $targetDateStatus !== 'matched'
+        ) {
+            $status = 'unverified';
+        } elseif ($missingMetricKeys !== [] || !$p0Ready) {
+            $status = 'partial';
+        } else {
+            $status = 'unverified';
+        }
+
+        $strategy = is_array($collectionResult['run']['strategy'] ?? null)
+            ? $collectionResult['run']['strategy']
+            : [];
+        $identityStatus = strtolower(trim((string)($collectionResult['identity_status'] ?? '')));
+        $capturedAt = trim((string)(
+            $collectionResult['run']['collected_at']
+            ?? $task['started_at']
+            ?? $task['finished_at']
+            ?? ''
+        ));
+        $finishedAt = trim((string)($task['finished_at'] ?? $task['update_time'] ?? ''));
+
+        return [
+            'status' => $status,
+            'system_hotel_id' => $hotelId > 0 ? $hotelId : null,
+            'platform' => $platform,
+            'platform_hotel_id' => $platformHotelId !== '' ? $platformHotelId : null,
+            'observed_platform_hotel_id' => trim((string)($runReadback['observed_platform_hotel_id'] ?? '')) ?: null,
+            'platform_hotel_status' => $identityStatus === 'matched' ? 'verified' : ($platformHotelId === '' ? 'blocked' : 'unverified'),
+            'target_date' => $date,
+            'observed_target_date' => $receiptTargetDate !== '' ? $receiptTargetDate : null,
+            'declared_target_date' => $declaredTargetDate !== '' ? $declaredTargetDate : null,
+            'target_date_status' => $targetDateStatus,
+            'captured_at' => $capturedAt !== '' ? $capturedAt : null,
+            'finished_at' => $finishedAt !== '' ? $finishedAt : null,
+            'source_method' => trim((string)($collectionResult['scope']['source_method'] ?? '')) ?: null,
+            'capture_strategy' => [
+                'selected' => trim((string)($strategy['selected'] ?? '')) ?: 'not_recorded',
+                'status' => trim((string)($strategy['status'] ?? '')) ?: 'unverified',
+                'response_evidence_type' => trim((string)($strategy['response_evidence_type'] ?? '')) ?: null,
+            ],
+            'data_source_id' => $sourceId > 0 ? $sourceId : null,
+            'sync_task_id' => $taskId > 0 ? $taskId : null,
+            'sync_task_status' => trim((string)($task['status'] ?? '')) ?: null,
+            'data_period' => trim((string)($runReadback['data_period'] ?? '')) ?: null,
+            'counts' => [
+                'normalized' => self::nullableTaskCount($taskStats, 'normalized_count'),
+                'saved' => $taskSavedCount,
+                'readback' => $taskReadbackCount,
+                'saved_readback_match' => $taskCountsMatch,
+                'target_saved' => $targetSavedCount,
+                'target_readback' => $targetReadbackCount,
+                'target_saved_readback_match' => $targetCountsMatch,
+            ],
+            'critical_fields' => [
+                'required' => self::REQUIRED_TRAFFIC_METRICS[$platform],
+                'complete' => $completeMetricKeys,
+                'missing' => $missingMetricKeys,
+                'status' => $missingMetricKeys === [] && $completeMetricKeys !== []
+                    ? 'verified'
+                    : ($taskId > 0 ? 'partial' : 'unverified'),
+            ],
+            'contract_claim_allowed' => $contractClaimAllowed,
+            'claim_allowed' => $claimAllowed,
+            'reason_codes' => $reasonCodes,
+            'failure_reason' => $collectionFailed
+                ? (trim((string)($task['message'] ?? '')) ?: 'target_date_collection_failed')
+                : null,
+            'live_page_verification_status' => 'not_evaluated',
+        ];
+    }
+
+    /** @param array<string, mixed> $values */
+    private static function nullableTaskCount(array $values, string $key): ?int
+    {
+        if (!array_key_exists($key, $values) || !is_numeric($values[$key])) {
+            return null;
+        }
+        return max(0, (int)$values[$key]);
+    }
+
+    /** @param array<string, mixed> $source */
+    private static function sourcePlatformHotelId(array $source): string
+    {
+        $config = self::decodeArray($source['config_json'] ?? $source['config'] ?? []);
+        foreach ([
+            'external_hotel_id', 'hotel_id', 'hotelId', 'ota_hotel_id', 'otaHotelId',
+            'ctrip_hotel_id', 'ctripHotelId', 'platform_hotel_id', 'platformHotelId',
+            'store_id', 'storeId', 'poi_id', 'poiId',
+        ] as $key) {
+            foreach ([$source, $config] as $candidate) {
+                $value = trim((string)($candidate[$key] ?? ''));
+                if ($value !== '' && mb_strlen($value) <= 120) {
+                    return $value;
+                }
+            }
+        }
+        return '';
     }
 
     /**
@@ -517,11 +830,12 @@ final class DualOtaContinuousTrustService
     private static function rawSaveClosure(
         string $platform,
         int $hotelId,
+        int $tenantId,
         int $taskId,
         int $sourceId,
         array $rawRecords
     ): array {
-        if ($taskId <= 0 || $sourceId <= 0) {
+        if ($tenantId <= 0 || $taskId <= 0 || $sourceId <= 0) {
             return ['ready' => false, 'conflict' => false, 'code' => 'raw_save_task_or_source_missing'];
         }
         $taskRecords = array_values(array_filter(
@@ -531,7 +845,8 @@ final class DualOtaContinuousTrustService
         $exact = array_values(array_filter(
             $taskRecords,
             static fn(array $record): bool =>
-                (int)($record['data_source_id'] ?? 0) === $sourceId
+                (int)($record['tenant_id'] ?? 0) === $tenantId
+                && (int)($record['data_source_id'] ?? 0) === $sourceId
                 && (int)($record['system_hotel_id'] ?? 0) === $hotelId
                 && self::rowPlatform($record) === $platform
         ));
@@ -605,7 +920,7 @@ final class DualOtaContinuousTrustService
         bool $organizedScopeConflict,
         bool $readbackReady,
         bool $p0TaskReady,
-        bool $nonzeroMetricReady
+        bool $explicitMetricReady
     ): array {
         $codes = [];
         if (!$sourceReady) {
@@ -635,8 +950,8 @@ final class DualOtaContinuousTrustService
         if (!$p0TaskReady) {
             $codes[] = 'p0_task_receipt_not_ready';
         }
-        if (!$nonzeroMetricReady) {
-            $codes[] = 'required_metric_nonzero_evidence_missing';
+        if (!$explicitMetricReady) {
+            $codes[] = 'required_metric_explicit_evidence_missing';
         }
         return array_values(array_unique(array_filter(
             $codes,
@@ -699,6 +1014,7 @@ final class DualOtaContinuousTrustService
         $complete = [];
         $allUiReady = $rows !== [];
         $allIdentifiersReady = $rows !== [];
+        $explicitRows = 0;
         $nonzeroRows = 0;
         foreach ($rows as $row) {
             $evidenceRow = self::evidenceRow($row);
@@ -721,9 +1037,13 @@ final class DualOtaContinuousTrustService
                 $factEvidence = is_array($fact['capture_evidence'] ?? null) ? $fact['capture_evidence'] : [];
                 $factTraceId = trim((string)($factEvidence['source_trace_id'] ?? ''));
                 $factUrlHash = trim((string)($factEvidence['source_url_hash'] ?? ''));
+                $storedMetricReady = array_key_exists($metricKey, $evidenceRow)
+                    && is_numeric($evidenceRow[$metricKey])
+                    && is_finite((float)$evidenceRow[$metricKey]);
                 $factReady = self::structuredSourcePath($sourcePath)
                     && $storageField === $expectedStorage[$metricKey]
                     && ($fact['stored_value_present'] ?? null) === true
+                    && $storedMetricReady
                     && $rowTraceId !== ''
                     && $rowUrlHash !== ''
                     && hash_equals($rowTraceId, $factTraceId)
@@ -737,6 +1057,8 @@ final class DualOtaContinuousTrustService
             $rowUiReady = count(array_diff($required, array_keys($rowComplete))) === 0;
             if (!$rowUiReady) {
                 $allUiReady = false;
+            } else {
+                $explicitRows++;
             }
 
             $identifierReady = ($raw['platform_hotel_identifier_present'] ?? null) === true
@@ -773,10 +1095,21 @@ final class DualOtaContinuousTrustService
 
         $completeKeys = array_values(array_intersect($required, array_keys($complete)));
         $missingKeys = array_values(array_diff($required, $completeKeys));
+        // Ctrip persists one exact capture task as several normalized rows. Its
+        // P0 field group is complete when the same task's rows collectively
+        // close all required field facts; requiring every row to repeat every
+        // field incorrectly rejects the platform's normalized storage shape.
+        $uiStatusReady = $platform === 'ctrip'
+            ? ($rows !== [] && $missingKeys === [])
+            : $allUiReady;
+        $explicitRequiredMetricReady = $platform === 'ctrip'
+            ? ($rows !== [] && $missingKeys === [])
+            : $explicitRows > 0;
         return [
-            'ready' => $rows !== [] && $missingKeys === [] && $allUiReady,
-            'ui_status_ready' => $allUiReady,
+            'ready' => $rows !== [] && $missingKeys === [] && $uiStatusReady,
+            'ui_status_ready' => $uiStatusReady,
             'platform_hotel_identifier_ready' => $allIdentifiersReady,
+            'explicit_required_metric_ready' => $explicitRequiredMetricReady,
             'nonzero_required_metric_ready' => $nonzeroRows > 0,
             'complete_metric_keys' => $completeKeys,
             'missing_metric_keys' => $missingKeys,
@@ -855,11 +1188,12 @@ final class DualOtaContinuousTrustService
             )), 0, 10);
             return $taskDate === $date;
         }));
-        usort($matches, static function (array $left, array $right): int {
-            $leftTime = (string)($left['finished_at'] ?? $left['update_time'] ?? $left['create_time'] ?? '');
-            $rightTime = (string)($right['finished_at'] ?? $right['update_time'] ?? $right['create_time'] ?? '');
-            return strcmp($rightTime, $leftTime);
-        });
+        // The authoritative P0/employee-console projection defines "latest"
+        // by the monotonically increasing task id. Timestamp strings can be
+        // missing on a failed retry and must never let an older success win.
+        usort($matches, static fn(array $left, array $right): int =>
+            (int)($right['id'] ?? 0) <=> (int)($left['id'] ?? 0)
+        );
         return $matches[0] ?? [];
     }
 
@@ -964,7 +1298,7 @@ final class DualOtaContinuousTrustService
     private static function unavailable(?int $hotelId, string $startDate, string $endDate, string $reason): array
     {
         return [
-            'schema_version' => 1,
+            'schema_version' => 2,
             'metric_scope' => 'ota_channel',
             'hotel_id' => $hotelId,
             'hotel_name' => '',
@@ -972,9 +1306,12 @@ final class DualOtaContinuousTrustService
             'start_date' => $startDate,
             'end_date' => $endDate,
             'status' => 'partial',
+            'acceptance_status' => 'unverified',
             'evaluated_days' => 0,
             'verified_days' => 0,
             'consecutive_verified_days' => 0,
+            'accepted_days' => 0,
+            'consecutive_accepted_days' => 0,
             'required_platforms' => self::PLATFORMS,
             'required_steps' => [
                 'source', 'account_profile_binding', 'hotel', 'date', 'field_facts',

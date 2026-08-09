@@ -266,6 +266,32 @@ final class ScheduledAutoFetchPolicy
     }
 
     /**
+     * Keep scheduler execution/retry caches isolated by the exact requested
+     * source and platform scope. Empty arrays are explicit dynamic markers,
+     * so legacy unscoped keys can never satisfy a newly scoped dispatcher.
+     *
+     * @param array<int, int> $sourceIds
+     * @param array<int, string> $platforms
+     */
+    public function cacheScopeSuffix(array $sourceIds, array $platforms): string
+    {
+        $sourceIds = $this->positiveIds($sourceIds);
+        sort($sourceIds, SORT_NUMERIC);
+        $platforms = $this->platformList($platforms);
+        $descriptor = [
+            'source_ids' => $sourceIds,
+            'source_mode' => $sourceIds === [] ? 'dynamic' : 'fixed',
+            'platforms' => $platforms,
+            'platform_mode' => $platforms === [] ? 'dynamic' : 'fixed',
+        ];
+        ksort($descriptor, SORT_STRING);
+        return '_scope_' . substr(hash('sha256', json_encode(
+            $descriptor,
+            JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        )), 0, 16);
+    }
+
+    /**
      * @param array<int, int> $sourceIds
      * @param array<string, mixed> $outcome
      * @param array<string, mixed> $result
@@ -343,6 +369,7 @@ final class ScheduledAutoFetchPolicy
             && array_diff($requiredPlatforms, $receiptPlatforms) === [];
         $collectionComplete = !empty($outcome['complete']) && $exportableSnapshotComplete;
         $authorityRequired = $dataPeriod === 'historical_daily';
+        $authorityScopeComplete = $collectionComplete && !$authorityRequired;
         $collectionAnchorHash = hash(
             'sha256',
             json_encode(array_values($sourceTasks), JSON_UNESCAPED_SLASHES) ?: '[]'
@@ -376,7 +403,9 @@ final class ScheduledAutoFetchPolicy
                     : [],
                 'sensitive_values_exposed' => false,
             ],
-            'dual_ota_p0_complete' => $collectionComplete && !$authorityRequired,
+            'authority_scope_complete' => $authorityScopeComplete,
+            'dual_ota_p0_complete' => $authorityScopeComplete
+                && $requiredPlatforms === self::REQUIRED_DAILY_PLATFORMS,
             'source_tasks' => array_values($sourceTasks),
         ];
     }
@@ -413,6 +442,25 @@ final class ScheduledAutoFetchPolicy
         )));
         $anchorReady = preg_match('/^[a-f0-9]{64}$/D', $collectionAnchorHash) === 1
             && hash_equals($collectionAnchorHash, $verifierAnchorHash);
+        $storageScopes = is_array($verifier['platform_storage_scopes'] ?? null)
+            ? $verifier['platform_storage_scopes']
+            : [];
+        $syntheticProvenanceMissingRows = 0;
+        $observedMetricProvenanceReady = $requiredPlatforms !== [];
+        foreach ($requiredPlatforms as $requiredPlatform) {
+            $scope = is_array($storageScopes[$requiredPlatform] ?? null)
+                ? $storageScopes[$requiredPlatform]
+                : [];
+            $missingRows = max(0, (int)(
+                $scope['synthetic_normalization_provenance_missing_rows'] ?? 0
+            ));
+            $syntheticProvenanceMissingRows += $missingRows;
+            if (strtolower(trim((string)(
+                $scope['observed_traffic_metric_provenance_status'] ?? ''
+            ))) !== 'ready' || $missingRows !== 0) {
+                $observedMetricProvenanceReady = false;
+            }
+        }
         $authorityReady = ($verifier['authority_ready'] ?? false) === true
             && strtolower(trim((string)($verifier['verification_source'] ?? ''))) === 'external_p0_verifier'
             && strtolower(trim((string)($verifier['status'] ?? ''))) === 'passed'
@@ -422,6 +470,7 @@ final class ScheduledAutoFetchPolicy
             && $verifiedPlatforms === $requiredPlatforms
             && (int)($verifier['p0_platforms_ready'] ?? -1) === count($requiredPlatforms)
             && (int)($verifier['traffic_gates_ready'] ?? -1) === count($requiredPlatforms)
+            && $observedMetricProvenanceReady
             && strtolower(trim((string)($verifier['continuous_trust_status'] ?? ''))) === 'verified'
             && $this->stringList($verifier['continuous_trust_missing_steps'] ?? []) === [];
 
@@ -441,6 +490,10 @@ final class ScheduledAutoFetchPolicy
             'platform_statuses' => is_array($verifier['platform_statuses'] ?? null)
                 ? $verifier['platform_statuses']
                 : [],
+            'observed_traffic_metric_provenance_status' => $observedMetricProvenanceReady
+                ? 'ready'
+                : 'synthetic_normalization_provenance_missing',
+            'synthetic_normalization_provenance_missing_rows' => $syntheticProvenanceMissingRows,
             'p0_platforms_ready' => max(0, (int)($verifier['p0_platforms_ready'] ?? 0)),
             'traffic_gates_ready' => max(0, (int)($verifier['traffic_gates_ready'] ?? 0)),
             'continuous_trust_status' => strtolower(trim((string)(
@@ -477,10 +530,12 @@ final class ScheduledAutoFetchPolicy
             $receipt['collection_complete'] = true;
             $receipt['exportable_snapshot_complete'] = true;
         }
-        $receipt['dual_ota_p0_complete'] = ($receipt['collection_complete'] ?? false) === true
+        $receipt['authority_scope_complete'] = ($receipt['collection_complete'] ?? false) === true
             && ($receipt['exportable_snapshot_complete'] ?? false) === true
             && $authorityReady;
-        $receipt['status'] = $receipt['dual_ota_p0_complete']
+        $receipt['dual_ota_p0_complete'] = ($receipt['authority_scope_complete'] ?? false) === true
+            && $requiredPlatforms === self::REQUIRED_DAILY_PLATFORMS;
+        $receipt['status'] = ($receipt['authority_scope_complete'] ?? false) === true
             ? 'verified'
             : (($receipt['collection_complete'] ?? false) === true ? 'partial_success' : (string)($receipt['status'] ?? 'failed'));
         return $receipt;
@@ -527,14 +582,23 @@ final class ScheduledAutoFetchPolicy
     public function dailyTrustReceiptReady(
         array $receipt,
         ?string $expectedDate = null,
-        ?int $expectedHotelId = null
+        ?int $expectedHotelId = null,
+        ?array $expectedSourceIds = null,
+        ?array $expectedPlatforms = null
     ): bool {
+        if (!$this->receiptMatchesExpectedScope(
+            $receipt,
+            $expectedSourceIds,
+            $expectedPlatforms
+        )) {
+            return false;
+        }
         if (strtolower(trim((string)($receipt['data_period'] ?? ''))) === 'realtime_snapshot') {
             return $this->realtimeTrustReceiptReady($receipt, $expectedDate, $expectedHotelId);
         }
         if (($receipt['collection_complete'] ?? false) !== true
             || ($receipt['exportable_snapshot_complete'] ?? false) !== true
-            || ($receipt['dual_ota_p0_complete'] ?? false) !== true
+            || ($receipt['authority_scope_complete'] ?? false) !== true
             || ($expectedDate !== null
                 && substr(trim((string)($receipt['target_date'] ?? '')), 0, 10) !== $expectedDate)
             || ($expectedHotelId !== null && (int)($receipt['hotel_id'] ?? 0) !== $expectedHotelId)
@@ -543,7 +607,7 @@ final class ScheduledAutoFetchPolicy
         }
         $requiredPlatforms = $this->platformList($receipt['required_platforms'] ?? []);
         sort($requiredPlatforms, SORT_STRING);
-        if ($requiredPlatforms !== self::REQUIRED_DAILY_PLATFORMS) {
+        if ($requiredPlatforms === []) {
             return false;
         }
         $readyPlatforms = [];
@@ -565,13 +629,13 @@ final class ScheduledAutoFetchPolicy
                 continue;
             }
             $platform = strtolower(trim((string)($task['platform'] ?? '')));
-            if (in_array($platform, self::REQUIRED_DAILY_PLATFORMS, true)) {
+            if (in_array($platform, $requiredPlatforms, true)) {
                 $readyPlatforms[$platform] = true;
             }
         }
         $readyPlatforms = array_keys($readyPlatforms);
         sort($readyPlatforms, SORT_STRING);
-        if ($readyPlatforms !== self::REQUIRED_DAILY_PLATFORMS) {
+        if ($readyPlatforms !== $requiredPlatforms) {
             return false;
         }
         if (($receipt['authority_verifier_required'] ?? true) !== true) {
@@ -597,9 +661,13 @@ final class ScheduledAutoFetchPolicy
                 strtolower(trim((string)$receipt['collection_anchor_hash'])),
                 strtolower(trim((string)($verifier['collection_anchor_hash'] ?? '')))
             )
-            && $verifiedPlatforms === self::REQUIRED_DAILY_PLATFORMS
-            && (int)($verifier['p0_platforms_ready'] ?? -1) === count(self::REQUIRED_DAILY_PLATFORMS)
-            && (int)($verifier['traffic_gates_ready'] ?? -1) === count(self::REQUIRED_DAILY_PLATFORMS)
+            && $verifiedPlatforms === $requiredPlatforms
+            && (int)($verifier['p0_platforms_ready'] ?? -1) === count($requiredPlatforms)
+            && (int)($verifier['traffic_gates_ready'] ?? -1) === count($requiredPlatforms)
+            && strtolower(trim((string)(
+                $verifier['observed_traffic_metric_provenance_status'] ?? ''
+            ))) === 'ready'
+            && (int)($verifier['synthetic_normalization_provenance_missing_rows'] ?? -1) === 0
             && strtolower(trim((string)($verifier['continuous_trust_status'] ?? ''))) === 'verified'
             && $this->stringList($verifier['continuous_trust_missing_steps'] ?? []) === [];
     }
@@ -612,7 +680,7 @@ final class ScheduledAutoFetchPolicy
     ): bool {
         if (($receipt['collection_complete'] ?? false) !== true
             || ($receipt['exportable_snapshot_complete'] ?? false) !== true
-            || ($receipt['dual_ota_p0_complete'] ?? false) !== true
+            || ($receipt['authority_scope_complete'] ?? false) !== true
             || ($receipt['authority_verifier_required'] ?? true) !== false
             || ($expectedDate !== null
                 && substr(trim((string)($receipt['target_date'] ?? '')), 0, 10) !== $expectedDate)
@@ -647,6 +715,35 @@ final class ScheduledAutoFetchPolicy
         $readyPlatforms = array_keys($readyPlatforms);
         sort($readyPlatforms, SORT_STRING);
         return $readyPlatforms === $requiredPlatforms;
+    }
+
+    /**
+     * @param array<string, mixed> $receipt
+     * @param array<int, int>|null $expectedSourceIds
+     * @param array<int, string>|null $expectedPlatforms
+     */
+    private function receiptMatchesExpectedScope(
+        array $receipt,
+        ?array $expectedSourceIds,
+        ?array $expectedPlatforms
+    ): bool {
+        if ($expectedSourceIds !== null) {
+            $expectedSourceIds = $this->positiveIds($expectedSourceIds);
+            sort($expectedSourceIds, SORT_NUMERIC);
+            $receiptSourceIds = $this->positiveIds($receipt['source_ids'] ?? []);
+            sort($receiptSourceIds, SORT_NUMERIC);
+            if ($receiptSourceIds !== $expectedSourceIds) {
+                return false;
+            }
+        }
+        if ($expectedPlatforms !== null) {
+            $expectedPlatforms = $this->platformList($expectedPlatforms);
+            $receiptPlatforms = $this->platformList($receipt['required_platforms'] ?? []);
+            if ($receiptPlatforms !== $expectedPlatforms) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

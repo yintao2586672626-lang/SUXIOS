@@ -68,21 +68,29 @@ const sampleHomeReadiness = typeof buildCompassDataReadiness === 'function'
 const checks = [
   {
     name: 'home keeps legacy operating panels out of the factual landing page',
-    pass: templateSource.includes('data-testid="home-yesterday-facts"')
+    pass: templateSource.includes('<home-yesterday-operating-facts')
+      && homeStaticSource.includes("'home-yesterday-facts'")
       && !templateSource.includes('data-testid="home-operating-board"')
       && !templateSource.includes('data-testid="home-quick-entry-fold"')
       && !templateSource.includes('data-testid="home-closed-loop-workbench"'),
   },
   {
     name: 'home first screen separates yesterday facts, today acquisition status, future AI judgement and source scopes',
-    pass: publicSource.includes('data-testid="home-yesterday-facts"')
+    pass: publicSource.includes('<home-yesterday-operating-facts')
+      && homeStaticSource.includes("'home-yesterday-facts'")
+      && homeStaticSource.includes("'home-yesterday-operating-facts'")
+      && homeStaticSource.includes("'home-yesterday-dual-scope'")
+      && homeStaticSource.includes("'home-reconciliation-facts'")
       && (publicSource.includes(':data-testid="stage.testid"') || homeStaticSource.includes("'data-testid': stage.testid"))
       && homeStaticSource.includes("testid: 'home-today-acquired-status'")
       && homeStaticSource.includes("testid: 'home-future-ai-judgement'")
-      && publicSource.includes('data-testid="home-scope-boundaries"')
+      && homeStaticSource.includes("'home-whole-hotel-scope'")
+      && homeStaticSource.includes("'home-ota-channel-scope'")
       && (publicSource.includes('data-testid="home-competitor-diagnostic-reference"') || homeStaticSource.includes("'data-testid': 'home-competitor-diagnostic-reference'"))
-      && publicSource.includes('v-for="fact in homeBusinessTimeModel.yesterday.facts"')
-      && publicSource.includes('v-for="scope in homeBusinessTimeModel.scopeRows"')
+      && homeStaticSource.includes('yesterday.wholeHotelFacts')
+      && homeStaticSource.includes('yesterday.otaChannelFacts')
+      && homeStaticSource.includes('yesterday.dateSourceRows')
+      && publicSource.includes('HomeYesterdayOperatingFacts')
       && publicSource.includes("requireHomeStatic('buildHomeBusinessTimeModel')")
       && publicSource.includes('const homeBusinessTimeModel = computed')
       && homeStaticSource.includes('不回退旧日期')
@@ -225,11 +233,13 @@ const checks = [
 ];
 
 const executiveAnswerContractPass = publicSource.includes('data-testid="home-executive-answer"')
-  && publicSource.includes('data-testid="home-yesterday-facts"')
+  && publicSource.includes('<home-yesterday-operating-facts')
+  && homeStaticSource.includes("'home-yesterday-facts'")
   && (publicSource.includes(':data-testid="stage.testid"') || homeStaticSource.includes("'data-testid': stage.testid"))
   && homeStaticSource.includes("testid: 'home-today-acquired-status'")
   && homeStaticSource.includes("testid: 'home-future-ai-judgement'")
-  && publicSource.includes('v-for="fact in homeBusinessTimeModel.yesterday.facts"')
+  && homeStaticSource.includes('yesterday.wholeHotelFacts')
+  && homeStaticSource.includes('yesterday.otaChannelFacts')
   && publicSource.includes("requireHomeStatic('buildHomeBusinessTimeModel')")
   && publicSource.includes('const homeExecutiveAnswer = computed')
   && publicSource.includes('data-testid="home-evidence-fold"')

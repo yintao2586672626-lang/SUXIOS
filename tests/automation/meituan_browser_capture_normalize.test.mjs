@@ -541,8 +541,12 @@ test('Meituan myHotel funnel response becomes a truthful core traffic row', () =
       },
     },
   }, {
-    dateRange: '0',
     defaultDataDate: '2026-07-18',
+    trafficCaptureEpoch: 12,
+    trafficRelativeRange: '\u6628\u65e5',
+    trafficEvidenceSource: 'page.traffic_period_selection.readback',
+    trafficMarker: 'meituan_traffic_yesterday_tab',
+    trafficRequestSequence: 22,
   });
 
   assert.equal(rows.length, 1);
@@ -555,6 +559,12 @@ test('Meituan myHotel funnel response becomes a truthful core traffic row', () =
   assert.equal(rows[0].exposure_to_browse_rate, 17.28);
   assert.equal(rows[0].browse_pay_rate, 14.29);
   assert.equal(rows[0].order_filling_num, undefined);
+  assert.equal(rows[0].date_source, 'capture_context.default_data_date');
+  assert.equal(rows[0].traffic_capture_epoch, 12);
+  assert.equal(rows[0].traffic_relative_range, '\u6628\u65e5');
+  assert.equal(rows[0].traffic_evidence_source, 'page.traffic_period_selection.readback');
+  assert.equal(rows[0].traffic_marker, 'meituan_traffic_yesterday_tab');
+  assert.equal(rows[0].traffic_request_sequence, 22);
 });
 
 test('Meituan order flow response expands verified summary and hotel detail rows', () => {

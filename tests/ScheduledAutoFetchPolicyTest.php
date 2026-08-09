@@ -222,6 +222,7 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertTrue($completeOutcome['complete']);
         self::assertTrue($completeReceipt['exportable_snapshot_complete']);
         self::assertTrue($completeReceipt['collection_complete']);
+        self::assertFalse($completeReceipt['authority_scope_complete']);
         self::assertFalse($completeReceipt['dual_ota_p0_complete']);
         self::assertFalse($this->machineReceiptDailyTrustReady($completeReceipt));
 
@@ -229,6 +230,7 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
             $completeReceipt,
             $this->mockAuthorityVerifier($completeReceipt)
         );
+        self::assertTrue($completeReceipt['authority_scope_complete']);
         self::assertTrue($completeReceipt['dual_ota_p0_complete']);
         self::assertTrue($this->machineReceiptDailyTrustReady($completeReceipt));
         self::assertTrue($this->policy->dailyTrustReceiptReady($completeReceipt, '2026-07-16', 58));
@@ -355,9 +357,62 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertTrue($outcome['complete']);
         self::assertSame(['ctrip'], $receipt['required_platforms']);
         self::assertFalse($receipt['authority_verifier_required']);
+        self::assertTrue($receipt['authority_scope_complete']);
+        self::assertFalse($receipt['dual_ota_p0_complete']);
         self::assertTrue($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58));
+        self::assertTrue($this->policy->dailyTrustReceiptReady(
+            $receipt,
+            '2026-07-16',
+            58,
+            [25],
+            ['ctrip']
+        ));
+        self::assertFalse($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58, [26], ['ctrip']));
+        self::assertFalse($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58, [25], ['meituan']));
+        self::assertFalse($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58, null, ['ctrip', 'meituan']));
+        self::assertFalse($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58, [], ['ctrip']));
 
         $receipt['source_tasks'][0]['p0_status'] = 'blocked';
+        self::assertFalse($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58));
+    }
+
+    public function testHistoricalTrustReceiptAcceptsOnlyTheExplicitlyRequestedPlatformScope(): void
+    {
+        $result = [
+            'success' => true,
+            'saved_count' => 1,
+            'required_platforms' => ['ctrip'],
+            'platform_results' => [
+                $this->verifiedPlatformResult('ctrip', 25, 1001, true),
+            ],
+        ];
+        $outcome = $this->policy->classifyOutcome($result);
+        $receipt = $this->policy->buildDailyTrustReceipt(
+            58,
+            '2026-07-16',
+            [25],
+            $outcome,
+            $result,
+            'historical_daily'
+        );
+        $verifier = $this->mockAuthorityVerifier($receipt);
+        $verifier['required_platforms'] = ['ctrip'];
+        $verifier['verified_platforms'] = ['ctrip'];
+        $verifier['platform_statuses'] = ['ctrip' => 'ready'];
+        $verifier['p0_platforms_ready'] = 1;
+        $verifier['traffic_gates_ready'] = 1;
+        $receipt = $this->policy->attachAuthorityVerifier($receipt, $verifier);
+
+        self::assertTrue($receipt['authority_scope_complete']);
+        self::assertFalse($receipt['dual_ota_p0_complete']);
+        self::assertSame(['ctrip'], $receipt['required_platforms']);
+        self::assertTrue($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58));
+
+        $legacyReceipt = $receipt;
+        unset($legacyReceipt['authority_verifier']['observed_traffic_metric_provenance_status']);
+        self::assertFalse($this->policy->dailyTrustReceiptReady($legacyReceipt, '2026-07-16', 58));
+
+        $receipt['authority_verifier']['verified_platforms'] = ['ctrip', 'meituan'];
         self::assertFalse($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58));
     }
 
@@ -482,22 +537,30 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
             'app/controller/concern/AutoFetchConcern.php'
         );
         $policy = (string)file_get_contents(dirname(__DIR__) . '/app/service/ScheduledAutoFetchPolicy.php');
+        $canonicalCoordinator = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/OtaCanonicalHistoryPromotionCoordinator.php'
+        );
 
         self::assertStringContainsString('ScheduledAutoFetchPolicy', $command);
         self::assertStringContainsString('ScheduledAutoFetchPolicy', $controller);
         self::assertSame(1, substr_count($command, "Cache::set(\$run['executed_key']"));
         self::assertSame(1, substr_count($controller, "cache(\$run['executed_key'], \$executionReceipt"));
-        self::assertStringContainsString('P0OtaFieldLoopVerifierRunner', $command);
+        self::assertStringContainsString('OtaCanonicalHistoryPromotionCoordinator', $command);
+        self::assertStringContainsString('P0OtaFieldLoopVerifierRunner', $canonicalCoordinator);
+        self::assertStringContainsString("'canonical_history_complete'", $command);
         self::assertStringNotContainsString('new P0OtaFieldLoopVerifierRunner', $controller);
         self::assertStringContainsString('online_data_p0_authority_receipt_', $controller);
         self::assertStringContainsString('online_data_p0_authority_receipt_', $command);
         self::assertStringContainsString('autoFetchExecutedReceiptReady', $controller);
         self::assertStringContainsString('buildDailyTrustReceipt', $controller);
         self::assertStringContainsString('dailyTrustReceiptReady', $controller);
+        self::assertStringContainsString("null,\n                ['ctrip', 'meituan']", $controller);
+        self::assertStringContainsString("cache_scope_sources_fixed'] ?? true) === false", $command);
+        self::assertStringContainsString("cache_scope_platforms_fixed'] ?? true) === false", $command);
         self::assertStringContainsString('attachAuthorityVerifier', $policy);
         self::assertStringContainsString('buildYesterdayGapReport', $policy);
         self::assertStringContainsString(
-            "'dual_ota_p0_complete' => \$collectionComplete && !\$authorityRequired",
+            "'authority_scope_complete' => \$authorityScopeComplete",
             $policy
         );
         self::assertStringContainsString("\\think\\facade\\Cache::delete(\$run['executed_key'])", $controller);
@@ -511,7 +574,9 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertStringContainsString("'target_platforms' => \$schedulePolicy->normalizePlatforms(\$run['target_platforms'] ?? [])", $controller);
         self::assertStringContainsString("in_array('ctrip', \$targetPlatforms, true)", $controller);
         self::assertStringContainsString("in_array('meituan', \$targetPlatforms, true)", $controller);
-        self::assertStringContainsString("\$coreReadbackVerified = \$this->runReadbackCoreVerified(\$runReadback)", $command);
+        self::assertStringContainsString("\$coreReadbackVerified = \$dataPeriod === 'historical_daily'", $command);
+        self::assertStringContainsString('? $compositeReadbackVerified', $command);
+        self::assertStringContainsString('exactTaskP0RowsComplete', $command);
         self::assertStringContainsString("'platform_results' => \$platformResults", $command);
         self::assertStringContainsString("!isset(\$failedPlatforms[\$platform])", $command);
         self::assertStringContainsString("return \$savedCount > 0 ? 'partial_success' : 'failed';", $controller);
@@ -574,6 +639,16 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
             'verified_platforms' => ['ctrip', 'meituan'],
             'collection_anchor_hash' => (string)($receipt['collection_anchor_hash'] ?? ''),
             'platform_statuses' => ['ctrip' => 'ready', 'meituan' => 'ready'],
+            'platform_storage_scopes' => [
+                'ctrip' => [
+                    'observed_traffic_metric_provenance_status' => 'ready',
+                    'synthetic_normalization_provenance_missing_rows' => 0,
+                ],
+                'meituan' => [
+                    'observed_traffic_metric_provenance_status' => 'ready',
+                    'synthetic_normalization_provenance_missing_rows' => 0,
+                ],
+            ],
             'p0_platforms_ready' => 2,
             'traffic_gates_ready' => 2,
             'continuous_trust_status' => 'verified',

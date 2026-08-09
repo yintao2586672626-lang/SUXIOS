@@ -327,6 +327,25 @@ class Agent extends Base
                 if ($snapshot === [] || (string)($snapshot['record_status'] ?? 'active') !== 'active') {
                     continue;
                 }
+                if (!$this->isStoredOtaDiagnosisReadbackVerified(
+                    $context,
+                    $snapshot,
+                    $hotelId,
+                    $platform,
+                    $targetRange
+                )) {
+                    return $this->success([
+                        'status' => 'unverified',
+                        'diagnosis' => null,
+                        'reason' => 'saved_diagnosis_readback_identity_mismatch',
+                        'scope' => [
+                            'hotel_id' => $hotelId,
+                            'platform' => $platform,
+                            'start_date' => $startDate,
+                            'end_date' => $endDate,
+                        ],
+                    ], '保存的 OTA 诊断身份回读不一致');
+                }
                 $snapshot['saved_record'] = array_replace([
                     'id' => (int)$record->id,
                     'saved' => true,
@@ -475,6 +494,7 @@ class Agent extends Base
                     ],
                 ]);
                 $result = $this->finalizeAllOtaDiagnosisDecision($result);
+                $result['decision_route'] = $this->buildOtaDiagnosisDecisionRoute($result);
                 $result = $this->persistOtaDiagnosisResult($result, $hotelId, $platform);
 
                 return $this->success(
@@ -499,6 +519,7 @@ class Agent extends Base
                     'mode' => 'not_run_no_data',
                     'model_called' => false,
                 ]);
+                $result['decision_route'] = $this->buildOtaDiagnosisDecisionRoute($result);
                 $result = $this->persistOtaDiagnosisResult($result, $hotelId, $platform);
 
                 return $this->success($result, '暂无 OTA 数据');
@@ -606,6 +627,7 @@ class Agent extends Base
             $result['diagnosis_sections'] = $this->buildOtaDiagnosisSections($result['diagnosis'] ?? [], $result['missing_sections'] ?? []);
             $result['ai_governance'] = $this->buildAiGovernancePayload('ota_diagnosis', $result, $llmResult);
             $result = $this->finalizeOtaDiagnosisDecision($result);
+            $result['decision_route'] = $this->buildOtaDiagnosisDecisionRoute($result);
             $result = $this->persistOtaDiagnosisResult($result, $hotelId, $platform);
 
             return $this->success($result, 'success');
