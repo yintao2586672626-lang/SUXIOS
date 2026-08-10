@@ -74,12 +74,11 @@ test('Ctrip display removes unsupported estimates and refuses to invent full-cha
   for (const field of ['quantity', 'bookOrderNum', 'commentScore', 'qunarCommentScore']) {
     assert.match(downloadTable, new RegExp(`formatNumber\\(row\\.${field}\\)`), `${field} must preserve zero through formatNumber`);
   }
-  assert.match(appTemplate, /formatNumber\(Math\.round\(Number\(hotel\.amount\)\)\)/);
-  assert.match(appTemplate, /formatNumber\(Math\.round\(Number\(hotel\.adr\)\)\)/);
-  assert.match(downloadTable, /formatNumber\(Math\.round\(Number\(row\.amount\)\)\)/);
-  assert.match(downloadTable, /formatNumber\(Math\.round\(Number\(row\.adr\)\)\)/);
-  assert.match(downloadTable, /hasDisplayValue\(row\.amount\)/);
-  assert.match(downloadTable, /hasDisplayValue\(row\.adr\)/);
+  assert.match(appTemplate, /hasDisplayValue\(hotel\.amount\)[\s\S]*Number\(hotel\.amount\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
+  assert.match(appTemplate, /hasDisplayValue\(hotel\.adr\)[\s\S]*Number\(hotel\.adr\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
+  assert.match(downloadTable, /const oneDecimalText = \(value\) => hasDisplayValue\(value\)[\s\S]*minimumFractionDigits: 1, maximumFractionDigits: 1/);
+  assert.match(downloadTable, /value: row => oneDecimalText\(row\.amount\)/);
+  assert.match(downloadTable, /value: row => oneDecimalText\(row\.adr\)/);
   assert.doesNotMatch(downloadTable, /row\.(?:quantity|bookOrderNum|commentScore|qunarCommentScore)\s*\|\|\s*'-'/);
   assert.match(downloadTable, /value === null \|\| value === undefined \|\| value === '' \? '-' : `\$\{value\}%`/);
   assert.match(downloadTable, /: formatNumber\(value\)/);

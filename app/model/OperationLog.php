@@ -261,6 +261,16 @@ class OperationLog extends BaseTenantModel
         )) {
             return $explicitTenantId;
         }
+        if (self::isPrevalidatedSuperAdminPageVerificationAudit(
+            $module,
+            $action,
+            $hotelId,
+            $userId,
+            $explicitTenantId,
+            $extraData
+        )) {
+            return $explicitTenantId;
+        }
 
         $tenantCandidates = [];
 
@@ -333,6 +343,45 @@ class OperationLog extends BaseTenantModel
         try {
             $actor = request()->user ?? null;
             return $actor instanceof User
+                && (int)$actor->id === $userId
+                && $actor->isSuperAdmin();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @param array<string, mixed> $extraData */
+    private static function isPrevalidatedSuperAdminPageVerificationAudit(
+        string $module,
+        string $action,
+        ?int $hotelId,
+        ?int $userId,
+        int $explicitTenantId,
+        array $extraData
+    ): bool {
+        if (
+            strtolower(trim($module)) !== 'online_data'
+            || strtolower(trim($action)) !== 'confirm_dual_ota_page_verification'
+            || $hotelId === null
+            || $hotelId <= 0
+            || $userId === null
+            || $userId <= 0
+            || $explicitTenantId <= 0
+            || (int)($extraData['hotel_id'] ?? 0) !== $hotelId
+            || trim((string)($extraData['contract_version'] ?? ''))
+                !== 'suxios.dual_ota_page_verification.v1'
+        ) {
+            return false;
+        }
+
+        try {
+            $authoritativeTenantId = (int)Db::name('hotels')
+                ->where('id', $hotelId)
+                ->value('tenant_id');
+            $actor = request()->user ?? null;
+
+            return $authoritativeTenantId === $explicitTenantId
+                && $actor instanceof User
                 && (int)$actor->id === $userId
                 && $actor->isSuperAdmin();
         } catch (\Throwable) {

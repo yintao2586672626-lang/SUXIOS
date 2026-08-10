@@ -3493,7 +3493,7 @@ test('eBooking startup refreshes are deduplicated during quick page returns', ()
 
   assert.match(html, /const EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS = 45000;/);
   assert.match(currentPageWatcher, /runPageLoadOnce\(newPage, 'main', \(\) => \{\s*scheduleDelayedPageTask\(\(\) => \{\s*if \(!isCtripEbookingDataHealthVisible\(\)\) return null;\s*scheduleDataHealthPanelRefresh\('light'\);\s*return null;\s*\}, CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS\);\s*scheduleCtripEbookingDeferredStartupRefresh\(\);\s*\}, \{ ttlMs: EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS \}\);/);
-  assert.match(loadDataHealthPanel, /if \(normalizedMode !== 'full' && isCtripEbookingDataHealthVisible\(\)\) \{\s*jobs\.push\(loadCollectionReliability\('light'\)\);\s*\}/);
+  assert.match(loadDataHealthPanel, /refreshCoreOperationsLoop\(\{[\s\S]*includeCollectionReliability: normalizedMode !== 'full',[\s\S]*\}\)/);
   assert.match(currentPageWatcher, /if \(newPage === 'meituan-ebooking'\) \{\s*onlineDataTab\.value = 'meituan-ranking';\s*ensureMeituanManualHotelSelected\(\);\s*runPageLoadOnce\(newPage, 'main', \(\) => \{\s*scheduleMeituanEbookingDeferredStartupRefresh\(\);\s*\}, \{ ttlMs: EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS \}\);/);
 });
 

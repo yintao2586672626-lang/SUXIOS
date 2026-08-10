@@ -135,6 +135,119 @@ final class CloudOtaBundleCodecTest extends TestCase
         self::assertArrayNotHasKey('hotel_name', $binding);
     }
 
+    public function testMeituanTrafficKeepsOnlyAllowlistedNetworkProvenance(): void
+    {
+        $bundle = CloudOtaBundleCodec::build($this->context(), [
+            $this->package('ctrip', 11, 21, [], 'target_date_missing'),
+            $this->package('meituan', 12, 22, [$this->trafficRow('meituan', 12)]),
+        ]);
+
+        $row = $bundle['packages'][1]['rows'][0];
+        self::assertSame('local_collector', $row['ingestion_method']);
+        self::assertSame('xhr:traffic:traffic', $row['capture_source']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $row['source_url_hash']);
+        self::assertSame(
+            ['detail_exposure', 'flow_rate', 'list_exposure'],
+            array_column($row['field_facts'], 'metric_key')
+        );
+        self::assertArrayNotHasKey('raw_data', $row);
+        self::assertSame(
+            [],
+            array_values(array_intersect(['cookie', 'token', 'password', 'secret'], array_keys($row)))
+        );
+    }
+
+    public function testMeituanTrafficRejectsDomCaptureSource(): void
+    {
+        $row = $this->trafficRow('meituan', 12);
+        $row['capture_source'] = 'dom:traffic:flow_funnel';
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('cloud_bundle_row_capture_source_invalid');
+        CloudOtaBundleCodec::build($this->context(), [
+            $this->package('ctrip', 11, 21, [], 'target_date_missing'),
+            $this->package('meituan', 12, 22, [$row]),
+        ]);
+    }
+
+    public function testMeituanTrafficRejectsMissingCaptureSource(): void
+    {
+        $row = $this->trafficRow('meituan', 12);
+        unset($row['capture_source']);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('cloud_bundle_meituan_p0_capture_source_missing');
+        CloudOtaBundleCodec::build($this->context(), [
+            $this->package('ctrip', 11, 21, [], 'target_date_missing'),
+            $this->package('meituan', 12, 22, [$row]),
+        ]);
+    }
+
+    public function testTrafficRejectsNonProfileOriginIngestionMethod(): void
+    {
+        $row = $this->trafficRow('meituan', 12);
+        $row['ingestion_method'] = 'manual';
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('cloud_bundle_row_ingestion_method_invalid');
+        CloudOtaBundleCodec::build($this->context(), [
+            $this->package('ctrip', 11, 21, [], 'target_date_missing'),
+            $this->package('meituan', 12, 22, [$row]),
+        ]);
+    }
+
+    public function testTrafficRejectsMissingSourceUrlHash(): void
+    {
+        $row = $this->trafficRow('meituan', 12);
+        unset($row['source_url_hash']);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('cloud_bundle_p0_source_url_hash_missing');
+        CloudOtaBundleCodec::build($this->context(), [
+            $this->package('ctrip', 11, 21, [], 'target_date_missing'),
+            $this->package('meituan', 12, 22, [$row]),
+        ]);
+    }
+
+    public function testMeituanFactSourceMustMatchTheRowNetworkSource(): void
+    {
+        $row = $this->trafficRow('meituan', 12);
+        $row['field_facts'][0]['capture_evidence']['capture_source'] = 'fetch:traffic:traffic';
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('cloud_bundle_meituan_field_fact_capture_source_mismatch');
+        CloudOtaBundleCodec::build($this->context(), [
+            $this->package('ctrip', 11, 21, [], 'target_date_missing'),
+            $this->package('meituan', 12, 22, [$row]),
+        ]);
+    }
+
+    public function testFieldFactUnknownAndCredentialShapedFieldsFailClosed(): void
+    {
+        $row = $this->trafficRow('meituan', 12);
+        $row['field_facts'][0]['header'] = 'authorization';
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('cloud_bundle_field_fact_field_not_allowed:header');
+        CloudOtaBundleCodec::build($this->context(), [
+            $this->package('ctrip', 11, 21, [], 'target_date_missing'),
+            $this->package('meituan', 12, 22, [$row]),
+        ]);
+    }
+
+    public function testRawDataFieldRemainsOutsideTheTransportContract(): void
+    {
+        $row = $this->trafficRow('meituan', 12);
+        $row['raw_data'] = ['cookie' => 'must-not-leave-source'];
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('cloud_bundle_row_field_not_allowed:raw_data');
+        CloudOtaBundleCodec::build($this->context(), [
+            $this->package('ctrip', 11, 21, [], 'target_date_missing'),
+            $this->package('meituan', 12, 22, [$row]),
+        ]);
+    }
+
     /** @return array<string, mixed> */
     private function validBundle(): array
     {
@@ -198,5 +311,45 @@ final class CloudOtaBundleCodecTest extends TestCase
             'readback_verified' => 1,
             'readback_verified_at' => '2026-07-22 08:01:00',
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function trafficRow(string $platform, int $sourceId): array
+    {
+        $traceId = $platform . ':trusted-source-trace';
+        $sourceUrlHash = hash('sha256', $platform . ':traffic-source');
+        $sourceKeys = [
+            'list_exposure' => 'listExposure',
+            'detail_exposure' => 'detailExposure',
+            'flow_rate' => 'flowRate',
+        ];
+        $facts = [];
+        foreach ($sourceKeys as $metricKey => $sourceKey) {
+            $facts[] = [
+                'metric_key' => $metricKey,
+                'source_key' => $sourceKey,
+                'source_path' => '$.metrics.' . $sourceKey,
+                'storage_field' => 'online_daily_data.' . $metricKey,
+                'stored_value_present' => true,
+                'status' => 'captured',
+                'capture_evidence' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $sourceUrlHash,
+                    'capture_source' => 'xhr:traffic:traffic',
+                ],
+            ];
+        }
+        return array_merge($this->row($platform, $sourceId), [
+            'data_type' => 'traffic',
+            'dimension' => 'traffic_overview',
+            'compare_type' => 'self',
+            'ingestion_method' => 'local_collector',
+            'capture_source' => 'xhr:traffic:traffic',
+            'source_url_hash' => $sourceUrlHash,
+            'field_facts' => $facts,
+            'list_exposure' => 120,
+            'detail_exposure' => 40,
+            'flow_rate' => 0.33,
+        ]);
     }
 }

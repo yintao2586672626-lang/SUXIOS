@@ -242,7 +242,25 @@ trait PlatformSyncTaskConcern
             $stats['data_date'] = $dataDate;
         }
 
+        $dispatcherRunId = $this->normalizeSyncDispatcherRunId(
+            $options['dispatcher_run_id']
+                ?? $options['dispatcherRunId']
+                ?? ''
+        );
+        if ($dispatcherRunId !== '') {
+            $stats['dispatcher_run_id'] = $dispatcherRunId;
+        }
+
         return $stats;
+    }
+
+    private function normalizeSyncDispatcherRunId(mixed $value): string
+    {
+        $value = strtolower(trim((string)$value));
+        return preg_match(
+            '/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/D',
+            $value
+        ) === 1 ? $value : '';
     }
 
     /**
@@ -512,6 +530,7 @@ trait PlatformSyncTaskConcern
             'collector_flow',
             'capture_plan',
             'data_date',
+            'dispatcher_run_id',
         ] as $recoveryKey) {
             if (array_key_exists($recoveryKey, $existingTaskStats)) {
                 $stats[$recoveryKey] = $existingTaskStats[$recoveryKey];
@@ -1063,6 +1082,14 @@ trait PlatformSyncTaskConcern
                 ?? $task['started_at']
                 ?? ''
         ) ?? '';
+        $taskStats = $this->decodeConfig($task['stats_json'] ?? []);
+        $dispatcherRunId = $this->normalizeSyncDispatcherRunId(
+            $taskStats['dispatcher_run_id'] ?? ''
+        );
+        $triggerType = strtolower(trim((string)($task['trigger_type'] ?? '')));
+        if (preg_match('/^[a-z][a-z0-9_]{0,79}$/D', $triggerType) !== 1) {
+            $triggerType = '';
+        }
         $diagnostics = is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : [];
         $receipt = [
             'readback_verified' => false,
@@ -1096,6 +1123,12 @@ trait PlatformSyncTaskConcern
             'readback_count' => 0,
             'failure_reason' => '',
         ];
+        if ($dispatcherRunId !== '') {
+            $receipt['dispatcher_run_id'] = $dispatcherRunId;
+        }
+        if ($triggerType !== '') {
+            $receipt['trigger_type'] = $triggerType;
+        }
 
         $expectedReadbackCount = max(0, (int)($saveReceipt['readback_count'] ?? $saveReceipt['saved_count'] ?? 0));
         $expectedRowIds = array_values(array_unique(array_filter(array_map(
@@ -1482,12 +1515,33 @@ trait PlatformSyncTaskConcern
         ));
         // A mixed realtime run can contain auxiliary business/rank rows that
         // are useful diagnostics but are not part of the P0 traffic contract.
-        // When canonical traffic exists, only those rows may determine the
-        // traffic run's structured-response acceptance status.
+        // Keep same-platform/date DOM traffic rows only as strategy evidence:
+        // they can prove that this run fell back to the page, but may never
+        // complete or override a structured P0 metric set.
         $strategyRows = $authoritativeTrafficRows !== []
             ? $authoritativeTrafficRows
             : $rows;
         if ($authoritativeTrafficRows !== []) {
+            $authoritativeDates = [];
+            foreach ($authoritativeTrafficRows as $row) {
+                $date = $this->normalizeDate($row['data_date'] ?? $row['dataDate'] ?? null);
+                if ($date !== null) {
+                    $authoritativeDates[$date] = true;
+                }
+            }
+            $diagnosticDomTrafficRows = array_values(array_filter(
+                $rows,
+                function (array $row) use ($source, $platform, $policy, $authoritativeDates): bool {
+                    $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+                    $date = $this->normalizeDate($row['data_date'] ?? $row['dataDate'] ?? null);
+                    return in_array($dataType, ['traffic', 'flow', 'conversion'], true)
+                        && $date !== null
+                        && isset($authoritativeDates[$date])
+                        && OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic($row, $platform)
+                        && ($policy->classifyRow($row, $source)['status'] ?? '')
+                            === OtaStructuredCaptureEvidenceService::STATUS_DOM;
+                }
+            ));
             $structuredTrafficRows = [];
             foreach ($authoritativeTrafficRows as $row) {
                 if (($policy->classifyRow($row, $source)['allowed'] ?? false) === true) {
@@ -1526,6 +1580,8 @@ trait PlatformSyncTaskConcern
                 // structured set closes every P0 metric they must not downgrade
                 // the authoritative response evidence for that same task.
                 $strategyRows = $structuredTrafficRows;
+            } elseif ($diagnosticDomTrafficRows !== []) {
+                $strategyRows = array_merge($authoritativeTrafficRows, $diagnosticDomTrafficRows);
             }
         }
         foreach ($strategyRows as $row) {

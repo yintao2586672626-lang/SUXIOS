@@ -2,7 +2,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
-import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
+import {
+  launchOtaPersistentContext,
+  requireFreshOtaPageNetwork,
+} from './lib/cloakbrowser_launcher.mjs';
 import {
   buildCtripEndpointCandidates,
   buildCtripStandardRowsFromFacts,
@@ -280,6 +283,7 @@ if (authOnly) {
 }
 
 try {
+  payload.network_freshness = await requireFreshOtaPageNetwork(browser, page);
   const loginStatus = await ensureLoggedIn(page, { interactive: !sessionProbeOnly });
   payload.auth_status = loginStatus;
   if (!loginStatus.ok) {
@@ -569,9 +573,15 @@ async function holdInteractiveLoginWindow(page, platformName) {
 
 async function finalizePayload() {
   dedupeRows(payload.business, row => row._fingerprint || JSON.stringify([row.hotelId, row.dataDate, row.amount, row.quantity, row.bookOrderNum]));
-  dedupeRows(payload.traffic, row => row._fingerprint || JSON.stringify([row.hotelId, row.date, row.listExposure, row.detailExposure, row.orderFillingNum, row.orderSubmitNum]));
+  dedupeRows(payload.traffic, row => JSON.stringify([
+    row.platform || '',
+    row._fingerprint || [row.hotelId, row.date, row.listExposure, row.detailExposure, row.orderFillingNum, row.orderSubmitNum],
+  ]));
   dedupeRows(payload.reviews, row => row.review_id || JSON.stringify([row.content || '', row.user_name || '', row.comment_time || '']));
-  dedupeRows(payload.rows, row => row._fingerprint || JSON.stringify([row.source_trace_id || row.source_url_hash || row.capture_evidence?.source_trace_id || row.capture_evidence?.source_url_hash || '', row.hotelId, row.dataDate || row.date, row.data_type, row.metric_key || '', row.value || row.amount || row.quantity || '']));
+  dedupeRows(payload.rows, row => JSON.stringify([
+    row.platform || '',
+    row._fingerprint || [row.source_trace_id || row.source_url_hash || row.capture_evidence?.source_trace_id || row.capture_evidence?.source_url_hash || '', row.hotelId, row.dataDate || row.date, row.data_type, row.metric_key || '', row.value || row.amount || row.quantity || ''],
+  ]));
   dedupeRows(payload.standard_rows, row => JSON.stringify([row.source, row.data_type, row.hotel_id, row.system_hotel_id || '', row.data_date, row.dimension]));
   dedupeRows(payload.catalog_facts, fact => JSON.stringify([
     fact.source_trace_id || fact.source_url_hash || '',
@@ -761,10 +771,12 @@ async function captureSectionWithNewPage(context, section, workerIndex = 1) {
   const target = createSectionCaptureTarget(section);
   const state = createCaptureState(section);
   const sectionPage = await context.newPage();
-  registerResponseCapture(sectionPage, target, state);
   let ok = true;
   let error = '';
+  let networkFreshness = null;
   try {
+    networkFreshness = await requireFreshOtaPageNetwork(context, sectionPage);
+    registerResponseCapture(sectionPage, target, state);
     const pageTargets = PAGE_URLS[section] || [];
     if (pageTargets.length === 0) {
       target.pages.push({ name: section, label: sectionLabel(section), url: '', ok: false, error: 'no page URL configured' });
@@ -794,6 +806,12 @@ async function captureSectionWithNewPage(context, section, workerIndex = 1) {
     standard_row_count: target.standard_rows.length,
     catalog_fact_count: target.catalog_facts.length,
     row_count: target.rows.length,
+    network_freshness: networkFreshness || {
+      status: 'blocked',
+      http_cache_disabled: false,
+      service_worker_bypassed: false,
+      sensitive_values_exposed: false,
+    },
     ...(error ? { error } : {}),
   };
 }
@@ -801,8 +819,9 @@ async function captureSectionWithNewPage(context, section, workerIndex = 1) {
 async function retrySectionsSequentially(context, sections) {
   const retryPage = await context.newPage();
   const retryState = createCaptureState('');
-  registerResponseCapture(retryPage, payload, retryState);
   try {
+    payload.capture_execution.retry_network_freshness = await requireFreshOtaPageNetwork(context, retryPage);
+    registerResponseCapture(retryPage, payload, retryState);
     for (const section of sections) {
       const pageTargets = PAGE_URLS[section] || [];
       if (pageTargets.length === 0) {
@@ -1443,6 +1462,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       }),
     })).map(row => attachCtripCaptureEvidence({
       ...row,
+      platform,
       section,
       data_type: dataType,
       endpoint_id: endpoint?.id || '',

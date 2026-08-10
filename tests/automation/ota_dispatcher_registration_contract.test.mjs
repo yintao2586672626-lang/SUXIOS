@@ -1,5 +1,15 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +19,115 @@ const scriptPath = path.join(repoRoot, 'scripts', 'register_ota_dispatcher_task.
 const packagePath = path.join(repoRoot, 'package.json');
 const source = readFileSync(scriptPath, 'utf8');
 const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
+
+function isolatedPreflightFixture(initialDatabaseExitCode) {
+  const root = mkdtempSync(path.join(tmpdir(), 'suxios-dispatcher-preflight-'));
+  const scriptsDirectory = path.join(root, 'scripts');
+  const runtimeDirectory = path.join(root, 'runtime', 'dispatcher');
+  mkdirSync(scriptsDirectory, { recursive: true });
+  mkdirSync(runtimeDirectory, { recursive: true });
+  const statePath = path.join(root, 'database-ready.marker');
+  const recoveryMarker = path.join(root, 'database-recovery.marker');
+  const otaMarker = path.join(root, 'ota-command.marker');
+  writeFileSync(path.join(root, 'think'), `<?php
+$command = $argv[1] ?? '';
+if ($command === 'db:check') {
+    $statePath = (string)getenv('FAKE_DB_STATE_PATH');
+    if ($statePath !== '' && is_file($statePath)) {
+        exit(0);
+    }
+    exit((int)(getenv('FAKE_INITIAL_DB_EXIT') ?: 1));
+}
+if ($command === 'online-data:auto-fetch') {
+    file_put_contents(
+        (string)getenv('FAKE_OTA_MARKER'),
+        json_encode($argv, JSON_UNESCAPED_SLASHES)
+    );
+    echo 'SUXIOS_AUTO_FETCH_RECEIPT={"status":"failed","sensitive_values_exposed":false}' . PHP_EOL;
+    exit((int)(getenv('FAKE_OTA_EXIT') ?: 0));
+}
+exit(64);
+`, 'utf8');
+  writeFileSync(path.join(scriptsDirectory, 'start_local_stack.ps1'), `param(
+    [switch]$DatabaseOnly,
+    [switch]$NoBrowser
+)
+if (-not $DatabaseOnly) { exit 9 }
+[System.IO.File]::WriteAllText($env:FAKE_DB_STATE_PATH, 'ready')
+[System.IO.File]::WriteAllText($env:FAKE_RECOVERY_MARKER, 'attempted')
+Write-Output 'password=leak-test'
+[Console]::Error.WriteLine('token=leak-test')
+exit 0
+`, 'utf8');
+  return {
+    root,
+    runtimeDirectory,
+    statePath,
+    recoveryMarker,
+    otaMarker,
+    environment: {
+      ...process.env,
+      FAKE_DB_STATE_PATH: statePath,
+      FAKE_RECOVERY_MARKER: recoveryMarker,
+      FAKE_OTA_MARKER: otaMarker,
+      FAKE_INITIAL_DB_EXIT: String(initialDatabaseExitCode),
+      FAKE_OTA_EXIT: '0',
+    },
+  };
+}
+
+function runIsolatedPreflight(fixture, phpPath, { preflightOnly = true } = {}) {
+  const powershell = path.join(
+    process.env.SystemRoot || 'C:\\Windows',
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe',
+  );
+  const args = [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    path.join(repoRoot, 'scripts', 'run_ota_dispatcher.ps1'),
+    '-ProjectRoot',
+    fixture.root,
+    '-PhpPath',
+    phpPath,
+    '-Mode',
+    'Daily',
+    '-HotelId',
+    '80',
+    '-SourceIds',
+    '25,68',
+    '-Platforms',
+    'ctrip,meituan',
+  ];
+  if (preflightOnly) args.push('-PreflightOnly');
+  const result = spawnSync(powershell, args, {
+    cwd: fixture.root,
+    encoding: 'utf8',
+    env: fixture.environment,
+    timeout: 30_000,
+    windowsHide: true,
+  });
+  const logs = readdirSync(fixture.runtimeDirectory)
+    .filter(name => /^ota_dispatcher_\d{8}_\d{6}_[a-f0-9]{32}\.log$/.test(name));
+  assert.equal(logs.length, 1, result.stderr || result.stdout);
+  return {
+    ...result,
+    log: readFileSync(path.join(fixture.runtimeDirectory, logs[0]), 'utf8'),
+  };
+}
+
+function localPhpPath() {
+  return [
+    process.env.SUXIOS_TEST_PHP,
+    'C:\\xampp\\php\\php.exe',
+    'D:\\xampp\\php\\php.exe',
+  ].find(candidate => candidate && existsSync(candidate));
+}
 
 test('OTA dispatcher registration defaults to a non-mutating plan', () => {
   assert.match(source, /DefaultParameterSetName = 'Plan'/);
@@ -41,7 +160,8 @@ test('task runs only as the current interactive user with bounded execution', ()
   assert.match(source, /-LogonType Interactive/);
   assert.match(source, /-RunLevel Limited/);
   assert.match(source, /-MultipleInstances IgnoreNew/);
-  assert.match(source, /New-TimeSpan -Hours 2/);
+  assert.match(source, /-WakeToRun/);
+  assert.match(source, /New-TimeSpan -Minutes 40/);
   assert.match(source, /New-TimeSpan -Minutes 25/);
   assert.doesNotMatch(source, /\[string\]\$Password|\[securestring\]|-Password\b/i);
 });
@@ -63,6 +183,7 @@ test('task arguments are fixed and credential-shaped values are rejected', () =>
   assert.match(runner, /FindSystemTimeZoneById\('China Standard Time'\)/);
   assert.match(runner, /\$dailyTargetDate = \$shanghaiNow\.Date\.AddDays\(-1\)\.ToString/);
   assert.match(runner, /--target-date=\$dailyTargetDate/);
+  assert.match(runner, /--dispatcher-run-id=\$\(\$dispatcherRunGuid\.ToString\('D'\)\.ToLowerInvariant\(\)\)/);
   assert.match(runner, /dispatcher_target_date=\$dailyTargetDate;timezone=Asia\/Shanghai/);
   assert.match(runner, /--hotel-id=\$HotelId/);
   assert.match(runner, /--source-ids=\$SourceIds/);
@@ -85,11 +206,126 @@ test('runner persists a safe start receipt before the child process and a termin
   const startedStatus = runner.indexOf("dispatcher_terminal_status=started_without_terminal_receipt");
   const firstLogWrite = runner.indexOf('[System.IO.File]::WriteAllLines($logPath');
   const processStart = runner.indexOf('$process = Start-Process');
-  const finishedStatus = runner.indexOf('dispatcher_terminal_status=finished;exit_code=$exitCode');
+  const finishedStatus = runner.indexOf('dispatcher_terminal_status=finished;exit_code=$exitCode', processStart);
   const finalLogWrite = runner.lastIndexOf('[System.IO.File]::WriteAllLines($logPath');
 
   assert(startedStatus >= 0 && firstLogWrite > startedStatus && processStart > firstLogWrite);
   assert(finishedStatus > processStart && finalLogWrite > finishedStatus);
+  assert.match(runner, /verify_canonical_ota_daily_natural_acceptance\.php/);
+  assert.match(runner, /dispatcher_daily_acceptance_readback_verified=/);
+  assert.match(runner, /non_blocking=true/);
+});
+
+test('runner fail-closes database readiness and exposes a no-OTA preflight mode', () => {
+  const runner = readFileSync(path.join(repoRoot, 'scripts', 'run_ota_dispatcher.ps1'), 'utf8');
+  const targetDatePinned = runner.indexOf("FindSystemTimeZoneById('China Standard Time')");
+  const firstLogWrite = runner.indexOf('[System.IO.File]::WriteAllLines($logPath');
+  const initialDatabaseCheck = runner.indexOf('$initialDatabaseCheck = Invoke-SafeDispatcherProcess');
+  const schemaMismatchBranch = runner.indexOf('if ($initialDatabaseCheck.exit_code -eq 2)');
+  const recoveryBranch = runner.indexOf('elseif ($initialDatabaseCheck.exit_code -ne 0)');
+  const databaseOnlyAttempt = runner.indexOf("'-DatabaseOnly'", recoveryBranch);
+  const verifiedDatabaseCheck = runner.indexOf('$verifiedDatabaseCheck = Invoke-SafeDispatcherProcess', databaseOnlyAttempt);
+  const preflightTerminalBranch = runner.indexOf('if ($PreflightOnly -or $databasePreflightBlocked)');
+  const otaProcessStart = runner.indexOf('$process = Start-Process');
+
+  assert.match(runner, /\[switch\]\$PreflightOnly/);
+  assert.match(runner, /dispatcher_run_mode=preflight_only;ota_collection_started=false/);
+  assert.match(runner, /dispatcher_database_preflight=blocked;reason=database_schema_upgrade_required/);
+  assert.match(runner, /dispatcher_database_recovery=attempted/);
+  assert.match(runner, /dispatcher_preflight_result=ready;ota_collection_started=false/);
+  assert.match(runner, /dispatcher_preflight_result=blocked;reason=\$databasePreflightReason;ota_collection_started=false/);
+  assert.match(
+    runner,
+    /Id\s*=\s*@\(100,\s*107,\s*110,\s*129,\s*200\)/,
+    'natural correlation must read the bounded Task Scheduler event set',
+  );
+  assert.match(runner, /-EngineProcessId\s+\$PID/);
+  assert.match(runner, /-PreflightOnly:\$\(\[bool\]\$PreflightOnly\)/);
+  assert.match(
+    runner,
+    /\$finishTaskEvidence\s*=\s*Get-DispatcherScheduledTaskEvidence[\s\S]*?-ReferenceTime\s+\(\[datetimeoffset\]\$StartState\.started_at\)/,
+    'finish provenance must re-query the exact start window even after a long OTA run',
+  );
+  assert.match(
+    runner,
+    /\$selectedSchedulerCorrelation\s*=\s*Select-SuxiosDispatcherTerminalSchedulerCorrelation[\s\S]*?-StartCorrelation\s+\$StartState\.task_evidence\.correlation[\s\S]*?-FinishCorrelation\s+\$finishTaskEvidence\.correlation/,
+    'a frozen exact start correlation may survive only a transient unavailable finish read, never explicit not-correlated evidence',
+  );
+  assert.equal((runner.match(/'-DatabaseOnly'/g) || []).length, 1);
+  assert(targetDatePinned >= 0 && firstLogWrite > targetDatePinned);
+  assert(initialDatabaseCheck > firstLogWrite);
+  assert(schemaMismatchBranch > initialDatabaseCheck && recoveryBranch > schemaMismatchBranch);
+  assert(databaseOnlyAttempt > recoveryBranch && verifiedDatabaseCheck > databaseOnlyAttempt);
+  assert(preflightTerminalBranch > verifiedDatabaseCheck && otaProcessStart > preflightTerminalBranch);
+});
+
+test('PreflightOnly never attempts recovery for schema exit 2 and never invokes OTA', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(2);
+  try {
+    const result = runIsolatedPreflight(fixture, phpPath);
+    assert.equal(result.status, 2, `${result.stderr || result.stdout}\n${result.log}`);
+    assert.equal(existsSync(fixture.recoveryMarker), false);
+    assert.equal(existsSync(fixture.otaMarker), false);
+    assert.match(result.log, /dispatcher_database_preflight=blocked;reason=database_schema_upgrade_required/);
+    assert.match(result.log, /dispatcher_preflight_result=blocked;reason=database_schema_upgrade_required;ota_collection_started=false/);
+    assert.doesNotMatch(result.log, /dispatcher_database_recovery=attempted/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('PreflightOnly performs one DatabaseOnly recovery, rechecks, and suppresses child output', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(1);
+  try {
+    const result = runIsolatedPreflight(fixture, phpPath);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(existsSync(fixture.recoveryMarker), true, result.log);
+    assert.equal(existsSync(fixture.statePath), true);
+    assert.equal(existsSync(fixture.otaMarker), false);
+    assert.match(result.log, /dispatcher_database_recovery=attempted;exit_code=0;timed_out=False/i);
+    assert.match(result.log, /dispatcher_database_preflight=ready;recovery_attempted=true;verified_exit_code=0/);
+    assert.match(result.log, /dispatcher_preflight_result=ready;ota_collection_started=false/);
+    assert.doesNotMatch(result.log, /leak-test|password=|token=/i);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('real dispatcher child preserves a non-zero exit code and its safe machine receipt', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(1);
+  fixture.environment.FAKE_OTA_EXIT = '1';
+  writeFileSync(fixture.statePath, 'ready', 'utf8');
+  try {
+    const result = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(result.status, 1, `${result.stderr || result.stdout}\n${result.log}`);
+    assert.equal(existsSync(fixture.otaMarker), true, result.log);
+    const childArguments = JSON.parse(readFileSync(fixture.otaMarker, 'utf8'));
+    const dispatcherArgument = childArguments.find(value =>
+      /^--dispatcher-run-id=[a-f0-9-]{36}$/.test(String(value)),
+    );
+    assert.ok(dispatcherArgument, childArguments);
+    const dispatcherRunId = String(dispatcherArgument).split('=', 2)[1];
+    assert.match(result.log, new RegExp(`dispatcher_run_id=${dispatcherRunId};schema_version=1`));
+    assert.match(result.log, /SUXIOS_AUTO_FETCH_RECEIPT=\{"status":"failed","sensitive_values_exposed":false\}/);
+    assert.match(result.log, /dispatcher_terminal_status=finished;exit_code=1/);
+    assert.doesNotMatch(result.log, /dispatcher_terminal_status=finished;exit_code=0/);
+    assert.match(result.log, /SUXIOS_OTA_DAILY_ACCEPTANCE=\{"schema_version":"suxios_ota_daily_natural_acceptance\.v1","status":"blocked"/);
+    assert.match(result.log, /dispatcher_daily_acceptance_readback_verified=true;receipt_count=1/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
 });
 
 test('realtime dispatcher is an independent hourly task with the same credential boundary', () => {
@@ -107,15 +343,20 @@ test('realtime dispatcher is an independent hourly task with the same credential
   assert.match(source, /-MultipleInstances IgnoreNew/);
 });
 
-test('daily dispatcher has two bounded same-business-date retry opportunities', () => {
-  assert.match(source, /\$dailyRetryOffsetsMinutes = @\(0, 14, 28\)/);
+test('daily dispatcher keeps a seventh trigger so all six exponential retry attempts remain reachable', () => {
+  assert.match(source, /\$dailyRetryOffsetsMinutes = @\(0, 14, 28, 42, 56, 70, 84\)/);
   assert.match(source, /daily_retry_window/);
-  assert.match(source, /DailyAt must leave 28 minutes before midnight/);
-  assert.match(source, /New-DispatcherRepetitionPattern -Interval 'PT14M' -Duration 'PT29M'/);
-  assert.match(source, /daily \$DailyAt with bounded retries \+14m\/\+28m/);
+  assert.match(source, /DailyAt must leave 84 minutes before midnight/);
+  assert.match(source, /New-DispatcherRepetitionPattern -Interval 'PT14M' -Duration 'PT85M'/);
+  assert.match(source, /daily \$DailyAt with bounded retries \+14m\/\+28m\/\+42m\/\+56m\/\+70m\/\+84m/);
+  assert.match(source, /execution_time_limit_minutes = if \(\$Realtime\) \{ 25 \} else \{ 40 \}/);
+  assert.match(source, /final slot remains after the fifth exponential retry cooldown/);
   assert.match(source, /\$candidateStartBoundary\.Date -gt \[datetimeoffset\]::Now\.Date/);
-  assert.match(source, /\$triggerTime = \$deferredDailyStartBoundary\.LocalDateTime/);
+  assert.match(source, /\$nextDailyStart -le \(Get-Date\)/);
+  assert.match(source, /\$nextDailyStart = \$nextDailyStart\.AddDays\(1\)/);
+  assert.match(source, /\$triggerTime = \$effectiveDailyStartBoundary\.LocalDateTime/);
   assert.match(source, /preserves_deferred_daily_start = \$true/);
+  assert.match(source, /wake_to_run = \$true/);
 });
 
 test('unregistration is fixed-scope and requires explicit double confirmation', () => {

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace app\service\operation;
 
+use app\service\CanonicalOtaInvestigationActionService;
+
 final class ExecutionOutcomeService
 {
     /**
@@ -97,6 +99,17 @@ final class ExecutionOutcomeService
             || $attachmentPath !== ''
             || $remark !== '';
         $operatorAttested = $createdBy > 0 && $operatorSignal;
+
+        if ($evidenceType === 'canonical_analysis_completion') {
+            return $this->assessCanonicalInvestigationEvidence(
+                $intent,
+                $task,
+                $evidence,
+                $platformResponse,
+                $before,
+                $after
+            );
+        }
 
         $checks = [
             'system_authority' => false,
@@ -211,6 +224,274 @@ final class ExecutionOutcomeService
             'source' => $source !== '' ? $source : null,
             'source_ref' => $sourceRef !== '' ? $sourceRef : null,
         ];
+    }
+
+    /**
+     * A canonical investigation proves that a bounded arithmetic/scope check was
+     * completed against an exact persisted OTA row. It never proves that an OTA
+     * mutation occurred or that a business outcome improved.
+     *
+     * @param array<string,mixed> $intent
+     * @param array<string,mixed> $task
+     * @param array<string,mixed> $evidence
+     * @param array<string,mixed> $platformResponse
+     * @param array<string,mixed> $before
+     * @param array<string,mixed> $after
+     * @return array<string,mixed>
+     */
+    private function assessCanonicalInvestigationEvidence(
+        array $intent,
+        array $task,
+        array $evidence,
+        array $platformResponse,
+        array $before,
+        array $after
+    ): array {
+        $receipt = $this->arrayValue($platformResponse['analysis_receipt'] ?? []);
+        $intentEvidence = $this->arrayValue($intent['evidence'] ?? []);
+        $checks = [
+            'system_authority' => false,
+            'source_identity' => false,
+            'operation_identity' => false,
+            'scope_alignment' => false,
+            'canonical_binding' => false,
+            'database_readback' => false,
+            'deterministic_review' => false,
+            'protected_boundary' => false,
+            'receipt_digest' => false,
+        ];
+        $failureReasons = [];
+
+        $checks['system_authority'] = (int)($evidence['created_by'] ?? 0) === 0
+            && (string)($intent['source_module'] ?? '') === 'canonical_ota_investigation'
+            && (string)($intent['status'] ?? '') === 'system_authorized_analysis'
+            && (int)($intent['created_by'] ?? 0) === 0
+            && (int)($intent['approved_by'] ?? 0) === 0
+            && trim((string)($intent['approved_at'] ?? '')) === ''
+            && (string)($task['execution_mode'] ?? '') === 'analysis_only'
+            && (int)($task['operator_id'] ?? 0) === 0
+            && (string)($receipt['schema_version'] ?? '') === 'canonical_ota_investigation_evidence.v1'
+            && (string)($receipt['verification_authority'] ?? '') === 'canonical_ota_investigation_service';
+        if (!$checks['system_authority']) {
+            $failureReasons[] = 'canonical_analysis_system_authority_invalid';
+        }
+
+        $rowId = (int)($receipt['row_id'] ?? 0);
+        $dataSourceId = (int)($receipt['data_source_id'] ?? 0);
+        $syncTaskId = (int)($receipt['sync_task_id'] ?? 0);
+        $source = trim((string)($receipt['source'] ?? ''));
+        $sourceRef = trim((string)($receipt['source_ref'] ?? ''));
+        $checks['source_identity'] = $rowId > 0
+            && $source === 'online_daily_data'
+            && $sourceRef === 'online_daily_data#' . $rowId
+            && (int)($intent['source_record_id'] ?? 0) === $rowId
+            && $rowId === (int)($intentEvidence['row_id'] ?? 0)
+            && $dataSourceId > 0
+            && $dataSourceId === (int)($intentEvidence['data_source_id'] ?? 0)
+            && $syncTaskId > 0
+            && $syncTaskId === (int)($intentEvidence['sync_task_id'] ?? 0);
+        if (!$checks['source_identity']) {
+            $failureReasons[] = 'canonical_analysis_source_identity_invalid';
+        }
+
+        $intentId = (int)($intent['id'] ?? 0);
+        $taskId = (int)($task['id'] ?? 0);
+        $checks['operation_identity'] = $intentId > 0
+            && $taskId > 0
+            && (int)($task['intent_id'] ?? 0) === $intentId
+            && (int)($evidence['task_id'] ?? 0) === $taskId
+            && (int)($receipt['operation_intent_id'] ?? 0) === $intentId
+            && (int)($receipt['operation_task_id'] ?? 0) === $taskId
+            && (string)($receipt['action_type'] ?? '') === (string)($intent['action_type'] ?? '')
+            && (string)($intent['object_type'] ?? '') === 'operation_checklist'
+            && (string)($intent['expected_metric'] ?? '') === 'investigation_completion'
+            && ($intent['expected_delta'] ?? null) === null
+            && (string)($task['status'] ?? '') === 'executed'
+            && (string)($task['result_status'] ?? '') === 'observing'
+            && (int)($task['action_track_id'] ?? 0) === 0;
+        if (!$checks['operation_identity']) {
+            $failureReasons[] = 'canonical_analysis_operation_identity_invalid';
+        }
+
+        $intentTenantId = (int)($intent['tenant_id'] ?? 0);
+        $intentHotelId = (int)($intent['hotel_id'] ?? 0);
+        $intentPlatform = strtolower(trim((string)($intent['platform'] ?? '')));
+        $intentEvidencePlatform = strtolower(trim((string)($intentEvidence['platform'] ?? '')));
+        $canonicalPlatforms = ['ctrip', 'meituan'];
+        $expectedActionTypes = in_array($intentPlatform, $canonicalPlatforms, true)
+            ? CanonicalOtaInvestigationActionService::actionTypesForPlatform($intentPlatform)
+            : [];
+        $intentDateStart = substr(trim((string)($intent['date_start'] ?? '')), 0, 10);
+        $intentDateEnd = substr(trim((string)($intent['date_end'] ?? '')), 0, 10);
+        $intentEvidenceDate = trim((string)($intentEvidence['target_date'] ?? ''));
+        $receiptPeriod = strtolower(trim((string)($receipt['data_period'] ?? '')));
+        $intentEvidencePeriod = strtolower(trim((string)($intentEvidence['data_period'] ?? '')));
+        $checks['scope_alignment'] = $intentTenantId > 0
+            && $intentTenantId === (int)($task['tenant_id'] ?? 0)
+            && $intentTenantId === (int)($evidence['tenant_id'] ?? 0)
+            && $intentTenantId === (int)($receipt['tenant_id'] ?? 0)
+            && $intentTenantId === (int)($intentEvidence['tenant_id'] ?? 0)
+            && $intentHotelId > 0
+            && $intentHotelId === (int)($task['hotel_id'] ?? 0)
+            && $intentHotelId === (int)($receipt['system_hotel_id'] ?? 0)
+            && $intentHotelId === (int)($intentEvidence['hotel_id'] ?? 0)
+            && in_array($intentPlatform, $canonicalPlatforms, true)
+            && $intentPlatform === strtolower(trim((string)($receipt['platform'] ?? '')))
+            && $intentPlatform === $intentEvidencePlatform
+            && in_array((string)($receipt['action_type'] ?? ''), $expectedActionTypes, true)
+            && $intentDateStart !== ''
+            && $intentDateStart === $intentDateEnd
+            && $intentDateStart === substr(trim((string)($receipt['date_start'] ?? '')), 0, 10)
+            && $intentDateStart === substr(trim((string)($receipt['date_end'] ?? '')), 0, 10)
+            && $intentDateStart === $intentEvidenceDate
+            && preg_match('/^[a-z0-9_]{1,40}$/D', $receiptPeriod) === 1
+            && $receiptPeriod === $intentEvidencePeriod;
+        if (!$checks['scope_alignment']) {
+            $failureReasons[] = 'canonical_analysis_scope_alignment_invalid';
+        }
+
+        $digestBindings = [
+            'action_content_digest' => 'action_content_digest',
+            'action_set_digest' => 'action_set_digest',
+            'source_draft_set_digest' => 'draft_set_content_digest',
+            'promotion_content_digest' => 'promotion_content_digest',
+            'authoritative_fact_digest' => 'authoritative_fact_digest',
+            'platform_hotel_identity_digest' => 'platform_hotel_identity_digest',
+            'contract_digest' => 'contract_digest',
+        ];
+        $checks['canonical_binding'] = true;
+        foreach ($digestBindings as $receiptField => $intentEvidenceField) {
+            $receiptValue = strtolower(trim((string)($receipt[$receiptField] ?? '')));
+            $intentEvidenceValue = strtolower(trim((string)($intentEvidence[$intentEvidenceField] ?? '')));
+            if (!$this->canonicalEvidenceDigest($receiptValue)
+                || !$this->canonicalEvidenceDigest($intentEvidenceValue)
+                || !hash_equals($intentEvidenceValue, $receiptValue)
+            ) {
+                $checks['canonical_binding'] = false;
+                break;
+            }
+        }
+        if (!$checks['canonical_binding']) {
+            $failureReasons[] = 'canonical_analysis_canonical_binding_invalid';
+        }
+
+        $readbackAt = trim((string)($receipt['readback_at'] ?? ''));
+        $checks['database_readback'] = ($receipt['database_written'] ?? false) === true
+            && ($receipt['readback_verified'] ?? false) === true
+            && (int)($receipt['readback_count'] ?? 0) === 1
+            && $readbackAt !== ''
+            && strtotime($readbackAt) !== false
+            && (string)($receipt['validation_status'] ?? '') === 'verified'
+            && trim((string)($receipt['failure_reason'] ?? '')) === '';
+        if (!$checks['database_readback']) {
+            $failureReasons[] = 'canonical_analysis_database_readback_invalid';
+        }
+
+        $review = $this->arrayValue($receipt['deterministic_review'] ?? []);
+        $actionSnapshot = $this->arrayValue($receipt['action_snapshot'] ?? []);
+        $taskCurrentValue = $this->arrayValue($task['current_value'] ?? []);
+        $taskTargetValue = $this->arrayValue($task['target_value'] ?? []);
+        $actionDigest = strtolower(trim((string)($receipt['action_content_digest'] ?? '')));
+        $checks['deterministic_review'] = (string)($review['reviewer_contract_version'] ?? '')
+                === 'canonical_ota_investigation_deterministic_review.v1'
+            && ($review['formula_result_match'] ?? false) === true
+            && ($review['scope_match'] ?? false) === true
+            && ($review['boundary_match'] ?? false) === true
+            && (string)($review['verdict'] ?? '') === 'PASS'
+            && (string)($review['process_status'] ?? '') === 'READY'
+            && $this->canonicalEvidenceDigest($actionDigest)
+            && hash_equals(
+                $actionDigest,
+                (string)($intentEvidence['action_content_digest'] ?? '')
+            )
+            && hash_equals($actionDigest, (string)($taskTargetValue['action_content_digest'] ?? ''))
+            && $actionSnapshot !== []
+            && (string)($actionSnapshot['action_type'] ?? '') === (string)($receipt['action_type'] ?? '')
+            && (string)($actionSnapshot['action_content_digest'] ?? '') === $actionDigest
+            && hash_equals($actionDigest, $this->canonicalInvestigationActionDigest($actionSnapshot))
+            && ($actionSnapshot['formula_contract'] ?? null) === ($receipt['formula_contract'] ?? null)
+            && ($actionSnapshot['deterministic_result'] ?? null) === ($receipt['deterministic_result'] ?? null)
+            && ($actionSnapshot['deterministic_review'] ?? null) === $review
+            && ($taskCurrentValue['deterministic_result'] ?? null) === ($receipt['deterministic_result'] ?? null);
+        if (!$checks['deterministic_review']) {
+            $failureReasons[] = 'canonical_analysis_deterministic_review_invalid';
+        }
+
+        $checks['protected_boundary'] = $before === []
+            && $after === []
+            && ($receipt['external_write'] ?? true) === false
+            && ($receipt['external_action_triggered'] ?? true) === false
+            && ($receipt['ota_mutation_performed'] ?? true) === false
+            && ($receipt['causality_claimed'] ?? true) === false
+            && ($receipt['business_outcome_claimed'] ?? true) === false
+            && ($intentEvidence['human_approval_claimed'] ?? true) === false
+            && ($intentEvidence['external_write'] ?? true) === false
+            && ($intentEvidence['causality_claimed'] ?? true) === false
+            && ($intentEvidence['outcome_claimed'] ?? true) === false;
+        if (!$checks['protected_boundary']) {
+            $failureReasons[] = 'canonical_analysis_protected_boundary_invalid';
+        }
+
+        $receiptDigest = strtolower(trim((string)($receipt['content_digest'] ?? '')));
+        $checks['receipt_digest'] = $this->canonicalEvidenceDigest($receiptDigest)
+            && hash_equals($receiptDigest, $this->canonicalInvestigationReceiptDigest($receipt));
+        if (!$checks['receipt_digest']) {
+            $failureReasons[] = 'canonical_analysis_receipt_digest_invalid';
+        }
+
+        $sourceVerified = !in_array(false, $checks, true);
+        return [
+            'evidence_id' => (int)($evidence['id'] ?? 0),
+            'evidence_type' => 'canonical_analysis_completion',
+            'operator_attested' => false,
+            'source_verified' => $sourceVerified,
+            'status' => $sourceVerified ? 'verified' : 'unverified',
+            'failure_reason' => $sourceVerified ? null : ($failureReasons[0] ?? 'canonical_analysis_evidence_unverified'),
+            'failure_reasons' => array_values(array_unique($failureReasons)),
+            'checks' => $checks,
+            'source' => $source !== '' ? $source : null,
+            'source_ref' => $sourceRef !== '' ? $sourceRef : null,
+        ];
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private function canonicalInvestigationReceiptDigest(array $receipt): string
+    {
+        unset($receipt['content_digest']);
+        return hash('sha256', json_encode(
+            $this->canonicalInvestigationDigestValue($receipt),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        ));
+    }
+
+    /** @param array<string,mixed> $action */
+    private function canonicalInvestigationActionDigest(array $action): string
+    {
+        unset($action['action_content_digest']);
+        return hash('sha256', json_encode(
+            $this->canonicalInvestigationDigestValue($action),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        ));
+    }
+
+    private function canonicalInvestigationDigestValue(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map(fn(mixed $item): mixed => $this->canonicalInvestigationDigestValue($item), $value);
+        }
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalInvestigationDigestValue($item);
+        }
+        return $value;
+    }
+
+    private function canonicalEvidenceDigest(string $value): bool
+    {
+        return preg_match('/^[a-f0-9]{64}$/D', strtolower(trim($value))) === 1;
     }
 
     /**

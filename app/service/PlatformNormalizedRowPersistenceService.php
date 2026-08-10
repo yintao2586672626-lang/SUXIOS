@@ -197,6 +197,10 @@ final class PlatformNormalizedRowPersistenceService
                 ? (string)$row[$field]
                 : '';
         }
+        $runScopedTaskId = $this->normalizedRowRunScopedSyncTaskId($row);
+        if ($runScopedTaskId > 0) {
+            $identity['sync_task_id'] = (string)$runScopedTaskId;
+        }
         $identity['identity_kind'] = $eventIdentity !== '' ? 'event' : 'summary';
         $identity['event_identity_hash'] = $eventIdentity;
         return hash(
@@ -217,6 +221,9 @@ final class PlatformNormalizedRowPersistenceService
             'hotel_id', 'data_type', 'data_date', 'data_period', 'snapshot_bucket',
             'dimension', 'compare_type',
         ];
+        if ($this->normalizedRowRunScopedSyncTaskId($row) > 0) {
+            $identityFields[] = 'sync_task_id';
+        }
         $applyIdentity = static function ($query) use ($row, $columns, $identityFields): void {
             foreach ($identityFields as $field) {
                 if (!isset($columns[$field]) || !array_key_exists($field, $row)) {
@@ -271,10 +278,17 @@ final class PlatformNormalizedRowPersistenceService
 
         $identity = [];
         foreach ([
-            'tenant_id', 'system_hotel_id', 'data_source_id', 'source', 'platform',
+            'tenant_id', 'system_hotel_id', 'data_source_id', 'sync_task_id', 'source', 'platform',
             'hotel_id', 'data_type', 'data_date', 'data_period', 'snapshot_bucket',
             'dimension', 'compare_type',
         ] as $field) {
+            if ($field === 'sync_task_id') {
+                $runScopedTaskId = $this->normalizedRowRunScopedSyncTaskId($row);
+                if ($runScopedTaskId > 0 && isset($columns[$field])) {
+                    $identity[$field] = (string)$runScopedTaskId;
+                }
+                continue;
+            }
             if (!isset($columns[$field]) || !array_key_exists($field, $row)) {
                 continue;
             }
@@ -287,6 +301,27 @@ final class PlatformNormalizedRowPersistenceService
             $identity,
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
         );
+    }
+
+    /**
+     * Automatic P0 traffic snapshots are immutable per sync task so a later
+     * run cannot steal an earlier task's exact readback rows. Other summaries,
+     * explicit imports, and stable event facts retain the historical
+     * cross-task idempotency contract and consumer aggregation semantics.
+     *
+     * @param array<string, mixed> $row
+     */
+    private function normalizedRowRunScopedSyncTaskId(array $row): int
+    {
+        $taskId = max(0, (int)($row['sync_task_id'] ?? 0));
+        $ingestionMethod = strtolower(trim((string)($row['ingestion_method'] ?? '')));
+        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        return $taskId > 0
+            && in_array($dataType, ['traffic', 'flow', 'conversion'], true)
+            && !in_array($ingestionMethod, ['manual', 'import_json', 'import_csv', 'import_excel'], true)
+            && !$this->normalizedRowHasStableEventIdentity($row)
+            ? $taskId
+            : 0;
     }
 
     /** @param array<string, mixed> $row */

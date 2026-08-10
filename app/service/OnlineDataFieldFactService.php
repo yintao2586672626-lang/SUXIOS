@@ -1000,7 +1000,6 @@ final class OnlineDataFieldFactService
             'manual_reply_rate' => 'flow_rate',
             'im_order_conversion_rate' => 'flow_rate',
             'agreement_accept_rate' => 'flow_rate',
-            'business_commission_rate' => 'flow_rate',
             'comment_response_rate' => 'flow_rate',
             'comment_score_summary' => 'comment_score',
             'comment_score' => 'comment_score',

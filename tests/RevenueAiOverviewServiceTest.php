@@ -9,9 +9,210 @@ use PHPUnit\Framework\TestCase;
 
 final class RevenueAiOverviewServiceTest extends TestCase
 {
+    public function testOverviewKeepsMetricCompletenessSeparateByPlatform(): void
+    {
+        $ctripFact = $this->dailyFact('ctrip', 0, 0, null, [
+            'date_key' => '2026-08-01',
+            'revenue' => null,
+            'gross_revenue' => null,
+            'room_revenue' => null,
+            'room_nights' => null,
+            'occupied_room_nights' => null,
+            'order_count' => null,
+            'adr' => null,
+        ]);
+        $meituanFact = $this->dailyFact('meituan', 800, 4, 10, ['date_key' => '2026-08-01']);
+        $ctripDataset = $this->dataset([$ctripFact]);
+        $meituanDataset = $this->dataset([$meituanFact]);
+
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $this->dataset([$ctripFact, $meituanFact]),
+            [
+                'ctrip' => $ctripDataset,
+                'meituan' => $meituanDataset,
+            ],
+            [
+                'ctrip' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-08-02 08:00:00'],
+                'meituan' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-08-02 08:10:00'],
+            ],
+            [
+                'business_date' => '2026-08-01',
+                'hotel_id' => 7,
+                'enabled_channels' => ['ctrip', 'meituan'],
+            ]
+        );
+
+        self::assertSame('blocked', $overview['channel_metric_statuses']['ctrip']['status']);
+        self::assertSame('partial', $overview['data_status']);
+        self::assertSame('partial', $overview['data_completeness']['status']);
+        self::assertLessThan(100, $overview['data_completeness']['percent']);
+        self::assertSame(
+            ['room_revenue', 'room_nights', 'order_count'],
+            $overview['channel_metric_statuses']['ctrip']['core_missing_metrics']
+        );
+        self::assertSame('ready', $overview['channel_metric_statuses']['meituan']['status']);
+        self::assertSame([], $overview['channel_metric_statuses']['meituan']['core_missing_metrics']);
+        self::assertNull($overview['channel_metric_statuses']['ctrip']['metrics']['room_revenue']['value']);
+        self::assertSame(800.0, $overview['channel_metric_statuses']['meituan']['metrics']['room_revenue']['value']);
+
+        $gaps = array_column($overview['channel_metric_gaps'], null, 'key');
+        self::assertArrayHasKey('ctrip_metric_room_revenue_room_revenue_missing', $gaps);
+        self::assertArrayHasKey('ctrip_metric_room_nights_room_nights_missing', $gaps);
+        self::assertArrayHasKey('ctrip_metric_order_count_order_count_missing', $gaps);
+        self::assertArrayNotHasKey('meituan_metric_room_revenue_room_revenue_missing', $gaps);
+        $roomRevenueGap = $gaps['ctrip_metric_room_revenue_room_revenue_missing'];
+        self::assertSame('ctrip', $roomRevenueGap['source']['platform']);
+        self::assertSame('2026-08-01', $roomRevenueGap['business_date']);
+        self::assertSame('ctrip-ebooking', $roomRevenueGap['target_page']);
+        self::assertFalse($roomRevenueGap['can_auto_fill']);
+        self::assertSame(
+            'booking_amount_or_reference_price_as_verified_room_revenue',
+            $roomRevenueGap['forbidden_shortcut']
+        );
+        self::assertStringContainsString('checkout amount', $roomRevenueGap['next_action']);
+    }
+
+    public function testOverviewRebuildsAggregateFromScopedChannelDatasets(): void
+    {
+        $ctripDataset = $this->dataset([$this->dailyFact('ctrip', 100, 1, 1)]);
+        $meituanDataset = $this->dataset([$this->dailyFact('meituan', 200, 2, 2)]);
+
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $ctripDataset,
+            ['ctrip' => $ctripDataset, 'meituan' => $meituanDataset],
+            [
+                'ctrip' => ['status' => 'ready', 'last_sync_status' => 'success'],
+                'meituan' => ['status' => 'ready', 'last_sync_status' => 'success'],
+            ],
+            ['business_date' => '2026-06-25', 'hotel_id' => 7, 'enabled_channels' => ['ctrip', 'meituan']]
+        );
+
+        self::assertSame(300.0, $overview['metrics']['ota_room_revenue']['value']);
+        self::assertSame('ok', $overview['metrics']['ota_room_revenue']['status']);
+        self::assertSame(['ctrip', 'meituan'], $overview['metrics']['ota_room_revenue']['truth']['platforms']);
+        self::assertSame('ok', $overview['data_status']);
+        self::assertSame(100, $overview['data_completeness']['percent']);
+    }
+
+    public function testOverviewRejectsFactsFromAnotherBusinessDateBeforeMetricAggregation(): void
+    {
+        $staleFact = $this->dailyFact('ctrip', 100, 1, 1, ['date_key' => '2026-06-25']);
+        $dataset = $this->dataset([$staleFact]);
+
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $dataset,
+            ['ctrip' => $dataset],
+            ['ctrip' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-08-02 08:00:00']],
+            ['business_date' => '2026-08-01', 'hotel_id' => 7, 'enabled_channels' => ['ctrip']]
+        );
+
+        self::assertSame('2026-08-01', $overview['business_date']);
+        self::assertNull($overview['metrics']['ota_room_revenue']['value']);
+        self::assertNotSame('ok', $overview['metrics']['ota_room_revenue']['status']);
+        self::assertSame('missing', $overview['channel_metric_statuses']['ctrip']['status']);
+        self::assertSame(0, $overview['channel_metric_statuses']['ctrip']['fact_row_count']);
+        self::assertSame([], $overview['actual_source_channels']);
+        self::assertContains('overview_scope_mismatch', array_column($overview['quality_issues'], 'reason'));
+    }
+
+    public function testOverviewRejectsExplicitTraceIdentityMismatchBeforeMetricAggregation(): void
+    {
+        $mutations = [
+            'trace_date' => static function (array &$trace): void {
+                $trace['date_key'] = '2026-07-31';
+            },
+            'trace_platform' => static function (array &$trace): void {
+                $trace['platform'] = 'meituan';
+            },
+            'trace_hotel' => static function (array &$trace): void {
+                $trace['system_hotel_id'] = 99;
+                $trace['hotel_key'] = 'system:99';
+            },
+        ];
+
+        foreach ($mutations as $label => $mutate) {
+            $fact = $this->dailyFact('ctrip', 100, 1, 1, ['date_key' => '2026-08-01']);
+            $mutate($fact['source_trace']);
+            $dataset = $this->dataset([$fact]);
+            $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+                $dataset,
+                ['ctrip' => $dataset],
+                ['ctrip' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-08-01 08:00:00']],
+                ['business_date' => '2026-08-01', 'hotel_id' => 7, 'enabled_channels' => ['ctrip']]
+            );
+
+            self::assertNull($overview['metrics']['ota_room_revenue']['value'], $label);
+            self::assertSame('missing', $overview['channel_metric_statuses']['ctrip']['status'], $label);
+            self::assertContains('overview_scope_mismatch', array_column($overview['quality_issues'], 'reason'), $label);
+        }
+    }
+
+    public function testOverviewDoesNotLetThreeSourceLayerOverrideTargetScopeWithOldVerifiedMetric(): void
+    {
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $this->dataset([]),
+            ['ctrip' => $this->dataset([])],
+            ['ctrip' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-08-01 08:00:00']],
+            [
+                'business_date' => '2026-08-01',
+                'hotel_id' => 7,
+                'enabled_channels' => ['ctrip'],
+                'revenue_fact_layer' => [
+                    'analysis_metrics' => [
+                        'ota_room_revenue' => [
+                            'key' => 'ota_room_revenue',
+                            'label' => '目标日 OTA 房费收入',
+                            'value' => 100.0,
+                            'unit' => 'CNY',
+                            'scope' => 'ota_channel',
+                            'date_basis' => 'data_date',
+                            'source_channels' => ['ctrip'],
+                            'status' => 'ok',
+                            'reason' => '',
+                            'truth' => [
+                                'status' => 'verified',
+                                'hotels' => [['system_hotel_id' => 7, 'name' => 'Hotel 7']],
+                                'platforms' => ['ctrip'],
+                                'date_range' => ['start' => '2026-06-25', 'end' => '2026-06-25'],
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        );
+
+        self::assertNull($overview['metrics']['ota_room_revenue']['value']);
+        self::assertSame('unverified', $overview['metrics']['ota_room_revenue']['status']);
+        self::assertSame('metric_scope_mismatch', $overview['metrics']['ota_room_revenue']['reason']);
+    }
+
+    public function testOverviewDoesNotPromoteSameDateNumericFactsWithoutTrace(): void
+    {
+        $unverifiedFact = $this->dailyFact('ctrip', 100, 1, 1, [
+            'date_key' => '2026-08-01',
+            'source_trace' => [],
+        ]);
+        $dataset = $this->dataset([$unverifiedFact]);
+
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $dataset,
+            ['ctrip' => $dataset],
+            ['ctrip' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-08-01 08:00:00']],
+            ['business_date' => '2026-08-01', 'hotel_id' => 7, 'enabled_channels' => ['ctrip']]
+        );
+
+        self::assertSame(100.0, $overview['metrics']['ota_room_revenue']['value']);
+        self::assertSame('collection_failed', $overview['metrics']['ota_room_revenue']['status']);
+        self::assertSame('metric_truth_collection_failed', $overview['metrics']['ota_room_revenue']['reason']);
+        self::assertSame('collection_failed', $overview['channel_metric_statuses']['ctrip']['metrics']['room_revenue']['status']);
+        self::assertSame('blocked', $overview['channel_metric_statuses']['ctrip']['status']);
+        self::assertSame('partial', $overview['data_status']);
+    }
+
     public function testOverviewDoesNotMarkMissingRoomNightsAsOk(): void
     {
         $fact = $this->dailyFact('meituan', 500, 0, null, [
+            'date_key' => '2026-07-12',
             'room_nights' => null,
             'occupied_room_nights' => null,
             'order_count' => null,
@@ -285,29 +486,75 @@ final class RevenueAiOverviewServiceTest extends TestCase
         $service = new RevenueAiOverviewService();
         $method = new \ReflectionMethod($service, 'manualOrderImportItem');
         $baseCanonical = [
+            'platform' => 'ctrip',
             'source' => 'ctrip',
             'book_order_num' => 2,
             'gross_order_num' => 2,
             'cancel_order_num' => 0,
             'quantity' => 4,
-            'amount' => 900,
+            'amount' => null,
             'raw_data' => [
                 'channel_key' => 'ctrip',
                 'fixture_status' => 'explicit_test_fixture',
                 'source_format' => 'html_table_xls',
+                'bottom_price_sum' => 900,
+                'amount_semantics' => 'reference_bottom_price_not_confirmed_revenue',
+                'import_contract' => 'ctrip_order_aggregate_v1',
+                'pii_policy' => 'aggregate_only_no_guest_staff_reservation_notes',
             ],
         ];
 
         $htmlItem = $method->invoke($service, [
             'id' => 101,
+            'source' => 'ctrip',
             'data_date' => '2026-08-08',
             'raw_data' => ['row' => $baseCanonical],
         ], '2026-08-08');
         self::assertSame('html_table_xls', $htmlItem['source_format']);
+        self::assertSame('test_fixture_only', $htmlItem['real_file_acceptance']);
+        self::assertSame(900.0, $htmlItem['reference_bottom_price_total']);
+
+        self::assertNull($method->invoke($service, [
+            'id' => 105,
+            'source' => 'meituan',
+            'data_date' => '2026-08-08',
+            'raw_data' => ['row' => $baseCanonical],
+        ], '2026-08-08'));
+        $ordinaryManualOrder = $baseCanonical;
+        unset($ordinaryManualOrder['raw_data']['import_contract']);
+        self::assertNull($method->invoke($service, [
+            'id' => 106,
+            'source' => 'ctrip',
+            'data_date' => '2026-08-08',
+            'raw_data' => ['row' => $ordinaryManualOrder],
+        ], '2026-08-08'));
+
+        $realCanonical = $baseCanonical;
+        $realCanonical['raw_data'] = array_replace($realCanonical['raw_data'], [
+            'fixture_status' => 'not_fixture_claimed',
+            'source_format' => 'biff_xls',
+            'source_layout' => 'ctrip_order_export_25_columns',
+            'file_layout_acceptance' => 'verified_25_column_layout',
+            'bottom_price_coverage_rate' => 0.75,
+            'bottom_price_completeness' => 'partial',
+            'source_file_count' => 2,
+        ]);
+        $realItem = $method->invoke($service, [
+            'id' => 104,
+            'source' => 'ctrip',
+            'data_date' => '2026-08-08',
+            'raw_data' => ['row' => $realCanonical],
+        ], '2026-08-08');
+        self::assertSame('local_25_column_layout_and_readback_verified', $realItem['real_file_acceptance']);
+        self::assertSame('ctrip_order_export_25_columns', $realItem['source_layout']);
+        self::assertSame(0.75, $realItem['reference_bottom_price_coverage_rate']);
+        self::assertSame('partial', $realItem['reference_bottom_price_completeness']);
+        self::assertSame(2, $realItem['source_file_count']);
 
         $baseCanonical['raw_data']['source_format'] = 'future_unknown_xls';
         $unknownItem = $method->invoke($service, [
             'id' => 102,
+            'source' => 'ctrip',
             'data_date' => '2026-08-08',
             'raw_data' => ['row' => $baseCanonical],
         ], '2026-08-08');
@@ -316,6 +563,7 @@ final class RevenueAiOverviewServiceTest extends TestCase
         unset($baseCanonical['raw_data']['source_format']);
         $missingItem = $method->invoke($service, [
             'id' => 103,
+            'source' => 'ctrip',
             'data_date' => '2026-08-08',
             'raw_data' => ['row' => $baseCanonical],
         ], '2026-08-08');
@@ -1441,6 +1689,9 @@ final class RevenueAiOverviewServiceTest extends TestCase
                 'truth' => [
                     'status' => 'verified',
                     'scope_label' => $scope,
+                    'hotels' => [['system_hotel_id' => 80, 'name' => 'Hotel 80']],
+                    'platforms' => $channels,
+                    'date_range' => ['start' => '2026-07-30', 'end' => '2026-07-30'],
                 ],
             ];
         };
@@ -1524,12 +1775,12 @@ final class RevenueAiOverviewServiceTest extends TestCase
 
         $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
             $this->dataset([
-                $this->dailyFact('ctrip', 2168.0, 5, null),
-                $this->dailyFact('meituan', 1032.39, 1, null),
+                $this->dailyFact('ctrip', 2168.0, 5, null, ['date_key' => '2026-07-30', 'hotel_key' => 'system:80']),
+                $this->dailyFact('meituan', 1032.39, 1, null, ['date_key' => '2026-07-30', 'hotel_key' => 'system:80']),
             ]),
             [
-                'ctrip' => $this->dataset([$this->dailyFact('ctrip', 2168.0, 5, null)]),
-                'meituan' => $this->dataset([$this->dailyFact('meituan', 1032.39, 1, null)]),
+                'ctrip' => $this->dataset([$this->dailyFact('ctrip', 2168.0, 5, null, ['date_key' => '2026-07-30', 'hotel_key' => 'system:80'])]),
+                'meituan' => $this->dataset([$this->dailyFact('meituan', 1032.39, 1, null, ['date_key' => '2026-07-30', 'hotel_key' => 'system:80'])]),
             ],
             [
                 'ctrip' => ['status' => 'ready'],
@@ -1593,6 +1844,7 @@ final class RevenueAiOverviewServiceTest extends TestCase
     private function dataset(array $dailyFacts): array
     {
         $platforms = [];
+        $hotels = [];
         foreach ($dailyFacts as $fact) {
             $platform = (string)($fact['platform_key'] ?? '');
             if ($platform !== '') {
@@ -1601,10 +1853,21 @@ final class RevenueAiOverviewServiceTest extends TestCase
                     'platform_name' => $platform,
                 ];
             }
+            $hotelKey = (string)($fact['hotel_key'] ?? '');
+            if ($hotelKey !== '') {
+                $systemHotelId = preg_match('/^system:(\d+)$/D', $hotelKey, $match) === 1
+                    ? (int)$match[1]
+                    : null;
+                $hotels[$hotelKey] = [
+                    'hotel_key' => $hotelKey,
+                    'system_hotel_id' => $systemHotelId,
+                    'hotel_name' => $systemHotelId !== null ? 'Hotel ' . $systemHotelId : $hotelKey,
+                ];
+            }
         }
         return [
             'status' => $dailyFacts ? 'ready' : 'empty',
-            'dim_hotel' => [['hotel_key' => 'system:7', 'system_hotel_id' => 7, 'hotel_name' => 'Hotel Alpha']],
+            'dim_hotel' => array_values($hotels),
             'dim_platform' => array_values($platforms),
             'fact_ota_daily' => $dailyFacts,
             'fact_ota_traffic' => [],
@@ -1639,9 +1902,11 @@ final class RevenueAiOverviewServiceTest extends TestCase
      */
     private function dailyFact(string $platform, float $roomRevenue, float $roomNights, ?float $availableRoomNights, array $overrides = []): array
     {
+        $dateKey = (string)($overrides['date_key'] ?? '2026-06-25');
+        $hotelKey = (string)($overrides['hotel_key'] ?? 'system:7');
         return array_merge([
-            'date_key' => '2026-06-25',
-            'hotel_key' => 'system:7',
+            'date_key' => $dateKey,
+            'hotel_key' => $hotelKey,
             'platform_key' => $platform,
             'data_type' => 'business',
             'metric_scope' => 'ota_channel',
@@ -1656,6 +1921,7 @@ final class RevenueAiOverviewServiceTest extends TestCase
             'available_room_nights' => $availableRoomNights,
             'occupied_room_nights' => $roomNights > 0 ? $roomNights : null,
             'order_count' => $roomNights > 0 ? (int)$roomNights : 0,
+            'gross_order_count' => $roomNights > 0 ? (int)$roomNights : 0,
             'adr' => $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : null,
             'revpar' => $availableRoomNights !== null && $availableRoomNights > 0 ? round($roomRevenue / $availableRoomNights, 2) : null,
             'our_price' => $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : null,
@@ -1663,15 +1929,25 @@ final class RevenueAiOverviewServiceTest extends TestCase
             'price_gap' => $roomNights > 0 ? -10.0 : null,
             'price_gap_rate' => $roomNights > 0 ? -4.76 : null,
             'cancel_order_num' => 0,
+            'unknown_status_order_count' => 0,
+            'cancel_rate_basis' =>
+                'cancelled_orders_over_gross_orders_complete_classification',
             'cancel_room_nights' => 0,
             'lead_time_days' => 1,
             'source_trace' => [
                 'row_id' => $platform . '-1',
+                'source_trace_id' => $platform . ':' . $dateKey . ':1',
+                'hotel_key' => $hotelKey,
+                'system_hotel_id' => preg_match('/^system:(\d+)$/D', $hotelKey, $match) === 1 ? (int)$match[1] : null,
                 'platform' => $platform,
                 'data_type' => 'business',
+                'date_key' => $dateKey,
+                'stored' => true,
+                'readback_verified' => true,
+                'collected_at' => $dateKey . ' 08:00:00',
                 'saved_success' => true,
                 'failure_reasons' => [],
-                'updated_at' => '2026-06-25 08:00:00',
+                'updated_at' => $dateKey . ' 08:00:00',
             ],
         ], $overrides);
     }

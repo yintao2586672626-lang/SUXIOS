@@ -3,8 +3,12 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\CloudOtaBundleCodec;
+use app\service\CloudOtaBundleExportService;
+use app\service\CloudOtaBundleImportService;
 use app\service\DualOtaContinuousTrustService;
 use PHPUnit\Framework\TestCase;
+use ReflectionMethod;
 
 final class DualOtaContinuousTrustServiceTest extends TestCase
 {
@@ -160,6 +164,76 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         self::assertContains('required_metric_explicit_evidence_missing', $ctrip['gap_codes']);
     }
 
+    public function testAuxiliaryCtripProjectionCannotFillMissingAuthoritativeP0Metric(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        foreach ($rows as &$row) {
+            if ($row['platform'] !== 'ctrip') {
+                continue;
+            }
+
+            $auxiliary = $row;
+            $auxiliary['id'] = 1998;
+            $auxiliary['source_trace_id'] = 'ctrip:2026-07-22:auxiliary-trace';
+            $auxiliaryRaw = json_decode((string)$auxiliary['raw_data'], true, 64, JSON_THROW_ON_ERROR);
+            $auxiliaryRaw['endpoint_id'] = 'traffic_catalog_projection';
+            $auxiliaryRaw['source_trace_id'] = $auxiliary['source_trace_id'];
+            $auxiliary['raw_data'] = json_encode(
+                $auxiliaryRaw,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            );
+
+            $row['flow_rate'] = null;
+            $authoritativeRaw = json_decode((string)$row['raw_data'], true, 64, JSON_THROW_ON_ERROR);
+            $authoritativeRaw['field_facts'] = array_values(array_filter(
+                $authoritativeRaw['field_facts'],
+                static fn(array $fact): bool => ($fact['metric_key'] ?? '') !== 'flow_rate'
+            ));
+            $row['raw_data'] = json_encode(
+                $authoritativeRaw,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            );
+            $rows[] = $auxiliary;
+            break;
+        }
+        unset($row);
+
+        foreach ($tasks as &$task) {
+            if ($task['platform'] !== 'ctrip') {
+                continue;
+            }
+            $task['stats_json']['normalized_count'] = 2;
+            $task['stats_json']['saved_count'] = 2;
+            $task['stats_json']['readback_count'] = 2;
+            $task['stats_json']['run_readback']['row_ids'][] = 1998;
+            $task['stats_json']['run_readback']['source_trace_ids'][] = 'ctrip:2026-07-22:auxiliary-trace';
+            $task['stats_json']['run_readback']['readback_count'] = 2;
+        }
+        unset($task);
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+
+        $ctrip = $this->platform($result['days'][0], 'ctrip');
+        self::assertSame('partial', $ctrip['status']);
+        self::assertFalse($ctrip['steps']['field_facts']);
+        self::assertFalse($ctrip['steps']['p0']);
+        self::assertContains('flow_rate', $ctrip['missing_metric_keys']);
+        self::assertContains('flow_rate', $ctrip['acceptance_receipt']['critical_fields']['missing']);
+        self::assertSame(1, $ctrip['acceptance_receipt']['run_readback_scope']['authoritative_row_count']);
+        self::assertFalse($ctrip['acceptance_receipt']['claim_allowed']);
+    }
+
     public function testOlderReadyRowCannotReplaceLatestDateMissingFieldFact(): void
     {
         [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-21', '2026-07-22']);
@@ -199,6 +273,45 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         self::assertContains('field_facts', $meituan['missing_steps']);
         self::assertContains('flow_rate', $meituan['missing_metric_keys']);
         self::assertContains('flow_rate', $meituan['acceptance_receipt']['critical_fields']['missing']);
+    }
+
+    public function testMeituanFieldFactsCannotBorrowDomEvidenceBehindNetworkRow(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        foreach ($rows as &$row) {
+            if ($row['platform'] !== 'meituan') {
+                continue;
+            }
+            $raw = json_decode((string)$row['raw_data'], true, 64, JSON_THROW_ON_ERROR);
+            foreach ($raw['field_facts'] as &$fact) {
+                $fact['capture_evidence']['capture_source'] = 'dom:traffic:flow_funnel';
+            }
+            unset($fact);
+            $row['raw_data'] = json_encode(
+                $raw,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            );
+        }
+        unset($row);
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+        $meituan = $this->platform($result['days'][0], 'meituan');
+
+        self::assertTrue($meituan['steps']['date']);
+        self::assertFalse($meituan['steps']['field_facts']);
+        self::assertFalse($meituan['steps']['p0']);
+        self::assertContains('field_facts_incomplete', $meituan['gap_codes']);
     }
 
     public function testExactDateCollectionFailureIsExplicitAtPlatformLevel(): void
@@ -403,6 +516,125 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         self::assertSame(
             ['cloud_profile_bridge', 'cloud_profile_bridge'],
             array_column($result['days'][0]['platforms'], 'source_method')
+        );
+    }
+
+    public function testCodecImportShapeKeepsMeituanNetworkOriginVisibleToTrustGate(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        $meituanIndex = null;
+        foreach ($rows as $index => $row) {
+            if ($row['platform'] === 'meituan') {
+                $meituanIndex = $index;
+                break;
+            }
+        }
+        self::assertNotNull($meituanIndex);
+        $sourceRow = CloudOtaBundleCodec::allowlistedRow($rows[$meituanIndex]);
+        $exportEvidence = (new ReflectionMethod(
+            new CloudOtaBundleExportService(),
+            'safeP0Evidence'
+        ))->invoke(
+            new CloudOtaBundleExportService(),
+            $rows[$meituanIndex],
+            'meituan'
+        );
+        $sourceRow = array_merge($sourceRow, $exportEvidence);
+        $bundle = CloudOtaBundleCodec::build([
+            'source_system_hotel_id' => 58,
+            'destination_system_hotel_id' => 58,
+            'target_date' => '2026-07-22',
+            'required_platforms' => ['meituan'],
+        ], [[
+            'platform' => 'meituan',
+            'source_data_source_id' => 68,
+            'destination_data_source_id' => 68,
+            'collection' => [
+                'status' => 'success',
+                'message' => 'target_date_rows_readback_verified',
+                'last_sync_time' => '2026-07-22 08:00:00',
+            ],
+            'rows' => [$sourceRow],
+        ]]);
+        $package = $bundle['packages'][0];
+        $method = new ReflectionMethod(new CloudOtaBundleImportService(), 'prepareDestinationRow');
+        $columns = array_fill_keys(array_merge(array_keys($rows[$meituanIndex]), [
+            'raw_data', 'validation_flags', 'readback_verified_at',
+        ]), true);
+        $destination = $method->invoke(
+            new CloudOtaBundleImportService(),
+            $bundle,
+            $package,
+            ['id' => 68],
+            $hotel,
+            (int)$rows[$meituanIndex]['sync_task_id'],
+            $package['rows'][0],
+            0,
+            hash('sha256', 'meituan-cloud-p0-row'),
+            1,
+            $columns
+        );
+        $destination['id'] = $rows[$meituanIndex]['id'];
+        $destination['readback_verified'] = 1;
+        $destination['readback_verified_at'] = '2026-07-22 08:01:00';
+        $identityGate = new ReflectionMethod(
+            DualOtaContinuousTrustService::class,
+            'cloudTransportHotelIdentityReady'
+        );
+        self::assertTrue($identityGate->invoke(null, 'meituan', [$destination], $sources, 68));
+        $wrongHotel = $destination;
+        $wrongWrapper = json_decode((string)$wrongHotel['raw_data'], true, 64, JSON_THROW_ON_ERROR);
+        $wrongWrapper['row']['hotel_id'] = 'platform-hotel-meituan-other';
+        $wrongHotel['raw_data'] = json_encode($wrongWrapper, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        self::assertFalse($identityGate->invoke(null, 'meituan', [$wrongHotel], $sources, 68));
+        $rows[$meituanIndex] = $destination;
+        foreach ($sources as &$source) {
+            if ($source['platform'] === 'meituan') {
+                $source['ingestion_method'] = 'manual';
+            }
+        }
+        unset($source);
+        foreach ($tasks as &$task) {
+            if ($task['platform'] === 'meituan') {
+                $task['ingestion_method'] = 'cloud_bundle';
+                $task['stats_json'] = [
+                    'target_date' => '2026-07-22',
+                    'collection_status' => 'success',
+                    'readback_verified' => true,
+                ];
+            }
+        }
+        unset($task);
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+        $meituan = $this->platform($result['days'][0], 'meituan');
+        $wrapper = json_decode((string)$destination['raw_data'], true, 64, JSON_THROW_ON_ERROR);
+
+        self::assertSame('browser_profile', $wrapper['row']['ingestion_method']);
+        self::assertSame('xhr:traffic:traffic', $wrapper['row']['capture_source']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $wrapper['row']['source_url_hash']);
+        self::assertCount(3, $wrapper['row']['field_facts']);
+        self::assertArrayNotHasKey('raw_data', $wrapper['row']);
+        self::assertTrue($meituan['steps']['source']);
+        self::assertTrue($meituan['steps']['date']);
+        self::assertTrue($meituan['steps']['organized_save']);
+        self::assertTrue($meituan['steps']['field_facts']);
+        self::assertNotContains('field_facts_incomplete', $meituan['gap_codes']);
+        self::assertSame(
+            'verified',
+            $meituan['status'],
+            json_encode($meituan, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: 'meituan result unavailable'
         );
     }
 
@@ -840,6 +1072,130 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         self::assertSame('blocked', $ctrip['acceptance_status']);
     }
 
+    public function testProfileReceiptRejectsAuthoritativeTrafficRowOutsideItsPeriodAndRowIds(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        foreach ($rows as $row) {
+            if ($row['platform'] !== 'meituan') {
+                continue;
+            }
+            $outsideReceipt = $row;
+            $outsideReceipt['id'] = 1999;
+            $outsideReceipt['data_period'] = 'realtime_snapshot';
+            $rows[] = $outsideReceipt;
+            break;
+        }
+        foreach ($tasks as &$task) {
+            if ($task['platform'] !== 'meituan') {
+                continue;
+            }
+            $task['stats_json']['normalized_count'] = 2;
+            $task['stats_json']['saved_count'] = 2;
+            $task['stats_json']['readback_count'] = 2;
+        }
+        unset($task);
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+
+        $meituan = $this->platform($result['days'][0], 'meituan');
+        self::assertSame('partial', $meituan['status']);
+        self::assertSame('unverified', $meituan['acceptance_status']);
+        self::assertFalse($meituan['steps']['readback']);
+        self::assertFalse($meituan['steps']['p0']);
+        self::assertContains('exact_run_readback_scope_mismatch', $meituan['gap_codes']);
+        self::assertContains('exact_run_readback_scope_mismatch', $meituan['acceptance_receipt']['reason_codes']);
+        self::assertSame('exact_run_readback_scope_mismatch', $meituan['acceptance_receipt']['run_readback_scope']['status']);
+        self::assertSame(1, $meituan['acceptance_receipt']['run_readback_scope']['mismatched_row_count']);
+        self::assertSame('unverified', $meituan['acceptance_receipt']['critical_fields']['status']);
+        self::assertFalse($meituan['acceptance_receipt']['claim_allowed']);
+    }
+
+    public function testProfileReceiptRejectsOneRowReboundToALaterTaskWhileAnotherRowRemains(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        $ctripRowIndex = null;
+        foreach ($rows as $index => $row) {
+            if (($row['platform'] ?? '') === 'ctrip') {
+                $ctripRowIndex = $index;
+                break;
+            }
+        }
+        self::assertIsInt($ctripRowIndex);
+
+        $original = $rows[$ctripRowIndex];
+        $remaining = $original;
+        $remaining['id'] = 1997;
+        $remaining['source_trace_id'] = 'ctrip:2026-07-22:remaining-trace';
+        $remainingRaw = json_decode((string)$remaining['raw_data'], true, 64, JSON_THROW_ON_ERROR);
+        $remainingRaw['source_trace_id'] = $remaining['source_trace_id'];
+        $remainingRaw['capture_evidence']['source_trace_id'] = $remaining['source_trace_id'];
+        foreach ($remainingRaw['field_facts'] as &$fact) {
+            $fact['capture_evidence']['source_trace_id'] = $remaining['source_trace_id'];
+        }
+        unset($fact);
+        $remaining['raw_data'] = json_encode(
+            $remainingRaw,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        );
+        $rows[] = $remaining;
+
+        foreach ($tasks as &$task) {
+            if (($task['platform'] ?? '') !== 'ctrip') {
+                continue;
+            }
+            $task['stats_json']['normalized_count'] = 2;
+            $task['stats_json']['saved_count'] = 2;
+            $task['stats_json']['readback_count'] = 2;
+            $task['stats_json']['run_readback']['row_ids'][] = 1997;
+            $task['stats_json']['run_readback']['source_trace_ids'][] = $remaining['source_trace_id'];
+            $task['stats_json']['run_readback']['readback_count'] = 2;
+            break;
+        }
+        unset($task);
+
+        // Simulate the pre-fix natural-key upsert: one receipt row is still in
+        // the date/platform set but no longer belongs to the exact task.
+        $rows[$ctripRowIndex]['sync_task_id'] = 9999;
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+
+        $ctrip = $this->platform($result['days'][0], 'ctrip');
+        $scope = $ctrip['acceptance_receipt']['run_readback_scope'];
+        self::assertNotSame('verified', $ctrip['status']);
+        self::assertFalse($ctrip['steps']['readback']);
+        self::assertFalse($ctrip['steps']['p0']);
+        self::assertContains('exact_run_readback_scope_mismatch', $ctrip['gap_codes']);
+        self::assertSame('exact_run_readback_scope_mismatch', $scope['status']);
+        self::assertSame(2, $scope['receipt_row_count']);
+        self::assertSame(2, $scope['receipt_current_row_count']);
+        self::assertSame(0, $scope['receipt_missing_row_count']);
+        self::assertSame(1, $scope['receipt_identity_mismatch_count']);
+        self::assertSame(1, $scope['mismatched_row_count']);
+        self::assertFalse($ctrip['acceptance_receipt']['claim_allowed']);
+    }
+
     /**
      * @param array<int, string> $dates
      * @return array{
@@ -1037,11 +1393,15 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         $metricKeys = $platform === 'ctrip'
             ? ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num']
             : ['list_exposure', 'detail_exposure', 'flow_rate'];
+        $captureSource = $platform === 'meituan'
+            ? 'xhr:traffic:traffic'
+            : 'xhr:traffic:business_flow_transform';
         $urlHash = hash('sha256', 'https://example.invalid/' . $platform . '/' . $date);
         $facts = [];
         foreach ($metricKeys as $metricKey) {
             $facts[] = [
                 'metric_key' => $metricKey,
+                'source_key' => $metricKey,
                 'source_path' => '$.metrics.' . $metricKey,
                 'storage_field' => 'online_daily_data.' . $metricKey,
                 'stored_value_present' => true,
@@ -1049,6 +1409,7 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
                 'capture_evidence' => [
                     'source_trace_id' => $trace,
                     'source_url_hash' => $urlHash,
+                    'capture_source' => $captureSource,
                 ],
             ];
         }
@@ -1062,6 +1423,7 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
             'source' => $platform,
             'platform' => $platform,
             'data_date' => $date,
+            'data_period' => 'historical_daily',
             'data_type' => 'traffic',
             'dimension' => 'traffic_overview',
             'compare_type' => 'self',
@@ -1075,10 +1437,16 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
             'order_filling_num' => 9,
             'order_submit_num' => 4,
             'raw_data' => json_encode([
+                'endpoint_id' => $platform === 'ctrip' ? 'business_flow_transform' : 'traffic_overview',
                 'source_trace_id' => $trace,
+                'row' => [
+                    '_capture_source' => $captureSource,
+                    'capture_evidence' => ['capture_source' => $captureSource],
+                ],
                 'capture_evidence' => [
                     'source_trace_id' => $trace,
                     'source_url_hash' => $urlHash,
+                    'capture_source' => $captureSource,
                 ],
                 'platform_hotel_identifier_present' => true,
                 'platform_hotel_identifier_source' => '$.hotel.id',

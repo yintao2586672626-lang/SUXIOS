@@ -20,8 +20,10 @@ test('scheduled Meituan auto-fetch is persisted as Profile mode without silent f
   assert.match(appMain, /const buildScheduledAutoFetchModePayload = \(\) => \(\{[\s\S]*?meituan_auto_fetch_mode:\s*'profile_browser'/);
   assert.match(appMain, /set-fetch-schedule[\s\S]*?\.\.\.buildScheduledAutoFetchModePayload\(\)/);
   assert.match(appMain, /toggle-auto-fetch[\s\S]*?\.\.\.buildScheduledAutoFetchModePayload\(\)/);
-  assert.match(controller, /if \(\$enabled && \$this->hasMeituanFetchConfigForHotel\(\(int\)\$hotelId\)\) \{\s*\$status\['meituan_auto_fetch_mode'\] = 'profile_browser';/);
-  assert.match(controller, /if \(\$this->hasMeituanFetchConfigForHotel\(\(int\)\$hotelId\)\) \{[\s\S]*?\$status\['meituan_auto_fetch_mode'\] = 'profile_browser';/);
+  assert.match(controller, /public function toggleAutoFetch\(\): Response[\s\S]*?\(new OnlineDataAutoFetchStatusStore\(\)\)->mutate\([\s\S]*?buildToggledAutoFetchStatus\(/);
+  assert.match(controller, /private function buildToggledAutoFetchStatus\([\s\S]*?if \(\$enabled && \$this->hasMeituanFetchConfigForHotel\(\$hotelId\)\) \{[\s\S]*?\$status\['meituan_auto_fetch_mode'\] = 'profile_browser';/);
+  assert.match(controller, /public function setFetchSchedule\(\): Response[\s\S]*?\$meituanConfigured = \$this->hasMeituanFetchConfigForHotel\(\(int\)\$hotelId\);[\s\S]*?\(new OnlineDataAutoFetchStatusStore\(\)\)->mutate\([\s\S]*?buildScheduledAutoFetchStatus\([\s\S]*?\$meituanConfigured/);
+  assert.match(controller, /private function buildScheduledAutoFetchStatus\([\s\S]*?bool \$meituanConfigured[\s\S]*?if \(\$meituanConfigured\) \{[\s\S]*?\$status\['meituan_auto_fetch_mode'\] = 'profile_browser';/);
   assert.match(page, /失败不回退旧数据/);
   assert.match(panels, /美团定时任务固定使用已绑定 Profile/);
 });

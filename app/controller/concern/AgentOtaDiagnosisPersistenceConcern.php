@@ -212,6 +212,12 @@ trait AgentOtaDiagnosisPersistenceConcern
         $requestedDateRange = $this->normalizeOtaDiagnosisScopeDateRange(
             is_array($result['requested_date_range'] ?? null) ? $result['requested_date_range'] : $dateRange
         );
+        $this->assertOtaDiagnosisDecisionEvidenceScope(
+            $result,
+            $resolvedHotelId,
+            $platform,
+            $requestedDateRange
+        );
         $readbackIdentity = $this->otaDiagnosisReadbackIdentity(
             $result,
             $resolvedHotelId,
@@ -302,6 +308,13 @@ trait AgentOtaDiagnosisPersistenceConcern
             $storedSnapshot = is_array($storedContext['diagnosis_result'] ?? null)
                 ? $storedContext['diagnosis_result']
                 : [];
+            $this->assertOtaDiagnosisDecisionEvidenceScope(
+                $storedSnapshot,
+                $resolvedHotelId,
+                $platform,
+                $requestedDateRange,
+                true
+            );
             if (!is_array($storedContext)
                 || (int)($storedContext['schema_version'] ?? 0) !== $schemaVersion
                 || (string)($storedContext['record_status'] ?? '') !== 'active'
@@ -340,6 +353,16 @@ trait AgentOtaDiagnosisPersistenceConcern
                 $decoded = json_decode($verifiedContext, true);
                 $verifiedContext = is_array($decoded) ? $decoded : [];
             }
+            $verifiedSnapshot = is_array($verifiedContext['diagnosis_result'] ?? null)
+                ? $verifiedContext['diagnosis_result']
+                : [];
+            $this->assertOtaDiagnosisDecisionEvidenceScope(
+                $verifiedSnapshot,
+                $resolvedHotelId,
+                $platform,
+                $requestedDateRange,
+                true
+            );
             if (($verifiedContext['diagnosis_result']['saved_record']['saved'] ?? false) !== true
                 || ($verifiedContext['diagnosis_result']['saved_record']['readback_verified'] ?? false) !== true
                 || (string)($verifiedContext['readback_identity_digest'] ?? '') !== $readbackIdentityDigest
@@ -356,6 +379,113 @@ trait AgentOtaDiagnosisPersistenceConcern
         });
 
         return $result;
+    }
+
+    private function assertOtaDiagnosisDecisionEvidenceScope(
+        array $snapshot,
+        int $hotelId,
+        string $platform,
+        array $requestedDateRange,
+        bool $lockRows = false
+    ): void {
+        $platform = strtolower(trim($platform));
+        $startDate = trim((string)($requestedDateRange['start_date'] ?? ''));
+        $endDate = trim((string)($requestedDateRange['end_date'] ?? ''));
+        $expectedPlatforms = [];
+
+        foreach ((array)($snapshot['evidence_sources'] ?? []) as $source) {
+            if (!is_array($source)
+                || ($source['decision_eligible'] ?? false) !== true
+                || preg_match('/^online_daily_data#(\d+)$/', trim((string)($source['ref'] ?? '')), $matches) !== 1
+            ) {
+                continue;
+            }
+            $rowId = (int)($matches[1] ?? 0);
+            $sourcePlatform = strtolower(trim((string)($source['platform'] ?? '')));
+            if ($rowId <= 0
+                || !in_array($sourcePlatform, ['ctrip', 'qunar', 'meituan'], true)
+                || ($platform === 'all_ota' && !in_array($sourcePlatform, ['ctrip', 'meituan'], true))
+                || ($platform !== 'all_ota' && $sourcePlatform !== $platform)
+            ) {
+                throw new \RuntimeException('OTA diagnosis decision evidence scope mismatch');
+            }
+            if (isset($expectedPlatforms[$rowId]) && $expectedPlatforms[$rowId] !== $sourcePlatform) {
+                throw new \RuntimeException('OTA diagnosis decision evidence platform conflict');
+            }
+            $expectedPlatforms[$rowId] = $sourcePlatform;
+        }
+
+        foreach ((array)($snapshot['action_items'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            foreach ((array)($item['evidence_refs'] ?? []) as $ref) {
+                if (preg_match('/^online_daily_data#(\d+)$/', trim((string)$ref), $matches) === 1
+                    && !isset($expectedPlatforms[(int)($matches[1] ?? 0)])
+                ) {
+                    throw new \RuntimeException('OTA diagnosis action evidence is not decision eligible');
+                }
+            }
+        }
+
+        if ($expectedPlatforms === []) {
+            return;
+        }
+        if ($hotelId <= 0 || $startDate === '' || $endDate === '' || !$this->tableExists('online_daily_data')) {
+            throw new \RuntimeException('OTA diagnosis decision evidence cannot be read back');
+        }
+
+        $columns = $this->tableColumns('online_daily_data');
+        foreach (['id', 'tenant_id', 'system_hotel_id', 'data_date', 'readback_verified', 'validation_status'] as $required) {
+            if (!isset($columns[$required])) {
+                throw new \RuntimeException('OTA diagnosis evidence readback contract is incomplete');
+            }
+        }
+        if (!isset($columns['platform']) && !isset($columns['source'])) {
+            throw new \RuntimeException('OTA diagnosis platform identity is unavailable');
+        }
+
+        $fields = array_values(array_intersect([
+            'id', 'tenant_id', 'system_hotel_id', 'hotel_id', 'data_date', 'source', 'platform',
+            'data_type', 'dimension', 'raw_data', 'readback_verified', 'validation_status',
+        ], array_keys($columns)));
+        $rowQuery = Db::name('online_daily_data')
+            ->field(implode(',', $fields))
+            ->whereIn('id', array_keys($expectedPlatforms));
+        if ($lockRows) {
+            $rowQuery->lock(true);
+        }
+        $rows = $rowQuery->select()->toArray();
+        $rowsById = [];
+        foreach ($rows as $row) {
+            $rowsById[(int)($row['id'] ?? 0)] = $row;
+        }
+        $tenantId = $this->authoritativeTenantIdForHotel($hotelId);
+        if ($tenantId <= 0) {
+            throw new \RuntimeException('OTA diagnosis tenant identity is unavailable');
+        }
+
+        foreach ($expectedPlatforms as $rowId => $expectedPlatform) {
+            $row = $rowsById[$rowId] ?? null;
+            if (!is_array($row)
+                || (int)($row['tenant_id'] ?? 0) !== $tenantId
+                || (int)($row['system_hotel_id'] ?? 0) !== $hotelId
+                || (int)($row['readback_verified'] ?? 0) !== 1
+                || !$this->isOtaDiagnosisDecisionEligibleRow($row)
+            ) {
+                throw new \RuntimeException('OTA diagnosis decision evidence readback failed');
+            }
+            $actualPlatform = isset($columns['platform'])
+                ? strtolower(trim((string)($row['platform'] ?? '')))
+                : strtolower(trim((string)($row['source'] ?? '')));
+            $rowDate = trim((string)($row['data_date'] ?? ''));
+            if ($actualPlatform !== $expectedPlatform
+                || $rowDate < $startDate
+                || $rowDate > $endDate
+            ) {
+                throw new \RuntimeException('OTA diagnosis decision evidence identity mismatch');
+            }
+        }
     }
 
     private function supersedePriorOtaDiagnosisRecords(int $hotelId, string $platform, array $dateRange, int $newLogId): int
@@ -698,7 +828,7 @@ trait AgentOtaDiagnosisPersistenceConcern
             }
         }
         $priority = strtolower(trim((string)($snapshot['priority'] ?? 'medium')));
-        $workflowSchedule = $this->normalizeOtaDiagnosisExecutionSchedule($scheduleInput);
+        $workflowSchedule = $this->normalizeOtaDiagnosisExecutionSchedule($scheduleInput, $dateEnd);
 
         return [
             'source_module' => 'ota_diagnosis_saved',
@@ -749,7 +879,10 @@ trait AgentOtaDiagnosisPersistenceConcern
     }
 
     /** @return array{assignee_id:int,due_at:string,review_at:string,source_policy:string} */
-    private function normalizeOtaDiagnosisExecutionSchedule(array $input): array
+    private function normalizeOtaDiagnosisExecutionSchedule(
+        array $input,
+        string $baselineBusinessDate = ''
+    ): array
     {
         $assigneeId = (int)($input['assignee_id'] ?? 0);
         if ($assigneeId <= 0) {
@@ -760,6 +893,20 @@ trait AgentOtaDiagnosisPersistenceConcern
         $reviewAt = $this->normalizeOtaDiagnosisExecutionDateTime((string)($input['review_at'] ?? ''), 'review_at');
         if (strtotime($reviewAt) < strtotime($dueAt)) {
             throw new \InvalidArgumentException('review_at must not be earlier than due_at');
+        }
+        if ($baselineBusinessDate !== '') {
+            if (!$this->isDateString($baselineBusinessDate)) {
+                throw new \InvalidArgumentException('diagnosis baseline business date is invalid');
+            }
+            $expectedReviewBusinessDate = (new \DateTimeImmutable($baselineBusinessDate))
+                ->modify('+1 day')
+                ->format('Y-m-d');
+            if (substr($reviewAt, 0, 10) !== $expectedReviewBusinessDate) {
+                throw new \InvalidArgumentException(
+                    'review_at must use the diagnosis next calendar business date: '
+                    . $expectedReviewBusinessDate
+                );
+            }
         }
 
         return [

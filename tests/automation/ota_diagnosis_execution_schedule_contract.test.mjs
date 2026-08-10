@@ -20,10 +20,13 @@ test('saved OTA diagnosis requires an assigned execution and review schedule bef
   const start = appMain.indexOf('const createOtaDiagnosisExecutionIntent = async');
   const end = appMain.indexOf('const openSavedOtaDiagnosis = async', start);
   const handoff = appMain.slice(start, end);
-  assert.match(handoff, /assignee_id: assigneeId/);
-  assert.match(handoff, /due_at: dueAt/);
-  assert.match(handoff, /review_at: reviewAt/);
-  assert.match(handoff, /复核时间不能早于截止时间/);
+  assert.match(handoff, /const scheduleValidation = validateOtaDiagnosisExecutionSchedule\(\{/);
+  assert.match(handoff, /const schedule = scheduleValidation\.schedule;/);
+  assert.match(handoff, /assignee_id: schedule\.assignee_id/);
+  assert.match(handoff, /due_at: schedule\.due_at/);
+  assert.match(handoff, /review_at: schedule\.review_at/);
+  assert.match(handoff, /showToast\(scheduleValidation\.message, 'warning'\)/);
+  assert.match(appMain, /截止时间必须早于复核时间，请重新排期/);
 });
 
 test('OTA diagnosis execution schedule is persisted in target and evidence payloads', () => {

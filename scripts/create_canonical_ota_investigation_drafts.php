@@ -20,10 +20,10 @@ $usage = implode(PHP_EOL, [
     'Usage:',
     '  php scripts/create_canonical_ota_investigation_drafts.php',
     '    --tenant-id=<id> --hotel-id=<id> --source-id=<id> --task-id=<id>',
-    '    --row-id=<id> --platform=ctrip --date=<YYYY-MM-DD>',
+    '    --row-id=<id> --platform=ctrip|meituan --date=<YYYY-MM-DD>',
     '    --period=<data_period> [--execute]',
     '',
-    'Accepts one exact Ctrip v3 authoritative zero or nonzero traffic row.',
+    'Accepts one exact Ctrip or Meituan v3 authoritative zero or nonzero traffic row.',
     'Default mode is read-only preflight. Only --execute writes the local runtime JSON draft set; neither mode performs an OTA action.',
 ]);
 

@@ -129,6 +129,60 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertStringContainsString('realtime-only cannot be combined with target-date.', $output->fetch());
     }
 
+    public function testNaturalDispatcherStopsBeforeCollectionWhenHotelPlanGateIsBlocked(): void
+    {
+        $command = new AutoFetchBlockedPlanGateCommand();
+        $targetDate = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->modify('-1 day')
+            ->format('Y-m-d');
+        $input = new Input([
+            '--daily-only',
+            '--hotel-id=80',
+            '--target-date=' . $targetDate,
+            '--source-ids=25,68',
+            '--platforms=ctrip,meituan',
+            '--dispatcher-run-id=12345678-1234-4234-8234-123456789abc',
+        ]);
+        $input->setInteractive(false);
+        $output = new Output('buffer');
+
+        self::assertSame(78, $command->run($input, $output));
+        $text = $output->fetch();
+        self::assertStringContainsString('SUXIOS_COLLECTION_PLAN_GATE=', $text);
+        self::assertStringContainsString('hotel_collection_plan_not_active', $text);
+        self::assertStringNotContainsString('Start online data auto-fetch schedule check.', $text);
+        self::assertSame([
+            'hotel_id' => 80,
+            'business_date' => $targetDate,
+            'source_ids' => [25, 68],
+            'platforms' => ['ctrip', 'meituan'],
+            'run_mode' => 'daily',
+        ], $command->capturedScope);
+    }
+
+    public function testDispatcherRunIdRequiresCanonicalDailyExplicitScopeBeforeDatabaseWork(): void
+    {
+        $cases = [
+            [
+                ['--dispatcher-run-id=forged'],
+                'dispatcher-run-id must be a canonical UUID.',
+            ],
+            [
+                ['--dispatcher-run-id=12345678-1234-4234-8234-123456789abc'],
+                'dispatcher-run-id requires daily-only with explicit hotel, target-date, source-ids, and platforms.',
+            ],
+        ];
+        foreach ($cases as [$arguments, $expectedMessage]) {
+            $command = new AutoFetchOnlineData();
+            $input = new Input($arguments);
+            $input->setInteractive(false);
+            $output = new Output('buffer');
+
+            self::assertSame(1, $command->run($input, $output));
+            self::assertStringContainsString($expectedMessage, $output->fetch());
+        }
+    }
+
     public function testCloudCollectorFailsClosedBeforeDatabaseOrPlatformWorkWhenExplicitScopeIsMissing(): void
     {
         $previousCollector = getenv('SUXIOS_OTA_CLOUD_COLLECTOR');
@@ -291,14 +345,103 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         }
     }
 
-    public function testSourceScopeIsAppliedInsideTheHotelAndProfileQuery(): void
+    public function testMissingExplicitSourceIsReportedWithoutShortCircuitingHealthyPlatforms(): void
     {
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
 
         self::assertStringContainsString("\$sourceQuery->whereIn('id', \$sourceIds)", $source);
-        self::assertStringContainsString('scheduled_profile_source_scope_missing:', $source);
+        $missingScopeStart = strpos($source, '$missingSourceIds = array_values(array_diff($sourceIds, $foundSourceIds));');
+        $platformIsolationStart = strpos($source, '$presentPlatforms = array_values', (int)$missingScopeStart);
+        self::assertNotFalse($missingScopeStart);
+        self::assertNotFalse($platformIsolationStart);
+        self::assertStringNotContainsString(
+            "'message' => 'scheduled_profile_source_scope_missing:'",
+            substr($source, (int)$missingScopeStart, (int)$platformIsolationStart - (int)$missingScopeStart)
+        );
+        self::assertStringContainsString("'missing_source_ids' => \$missingSourceIds", $source);
+        self::assertStringContainsString("'platform' => 'source_scope'", $source);
+        self::assertStringContainsString("'message' => 'scheduled_profile_source_scope_missing'", $source);
         self::assertStringContainsString('profileSourcesForRun($sources, $sourceIds)', $source);
         self::assertStringContainsString('SUXIOS_AUTO_FETCH_RECEIPT=', $source);
+    }
+
+    public function testOrderedPlannerAndCaptureShareThePerPlatformFailureBoundary(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+        $loop = strpos($source, 'foreach ($sources as $source)');
+        $platformTry = strpos($source, 'try {', (int)$loop);
+        $planner = strpos($source, '$orderedExecution = $this->orderedBrowserProfileExecution(', (int)$loop);
+        $sync = strpos($source, '$result = $this->syncBrowserProfileSource(', (int)$planner);
+        $platformCatch = strpos($source, '} catch (\Throwable $e) {', (int)$sync);
+
+        self::assertNotFalse($loop);
+        self::assertNotFalse($platformTry);
+        self::assertNotFalse($planner);
+        self::assertNotFalse($sync);
+        self::assertNotFalse($platformCatch);
+        self::assertLessThan($planner, $platformTry);
+        self::assertLessThan($sync, $planner);
+        self::assertLessThan($platformCatch, $sync);
+        self::assertStringContainsString("'message' => 'ordered_profile_capture_failed'", $source);
+    }
+
+    public function testProfileSourceOperationalReceiptPreservesExactFailureWithoutRelaxingReadbackGate(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'profileSourceOperationalReceipt');
+
+        $failed = $method->invoke($command, [
+            'task_id' => 3271,
+            'status' => 'failed',
+            'message' => 'credential_execution_failed',
+            'failure_reason' => '',
+            'readback_count' => 0,
+            'readback_verified' => false,
+        ], false, false);
+
+        self::assertSame(3271, $failed['task_id']);
+        self::assertSame('failed', $failed['status']);
+        self::assertSame('failed', $failed['source_task_status']);
+        self::assertSame('credential_execution_failed', $failed['message']);
+        self::assertSame('credential_execution_failed', $failed['failure_reason']);
+        self::assertSame(0, $failed['readback_count']);
+        self::assertFalse($failed['readback_verified']);
+
+        $coreBlocked = $method->invoke($command, [
+            'task_id' => 3273,
+            'status' => 'success',
+            'message' => 'platform_data_synchronized',
+            'readback_count' => 3,
+            'readback_verified' => true,
+        ], false, false);
+
+        self::assertSame('failed', $coreBlocked['status']);
+        self::assertSame('success', $coreBlocked['source_task_status']);
+        self::assertSame('historical_core_contract_incomplete', $coreBlocked['message']);
+        self::assertSame('historical_core_contract_incomplete', $coreBlocked['failure_reason']);
+    }
+
+    public function testPostSyncReadbackFailureRemainsInsideTheCurrentPlatform(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+        $savedCountInit = strpos($source, '$sourceSavedCount = 0;');
+        $postSyncTry = strpos($source, 'try {', (int)$savedCountInit);
+        $readback = strpos($source, '$compositeReadbackVerified = $this->orderedCompositeReadbackVerified(', (int)$postSyncTry);
+        $readbackCatch = strpos($source, '} catch (\Throwable $e) {', (int)$readback);
+        $nextSource = strpos($source, "'message' => 'ordered_profile_readback_failed'", (int)$readbackCatch);
+
+        self::assertNotFalse($savedCountInit);
+        self::assertNotFalse($postSyncTry);
+        self::assertNotFalse($readback);
+        self::assertNotFalse($readbackCatch);
+        self::assertNotFalse($nextSource);
+        self::assertLessThan($postSyncTry, $savedCountInit);
+        self::assertLessThan($readback, $postSyncTry);
+        self::assertLessThan($readbackCatch, $readback);
+        self::assertLessThan($nextSource, $readbackCatch);
+        self::assertStringContainsString("'success' => false", substr($source, (int)$readbackCatch, 1400));
+        self::assertStringContainsString("'run_readback' => []", substr($source, (int)$readbackCatch, 1400));
+        self::assertStringContainsString('continue;', substr($source, (int)$readbackCatch, 1800));
     }
 
     public function testCloudSourceScopeRequiresExactUserTenantHotelPlatformDeviceAndMode(): void
@@ -460,9 +603,12 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         $syncSource = SourceAggregate::read(dirname(__DIR__), 'app/service/PlatformDataSyncService.php');
 
         self::assertStringContainsString(
-            "'require_current_session_probe' => \$this->cloudCollectorScope !== []",
+            "'require_collector_binding' => \$this->cloudCollectorScope !== []",
             $commandSource
         );
+        self::assertStringContainsString("'require_current_run_session_probe' =>", $commandSource);
+        self::assertStringContainsString("\$dataPeriod === 'historical_daily'", $commandSource);
+        self::assertStringContainsString("'required_platform_hotel_id' =>", $commandSource);
         self::assertStringContainsString("'required_collector_binding' =>", $commandSource);
         self::assertStringContainsString('assertRequiredCollectorBinding', $syncSource);
         self::assertStringContainsString('assertRequiredCurrentRunProfileSessionProbe', $syncSource);
@@ -476,7 +622,13 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
 
         self::assertStringContainsString('OtaOrderedCollectionPlanner::requestPlanFromStoredRows', $source);
         self::assertStringContainsString("'ordered_collection' => \$orderedPlan", $source);
-        self::assertStringContainsString("\$plan['execution_mode'] = 'single_section_bounded'", $source);
+        self::assertStringContainsString("\$plan['execution_mode'] = 'multi_section_single_task'", $source);
+        self::assertStringNotContainsString("\$plan['sections'] = [\$plannedSections[0]]", $source);
+        self::assertStringContainsString(
+            '$plannedSections = OtaOrderedCollectionPlanner::defaultSections($platform)',
+            $source
+        );
+        self::assertStringContainsString("'natural_exact_task_core_recollection'", $source);
         self::assertStringContainsString("'capture_sections' => implode(',', (array)(\$orderedPlan['sections'] ?? []))", $source);
         self::assertStringContainsString("\$dataPeriod === 'historical_daily' && \$platform === 'ctrip'", $source);
         self::assertStringContainsString('? 1', $source);
@@ -746,7 +898,34 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             $oldReadback,
             true
         );
-        self::assertNotContains('traffic_report', $meituan['plan']['sections']);
+        self::assertSame(['orders', 'traffic'], $meituan['plan']['sections']);
+        self::assertSame(['orders', 'traffic'], $meituan['plan']['planned_sections']);
+        self::assertSame([], $meituan['plan']['pending_sections']);
+        self::assertSame('multi_section_single_task', $meituan['plan']['execution_mode']);
+
+        (new \ReflectionProperty($command, 'dispatcherRunId'))->setValue(
+            $command,
+            '12345678-1234-4234-8234-123456789abc'
+        );
+        $naturalCtrip = $resolve->invoke(
+            $command,
+            'ctrip',
+            '2026-08-08',
+            $rows,
+            $verifiedCompletePlan,
+            [],
+            false
+        );
+        self::assertSame(
+            ['business_overview', 'traffic_report'],
+            $naturalCtrip['plan']['sections']
+        );
+        self::assertSame([], $naturalCtrip['plan']['pending_sections']);
+        self::assertSame('multi_section_single_task', $naturalCtrip['plan']['execution_mode']);
+        self::assertSame(
+            \app\service\OtaOrderedCollectionPlanner::requiredFieldKeys('ctrip'),
+            $naturalCtrip['plan']['recollection_field_keys']
+        );
     }
 
     public function testStaleRunReadbackCannotReuseRowsNowOwnedByAnotherTask(): void
@@ -937,11 +1116,241 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         );
     }
 
+    public function testHistoricalExecutedCacheRequiresCurrentExactTaskAndRowMembership(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $matches = new \ReflectionMethod($command, 'cachedHistoricalDailyReceiptRowsMatch');
+        $receipt = [
+            'hotel_id' => 80,
+            'target_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'source_ids' => [25, 68],
+            'required_platforms' => ['ctrip', 'meituan'],
+            'source_tasks' => [
+                [
+                    'data_source_id' => 25,
+                    'sync_task_id' => 901,
+                    'platform' => 'ctrip',
+                    'collection_status' => 'success',
+                    'p0_status' => 'ready',
+                    'row_ids' => [91001, 91002],
+                ],
+                [
+                    'data_source_id' => 68,
+                    'sync_task_id' => 902,
+                    'platform' => 'meituan',
+                    'collection_status' => 'success',
+                    'p0_status' => 'ready',
+                    'row_ids' => [92001, 92002],
+                ],
+            ],
+        ];
+        $readback = static fn(
+            int $sourceId,
+            int $taskId,
+            string $platform,
+            array $rowIds
+        ): array => [
+            'readback_verified' => true,
+            'sync_task_id' => $taskId,
+            'data_source_id' => $sourceId,
+            'system_hotel_id' => 80,
+            'platform' => $platform,
+            'target_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'started_at' => '2026-08-09 08:30:00',
+            'row_ids' => $rowIds,
+            'source_trace_ids' => ["trace-{$taskId}"],
+        ];
+        $baseRow = [
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'data_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'readback_verified' => 1,
+            'validation_status' => 'verified',
+            'compare_type' => 'self',
+        ];
+        $ctripRow = array_replace($baseRow, [
+            'id' => 91001,
+            'data_source_id' => 25,
+            'sync_task_id' => 901,
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_type' => 'traffic',
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+            'list_exposure' => 12,
+            'detail_exposure' => 8,
+            'flow_rate' => 30,
+            'order_filling_num' => 3,
+            'order_submit_num' => 2,
+            'raw_data' => json_encode([
+                'row' => [
+                    'endpoint_id' => 'traffic_flow_transform',
+                    '_observed_traffic_metric_keys' => [
+                        'list_exposure',
+                        'detail_exposure',
+                        'flow_rate',
+                        'order_filling_num',
+                        'order_submit_num',
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        $meituanRow = array_replace($baseRow, [
+            'id' => 92001,
+            'data_source_id' => 68,
+            'sync_task_id' => 902,
+            'platform' => 'meituan',
+            'source' => 'meituan',
+            'data_type' => 'traffic',
+            'list_exposure' => 20,
+            'detail_exposure' => 10,
+            'flow_rate' => 50,
+            'raw_data' => json_encode([
+                'row' => [
+                    '_capture_source' => 'xhr:traffic:traffic',
+                    '_observed_traffic_metric_keys' => [
+                        'list_exposure',
+                        'detail_exposure',
+                        'flow_rate',
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        $ctripBusinessRow = array_replace($baseRow, [
+            'id' => 91002,
+            'data_source_id' => 25,
+            'sync_task_id' => 901,
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'order_amount' => 100,
+            'room_nights' => 2,
+            'order_count' => 1,
+            'raw_data' => '{}',
+        ]);
+        $meituanOrderRow = array_replace($baseRow, [
+            'id' => 92002,
+            'data_source_id' => 68,
+            'sync_task_id' => 902,
+            'platform' => 'meituan',
+            'source' => 'meituan',
+            'data_type' => 'order',
+            'order_amount' => 200,
+            'room_nights' => 3,
+            'order_count' => 2,
+            'raw_data' => '{}',
+        ]);
+        $taskReadbacks = [
+            901 => $readback(25, 901, 'ctrip', [91001, 91002]),
+            902 => $readback(68, 902, 'meituan', [92001, 92002]),
+        ];
+        $rowsBySource = [
+            25 => [$ctripRow, $ctripBusinessRow],
+            68 => [$meituanRow, $meituanOrderRow],
+        ];
+
+        self::assertTrue($matches->invoke(
+            $command,
+            $receipt,
+            80,
+            $taskReadbacks,
+            $rowsBySource
+        ));
+
+        $dispatcherRunId = '12345678-1234-4234-8234-123456789abc';
+        $dispatcherProperty = new \ReflectionProperty($command, 'dispatcherRunId');
+        $dispatcherProperty->setValue($command, $dispatcherRunId);
+        self::assertFalse($matches->invoke(
+            $command,
+            $receipt,
+            80,
+            $taskReadbacks,
+            $rowsBySource
+        ));
+        foreach ($receipt['source_tasks'] as &$sourceTask) {
+            $sourceTask['dispatcher_run_id'] = $dispatcherRunId;
+            $sourceTask['trigger_type'] = 'daily_profile_reuse';
+        }
+        unset($sourceTask);
+        foreach ($taskReadbacks as &$taskReadback) {
+            $taskReadback['dispatcher_run_id'] = $dispatcherRunId;
+            $taskReadback['trigger_type'] = 'daily_profile_reuse';
+        }
+        unset($taskReadback);
+        self::assertTrue($matches->invoke(
+            $command,
+            $receipt,
+            80,
+            $taskReadbacks,
+            $rowsBySource
+        ));
+
+        $mismatchedNaturalReceipt = $receipt;
+        $mismatchedNaturalReceipt['source_tasks'][0]['dispatcher_run_id'] =
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        self::assertFalse($matches->invoke(
+            $command,
+            $mismatchedNaturalReceipt,
+            80,
+            $taskReadbacks,
+            $rowsBySource
+        ));
+
+        $stolenRows = $rowsBySource;
+        $stolenRows[25][0]['sync_task_id'] = 903;
+        self::assertFalse($matches->invoke($command, $receipt, 80, $taskReadbacks, $stolenRows));
+
+        $deletedRows = $rowsBySource;
+        $deletedRows[68] = [];
+        self::assertFalse($matches->invoke($command, $receipt, 80, $taskReadbacks, $deletedRows));
+
+        $crossTenantRows = $rowsBySource;
+        $crossTenantRows[25][0]['tenant_id'] = 81;
+        self::assertFalse($matches->invoke($command, $receipt, 80, $taskReadbacks, $crossTenantRows));
+
+        $staleTaskReceipt = $taskReadbacks;
+        $staleTaskReceipt[901]['row_ids'] = [91001, 91002, 91003];
+        self::assertFalse($matches->invoke(
+            $command,
+            $receipt,
+            80,
+            $staleTaskReceipt,
+            $rowsBySource
+        ));
+
+        $missingPlatformReceipt = $receipt;
+        array_pop($missingPlatformReceipt['source_tasks']);
+        self::assertFalse($matches->invoke(
+            $command,
+            $missingPlatformReceipt,
+            80,
+            $taskReadbacks,
+            $rowsBySource
+        ));
+
+        $unlistedMetricRow = $rowsBySource;
+        $unlistedMetricRow[25][0]['list_exposure'] = null;
+        $unlistedMetricRow[25][] = array_replace($ctripRow, [
+            'id' => 91003,
+            'list_exposure' => 99,
+        ]);
+        self::assertFalse($matches->invoke(
+            $command,
+            $receipt,
+            80,
+            $taskReadbacks,
+            $unlistedMetricRow
+        ));
+    }
+
     public function testHistoricalTaskCannotBorrowP0MetricsFromAnotherTaskOrPeriod(): void
     {
         $command = new AutoFetchOnlineData();
         $complete = new \ReflectionMethod($command, 'exactTaskP0RowsComplete');
-        $readback = ['sync_task_id' => 3086];
+        $coreComplete = new \ReflectionMethod($command, 'exactTaskOrderedCoreRowsComplete');
+        $readback = ['sync_task_id' => 3086, 'row_ids' => [91001, 91002]];
         $base = [
             'system_hotel_id' => 80,
             'data_source_id' => 25,
@@ -992,6 +1401,49 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             'ctrip',
             '2026-08-08'
         ));
+        self::assertTrue($coreComplete->invoke(
+            $command,
+            $readback,
+            [$businessRow, $trafficRow],
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
+        self::assertTrue($complete->invoke(
+            $command,
+            ['sync_task_id' => 3086, 'row_ids' => [91002]],
+            [$trafficRow],
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
+        self::assertFalse($coreComplete->invoke(
+            $command,
+            ['sync_task_id' => 3086, 'row_ids' => [91002]],
+            [$businessRow, $trafficRow],
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
+        $businessWithTrafficShapedFields = array_replace($businessRow, [
+            'list_exposure' => 10,
+            'detail_exposure' => 4,
+            'flow_rate' => 40,
+            'order_filling_num' => 2,
+            'order_submit_num' => 1,
+        ]);
+        self::assertFalse($complete->invoke(
+            $command,
+            ['sync_task_id' => 3086, 'row_ids' => [91001]],
+            [$businessWithTrafficShapedFields],
+            80,
+            25,
+            'ctrip',
+            '2026-08-08'
+        ));
         self::assertFalse($complete->invoke(
             $command,
             $readback,
@@ -1013,10 +1465,11 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
 
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
         self::assertStringContainsString(
-            "\$coreReadbackVerified = \$dataPeriod === 'historical_daily'",
+            "\$historicalCoreContractVerified = \$dataPeriod === 'historical_daily'",
             $source
         );
-        self::assertStringContainsString('? $compositeReadbackVerified', $source);
+        self::assertStringContainsString('&& $historicalCoreContractVerified', $source);
+        self::assertStringContainsString('exactTaskOrderedCoreRowsComplete', $source);
         self::assertStringNotContainsString(
             "\$this->runReadbackCoreVerified(\$runReadback)\n                || \$compositeReadbackVerified",
             $source
@@ -1031,6 +1484,7 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             'success' => $success,
             'data_source_id' => $sourceId,
             'platform' => $platform,
+            'historical_core_contract_status' => 'ready',
             'run_readback' => [
                 'readback_verified' => true,
                 'p0_status' => 'ready',
@@ -1052,6 +1506,32 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertSame([25, 68], array_column($complete['source_tasks'], 'data_source_id'));
         self::assertSame([901, 902], array_column($complete['source_tasks'], 'sync_task_id'));
 
+        $dispatcherRunId = '12345678-1234-4234-8234-123456789abc';
+        $dispatcherProperty = new \ReflectionProperty($command, 'dispatcherRunId');
+        $dispatcherProperty->setValue($command, $dispatcherRunId);
+        $decoratedResults = [
+            $sourceResult(68, 902, 'meituan'),
+            $sourceResult(25, 901, 'ctrip'),
+        ];
+        foreach ($decoratedResults as &$decoratedResult) {
+            $decoratedResult['run_readback']['dispatcher_run_id'] = $dispatcherRunId;
+            $decoratedResult['run_readback']['trigger_type'] = 'daily_profile_reuse';
+        }
+        unset($decoratedResult);
+        $decorated = $method->invoke(
+            $command,
+            80,
+            '2026-07-22',
+            [25, 68],
+            ['complete' => true, 'status' => 'success'],
+            ['platform_results' => $decoratedResults]
+        );
+        self::assertSame($dispatcherRunId, $decorated['dispatcher_run_id']);
+        self::assertSame(
+            [$dispatcherRunId, $dispatcherRunId],
+            array_column($decorated['source_tasks'], 'dispatcher_run_id')
+        );
+
         $incomplete = $method->invoke($command, 80, '2026-07-22', [25, 68], ['complete' => true, 'status' => 'success'], [
             'platform_results' => [$sourceResult(25, 901, 'ctrip')],
         ]);
@@ -1067,5 +1547,251 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertFalse($partial['collection_complete']);
         self::assertTrue($partial['exportable_snapshot_complete']);
         self::assertSame(['success', 'partial'], array_column($partial['source_tasks'], 'collection_status'));
+    }
+
+    public function testCanonicalDailyAnalysisIsANonBlockingPostPromotionSidecarWithLocalOnlyCachedReplay(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+
+        self::assertStringContainsString('use app\\service\\CanonicalOtaDailyOperationFinalizer;', $source);
+        self::assertStringContainsString("\$receipt['canonical_operation_finalization'] = \$analysis;", $source);
+        self::assertStringContainsString("\$receipt['canonical_operation_contract_version']", $source);
+        self::assertStringContainsString("\$status['canonical_daily_analysis_authorization']", $source);
+        self::assertStringNotContainsString(
+            "(string)(\$executedReceipt['canonical_operation_contract_version'] ?? '')",
+            $source
+        );
+        self::assertStringContainsString(
+            '$this->cachedHistoricalDailyReceiptRowsStillCurrent(',
+            $source
+        );
+        self::assertStringNotContainsString(
+            "is_array(\$executedReceipt['canonical_operation_finalization'] ?? null)",
+            $source
+        );
+        self::assertStringContainsString(
+            'Cache::set($run[\'executed_key\'], $executedReceipt, 86400);',
+            $source
+        );
+        self::assertStringContainsString(
+            '$this->persistCachedCanonicalDailyOperationStatus(',
+            $source
+        );
+
+        $promotionAt = strpos($source, '(new OtaCanonicalHistoryPromotionCoordinator())');
+        $cachedReplayAt = strpos($source, '$executedReceipt = $this->attachCanonicalDailyOperationFinalization(');
+        $cachedStatusAt = strpos($source, '$this->persistCachedCanonicalDailyOperationStatus(');
+        $cachedSkipAt = strpos($source, 'already executed with requested-scope P0 proof, skipped.');
+        $cachedMembershipAt = strpos($source, '$this->cachedHistoricalDailyReceiptRowsStillCurrent(');
+        $analysisAt = strpos($source, '$receipt = $this->attachCanonicalDailyOperationFinalization(');
+        $trustedAt = strpos($source, '$trustedReady = $this->machineReceiptDailyTrustReady(');
+        self::assertIsInt($promotionAt);
+        self::assertIsInt($cachedReplayAt);
+        self::assertIsInt($cachedStatusAt);
+        self::assertIsInt($cachedSkipAt);
+        self::assertIsInt($cachedMembershipAt);
+        self::assertIsInt($analysisAt);
+        self::assertIsInt($trustedAt);
+        self::assertLessThan($cachedStatusAt, $cachedReplayAt);
+        self::assertLessThan($cachedSkipAt, $cachedStatusAt);
+        self::assertLessThan($cachedReplayAt, $cachedMembershipAt);
+        self::assertStringNotContainsString(
+            'updateStatus(',
+            substr($source, $cachedReplayAt, $cachedSkipAt - $cachedReplayAt)
+        );
+        self::assertLessThan($analysisAt, $promotionAt);
+        self::assertLessThan($trustedAt, $analysisAt);
+
+        $trustedSlice = substr($source, $trustedAt, 900);
+        self::assertStringNotContainsString('canonical_operation_complete', $trustedSlice);
+        self::assertStringNotContainsString('canonical_operation_finalization', $trustedSlice);
+    }
+
+    public function testCachedCanonicalSidecarRecoveryPatchesOnlyExactExistingStatusReceipt(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'mergeCachedCanonicalDailyOperationStatus');
+        $anchor = str_repeat('a', 64);
+        $blockedReceipt = [
+            'hotel_id' => 80,
+            'target_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'collection_anchor_hash' => $anchor,
+            'canonical_history_complete' => true,
+            'canonical_operation_complete' => false,
+            'canonical_operation_contract_version' => 'canonical_ota_daily_operation_finalization.v2',
+            'canonical_operation_finalization' => [
+                'status' => 'blocked',
+                'trusted_operational_check_count' => 0,
+            ],
+        ];
+        $verifiedReceipt = $blockedReceipt;
+        $verifiedReceipt['canonical_operation_complete'] = true;
+        $verifiedReceipt['canonical_operation_finalization'] = [
+            'status' => 'verified',
+            'trusted_operational_check_count' => 4,
+            'external_action_triggered' => false,
+        ];
+        $exactRecord = [
+            'data_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'slot_id' => 'historical:2026-08-08',
+            'success' => false,
+            'status' => 'partial_success',
+            'message' => 'collection truth stays unchanged',
+            'failed_platforms' => ['meituan'],
+            'trust_receipt' => $blockedReceipt,
+        ];
+        $otherSlotRecord = $exactRecord;
+        $otherSlotRecord['slot_id'] = 'historical:2026-08-07';
+        $status = [
+            'enabled' => true,
+            'last_data_date' => '2026-08-08',
+            'last_result' => $exactRecord,
+            'recent_runs' => [$exactRecord, $otherSlotRecord],
+        ];
+
+        $updated = $method->invoke(
+            $command,
+            $status,
+            $verifiedReceipt,
+            80,
+            '2026-08-08',
+            'historical:2026-08-08'
+        );
+
+        self::assertFalse($updated['last_result']['success']);
+        self::assertSame('partial_success', $updated['last_result']['status']);
+        self::assertSame(['meituan'], $updated['last_result']['failed_platforms']);
+        self::assertSame('collection truth stays unchanged', $updated['last_result']['message']);
+        self::assertSame(
+            4,
+            $updated['last_result']['trust_receipt']['canonical_operation_finalization']['trusted_operational_check_count']
+        );
+        self::assertSame('verified', $updated['recent_runs'][0]['trust_receipt']['canonical_operation_finalization']['status']);
+        self::assertSame($otherSlotRecord, $updated['recent_runs'][1]);
+        self::assertCount(2, $updated['recent_runs']);
+        self::assertSame(
+            $status,
+            $method->invoke(
+                $command,
+                $status,
+                $verifiedReceipt,
+                81,
+                '2026-08-08',
+                'historical:2026-08-08'
+            )
+        );
+        self::assertSame(
+            $status,
+            $method->invoke(
+                $command,
+                $status,
+                $verifiedReceipt,
+                80,
+                '2026-08-07',
+                'historical:2026-08-07'
+            )
+        );
+        $missingRunsStatus = [
+            'last_data_date' => '2026-08-08',
+            'last_result' => $otherSlotRecord,
+        ];
+        self::assertSame(
+            $missingRunsStatus,
+            $method->invoke(
+                $command,
+                $missingRunsStatus,
+                $verifiedReceipt,
+                80,
+                '2026-08-08',
+                'historical:2026-08-08'
+            )
+        );
+    }
+
+    public function testExactPlanRunReceiptSurroundsGateCollectionAndTrustFinalization(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+
+        self::assertStringContainsString(
+            'use app\\service\\HotelCollectionRunReceiptService;',
+            $source
+        );
+        $beginAt = strpos(
+            $source,
+            '(new HotelCollectionRunReceiptService())->begin($planGate)'
+        );
+        $gateOutputAt = strpos($source, "'SUXIOS_COLLECTION_PLAN_GATE='");
+        $blockedReturnAt = strpos($source, 'return 78;', (int)$gateOutputAt);
+        $scopeResultsAt = strpos($source, '$this->scopedScheduledPlatformResults(');
+        $recordResultsAt = strpos($source, '$this->recordScheduledPlatformResults(');
+        $classifyAt = strpos($source, '$outcome = $this->classifyScheduledRunOutcome(');
+        $trustedAt = strpos($source, '$trustedReady = $this->machineReceiptDailyTrustReady(');
+        $finalizeAt = strpos($source, '$this->finalizeScheduledCollectionReceipt(');
+        $downgradeAt = strpos($source, 'if (!$trustedReady && $outcome[\'complete\'])');
+
+        foreach ([
+            $beginAt,
+            $gateOutputAt,
+            $blockedReturnAt,
+            $scopeResultsAt,
+            $recordResultsAt,
+            $classifyAt,
+            $trustedAt,
+            $finalizeAt,
+            $downgradeAt,
+        ] as $position) {
+            self::assertIsInt($position);
+        }
+        self::assertTrue($beginAt < $gateOutputAt && $gateOutputAt < $blockedReturnAt);
+        self::assertTrue(
+            $scopeResultsAt < $recordResultsAt && $recordResultsAt < $classifyAt
+        );
+        self::assertTrue($trustedAt < $finalizeAt && $finalizeAt < $downgradeAt);
+        self::assertStringContainsString(
+            "'hotel_collection_run_receipt_write_failed'",
+            $source
+        );
+        self::assertStringContainsString(
+            'hotel_collection_run_final_receipt_write_failed',
+            $source
+        );
+    }
+}
+
+final class AutoFetchBlockedPlanGateCommand extends AutoFetchOnlineData
+{
+    /** @var array<string,mixed> */
+    public array $capturedScope = [];
+
+    protected function scheduledCollectionPlanGate(
+        int $hotelId,
+        string $businessDate,
+        array $sourceIds,
+        array $platforms,
+        string $runMode
+    ): array {
+        $this->capturedScope = [
+            'hotel_id' => $hotelId,
+            'business_date' => $businessDate,
+            'source_ids' => $sourceIds,
+            'platforms' => $platforms,
+            'run_mode' => $runMode,
+        ];
+        return [
+            'schema_version' => 1,
+            'status' => 'blocked',
+            'collection_allowed' => false,
+            'failure_reasons' => [[
+                'code' => 'hotel_collection_plan_not_active',
+                'platform' => '',
+                'message' => 'This plan is not active.',
+            ]],
+            'automatic_device_substitution' => false,
+            'sensitive_values_exposed' => false,
+        ];
     }
 }

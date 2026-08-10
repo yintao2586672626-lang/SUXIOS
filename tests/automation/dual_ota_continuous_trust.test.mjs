@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = relative => readFileSync(path.join(repoRoot, relative), 'utf8');
 const service = read('app/service/DualOtaContinuousTrustService.php');
+const pageVerificationService = read('app/service/DualOtaPageVerificationService.php');
+const operationLog = read('app/model/OperationLog.php');
 const controller = read('app/controller/concern/CollectionReliabilityConcern.php');
+const routes = read('route/app.php');
 const command = read('app/command/AutoFetchOnlineData.php');
 const cloud = read('app/service/CloudAutomationService.php');
 const app = read('public/app-main.js');
@@ -53,6 +56,7 @@ test('page targets the selected date and exposes verified blocked partial or unv
     'dual-ota-acceptance-card-',
     'dual-ota-complete-fields-',
     'dual-ota-missing-fields-',
+    'dual-ota-run-readback-scope-',
   ]) {
     assert.match(acceptanceSurface, new RegExp(marker));
   }
@@ -60,6 +64,9 @@ test('page targets the selected date and exposes verified blocked partial or unv
   assert.match(app, /cell\('platform-hotel'/);
   assert.match(app, /cell\('task-counts'/);
   assert.match(app, /cell\('target-counts'/);
+  assert.match(app, /receipt_identity_mismatch_count/);
+  assert.match(app, /当前身份一致/);
+  assert.match(app, /身份漂移/);
   assert.match(template, /旧数据、空值或数值 0 不替代缺失证据/);
 
   const start = template.indexOf('data-testid="dual-ota-continuous-trust"');
@@ -119,4 +126,59 @@ test('core-loop success is gated by both exact current-run acceptance receipts',
   assert.match(gate, /Number\(receipt\?\.data_source_id \|\| 0\) === Number\(runRow\.dataSourceId\)/);
   assert.match(app, /verifiedNewWrites = verifiedPlatforms === 2[\s\S]*dualOtaAcceptance\.allVerified[\s\S]*strictBackendSucceeded[\s\S]*allPlatformsWrote/);
   assert.match(app, /status: dualOtaAcceptance\.hasBlocked \? 'blocked'/);
+});
+
+test('page verification requires an explicit user click and exact persisted readback', () => {
+  assert.match(routes, /Route::post\('\/dual-ota-page-verification', 'OnlineData\/confirmDualOtaPageVerification'\)/);
+  assert.match(controller, /confirmDualOtaPageVerification\(\)/);
+  assert.match(controller, /checkHotelActionPermission\(\(int\)\$hotelId, 'can_view_online_data'\)/);
+  assert.match(controller, /DualOtaPageVerificationService\(\)/);
+  assert.match(controller, /force-read|force-read it|cache\(\$this->collectionReliabilityCacheKey/);
+
+  assert.match(pageVerificationService, /suxios\.dual_ota_page_verification\.v1/);
+  assert.match(pageVerificationService, /Db::transaction/);
+  assert.match(pageVerificationService, /->lock\(true\)/);
+  assert.match(pageVerificationService, /OperationLog::record/);
+  assert.match(pageVerificationService, /'contract_hash'/);
+  assert.doesNotMatch(pageVerificationService, /'verification_key'/);
+  assert.match(pageVerificationService, /stale_page_confirmation/);
+  assert.match(pageVerificationService, /invalid_page_confirmation_evidence/);
+  assert.match(pageVerificationService, /page_confirmation_evidence_unavailable/);
+  assert.match(operationLog, /isPrevalidatedSuperAdminPageVerificationAudit/);
+  assert.match(operationLog, /authoritativeTenantId === \$explicitTenantId/);
+  assert.match(pageVerificationService, /never promotes the[\s\S]*acceptance_status or claim_allowed/);
+
+  const pageSurface = `${template}\n${app}`;
+  assert.match(template, /<dual-ota-page-verification-panel/);
+  assert.match(template, /@confirm="confirmDualOtaPageVerification"/);
+  assert.match(pageSurface, /dual-ota-confirm-page-verification/);
+  assert.match(app, /request\('\/online-data\/dual-ota-page-verification', \{/);
+  assert.match(app, /body: JSON\.stringify\(\{[\s\S]*system_hotel_id:[\s\S]*target_date:[\s\S]*contract_hash:[\s\S]*platforms/);
+  assert.match(app, /loadCollectionReliability\('light', \{[\s\S]*force: true/);
+
+  const loadStart = app.indexOf('const loadCollectionReliability');
+  const loadEnd = app.indexOf('const loadDailyWorkbench', loadStart);
+  const loader = app.slice(loadStart, loadEnd);
+  assert.ok(loadStart > 0 && loadEnd > loadStart);
+  assert.doesNotMatch(loader, /confirmDualOtaPageVerification\(\)/);
+  assert.match(loader, /return \{ ok: true, payload, hotelId, targetDate \}/);
+
+  const confirmStart = app.indexOf('const confirmDualOtaPageVerification');
+  const confirmEnd = app.indexOf('const loadDailyWorkbench', confirmStart);
+  const confirm = app.slice(confirmStart, confirmEnd);
+  assert.ok(confirmStart > 0 && confirmEnd > confirmStart);
+  assert.match(confirm, /const freshReadback = await loadCollectionReliability/);
+  assert.match(confirm, /freshReadback\?\.ok === true/);
+  assert.match(confirm, /freshContractHash === contractHash/);
+  assert.match(confirm, /freshReceiptId === savedReceiptId/);
+  assert.doesNotMatch(confirm, /dualOtaPageVerificationStatus\.value/);
+});
+
+test('page exposes stable scope controls and normalizes preflight login expiry to blocked', () => {
+  assert.match(template, /data-testid="core-loop-hotel"/);
+  assert.match(template, /data-testid="core-loop-target-date"/);
+  assert.match(template, /@click="refreshCoreOperationsLoop\(\)"/);
+  assert.match(template, /coreOperationsSourceFetchDisplayStatus/);
+  assert.match(app, /\['login_required', 'blocked', 'failed'\]\.includes\(status\)\) return 'blocked'/);
+  assert.match(app, /\['login_required', 'blocked', 'failed'\]\.includes\(status\)\) return 'border-red-200/);
 });

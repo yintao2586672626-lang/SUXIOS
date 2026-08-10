@@ -1028,6 +1028,219 @@ final class OtaLocalCollectorService
         ];
     }
 
+    /**
+     * Queue one plan-pinned collection on its already-bound owner device.
+     * No account or device substitution is attempted when that device is
+     * offline or its login session needs recovery.
+     *
+     * @param array<string,mixed> $scope
+     * @return array<string,mixed>
+     */
+    public function schedulePlanCollection(array $scope): array
+    {
+        $tenantId = $this->strictPositiveInt($scope['tenant_id'] ?? null);
+        $hotelId = $this->strictPositiveInt($scope['system_hotel_id'] ?? null);
+        $sourceId = $this->strictPositiveInt($scope['data_source_id'] ?? null);
+        $ownerUserId = $this->strictPositiveInt($scope['execution_owner_user_id'] ?? null);
+        $platform = strtolower($this->safeIdentifier((string)($scope['platform'] ?? ''), 20));
+        $businessDate = $this->normalizeDate((string)($scope['business_date'] ?? ''));
+        $dispatcherRunId = $this->normalizeDispatcherRunId(
+            (string)($scope['dispatcher_run_id'] ?? '')
+        );
+        if ($tenantId <= 0 || $hotelId <= 0 || $sourceId <= 0 || $ownerUserId <= 0
+            || !in_array($platform, self::PLATFORMS, true)
+            || $businessDate === '' || $dispatcherRunId === ''
+        ) {
+            throw new RuntimeException('local_collector_plan_scope_invalid', 422);
+        }
+
+        $owner = User::find($ownerUserId);
+        if (!$owner
+            || (int)($owner->status ?? 0) !== 1
+            || (int)($owner->tenant_id ?? 0) !== $tenantId
+        ) {
+            throw new RuntimeException('local_collector_plan_execution_owner_invalid', 403);
+        }
+        $actor = $this->actorContext($owner);
+        $this->assertHotelPermission($actor, $hotelId);
+
+        $source = Db::name('platform_data_sources')
+            ->where('id', $sourceId)
+            ->where('tenant_id', $tenantId)
+            ->where('user_id', $ownerUserId)
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->where('ingestion_method', 'local_collector')
+            ->where('enabled', 1)
+            ->where('status', '<>', 'disabled')
+            ->find();
+        if (!is_array($source)) {
+            throw new RuntimeException('local_collector_plan_source_scope_mismatch', 409);
+        }
+        $config = $this->decodeJson($source['config_json'] ?? null);
+        $accountId = $this->strictPositiveInt($config['local_collector_account_id'] ?? null);
+        $profileHash = strtolower(trim((string)($config['profile_key_hash'] ?? '')));
+        $deviceHash = strtolower(trim((string)($config['collector_device_id_hash'] ?? '')));
+        if ($accountId <= 0
+            || preg_match('/^[a-f0-9]{64}$/D', $profileHash) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $deviceHash) !== 1
+        ) {
+            throw new RuntimeException('local_collector_plan_source_binding_missing', 409);
+        }
+        $account = Db::name('ota_local_collector_accounts')
+            ->where('id', $accountId)
+            ->where('tenant_id', $tenantId)
+            ->where('user_id', $ownerUserId)
+            ->where('platform', $platform)
+            ->where('status', '<>', 'revoked')
+            ->find();
+        if (!is_array($account)
+            || !hash_equals($profileHash, strtolower((string)($account['profile_key_hash'] ?? '')))
+        ) {
+            throw new RuntimeException('local_collector_plan_account_binding_mismatch', 409);
+        }
+        $mapping = $this->mappingForAccountHotel($tenantId, $accountId, $hotelId, $platform);
+        if ((int)($mapping['data_source_id'] ?? 0) !== $sourceId) {
+            throw new RuntimeException('local_collector_plan_mapping_source_mismatch', 409);
+        }
+        $configuredPlatformHotelId = strtolower(trim((string)(
+            $config['platform_hotel_id'] ?? ''
+        )));
+        if ($configuredPlatformHotelId === ''
+            || !hash_equals(
+                $configuredPlatformHotelId,
+                strtolower(trim((string)($mapping['platform_hotel_id'] ?? '')))
+            )
+        ) {
+            throw new RuntimeException('local_collector_plan_platform_hotel_mismatch', 409);
+        }
+        $device = $this->ownedDevice($actor, (int)($account['device_id'] ?? 0));
+        if (!hash_equals(
+            $deviceHash,
+            hash('sha256', (string)($device['device_public_id'] ?? ''))
+        )) {
+            throw new RuntimeException('local_collector_plan_device_binding_mismatch', 409);
+        }
+
+        $orderedPlan = OtaOrderedCollectionPlanner::requestPlan(
+            $platform,
+            $businessDate,
+            [],
+            'scheduled_hotel_collection_plan'
+        );
+        $request = [
+            'dispatcher_run_id' => $dispatcherRunId,
+            'trigger_type' => 'scheduler',
+            'data_source_id' => $sourceId,
+            'execution_owner_user_id' => $ownerUserId,
+            'sections' => $orderedPlan['sections'],
+            'reason' => 'scheduled_hotel_collection_plan',
+            'requested_at' => date('Y-m-d H:i:s'),
+            'ordered_collection' => $orderedPlan,
+        ];
+        $resumeCollection = [
+            'task_type' => 'collect',
+            'account_id' => $accountId,
+            'device_id' => (int)$device['id'],
+            'system_hotel_id' => $hotelId,
+            'data_date' => $businessDate,
+            'data_type' => 'business',
+            'priority' => 75,
+            'request' => $request,
+        ];
+        if ((string)($account['session_status'] ?? '') !== 'current_session_verified') {
+            $preflight = $this->enqueueTask(
+                $actor,
+                $account,
+                $mapping,
+                'session_probe',
+                null,
+                'session',
+                [
+                    'dispatcher_run_id' => $dispatcherRunId,
+                    'trigger_type' => 'scheduler',
+                    'sections' => [],
+                    'reason' => 'scheduled_account_session_preflight',
+                    'requested_at' => date('Y-m-d H:i:s'),
+                    'resume_collections' => [$resumeCollection],
+                ],
+                false,
+                95,
+                false
+            );
+            $this->appendResumeCollection($preflight, $resumeCollection);
+            return $this->scheduledPlanTaskReceipt(
+                $preflight,
+                $source,
+                $device,
+                $dispatcherRunId,
+                $businessDate,
+                true
+            );
+        }
+
+        $active = Db::name('ota_local_collector_tasks')
+            ->where('tenant_id', $tenantId)
+            ->where('user_id', $ownerUserId)
+            ->where('device_id', (int)$device['id'])
+            ->where('account_id', $accountId)
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->whereIn('task_type', ['collect', 'backfill'])
+            ->where('data_date', $businessDate)
+            ->whereIn('status', self::ACTIVE_TASK_STATUSES)
+            ->whereNull('finished_at')
+            ->order('id', 'desc')
+            ->find();
+        if (is_array($active)) {
+            $activeRequest = $this->decodeJson($active['request_json'] ?? null);
+            $activeDispatcher = $this->normalizeDispatcherRunId(
+                (string)($activeRequest['dispatcher_run_id'] ?? '')
+            );
+            if ($activeDispatcher !== $dispatcherRunId) {
+                return [
+                    'status' => 'blocked',
+                    'dispatcher_run_id' => $dispatcherRunId,
+                    'system_hotel_id' => $hotelId,
+                    'target_date' => $businessDate,
+                    'platform' => $platform,
+                    'data_source_id' => $sourceId,
+                    'local_collector_task_id' => null,
+                    'success' => false,
+                    'readback_verified' => false,
+                    'saved_count' => 0,
+                    'readback_count' => 0,
+                    'run_readback' => [],
+                    'failure_reason' => 'local_collector_plan_dispatcher_task_in_progress',
+                    'automatic_device_substitution' => false,
+                    'sensitive_values_exposed' => false,
+                ];
+            }
+        }
+
+        $task = $this->enqueueTask(
+            $actor,
+            $account,
+            $mapping,
+            'collect',
+            $businessDate,
+            'business',
+            $request,
+            false,
+            75,
+            false,
+            $device
+        );
+        return $this->scheduledPlanTaskReceipt(
+            $task,
+            $source,
+            $device,
+            $dispatcherRunId,
+            $businessDate,
+            false
+        );
+    }
+
     /** @return array<string, mixed> */
     public function revokeDevice(mixed $user, int $deviceId): array
     {
@@ -1482,6 +1695,13 @@ final class OtaLocalCollectorService
         $rawRunReadback = is_array($importResult['run_readback'] ?? null)
             ? $importResult['run_readback']
             : [];
+        $scheduledDispatcherRunId = $this->normalizeDispatcherRunId((string)(
+            $request['dispatcher_run_id'] ?? ''
+        ));
+        if ($scheduledDispatcherRunId !== '') {
+            $rawRunReadback['dispatcher_run_id'] = $scheduledDispatcherRunId;
+            $rawRunReadback['trigger_type'] = 'local_collector_upload';
+        }
         if ($this->collectionImporter === null && $rawRunReadback !== []) {
             $rawRunReadback['tenant_id'] = (int)($deterministicReadback['tenant_id'] ?? 0);
         }
@@ -1542,6 +1762,11 @@ final class OtaLocalCollectorService
         }
         $summary = [
             'source_method' => 'local_account_profile',
+            'dispatcher_run_id' => $scheduledDispatcherRunId !== ''
+                ? $scheduledDispatcherRunId
+                : null,
+            'local_collector_task_id' => (int)$task['id'],
+            'trigger_type' => 'local_collector_upload',
             'scope_identity' => [
                 'tenant_id' => (int)$task['tenant_id'],
                 'account_id' => (int)$task['account_id'],
@@ -1977,17 +2202,7 @@ final class OtaLocalCollectorService
     ): array {
         $sync = new PlatformDataSyncService();
         $dataSourceId = (int)($mapping['data_source_id'] ?? 0);
-        $config = [
-            'local_collector_account_id' => (int)$account['id'],
-            'collector_device_id_hash' => hash('sha256', (string)$device['device_public_id']),
-            'profile_key_hash' => (string)$account['profile_key_hash'],
-            'platform_hotel_id' => (string)$mapping['platform_hotel_id'],
-            'external_hotel_id' => (string)$mapping['platform_hotel_id'],
-            'hotel_name' => (string)($mapping['platform_hotel_name'] ?? ''),
-            'current_session_verified' => true,
-            'last_login_verified_at' => (string)($account['last_session_verified_at'] ?? ''),
-            'source_method' => 'local_account_profile',
-        ];
+        $config = $this->localCollectorSourceConfig($account, $mapping, $device);
         if ((string)$task['platform'] === 'ctrip') {
             $config['ctrip_hotel_id'] = (string)$mapping['platform_hotel_id'];
             $config['hotel_id'] = (string)$mapping['platform_hotel_id'];
@@ -2005,7 +2220,7 @@ final class OtaLocalCollectorService
             'config' => $config,
         ];
         if ($dataSourceId <= 0) {
-            $source = $sync->saveDataSource($owner, $sourcePayload);
+            $source = $sync->saveVerifiedLocalCollectorDataSource($owner, $sourcePayload);
             $dataSourceId = (int)($source['id'] ?? 0);
             if ($dataSourceId <= 0) {
                 throw new RuntimeException('本机采集数据源未创建成功。');
@@ -2023,7 +2238,7 @@ final class OtaLocalCollectorService
                 ]);
         } elseif ($this->captureIdentityMatched($captureSummary, $rows, $mapping)) {
             $sourcePayload['id'] = $dataSourceId;
-            $sync->saveDataSource($owner, $sourcePayload);
+            $sync->saveVerifiedLocalCollectorDataSource($owner, $sourcePayload);
         }
 
         $sections = array_values(array_filter(array_map(
@@ -2033,11 +2248,18 @@ final class OtaLocalCollectorService
         $identityValidation = is_array($captureSummary['platform_identity_validation'] ?? null)
             ? $captureSummary['platform_identity_validation']
             : [];
-        $result = $sync->syncDataSource($owner, $dataSourceId, [
+        $taskRequest = $this->decodeJson($task['request_json'] ?? null);
+        $dispatcherRunId = $this->normalizeDispatcherRunId((string)(
+            $taskRequest['dispatcher_run_id'] ?? ''
+        ));
+        $syncOptions = [
             'trigger_type' => 'local_collector_upload',
             'local_collector_verified' => true,
             'local_collector_task_id' => (int)$task['id'],
             'target_date' => (string)$task['data_date'],
+            'data_date' => (string)$task['data_date'],
+            'data_period' => 'historical_daily',
+            'snapshot_time' => date('Y-m-d H:i:s'),
             'capture_sections' => implode(',', $sections),
             'sections' => implode(',', $sections),
             'payload' => [
@@ -2058,7 +2280,11 @@ final class OtaLocalCollectorService
                     'sensitive_values_received' => false,
                 ],
             ],
-        ]);
+        ];
+        if ($dispatcherRunId !== '') {
+            $syncOptions['dispatcher_run_id'] = $dispatcherRunId;
+        }
+        $result = $sync->syncDataSource($owner, $dataSourceId, $syncOptions);
         $syncTaskId = $this->importerSyncTaskId($result);
         $result['deterministic_readback'] = $this->databaseCollectionReadbackSet(
             $task,
@@ -2066,6 +2292,30 @@ final class OtaLocalCollectorService
             $syncTaskId
         );
         return $result;
+    }
+
+    /**
+     * @param array<string,mixed> $account
+     * @param array<string,mixed> $mapping
+     * @param array<string,mixed> $device
+     * @return array<string,mixed>
+     */
+    private function localCollectorSourceConfig(array $account, array $mapping, array $device): array
+    {
+        $devicePublicId = trim((string)($device['device_public_id'] ?? ''));
+        return [
+            'local_collector_account_id' => (int)($account['id'] ?? 0),
+            'collector_device_id_hash' => $devicePublicId !== '' ? hash('sha256', $devicePublicId) : '',
+            'profile_key_hash' => strtolower(trim((string)($account['profile_key_hash'] ?? ''))),
+            'platform_hotel_id' => trim((string)($mapping['platform_hotel_id'] ?? '')),
+            'platform_hotel_identity_source' => 'local_collector_verified_capture',
+            'platform_hotel_identity_checked_at' => date('Y-m-d H:i:s'),
+            'external_hotel_id' => trim((string)($mapping['platform_hotel_id'] ?? '')),
+            'hotel_name' => (string)($mapping['platform_hotel_name'] ?? ''),
+            'current_session_verified' => true,
+            'last_login_verified_at' => (string)($account['last_session_verified_at'] ?? ''),
+            'source_method' => 'local_account_profile',
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -2339,6 +2589,9 @@ final class OtaLocalCollectorService
     ): array {
         $sessionTask = in_array($taskType, ['login', 'session_probe'], true);
         $collectionTask = in_array($taskType, ['collect', 'backfill'], true);
+        $scheduledDispatcherRunId = $collectionTask
+            ? $this->normalizeDispatcherRunId((string)($request['dispatcher_run_id'] ?? ''))
+            : '';
         $taskFamily = $sessionTask ? 'session' : ($collectionTask ? 'collection' : $taskType);
         $scopeKey = implode('|', [
             (int)$account['id'],
@@ -2371,6 +2624,17 @@ final class OtaLocalCollectorService
         if (is_array($active)) {
             $active = $this->reusableTaskReadback($active, $account, $mapping, true);
             if (is_array($active)) {
+                if ($scheduledDispatcherRunId !== '') {
+                    $activeRequest = $this->decodeJson($active['request_json'] ?? null);
+                    if ($this->normalizeDispatcherRunId((string)(
+                        $activeRequest['dispatcher_run_id'] ?? ''
+                    )) !== $scheduledDispatcherRunId) {
+                        throw new RuntimeException(
+                            'local_collector_plan_dispatcher_task_in_progress',
+                            409
+                        );
+                    }
+                }
                 $active['_created'] = false;
                 return $active;
             }
@@ -2393,25 +2657,39 @@ final class OtaLocalCollectorService
         }
         if (is_array($latest)) {
             $latestStatus = strtolower(trim((string)($latest['status'] ?? '')));
+            $latestRequest = $this->decodeJson($latest['request_json'] ?? null);
+            $latestDispatcherRunId = $this->normalizeDispatcherRunId((string)(
+                $latestRequest['dispatcher_run_id'] ?? ''
+            ));
             $newSessionAttempt = $sessionTask
                 && ($manualRequest || $force);
             $newCollectionAttempt = $collectionTask
                 && $manualRequest
                 && in_array($latestStatus, self::MANUAL_RETRYABLE_TASK_STATUSES, true);
-            if (!$newSessionAttempt && !$newCollectionAttempt) {
+            $newScheduledAttempt = $collectionTask
+                && $scheduledDispatcherRunId !== ''
+                && $latestDispatcherRunId !== $scheduledDispatcherRunId;
+            if (!$newSessionAttempt && !$newCollectionAttempt && !$newScheduledAttempt) {
                 $latest['_created'] = false;
                 return $latest;
             }
 
-            $manualRetryOfTaskId = (int)$latest['id'];
-            $request['retry_trigger'] = 'manual';
-            $request['retry_of_task_id'] = $manualRetryOfTaskId;
+            if (!$newScheduledAttempt) {
+                $manualRetryOfTaskId = (int)$latest['id'];
+                $request['retry_trigger'] = 'manual';
+                $request['retry_of_task_id'] = $manualRetryOfTaskId;
+            } else {
+                $request['retry_trigger'] = 'scheduler_dispatcher';
+            }
         }
 
         $randomizeKey = $manualRetryOfTaskId > 0 || ($sessionTask && ($force || $manualRequest));
         $idempotencyKey = hash(
             'sha256',
             $scopeKey
+                . ($scheduledDispatcherRunId !== ''
+                    ? '|dispatcher|' . $scheduledDispatcherRunId
+                    : '')
                 . ($manualRetryOfTaskId > 0 ? '|manual_retry|' . $manualRetryOfTaskId : '')
                 . ($randomizeKey ? '|' . bin2hex(random_bytes(8)) : '')
         );
@@ -3422,6 +3700,144 @@ final class OtaLocalCollectorService
         return $task;
     }
 
+    /**
+     * @param array<string,mixed> $task
+     * @param array<string,mixed> $source
+     * @param array<string,mixed> $device
+     * @return array<string,mixed>
+     */
+    private function scheduledPlanTaskReceipt(
+        array $task,
+        array $source,
+        array $device,
+        string $dispatcherRunId,
+        string $businessDate,
+        bool $sessionPreflight
+    ): array {
+        $taskId = (int)($task['id'] ?? 0);
+        $taskStatus = strtolower(trim((string)($task['status'] ?? '')));
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $sourceId = (int)($source['id'] ?? 0);
+        $deviceStatus = $this->effectiveDeviceStatus($device);
+        $base = [
+            'dispatcher_run_id' => $dispatcherRunId,
+            'system_hotel_id' => (int)($source['system_hotel_id'] ?? 0),
+            'target_date' => $businessDate,
+            'platform' => $platform,
+            'data_source_id' => $sourceId,
+            'local_collector_task_id' => $taskId > 0 ? $taskId : null,
+            'task_id' => $taskId > 0 ? $taskId : null,
+            'success' => false,
+            'saved_count' => 0,
+            'readback_count' => 0,
+            'readback_verified' => false,
+            'run_readback' => [],
+            'historical_core_contract_status' => 'blocked',
+            'automatic_device_substitution' => false,
+            'sensitive_values_exposed' => false,
+        ];
+        if ($sessionPreflight) {
+            return [
+                ...$base,
+                'status' => $deviceStatus === 'device_offline'
+                    ? 'device_offline'
+                    : 'waiting_user_login',
+                'reused_active_task' => true,
+                'failure_reason' => $deviceStatus === 'device_offline'
+                    ? 'device_offline'
+                    : 'waiting_user_login',
+                'message' => 'local_collector_session_recovery_queued',
+            ];
+        }
+
+        $request = $this->decodeJson($task['request_json'] ?? null);
+        if ($this->normalizeDispatcherRunId((string)(
+            $request['dispatcher_run_id'] ?? ''
+        )) !== $dispatcherRunId) {
+            return [
+                ...$base,
+                'local_collector_task_id' => null,
+                'task_id' => null,
+                'status' => 'blocked',
+                'failure_reason' => 'local_collector_plan_dispatcher_scope_mismatch',
+                'message' => 'local_collector_plan_dispatcher_scope_mismatch',
+            ];
+        }
+
+        $summary = $this->decodeJson($task['result_summary_json'] ?? null);
+        $runReadback = is_array($summary['run_readback'] ?? null)
+            ? $summary['run_readback']
+            : [];
+        $summaryDispatcher = $this->normalizeDispatcherRunId((string)(
+            $summary['dispatcher_run_id']
+            ?? $runReadback['dispatcher_run_id']
+            ?? ''
+        ));
+        $syncTaskId = (int)(
+            $summary['sync_task_id']
+            ?? $runReadback['sync_task_id']
+            ?? 0
+        );
+        $rowIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            is_array($runReadback['row_ids'] ?? null) ? $runReadback['row_ids'] : []
+        ), static fn(int $id): bool => $id > 0)));
+        $strictSuccess = $taskStatus === 'success'
+            && $summaryDispatcher === $dispatcherRunId
+            && (int)($summary['local_collector_task_id'] ?? 0) === $taskId
+            && (int)($summary['data_source_id'] ?? 0) === $sourceId
+            && $syncTaskId > 0
+            && ($summary['readback_verified'] ?? false) === true
+            && ($runReadback['readback_verified'] ?? false) === true
+            && (int)($runReadback['data_source_id'] ?? 0) === $sourceId
+            && (int)($runReadback['sync_task_id'] ?? 0) === $syncTaskId
+            && (int)($runReadback['system_hotel_id'] ?? 0)
+                === (int)($source['system_hotel_id'] ?? 0)
+            && strtolower(trim((string)($runReadback['platform'] ?? ''))) === $platform
+            && $this->normalizeDate((string)($runReadback['target_date'] ?? ''))
+                === $businessDate
+            && $this->normalizeDispatcherRunId((string)(
+                $runReadback['dispatcher_run_id'] ?? ''
+            )) === $dispatcherRunId
+            && strtolower(trim((string)($runReadback['trigger_type'] ?? '')))
+                === 'local_collector_upload'
+            && $rowIds !== [];
+        if ($strictSuccess) {
+            return [
+                ...$base,
+                'status' => 'success',
+                'success' => true,
+                'platform_sync_task_id' => $syncTaskId,
+                'saved_count' => max(0, (int)($summary['saved_count'] ?? 0)),
+                'readback_count' => count($rowIds),
+                'readback_verified' => true,
+                'run_readback' => $runReadback,
+                'historical_core_contract_status' => 'ready',
+                'failure_reason' => '',
+                'message' => 'local_collector_save_readback_verified',
+            ];
+        }
+
+        $active = in_array($taskStatus, self::ACTIVE_TASK_STATUSES, true);
+        $failureCode = $this->normalizeFailureCode(
+            $task['error_code']
+                ?? ($active ? 'collection_in_progress' : 'local_collector_result_not_verified')
+        );
+        return [
+            ...$base,
+            'status' => $deviceStatus === 'device_offline' && $active
+                ? 'device_offline'
+                : ($active ? 'in_progress' : 'failed'),
+            'reused_active_task' => $active,
+            'failure_reason' => $deviceStatus === 'device_offline' && $active
+                ? 'device_offline'
+                : $failureCode,
+            'message' => $active
+                ? 'local_collector_task_in_progress'
+                : 'local_collector_result_not_verified',
+        ];
+    }
+
     /** @return array<string, mixed> */
     private function publicTaskRequest(array $request): array
     {
@@ -3641,6 +4057,19 @@ final class OtaLocalCollectorService
         }
         $rowSet = $this->sanitizeReadbackRowIds($value['row_ids'] ?? null);
         $readbackCount = $this->strictPositiveInt($value['readback_count'] ?? null);
+        $traceIds = [];
+        foreach (is_array($value['source_trace_ids'] ?? null) ? $value['source_trace_ids'] : [] as $traceId) {
+            $traceId = trim((string)$traceId);
+            if (preg_match('/^[A-Za-z0-9._:-]{1,160}$/D', $traceId) === 1) {
+                $traceIds[] = $traceId;
+            }
+        }
+        $dispatcherRunId = $this->normalizeDispatcherRunId((string)(
+            $value['dispatcher_run_id'] ?? ''
+        ));
+        $triggerType = $this->safeIdentifier((string)($value['trigger_type'] ?? ''), 80);
+        $dataPeriod = $this->safeIdentifier((string)($value['data_period'] ?? ''), 40);
+        $startedAt = $this->normalizeDateTime((string)($value['started_at'] ?? ''));
 
         return [
             'tenant_id' => $this->strictPositiveInt($value['tenant_id'] ?? null),
@@ -3649,12 +4078,20 @@ final class OtaLocalCollectorService
             'system_hotel_id' => $this->strictPositiveInt($value['system_hotel_id'] ?? null),
             'target_date' => $this->normalizeDate((string)($value['target_date'] ?? '')),
             'platform' => strtolower($this->safeIdentifier((string)($value['platform'] ?? ''), 20)),
+            'dispatcher_run_id' => $dispatcherRunId,
+            'trigger_type' => $triggerType,
+            'data_period' => $dataPeriod,
+            'started_at' => $startedAt,
             'readback_count' => $readbackCount,
             'readback_verified' => ($value['readback_verified'] ?? false) === true
                 && $rowSet['well_formed']
                 && $readbackCount === count($rowSet['row_ids']),
             'p0_status' => $this->safeIdentifier((string)($value['p0_status'] ?? ''), 40),
             'row_ids' => $rowSet['row_ids'],
+            'source_trace_ids' => array_slice(array_values(array_unique($traceIds)), 0, 50),
+            'verified_metric_keys' => $this->sanitizeFieldKeys(
+                $value['verified_metric_keys'] ?? []
+            ),
             'row_ids_well_formed' => $rowSet['well_formed'],
             'failure_reason' => $this->safeIdentifier((string)($value['failure_reason'] ?? ''), 100),
         ];
@@ -3759,6 +4196,10 @@ final class OtaLocalCollectorService
         $readbackCount = $this->strictPositiveInt($importResult['readback_count'] ?? null);
         $rowIds = (array)($runReadback['row_ids'] ?? []);
         $deterministicRowIds = (array)($deterministicReadback['row_ids'] ?? []);
+        $taskRequest = $this->decodeJson($task['request_json'] ?? null);
+        $dispatcherRunId = $this->normalizeDispatcherRunId((string)(
+            $taskRequest['dispatcher_run_id'] ?? ''
+        ));
 
         return $tenantId > 0
             && $dataSourceId > 0
@@ -3791,6 +4232,12 @@ final class OtaLocalCollectorService
             && (string)($deterministicReadback['target_date'] ?? '') === $targetDate
             && (string)($runReadback['platform'] ?? '') === $platform
             && (string)($deterministicReadback['platform'] ?? '') === $platform
+            && ($dispatcherRunId === ''
+                || ($this->normalizeDispatcherRunId((string)(
+                    $runReadback['dispatcher_run_id'] ?? ''
+                )) === $dispatcherRunId
+                    && (string)($runReadback['trigger_type'] ?? '')
+                        === 'local_collector_upload'))
             && $rowIds !== []
             && $rowIds === $deterministicRowIds
             && $readbackCount === count($rowIds)
@@ -3962,6 +4409,7 @@ final class OtaLocalCollectorService
                 'saved_count' => max(1, (int)($summary['saved_count'] ?? 0)),
                 'data_source_id' => $sourceId,
                 'account_id' => (int)$taskRow['account_id'],
+                'historical_core_contract_status' => 'ready',
                 'run_readback' => $runReadback,
             ];
         }
@@ -4290,6 +4738,7 @@ final class OtaLocalCollectorService
                 (string)($resume['task_type'] ?? ''),
                 (string)($resume['data_date'] ?? ''),
                 (string)($resume['data_type'] ?? ''),
+                (string)($resume['request']['dispatcher_run_id'] ?? ''),
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
             foreach ($items as $item) {
                 if (!is_array($item)) {
@@ -4300,6 +4749,7 @@ final class OtaLocalCollectorService
                     (string)($item['task_type'] ?? ''),
                     (string)($item['data_date'] ?? ''),
                     (string)($item['data_type'] ?? ''),
+                    (string)($item['request']['dispatcher_run_id'] ?? ''),
                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
                 if (hash_equals($fingerprint, $existingFingerprint)) {
                     return;
@@ -5344,6 +5794,15 @@ final class OtaLocalCollectorService
         }
         $timestamp = strtotime($value . ' 00:00:00');
         return $timestamp !== false && date('Y-m-d', $timestamp) === $value ? $value : '';
+    }
+
+    private function normalizeDispatcherRunId(string $value): string
+    {
+        $value = strtolower(trim($value));
+        return preg_match(
+            '/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/D',
+            $value
+        ) === 1 ? $value : '';
     }
 
     private function normalizeDateTime(string $value): string

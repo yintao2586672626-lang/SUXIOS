@@ -5,6 +5,12 @@ const CARD_METRIC_MAP = new Map([
   ['PAY_ORDER_CNT', { fields: ['orderSubmitNum', 'order_submit_num'], label: 'order_submit_num' }],
 ]);
 
+const REQUIRED_OBSERVED_TRAFFIC_METRIC_KEYS = [
+  'list_exposure',
+  'detail_exposure',
+  'flow_rate',
+];
+
 const BUSINESS_METRICS = [
   {
     key: 'lead_price',
@@ -398,6 +404,19 @@ export function isImportableMeituanTrafficRow(row) {
   return REQUIRED_TRAFFIC_FIELD_GROUPS.every(keys => keys.some(key => hasTrafficMetricValue(row[key])));
 }
 
+function withObservedMeituanTrafficMetrics(row, metricKeys) {
+  const observed = new Set(Array.isArray(metricKeys) ? metricKeys : []);
+  const normalized = REQUIRED_OBSERVED_TRAFFIC_METRIC_KEYS
+    .filter(metricKey => observed.has(metricKey));
+  const next = { ...(row || {}) };
+  if (normalized.length > 0) {
+    next._observed_traffic_metric_keys = normalized;
+  } else {
+    delete next._observed_traffic_metric_keys;
+  }
+  return next;
+}
+
 export function normalizeMeituanPeerRankRows(value, options = {}) {
   const peerRankData = firstArrayAtPath(value, [
     ['data', 'peerRankData'],
@@ -573,7 +592,7 @@ export function normalizeMeituanTrafficDomText(value) {
     const visitors = normalizeNumber(flowFunnel[3]);
     const orders = normalizeNumber(flowFunnel[5]);
     if (exposure !== null && visitors !== null && orders !== null) {
-      rows.push({
+      rows.push(withObservedMeituanTrafficMetrics({
         _capture_source: 'dom:traffic:flow_funnel',
         _source_path: 'dom.traffic.flow_funnel',
         compare_type: 'self',
@@ -587,7 +606,7 @@ export function normalizeMeituanTrafficDomText(value) {
         orderSubmitNum: orders,
         _order_filling_source_policy: 'meituan_flow_funnel_no_separate_order_filling_step_pay_order_count_used',
         _order_submit_source_label: 'pay_order_count',
-      });
+      }, REQUIRED_OBSERVED_TRAFFIC_METRIC_KEYS));
       hasCoreTrafficRow = true;
     }
   }
@@ -663,7 +682,8 @@ export function normalizeMeituanTrafficDomText(value) {
       /(?:\u652f\u4ed8\u8f6c\u5316\u7387|\u6d4f\u89c8-\u652f\u4ed8\u8f6c\u5316\u7387)\s*([\d.]+)\s*%/,
     );
     if (exposure !== null && visitors !== null && orders !== null) {
-      rows.push({
+      const flowRate = flowRateMatch ? Number(flowRateMatch[1]) : null;
+      rows.push(withObservedMeituanTrafficMetrics({
         _capture_source: 'dom:traffic:home_summary',
         _source_path: 'dom.traffic.home_summary',
         compare_type: 'self',
@@ -672,12 +692,16 @@ export function normalizeMeituanTrafficDomText(value) {
         ...withDate,
         listExposure: exposure,
         detailExposure: visitors,
-        flowRate: flowRateMatch ? Number(flowRateMatch[1]) : null,
+        flowRate,
         orderFillingNum: orders,
         orderSubmitNum: orders,
         _order_filling_source_policy: 'meituan_home_summary_no_separate_order_filling_step_pay_order_count_used',
         _order_submit_source_label: 'pay_order_count',
-      });
+      }, [
+        'list_exposure',
+        'detail_exposure',
+        ...(flowRate !== null ? ['flow_rate'] : []),
+      ]));
     }
   }
 
@@ -697,16 +721,21 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
     const visitors = numberish(myHotel.intentionUV);
     const paidOrders = numberish(myHotel.payOrderCnt);
     const exposureToVisitRate = numberish(myHotel.intentionPerExposure);
+    const browseToPayRate = numberish(myHotel.payOrderPerIntention);
     if ([exposure, visitors, paidOrders, exposureToVisitRate].some(metric => metric !== undefined)) {
-      return [decorateSupplementalRow({
+      return [withObservedMeituanTrafficMetrics(decorateSupplementalRow({
         ...data,
         ...myHotel,
         analysis_type: 'conversion_funnel',
         dimension: 'flow_conversion',
         data_value: exposure,
         exposure_to_browse_rate: exposureToVisitRate,
-        browse_pay_rate: numberish(myHotel.payOrderPerIntention),
-      }, 'traffic', 'data.myHotel', options)];
+        browse_pay_rate: browseToPayRate,
+      }, 'traffic', 'data.myHotel', options), [
+        ...(exposure !== undefined ? ['list_exposure'] : []),
+        ...(visitors !== undefined ? ['detail_exposure'] : []),
+        ...(browseToPayRate !== undefined ? ['flow_rate'] : []),
+      ])];
     }
   }
   if (analysisType === 'conversion') {
@@ -877,7 +906,10 @@ function buildCardMetricRow(cards, options = {}) {
     row._order_filling_source_policy = 'meituan_metric_cards_no_separate_order_filling_step_pay_order_count_used';
   }
 
-  return row;
+  return withObservedMeituanTrafficMetrics(
+    row,
+    Object.keys(row._meituan_card_metric_sources),
+  );
 }
 
 function buildBusinessMetricRow(source, options = {}) {

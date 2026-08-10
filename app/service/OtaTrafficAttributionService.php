@@ -80,8 +80,8 @@ final class OtaTrafficAttributionService
             return false;
         }
 
-        if ($platform !== 'ctrip') {
-            return true;
+        if ($platform === 'meituan') {
+            return self::rowCaptureSourceIsAuthoritative($row);
         }
 
         $endpointId = self::trafficRowEndpointId($row);
@@ -90,6 +90,20 @@ final class OtaTrafficAttributionService
         }
 
         return in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true);
+    }
+
+    /** @param array<string,mixed> $row */
+    private static function rowCaptureSourceIsAuthoritative(array $row): bool
+    {
+        $raw = self::decodeRawData($row['raw_data'] ?? null);
+        $sourceRow = is_array($raw['row'] ?? null) ? $raw['row'] : $raw;
+        $captureSource = strtolower(trim((string)(
+            $sourceRow['_capture_source'] ?? $sourceRow['capture_source'] ?? ''
+        )));
+        return preg_match(
+            '/^(?:xhr|fetch|same_origin_api|browser_response|network_response)(?::|$)/',
+            $captureSource
+        ) === 1;
     }
 
     /** @param array<string, mixed> $row */

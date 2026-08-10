@@ -368,7 +368,8 @@ assert.match(hotelScopeService, /private function ownedOrGrantedHotelIds\(User \
 assert.match(hotelScopeService, /\$this->primaryHotelIds\(\$user\)[\s\S]*\$this->ownedHotelIds\(\$user\)[\s\S]*\$this->grantedHotelIds\(\$user, \$capability\)/, 'non-super users must only see primary, owned, or explicitly granted hotels');
 assert.doesNotMatch(hotelScopeService, /if \(\$this->isVipUser\(\$user\)\)[\s\S]{0,160}return \$this->ownedHotelIds\(\$user\);/, 'VIP role alone must not bypass explicit hotel scope');
 assert.match(hotelScopeService, /'hotel\.delete' => \['can_edit'\]/, 'assigned hotel deletion must still pass through the per-hotel can_edit permission layer');
-assert.match(userController, /private function syncUserHotelPermissions\(UserModel \$targetUser, array \$hotelIds, Role \$targetRole, array \$hotelTenantIds = \[\]\): void[\s\S]*\$payload\['tenant_id'\] = \$tenantId;/, 'super admin user saves must sync user_hotel_permissions with authoritative tenant ids');
+assert.match(userController, /private function syncUserHotelPermissions\([\s\S]*array \$hotelTenantIds = \[\][\s\S]*\$payload\['tenant_id'\] = \$tenantId;/, 'super admin user saves must sync user_hotel_permissions with authoritative tenant ids');
+assert.match(hotelScopeService, /hasAnyHotelPermissionRecord\(\$user, \$hotelId\)[\s\S]*return false;/, 'expired or disabled permission rows must not be revived by the primary-hotel fallback');
 assert.match(userController, /private function normalizeAssignedHotelIds\(array \$data\): array/, 'user API must accept multi-hotel assignments');
 assert.match(userController, /\$data\['hotel_ids'\]\s*=/, 'user API responses must expose assigned hotel ids for editing');
 assert.match(userController, /private function validateExternalUserIssueBoundary\(Role \$role, array \$hotelIds\): \?Response/, 'user API must validate external-account issue boundaries');
@@ -449,6 +450,8 @@ assert.match(indexHtml, /const requireUserAdminStatic = \(key\) =>/, 'index must
 assert.match(userAdminStatic, /window\.SUXI_USER_ADMIN_STATIC = \(\(\) =>/, 'user admin static helpers must expose a stable bundle namespace');
 assert.match(userAdminStatic, /handoffType:\s*'内测发放'/, 'beta issue profile must expose an explicit handoff type');
 assert.match(userAdminStatic, /handoffType:\s*'普通外发'/, 'normal issue profile must expose an explicit handoff type');
+assert.match(userAdminStatic, /roleName === 'controlled_partner'[\s\S]*handoffType:\s*'伙伴受控交付'/, 'controlled partner profile must expose a distinct handoff contract');
+assert.match(userAdminStatic, /requiresExpiry:\s*true/, 'controlled partner issuance must require an explicit expiry date');
 assert.match(userAdminStatic, /dataBoundary:\s*'仅授权门店的 OTA 渠道数据和内测功能，不代表全酒店经营数据。'/, 'beta issue profile must show the OTA-only data boundary');
 assert.match(userAdminStatic, /dataBoundary:\s*'仅授权门店的 OTA 渠道只读数据；不代表全酒店经营数据，也不开放采集执行。'/, 'normal issue profile must show the read-only OTA boundary');
 assert.match(indexHtml, /@click="applyUserSummaryFilter\('total'\)"[\s\S]*@click="applyUserSummaryFilter\('active'\)"[\s\S]*@click="applyUserSummaryFilter\('beta'\)"[\s\S]*@click="applyUserSummaryFilter\('normal'\)"[\s\S]*@click="applyUserSummaryFilter\('disabled'\)"[\s\S]*@click="applyUserSummaryFilter\('unassigned'\)"/, 'user summary cards must be clickable filters');
@@ -466,7 +469,7 @@ assert.match(userAdminStatic, /const userIssueStatusFromProfile = \(profile = \{
 assert.match(userAdminStatic, /普通用户角色含高风险权限：\$\{unsafeExternalCapabilityLabels\.join\('、'\)\}/, 'normal-user issuance blockers must name the risky permission groups');
 assert.match(userAdminStatic, /roleIssueProfile,[\s\S]*rolePermissionTags,[\s\S]*withRolePermissionTags[\s\S]*buildUserIssueChecklistRows,[\s\S]*validateUserIssueProfile,[\s\S]*userIssueStatusFromProfile/, 'user admin static bundle must export role issue helpers used by the Vue setup');
 assert.match(indexHtml, /withRolePermissionTags\(roleIssueProfile\(role\)\)/, 'role issue cards must attach permission tags to role profiles');
-assert.match(indexHtml, /filter\(item => \['beta_user', 'normal_user'\]\.includes\(item\.profile\?\.key\)\)/, 'role issue cards must include level-based beta and normal profiles instead of fixed role IDs only');
+assert.match(indexHtml, /filter\(item => \['beta_user', 'controlled_partner', 'normal_user'\]\.includes\(item\.profile\?\.key\)\)/, 'role issue cards must include beta, controlled partner, and normal profiles instead of fixed role IDs only');
 assert.doesNotMatch(indexHtml, /filter\(role => \['beta_user', 'normal_user'\]\.includes\(String\(role\?\.name \|\| ''\)\.trim\(\)\) \|\| \[2, 3\]\.includes\(Number\(role\?\.id \|\| 0\)\)\)/, 'role issue cards must not depend only on legacy role id/name pairs');
 assert.match(userAdminStatic, /roleId === 3 \|\| roleName === 'normal_user' \|\| level >= 3/, 'front-end role profiles must treat staff-level roles as normal external accounts');
 assert.match(indexHtml, /const issueRoleIdForFilter = \(key = ''\) =>/, 'user summary role filters must resolve beta and normal roles through the issue profile');
@@ -493,6 +496,9 @@ assert.match(indexHtml, /const userIssueStatus = \(u = \{\}\) =>/, 'issuance sta
 assert.match(indexHtml, /existingUserIssueGuideBlocker\(u\)[\s\S]*userIssueStatusFromProfile\(profile, blocker\)/, 'existing user copy guidance must surface blocker details instead of allowing blind external sends');
 assert.match(indexHtml, /userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide/, 'issuance helper state must remain returned for non-table guidance');
 assert.match(indexHtml, /const validateUserIssueBeforeSave = \(data = \{\}, assignedHotelIds = \[\]\) =>/, 'user saves must validate issuance boundaries before calling the API');
+assert.match(indexHtml, /profile\.requiresExpiry && !authorizationExpiresOnIsValid\(data\?\.authorization_expires_on\)/, 'controlled partner saves must fail before the API when the expiry is absent or stale');
+assert.match(indexHtml, /v-model="userForm\.authorization_expires_on"[^>]*type="date"/, 'controlled partner user form must expose the authorization expiry input');
+assert.match(indexHtml, /@click="applyControlledPartnerRolePreset"/, 'role form must expose the controlled partner preset');
 assert.match(userAdminStatic, /profile\.key === 'normal_user' && profile\.canCollectOta/, 'normal-user issuance must flag OTA collection as unsafe for external accounts');
 assert.match(userAdminStatic, /profile\.requiresHotelAssignment && normalizedHotelIds\.length === 0/, 'external account issuance must block missing hotel scope');
 assert.match(indexHtml, /const issueError = validateUserIssueBeforeSave\(data, assignedHotelIds\)/, 'user save must run the issuance validator before request submission');
@@ -564,7 +570,7 @@ assert.match(indexHtml, /const allUserHotelIds = computed\(\(\) => normalizeUser
 assert.match(indexHtml, /const toggleAllUserHotels = \(\) => \{[\s\S]*areAllUserHotelsSelected\.value \? \[\] : \[\.\.\.allUserHotelIds\.value\]/, 'user modal must support all-select and clear for assigned hotels');
 assert.match(indexHtml, /roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText/, 'role issue permission helpers must be returned to the Vue template');
 assert.match(indexHtml, /lastUserIssueGuideText\.value = buildUserIssueGuideTextFromProfile\([\s\S]*res\.data\?\.username \|\| data\.username/, 'successful beta or normal user saves must build the latest issuance guide from the server-generated username');
-assert.match(indexHtml, /\['beta_user', 'normal_user'\]\.includes\(issueGuideProfile\.key\)/, 'latest issuance guide must only be generated for beta or normal external roles');
+assert.match(indexHtml, /\['beta_user', 'controlled_partner', 'normal_user'\]\.includes\(issueGuideProfile\.key\)/, 'latest issuance guide must be generated for beta, controlled partner, or normal external roles');
 assert.match(indexHtml, /初始密码请通过单独安全渠道发送/, 'copied issuance guidance must not mix the initial password into the normal message');
 assert.match(indexHtml, /const filterUserStatus = ref\(''\);/, 'user management must expose a status filter');
 assert.match(indexHtml, /const filterUserHotelId = ref\(''\);/, 'user management must expose a hotel-scope filter');

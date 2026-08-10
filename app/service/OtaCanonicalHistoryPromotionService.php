@@ -15,6 +15,9 @@ use think\facade\Db;
 final class OtaCanonicalHistoryPromotionService
 {
     private const VERSION = 'ota_canonical_history_promotion.v3';
+    private const OPERATION_ROW_SELECTION_VERSION = 'ota_operation_row_selection.v1';
+    private const OPERATION_ROW_SELECTION_POLICY =
+        'singleton_or_equivalent_required_metrics_min_row_id.v1';
     private const PROMOTABLE_VALIDATION_STATUSES = [
         'normal', 'available', 'ok', 'valid', 'verified',
     ];
@@ -113,15 +116,17 @@ final class OtaCanonicalHistoryPromotionService
             return $this->blocked('promotion_collection_scope_invalid');
         }
 
-        $sourceTasks = $this->normalizedSourceTasks($collectionReceipt['source_tasks'] ?? []);
-        $collectionAnchorHash = strtolower(trim((string)($collectionReceipt['collection_anchor_hash'] ?? '')));
-        $computedAnchorHash = hash(
-            'sha256',
-            json_encode(array_values($sourceTasks), JSON_UNESCAPED_SLASHES) ?: '[]'
+        $sourceTasks = OtaCollectionAnchorService::normalize(
+            $collectionReceipt['source_tasks'] ?? []
         );
+        $collectionAnchorHash = strtolower(trim((string)($collectionReceipt['collection_anchor_hash'] ?? '')));
         if ($sourceTasks === []
-            || preg_match('/^[a-f0-9]{64}$/D', $collectionAnchorHash) !== 1
-            || !hash_equals($collectionAnchorHash, $computedAnchorHash)
+            || (string)($collectionReceipt['collection_anchor_contract_version'] ?? '')
+                !== OtaCollectionAnchorService::CONTRACT_VERSION
+            || !OtaCollectionAnchorService::matches(
+                $collectionReceipt['source_tasks'] ?? [],
+                $collectionAnchorHash
+            )
         ) {
             return $this->blocked('promotion_collection_anchor_mismatch');
         }
@@ -133,12 +138,11 @@ final class OtaCanonicalHistoryPromotionService
             return $this->blocked('promotion_platform_task_ambiguous');
         }
         $sourceTask = $platformTasks[0];
-        if (($sourceTask['collection_status'] ?? '') !== 'success'
-            || ($sourceTask['p0_status'] ?? '') !== 'ready'
+        if ($dataPeriod === 'historical_daily'
+            && ($sourceTask['historical_core_contract_status'] ?? '') !== 'ready'
         ) {
-            return $this->blocked('promotion_platform_task_not_ready');
+            return $this->blocked('promotion_platform_core_contract_missing');
         }
-
         $verifierAnchorHash = strtolower(trim((string)($verifierReceipt['collection_anchor_hash'] ?? '')));
         $verifierReportHash = strtolower(trim((string)($verifierReceipt['verifier_report_hash'] ?? '')));
         $requiredPlatforms = $this->platformList($verifierReceipt['required_platforms'] ?? []);
@@ -219,6 +223,7 @@ final class OtaCanonicalHistoryPromotionService
             'observed_traffic_metric_provenance_status' => 'ready',
             'synthetic_normalization_provenance_missing_rows' => 0,
             'required_metric_keys' => $requiredMetrics,
+            'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
             'collection_anchor_hash' => $collectionAnchorHash,
             'verifier_report_hash' => $verifierReportHash,
             'sensitive_values_exposed' => false,
@@ -277,6 +282,7 @@ final class OtaCanonicalHistoryPromotionService
         $taskStats = $this->decode((string)($task['stats_json'] ?? ''));
         $runReadback = is_array($taskStats['run_readback'] ?? null) ? $taskStats['run_readback'] : [];
         $this->assertRunReadback($runReadback, $contract);
+        $runReadbackRowIds = $this->positiveIds($runReadback['row_ids'] ?? []);
 
         $columns = array_keys(Db::getFields('online_daily_data'));
         $requiredColumns = [
@@ -295,6 +301,14 @@ final class OtaCanonicalHistoryPromotionService
                 throw new RuntimeException('promotion_metric_column_missing:' . $requiredMetricKey);
             }
         }
+        $requiredCoreColumns = $dataPeriod === 'historical_daily'
+            ? OtaOrderedCollectionPlanner::requiredStorageColumns($platform)
+            : [];
+        foreach ($requiredCoreColumns as $requiredCoreColumn) {
+            if (!in_array($requiredCoreColumn, $columns, true)) {
+                throw new RuntimeException('promotion_metric_column_missing:' . $requiredCoreColumn);
+            }
+        }
         // SQLite's PRAGMA table_info omits generated columns even though they
         // are queryable. Selecting history_status is the cross-database proof
         // that the generated projection is actually available.
@@ -302,6 +316,7 @@ final class OtaCanonicalHistoryPromotionService
             $requiredColumns,
             ['history_status'],
             $contract['required_metric_keys'],
+            $requiredCoreColumns,
             in_array('update_time', $columns, true) ? ['update_time'] : []
         )));
         $rows = Db::name('online_daily_data')
@@ -311,14 +326,25 @@ final class OtaCanonicalHistoryPromotionService
             ->where('data_source_id', $sourceId)
             ->where('sync_task_id', $taskId)
             ->where('source', $platform)
+            ->where('platform', $platform)
             ->where('data_date', $targetDate)
             ->where('data_period', $dataPeriod)
-            ->whereIn('id', $collectionRowIds)
             ->lock(true)
             ->select()
             ->toArray();
-        if ($this->positiveIds(array_column($rows, 'id')) !== $collectionRowIds) {
+        $exactScopeRowIds = $this->positiveIds(array_column($rows, 'id'));
+        if ($exactScopeRowIds !== $collectionRowIds
+            || $exactScopeRowIds !== $runReadbackRowIds
+        ) {
             throw new RuntimeException('promotion_collection_rows_identity_mismatch');
+        }
+        if ($dataPeriod === 'historical_daily') {
+            $coreRows = OtaOrderedCollectionPlanner::storedCoreRows($platform, $rows);
+            if ($coreRows === []
+                || OtaOrderedCollectionPlanner::missingFieldKeys($platform, $coreRows) !== []
+            ) {
+                throw new RuntimeException('promotion_platform_core_contract_db_incomplete');
+            }
         }
         $authoritativeRows = $this->authoritativeRows($rows, $contract);
         if (count($authoritativeRows) !== (int)$contract['authoritative_traffic_row_count']) {
@@ -340,16 +366,30 @@ final class OtaCanonicalHistoryPromotionService
             throw new RuntimeException('promotion_authoritative_metric_value_count_mismatch');
         }
         $contract['authoritative_fact_digest'] = (string)$factProof['digest'];
+        $contract['authoritative_row_fact_digests'] = is_array(
+            $factProof['row_digests'] ?? null
+        ) ? $factProof['row_digests'] : [];
+        $operationRowSelection = is_array($factProof['operation_row_selection'] ?? null)
+            ? $factProof['operation_row_selection']
+            : [];
+        if ($operationRowSelection === []) {
+            throw new RuntimeException('promotion_operation_row_selection_missing');
+        }
+        $contract['operation_row_selection'] = $operationRowSelection;
         $contract['nonzero_required_metric_rows'] = (int)$factProof['nonzero_required_metric_rows'];
         $contract['explicit_zero_confirmed_rows'] = (int)$factProof['explicit_zero_confirmed_rows'];
         $contract['snapshot_time_backfills'] = is_array($factProof['snapshot_time_backfills'] ?? null)
             ? $factProof['snapshot_time_backfills']
             : [];
-        $contract['platform_hotel_identity_digest'] = $this->platformHotelIdentityDigest(
+        $identityProof = $this->platformHotelIdentityProof(
             $source,
             $authoritativeRows,
             $contract
         );
+        $contract['platform_hotel_identity_digest'] = (string)$identityProof['digest'];
+        $contract['authoritative_row_platform_hotel_identity_digests'] = is_array(
+            $identityProof['row_digests'] ?? null
+        ) ? $identityProof['row_digests'] : [];
 
         $existingPromotion = is_array($taskStats['canonical_history_promotion'] ?? null)
             ? $taskStats['canonical_history_promotion']
@@ -578,10 +618,29 @@ final class OtaCanonicalHistoryPromotionService
             'data_source_id' => (int)$contract['data_source_id'],
             'sync_task_id' => (int)$contract['sync_task_id'],
             'row_ids' => $rowIds,
+            'collection_anchor_contract_version' =>
+                (string)$contract['collection_anchor_contract_version'],
             'collection_anchor_hash' => (string)$contract['collection_anchor_hash'],
             'verifier_report_hash' => (string)$contract['verifier_report_hash'],
             'authoritative_fact_digest' => (string)$contract['authoritative_fact_digest'],
+            'authoritative_row_fact_digests' => $contract['authoritative_row_fact_digests'],
             'platform_hotel_identity_digest' => (string)$contract['platform_hotel_identity_digest'],
+            'authoritative_row_platform_hotel_identity_digests' =>
+                $contract['authoritative_row_platform_hotel_identity_digests'],
+            'operation_row_selection_version' =>
+                (string)$contract['operation_row_selection']['version'],
+            'operation_row_selection_status' =>
+                (string)$contract['operation_row_selection']['status'],
+            'operation_row_selection_policy' =>
+                (string)$contract['operation_row_selection']['policy'],
+            'operation_row_candidate_ids' =>
+                $contract['operation_row_selection']['candidate_row_ids'],
+            'selected_operation_row_id' =>
+                (int)$contract['operation_row_selection']['selected_row_id'],
+            'operation_row_metric_digests' =>
+                $contract['operation_row_selection']['row_metric_digests'],
+            'operation_row_selection_digest' =>
+                (string)$contract['operation_row_selection']['selection_digest'],
             'nonzero_required_metric_rows' => (int)$contract['nonzero_required_metric_rows'],
             'explicit_zero_confirmed_rows' => (int)$contract['explicit_zero_confirmed_rows'],
             'observed_traffic_metric_provenance_status' => 'ready',
@@ -606,10 +665,19 @@ final class OtaCanonicalHistoryPromotionService
             && (int)($receipt['data_source_id'] ?? 0) === (int)$contract['data_source_id']
             && (int)($receipt['sync_task_id'] ?? 0) === (int)$contract['sync_task_id']
             && $this->positiveIds($receipt['row_ids'] ?? []) === $rowIds
+            && (string)($receipt['collection_anchor_contract_version'] ?? '')
+                === (string)$contract['collection_anchor_contract_version']
             && hash_equals((string)$contract['collection_anchor_hash'], (string)($receipt['collection_anchor_hash'] ?? ''))
             && hash_equals((string)$contract['verifier_report_hash'], (string)($receipt['verifier_report_hash'] ?? ''))
             && hash_equals((string)$contract['authoritative_fact_digest'], (string)($receipt['authoritative_fact_digest'] ?? ''))
+            && $this->rowDigestMap($receipt['authoritative_row_fact_digests'] ?? null, $rowIds)
+                === $contract['authoritative_row_fact_digests']
             && hash_equals((string)$contract['platform_hotel_identity_digest'], (string)($receipt['platform_hotel_identity_digest'] ?? ''))
+            && $this->rowDigestMap(
+                $receipt['authoritative_row_platform_hotel_identity_digests'] ?? null,
+                $rowIds
+            ) === $contract['authoritative_row_platform_hotel_identity_digests']
+            && $this->operationRowSelectionReceiptMatches($receipt, $contract, $rowIds)
             && (int)($receipt['nonzero_required_metric_rows'] ?? -1) === (int)$contract['nonzero_required_metric_rows']
             && (int)($receipt['explicit_zero_confirmed_rows'] ?? -1) === (int)$contract['explicit_zero_confirmed_rows']
             && strtolower(trim((string)($receipt['observed_traffic_metric_provenance_status'] ?? ''))) === 'ready'
@@ -642,6 +710,20 @@ final class OtaCanonicalHistoryPromotionService
             'row_ids' => $rowIds,
             'authoritative_fact_digest' => (string)$contract['authoritative_fact_digest'],
             'platform_hotel_identity_digest' => (string)$contract['platform_hotel_identity_digest'],
+            'operation_row_selection_version' =>
+                (string)$contract['operation_row_selection']['version'],
+            'operation_row_selection_status' =>
+                (string)$contract['operation_row_selection']['status'],
+            'operation_row_selection_policy' =>
+                (string)$contract['operation_row_selection']['policy'],
+            'operation_row_candidate_ids' =>
+                $contract['operation_row_selection']['candidate_row_ids'],
+            'selected_operation_row_id' =>
+                (int)$contract['operation_row_selection']['selected_row_id'],
+            'operation_row_metric_digests' =>
+                $contract['operation_row_selection']['row_metric_digests'],
+            'operation_row_selection_digest' =>
+                (string)$contract['operation_row_selection']['selection_digest'],
             'nonzero_required_metric_rows' => (int)$contract['nonzero_required_metric_rows'],
             'explicit_zero_confirmed_rows' => (int)$contract['explicit_zero_confirmed_rows'],
             'snapshot_time_backfill_count' => count($contract['snapshot_time_backfills'] ?? []),
@@ -672,6 +754,20 @@ final class OtaCanonicalHistoryPromotionService
             'sync_task_id' => (int)$contract['sync_task_id'],
             'row_ids' => $rowIds,
             'promotion_receipt_digest' => (string)($receipt['content_digest'] ?? ''),
+            'operation_row_selection_version' =>
+                (string)$contract['operation_row_selection']['version'],
+            'operation_row_selection_status' =>
+                (string)$contract['operation_row_selection']['status'],
+            'operation_row_selection_policy' =>
+                (string)$contract['operation_row_selection']['policy'],
+            'operation_row_candidate_ids' =>
+                $contract['operation_row_selection']['candidate_row_ids'],
+            'selected_operation_row_id' =>
+                (int)$contract['operation_row_selection']['selected_row_id'],
+            'operation_row_metric_digests' =>
+                $contract['operation_row_selection']['row_metric_digests'],
+            'operation_row_selection_digest' =>
+                (string)$contract['operation_row_selection']['selection_digest'],
             'readback_verified' => true,
             'history_status' => 'success',
             'snapshot_time_backfilled_count' => count($contract['snapshot_time_backfills'] ?? []),
@@ -695,34 +791,6 @@ final class OtaCanonicalHistoryPromotionService
             'sync_task_id' => (int)($scope['sync_task_id'] ?? 0) ?: null,
             'sensitive_values_exposed' => false,
         ];
-    }
-
-    /** @return array<int,array<string,mixed>> */
-    private function normalizedSourceTasks(mixed $value): array
-    {
-        $tasks = [];
-        foreach (is_array($value) ? $value : [] as $task) {
-            if (!is_array($task)) {
-                continue;
-            }
-            $sourceId = (int)($task['data_source_id'] ?? 0);
-            $taskId = (int)($task['sync_task_id'] ?? 0);
-            $platform = strtolower(trim((string)($task['platform'] ?? '')));
-            $rowIds = $this->positiveIds($task['row_ids'] ?? []);
-            if ($sourceId <= 0 || $taskId <= 0 || !in_array($platform, ['ctrip', 'meituan'], true) || $rowIds === []) {
-                continue;
-            }
-            $tasks[$sourceId] = [
-                'data_source_id' => $sourceId,
-                'sync_task_id' => $taskId,
-                'platform' => $platform,
-                'collection_status' => strtolower(trim((string)($task['collection_status'] ?? ''))),
-                'p0_status' => strtolower(trim((string)($task['p0_status'] ?? ''))),
-                'row_ids' => $rowIds,
-            ];
-        }
-        ksort($tasks, SORT_NUMERIC);
-        return array_values($tasks);
     }
 
     /**
@@ -754,6 +822,8 @@ final class OtaCanonicalHistoryPromotionService
             (int)($left['id'] ?? 0) <=> (int)($right['id'] ?? 0)
         );
         $boundedRows = [];
+        $rowDigests = [];
+        $operationRowMetricDigests = [];
         $nonzeroRows = 0;
         $explicitZeroRows = 0;
         $snapshotTimeBackfills = [];
@@ -895,7 +965,42 @@ final class OtaCanonicalHistoryPromotionService
                 $boundedRow['capture_time'] = $captureTime;
             }
             $boundedRows[] = $boundedRow;
+            $rowDigestPayload = $boundedRow;
+            unset($rowDigestPayload['capture_time']);
+            $rowDigests[(int)$row['id']] = $this->digest([
+                'required_metric_keys' => $platformRequiredKeys,
+                'rows' => [$rowDigestPayload],
+            ]);
+            $operationRowMetricDigests[(int)$row['id']] = $this->digest([
+                'required_metric_keys' => $platformRequiredKeys,
+                'metric_values' => $boundedMetrics,
+                'value_status' => $hasNonzero ? 'nonzero' : 'explicit_zero',
+            ]);
         }
+
+        ksort($rowDigests, SORT_NUMERIC);
+        ksort($operationRowMetricDigests, SORT_NUMERIC);
+        $candidateRowIds = array_map('intval', array_keys($operationRowMetricDigests));
+        $metricProfiles = array_values(array_unique(array_values($operationRowMetricDigests)));
+        $selectedOperationRowId = count($metricProfiles) === 1 && $candidateRowIds !== []
+            ? min($candidateRowIds)
+            : 0;
+        $operationRowSelection = [
+            'version' => self::OPERATION_ROW_SELECTION_VERSION,
+            'status' => $selectedOperationRowId > 0 ? 'ready' : 'ambiguous',
+            'policy' => self::OPERATION_ROW_SELECTION_POLICY,
+            'platform' => $platform,
+            'tenant_id' => (int)$contract['tenant_id'],
+            'system_hotel_id' => (int)$contract['system_hotel_id'],
+            'data_source_id' => (int)$contract['data_source_id'],
+            'sync_task_id' => (int)$contract['sync_task_id'],
+            'target_date' => (string)$contract['target_date'],
+            'data_period' => (string)$contract['data_period'],
+            'candidate_row_ids' => $candidateRowIds,
+            'selected_row_id' => $selectedOperationRowId,
+            'row_metric_digests' => $operationRowMetricDigests,
+        ];
+        $operationRowSelection['selection_digest'] = $this->digest($operationRowSelection);
 
         return [
             'digest' => $this->digest([
@@ -905,6 +1010,8 @@ final class OtaCanonicalHistoryPromotionService
             'nonzero_required_metric_rows' => $nonzeroRows,
             'explicit_zero_confirmed_rows' => $explicitZeroRows,
             'snapshot_time_backfills' => $snapshotTimeBackfills,
+            'row_digests' => $rowDigests,
+            'operation_row_selection' => $operationRowSelection,
         ];
     }
 
@@ -989,11 +1096,11 @@ final class OtaCanonicalHistoryPromotionService
      * @param array<int,array<string,mixed>> $rows
      * @param array<string,mixed> $contract
      */
-    private function platformHotelIdentityDigest(
+    private function platformHotelIdentityProof(
         array $selectedSource,
         array $rows,
         array $contract
-    ): string {
+    ): array {
         $platform = (string)$contract['platform'];
         $tenantId = (int)$contract['tenant_id'];
         $hotelId = (int)$contract['system_hotel_id'];
@@ -1096,6 +1203,7 @@ final class OtaCanonicalHistoryPromotionService
         $expectedIdentifierHash = (string)array_key_first($authorityHashes);
 
         $boundedRows = [];
+        $rowDigests = [];
         foreach ($rows as $row) {
             $raw = json_decode((string)($row['raw_data'] ?? ''), true);
             $rowIdentifierHashes = is_array($raw)
@@ -1106,23 +1214,34 @@ final class OtaCanonicalHistoryPromotionService
             ) {
                 throw new RuntimeException('promotion_platform_hotel_identifier_mismatch');
             }
-            $boundedRows[] = [
+            $boundedRow = [
                 'id' => (int)($row['id'] ?? 0),
                 'identifier_match_digest' => hash(
                     'sha256',
                     $expectedIdentifierHash . "\0" . $rowIdentifierHashes[0]
                 ),
             ];
+            $boundedRows[] = $boundedRow;
+            $rowDigests[(int)($row['id'] ?? 0)] = $this->digest([
+                'authority_source_ids' => $authoritySourceIds,
+                'expected_identifier_digest' => hash('sha256', $expectedIdentifierHash),
+                'profile_scope_digest' => hash('sha256', $tenantId . ':' . $hotelId),
+                'rows' => [$boundedRow],
+            ]);
         }
         usort($boundedRows, static fn(array $left, array $right): int =>
             (int)$left['id'] <=> (int)$right['id']
         );
-        return $this->digest([
-            'authority_source_ids' => $authoritySourceIds,
-            'expected_identifier_digest' => hash('sha256', $expectedIdentifierHash),
-            'profile_scope_digest' => hash('sha256', $tenantId . ':' . $hotelId),
-            'rows' => $boundedRows,
-        ]);
+        ksort($rowDigests, SORT_NUMERIC);
+        return [
+            'digest' => $this->digest([
+                'authority_source_ids' => $authoritySourceIds,
+                'expected_identifier_digest' => hash('sha256', $expectedIdentifierHash),
+                'profile_scope_digest' => hash('sha256', $tenantId . ':' . $hotelId),
+                'rows' => $boundedRows,
+            ]),
+            'row_digests' => $rowDigests,
+        ];
     }
 
     private function activeProfileBindingMatches(
@@ -1275,6 +1394,84 @@ final class OtaCanonicalHistoryPromotionService
         } catch (\Throwable) {
             return '';
         }
+    }
+
+    /** @param array<int,int> $expectedRowIds @return array<int,string> */
+    private function rowDigestMap(mixed $value, array $expectedRowIds): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        $digests = [];
+        foreach ($value as $rawRowId => $rawDigest) {
+            $rowId = (int)$rawRowId;
+            $digest = strtolower(trim((string)$rawDigest));
+            if ($rowId <= 0
+                || (string)$rawRowId !== (string)$rowId
+                || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1
+                || isset($digests[$rowId])
+            ) {
+                return [];
+            }
+            $digests[$rowId] = $digest;
+        }
+        ksort($digests, SORT_NUMERIC);
+        return array_keys($digests) === $expectedRowIds ? $digests : [];
+    }
+
+    /**
+     * @param array<string,mixed> $receipt
+     * @param array<string,mixed> $contract
+     * @param array<int,int> $rowIds
+     */
+    private function operationRowSelectionReceiptMatches(
+        array $receipt,
+        array $contract,
+        array $rowIds
+    ): bool {
+        $selection = is_array($contract['operation_row_selection'] ?? null)
+            ? $contract['operation_row_selection']
+            : [];
+        if ($selection === []) {
+            return false;
+        }
+        $selectionFields = [
+            'operation_row_selection_version',
+            'operation_row_selection_status',
+            'operation_row_selection_policy',
+            'operation_row_candidate_ids',
+            'selected_operation_row_id',
+            'operation_row_metric_digests',
+            'operation_row_selection_digest',
+        ];
+        foreach ($selectionFields as $field) {
+            if (!array_key_exists($field, $receipt)) {
+                return false;
+            }
+        }
+
+        $metricDigests = $this->rowDigestMap(
+            $receipt['operation_row_metric_digests'] ?? null,
+            $rowIds
+        );
+        $selectionDigest = strtolower(trim((string)(
+            $receipt['operation_row_selection_digest'] ?? ''
+        )));
+        return (string)($receipt['operation_row_selection_version'] ?? '')
+                === self::OPERATION_ROW_SELECTION_VERSION
+            && (string)($receipt['operation_row_selection_status'] ?? '')
+                === (string)($selection['status'] ?? '')
+            && (string)($receipt['operation_row_selection_policy'] ?? '')
+                === self::OPERATION_ROW_SELECTION_POLICY
+            && $this->positiveIds($receipt['operation_row_candidate_ids'] ?? []) === $rowIds
+            && (int)($receipt['selected_operation_row_id'] ?? 0)
+                === (int)($selection['selected_row_id'] ?? 0)
+            && $metricDigests === ($selection['row_metric_digests'] ?? [])
+            && preg_match('/^[a-f0-9]{64}$/D', $selectionDigest) === 1
+            && hash_equals(
+                (string)($selection['selection_digest'] ?? ''),
+                $selectionDigest
+            );
     }
 
     /** @return array<int,int> */

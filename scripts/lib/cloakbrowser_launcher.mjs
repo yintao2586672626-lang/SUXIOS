@@ -1,5 +1,7 @@
 import { launchPersistentContext } from 'cloakbrowser';
 
+const freshOtaNetworkSessions = new WeakMap();
+
 export async function launchOtaPersistentContext(userDataDir, parsedArgs, defaults = {}) {
   const configuredBinary = stringValue(process.env.CLOAKBROWSER_BINARY_PATH);
   const requestedBinary = resolveOtaBrowserBinaryPath(parsedArgs);
@@ -19,6 +21,38 @@ export async function launchOtaPersistentContext(userDataDir, parsedArgs, defaul
       delete process.env.CLOAKBROWSER_BINARY_PATH;
     }
   }
+}
+
+/**
+ * Persistent OTA Profiles intentionally keep authenticated browser state, but
+ * business responses must never be reused from the browser HTTP cache or a
+ * Service Worker. Keep the CDP session alive for the lifetime of the page and
+ * fail closed when Chromium cannot establish this current-page network gate.
+ */
+export async function requireFreshOtaPageNetwork(context, page) {
+  if (!context || typeof context.newCDPSession !== 'function' || !page) {
+    throw new Error('ota_browser_fresh_network_control_unavailable');
+  }
+
+  try {
+    const session = await context.newCDPSession(page);
+    if (!session || typeof session.send !== 'function') {
+      throw new Error('cdp_session_unavailable');
+    }
+    await session.send('Network.enable');
+    await session.send('Network.setCacheDisabled', { cacheDisabled: true });
+    await session.send('Network.setBypassServiceWorker', { bypass: true });
+    freshOtaNetworkSessions.set(page, session);
+  } catch {
+    throw new Error('ota_browser_fresh_network_control_unavailable');
+  }
+
+  return {
+    status: 'ready',
+    http_cache_disabled: true,
+    service_worker_bypassed: true,
+    sensitive_values_exposed: false,
+  };
 }
 
 export function resolveOtaBrowserBinaryPath(parsedArgs = {}) {

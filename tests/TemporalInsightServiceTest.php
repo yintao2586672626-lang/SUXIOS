@@ -979,11 +979,20 @@ final class TemporalInsightServiceTest extends TestCase
         $entry = (string)file_get_contents($root . '/public/app-main.js');
         $homeStatic = (string)file_get_contents($root . '/public/home-static.js');
 
-        self::assertStringContainsString('data-testid="home-temporal-axis"', $template);
-        self::assertStringContainsString('data-testid="home-yesterday-facts"', $template);
+        self::assertStringContainsString('<home-yesterday-operating-facts', $template);
+        self::assertStringContainsString(':show-header="true"', $template);
         self::assertStringContainsString('昨天事实 / 今天状态 / 未来 AI 研判', $template);
-        self::assertStringContainsString('data-testid="home-scope-boundaries"', $template);
-        self::assertStringContainsString('data-testid="home-competitor-diagnostic-reference"', $template);
+        self::assertStringContainsString("'home-yesterday-operating-facts'", $homeStatic);
+        foreach ([
+            'home-yesterday-dual-scope',
+            'home-whole-hotel-scope',
+            'home-ota-channel-scope',
+            'home-reconciliation-facts',
+            'home-temporal-axis',
+            'home-competitor-diagnostic-reference',
+        ] as $testId) {
+            self::assertStringContainsString("'data-testid': '" . $testId . "'", $homeStatic);
+        }
         self::assertStringContainsString("requireHomeStatic('buildHomeBusinessTimeModel')", $entry);
         self::assertStringContainsString("request(`/temporal-insights/overview?", $entry);
         self::assertStringContainsString("request('/temporal-insights/forecasts'", $entry);

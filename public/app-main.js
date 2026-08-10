@@ -346,6 +346,7 @@
         database_readback_not_verified: '数据库精确回读未验证',
         readback_mismatch: '保存与回读不一致',
         saved_readback_count_unverified: '保存与回读数量未闭合',
+        exact_run_readback_scope_mismatch: '精确回执行身份不一致',
         p0_not_ready: 'P0 验证未通过',
         collection_outcome_not_success: '本次采集任务失败',
         credential_execution_failed: '授权采集执行失败',
@@ -366,6 +367,9 @@
             const strategy = receipt.capture_strategy && typeof receipt.capture_strategy === 'object'
                 ? receipt.capture_strategy
                 : {};
+            const readbackScope = receipt.run_readback_scope && typeof receipt.run_readback_scope === 'object'
+                ? receipt.run_readback_scope
+                : {};
             const platform = ['ctrip', 'meituan'].includes(String(this.platform || '').toLowerCase())
                 ? String(this.platform).toLowerCase()
                 : 'ota';
@@ -377,6 +381,20 @@
                     : '未返回';
             };
             const match = value => value === true ? '一致' : (value === false ? '不一致/未验证' : '未返回');
+            const scopeCount = key => Object.prototype.hasOwnProperty.call(readbackScope, key)
+                ? count(readbackScope[key])
+                : '未返回';
+            const currentRows = Number(readbackScope.receipt_current_row_count);
+            const identityMismatchRows = Number(readbackScope.receipt_identity_mismatch_count);
+            const exactIdentityRows = Object.prototype.hasOwnProperty.call(readbackScope, 'receipt_current_row_count')
+                && Object.prototype.hasOwnProperty.call(readbackScope, 'receipt_identity_mismatch_count')
+                && Number.isInteger(currentRows)
+                && currentRows >= 0
+                && Number.isInteger(identityMismatchRows)
+                && identityMismatchRows >= 0
+                && identityMismatchRows <= currentRows
+                ? String(currentRows - identityMismatchRows)
+                : '未返回';
             const keys = value => Array.isArray(value) && value.length
                 ? value.map(item => String(item || '').trim()).filter(Boolean).join('、')
                 : '无';
@@ -409,6 +427,13 @@
                     cell('task-counts', '本任务保存 / 回读', `${count(counts.saved)} / ${count(counts.readback)} · ${match(counts.saved_readback_match)}`),
                     cell('target-counts', '目标口径保存 / 回读', `${count(counts.target_saved)} / ${count(counts.target_readback)} · ${match(counts.target_saved_readback_match)}`),
                 ]),
+                h('div', {
+                    class: 'mt-2 rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 text-[11px] leading-5 text-slate-600',
+                    'data-testid': `dual-ota-run-readback-scope-${platform}`,
+                }, [
+                    h('span', { class: 'font-medium text-slate-700' }, '精确回执行：'),
+                    `${text(readbackScope.status)} · 回执 ${scopeCount('receipt_row_count')} · 当前身份一致 ${exactIdentityRows} · 身份漂移 ${scopeCount('receipt_identity_mismatch_count')} · 缺失 ${scopeCount('receipt_missing_row_count')} · 权威流量 ${scopeCount('authoritative_row_count')}`,
+                ]),
                 h('div', { class: 'mt-2 rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 text-[11px] leading-5 text-slate-600' }, [
                     h('div', { 'data-testid': `dual-ota-complete-fields-${platform}` }, [h('span', { class: 'font-medium text-slate-700' }, '已闭合关键字段：'), keys(fields.complete)]),
                     h('div', { 'data-testid': `dual-ota-missing-fields-${platform}` }, [h('span', { class: 'font-medium text-slate-700' }, '缺失关键字段：'), keys(fields.missing)]),
@@ -417,7 +442,52 @@
                     class: 'mt-1 text-[11px] leading-5 text-red-700',
                     'data-testid': `dual-ota-blockers-${platform}`,
                 }, `状态原因：${reasonText}`) : null,
-                h('div', { class: 'mt-1 text-[10px] leading-4 text-slate-400' }, `页面实测：${text(receipt.live_page_verification_status)}；该值不替代本次浏览器验收。`),
+                h('div', { class: 'mt-1 text-[10px] leading-4 text-slate-400' }, `页面核对：${text(receipt.live_page_verification_status)}；只证明当前页面合同已核对，不提升数据真值。`),
+            ]);
+        },
+    };
+    const DualOtaPageVerificationPanel = {
+        name: 'DualOtaPageVerificationPanel',
+        props: {
+            ctx: { type: Object, required: true },
+        },
+        emits: ['confirm'],
+        render() {
+            const ctx = this.ctx || {};
+            const verifiedAt = String(ctx.verification?.verified_at || '').trim();
+            const receiptId = Number(ctx.verification?.receipt_id || 0);
+            return h('div', {
+                class: 'rounded-lg border border-slate-200 bg-white p-3',
+                'data-testid': 'dual-ota-page-verification',
+            }, [
+                h('div', { class: 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between' }, [
+                    h('div', {}, [
+                        h('div', { class: 'flex flex-wrap items-center gap-2' }, [
+                            h('span', { class: 'text-xs font-semibold text-slate-800' }, '页面人工核对回执'),
+                            h('span', {
+                                class: `rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold ${ctx.statusClass || ''}`,
+                                'data-testid': 'dual-ota-page-verification-status',
+                            }, ctx.statusText || '尚未核对'),
+                        ]),
+                        h('p', {
+                            class: 'mt-1 text-[11px] leading-5 text-slate-500',
+                            'data-testid': 'dual-ota-page-verification-reason',
+                        }, ctx.reasonText || ''),
+                        verifiedAt ? h('p', { class: 'text-[10px] text-slate-400' }, `确认时间：${verifiedAt} · 回执 #${receiptId || '未返回'}`) : null,
+                    ]),
+                    h('button', {
+                        type: 'button',
+                        disabled: !ctx.canConfirm,
+                        class: 'shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50',
+                        'data-testid': 'dual-ota-confirm-page-verification',
+                        onClick: () => this.$emit('confirm'),
+                    }, ctx.submitting ? '精确回读中' : (ctx.status === 'verified' ? '重新核对当前回执' : '确认本页已显示并核对')),
+                ]),
+                ctx.error ? h('p', {
+                    class: 'mt-2 text-[11px] text-red-700',
+                    'data-testid': 'dual-ota-page-verification-error',
+                }, ctx.error) : null,
+                h('p', { class: 'mt-2 text-[10px] text-slate-400' }, '只确认当前精确酒店、日期、数据源和任务；不会提升 OTA claim、P0 或连续定时验收。'),
             ]);
         },
     };
@@ -478,10 +548,11 @@
         }
         return component;
     };
-    const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260719-session-proof-hd0bfaeed76';
+    const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260809-natural-acceptance-h1e6ebe2648';
     const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';
     const competitorDeviceManagementScript = 'components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3';
     const dataConfigDialogsScript = 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1';
+    const automationCollectionContractScript = 'components/operations/automation-collection-contract.js?v=20260810-device-recovery-v2';
     const PlatformAutoSettingsPanels = {
         name: 'PlatformAutoSettingsPanels',
         props: {
@@ -828,6 +899,7 @@
             AiDecisionQualityDetails,
             OnlineTruthSummary,
             DualOtaAcceptanceReceipt,
+            DualOtaPageVerificationPanel,
             PlatformAutoSettingsPanels,
             PlatformAutoSecondaryPanels,
             SessionProofNotice,
@@ -1246,6 +1318,8 @@
                 collectionReliability.value = null;
                 collectionReliabilityLoading.value = false;
                 collectionReliabilityError.value = '';
+                dualOtaPageVerificationSubmitting.value = false;
+                dualOtaPageVerificationError.value = '';
                 onlineHistoryRequestSeq += 1;
                 onlineHistoryLoading.value = false;
                 onlineHistoryError.value = '';
@@ -2691,13 +2765,15 @@
                 : {};
             const saved = Number(receipt.saved_count ?? result.saved_count);
             const readback = Number(receipt.readback_count ?? result.readback_count);
+            const fileCount = Number(result.import_file_count ?? result.import_preview?.source_file_count ?? 0);
+            const batchText = Number.isFinite(fileCount) && fileCount > 1 ? `已合并 ${fileCount} 份文件，` : '';
             if (receipt.status === 'verified' && receipt.value_level_verified === true
                 && Number.isFinite(saved) && saved > 0 && readback === saved
             ) {
-                return `已保存 ${saved} 条，值级回读确认 ${readback} 条`;
+                return `${batchText}已保存 ${saved} 条，值级回读确认 ${readback} 条`;
             }
             if (Number.isFinite(saved) && saved > 0) {
-                return `已保存 ${saved} 条；精确回读未确认`;
+                return `${batchText}已保存 ${saved} 条；精确回读未确认`;
             }
             return '导入未形成可确认的保存回读结果';
         });
@@ -2709,8 +2785,8 @@
             return type === 'amount' ? `¥${formatted}` : formatted;
         };
         const handleCtripChannelOrderFileChange = (event) => {
-            const file = event?.target?.files?.[0] || null;
-            ctripChannelOrderUploadFile.value = file;
+            const files = Array.from(event?.target?.files || []);
+            ctripChannelOrderUploadFile.value = files.length ? files : null;
             ctripChannelOrderUploadError.value = '';
             ctripChannelOrderUploadResult.value = null;
         };
@@ -2734,38 +2810,60 @@
         };
         const uploadCtripChannelOrders = async () => {
             const systemHotelId = Number(platformHotelSelectedId.value || 0);
-            const file = ctripChannelOrderUploadFile.value;
+            const files = Array.isArray(ctripChannelOrderUploadFile.value)
+                ? ctripChannelOrderUploadFile.value
+                : (ctripChannelOrderUploadFile.value ? [ctripChannelOrderUploadFile.value] : []);
             ctripChannelOrderUploadError.value = '';
             ctripChannelOrderUploadResult.value = null;
             if (!Number.isFinite(systemHotelId) || systemHotelId <= 0) {
                 ctripChannelOrderUploadError.value = '请先在顶部选择“桂林漓江望月”等目标酒店。';
                 return;
             }
-            if (!file) {
+            if (!files.length) {
                 ctripChannelOrderUploadError.value = '请选择携程 XLS，或 CSV、XLSX、JSON 文件。';
                 return;
             }
-            const extension = String(file.name || '').split('.').pop().toLowerCase();
-            if (!['csv', 'xls', 'xlsx', 'json'].includes(extension)) {
+            if (files.length > 10) {
+                ctripChannelOrderUploadError.value = '单次最多选择 10 份携程 XLS 文件。';
+                return;
+            }
+            const extensions = files.map(file => String(file?.name || '').split('.').pop().toLowerCase());
+            if (extensions.some(extension => !['csv', 'xls', 'xlsx', 'json'].includes(extension))) {
                 ctripChannelOrderUploadError.value = '仅支持 XLS、XLSX、CSV、JSON 文件。';
                 return;
             }
-            const maxBytes = ['xls', 'xlsx'].includes(extension) ? 20 * 1024 * 1024 : 5 * 1024 * 1024;
-            if (Number(file.size || 0) > maxBytes) {
-                ctripChannelOrderUploadError.value = `文件不能超过 ${maxBytes / 1024 / 1024}MB。`;
+            if (files.length > 1 && extensions.some(extension => extension !== 'xls')) {
+                ctripChannelOrderUploadError.value = '批量导入只支持同一门店的携程旧版 XLS 文件。';
+                return;
+            }
+            const oversizedFile = files.find((file, index) => {
+                const maxBytes = ['xls', 'xlsx'].includes(extensions[index]) ? 20 * 1024 * 1024 : 5 * 1024 * 1024;
+                return Number(file?.size || 0) > maxBytes;
+            });
+            if (oversizedFile) {
+                ctripChannelOrderUploadError.value = '单份 XLS/XLSX 不能超过 20MB，其他格式不能超过 5MB。';
+                return;
+            }
+            if (files.reduce((total, file) => total + Number(file?.size || 0), 0) > 35 * 1024 * 1024) {
+                ctripChannelOrderUploadError.value = '批量导入文件总大小不能超过 35MB。';
                 return;
             }
 
             ctripChannelOrderUploading.value = true;
             try {
                 const formData = new FormData();
-                formData.append('file', file);
+                if (files.length === 1) {
+                    formData.append('file', files[0]);
+                } else {
+                    files.forEach(file => formData.append('files[]', file));
+                }
                 formData.append('system_hotel_id', String(systemHotelId));
                 formData.append('hotel_name', platformHotelSelectedName.value || '');
-                formData.append('name', `${platformHotelSelectedName.value || '门店'}-渠道订单人工导入`);
+                formData.append('name', `${platformHotelSelectedName.value || '门店'}-渠道订单人工导入${files.length > 1 ? `（${files.length}份合并）` : ''}`);
                 formData.append('platform', 'ctrip');
                 formData.append('data_type', 'order');
                 formData.append('metric_scope', 'ota_channel');
+                const extension = extensions[0];
                 formData.append('ingestion_method', ['xls', 'xlsx'].includes(extension) ? 'import_excel' : `import_${extension}`);
                 const token = localStorage.getItem('token') || '';
                 const response = await fetch('/api/online-data/data-import', {
@@ -4619,6 +4717,8 @@
             const collectionReliability = ref(null);
             const collectionReliabilityLoading = ref(false);
             const collectionReliabilityError = ref('');
+            const dualOtaPageVerificationSubmitting = ref(false);
+            const dualOtaPageVerificationError = ref('');
             let collectionReliabilityRequestSeq = 0;
             const dailyWorkbench = ref(null);
             const dailyWorkbenchLoading = ref(false);
@@ -4818,6 +4918,71 @@
             const dualOtaCurrentAcceptanceStatus = computed(() => String(
                 dualOtaCurrentTargetDay.value?.acceptance_status || 'unverified'
             ));
+            const dualOtaPageVerification = computed(() => {
+                const value = dualOtaCurrentTargetDay.value?.page_verification
+                    || dualOtaContinuousTrust.value?.page_verification;
+                return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+            });
+            const dualOtaPageVerificationStatus = computed(() => {
+                const status = String(dualOtaPageVerification.value?.status || 'not_evaluated').trim().toLowerCase();
+                return ['verified', 'unverified', 'not_evaluated'].includes(status) ? status : 'unverified';
+            });
+            const dualOtaPageVerificationStatusText = computed(() => ({
+                verified: '已核对并精确回读',
+                unverified: '需重新核对',
+                not_evaluated: '尚未核对',
+            }[dualOtaPageVerificationStatus.value] || '需重新核对'));
+            const dualOtaPageVerificationStatusClass = computed(() => {
+                if (dualOtaPageVerificationStatus.value === 'verified') {
+                    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+                }
+                if (dualOtaPageVerificationStatus.value === 'unverified') {
+                    return 'border-red-200 bg-red-50 text-red-700';
+                }
+                return 'border-slate-200 bg-slate-50 text-slate-600';
+            });
+            const dualOtaPageVerificationReasonText = computed(() => ({
+                exact_page_confirmation_readback_verified: '当前酒店、日期、数据源与同步任务的页面核对回执一致。',
+                stale_page_confirmation: '数据源、任务或页面合同已变化，请重新核对。',
+                invalid_page_confirmation_evidence: '旧页面核对记录无法精确验证，请重新核对。',
+                page_confirmation_evidence_unavailable: '页面核对审计回读暂不可用，当前状态按 unverified 处理。',
+                page_confirmation_not_recorded: '请核对两张平台回执后再确认；打开页面本身不会自动通过。',
+            }[String(dualOtaPageVerification.value?.reason || '').trim()] || '页面核对状态未返回。'));
+            const dualOtaPageVerificationAnchors = computed(() => {
+                const rows = Array.isArray(dualOtaCurrentTargetDay.value?.platforms)
+                    ? dualOtaCurrentTargetDay.value.platforms
+                    : [];
+                return ['ctrip', 'meituan'].map(platform => {
+                    const row = rows.find(item => String(item?.platform || '').trim().toLowerCase() === platform) || {};
+                    const receipt = dualOtaContinuousReceipt(row);
+                    return {
+                        platform,
+                        data_source_id: Number(receipt.data_source_id || 0) || null,
+                        sync_task_id: Number(receipt.sync_task_id || 0) || null,
+                    };
+                });
+            });
+            const dualOtaPageVerificationCanConfirm = computed(() => {
+                const hash = String(dualOtaPageVerification.value?.contract_hash || '').trim().toLowerCase();
+                const targetDate = String(dualOtaCurrentTargetDay.value?.date || '').trim();
+                const hotelId = Number(dualOtaContinuousTrust.value?.hotel_id || 0);
+                return !dualOtaPageVerificationSubmitting.value
+                    && /^[a-f0-9]{64}$/.test(hash)
+                    && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)
+                    && hotelId > 0
+                    && dualOtaPageVerificationAnchors.value.length === 2
+                    && dualOtaPageVerificationAnchors.value.every(row => row.data_source_id > 0 && row.sync_task_id > 0);
+            });
+            const dualOtaPageVerificationPanelProps = computed(() => ({
+                verification: dualOtaPageVerification.value,
+                status: dualOtaPageVerificationStatus.value,
+                statusText: dualOtaPageVerificationStatusText.value,
+                statusClass: dualOtaPageVerificationStatusClass.value,
+                reasonText: dualOtaPageVerificationReasonText.value,
+                canConfirm: dualOtaPageVerificationCanConfirm.value,
+                submitting: dualOtaPageVerificationSubmitting.value,
+                error: dualOtaPageVerificationError.value,
+            }));
             const dualOtaContinuousStatusText = (status) => {
                 const normalized = String(status || '').trim().toLowerCase();
                 if (normalized === 'collection_failed') return 'blocked';
@@ -5278,7 +5443,9 @@
                     autoFetchRunElapsedLabel: formatAutoFetchElapsed(autoFetchRunElapsedSeconds.value),
                     autoFetchStatus: autoFetchStatus.value,
                     autoFetchRecentRuns: autoFetchRecentRuns.value,
-                    dataHealthTodayWorkOrders: dataHealthTodayWorkOrders.value,
+                    dataHealthTodayWorkOrders: (dataHealthStaticVersion.value, window.SUXI_DATA_HEALTH_STATIC
+                        ? dataHealthTodayWorkOrders.value
+                        : []),
                     readIds: globalNotificationReadIds.value,
                 });
             });
@@ -8648,7 +8815,7 @@
             let revenueAiOverviewRequestSeq = 0;
             const revenueAiOverviewRequestPromises = new Map();
             const revenueAiStaticScript = 'revenue-ai-static.js';
-            const revenueAiStaticVersion = '20260809-channel-booking-window-hddf0ce29bc';
+            const revenueAiStaticVersion = '20260809-platform-metric-gaps-h8d44529559';
             const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
             const revenueAiStaticNotLoadedClass = 'border-slate-200 bg-slate-100 text-slate-600';
             const revenueAiStaticReady = ref(!!window.SUXI_REVENUE_AI_STATIC);
@@ -9138,7 +9305,7 @@
             });
             const dailyOpsPrimaryActions = requireCompassStatic('dailyOpsPrimaryActions');
             const autoFetchStaticScript = 'auto-fetch-static.js';
-            const autoFetchStaticVersion = '20260719-session-proof-he8c45208ba';
+            const autoFetchStaticVersion = '20260809-natural-acceptance-h1d0bca9675';
             const autoFetchStatic = ref(window.SUXI_AUTO_FETCH_STATIC && typeof window.SUXI_AUTO_FETCH_STATIC === 'object' ? window.SUXI_AUTO_FETCH_STATIC : null);
             const autoFetchStaticLoadError = ref('');
             let autoFetchStaticLoadPromise = null;
@@ -9684,18 +9851,55 @@
                     nextTick(() => scheduleMeituanRankingSummaryRefresh());
                 }
             };
-            const openRevenueAiGap = (row = {}) => {
+            const openRevenueAiGap = async (row = {}) => {
                 if (!revenueAiStaticReady.value) {
                     void ensureRevenueAiStaticReady().catch(() => null);
                     showToast(revenueAiStaticError.value || revenueAiStaticNotLoadedText, 'warning');
-                    return;
+                    return false;
                 }
                 const {
                     targetPage,
                     targetTab,
+                    targetPlatform,
                     targetAgentTab,
                     targetRevenueTab,
+                    hotelId,
+                    businessDate,
                 } = revenueAiResolveGapTarget(row);
+                const scopedHotelId = String(hotelId || '').trim();
+                const scopedPlatform = String(targetPlatform || '').trim().toLowerCase();
+                const scopedBusinessDate = String(businessDate || '').trim();
+                const isScopedDataTarget = ['ctrip-ebooking', 'meituan-ebooking', 'online-data'].includes(targetPage);
+                const scopedHotelIsExact = /^\d+$/.test(scopedHotelId) && Number(scopedHotelId) > 0;
+                const scopedDateCandidate = /^\d{4}-\d{2}-\d{2}$/.test(scopedBusinessDate)
+                    ? new Date(`${scopedBusinessDate}T00:00:00Z`)
+                    : null;
+                const scopedDateIsExact = scopedDateCandidate instanceof Date
+                    && !Number.isNaN(scopedDateCandidate.getTime())
+                    && scopedDateCandidate.toISOString().slice(0, 10) === scopedBusinessDate;
+                const scopedPlatformIsExact = ['ctrip', 'meituan'].includes(scopedPlatform);
+                const pagePlatformMatches = targetPage === 'ctrip-ebooking'
+                    ? scopedPlatform === 'ctrip'
+                    : (targetPage === 'meituan-ebooking' ? scopedPlatform === 'meituan' : true);
+                if (isScopedDataTarget && (!scopedHotelIsExact || !scopedDateIsExact
+                    || !scopedPlatformIsExact || !pagePlatformMatches
+                )) {
+                    showToast('缺口缺少完整酒店、平台或业务日期，已停止跳转', 'warning');
+                    return false;
+                }
+                const commitScopedDataTarget = () => {
+                    if (String(coreOperationsHotelId.value || '').trim() !== scopedHotelId) {
+                        resetCoreOperationsScopedState();
+                    }
+                    filterReportHotel.value = scopedHotelId;
+                    onlineDataFilter.value.hotel_id = scopedHotelId;
+                    onlineDataFilter.value.source = scopedPlatform;
+                    onlineDataFilter.value.start_date = scopedBusinessDate;
+                    onlineDataFilter.value.end_date = scopedBusinessDate;
+                    autoFetchHotelId.value = scopedHotelId;
+                    coreOperationsHotelId.value = scopedHotelId;
+                    coreOperationsTargetDate.value = scopedBusinessDate;
+                };
                 if (targetPage === 'agent-center') {
                     currentPage.value = 'agent-center';
                     agentTab.value = targetAgentTab || 'revenue';
@@ -9712,9 +9916,31 @@
                         }
                         return null;
                     });
-                    return;
+                    return true;
                 }
+                if (targetPage === 'ctrip-ebooking') {
+                    if (!(await applyGeneralHotelToPlatformContext('ctrip', scopedHotelId))) {
+                        return false;
+                    }
+                    commitScopedDataTarget();
+                    currentPage.value = 'ctrip-ebooking';
+                    await nextTick();
+                    openCtripManualTab(targetTab || 'data-health');
+                    return true;
+                }
+                if (targetPage === 'meituan-ebooking') {
+                    if (!(await applyGeneralHotelToPlatformContext('meituan', scopedHotelId))) {
+                        return false;
+                    }
+                    commitScopedDataTarget();
+                    currentPage.value = 'meituan-ebooking';
+                    await nextTick();
+                    openMeituanManualTab(targetTab || 'meituan-ranking');
+                    return true;
+                }
+                commitScopedDataTarget();
                 openOnlineDataEntryTab(targetTab, { force: true });
+                return true;
             };
             const openRevenueAiMetric = (card = {}) => {
                 openRevenueAiGap(card);
@@ -11066,6 +11292,11 @@
                  const rows = autoFetchStatus.value?.last_result?.platform_results;
                  return Array.isArray(rows) ? rows : [];
              });
+            const autoFetchCanonicalOperationStatus = computed(() => (
+                typeof autoFetchStatic.value?.buildCanonicalDailyOperationStatus === 'function'
+                    ? autoFetchStatic.value.buildCanonicalDailyOperationStatus(autoFetchStatus.value?.last_result || {})
+                    : { visible: false }
+            ));
             const autoFetchTimingRows = computed(() => {
                 if (autoFetchRunState.value.active) return [];
                 const timing = autoFetchStatus.value?.last_result?.timing;
@@ -12822,7 +13053,11 @@
             const shouldRefreshPlatformProfileStatusPanel = () => isOnlineDataTabVisible('platform-auto') || isOnlineDataTabVisible('platform-sources');
             const shouldRefreshPlatformDataSourcesPanel = () => isOnlineDataTabVisible('platform-sources');
             const scheduleOnlineDataRefresh = () => schedulePostFetchRefresh('online-data-list', () => refreshOnlineData({ force: true }), 260);
-            const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory({ refreshHotels: false }), 340);
+            const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => (
+                window.SUXI_DATA_HEALTH_STATIC
+                    ? refreshOnlineHistory({ refreshHotels: false })
+                    : null
+            ), 340);
             const scheduleLatestCtripRefresh = (params = {}) => schedulePostFetchRefresh('latest-ctrip-data', () => loadLatestCtripData(params), 420);
             const scheduleAutoFetchStatusRefresh = () => schedulePostFetchRefresh('auto-fetch-status', () => {
                 if (!shouldRefreshAutoFetchStatusPanel()) return null;
@@ -13123,81 +13358,114 @@
             const autoFetchStatusRequestPromises = new Map();
             const AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS = AUTO_FETCH_PANEL_CACHE_TTL_MS;
             const autoFetchStatusResultCache = new Map();
+            let autoFetchStatusAppliedScopeKey = '';
             const resetAutoFetchStatusResultCache = () => {
                 autoFetchStatusResultCache.clear();
             };
             const loadAutoFetchStatus = async (options = {}) => {
                 const hotelId = getAutoFetchHotelId();
+                const requestSession = captureAuthSession();
+                const requestHotelId = String(hotelId || '');
                 const includeDetail = !(options && (options.detail === false || options.includeDetail === false));
                 const force = options && options.force === true;
-                const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;
+                const requestScopeKey = `${requestSession.epoch}:${requestHotelId}`;
+                const requestKey = `${requestScopeKey}|${includeDetail ? 'full' : 'light'}`;
+                const isCurrentHotel = () => isAuthSessionCurrent(requestSession)
+                    && String(getAutoFetchHotelId() || '') === requestHotelId;
+                const statusAtRequest = autoFetchStatusAppliedScopeKey === requestScopeKey
+                    && autoFetchStatus.value && typeof autoFetchStatus.value === 'object'
+                    ? autoFetchStatus.value
+                    : {};
+                const buildStatusSnapshot = (data, previousStatus = {}) => {
+                    if (includeDetail || data?.detail_loaded !== false) return data;
+                    const previousPlatforms = previousStatus.platforms && typeof previousStatus.platforms === 'object' && !Array.isArray(previousStatus.platforms)
+                        ? previousStatus.platforms
+                        : {};
+                    const nextPlatforms = data.platforms && typeof data.platforms === 'object' && !Array.isArray(data.platforms)
+                        ? data.platforms
+                        : {};
+                    return {
+                        ...previousStatus,
+                        ...data,
+                        missed_dates: Array.isArray(previousStatus.missed_dates) ? previousStatus.missed_dates : [],
+                        missed_count: previousStatus.missed_count ?? data.missed_count,
+                        has_config: data.has_config ?? previousStatus.has_config,
+                        platforms: Object.keys(nextPlatforms).length > 0 ? nextPlatforms : previousPlatforms,
+                    };
+                };
+                const applyStatusSnapshot = (status) => {
+                    autoFetchStatusAppliedScopeKey = requestScopeKey;
+                    autoFetchEnabled.value = status?.enabled || false;
+                    autoFetchStatus.value = status;
+                    autoFetchScheduleTime.value = status?.historical_schedule_time || status?.schedule_time || '10:00';
+                    const scheduleMinute = Number.parseInt(status?.realtime_schedule_minute ?? status?.schedule_minute, 10);
+                    autoFetchScheduleMinute.value = Number.isFinite(scheduleMinute) ? Math.max(0, Math.min(59, scheduleMinute)) : 5;
+                    const realtimeIntervalHours = Number.parseInt(status?.realtime_schedule_interval_hours ?? status?.schedule_interval_hours, 10);
+                    autoFetchRealtimeIntervalHours.value = Number.isFinite(realtimeIntervalHours) ? Math.max(1, Math.min(24, realtimeIntervalHours)) : 2;
+                    autoFetchBrowserHeadless.value = !(status?.browser_headless === false || status?.browser_headless === 0 || status?.browser_headless === '0' || status?.browser_headless === 'false');
+                    const sectionConcurrency = Number.parseInt(status?.ctrip_section_concurrency ?? status?.last_result?.ctrip_section_concurrency, 10);
+                    autoFetchCtripSectionConcurrency.value = Number.isFinite(sectionConcurrency) ? Math.max(1, Math.min(4, sectionConcurrency)) : 3;
+                    autoFetchMode.value = status?.auto_fetch_mode || status?.meituan_auto_fetch_mode || 'hybrid_auto';
+                    if (includeDetail || status?.detail_loaded !== false) {
+                        const missed = Array.isArray(status?.missed_dates) ? status.missed_dates : [];
+                        const failed = Array.isArray(status?.failed_records) ? status.failed_records : [];
+                        autoFetchBackfillDate.value = missed[0] || failed[0]?.data_date || autoFetchBackfillDate.value || autoFetchMaxBackfillDate.value;
+                    }
+                    syncAutoFetchRunStateFromStatus(autoFetchStatus.value);
+                };
+                if (force) {
+                    autoFetchStatusResultCache.delete(requestKey);
+                }
                 if (!force && !includeDetail) {
                     const cached = autoFetchStatusResultCache.get(requestKey);
-                    if (cached && cached.expiresAt > Date.now()) {
-                        return autoFetchStatus.value;
+                    if (cached && cached.expiresAt > Date.now() && cached.data) {
+                        if (isCurrentHotel()) {
+                            applyStatusSnapshot(cached.data);
+                        }
+                        return cached.data;
                     }
                 }
                 if (autoFetchStatusRequestPromises.has(requestKey)) {
                     return autoFetchStatusRequestPromises.get(requestKey);
                 }
                 const run = (async () => {
-                try {
-                    const params = new URLSearchParams();
-                    if (hotelId) {
-                        params.append('hotel_id', hotelId);
-                    }
-                    if (!includeDetail) {
-                        params.append('include_detail', '0');
-                    }
-                    const query = params.toString();
-                    const res = await request(`/online-data/auto-fetch-status${query ? '?' + query : ''}`);
-                    if (res.code === 200) {
-                        const data = res.data || {};
-                        autoFetchEnabled.value = data?.enabled || false;
-                        if (!includeDetail && data?.detail_loaded === false) {
-                            const previousStatus = autoFetchStatus.value && typeof autoFetchStatus.value === 'object' ? autoFetchStatus.value : {};
-                            const previousPlatforms = previousStatus.platforms && typeof previousStatus.platforms === 'object' && !Array.isArray(previousStatus.platforms)
-                                ? previousStatus.platforms
-                                : {};
-                            const nextPlatforms = data.platforms && typeof data.platforms === 'object' && !Array.isArray(data.platforms)
-                                ? data.platforms
-                                : {};
-                            autoFetchStatus.value = {
-                                ...previousStatus,
-                                ...data,
-                                missed_dates: Array.isArray(previousStatus.missed_dates) ? previousStatus.missed_dates : [],
-                                missed_count: previousStatus.missed_count ?? data.missed_count,
-                                has_config: data.has_config ?? previousStatus.has_config,
-                                platforms: Object.keys(nextPlatforms).length > 0 ? nextPlatforms : previousPlatforms,
-                            };
-                        } else {
-                            autoFetchStatus.value = data;
-                        }
-                        const statusForControls = autoFetchStatus.value || data;
-                        autoFetchScheduleTime.value = statusForControls?.historical_schedule_time || statusForControls?.schedule_time || '10:00';
-                        const scheduleMinute = Number.parseInt(statusForControls?.realtime_schedule_minute ?? statusForControls?.schedule_minute, 10);
-                        autoFetchScheduleMinute.value = Number.isFinite(scheduleMinute) ? Math.max(0, Math.min(59, scheduleMinute)) : 5;
-                        const realtimeIntervalHours = Number.parseInt(statusForControls?.realtime_schedule_interval_hours ?? statusForControls?.schedule_interval_hours, 10);
-                        autoFetchRealtimeIntervalHours.value = Number.isFinite(realtimeIntervalHours) ? Math.max(1, Math.min(24, realtimeIntervalHours)) : 2;
-                        autoFetchBrowserHeadless.value = !(statusForControls?.browser_headless === false || statusForControls?.browser_headless === 0 || statusForControls?.browser_headless === '0' || statusForControls?.browser_headless === 'false');
-                        const sectionConcurrency = Number.parseInt(statusForControls?.ctrip_section_concurrency ?? statusForControls?.last_result?.ctrip_section_concurrency, 10);
-                        autoFetchCtripSectionConcurrency.value = Number.isFinite(sectionConcurrency) ? Math.max(1, Math.min(4, sectionConcurrency)) : 3;
-                        autoFetchMode.value = statusForControls?.auto_fetch_mode || statusForControls?.meituan_auto_fetch_mode || 'hybrid_auto';
-                        if (includeDetail || data?.detail_loaded !== false) {
-                            const missed = Array.isArray(statusForControls?.missed_dates) ? statusForControls.missed_dates : [];
-                            const failed = Array.isArray(statusForControls?.failed_records) ? statusForControls.failed_records : [];
-                            autoFetchBackfillDate.value = missed[0] || failed[0]?.data_date || autoFetchBackfillDate.value || autoFetchMaxBackfillDate.value;
+                    try {
+                        const params = new URLSearchParams();
+                        if (requestHotelId) {
+                            params.append('hotel_id', requestHotelId);
                         }
                         if (!includeDetail) {
-                            autoFetchStatusResultCache.set(requestKey, { expiresAt: Date.now() + AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS });
+                            params.append('include_detail', '0');
                         }
-                        syncAutoFetchRunStateFromStatus(autoFetchStatus.value);
+                        const query = params.toString();
+                        const res = await request(`/online-data/auto-fetch-status${query ? '?' + query : ''}`);
+                        if (res.code === 200) {
+                            const data = res.data || {};
+                            const previousStatus = isCurrentHotel() && autoFetchStatusAppliedScopeKey === requestScopeKey
+                                && autoFetchStatus.value && typeof autoFetchStatus.value === 'object'
+                                ? autoFetchStatus.value
+                                : statusAtRequest;
+                            const nextStatus = buildStatusSnapshot(data, previousStatus);
+                            if (!includeDetail) {
+                                autoFetchStatusResultCache.set(requestKey, {
+                                    expiresAt: Date.now() + AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS,
+                                    data: nextStatus,
+                                });
+                            }
+                            if (!isCurrentHotel()) return nextStatus;
+                            applyStatusSnapshot(nextStatus);
+                            return nextStatus;
+                        }
+                        autoFetchStatusResultCache.delete(requestKey);
+                        return null;
+                    } catch (error) {
+                        autoFetchStatusResultCache.delete(requestKey);
+                        if (!isCurrentHotel()) return null;
+                        if (error?.name !== 'AbortError') console.error('加载自动获取状态失败:', error);
+                        return null;
+                    } finally {
+                        autoFetchStatusRequestPromises.delete(requestKey);
                     }
-                } catch (error) {
-                    if (error?.name !== 'AbortError') console.error('加载自动获取状态失败:', error);
-                } finally {
-                    autoFetchStatusRequestPromises.delete(requestKey);
-                }
                 })();
                 autoFetchStatusRequestPromises.set(requestKey, run);
                 return run;
@@ -13734,23 +14002,99 @@
                         || hotelId !== String(getAutoFetchHotelId() || '').trim()
                         || targetDate !== String(coreOperationsTargetDate.value || coreOperationsMaxDate).trim()
                     ) {
-                        return;
+                        return {
+                            ok: false,
+                            reason: requestSeq !== collectionReliabilityRequestSeq
+                                ? 'request_superseded'
+                                : 'scope_changed',
+                        };
                     }
                     if (res.code === 200) {
-                        collectionReliability.value = res.data || {};
+                        const payload = res.data && typeof res.data === 'object' ? res.data : {};
+                        collectionReliability.value = payload;
+                        return { ok: true, payload, hotelId, targetDate };
                     } else {
                         collectionReliabilityError.value = res.message || '数据健康加载失败';
+                        return {
+                            ok: false,
+                            reason: 'api_error',
+                            message: collectionReliabilityError.value,
+                        };
                     }
                 } catch (error) {
                     if (requestSeq !== collectionReliabilityRequestSeq) {
-                        return;
+                        return { ok: false, reason: 'request_superseded' };
                     }
                     collectionReliabilityError.value = error.message || '数据健康加载失败';
                     console.error('加载数据健康失败:', error);
+                    return {
+                        ok: false,
+                        reason: 'request_failed',
+                        message: collectionReliabilityError.value,
+                    };
                 } finally {
                     if (requestSeq === collectionReliabilityRequestSeq) {
                         collectionReliabilityLoading.value = false;
                     }
+                }
+            };
+
+            const confirmDualOtaPageVerification = async () => {
+                if (!dualOtaPageVerificationCanConfirm.value) {
+                    dualOtaPageVerificationError.value = '当前页面合同缺少精确酒店、日期、数据源或同步任务，请先刷新闭环。';
+                    return;
+                }
+
+                const hotelId = Number(dualOtaContinuousTrust.value?.hotel_id || 0);
+                const targetDate = String(dualOtaCurrentTargetDay.value?.date || '').trim();
+                const contractHash = String(dualOtaPageVerification.value?.contract_hash || '').trim().toLowerCase();
+                const platforms = dualOtaPageVerificationAnchors.value.map(row => ({ ...row }));
+                dualOtaPageVerificationSubmitting.value = true;
+                dualOtaPageVerificationError.value = '';
+                try {
+                    const res = await request('/online-data/dual-ota-page-verification', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            system_hotel_id: hotelId,
+                            target_date: targetDate,
+                            contract_hash: contractHash,
+                            platforms,
+                        }),
+                    });
+                    if (res.code !== 200 || res.data?.receipt?.readback_verified !== true) {
+                        dualOtaPageVerificationError.value = res.message || '页面核对回执未能精确保存并回读。';
+                        return;
+                    }
+
+                    const freshReadback = await loadCollectionReliability('light', {
+                        hotelId,
+                        targetDate,
+                        force: true,
+                    });
+                    const freshTrust = freshReadback?.payload?.dual_ota_continuous_trust;
+                    const freshDays = Array.isArray(freshTrust?.days) ? freshTrust.days : [];
+                    const freshDay = freshDays.find(day => String(day?.date || '').trim() === targetDate);
+                    const freshVerification = freshDay?.page_verification;
+                    const savedReceiptId = Number(res.data?.receipt?.receipt_id || 0);
+                    const freshReceiptId = Number(freshVerification?.receipt_id || 0);
+                    const freshContractHash = String(freshVerification?.contract_hash || '').trim().toLowerCase();
+                    const exactFreshReadback = freshReadback?.ok === true
+                        && Number(freshTrust?.hotel_id || 0) === hotelId
+                        && String(freshTrust?.end_date || '').trim() === targetDate
+                        && String(freshDay?.date || '').trim() === targetDate
+                        && String(freshVerification?.status || '').trim().toLowerCase() === 'verified'
+                        && freshContractHash === contractHash
+                        && savedReceiptId > 0
+                        && freshReceiptId === savedReceiptId;
+                    if (!exactFreshReadback) {
+                        dualOtaPageVerificationError.value = '页面核对已写入，但强制回读未命中当前合同，请刷新后重新核对。';
+                        return;
+                    }
+                    showToast('当前双 OTA 页面已核对，精确回读通过', 'success');
+                } catch (error) {
+                    dualOtaPageVerificationError.value = error?.message || '页面核对回执保存失败。';
+                } finally {
+                    dualOtaPageVerificationSubmitting.value = false;
                 }
             };
 
@@ -14788,9 +15132,16 @@
             const coreOperationsSourceFetchStatusClass = computed(() => {
                 const status = String(coreOperationsSourceFetchVisibleState.value.status || '');
                 if (status === 'verified') return 'border-emerald-200 bg-emerald-50 text-emerald-800';
-                if (['login_required', 'partial', 'unverified', 'verified_existing', 'verified_mixed', 'written_unbound'].includes(status)) return 'border-amber-200 bg-amber-50 text-amber-800';
-                if (['blocked', 'failed'].includes(status)) return 'border-red-200 bg-red-50 text-red-800';
+                if (['partial', 'unverified', 'verified_existing', 'verified_mixed', 'written_unbound'].includes(status)) return 'border-amber-200 bg-amber-50 text-amber-800';
+                if (['login_required', 'blocked', 'failed'].includes(status)) return 'border-red-200 bg-red-50 text-red-800';
                 return 'border-blue-200 bg-blue-50 text-blue-800';
+            });
+            const coreOperationsSourceFetchDisplayStatus = computed(() => {
+                const status = String(coreOperationsSourceFetchVisibleState.value.status || '').trim().toLowerCase();
+                if (['login_required', 'blocked', 'failed'].includes(status)) return 'blocked';
+                if (['partial', 'unverified', 'verified_existing', 'verified_mixed', 'written_unbound'].includes(status)) return 'partial';
+                if (status === 'verified') return 'verified';
+                return status || 'pending';
             });
             const coreOperationsSourceFetchModeText = computed(() => {
                 const hotelId = String(coreOperationsHotelId.value || '').trim();
@@ -16232,7 +16583,18 @@
                     runPageLoadOnce(newPage, 'main', () => loadOperatingTarget());
                 }
                 if (newPage === 'automation-monitor') {
-                    runPageLoadOnce(newPage, 'main', () => loadAutomationMonitor());
+                    runPageLoadOnce(newPage, 'main', async () => {
+                        const [contractResult] = await Promise.allSettled([
+                            ensureAutomationCollectionContractReady(),
+                            loadAutomationMonitor(),
+                        ]);
+                        if (contractResult.status === 'rejected') {
+                            automationMonitorError.value = [
+                                automationMonitorError.value,
+                                '门店采集绑定面板加载失败，请刷新页面重试。',
+                            ].filter(Boolean).join('；');
+                        }
+                    });
                     startAutomationMonitorPolling();
                 } else {
                     stopAutomationMonitorPolling();
@@ -16765,6 +17127,24 @@
                     return openOnlineDataTab(targetTab, options);
                 });
             };
+            const openHotelCollectionDeviceOnboarding = (hotelId = automationMonitorContractHotelId.value) => {
+                const normalizedHotelId = Number(hotelId || 0);
+                if (!Number.isInteger(normalizedHotelId) || normalizedHotelId <= 0) {
+                    showToast('请先选择需要恢复采集的酒店', 'warning');
+                    return false;
+                }
+                const scopedHotelId = String(normalizedHotelId);
+                automationMonitorContractHotelId.value = scopedHotelId;
+                localCollectorAccountForm.value = {
+                    ...localCollectorAccountForm.value,
+                    system_hotel_id: scopedHotelId,
+                };
+                localCollectorBindingForm.value = {
+                    ...localCollectorBindingForm.value,
+                    system_hotel_id: scopedHotelId,
+                };
+                return openOnlineDataEntryTab('platform-sources', { force: true });
+            };
             const openOnlineDataManualEntry = () => {
                 return openOnlineDataEntryTab('data-health');
             };
@@ -17163,6 +17543,13 @@
             const allPermissions = ref([]);
             const showRoleModal = ref(false);
             const roleForm = ref({ id: null, name: '', display_name: '', description: '', level: 3, status: 1, permissionList: [] });
+            const controlledPartnerRolePreset = Object.freeze({
+                name: 'controlled_partner',
+                display_name: '受控合作伙伴',
+                description: '限定门店和有效期，可查看 OTA、使用分析/测算并导出受控报告；不可采集、删除、运营执行或管理系统。',
+                level: 3,
+                permissionList: ['ota.view', 'report.view', 'ai.execute', 'investment.simulate', 'report.export', 'can_view_diagnostics'],
+            });
 
             // 搜索和过滤
             const searchHotel = ref('');
@@ -17866,7 +18253,7 @@
                 status: hotelForm.value.status,
                 ota_channel_strategy: hotelForm.value.ota_channel_strategy || 'none',
             });
-            const userForm = ref({ id: null, username: '', password: '', realname: '', role_id: '', hotel_id: null, hotel_ids: [], status: 1 });
+            const userForm = ref({ id: null, username: '', password: '', realname: '', role_id: '', hotel_id: null, hotel_ids: [], authorization_expires_on: '', status: 1 });
             const userSaving = ref(false);
             const filteredUserAssignmentHotels = computed(() => {
                 const keyword = String(userHotelAssignmentSearch.value || '').trim().toLowerCase();
@@ -17951,6 +18338,7 @@
                 const roleName = String(role?.name || '').trim();
                 const level = Number(role?.level || 0);
                 if (roleId === 1 || roleName === 'admin' || level === 1) return 'admin';
+                if (roleName === 'controlled_partner') return 'controlled_partner';
                 if (roleId === 2 || roleName === 'beta_user' || level === 2) return 'beta_user';
                 if (roleId === 3 || roleName === 'normal_user' || level >= 3) return 'normal_user';
                 return 'custom';
@@ -18037,10 +18425,10 @@
                         role,
                         profile: withRolePermissionTags(roleIssueProfile(role)),
                     }))
-                    .filter(item => ['beta_user', 'normal_user'].includes(item.profile?.key));
+                    .filter(item => ['beta_user', 'controlled_partner', 'normal_user'].includes(item.profile?.key));
                 return sourceRoles
                     .sort((a, b) => {
-                        const weight = { beta_user: 1, normal_user: 2 };
+                        const weight = { beta_user: 1, controlled_partner: 2, normal_user: 3 };
                         const weightDiff = (weight[a.profile?.key] || 9) - (weight[b.profile?.key] || 9);
                         if (weightDiff !== 0) return weightDiff;
                         return Number(a.role?.id || 0) - Number(b.role?.id || 0);
@@ -18071,11 +18459,28 @@
             const userAssignedHotelCount = computed(() => userIssueAssignedHotelIds.value.length);
             const areAllUserHotelsSelected = computed(() => allUserHotelIds.value.length > 0 && userAssignedHotelCount.value === allUserHotelIds.value.length);
 
+            const shanghaiToday = () => new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Shanghai',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+            }).format(new Date());
+            const authorizationExpiresOnIsValid = (value) => {
+                const date = String(value || '').trim();
+                return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= shanghaiToday();
+            };
+
             const userIssueChecklistRows = computed(() => {
                 const profile = selectedUserRoleGuide.value;
                 if (!profile) return [];
                 const assignedHotelIds = userIssueAssignedHotelIds.value;
-                return buildUserIssueChecklistRowsStatic(profile, assignedHotelIds, userForm.value?.status);
+                return buildUserIssueChecklistRowsStatic(profile, assignedHotelIds, userForm.value?.status).map(row => {
+                    if (row.key !== 'expiry' || !profile.requiresExpiry) return row;
+                    const expiresOn = String(userForm.value?.authorization_expires_on || '').trim();
+                    return authorizationExpiresOnIsValid(expiresOn)
+                        ? { ...row, level: 'success', text: `授权有效至 ${expiresOn} 当日 23:59:59（中国时区）` }
+                        : { ...row, level: 'error', text: '受控合作伙伴必须设置今天或未来的授权有效期。' };
+                });
             });
 
             const userIssueBlockingReasons = computed(() => userIssueChecklistRows.value
@@ -18087,10 +18492,13 @@
                 const role = (Array.isArray(roles.value) ? roles.value : []).find(item => Number(item?.id || 0) === roleId);
                 if (!role) return '';
                 const profile = roleIssueProfile(role);
+                if (profile.requiresExpiry && !authorizationExpiresOnIsValid(data?.authorization_expires_on)) {
+                    return '受控合作伙伴必须设置今天或未来的授权有效期。';
+                }
                 return validateUserIssueProfile(profile, assignedHotelIds);
             };
 
-            const buildUserIssueGuideTextFromProfile = (profile = {}, username = '', assignedHotelIds = [], status = 1) => {
+            const buildUserIssueGuideTextFromProfile = (profile = {}, username = '', assignedHotelIds = [], status = 1, authorizationExpiresOn = '') => {
                 const hotelNames = assignedHotelIds
                     .map(id => getHotelNameById(id) || `门店 ${id}`)
                     .filter(Boolean);
@@ -18103,6 +18511,7 @@
                     `发放对象：${profile?.audience || '-'}`,
                     `授权门店：${hotelNames.length ? hotelNames.join('、') : profile?.scope || '-'}`,
                     `账号状态：${userIssueLoginStatusText(status)}`,
+                    `授权有效期：${String(authorizationExpiresOn || '').trim() || '长期有效'}`,
                     `数据范围：${profile?.dataBoundary || '-'}`,
                     `可用功能：${profile?.allowed || '-'}`,
                     `不可用功能：${profile?.denied || '-'}`,
@@ -18118,7 +18527,8 @@
                     selectedUserRoleGuide.value,
                     userForm.value?.username,
                     userIssueAssignedHotelIds.value,
-                    userForm.value?.status
+                    userForm.value?.status,
+                    userForm.value?.authorization_expires_on
                 );
             };
 
@@ -18140,7 +18550,7 @@
 
             const isExternalIssueUser = (u = {}) => {
                 const profile = userRoleIssueProfile(u);
-                return ['beta_user', 'normal_user'].includes(profile?.key);
+                return ['beta_user', 'controlled_partner', 'normal_user'].includes(profile?.key);
             };
 
             const userTenantScopeStatus = (u = {}) => {
@@ -22969,7 +23379,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260805-public-page-actions-he05e2fac8e';
+            const operationStaticScriptVersion = '20260805-public-page-actions-h5b58eb5e48';
             let operationStaticLoadPromise = null;
             const loadOperationStatic = () => {
                 const currentStatic = window.SUXI_OPERATION_STATIC;
@@ -23606,6 +24016,41 @@
             const automationMonitorError = ref('');
             const automationMonitorManualActions = ref({});
             const automationMonitorManualBusyKey = ref('');
+            const automationMonitorContractHotelId = ref('');
+            const automationMonitorContract = ref({ binding: null, plan: null });
+            const automationMonitorContractLoading = ref(false);
+            const automationMonitorContractSaving = ref(false);
+            const automationMonitorContractError = ref('');
+            const automationMonitorPlanForm = ref({
+                ctrip_source_id: '',
+                meituan_source_id: '',
+                pms_provider: '',
+                schedule_time: '08:30',
+                retry_interval_minutes: 14,
+                max_attempts: 7,
+            });
+            const automationCollectionContractBody = shallowRef(null);
+            let automationCollectionContractLoadPromise = null;
+            const ensureAutomationCollectionContractReady = async () => {
+                if (automationCollectionContractBody.value) {
+                    return automationCollectionContractBody.value;
+                }
+                if (!automationCollectionContractLoadPromise) {
+                    automationCollectionContractLoadPromise = loadOnlineDataComponentScript(
+                        automationCollectionContractScript
+                    ).then(() => {
+                        const component = requireOnlineDataComponent(
+                            'AutomationCollectionContractBody'
+                        );
+                        automationCollectionContractBody.value = markRaw(component);
+                        return component;
+                    }).catch((error) => {
+                        automationCollectionContractLoadPromise = null;
+                        throw error;
+                    });
+                }
+                return automationCollectionContractLoadPromise;
+            };
             let automationMonitorRefreshTimer = null;
             const strategyForm = ref({
                 hotel_id: '',
@@ -23683,7 +24128,11 @@
                 && item?.recommendation?.source_module === 'ota_diagnosis_saved'
                 && Number(item?.execution?.task_id || 0) > 0;
             let operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
-            const operationCanSaveOperatingMemory = (item) => item?.execution?.status === 'executed'
+            const operationIsProtectedSystemAnalysis = (item) => item?.recommendation?.source_module === 'canonical_ota_investigation'
+                || item?.execution?.mode === 'analysis_only'
+                || item?.approval?.status === 'system_authorized_analysis';
+            const operationCanSaveOperatingMemory = (item) => !operationIsProtectedSystemAnalysis(item)
+                && item?.execution?.status === 'executed'
                 && Number(item?.execution?.task_id || 0) > 0
                 && ['observing', 'success', 'near_success', 'failed'].includes(String(item?.review?.reported_status || item?.review?.status || ''))
                 && String(item?.review?.summary || '').trim() !== '';
@@ -26640,6 +27089,116 @@
                 }
                 return rows;
             });
+            const automationMonitorContractHotelOptions = computed(() => (
+                (Array.isArray(automationMonitor.value?.rows) ? automationMonitor.value.rows : [])
+                    .map(row => ({
+                        id: Number(row?.hotel_id || 0),
+                        name: String(row?.hotel_name || `门店 #${row?.hotel_id || ''}`).trim(),
+                    }))
+                    .filter(hotel => hotel.id > 0)
+            ));
+            const automationMonitorContractBinding = computed(() => (
+                automationMonitorContract.value?.binding
+                && typeof automationMonitorContract.value.binding === 'object'
+                    ? automationMonitorContract.value.binding
+                    : {}
+            ));
+            const automationMonitorContractPlan = computed(() => (
+                automationMonitorContract.value?.plan
+                && typeof automationMonitorContract.value.plan === 'object'
+                    ? automationMonitorContract.value.plan
+                    : {}
+            ));
+            const automationMonitorContractReasonLabels = Object.freeze({
+                ota_source_binding_missing: '未绑定本酒店的 OTA 数据源',
+                ota_source_binding_conflict: '本酒店存在多个启用的数据源，请明确选择',
+                ota_designated_source_binding_missing: '计划指定的数据源已不在当前酒店范围',
+                ota_designated_source_binding_conflict: '计划指定的数据源存在范围冲突',
+                ota_platform_hotel_id_canonical_missing: '缺少平台门店的正式 ID',
+                ota_platform_hotel_identity_unverified: '平台门店 ID 尚无带日期的核验凭据',
+                ota_platform_hotel_identity_cross_hotel_conflict: '平台门店 ID 已绑定到其他酒店',
+                ota_profile_binding_missing: '缺少本酒店的浏览器 Profile 归属绑定',
+                ota_profile_binding_conflict: '浏览器 Profile 归属绑定冲突',
+                ota_execution_device_binding_missing: '缺少运营人员原执行设备映射',
+                ota_execution_device_binding_conflict: '执行设备映射不唯一',
+                ota_execution_owner_missing: '数据源未指定执行负责人',
+                ota_execution_owner_conflict: '携程与美团的执行负责人不一致',
+                ota_execution_owner_permission_unverified: '执行负责人已停用、跨租户或无权操作当前酒店',
+                ota_execution_binding_revoked: '原执行设备或账号已停用',
+                ota_local_collector_source_binding_proof_missing: '本机采集来源缺少原账号与原设备绑定凭据',
+                ota_local_collector_source_execution_mismatch: '本机采集来源与当前原账号或原设备不一致',
+                device_offline: '原执行设备离线，恢复后可在原设备续跑',
+                login_required: '登录已失效，请在原执行设备恢复登录',
+                permission_denied: '原账号缺少当前平台门店权限',
+                identity_mismatch: '当前平台门店与绑定身份不一致',
+                pms_binding_missing: '未绑定主 PMS',
+                pms_binding_conflict: '主 PMS 绑定不唯一',
+                pms_platform_hotel_identity_missing: 'PMS 门店身份不完整',
+                pms_platform_hotel_identity_cross_hotel_conflict: 'PMS 门店身份已绑定到其他酒店',
+                hotel_collection_plan_missing: '尚未保存本酒店采集计划',
+                hotel_collection_plan_not_active: '当前计划是草稿，尚未启用执行',
+                hotel_collection_plan_signature_mismatch: '计划签名回读不一致',
+                hotel_collection_plan_binding_drifted: '当前绑定已与保存计划发生变化',
+                hotel_collection_plan_hotel_disabled: '系统酒店已停用',
+                pms_plan_provider_mismatch: '计划 PMS 与酒店主 PMS 不一致',
+            });
+            const automationMonitorContractStatusText = (status) => ({
+                ready: '绑定就绪',
+                recoverable: '原设备待恢复',
+                active_ready: '计划已启用',
+                draft: '计划草稿',
+                blocked: '存在阻断',
+                missing: '尚未保存',
+            }[String(status || '').toLowerCase()] || '状态未取得');
+            const automationMonitorContractStatusClass = (status) => ({
+                ready: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                active_ready: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                recoverable: 'border-amber-200 bg-amber-50 text-amber-700',
+                draft: 'border-blue-200 bg-blue-50 text-blue-700',
+                blocked: 'border-red-200 bg-red-50 text-red-700',
+                missing: 'border-slate-200 bg-slate-50 text-slate-600',
+            }[String(status || '').toLowerCase()] || 'border-slate-200 bg-slate-50 text-slate-600');
+            const automationMonitorContractReasonText = (issue = {}) => {
+                const code = String(issue?.code || '').trim();
+                return automationMonitorContractReasonLabels[code]
+                    || (code ? `待处理：${code}` : '待处理原因未取得');
+            };
+            const automationMonitorContractReasons = computed(() => {
+                const binding = automationMonitorContractBinding.value;
+                const plan = automationMonitorContractPlan.value;
+                const candidates = [
+                    ...(Array.isArray(binding?.blockers) ? binding.blockers : []),
+                    ...(Array.isArray(binding?.recovery_reasons) ? binding.recovery_reasons : []),
+                    ...(Array.isArray(plan?.failure_reasons) ? plan.failure_reasons : []),
+                ];
+                const seen = new Set();
+                return candidates.filter(issue => {
+                    const code = String(issue?.code || '').trim();
+                    const platform = String(issue?.platform || '').trim();
+                    const key = `${platform}:${code}`;
+                    if (!code || seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+            });
+            const automationMonitorContractSourceOptions = (platform) => {
+                const key = String(platform || '').toLowerCase();
+                const binding = automationMonitorContractBinding.value?.bindings?.[key] || {};
+                const planSourceId = Number(
+                    automationMonitorContractPlan.value?.sources?.[key]?.data_source_id || 0
+                );
+                return Array.from(new Set([
+                    ...(Array.isArray(binding?.candidate_source_ids) ? binding.candidate_source_ids : []),
+                    Number(binding?.source_id || 0),
+                    planSourceId,
+                ].map(Number).filter(id => Number.isInteger(id) && id > 0))).sort((a, b) => a - b);
+            };
+            const automationMonitorContractCanActivate = computed(() => (
+                String(automationMonitorContractBinding.value?.status || '') === 'ready'
+                && automationMonitorContractPlan.value?.readback_verified === true
+                && automationMonitorContractPlan.value?.binding_digest_matches === true
+                && automationMonitorContractHotelId.value !== ''
+            ));
             const automationMonitorManualActionKey = (row = {}, source = '') => (
                 `${String(row?.hotel_id || '')}:${String(source || '')}`
             );
@@ -26980,6 +27539,168 @@
                 failed: 'border-red-200 bg-red-50 text-red-700',
                 blocked: 'border-red-200 bg-red-50 text-red-700',
             }[String(status || '')] || 'border-slate-200 bg-slate-50 text-slate-600');
+            const syncAutomationMonitorPlanForm = (binding = {}, plan = {}) => {
+                const sourceValue = (platform) => {
+                    const planned = Number(plan?.sources?.[platform]?.data_source_id || 0);
+                    if (planned > 0) return String(planned);
+                    const current = Number(binding?.bindings?.[platform]?.source_id || 0);
+                    if (current > 0) return String(current);
+                    const candidates = Array.isArray(binding?.bindings?.[platform]?.candidate_source_ids)
+                        ? binding.bindings[platform].candidate_source_ids.map(Number).filter(id => id > 0)
+                        : [];
+                    return candidates.length === 1 ? String(candidates[0]) : '';
+                };
+                automationMonitorPlanForm.value = {
+                    ctrip_source_id: sourceValue('ctrip'),
+                    meituan_source_id: sourceValue('meituan'),
+                    pms_provider: String(
+                        plan?.sources?.pms?.provider
+                        || binding?.bindings?.pms?.provider
+                        || ''
+                    ).trim(),
+                    schedule_time: String(plan?.schedule_time || '08:30'),
+                    retry_interval_minutes: Number(plan?.retry_interval_minutes || 14),
+                    max_attempts: Number(plan?.max_attempts || 7),
+                };
+            };
+            const loadAutomationMonitorContract = async (options = {}) => {
+                const normalizedOptions = options && typeof options === 'object' && !('target' in options)
+                    ? options
+                    : {};
+                const hotelId = Number(
+                    normalizedOptions.hotelId
+                    || automationMonitorContractHotelId.value
+                    || 0
+                );
+                const silent = normalizedOptions.silent === true;
+                const businessDate = String(automationMonitorDate.value || '').trim();
+                if (hotelId <= 0 || !businessDate) {
+                    automationMonitorContract.value = { binding: null, plan: null };
+                    automationMonitorContractError.value = hotelId <= 0
+                        ? '请选择需要核验绑定的酒店。'
+                        : '请选择数据日期。';
+                    return;
+                }
+                automationMonitorContractHotelId.value = String(hotelId);
+                if (!silent) automationMonitorContractLoading.value = true;
+                automationMonitorContractError.value = '';
+                const errors = [];
+                let plan = null;
+                let binding = null;
+                try {
+                    const planParams = new URLSearchParams({ business_date: businessDate });
+                    const planRes = await apiRequest(
+                        `/hotels/${hotelId}/collection-plan?${planParams.toString()}`
+                    );
+                    if (planRes.code !== 200) {
+                        throw new Error(planRes.message || '酒店采集计划读取失败');
+                    }
+                    plan = planRes.data && typeof planRes.data === 'object' ? planRes.data : null;
+                } catch (error) {
+                    errors.push(operationErrorMessage(error, '酒店采集计划读取失败'));
+                }
+                try {
+                    const bindingParams = new URLSearchParams({ business_date: businessDate });
+                    const ctripSourceId = Number(plan?.sources?.ctrip?.data_source_id || 0);
+                    const meituanSourceId = Number(plan?.sources?.meituan?.data_source_id || 0);
+                    if (ctripSourceId > 0) bindingParams.set('ctrip_source_id', String(ctripSourceId));
+                    if (meituanSourceId > 0) bindingParams.set('meituan_source_id', String(meituanSourceId));
+                    const bindingRes = await apiRequest(
+                        `/hotels/${hotelId}/collection-binding-receipt?${bindingParams.toString()}`
+                    );
+                    if (bindingRes.code !== 200) {
+                        throw new Error(bindingRes.message || '酒店采集绑定读取失败');
+                    }
+                    binding = bindingRes.data && typeof bindingRes.data === 'object'
+                        ? bindingRes.data
+                        : null;
+                } catch (error) {
+                    errors.push(operationErrorMessage(error, '酒店采集绑定读取失败'));
+                }
+                automationMonitorContract.value = { binding, plan };
+                syncAutomationMonitorPlanForm(binding || {}, plan || {});
+                automationMonitorContractError.value = errors.join('；');
+                if (!silent) automationMonitorContractLoading.value = false;
+            };
+            const saveAutomationMonitorPlan = async ({ activate = false } = {}) => {
+                const hotelId = Number(automationMonitorContractHotelId.value || 0);
+                const businessDate = String(automationMonitorDate.value || '').trim();
+                const form = automationMonitorPlanForm.value || {};
+                const ctripSourceId = Number(form.ctrip_source_id || 0);
+                const meituanSourceId = Number(form.meituan_source_id || 0);
+                const pmsProvider = String(form.pms_provider || '').trim();
+                const scheduleTime = String(form.schedule_time || '').trim();
+                const retryInterval = Number(form.retry_interval_minutes || 0);
+                const maxAttempts = Number(form.max_attempts || 0);
+                if (hotelId <= 0 || !businessDate) {
+                    automationMonitorContractError.value = '请选择酒店和数据日期后再保存。';
+                    return;
+                }
+                if (ctripSourceId <= 0 || meituanSourceId <= 0 || !pmsProvider) {
+                    automationMonitorContractError.value = '请明确选择携程、美团数据源和主 PMS。';
+                    return;
+                }
+                if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(scheduleTime)
+                    || !Number.isInteger(retryInterval)
+                    || retryInterval < 5
+                    || retryInterval > 120
+                    || !Number.isInteger(maxAttempts)
+                    || maxAttempts < 1
+                    || maxAttempts > 12
+                ) {
+                    automationMonitorContractError.value = '采集时间、重试间隔或尝试次数无效。';
+                    return;
+                }
+                if (activate && !automationMonitorContractCanActivate.value) {
+                    automationMonitorContractError.value = '请先完成精确绑定并保存、回读草稿，再启用执行。';
+                    return;
+                }
+                if (activate && !window.confirm(
+                    '启用后仅允许当前酒店、当前数据源和原执行设备运行，不会自动换设备代采。确认启用？'
+                )) return;
+
+                automationMonitorContractSaving.value = true;
+                automationMonitorContractError.value = '';
+                try {
+                    const payload = {
+                        business_date: businessDate,
+                        business_date_policy: 'previous_business_day',
+                        timezone: 'Asia/Shanghai',
+                        schedule_time: scheduleTime,
+                        retry_interval_minutes: retryInterval,
+                        max_attempts: maxAttempts,
+                        activate,
+                        sources: {
+                            ctrip: { data_source_id: ctripSourceId },
+                            meituan: { data_source_id: meituanSourceId },
+                            pms: { provider: pmsProvider },
+                        },
+                    };
+                    const res = await apiRequest(`/hotels/${hotelId}/collection-plan`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    if (res.code !== 200) {
+                        throw new Error(res.message || '酒店采集计划保存失败');
+                    }
+                    if (res.data?.readback_verified !== true || res.data?.save_verified !== true) {
+                        throw new Error('计划已写入但精确回读未通过');
+                    }
+                    showToast(
+                        activate ? '酒店采集计划已启用并精确回读' : '酒店采集计划草稿已保存并精确回读',
+                        'success'
+                    );
+                    await loadAutomationMonitorContract({ hotelId });
+                } catch (error) {
+                    automationMonitorContractError.value = operationErrorMessage(
+                        error,
+                        '酒店采集计划保存失败'
+                    );
+                } finally {
+                    automationMonitorContractSaving.value = false;
+                }
+            };
             const stopAutomationMonitorPolling = () => {
                 if (automationMonitorRefreshTimer) {
                     clearTimeout(automationMonitorRefreshTimer);
@@ -27022,6 +27743,27 @@
                         message: '',
                         ...(res.data || {}),
                     };
+                    const rows = Array.isArray(automationMonitor.value?.rows)
+                        ? automationMonitor.value.rows
+                        : [];
+                    const currentHotelId = Number(automationMonitorContractHotelId.value || 0);
+                    const currentStillVisible = rows.some(
+                        row => Number(row?.hotel_id || 0) === currentHotelId
+                    );
+                    if (rows.length > 0) {
+                        const contractHotelId = currentStillVisible
+                            ? currentHotelId
+                            : Number(rows[0]?.hotel_id || 0);
+                        automationMonitorContractHotelId.value = String(contractHotelId || '');
+                        await loadAutomationMonitorContract({
+                            hotelId: contractHotelId,
+                            silent,
+                        });
+                    } else {
+                        automationMonitorContractHotelId.value = '';
+                        automationMonitorContract.value = { binding: null, plan: null };
+                        automationMonitorContractError.value = '';
+                    }
                 } catch (error) {
                     automationMonitorError.value = operationErrorMessage(
                         error,
@@ -33983,7 +34725,10 @@
             const autoFetchConfigProofPendingForHotelId = (hotelId) => {
                 if (!hotelId || String(hotelId) !== String(getAutoFetchHotelId() || '')) return false;
                 const keyPrefix = `${String(hotelId)}|`;
-                return autoFetchStatusRequestPromises.has(`${keyPrefix}light`)
+                const sessionKeyPrefix = `${authSessionEpoch}:${keyPrefix}`;
+                return autoFetchStatusRequestPromises.has(`${sessionKeyPrefix}light`)
+                    || autoFetchStatusRequestPromises.has(`${sessionKeyPrefix}full`)
+                    || autoFetchStatusRequestPromises.has(`${keyPrefix}light`)
                     || autoFetchStatusRequestPromises.has(`${keyPrefix}full`);
             };
 
@@ -37657,13 +38402,174 @@
                 const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
                 return localDate.toISOString().split('T')[0];
             };
-            const otaDiagnosisScheduleDateTime = (daysFromNow, hour) => {
-                const value = new Date();
-                value.setDate(value.getDate() + daysFromNow);
-                value.setHours(hour, 0, 0, 0);
-                const local = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
-                return local.toISOString().slice(0, 16);
+            // OTA_DIAGNOSIS_SCHEDULE_HELPERS_START
+            const otaDiagnosisStrictBusinessDate = value => {
+                const text = String(value || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return '';
+                const [year, month, day] = text.split('-').map(Number);
+                const parsed = new Date(year, month - 1, day, 12, 0, 0, 0);
+                if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) return '';
+                return text;
             };
+            const otaDiagnosisFormatLocalDate = value => {
+                const parsed = new Date(value);
+                if (!Number.isFinite(parsed.getTime())) return '';
+                const pad = number => String(number).padStart(2, '0');
+                return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+            };
+            const otaDiagnosisAddCalendarDays = (businessDate, days) => {
+                const normalized = otaDiagnosisStrictBusinessDate(businessDate);
+                if (!normalized) return '';
+                const [year, month, day] = normalized.split('-').map(Number);
+                const parsed = new Date(year, month - 1, day, 12, 0, 0, 0);
+                parsed.setDate(parsed.getDate() + Number(days || 0));
+                return otaDiagnosisFormatLocalDate(parsed);
+            };
+            const otaDiagnosisScheduleDateTimeForBusinessDate = (businessDate, hour) => {
+                const normalized = otaDiagnosisStrictBusinessDate(businessDate);
+                const numericHour = Number(hour);
+                if (!normalized || !Number.isInteger(numericHour) || numericHour < 0 || numericHour > 23) return '';
+                return `${normalized}T${String(numericHour).padStart(2, '0')}:00`;
+            };
+            const otaDiagnosisBaselineBusinessDate = diagnosis => {
+                const range = diagnosis?.date_range && typeof diagnosis.date_range === 'object'
+                    ? diagnosis.date_range
+                    : {};
+                return otaDiagnosisStrictBusinessDate(range.end_date || range.start_date || '');
+            };
+            const otaDiagnosisParseLocalDateTime = value => {
+                const text = String(value || '').trim();
+                const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+                if (!match) return null;
+                const [, yearText, monthText, dayText, hourText, minuteText, secondText = '00'] = match;
+                const parts = [yearText, monthText, dayText, hourText, minuteText, secondText].map(Number);
+                const [year, month, day, hour, minute, second] = parts;
+                const parsed = new Date(year, month - 1, day, hour, minute, second, 0);
+                if (parsed.getFullYear() !== year
+                    || parsed.getMonth() !== month - 1
+                    || parsed.getDate() !== day
+                    || parsed.getHours() !== hour
+                    || parsed.getMinutes() !== minute
+                    || parsed.getSeconds() !== second
+                ) return null;
+                return {
+                    date: parsed,
+                    businessDate: `${yearText}-${monthText}-${dayText}`,
+                    value: `${yearText}-${monthText}-${dayText}T${hourText}:${minuteText}`,
+                };
+            };
+            const validateOtaDiagnosisExecutionSchedule = ({
+                baselineBusinessDate,
+                assigneeId,
+                dueAt,
+                reviewAt,
+                now = new Date(),
+            } = {}) => {
+                const baseline = otaDiagnosisStrictBusinessDate(baselineBusinessDate);
+                if (!baseline) {
+                    return {
+                        ready: false,
+                        code: 'baseline_business_date_missing',
+                        message: '诊断缺少可核验的经营基准日，请重新生成并保存诊断后再创建待审批任务。',
+                    };
+                }
+                const executionBusinessDate = otaDiagnosisAddCalendarDays(baseline, 1);
+                const due = otaDiagnosisParseLocalDateTime(dueAt);
+                const review = otaDiagnosisParseLocalDateTime(reviewAt);
+                if (!due || !review) {
+                    return {
+                        ready: false,
+                        code: 'schedule_datetime_missing',
+                        message: `请填写诊断次日 ${executionBusinessDate} 的截止时间和复核时间。`,
+                        executionBusinessDate,
+                    };
+                }
+                if (due.businessDate !== executionBusinessDate || review.businessDate !== executionBusinessDate) {
+                    return {
+                        ready: false,
+                        code: 'schedule_business_date_mismatch',
+                        message: `截止时间和复核时间都必须使用诊断次日 ${executionBusinessDate}，请重新排期。`,
+                        executionBusinessDate,
+                    };
+                }
+                if (due.date.getTime() >= review.date.getTime()) {
+                    return {
+                        ready: false,
+                        code: 'schedule_time_order_invalid',
+                        message: '截止时间必须早于复核时间，请重新排期。',
+                        executionBusinessDate,
+                    };
+                }
+                const current = new Date(now);
+                if (!Number.isFinite(current.getTime())) {
+                    return {
+                        ready: false,
+                        code: 'schedule_current_time_invalid',
+                        message: '当前时间无法核验，请刷新页面后重新生成诊断。',
+                        executionBusinessDate,
+                    };
+                }
+                const currentBusinessDate = otaDiagnosisFormatLocalDate(current);
+                if (executionBusinessDate < currentBusinessDate) {
+                    return {
+                        ready: false,
+                        code: 'next_business_date_passed',
+                        message: `诊断次日 ${executionBusinessDate} 已过，请重新生成最新诊断后再创建待审批任务。`,
+                        executionBusinessDate,
+                    };
+                }
+                if (due.date.getTime() <= current.getTime() || review.date.getTime() <= current.getTime()) {
+                    return {
+                        ready: false,
+                        code: 'schedule_window_elapsed',
+                        message: `诊断次日 ${executionBusinessDate} 的执行排期窗口已不足，请重新生成最新诊断后再创建待审批任务。`,
+                        executionBusinessDate,
+                    };
+                }
+                const normalizedAssigneeId = Number(assigneeId || 0);
+                if (!Number.isInteger(normalizedAssigneeId) || normalizedAssigneeId <= 0) {
+                    return {
+                        ready: false,
+                        code: 'assignee_missing',
+                        message: '请先选择可执行该门店任务的负责人。',
+                        executionBusinessDate,
+                    };
+                }
+                return {
+                    ready: true,
+                    code: 'ready',
+                    message: '',
+                    executionBusinessDate,
+                    schedule: {
+                        assignee_id: normalizedAssigneeId,
+                        due_at: due.value,
+                        review_at: review.value,
+                    },
+                };
+            };
+            const buildOtaDiagnosisDefaultExecutionSchedule = ({
+                baselineBusinessDate,
+                assigneeId,
+                now = new Date(),
+            } = {}) => {
+                const executionBusinessDate = otaDiagnosisAddCalendarDays(baselineBusinessDate, 1);
+                const schedule = {
+                    assignee_id: String(assigneeId || ''),
+                    due_at: otaDiagnosisScheduleDateTimeForBusinessDate(executionBusinessDate, 18),
+                    review_at: otaDiagnosisScheduleDateTimeForBusinessDate(executionBusinessDate, 23),
+                };
+                return {
+                    ...validateOtaDiagnosisExecutionSchedule({
+                        baselineBusinessDate,
+                        assigneeId,
+                        dueAt: schedule.due_at,
+                        reviewAt: schedule.review_at,
+                        now,
+                    }),
+                    schedule,
+                };
+            };
+            // OTA_DIAGNOSIS_SCHEDULE_HELPERS_END
             const createOtaDiagnosisForm = () => ({
                 hotel_id: '',
                 platform: 'ctrip',
@@ -37683,12 +38589,17 @@
             const otaDiagnosisError = ref('');
             const otaDiagnosisEmpty = ref(false);
             const otaDiagnosisExecutionLoading = ref('');
-            const createOtaDiagnosisExecutionSchedule = () => ({
-                assignee_id: String(user.value?.id || ''),
-                due_at: otaDiagnosisScheduleDateTime(1, 18),
-                review_at: otaDiagnosisScheduleDateTime(2, 10),
-            });
+            const createOtaDiagnosisExecutionSchedule = (diagnosis = otaDiagnosisResult.value, now = new Date()) => (
+                buildOtaDiagnosisDefaultExecutionSchedule({
+                    baselineBusinessDate: otaDiagnosisBaselineBusinessDate(diagnosis),
+                    assigneeId: user.value?.id,
+                    now,
+                }).schedule
+            );
             const otaDiagnosisExecutionSchedule = ref(createOtaDiagnosisExecutionSchedule());
+            const resetOtaDiagnosisExecutionSchedule = (diagnosis = null) => {
+                otaDiagnosisExecutionSchedule.value = createOtaDiagnosisExecutionSchedule(diagnosis);
+            };
             const otaDiagnosisAssigneeOptions = computed(() => {
                 const hotelId = String(otaDiagnosisResult.value?.hotel?.id || otaDiagnosisForm.value.hotel_id || '').trim();
                 const candidates = [...(Array.isArray(users.value) ? users.value : [])];
@@ -37889,10 +38800,14 @@
                     ];
                 }
             )(otaDiagnosisResult.value || {}));
-            const otaDiagnosisDecisionStatusTextFor = (status) => getOtaDiagnosisStaticFunction(
-                'otaDiagnosisDecisionStatusText',
-                value => value || '-'
-            )(status);
+            const otaDiagnosisDecisionStatusTextFor = (status) => {
+                const normalized = String(status || '').trim().toLowerCase();
+                if (normalized === 'blocked_by_missing_facts') return '缺少可信事实，已阻断';
+                return getOtaDiagnosisStaticFunction(
+                    'otaDiagnosisDecisionStatusText',
+                    value => value || '-'
+                )(status);
+            };
             const otaDiagnosisDecisionStatusClassFor = (status) => getOtaDiagnosisStaticFunction(
                 'otaDiagnosisDecisionStatusClass',
                 value => String(value || '').startsWith('blocked') ? 'bg-red-50 text-red-700 border-red-100' : 'bg-gray-50 text-gray-600 border-gray-200'
@@ -37909,6 +38824,16 @@
                 'buildOtaDiagnosisActionRows',
                 () => []
             )(otaDiagnosisResult.value || {}));
+            const otaDiagnosisActionCount = computed(() => {
+                const raw = otaDiagnosisResult.value?.action_count;
+                if (raw !== null && raw !== undefined && raw !== '' && Number.isFinite(Number(raw))) {
+                    return Math.max(0, Math.trunc(Number(raw)));
+                }
+                return otaDiagnosisActionRows.value.length;
+            });
+            const otaDiagnosisApprovableTaskCount = computed(() => (
+                otaDiagnosisActionRows.value.filter(row => row?.canCreateIntent === true).length
+            ));
             const otaDiagnosisDataGapRows = computed(() => getOtaDiagnosisStaticFunction(
                 'buildOtaDiagnosisDataGapRows',
                 () => []
@@ -38532,6 +39457,7 @@
                 permission_denied: '无权读取',
                 collection_failed: '采集失败',
                 blocked: '已阻断',
+                blocked_by_missing_facts: '缺少可信事实，已阻断',
                 pending: '待处理',
                 observing: '继续观察',
                 high: '高风险信号',
@@ -38555,7 +39481,7 @@
                 if (['partial', 'warning', 'pending', 'observing', 'stale', 'unverified'].includes(normalized)) {
                     return 'border-amber-200 bg-amber-50 text-amber-800';
                 }
-                if (['failed', 'request_failed', 'permission_denied', 'collection_failed', 'blocked', 'high'].includes(normalized)) {
+                if (normalized.startsWith('blocked') || ['failed', 'request_failed', 'permission_denied', 'collection_failed', 'high'].includes(normalized)) {
                     return 'border-red-200 bg-red-50 text-red-700';
                 }
                 if (normalized === 'medium') return 'border-amber-200 bg-amber-50 text-amber-800';
@@ -38859,14 +39785,24 @@
                     const diagnosis = result?.data && typeof result.data === 'object' ? result.data : null;
                     const recordId = Number(diagnosis?.saved_record?.id || 0);
                     const recordStatus = String(diagnosis?.record_status || diagnosis?.saved_record?.status || '').toLowerCase();
+                    const baselineBusinessDate = otaDiagnosisBaselineBusinessDate(diagnosis);
                     const actionItems = Array.isArray(diagnosis?.action_items) ? diagnosis.action_items : [];
+                    const rawActionCount = diagnosis?.action_count;
+                    const parsedActionCount = Number(rawActionCount);
+                    const actionCount = diagnosis
+                        ? (rawActionCount !== null && rawActionCount !== undefined && rawActionCount !== '' && Number.isFinite(parsedActionCount)
+                            ? Math.max(0, Math.trunc(parsedActionCount))
+                            : actionItems.length)
+                        : null;
+                    const isApprovable = item => item?.execution_ready === true
+                        && item?.can_create_execution_intent === true
+                        && item?.decision_quality?.contract_version === 'ai_recommendation_quality.v2'
+                        && item?.decision_quality?.execution_ready === true
+                        && recordId > 0
+                        && recordStatus !== 'superseded';
+                    const approvableTaskCount = diagnosis ? actionItems.filter(isApprovable).length : null;
                     actionItems.forEach((item, actionIndex) => {
-                        const ready = item?.execution_ready === true
-                            && item?.can_create_execution_intent === true
-                            && item?.decision_quality?.contract_version === 'ai_recommendation_quality.v2'
-                            && item?.decision_quality?.execution_ready === true
-                            && recordId > 0
-                            && recordStatus !== 'superseded';
+                        const ready = isApprovable(item);
                         const refs = Array.isArray(item?.evidence_refs) ? item.evidence_refs.filter(Boolean) : [];
                         const missing = Array.isArray(item?.missing_evidence)
                             ? item.missing_evidence.map(entry => entry?.label || entry?.code || '').filter(Boolean)
@@ -38882,28 +39818,42 @@
                             platform,
                             recordId,
                             recordStatus,
+                            actionCount,
+                            approvableTaskCount,
                             actionItemId: String(item?.id || '').trim(),
                             actionIndex,
                             hotelId: Number(diagnosis?.hotel?.id || coreOperationsHotelId.value || 0),
+                            baselineBusinessDate,
                         });
                     });
                     if (actionItems.length === 0) {
                         const gaps = Array.isArray(diagnosis?.data_gaps)
-                            ? diagnosis.data_gaps.map(item => item?.message || item?.label || item?.code || '').filter(Boolean)
+                            ? diagnosis.data_gaps.map(item => (
+                                typeof item === 'string'
+                                    ? item.trim()
+                                    : String(item?.message || item?.label || item?.code || '').trim()
+                            )).filter(Boolean)
                             : [];
                         rows.push({
                             key: `diagnosis-${platform}-blocked`,
                             title: `${platformLabels[platform] || platform.toUpperCase()} · AI行动建议未形成`,
                             action: '当前仅形成证据缺口或无需行动结论，不创建运营任务。',
-                            evidence: gaps.slice(0, 3).join('、') || result?.message || '诊断响应未返回',
+                            evidence: gaps.length
+                                ? `${gaps.slice(0, 3).join('、')}${gaps.length > 3 ? `（共 ${gaps.length} 项）` : ''}`
+                                : (result?.message || '诊断响应未返回'),
                             boundary: `${diagnosis?.source_policy || '真实 OTA 诊断未就绪'} · 不使用默认话术替代`,
                             status: String(result?.status || 'blocked'),
                             ready: false,
                             platform,
                             recordId,
                             recordStatus,
+                            actionCount,
+                            approvableTaskCount,
+                            dataGaps: gaps,
+                            gapCount: gaps.length,
                             actionIndex: -1,
                             hotelId: Number(coreOperationsHotelId.value || 0),
+                            baselineBusinessDate,
                         });
                     }
                 });
@@ -41019,7 +41969,7 @@
                 otaDiagnosisError.value = '';
                 otaDiagnosisEmpty.value = false;
                 otaDiagnosisExecutionLoading.value = "";
-                otaDiagnosisExecutionSchedule.value = createOtaDiagnosisExecutionSchedule();
+                resetOtaDiagnosisExecutionSchedule(null);
                 otaDiagnosisHotelPickerOpen.value = false;
                 otaDiagnosisHotelKeyword.value = '';
 
@@ -41217,7 +42167,10 @@
                     requestDiagnosis: requestOtaDiagnosis,
                     setLoading: updateIfCurrent(value => { otaDiagnosisLoading.value = value; }),
                     setError: updateIfCurrent(value => { otaDiagnosisError.value = value; }),
-                    setResult: updateIfCurrent(value => { otaDiagnosisResult.value = value; }),
+                    setResult: updateIfCurrent(value => {
+                        otaDiagnosisResult.value = value;
+                        resetOtaDiagnosisExecutionSchedule(value);
+                    }),
                     setEmpty: updateIfCurrent(value => { otaDiagnosisEmpty.value = value; }),
                     notify: updateIfCurrent((message, level) => showToast(message, level)),
                 });
@@ -41239,27 +42192,26 @@
                     showToast(row?.blockedReason || '该行动缺少可执行证据', 'warning');
                     return;
                 }
-                const schedule = otaDiagnosisExecutionSchedule.value || {};
-                const assigneeId = Number(schedule.assignee_id || 0);
-                const dueAt = String(schedule.due_at || '').trim();
-                const reviewAt = String(schedule.review_at || '').trim();
-                if (!assigneeId || !dueAt || !reviewAt) {
-                    showToast('请先填写负责人、截止时间和复核时间', 'warning');
+                const scheduleValidation = validateOtaDiagnosisExecutionSchedule({
+                    baselineBusinessDate: otaDiagnosisBaselineBusinessDate(otaDiagnosisResult.value),
+                    assigneeId: otaDiagnosisExecutionSchedule.value?.assignee_id,
+                    dueAt: otaDiagnosisExecutionSchedule.value?.due_at,
+                    reviewAt: otaDiagnosisExecutionSchedule.value?.review_at,
+                });
+                if (!scheduleValidation.ready) {
+                    showToast(scheduleValidation.message, 'warning');
                     return;
                 }
-                if (new Date(reviewAt).getTime() < new Date(dueAt).getTime()) {
-                    showToast('复核时间不能早于截止时间', 'warning');
-                    return;
-                }
+                const schedule = scheduleValidation.schedule;
 
                 otaDiagnosisExecutionLoading.value = String(row.id || actionIndex);
                 try {
                     const res = await request(`/agent/ota-diagnoses/${recordId}/actions/${actionIndex}/execution-intent`, {
                         method: 'POST',
                         body: JSON.stringify({
-                            assignee_id: assigneeId,
-                            due_at: dueAt,
-                            review_at: reviewAt,
+                            assignee_id: schedule.assignee_id,
+                            due_at: schedule.due_at,
+                            review_at: schedule.review_at,
                         }),
                     });
                     if (!isAgentRevenueRequestCurrent(requestContext)) return;
@@ -41303,6 +42255,36 @@
                     showToast('当前登录用户无法作为任务负责人', 'warning');
                     return;
                 }
+                const defaultScheduleState = buildOtaDiagnosisDefaultExecutionSchedule({
+                    baselineBusinessDate: item?.baselineBusinessDate,
+                    assigneeId,
+                });
+                if (!defaultScheduleState.ready) {
+                    showToast(defaultScheduleState.message, 'warning');
+                    return;
+                }
+                const scheduleValues = await openWorkflowFormDialog({
+                    title: '设置 OTA 诊断待审批排期',
+                    description: `排期必须使用诊断次日 ${defaultScheduleState.executionBusinessDate}，这里只创建宿析OS待审批任务，不会写入 OTA。`,
+                    submitText: '创建待审批任务',
+                    fields: [
+                        { name: 'assignee_id', label: '负责人用户 ID', type: 'number', required: true, value: String(defaultScheduleState.schedule.assignee_id || '') },
+                        { name: 'due_at', label: '执行截止时间', type: 'datetime-local', required: true, value: defaultScheduleState.schedule.due_at },
+                        { name: 'review_at', label: '效果复核时间', type: 'datetime-local', required: true, value: defaultScheduleState.schedule.review_at },
+                    ],
+                });
+                if (scheduleValues === null) return;
+                const scheduleValidation = validateOtaDiagnosisExecutionSchedule({
+                    baselineBusinessDate: item?.baselineBusinessDate,
+                    assigneeId: scheduleValues.assignee_id,
+                    dueAt: scheduleValues.due_at,
+                    reviewAt: scheduleValues.review_at,
+                });
+                if (!scheduleValidation.ready) {
+                    showToast(scheduleValidation.message, 'warning');
+                    return;
+                }
+                const schedule = scheduleValidation.schedule;
 
                 const loadingKey = String(item?.key || `${recordId}-${actionIndex}`);
                 coreOperationsDiagnosisIntentLoading.value = loadingKey;
@@ -41310,9 +42292,9 @@
                     const res = await request(`/agent/ota-diagnoses/${recordId}/actions/${actionIndex}/execution-intent`, {
                         method: 'POST',
                         body: JSON.stringify({
-                            assignee_id: assigneeId,
-                            due_at: otaDiagnosisScheduleDateTime(1, 18),
-                            review_at: otaDiagnosisScheduleDateTime(2, 10),
+                            assignee_id: schedule.assignee_id,
+                            due_at: schedule.due_at,
+                            review_at: schedule.review_at,
                         }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '转运营任务失败');
@@ -41387,6 +42369,7 @@
                     }
                 }
                 otaDiagnosisResult.value = verifiedSnapshot;
+                resetOtaDiagnosisExecutionSchedule(verifiedSnapshot);
                 otaDiagnosisEmpty.value = verifiedSnapshot?.data_summary?.has_ota_data === false;
                 otaDiagnosisError.value = '';
                 otaDiagnosisForm.value.platform = savedPlatform;
@@ -48239,6 +49222,7 @@
                         role_id: defaultRoleId,
                         hotel_id: defaultHotelId,
                         hotel_ids: defaultHotelIds,
+                        authorization_expires_on: '',
                         status: 1,
                     };
                 }
@@ -48271,6 +49255,7 @@
                 const url = isEdit ? `/users/${userForm.value.id}` : '/users';
                 const method = isEdit ? 'PUT' : 'POST';
                 const data = { ...userForm.value };
+                if (!user.value?.is_super_admin) delete data.authorization_expires_on;
                 const assignedHotelIds = normalizeUserHotelIds(data.hotel_ids).map(id => Number(id));
                 const issueError = validateUserIssueBeforeSave(data, assignedHotelIds);
                 if (issueError) {
@@ -48305,12 +49290,13 @@
                     const res = await request(url, { method, body: JSON.stringify(data) });
                     if (res.code === 200) {
                         showToast(isEdit ? '更新成功' : '创建成功');
-                        if (issueGuideProfile && ['beta_user', 'normal_user'].includes(issueGuideProfile.key)) {
+                        if (issueGuideProfile && ['beta_user', 'controlled_partner', 'normal_user'].includes(issueGuideProfile.key)) {
                             lastUserIssueGuideText.value = buildUserIssueGuideTextFromProfile(
                                 issueGuideProfile,
                                 res.data?.username || data.username,
                                 assignedHotelIds,
-                                res.data?.status ?? data.status ?? 1
+                                res.data?.status ?? data.status ?? 1,
+                                res.data?.authorization_expires_on ?? data.authorization_expires_on
                             );
                             showLastUserIssueGuideText.value = false;
                         }
@@ -48503,6 +49489,15 @@
                 showRoleModal.value = true;
             };
 
+            const applyControlledPartnerRolePreset = () => {
+                if (roleForm.value.id) return;
+                roleForm.value = {
+                    ...roleForm.value,
+                    ...controlledPartnerRolePreset,
+                    permissionList: [...controlledPartnerRolePreset.permissionList],
+                };
+            };
+
             const saveRole = async () => {
                 const isEdit = !!roleForm.value.id;
                 const url = isEdit ? `/roles/${roleForm.value.id}` : '/roles';
@@ -48510,7 +49505,7 @@
                 const data = { ...roleForm.value, permissions: roleForm.value.permissionList };
                 delete data.permissionList;
                 if (!isEdit) {
-                    delete data.name;
+                    if (!String(data.name || '').trim()) delete data.name;
                     delete data.status;
                 }
                 const res = await request(url, { method, body: JSON.stringify(data) });
@@ -50814,9 +51809,11 @@
                 loadManualNotificationCenter, loadManualNotificationMetadata, loadManualNotificationHistory, loadManualNotificationDispatchHistory, selectManualNotificationTemplate, selectManualNotificationContentMode, syncManualNotificationTargetRobot,
                 insertManualNotificationVariable, openMeituanTemporalSchedule, previewManualNotification, saveManualNotification, openManualNotificationRecord, testManualNotification, retryManualNotificationDispatch,
                 automationMonitorDate, automationMonitorStatusFilter, automationMonitor, automationMonitorLoading, automationMonitorError, automationMonitorManualBusyKey,
-                automationMonitorSummaryCards, automationMonitorFilteredRows,
+                automationMonitorContractHotelId, automationMonitorContract, automationMonitorContractLoading, automationMonitorContractSaving, automationMonitorContractError, automationMonitorPlanForm, automationCollectionContractBody,
+                automationMonitorSummaryCards, automationMonitorFilteredRows, automationMonitorContractHotelOptions, automationMonitorContractBinding, automationMonitorContractPlan, automationMonitorContractReasons, automationMonitorContractCanActivate,
+                automationMonitorContractStatusText, automationMonitorContractStatusClass, automationMonitorContractReasonText, automationMonitorContractSourceOptions,
                 automationMonitorSourceClass, automationMonitorSourceStatusText, automationMonitorSourceStatusHint, automationMonitorSourceLastSuccessText, automationMonitorNextPushCountdown, automationMonitorPushSuccessCountText, automationMonitorManualAction, automationMonitorManualActionLabel, automationMonitorManualActionClass, automationMonitorDataStatusClass, automationMonitorPushStatusClass,
-                triggerAutomationMonitorSource, openAutomationMonitorDrilldown, loadAutomationMonitor, refreshAutomationMonitor,
+                triggerAutomationMonitorSource, openAutomationMonitorDrilldown, loadAutomationMonitor, refreshAutomationMonitor, loadAutomationMonitorContract, saveAutomationMonitorPlan, openHotelCollectionDeviceOnboarding,
                 operationEvidenceModalOpen, operationEvidenceForm, closeOperationEvidenceModal, submitOperationExecutionEvidence,
                 operationReviewModalOpen, operationReviewForm, closeOperationReviewModal, submitOperationExecutionReview,
                 operationStrategyRequirementText, operationStrategyAmountRequired, operationStrategyDiscountRequired,
@@ -50949,7 +51946,7 @@
                 handleLogin, handleLoginFieldInput, handleLoginPasswordKeyEvent, clearLoginPasswordCapsLock, scheduleLoginAutofillSync, handleLogout, openLoginSupport, loadLoginSupportContact, closeLoginSupport, handleLoginSupportKeydown, copyLoginSupportContact, showToast,
                 openHotelModal, openHotelManagementForOta, loadHotelPmsBindingForModal, handleHotelPmsProviderChange, saveHotel, openHotelDeleteModal, closeHotelDeleteModal, confirmDeleteHotel, deactivateHotelDeleteTarget, deleteHotel, hotelDeleteIdentityText, openHotelMergeModal, closeHotelMergeModal, invalidateHotelMergePreview, previewHotelMerge, executeHotelMerge, toggleHotelStatus,
                 openUserModal, openUserAuthorization, closeHotelUserAuthorization, saveHotelUserAuthorization, openUserModalWithRole, applyUserIssueRole, applyUserRoleQuickFilter, resetUserFilters, saveUser, activateUser, deactivateUser, openUserLoginInfoModal, closeUserLoginInfoModal, confirmUserLoginInfoReset, copyLastUserIssueGuide, clearLastUserIssueGuide, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
-                rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
+                rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, applyControlledPartnerRolePreset, saveRole, deleteRole, togglePermission,
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
                 // 线上数据获取
@@ -51003,9 +52000,11 @@
                 dualOtaContinuousTrust, dualOtaContinuousDays, dualOtaCurrentTargetDay, dualOtaCurrentTargetDays, dualOtaCurrentAcceptanceStatus, dualOtaContinuousStatusText, dualOtaContinuousStatusClass,
                 dualOtaContinuousPlatformLabel, dualOtaContinuousStepRows, dualOtaContinuousSummaryText,
                 dualOtaContinuousReceipt, dualOtaContinuousReceiptStatus,
+                dualOtaPageVerification, dualOtaPageVerificationStatus, dualOtaPageVerificationStatusText, dualOtaPageVerificationStatusClass, dualOtaPageVerificationReasonText,
+                dualOtaPageVerificationCanConfirm, dualOtaPageVerificationSubmitting, dualOtaPageVerificationError, dualOtaPageVerificationPanelProps, confirmDualOtaPageVerification,
                 coreOperationsProfileSessionRows, coreOperationsProfileSessionBlockedRows, prepareCoreOperationsProfileSession, coreOperationsCanExecute, coreOperationsCanGenerateDiagnosis, coreOperationsCanCollect, coreOperationsDiagnosisGenerating, coreOperationsDiagnosisGenerationMessage, generateCoreOperationsDiagnoses,
                 otaConfigOverviewPageSize, otaConfigOverviewPages, otaConfigOverviewRefreshing, otaConfigOverviewProbeState, otaConfigOverviewSelectedCount, otaConfigOverviewHiddenSelectedCount, otaConfigOverviewPageCount, otaConfigOverviewPageNumber, otaConfigOverviewPageSummary, changeOtaConfigOverviewPage, isOtaConfigOverviewRowSelected, toggleOtaConfigOverviewRow, isOtaConfigOverviewPageSelected, toggleSelectOtaConfigOverviewPage, clearOtaConfigOverviewSelection, refreshOtaConfigOverviewStatus, probeOtaConfigOverviewRow, probeSelectedOtaConfigOverviewRows, runOtaConfigOverviewRowCollection, runSelectedOtaConfigOverviewCollection, deleteOtaConfigOverviewRow,
-                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolConfirming, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, coreOperationsTargetDate, coreOperationsMaxDate, coreOperationsHotelId, coreOperationsLoading, coreOperationsError, coreOperationsMetrics, coreOperationsDiagnoses, coreOperationsDiagnosisIntentLoading, coreOperationsSourceFetchVisibleState, coreOperationsSourceFetchRunning, coreOperationsSourceFetchActionText, coreOperationsSourceFetchStatusClass, coreOperationsSourceFetchModeText, coreOperationsSelectedWorkbenchRow, coreOperationsPlatformCards, coreOperationsCompetitorRows, coreOperationsCompetitorError, coreOperationsAnomalyRows, coreOperationsAiSuggestions, coreOperationsActionRows, coreOperationsExecutionItems, coreOperationsStepRows, coreOperationsEvidenceStatusText, coreOperationsEvidenceStatusClass, refreshCoreOperationsLoop, runCoreOperationsYesterdayFetch, createCoreOperationsDiagnosisIntent, openCoreOperationsHotelOnboarding, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchPagedRows, manualOneClickFetchPagination, manualOneClickFetchPage, manualOneClickFetchPageSize, setManualOneClickFetchStatusFilter, changeManualOneClickFetchPage, changeManualOneClickFetchPageSize, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
+                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolConfirming, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, coreOperationsTargetDate, coreOperationsMaxDate, coreOperationsHotelId, coreOperationsLoading, coreOperationsError, coreOperationsMetrics, coreOperationsDiagnoses, coreOperationsDiagnosisIntentLoading, coreOperationsSourceFetchVisibleState, coreOperationsSourceFetchRunning, coreOperationsSourceFetchActionText, coreOperationsSourceFetchStatusClass, coreOperationsSourceFetchDisplayStatus, coreOperationsSourceFetchModeText, coreOperationsSelectedWorkbenchRow, coreOperationsPlatformCards, coreOperationsCompetitorRows, coreOperationsCompetitorError, coreOperationsAnomalyRows, coreOperationsAiSuggestions, coreOperationsActionRows, coreOperationsExecutionItems, coreOperationsStepRows, coreOperationsEvidenceStatusText, coreOperationsEvidenceStatusClass, refreshCoreOperationsLoop, runCoreOperationsYesterdayFetch, createCoreOperationsDiagnosisIntent, openCoreOperationsHotelOnboarding, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchPagedRows, manualOneClickFetchPagination, manualOneClickFetchPage, manualOneClickFetchPageSize, setManualOneClickFetchStatusFilter, changeManualOneClickFetchPage, changeManualOneClickFetchPageSize, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
                 dashboardAccountSummaryCards, dashboardCoreKpis, dashboardRiskAlerts, dashboardTodayActions, dashboardPortraitSections, dashboardDataSourceDiagnostics,
@@ -51040,7 +52039,7 @@
                 resetOnlineHistoryFilter, changeOnlineHistoryPage, applyOnlineHistoryDatePreset, toggleOnlineHistoryDetail, toggleOnlineHistoryRaw, formatOnlineHistoryRaw,
                 selectedOnlineDataIds, isAutoFetchRecordDeletable, autoFetchRecordDeletableRows, toggleSelectAllOnlineData, isAllOnlineDataSelected, batchDeleteOnlineData, clearAutoFetchRecordHistory,
                 autoFetchScheduleTime, autoFetchScheduleMinute, autoFetchRealtimeIntervalHours, autoFetchBrowserHeadless, autoFetchCtripSectionConcurrency, saveFetchSchedule, autoFetchHotelId, autoFetchMode, autoFetchModeOptions, autoFetchModeLabel, autoFetchRunState, autoFetchRunElapsedSeconds, formatAutoFetchElapsed, autoFetchRunningHint, loadAutoFetchPanel, schedulePlatformAutoFetchPanelLoad, openPlatformAutoTab, openOnlinePlatformAutoTab, platformAutoSettingsPanelsReady, platformAutoSettingsPanelsBody, platformAutoSecondaryPanelsReady, platformAutoSecondaryPanelsBody,
-                autoFetchCollectionBlueprintRows, autoFetchPlatformCards, autoFetchPlatformProgressRows, autoFetchPlatformResultRows, autoFetchTimingRows, autoFetchCtripExecutionText, autoFetchResultStatusText, autoFetchResultStatusClass, autoFetchResultMessage, autoFetchModuleLabel, formatAutoFetchMs,
+                autoFetchCollectionBlueprintRows, autoFetchPlatformCards, autoFetchPlatformProgressRows, autoFetchPlatformResultRows, autoFetchCanonicalOperationStatus, autoFetchTimingRows, autoFetchCtripExecutionText, autoFetchResultStatusText, autoFetchResultStatusClass, autoFetchResultMessage, autoFetchModuleLabel, formatAutoFetchMs,
                 autoFetchBackfillDate, autoFetchBackfillingDate, autoFetchMaxBackfillDate, autoFetchLegacyItems, autoFetchRecentRuns, retryAutoFetchDate,
                 loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, openAutoFetchRecordAnalysis, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter, openMeituanStoredBusinessDate, openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData,
                 getMeituanExposureMetric, getMeituanClickMetric, getMeituanVisitorMetric, getMeituanSubmitMetric, getMeituanFlowRateMetric, hasMeituanExposureMetric, hasMeituanClickMetric, hasMeituanVisitorMetric, hasMeituanFlowRateMetric, isMeituanTrafficDataRow, isMeituanOrderDataRow, isMeituanAdsDataRow,
@@ -51125,7 +52124,7 @@
                 otaDiagnosisHotelOptions, otaDiagnosisSelectedHotel, otaDiagnosisHotelPickerOpen, otaDiagnosisHotelKeyword,
                 otaDiagnosisFilteredHotelOptions, otaDiagnosisHotelSourceText, toggleOtaDiagnosisHotelPicker, selectOtaDiagnosisHotel,
                 otaDiagnosisPlatformText, otaDiagnosisDateRangeText,
-                otaDiagnosisPriorityClass, otaDiagnosisPriorityText, otaDiagnosisMetricCards, otaDiagnosisResultSections, otaDiagnosisDecisionClosureCards, otaDiagnosisBusinessLoopSteps, otaDiagnosisActionRows, otaDiagnosisDataGapRows, otaDiagnosisDecisionStatusTextFor, otaDiagnosisDecisionStatusClassFor, otaDiagnosisDataGaps, otaDiagnosisActionItems,
+                otaDiagnosisPriorityClass, otaDiagnosisPriorityText, otaDiagnosisMetricCards, otaDiagnosisResultSections, otaDiagnosisDecisionClosureCards, otaDiagnosisBusinessLoopSteps, otaDiagnosisActionRows, otaDiagnosisActionCount, otaDiagnosisApprovableTaskCount, otaDiagnosisDataGapRows, otaDiagnosisDecisionStatusTextFor, otaDiagnosisDecisionStatusClassFor, otaDiagnosisDataGaps, otaDiagnosisActionItems,
                 setOtaDiagnosisRange, normalizeOtaDiagnosisList, generateOtaDiagnosis, createOtaDiagnosisExecutionIntent, openSavedOtaDiagnosis, switchAgentTab,
                 revenueAgentTab, priceSuggestions, priceSuggestionFilter, priceSuggestionGenerating, priceSuggestionGenerateResult, priceSuggestionReview, priceSuggestionReviewHasComparableSamples, priceSuggestionReviewMetricText, priceSuggestionReviewSampleCountText, competitorAlertPriceText, agentPricingGenerationPreflightSummary,
                 roomTypeConfigList, roomTypeConfigMeta, roomTypeConfigSaving, roomTypeConfigForm,
@@ -51249,7 +52248,8 @@
         fullRenderPromotionScheduled = false;
         const fullRender = window.SUXI_APP_RENDER;
         const targetPage = pendingFullRenderPage;
-        if (typeof fullRender !== 'function' || !targetPage) return false;
+        const deferredAssetsReady = document.documentElement.dataset.suxiFullRenderReady === '1';
+        if (typeof fullRender !== 'function' || !targetPage || !deferredAssetsReady) return false;
         const authBootstrapRead = pendingAuthBootstrapRead();
         if (authBootstrapRead) {
             fullRenderPromotionScheduled = true;

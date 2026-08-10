@@ -605,6 +605,22 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     'capture_plan' => $capturePlan,
                 ]
             );
+            if (($result['status'] ?? '') === 'success') {
+                $sectionPayload = is_array($result['payload'] ?? null) ? $result['payload'] : [];
+                if (!$this->captureNetworkFreshnessReady($sectionPayload)) {
+                    $result = [
+                        'status' => 'failed',
+                        'status_code' => 'capture_network_freshness_unverified',
+                        'error_code' => 'capture_network_freshness_unverified',
+                        'message' => 'Ctrip browser capture network freshness proof is incomplete.',
+                        'payload' => [
+                            'network_freshness' => is_array($sectionPayload['network_freshness'] ?? null)
+                                ? $sectionPayload['network_freshness']
+                                : [],
+                        ],
+                    ];
+                }
+            }
             $moduleResults[] = $this->captureModuleResultSummary($section, $result);
 
             if (($result['status'] ?? '') === 'success') {
@@ -847,6 +863,25 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
+        // A capture process may write a diagnostic payload before exiting
+        // non-zero. It is useful for the failure message, but it must never be
+        // promoted into successful rows. Combined with the run-unique output
+        // path below, this prevents a failed invocation from accepting a
+        // residual payload created by another invocation in the same second.
+        if (($runResult['success'] ?? false) !== true) {
+            $message = $this->buildProcessFailureMessage(
+                'Ctrip browser capture process failed',
+                $runResult
+            );
+            return [
+                'status' => 'failed',
+                'status_code' => 'capture_process_failed',
+                'error_code' => 'capture_process_failed',
+                'message' => $message,
+                'payload' => $this->compactFailurePayload($payload, $runResult),
+            ];
+        }
+
         $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $hotelId);
         if (empty($rows)) {
             return [
@@ -881,6 +916,11 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
      */
     private function mergeSequentialCapturePayloads(array $payloads, array $moduleResults, array $sectionList, string $profileId, string $dataDate): array
     {
+        foreach ($payloads as $payload) {
+            if (!$this->captureNetworkFreshnessReady($payload)) {
+                throw new \RuntimeException('Ctrip sequential capture network freshness proof is incomplete.');
+            }
+        }
         $base = $payloads[0];
         foreach (['pages', 'responses', 'xhr_urls', 'unmatched_xhr_urls', 'endpoint_candidates', 'p3_evidence_drafts', 'rows', 'standard_rows', 'catalog_facts', 'business', 'traffic', 'reviews', 'read_fallbacks', 'screenshots'] as $key) {
             $base[$key] = $this->mergePayloadLists($payloads, $key);
@@ -940,6 +980,19 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         return $base;
     }
 
+    /** @param array<string, mixed> $payload */
+    private function captureNetworkFreshnessReady(array $payload): bool
+    {
+        $freshness = is_array($payload['network_freshness'] ?? null)
+            ? $payload['network_freshness']
+            : [];
+
+        return strtolower(trim((string)($freshness['status'] ?? ''))) === 'ready'
+            && ($freshness['http_cache_disabled'] ?? null) === true
+            && ($freshness['service_worker_bypassed'] ?? null) === true
+            && ($freshness['sensitive_values_exposed'] ?? null) === false;
+    }
+
     /**
      * @param array<int, array<string, mixed>> $payloads
      * @return array<int, mixed>
@@ -975,7 +1028,13 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
     private function captureOutputPath(string $outputDir, string $profileId, string $section = ''): string
     {
-        $suffix = date('YmdHis') . ($section !== '' ? '_' . $this->safeName($section) : '');
+        // A second-resolution filename can be reused after a rapid retry. A
+        // cryptographic run token makes the output path itself a one-shot
+        // capability owned by this exact process invocation.
+        $runToken = bin2hex(random_bytes(16));
+        $suffix = date('YmdHis')
+            . ($section !== '' ? '_' . $this->safeName($section) : '')
+            . '_' . $runToken;
         return $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_source_' . $this->safeName($profileId) . '_' . $suffix . '.json';
     }
 

@@ -28,6 +28,7 @@ final class CtripCompetitiveOperationsService
         $businessRows = Db::name('online_daily_data')
             ->where('system_hotel_id', $systemHotelId)
             ->where('source', 'ctrip')
+            ->whereRaw("LOWER(TRIM(`platform`)) = 'ctrip'")
             ->where('data_type', 'competitor')
             ->whereBetween('data_date', [$startDate, $endDate])
             ->order('data_date', 'asc')
@@ -37,6 +38,7 @@ final class CtripCompetitiveOperationsService
         $trafficRows = Db::name('online_daily_data')
             ->where('system_hotel_id', $systemHotelId)
             ->where('source', 'ctrip')
+            ->whereRaw("LOWER(TRIM(`platform`)) = 'ctrip'")
             ->where('data_type', 'traffic')
             ->whereBetween('data_date', [$startDate, $endDate])
             ->order('data_date', 'asc')
@@ -89,6 +91,8 @@ final class CtripCompetitiveOperationsService
         string $ownOtaHotelId = '',
         array $context = []
     ): array {
+        $businessRows = $this->ctripScopedRows($businessRows);
+        $trafficRows = $this->ctripScopedRows($trafficRows);
         $profileMap = $this->profileMap($profiles);
         $business = $this->normalizeBusinessRows($businessRows, $ownOtaHotelId);
         $traffic = $this->normalizeTrafficRows($trafficRows, $ownOtaHotelId);
@@ -161,6 +165,25 @@ final class CtripCompetitiveOperationsService
             'scope_notice' => '经营、流量、排名与异常均为携程 OTA 竞争圈口径，不代表全酒店/PMS经营事实；异常是排查线索，不代表已证明因果。',
             'room_count_semantics' => CtripPublicHotelProfileService::ROOM_COUNT_SEMANTICS,
         ];
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function ctripScopedRows(array $rows): array
+    {
+        return array_values(array_filter($rows, static function (mixed $row): bool {
+            if (!is_array($row)) {
+                return false;
+            }
+            if (array_key_exists('platform', $row)) {
+                return strtolower(trim((string)$row['platform'])) === 'ctrip';
+            }
+            if (array_key_exists('source', $row)) {
+                return strtolower(trim((string)$row['source'])) === 'ctrip';
+            }
+
+            // Public analyzeRows callers may provide already-scoped fixtures.
+            return true;
+        }));
     }
 
     /** @return array<int,array<string,mixed>> */

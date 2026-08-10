@@ -5482,11 +5482,28 @@ function p0_traffic_row_scope(array $row, string $platform): array
             'reason' => 'meituan_refresh_timestamp_not_business_date_evidence',
         ];
     }
-    if ($normalizedPlatform !== 'ctrip') {
+    if ($normalizedPlatform === 'meituan') {
+        if (!\app\service\OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic(
+            $row,
+            $normalizedPlatform
+        )) {
+            return [
+                'authoritative' => false,
+                'endpoint_id' => $endpointId,
+                'reason' => 'meituan_authoritative_capture_source_invalid',
+            ];
+        }
         return [
             'authoritative' => true,
             'endpoint_id' => $endpointId,
-            'reason' => 'platform_traffic_scope',
+            'reason' => 'meituan_network_response_traffic_scope',
+        ];
+    }
+    if ($normalizedPlatform !== 'ctrip') {
+        return [
+            'authoritative' => false,
+            'endpoint_id' => $endpointId,
+            'reason' => 'unsupported_platform_traffic_scope',
         ];
     }
     if ($endpointId === '__endpoint_conflict__') {
@@ -5747,6 +5764,30 @@ function p0_authoritative_storage_evidence_rows(
                 && (string)(p0_observed_traffic_metric_provenance($raw, $platform)['status'] ?? '') === 'ready'
                 && ($targetDate === '' || p0_ctrip_query_flow_row_proof_ready($row, $targetDate, $today));
         }
+    ));
+}
+
+/**
+ * Keep one fail-closed authority generation. A newer exact task supersedes
+ * older persisted task rows for the same hotel/source/platform/date; if the
+ * newest task's receipt is incomplete, callers must block instead of falling
+ * back to an older successful task.
+ *
+ * @param array<int, array<string, mixed>> $rows
+ * @return array<int, array<string, mixed>>
+ */
+function p0_latest_authoritative_task_rows(array $rows): array
+{
+    $latestTaskId = 0;
+    foreach ($rows as $row) {
+        $latestTaskId = max($latestTaskId, (int)($row['sync_task_id'] ?? 0));
+    }
+    if ($latestTaskId <= 0) {
+        return [];
+    }
+    return array_values(array_filter(
+        $rows,
+        static fn(array $row): bool => (int)($row['sync_task_id'] ?? 0) === $latestTaskId
     ));
 }
 
@@ -6184,10 +6225,12 @@ function p0_resolve_traffic_storage_scope(string $platform, string $targetDate, 
                     ->field(implode(',', $candidateRowFields))
                     ->select()
                     ->toArray();
-                $authoritativeRows = p0_authoritative_storage_evidence_rows(
-                    $candidateRows,
-                    $platform,
-                    $targetDate
+                $authoritativeRows = p0_latest_authoritative_task_rows(
+                    p0_authoritative_storage_evidence_rows(
+                        $candidateRows,
+                        $platform,
+                        $targetDate
+                    )
                 );
                 $exactRunReadbackRequired = $authoritativeRows !== [];
                 $evidenceTaskIds = array_values(array_unique(array_filter(array_map(
@@ -6832,6 +6875,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     $base['field_loop_matrix'] = p0_traffic_field_loop_matrix_values($fieldLoopMatrix);
     $base = array_merge($base, p0_standard_fact_summary($requiredMetricKeys, $requiredStorageFields, (array)$base['field_loop_matrix'], (int)$base['traffic_row_count']));
     $standardFactsReady = (string)($base['standard_fact_status'] ?? '') === 'ready';
+    $normalizedProjectionConflictRows = (int)$base['unresolved_normalized_projection_rows'];
     $uiClosureReady = (int)$base['ui_status_ready_rows'] > 0
         && $standardFactsReady
         && (int)$base['ui_status_incomplete_rows'] === 0;
@@ -6842,9 +6886,15 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         && $uiClosureReady
         && (string)$base['platform_hotel_identifier_status'] === 'ready'
         && ($platform !== 'meituan' || (string)$base['readback_status'] === 'ready')
+        && $normalizedProjectionConflictRows === 0
         ? 'ready'
         : 'incomplete';
-    if (!$observedMetricProvenanceReady) {
+    if ($normalizedProjectionConflictRows > 0) {
+        $base['status'] = 'normalized_projection_conflict';
+        $base['scope_block_reason'] = 'normalized_projection_conflict';
+        $base['standard_fact_status'] = 'normalized_projection_conflict';
+        $base['standard_fact_status_counts']['normalized_projection_conflict'] = $normalizedProjectionConflictRows;
+    } elseif (!$observedMetricProvenanceReady) {
         $base['status'] = 'synthetic_normalization_provenance_missing';
         $base['scope_block_reason'] = 'synthetic_normalization_provenance_missing';
         $base['standard_fact_status'] = 'synthetic_normalization_provenance_missing';
@@ -7430,6 +7480,8 @@ function p0_platform_traffic_gate(array $traffic): array
     $requiredMetricValuePolicy = (string)($trafficFieldFacts['required_metric_value_policy'] ?? 'P0 traffic closure requires non-zero target-date core traffic metric evidence or explicit zero confirmation.');
     $observedMetricProvenanceStatus = (string)($trafficFieldFacts['observed_traffic_metric_provenance_status'] ?? 'not_loaded');
     $syntheticNormalizationProvenanceMissingRows = (int)($trafficFieldFacts['synthetic_normalization_provenance_missing_rows'] ?? 0);
+    $normalizedProjectionReferenceRows = (int)($trafficFieldFacts['normalized_projection_reference_rows'] ?? 0);
+    $unresolvedNormalizedProjectionRows = (int)($trafficFieldFacts['unresolved_normalized_projection_rows'] ?? 0);
     $readbackCheckSupported = (bool)($trafficFieldFacts['readback_check_supported'] ?? false);
     $readbackVerifiedRows = (int)($trafficFieldFacts['readback_verified_rows'] ?? 0);
     $readbackUnverifiedRows = (int)($trafficFieldFacts['readback_unverified_rows'] ?? 0);
@@ -7511,6 +7563,7 @@ function p0_platform_traffic_gate(array $traffic): array
         && $requiredMetricValuesReady
         && $runReadbackMembershipStatus === 'ready'
         && $readbackReady
+        && $unresolvedNormalizedProjectionRows === 0
         && $trafficRows > 0
         && (bool)($traffic['sensitive_values_exposed'] ?? false) === false;
 
@@ -7523,6 +7576,8 @@ function p0_platform_traffic_gate(array $traffic): array
         $status = 'exact_run_readback_scope_mismatch';
     } elseif ($trafficRows <= 0) {
         $status = 'missing_target_date_traffic_rows';
+    } elseif ($unresolvedNormalizedProjectionRows > 0 || $fieldFactStatus === 'normalized_projection_conflict') {
+        $status = 'normalized_projection_conflict';
     } elseif ($observedMetricProvenanceStatus !== 'ready' || $syntheticNormalizationProvenanceMissingRows > 0) {
         $status = 'synthetic_normalization_provenance_missing';
     } elseif ($requiredMetricValueStatus === 'zero_value_unverified' || $fieldFactStatus === 'zero_value_unverified' || $standardFactStatus === 'zero_value_unverified') {
@@ -7544,6 +7599,9 @@ function p0_platform_traffic_gate(array $traffic): array
         'traffic_row_source' => $trafficRowSource,
         'traffic_row_source_detail' => $trafficRowSourceDetail,
         'traffic_field_fact_status' => $fieldFactStatus,
+        'normalized_projection_reference_rows' => $normalizedProjectionReferenceRows,
+        'unresolved_normalized_projection_rows' => $unresolvedNormalizedProjectionRows,
+        'normalized_projection_policy' => (string)($trafficFieldFacts['normalized_projection_policy'] ?? ''),
         'observed_traffic_metric_provenance_status' => $observedMetricProvenanceStatus,
         'synthetic_normalization_provenance_missing_rows' => $syntheticNormalizationProvenanceMissingRows,
         'p0_standard_fact_policy' => (string)($trafficFieldFacts['standard_fact_policy'] ?? 'derived_from_p0_field_loop_matrix_ota_channel_only'),
@@ -8171,15 +8229,21 @@ try {
                 $trafficFieldFactClosure = p0_array($traffic['traffic_field_fact_closure'] ?? null);
                 if ((string)($trafficFieldFactClosure['status'] ?? '') !== 'ready') {
                     $closureStatus = (string)($trafficFieldFactClosure['status'] ?? 'incomplete');
+                    $projectionConflict = $closureStatus === 'normalized_projection_conflict';
+                    $provenanceMissing = $closureStatus === 'synthetic_normalization_provenance_missing';
                     p0_add_issue(
                         $issues,
                         'incomplete',
-                        $closureStatus === 'synthetic_normalization_provenance_missing'
-                            ? $platformName . '_synthetic_normalization_provenance_missing'
-                            : $platformName . '_traffic_field_fact_closure_incomplete',
-                        $closureStatus === 'synthetic_normalization_provenance_missing'
-                            ? 'Authoritative traffic rows are missing required observed-metric provenance and may contain synthetic normalized zeroes.'
-                            : 'Target-date traffic rows exist but required traffic metric field facts are not fully closed.',
+                        $projectionConflict
+                            ? $platformName . '_normalized_projection_conflict'
+                            : ($provenanceMissing
+                                ? $platformName . '_synthetic_normalization_provenance_missing'
+                                : $platformName . '_traffic_field_fact_closure_incomplete'),
+                        $projectionConflict
+                            ? 'Raw traffic facts and normalized catalog projections disagree for the same hotel, business date and metric tuple.'
+                            : ($provenanceMissing
+                                ? 'Authoritative traffic rows are missing required observed-metric provenance and may contain synthetic normalized zeroes.'
+                                : 'Target-date traffic rows exist but required traffic metric field facts are not fully closed.'),
                         [
                             'traffic_field_fact_closure' => $trafficFieldFactClosure,
                             'required_metric_keys' => p0_required_traffic_metric_keys($platformName),

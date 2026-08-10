@@ -1993,7 +1993,7 @@ includesAll('public/revenue-ai-static.js', 'Revenue AI helper exposes manual rev
   "endpoint.startsWith('/revenue-ai/price-suggestions/')",
 ]);
 
-includesAll('public/index.html', 'Revenue AI homepage can execute the manual closure path only through local evidence routes', [
+includesAll('public/index.html', 'Revenue AI homepage keeps execution evidence local and reads ROI from verified reconciliation', [
   'item.actionButtons',
   '@click="submitRevenueAiReviewAction(item, button.key)"',
   "if (normalizedAction === 'execution_intent') {",
@@ -2013,9 +2013,10 @@ includesAll('public/index.html', 'Revenue AI homepage can execute the manual clo
   "`/operation/execution-tasks/${taskId}/evidence`",
   "`/operation/execution-tasks/${taskId}/review`",
   "evidence_type: 'manual_price_execution'",
-  "evidence_type: 'manual_roi_evidence'",
   "evidence_boundary: 'local_manual_evidence_no_ota_write'",
-  "evidence_boundary: 'local_manual_roi_evidence_no_ota_write'",
+  'operationCanReconcileExecution(item)',
+  "`/operation/execution-tasks/${taskId}/reconcile-review`",
+  '执行回执与效果证据已分开；请等待同酒店、同平台、同指标的次日来源回读，不能用人工收入替代。',
   'data-testid="revenue-ai-trusted-decision"',
   'item.trustedDecisionRows',
   '转运营任务',
@@ -2075,6 +2076,11 @@ includesAll('public/index.html', 'Revenue AI homepage can execute the manual clo
   'action.investmentPrecheckVisible',
   'action.resolutionPlanVisible',
   '只读',
+]);
+
+excludesAll('public/index.html', 'Revenue AI homepage cannot replace verified ROI facts with manual evidence', [
+  "evidence_type: 'manual_roi_evidence'",
+  "evidence_boundary: 'local_manual_roi_evidence_no_ota_write'",
 ]);
 
 excludesAll('public/index.html', 'Agent pricing suggestion workbench no longer bypasses Revenue AI review bridge', [

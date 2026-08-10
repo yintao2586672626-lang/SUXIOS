@@ -18,23 +18,40 @@ final class CanonicalOtaInvestigationDraftService
     public const SCHEMA_VERSION = 'canonical_ota_investigation_drafts.v2';
 
     private const PROMOTION_VERSION = 'ota_canonical_history_promotion.v3';
+    private const OPERATION_ROW_SELECTION_VERSION = 'ota_operation_row_selection.v1';
+    private const OPERATION_ROW_SELECTION_POLICY =
+        'singleton_or_equivalent_required_metrics_min_row_id.v1';
 
-    /** @var array<int,string> */
+    /** @var array<string,array<int,string>> */
     private const REQUIRED_TRAFFIC_METRICS = [
-        'list_exposure',
-        'detail_exposure',
-        'flow_rate',
-        'order_filling_num',
-        'order_submit_num',
+        'ctrip' => [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ],
+        'meituan' => [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+        ],
     ];
 
-    /** @var array<string,string> */
+    /** @var array<string,array<string,string>> */
     private const EXPECTED_STORAGE_FIELDS = [
-        'list_exposure' => 'online_daily_data.list_exposure',
-        'detail_exposure' => 'online_daily_data.detail_exposure',
-        'flow_rate' => 'online_daily_data.flow_rate',
-        'order_filling_num' => 'online_daily_data.order_filling_num',
-        'order_submit_num' => 'online_daily_data.order_submit_num',
+        'ctrip' => [
+            'list_exposure' => 'online_daily_data.list_exposure',
+            'detail_exposure' => 'online_daily_data.detail_exposure',
+            'flow_rate' => 'online_daily_data.flow_rate',
+            'order_filling_num' => 'online_daily_data.order_filling_num',
+            'order_submit_num' => 'online_daily_data.order_submit_num',
+        ],
+        'meituan' => [
+            'list_exposure' => 'online_daily_data.list_exposure',
+            'detail_exposure' => 'online_daily_data.detail_exposure',
+            'flow_rate' => 'online_daily_data.flow_rate',
+        ],
     ];
 
     /** @var \Closure(array<string,mixed>):(?array<string,mixed>) */
@@ -171,10 +188,10 @@ final class CanonicalOtaInvestigationDraftService
             throw new RuntimeException('canonical_row_not_found_in_exact_scope');
         }
         $this->assertCanonicalRow($row, $scope);
-        $this->assertObservedTrafficMetricProvenance($row);
+        $this->assertObservedTrafficMetricProvenance($row, $scope['platform']);
         $this->assertCanonicalRowValidationStatus($row);
         $this->assertCanonicalRowAttribution($row, $scope);
-        $metricFacts = $this->validatedTrafficMetricFacts($row);
+        $metricFacts = $this->validatedTrafficMetricFacts($row, $scope['platform']);
 
         $task = ($this->taskLoader)($scope);
         if (!is_array($task)) {
@@ -184,6 +201,18 @@ final class CanonicalOtaInvestigationDraftService
         $runReadback = $this->assertRunReadback($stats, $scope);
         $promotion = $this->assertPromotionReceipt($stats, $scope, $metricFacts);
         $this->assertCurrentAuthorityBinding($row, $scope, $promotion, $metricFacts);
+        $selectedFactDigest = $this->selectedPromotionRowDigest(
+            $promotion,
+            $scope['row_id'],
+            'authoritative_row_fact_digests',
+            'authoritative_fact_digest'
+        );
+        $selectedIdentityDigest = $this->selectedPromotionRowDigest(
+            $promotion,
+            $scope['row_id'],
+            'authoritative_row_platform_hotel_identity_digests',
+            'platform_hotel_identity_digest'
+        );
 
         $evidenceRef = [
             'canonical_row' => 'online_daily_data#' . $scope['row_id'],
@@ -203,7 +232,9 @@ final class CanonicalOtaInvestigationDraftService
             'traffic_attribution' => 'authoritative_p0',
             'promotion_version' => self::PROMOTION_VERSION,
             'promotion_content_digest' => (string)$promotion['content_digest'],
-            'authoritative_fact_digest' => (string)$promotion['authoritative_fact_digest'],
+            'authoritative_fact_digest' => $selectedFactDigest,
+            'promotion_authoritative_fact_digest' => (string)$promotion['authoritative_fact_digest'],
+            'platform_hotel_identity_digest' => $selectedIdentityDigest,
             'promotion_verified_at' => (string)$promotion['verified_at'],
             'run_readback_row_ids' => $this->positiveIds($runReadback['row_ids'] ?? []),
             'traffic_metric_values' => $metricFacts['values'],
@@ -216,8 +247,8 @@ final class CanonicalOtaInvestigationDraftService
             'schema_version' => self::SCHEMA_VERSION,
             'scope' => $scope,
             'promotion_content_digest' => (string)$promotion['content_digest'],
-            'authoritative_fact_digest' => (string)$promotion['authoritative_fact_digest'],
-            'action_codes' => array_column($this->draftDefinitions(), 'action_code'),
+            'authoritative_fact_digest' => $selectedFactDigest,
+            'action_codes' => array_column($this->draftDefinitions($scope['platform']), 'action_code'),
         ];
         $idempotencyKey = $this->digest($basis);
         $draftSet = [
@@ -285,12 +316,16 @@ final class CanonicalOtaInvestigationDraftService
      */
     private function assertCanonicalTask(array $task, array $scope): array
     {
+        $taskDataType = strtolower(trim((string)($task['data_type'] ?? '')));
+        $allowedTaskDataTypes = $scope['platform'] === 'meituan'
+            ? ['business', 'traffic']
+            : ['traffic'];
         $matches = (int)($task['id'] ?? 0) === $scope['task_id']
             && (int)($task['tenant_id'] ?? 0) === $scope['tenant_id']
             && (int)($task['system_hotel_id'] ?? 0) === $scope['hotel_id']
             && (int)($task['data_source_id'] ?? 0) === $scope['data_source_id']
             && strtolower(trim((string)($task['platform'] ?? ''))) === $scope['platform']
-            && strtolower(trim((string)($task['data_type'] ?? ''))) === 'traffic';
+            && in_array($taskDataType, $allowedTaskDataTypes, true);
         if (!$matches) {
             throw new RuntimeException('canonical_task_scope_mismatch');
         }
@@ -334,7 +369,7 @@ final class CanonicalOtaInvestigationDraftService
         if (!in_array($scope['row_id'], $this->positiveIds($readback['row_ids'] ?? []), true)) {
             throw new RuntimeException('canonical_run_readback_row_missing');
         }
-        $requiredMetrics = self::REQUIRED_TRAFFIC_METRICS;
+        $requiredMetrics = $this->requiredTrafficMetrics($scope['platform']);
         sort($requiredMetrics, SORT_STRING);
         if ($this->normalizedStringSet($readback['required_traffic_metric_keys'] ?? []) !== $requiredMetrics
             || $this->normalizedStringSet($readback['complete_traffic_metric_keys'] ?? []) !== $requiredMetrics
@@ -357,6 +392,7 @@ final class CanonicalOtaInvestigationDraftService
         $receipt = is_array($stats['canonical_history_promotion'] ?? null)
             ? $stats['canonical_history_promotion']
             : [];
+        $rowIds = $this->positiveIds($receipt['row_ids'] ?? []);
         $matches = (string)($receipt['version'] ?? '') === self::PROMOTION_VERSION
             && (int)($receipt['tenant_id'] ?? 0) === $scope['tenant_id']
             && (int)($receipt['system_hotel_id'] ?? 0) === $scope['hotel_id']
@@ -365,14 +401,19 @@ final class CanonicalOtaInvestigationDraftService
             && strtolower(trim((string)($receipt['data_period'] ?? ''))) === $scope['data_period']
             && (int)($receipt['data_source_id'] ?? 0) === $scope['data_source_id']
             && (int)($receipt['sync_task_id'] ?? 0) === $scope['task_id']
-            && $this->positiveIds($receipt['row_ids'] ?? []) === [$scope['row_id']];
+            && $rowIds !== []
+            && in_array($scope['row_id'], $rowIds, true);
         if (!$matches) {
             throw new RuntimeException('canonical_promotion_receipt_scope_mismatch');
         }
-        if ((int)($receipt['nonzero_required_metric_rows'] ?? -1)
-                !== (int)$metricFacts['nonzero_required_metric_rows']
-            || (int)($receipt['explicit_zero_confirmed_rows'] ?? -1)
-                !== (int)$metricFacts['explicit_zero_confirmed_rows']
+        $nonzeroRows = (int)($receipt['nonzero_required_metric_rows'] ?? -1);
+        $explicitZeroRows = (int)($receipt['explicit_zero_confirmed_rows'] ?? -1);
+        if ($nonzeroRows < 0
+            || $explicitZeroRows < 0
+            || $nonzeroRows + $explicitZeroRows !== count($rowIds)
+            || (count($rowIds) === 1
+                && ($nonzeroRows !== (int)$metricFacts['nonzero_required_metric_rows']
+                    || $explicitZeroRows !== (int)$metricFacts['explicit_zero_confirmed_rows']))
             || (int)$metricFacts['nonzero_required_metric_rows']
                 + (int)$metricFacts['explicit_zero_confirmed_rows'] !== 1
             || strtolower(trim((string)(
@@ -402,6 +443,91 @@ final class CanonicalOtaInvestigationDraftService
             throw new RuntimeException('canonical_promotion_receipt_verified_at_missing');
         }
 
+        foreach ([
+            'authoritative_row_fact_digests',
+            'authoritative_row_platform_hotel_identity_digests',
+        ] as $mapField) {
+            $map = $this->promotionRowDigestMap($receipt[$mapField] ?? null, $rowIds);
+            if ($map === []) {
+                // The first v3 producer emitted only aggregate digests. It is
+                // safe to retain that shape solely for an exact singleton.
+                if ($rowIds !== [$scope['row_id']] || array_key_exists($mapField, $receipt)) {
+                    throw new RuntimeException('canonical_promotion_receipt_row_digest_map_invalid');
+                }
+                continue;
+            }
+        }
+
+        $selectionFields = [
+            'operation_row_selection_version',
+            'operation_row_selection_status',
+            'operation_row_selection_policy',
+            'operation_row_candidate_ids',
+            'selected_operation_row_id',
+            'operation_row_metric_digests',
+            'operation_row_selection_digest',
+        ];
+        $hasSelectionField = false;
+        foreach ($selectionFields as $field) {
+            $hasSelectionField = $hasSelectionField || array_key_exists($field, $receipt);
+        }
+        if (!$hasSelectionField) {
+            if ($rowIds !== [$scope['row_id']]) {
+                throw new RuntimeException('canonical_promotion_operation_row_selection_missing');
+            }
+        } else {
+            $candidateRowIds = $this->positiveIds(
+                $receipt['operation_row_candidate_ids'] ?? []
+            );
+            $selectedRowId = (int)($receipt['selected_operation_row_id'] ?? 0);
+            $metricDigests = $this->promotionRowDigestMap(
+                $receipt['operation_row_metric_digests'] ?? null,
+                $rowIds
+            );
+            $selection = [
+                'version' => trim((string)($receipt['operation_row_selection_version'] ?? '')),
+                'status' => strtolower(trim((string)(
+                    $receipt['operation_row_selection_status'] ?? ''
+                ))),
+                'policy' => trim((string)($receipt['operation_row_selection_policy'] ?? '')),
+                'platform' => $scope['platform'],
+                'tenant_id' => $scope['tenant_id'],
+                'system_hotel_id' => $scope['hotel_id'],
+                'data_source_id' => $scope['data_source_id'],
+                'sync_task_id' => $scope['task_id'],
+                'target_date' => $scope['target_date'],
+                'data_period' => $scope['data_period'],
+                'candidate_row_ids' => $candidateRowIds,
+                'selected_row_id' => $selectedRowId,
+                'row_metric_digests' => $metricDigests,
+            ];
+            $selectionDigest = strtolower(trim((string)(
+                $receipt['operation_row_selection_digest'] ?? ''
+            )));
+            $selectedMetricDigest = $this->digest([
+                'required_metric_keys' => $this->requiredTrafficMetrics($scope['platform']),
+                'metric_values' => $metricFacts['values'],
+                'value_status' => $metricFacts['value_status'],
+            ]);
+            if ($selection['version'] !== self::OPERATION_ROW_SELECTION_VERSION
+                || $selection['status'] !== 'ready'
+                || $selection['policy'] !== self::OPERATION_ROW_SELECTION_POLICY
+                || $candidateRowIds !== $rowIds
+                || $metricDigests === []
+                || count(array_unique(array_values($metricDigests))) !== 1
+                || $selectedRowId !== min($rowIds)
+                || $selectedRowId !== $scope['row_id']
+                || !hash_equals(
+                    $selectedMetricDigest,
+                    (string)($metricDigests[$selectedRowId] ?? '')
+                )
+                || preg_match('/^[a-f0-9]{64}$/D', $selectionDigest) !== 1
+                || !hash_equals($selectionDigest, $this->digest($selection))
+            ) {
+                throw new RuntimeException('canonical_promotion_operation_row_selection_invalid');
+            }
+        }
+
         return $receipt;
     }
 
@@ -418,8 +544,10 @@ final class CanonicalOtaInvestigationDraftService
      *   explicit_zero_confirmed_rows:int
      * }
      */
-    private function validatedTrafficMetricFacts(array $row): array
+    private function validatedTrafficMetricFacts(array $row, string $platform): array
     {
+        $requiredMetrics = $this->requiredTrafficMetrics($platform);
+        $expectedStorageFields = self::EXPECTED_STORAGE_FIELDS[$platform];
         $raw = $this->decodeRawData($row);
         $sourceRow = is_array($raw['row'] ?? null) ? $raw['row'] : [];
         if ($sourceRow === []) {
@@ -432,7 +560,7 @@ final class CanonicalOtaInvestigationDraftService
                 continue;
             }
             $metric = strtolower(trim((string)($fact['metric_key'] ?? '')));
-            if (!in_array($metric, self::REQUIRED_TRAFFIC_METRICS, true)) {
+            if (!in_array($metric, $requiredMetrics, true)) {
                 continue;
             }
             if (isset($factsByMetric[$metric])) {
@@ -443,7 +571,7 @@ final class CanonicalOtaInvestigationDraftService
 
         $values = [];
         $hasNonzero = false;
-        foreach (self::REQUIRED_TRAFFIC_METRICS as $metric) {
+        foreach ($requiredMetrics as $metric) {
             $fact = $factsByMetric[$metric] ?? null;
             $sourceKey = is_array($fact) ? trim((string)($fact['source_key'] ?? '')) : '';
             $sourcePath = is_array($fact) ? trim((string)($fact['source_path'] ?? '')) : '';
@@ -457,7 +585,7 @@ final class CanonicalOtaInvestigationDraftService
                 || !is_numeric($sourceRow[$sourceKey])
                 || !is_finite((float)$sourceRow[$sourceKey])
                 || preg_match('/[.\[\/]/', $sourcePath) !== 1
-                || trim((string)($fact['storage_field'] ?? '')) !== self::EXPECTED_STORAGE_FIELDS[$metric]
+                || trim((string)($fact['storage_field'] ?? '')) !== $expectedStorageFields[$metric]
                 || ($fact['stored_value_present'] ?? null) !== true
                 || abs((float)$sourceRow[$sourceKey] - (float)$row[$metric]) > 0.000001
             ) {
@@ -477,14 +605,15 @@ final class CanonicalOtaInvestigationDraftService
     }
 
     /** @param array<string,mixed> $row */
-    private function assertObservedTrafficMetricProvenance(array $row): void
+    private function assertObservedTrafficMetricProvenance(array $row, string $platform): void
     {
+        $requiredMetrics = $this->requiredTrafficMetrics($platform);
         $raw = $this->decodeRawData($row);
         $sourceRow = is_array($raw['row'] ?? null) ? $raw['row'] : [];
         $observed = $sourceRow['_observed_traffic_metric_keys'] ?? null;
         if (!is_array($observed)
             || !array_is_list($observed)
-            || count($observed) !== count(self::REQUIRED_TRAFFIC_METRICS)
+            || count($observed) !== count($requiredMetrics)
         ) {
             throw new RuntimeException('synthetic_normalization_provenance_missing');
         }
@@ -501,7 +630,7 @@ final class CanonicalOtaInvestigationDraftService
             $keys[$key] = true;
         }
         $actual = array_keys($keys);
-        $expected = self::REQUIRED_TRAFFIC_METRICS;
+        $expected = $requiredMetrics;
         sort($actual, SORT_STRING);
         sort($expected, SORT_STRING);
         if ($actual !== $expected) {
@@ -524,7 +653,12 @@ final class CanonicalOtaInvestigationDraftService
     {
         $currentFactDigest = $this->authoritativeFactDigest($row, $metricFacts);
         if (!hash_equals(
-            strtolower(trim((string)$promotion['authoritative_fact_digest'])),
+            $this->selectedPromotionRowDigest(
+                $promotion,
+                $scope['row_id'],
+                'authoritative_row_fact_digests',
+                'authoritative_fact_digest'
+            ),
             $currentFactDigest
         )) {
             throw new RuntimeException('canonical_authoritative_fact_digest_mismatch');
@@ -535,7 +669,12 @@ final class CanonicalOtaInvestigationDraftService
         )));
         if (preg_match('/^[a-f0-9]{64}$/D', $identityDigest) !== 1
             || !hash_equals(
-                strtolower(trim((string)$promotion['platform_hotel_identity_digest'])),
+                $this->selectedPromotionRowDigest(
+                    $promotion,
+                    $scope['row_id'],
+                    'authoritative_row_platform_hotel_identity_digests',
+                    'platform_hotel_identity_digest'
+                ),
                 $identityDigest
             )
         ) {
@@ -546,6 +685,8 @@ final class CanonicalOtaInvestigationDraftService
     /** @param array<string,mixed> $row @param array<string,mixed>|null $metricFacts */
     private function authoritativeFactDigest(array $row, ?array $metricFacts = null): string
     {
+        $platform = strtolower(trim((string)($row['platform'] ?? $row['source'] ?? '')));
+        $requiredMetrics = $this->requiredTrafficMetrics($platform);
         $rawJson = trim((string)($row['raw_data'] ?? ''));
         $traceId = trim((string)($row['source_trace_id'] ?? ''));
         if ($rawJson === '' || $traceId === '') {
@@ -553,14 +694,13 @@ final class CanonicalOtaInvestigationDraftService
         }
         $this->decodeRawData($row);
 
-        $metricFacts ??= $this->validatedTrafficMetricFacts($row);
+        $metricFacts ??= $this->validatedTrafficMetricFacts($row, $platform);
         $metrics = is_array($metricFacts['values'] ?? null) ? $metricFacts['values'] : [];
-        if (count($metrics) !== count(self::REQUIRED_TRAFFIC_METRICS)
+        if (count($metrics) !== count($requiredMetrics)
             || !in_array((string)($metricFacts['value_status'] ?? ''), ['nonzero', 'explicit_zero'], true)
         ) {
             throw new RuntimeException('canonical_authoritative_fact_metric_profile_invalid');
         }
-        $requiredMetrics = self::REQUIRED_TRAFFIC_METRICS;
         sort($requiredMetrics, SORT_STRING);
 
         return $this->digest([
@@ -597,6 +737,7 @@ final class CanonicalOtaInvestigationDraftService
     /** @param array<string,mixed> $row @param array<string,mixed> $scope */
     private function recomputePlatformHotelIdentityDigest(array $row, array $scope): string
     {
+        $platform = $scope['platform'];
         $hotelTenantId = (int)Db::name('hotels')
             ->where('id', $scope['hotel_id'])
             ->value('tenant_id');
@@ -608,7 +749,7 @@ final class CanonicalOtaInvestigationDraftService
             ->where('id', $scope['data_source_id'])
             ->where('tenant_id', $scope['tenant_id'])
             ->where('system_hotel_id', $scope['hotel_id'])
-            ->where('platform', 'ctrip')
+            ->where('platform', $platform)
             ->find();
         if (!is_array($selectedSource)
             || (int)($selectedSource['enabled'] ?? 0) !== 1
@@ -622,13 +763,13 @@ final class CanonicalOtaInvestigationDraftService
         }
 
         $selectedConfig = $this->decodedConfig($selectedSource['config_json']);
-        $selectedProfileHash = $this->profileKeyHash($selectedConfig);
+        $selectedProfileHash = $this->profileKeyHash($platform, $selectedConfig);
         if ($selectedProfileHash === '') {
             throw new RuntimeException('canonical_platform_profile_key_missing');
         }
 
         $profileSources = Db::name('platform_data_sources')
-            ->where('platform', 'ctrip')
+            ->where('platform', $platform)
             ->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])
             ->where('enabled', 1)
             ->where('status', '<>', 'disabled')
@@ -643,7 +784,7 @@ final class CanonicalOtaInvestigationDraftService
                 continue;
             }
             $config = $this->decodedConfig($candidate['config_json'] ?? null);
-            $profileHash = $this->profileKeyHash($config);
+            $profileHash = $this->profileKeyHash($platform, $config);
             $candidateHotelId = (int)($candidate['system_hotel_id'] ?? 0);
             $candidateTenantId = $candidateHotelId > 0
                 ? (int)Db::name('hotels')->where('id', $candidateHotelId)->value('tenant_id')
@@ -661,11 +802,14 @@ final class CanonicalOtaInvestigationDraftService
             $bindingReady = $trafficCapable
                 && $sourceTenantReady
                 && $this->activeProfileBindingMatches(
+                    $platform,
                     $profileHash,
                     $candidateTenantId,
                     $candidateHotelId
                 );
-            $identifierHashes = $trafficCapable ? $this->platformIdentifierHashes($config) : [];
+            $identifierHashes = $trafficCapable
+                ? $this->platformIdentifierHashes($config, $platform)
+                : [];
             if ($bindingReady && $identifierHashes !== []) {
                 $scopeKey = $candidateTenantId . ':' . $candidateHotelId;
                 foreach ($identifierHashes as $identifierHash) {
@@ -708,7 +852,7 @@ final class CanonicalOtaInvestigationDraftService
         $expectedIdentifierHash = (string)array_key_first($authorityHashes);
 
         $raw = $this->decodeRawData($row);
-        $rowIdentifierHashes = $this->platformIdentifierHashes($raw);
+        $rowIdentifierHashes = $this->platformIdentifierHashes($raw, $platform);
         if (count($rowIdentifierHashes) !== 1
             || !hash_equals($expectedIdentifierHash, $rowIdentifierHashes[0])
         ) {
@@ -731,6 +875,7 @@ final class CanonicalOtaInvestigationDraftService
     }
 
     private function activeProfileBindingMatches(
+        string $platform,
         string $profileKeyHash,
         int $tenantId,
         int $hotelId
@@ -739,7 +884,7 @@ final class CanonicalOtaInvestigationDraftService
             return false;
         }
         $bindings = Db::name('ota_profile_bindings')
-            ->where('platform', 'ctrip')
+            ->where('platform', $platform)
             ->where('profile_key_hash', $profileKeyHash)
             ->where('binding_status', 'active')
             ->select()
@@ -763,10 +908,13 @@ final class CanonicalOtaInvestigationDraftService
     }
 
     /** @param array<string,mixed> $config */
-    private function profileKeyHash(array $config): string
+    private function profileKeyHash(string $platform, array $config): string
     {
+        $keys = $platform === 'meituan'
+            ? ['store_id', 'storeId', 'profile_id', 'profileId']
+            : ['profile_id', 'profileId'];
         $profileKey = '';
-        foreach (['profile_id', 'profileId'] as $key) {
+        foreach ($keys as $key) {
             if (is_scalar($config[$key] ?? null) && trim((string)$config[$key]) !== '') {
                 $profileKey = trim((string)$config[$key]);
                 break;
@@ -782,9 +930,11 @@ final class CanonicalOtaInvestigationDraftService
     }
 
     /** @param array<string,mixed> $container @return array<int,string> */
-    private function platformIdentifierHashes(array $container): array
+    private function platformIdentifierHashes(array $container, string $platform): array
     {
-        $priorityGroups = [['hotelid', 'ctriphotelid', 'masterhotelid'], ['nodeid']];
+        $priorityGroups = $platform === 'meituan'
+            ? [['poiid', 'mtpoiid'], ['storeid', 'shopid'], ['partnerid']]
+            : [['hotelid', 'ctriphotelid', 'masterhotelid'], ['nodeid']];
         $keyPriorities = [];
         foreach ($priorityGroups as $priority => $keys) {
             foreach ($keys as $key) {
@@ -797,7 +947,8 @@ final class CanonicalOtaInvestigationDraftService
             &$visit,
             &$hashesByPriority,
             &$visited,
-            $keyPriorities
+            $keyPriorities,
+            $platform
         ): void {
             if ($depth > 12 || $visited >= 10000) {
                 return;
@@ -819,7 +970,7 @@ final class CanonicalOtaInvestigationDraftService
                     $priority = (int)$keyPriorities[$normalizedKey];
                     $hashesByPriority[$priority][hash(
                         'sha256',
-                        'ctrip' . "\0" . trim((string)$item)
+                        $platform . "\0" . trim((string)$item)
                     )] = true;
                 }
                 if (is_array($item)) {
@@ -839,8 +990,49 @@ final class CanonicalOtaInvestigationDraftService
     }
 
     /** @return array<int,array<string,mixed>> */
-    private function draftDefinitions(): array
+    private function draftDefinitions(string $platform): array
     {
+        if ($platform === 'meituan') {
+            return [
+                [
+                    'action_code' => 'check_meituan_list_detail_count_order',
+                    'title' => '核查美团列表曝光与详情曝光数量顺序',
+                    'action_text' => '仅使用当前美团精确权威行，核查详情曝光是否超过列表曝光；只记录观测到的数量关系，定义不一致时保留待调查状态，不推断原因或成效。',
+                    'acceptance_criteria' => [
+                        '输入只包含当前权威行的列表曝光和详情曝光，不补默认值或替代值',
+                        '只报告数量顺序观测结果，不把顺序差异解释为平台故障或经营原因',
+                    ],
+                ],
+                [
+                    'action_code' => 'calculate_meituan_list_to_detail_rate',
+                    'title' => '计算美团列表到详情曝光率',
+                    'action_text' => '使用当前美团精确权威行计算详情曝光除以列表曝光的描述性比率；列表曝光为零时记录为不可计算，不写成零转化率。',
+                    'acceptance_criteria' => [
+                        '记录精确输入、公式、舍入规则和零分母状态',
+                        '结果仅为美团渠道同日描述性比率，不声明原因、成效或全酒店结论',
+                    ],
+                ],
+                [
+                    'action_code' => 'check_meituan_observed_flow_rate_alignment',
+                    'title' => '核查美团已观测流量率与曝光比率一致性',
+                    'action_text' => '比较美团响应中已观测流量率与列表、详情曝光计算值在两位小数下是否一致；零分母时保持不可计算，差异只作为口径调查信号。',
+                    'acceptance_criteria' => [
+                        '已观测流量率必须来自同一权威行的真实字段事实',
+                        '仅记录一致、不一致或不可计算，不推断平台口径、流量质量或经营成效',
+                    ],
+                ],
+                [
+                    'action_code' => 'prepare_same_scope_recollection_and_entry_eligibility_check',
+                    'title' => '准备美团同范围重采与入口资格核查',
+                    'action_text' => '核查相同租户、酒店、来源、美团平台、业务日期和周期下的重采前置条件与入口资格，仅形成对照清单；本草稿不触发采集、不修改入口且不授权执行。',
+                    'acceptance_criteria' => [
+                        '拟议对照范围与当前 canonical scope 和 promotion receipt 精确一致',
+                        '采集与外部写入保持 not_authorized，资格观察不作为原因或成效结论',
+                    ],
+                ],
+            ];
+        }
+
         return [
             [
                 'action_code' => 'check_list_to_detail_mathematical_consistency',
@@ -889,7 +1081,7 @@ final class CanonicalOtaInvestigationDraftService
     private function buildDrafts(array $scope, array $evidenceRef): array
     {
         $drafts = [];
-        foreach ($this->draftDefinitions() as $index => $definition) {
+        foreach ($this->draftDefinitions($scope['platform']) as $index => $definition) {
             $drafts[] = [
                 'draft_id' => sprintf('%s-%02d', $definition['action_code'], $index + 1),
                 'hotel_id' => $scope['hotel_id'],
@@ -974,7 +1166,7 @@ final class CanonicalOtaInvestigationDraftService
                 : [];
             $trafficKeys = array_keys($trafficValues);
             sort($trafficKeys, SORT_STRING);
-            $requiredTrafficKeys = self::REQUIRED_TRAFFIC_METRICS;
+            $requiredTrafficKeys = $this->requiredTrafficMetrics($scope['platform']);
             sort($requiredTrafficKeys, SORT_STRING);
             $valueStatus = (string)($evidence['traffic_value_status'] ?? '');
             $expectedNonzeroRows = $valueStatus === 'nonzero' ? 1 : 0;
@@ -1004,7 +1196,7 @@ final class CanonicalOtaInvestigationDraftService
             }
             $codes[$code] = true;
         }
-        if (array_keys($codes) !== array_column($this->draftDefinitions(), 'action_code')) {
+        if (array_keys($codes) !== array_column($this->draftDefinitions($scope['platform']), 'action_code')) {
             throw new RuntimeException('canonical_investigation_draft_code_invalid');
         }
     }
@@ -1348,7 +1540,7 @@ final class CanonicalOtaInvestigationDraftService
             'target_date' => trim((string)$scope['target_date']),
             'data_period' => strtolower(trim((string)$scope['data_period'])),
         ];
-        if ($normalized['platform'] !== 'ctrip') {
+        if (!in_array($normalized['platform'], ['ctrip', 'meituan'], true)) {
             throw new \InvalidArgumentException('canonical_scope_platform_invalid');
         }
         $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $normalized['target_date']);
@@ -1359,6 +1551,16 @@ final class CanonicalOtaInvestigationDraftService
             throw new \InvalidArgumentException('canonical_scope_data_period_invalid');
         }
         return $normalized;
+    }
+
+    /** @return array<int,string> */
+    private function requiredTrafficMetrics(string $platform): array
+    {
+        $platform = strtolower(trim($platform));
+        if (!isset(self::REQUIRED_TRAFFIC_METRICS[$platform])) {
+            throw new \InvalidArgumentException('canonical_scope_platform_invalid');
+        }
+        return self::REQUIRED_TRAFFIC_METRICS[$platform];
     }
 
     private function positiveInteger(mixed $value, string $field): int
@@ -1385,6 +1587,47 @@ final class CanonicalOtaInvestigationDraftService
             throw new RuntimeException($error);
         }
         return $decoded;
+    }
+
+    /** @param array<int,int> $expectedRowIds @return array<int,string> */
+    private function promotionRowDigestMap(mixed $value, array $expectedRowIds): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        $digests = [];
+        foreach ($value as $rawRowId => $rawDigest) {
+            $rowId = (int)$rawRowId;
+            $digest = strtolower(trim((string)$rawDigest));
+            if ($rowId <= 0
+                || (string)$rawRowId !== (string)$rowId
+                || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1
+                || isset($digests[$rowId])
+            ) {
+                return [];
+            }
+            $digests[$rowId] = $digest;
+        }
+        ksort($digests, SORT_NUMERIC);
+        return array_keys($digests) === $expectedRowIds ? $digests : [];
+    }
+
+    /** @param array<string,mixed> $promotion */
+    private function selectedPromotionRowDigest(
+        array $promotion,
+        int $rowId,
+        string $mapField,
+        string $legacyAggregateField
+    ): string {
+        $rowIds = $this->positiveIds($promotion['row_ids'] ?? []);
+        $map = $this->promotionRowDigestMap($promotion[$mapField] ?? null, $rowIds);
+        if ($map !== [] && isset($map[$rowId])) {
+            return $map[$rowId];
+        }
+        if ($rowIds === [$rowId] && !array_key_exists($mapField, $promotion)) {
+            return strtolower(trim((string)($promotion[$legacyAggregateField] ?? '')));
+        }
+        throw new RuntimeException('canonical_promotion_receipt_row_digest_map_invalid');
     }
 
     /** @return array<int,int> */

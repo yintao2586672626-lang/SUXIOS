@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\OtaCanonicalHistoryPromotionService;
+use app\service\CanonicalOtaDailyNaturalAcceptanceService;
+use app\service\OtaCollectionAnchorService;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use think\App;
@@ -18,6 +20,12 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
         'list_exposure',
         'order_filling_num',
         'order_submit_num',
+    ];
+
+    private const MEITUAN_REQUIRED_METRICS = [
+        'detail_exposure',
+        'flow_rate',
+        'list_exposure',
     ];
 
     private static array $originalDatabaseConfig = [];
@@ -107,8 +115,395 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
         self::assertSame(3001, $promotion['sync_task_id']);
         self::assertSame([501], $promotion['row_ids']);
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $promotion['authoritative_fact_digest']);
+        self::assertSame([501], array_keys($promotion['authoritative_row_fact_digests']));
+        self::assertMatchesRegularExpression(
+            '/^[a-f0-9]{64}$/D',
+            $promotion['authoritative_row_fact_digests'][501]
+        );
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $promotion['content_digest']);
         self::assertFalse($promotion['sensitive_values_exposed']);
+    }
+
+    public function testRejectsUndeclaredExtraRowInExactDbScopeBeforeAnyWrite(): void
+    {
+        [$collection, $verifier] = $this->seedFixture();
+        Db::name('online_daily_data')->insert($this->dailyRow(503, '', 'normal'));
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'ctrip',
+            80,
+            80
+        );
+
+        self::assertSame([501, 502], $collection['source_tasks'][0]['row_ids']);
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('promotion_collection_rows_identity_mismatch', $result['reason']);
+        self::assertSame([
+            ['id' => 501, 'validation_status' => 'normal', 'history_status' => 'partial'],
+            ['id' => 502, 'validation_status' => 'partial', 'history_status' => 'partial'],
+            ['id' => 503, 'validation_status' => 'normal', 'history_status' => 'partial'],
+        ], Db::name('online_daily_data')
+            ->field('id,validation_status,history_status')
+            ->order('id', 'asc')
+            ->select()
+            ->toArray());
+        $storedStats = json_decode((string)Db::name('platform_data_sync_tasks')
+            ->where('id', 3001)
+            ->value('stats_json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame([501, 502], $storedStats['run_readback']['row_ids']);
+        self::assertArrayNotHasKey('canonical_history_promotion', $storedStats);
+    }
+
+    public function testPromotesExactMeituanHistoricalScopeWithoutAcceptingCtripFacts(): void
+    {
+        [$collection, $verifier] = $this->seedMeituanHistoricalFixture();
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'meituan',
+            80,
+            80
+        );
+
+        self::assertSame('verified', $result['status']);
+        self::assertSame(80, $result['tenant_id']);
+        self::assertSame(80, $result['system_hotel_id']);
+        self::assertSame('meituan', $result['platform']);
+        self::assertSame('2026-08-08', $result['target_date']);
+        self::assertSame(68, $result['data_source_id']);
+        self::assertSame(6800, $result['sync_task_id']);
+        self::assertSame([6801], $result['row_ids']);
+        self::assertSame(1, $result['promoted_count']);
+        self::assertTrue($result['readback_verified']);
+        self::assertSame(1, $result['snapshot_time_backfilled_count']);
+
+        $meituanRow = Db::name('online_daily_data')->where('id', 6801)->find();
+        self::assertIsArray($meituanRow);
+        self::assertSame(80, (int)$meituanRow['system_hotel_id']);
+        self::assertSame(68, (int)$meituanRow['data_source_id']);
+        self::assertSame('meituan', $meituanRow['source']);
+        self::assertSame('meituan', $meituanRow['platform']);
+        self::assertSame('2026-08-08', $meituanRow['data_date']);
+        self::assertSame('historical_daily', $meituanRow['data_period']);
+        self::assertSame(1, (int)$meituanRow['readback_verified']);
+        self::assertSame('verified', $meituanRow['validation_status']);
+        self::assertSame('success', $meituanRow['history_status']);
+        self::assertSame('2026-08-09 05:09:55', $meituanRow['snapshot_time']);
+        self::assertSame(1200.0, (float)$meituanRow['list_exposure']);
+        self::assertSame(300.0, (float)$meituanRow['detail_exposure']);
+        self::assertSame(25.0, (float)$meituanRow['flow_rate']);
+
+        $storedStats = json_decode((string)Db::name('platform_data_sync_tasks')
+            ->where('id', 6800)
+            ->value('stats_json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(true, $storedStats['run_readback']['readback_verified']);
+        self::assertSame(68, $storedStats['run_readback']['data_source_id']);
+        self::assertSame(80, $storedStats['run_readback']['system_hotel_id']);
+        self::assertSame('meituan', $storedStats['run_readback']['platform']);
+        self::assertSame('historical_daily', $storedStats['run_readback']['data_period']);
+        self::assertSame(self::MEITUAN_REQUIRED_METRICS, $storedStats['run_readback']['required_traffic_metric_keys']);
+        self::assertSame(self::MEITUAN_REQUIRED_METRICS, $storedStats['run_readback']['complete_traffic_metric_keys']);
+        self::assertSame([], $storedStats['run_readback']['missing_traffic_metric_keys']);
+
+        $promotion = $storedStats['canonical_history_promotion'];
+        self::assertSame(80, $promotion['tenant_id']);
+        self::assertSame(80, $promotion['system_hotel_id']);
+        self::assertSame(68, $promotion['data_source_id']);
+        self::assertSame('meituan', $promotion['platform']);
+        self::assertSame('2026-08-08', $promotion['target_date']);
+        self::assertSame('historical_daily', $promotion['data_period']);
+        self::assertSame([6801], $promotion['row_ids']);
+        self::assertSame(1, $promotion['nonzero_required_metric_rows']);
+        self::assertSame(0, $promotion['explicit_zero_confirmed_rows']);
+        self::assertSame('ready', $promotion['observed_traffic_metric_provenance_status']);
+        self::assertSame(0, $promotion['synthetic_normalization_provenance_missing_rows']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $promotion['authoritative_fact_digest']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $promotion['content_digest']);
+
+        self::assertSame('normal', Db::name('online_daily_data')->where('id', 501)->value('validation_status'));
+        self::assertSame('partial', Db::name('online_daily_data')->where('id', 501)->value('history_status'));
+        self::assertSame(0, Db::name('online_daily_data')
+            ->where('source', 'ctrip')
+            ->where('validation_status', 'verified')
+            ->count());
+        self::assertNotContains(501, $promotion['row_ids']);
+    }
+
+    public function testHistoricalPromotionCannotBorrowOrderCoreFromAnOlderTask(): void
+    {
+        [$collection, $verifier] = $this->seedMeituanHistoricalFixture(false);
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'meituan',
+            80,
+            80
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('promotion_platform_core_contract_db_incomplete', $result['reason']);
+        self::assertSame(
+            'normal',
+            Db::name('online_daily_data')->where('id', 6801)->value('validation_status')
+        );
+        self::assertSame(6799, (int)Db::name('online_daily_data')
+            ->where('id', 6791)
+            ->value('sync_task_id'));
+    }
+
+    public function testPromotionRejectsCoreStatusTamperWithTheOldAnchor(): void
+    {
+        [$collection, $verifier] = $this->seedMeituanHistoricalFixture();
+        $collection['source_tasks'][0]['historical_core_contract_status'] = 'blocked';
+        $collection['collection_anchor_hash'] = $this->collectionAnchor($collection['source_tasks']);
+        $verifier['collection_anchor_hash'] = $collection['collection_anchor_hash'];
+        $collection['source_tasks'][0]['historical_core_contract_status'] = 'ready';
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'meituan',
+            80,
+            80
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('promotion_collection_anchor_mismatch', $result['reason']);
+        self::assertSame(
+            'normal',
+            Db::name('online_daily_data')->where('id', 6801)->value('validation_status')
+        );
+    }
+
+    public function testNaturalAcceptanceDefaultDbLoaderRequiresPersistedCoreColumns(): void
+    {
+        [$collection] = $this->seedMeituanHistoricalFixture();
+        $runId = '99999999-9999-4999-8999-999999999999';
+        $stats = json_decode((string)Db::name('platform_data_sync_tasks')
+            ->where('id', 6800)
+            ->value('stats_json'), true, 512, JSON_THROW_ON_ERROR);
+        $stats['dispatcher_run_id'] = $runId;
+        $stats['saved_count'] = 2;
+        $stats['run_readback']['dispatcher_run_id'] = $runId;
+        $stats['run_readback']['readback_count'] = 2;
+        Db::name('platform_data_sync_tasks')->where('id', 6800)->update([
+            'trigger_type' => 'daily_profile_reuse',
+            'started_at' => '2026-08-09 08:30:10',
+            'stats_json' => json_encode($stats, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        $task = $collection['source_tasks'][0];
+        $task['dispatcher_run_id'] = $runId;
+        $task['trigger_type'] = 'daily_profile_reuse';
+
+        $method = new \ReflectionMethod(CanonicalOtaDailyNaturalAcceptanceService::class, 'loadTaskFact');
+        $service = new CanonicalOtaDailyNaturalAcceptanceService();
+        $fact = $method->invoke($service, 80, 80, '2026-08-08', $task);
+        self::assertSame('ready', $fact['historical_core_contract_status']);
+        self::assertSame([], $fact['missing_core_metric_keys']);
+
+        $orderRaw = json_decode((string)Db::name('online_daily_data')
+            ->where('id', 6891)
+            ->value('raw_data'), true, 512, JSON_THROW_ON_ERROR);
+        $orderRaw['field_facts'] = [[
+            'metric_key' => 'order_amount',
+            'status' => 'captured',
+            'stored_value_present' => true,
+        ]];
+        Db::name('online_daily_data')->where('id', 6891)->update([
+            'amount' => null,
+            'raw_data' => json_encode($orderRaw, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        $olderOrder = $this->meituanHistoricalOrderRow();
+        $olderOrder['id'] = 6791;
+        $olderOrder['sync_task_id'] = 6799;
+        $olderOrder['source_trace_id'] = 'meituan-orders-trace-6791';
+        Db::name('online_daily_data')->insert($olderOrder);
+
+        $blocked = $method->invoke($service, 80, 80, '2026-08-08', $task);
+        self::assertSame('blocked', $blocked['historical_core_contract_status']);
+        self::assertContains('order_amount', $blocked['missing_core_metric_keys']);
+    }
+
+    public function testMeituanDomFallbackRemainsReferenceOnlyWhenExactXhrRowCoexists(): void
+    {
+        [$collection, $verifier] = $this->seedMeituanHistoricalFixture();
+        $domRow = $this->meituanHistoricalRow();
+        $domRow['id'] = 6802;
+        $domRow['source_trace_id'] = 'meituan-dom-trace-6802';
+        $raw = json_decode((string)$domRow['raw_data'], true, 512, JSON_THROW_ON_ERROR);
+        $raw['source_trace_id'] = $domRow['source_trace_id'];
+        $raw['row']['_capture_source'] = 'dom:traffic:flow_funnel';
+        $raw['capture_evidence']['source_trace_id'] = $domRow['source_trace_id'];
+        $raw['capture_evidence']['capture_source'] = 'dom:traffic:flow_funnel';
+        foreach ($raw['field_facts'] as &$fact) {
+            $fact['capture_evidence']['source_trace_id'] = $domRow['source_trace_id'];
+            $fact['capture_evidence']['capture_source'] = 'dom:traffic:flow_funnel';
+        }
+        unset($fact);
+        $domRow['raw_data'] = json_encode($raw, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        Db::name('online_daily_data')->insert($domRow);
+
+        $collectionRowIds = [6801, 6802, 6891];
+        $stats = json_decode((string)Db::name('platform_data_sync_tasks')
+            ->where('id', 6800)
+            ->value('stats_json'), true, 512, JSON_THROW_ON_ERROR);
+        $stats['run_readback']['row_ids'] = $collectionRowIds;
+        Db::name('platform_data_sync_tasks')->where('id', 6800)->update([
+            'stats_json' => json_encode($stats, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        $collection['source_tasks'][0]['row_ids'] = $collectionRowIds;
+        $collection['collection_anchor_hash'] = $this->collectionAnchor(
+            $collection['source_tasks']
+        );
+        $verifier['collection_anchor_hash'] = $collection['collection_anchor_hash'];
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'meituan',
+            80,
+            80
+        );
+
+        self::assertSame('verified', $result['status']);
+        self::assertSame([6801], $result['row_ids']);
+        self::assertSame(1, $result['promoted_count']);
+        self::assertSame('verified', Db::name('online_daily_data')->where('id', 6801)->value('validation_status'));
+        self::assertSame('normal', Db::name('online_daily_data')->where('id', 6802)->value('validation_status'));
+        self::assertSame('partial', Db::name('online_daily_data')->where('id', 6802)->value('history_status'));
+    }
+
+    public function testEquivalentMeituanRowsPublishDeterministicOperationRowSelection(): void
+    {
+        [$collection, $verifier] = $this->seedEquivalentMeituanMultiRowFixture(false);
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'meituan',
+            80,
+            80
+        );
+
+        self::assertSame('verified', $result['status']);
+        self::assertSame([6801, 6802], $result['row_ids']);
+        self::assertSame('ready', $result['operation_row_selection_status']);
+        self::assertSame(6801, $result['selected_operation_row_id']);
+        self::assertSame([6801, 6802], $result['operation_row_candidate_ids']);
+        self::assertMatchesRegularExpression(
+            '/^[a-f0-9]{64}$/D',
+            $result['operation_row_selection_digest']
+        );
+
+        $stats = json_decode((string)Db::name('platform_data_sync_tasks')
+            ->where('id', 6800)
+            ->value('stats_json'), true, 512, JSON_THROW_ON_ERROR);
+        $promotion = $stats['canonical_history_promotion'];
+        self::assertSame('ota_operation_row_selection.v1', $promotion['operation_row_selection_version']);
+        self::assertSame('ready', $promotion['operation_row_selection_status']);
+        self::assertSame(6801, $promotion['selected_operation_row_id']);
+        self::assertSame([6801, 6802], array_keys($promotion['operation_row_metric_digests']));
+        self::assertSame(
+            1,
+            count(array_unique(array_values($promotion['operation_row_metric_digests'])))
+        );
+    }
+
+    public function testDifferentMeituanRowsRemainPromotedButOperationSelectionFailsClosed(): void
+    {
+        [$collection, $verifier] = $this->seedEquivalentMeituanMultiRowFixture(true);
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'meituan',
+            80,
+            80
+        );
+
+        self::assertSame('verified', $result['status']);
+        self::assertSame([6801, 6802], $result['row_ids']);
+        self::assertSame('ambiguous', $result['operation_row_selection_status']);
+        self::assertSame(0, $result['selected_operation_row_id']);
+        self::assertSame([6801, 6802], $result['operation_row_candidate_ids']);
+        self::assertMatchesRegularExpression(
+            '/^[a-f0-9]{64}$/D',
+            $result['operation_row_selection_digest']
+        );
+    }
+
+    public function testExcludesCatalogProjectionAndPromotesOnlyStrictDirectRowWithPerRowDigests(): void
+    {
+        [$collection, $verifier] = $this->seedFixture();
+        Db::name('online_daily_data')->where('id', 502)->update([
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure+detail_exposure',
+            'validation_status' => 'normal',
+        ]);
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'ctrip',
+            80,
+            80
+        );
+
+        self::assertSame('verified', $result['status']);
+        self::assertSame(1, $result['promoted_count']);
+        self::assertSame([501], $result['row_ids']);
+        self::assertSame('verified', Db::name('online_daily_data')->where('id', 501)->value('validation_status'));
+        self::assertSame('normal', Db::name('online_daily_data')->where('id', 502)->value('validation_status'));
+        $stats = json_decode((string)Db::name('platform_data_sync_tasks')
+            ->where('id', 3001)
+            ->value('stats_json'), true, 512, JSON_THROW_ON_ERROR);
+        $promotion = $stats['canonical_history_promotion'];
+        self::assertSame([501], $promotion['row_ids']);
+        self::assertSame([501], array_keys($promotion['authoritative_row_fact_digests']));
+        self::assertSame(
+            [501],
+            array_keys($promotion['authoritative_row_platform_hotel_identity_digests'])
+        );
+        foreach ($promotion['authoritative_row_fact_digests'] as $digest) {
+            self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $digest);
+        }
+        self::assertSame(0, $promotion['nonzero_required_metric_rows']);
+        self::assertSame(1, $promotion['explicit_zero_confirmed_rows']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $promotion['content_digest']);
+    }
+
+    public function testRejectsCatalogOnlyVerifierScopeEvenWhenCatalogFactsAreInvalid(): void
+    {
+        [$collection, $verifier] = $this->seedFixture();
+        $raw = json_decode((string)Db::name('online_daily_data')
+            ->where('id', 502)
+            ->value('raw_data'), true, 512, JSON_THROW_ON_ERROR);
+        $raw['field_facts'] = array_values(array_filter(
+            $raw['field_facts'],
+            static fn(array $fact): bool => ($fact['metric_key'] ?? '') !== 'flow_rate'
+        ));
+        Db::name('online_daily_data')->where('id', 502)->update([
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure+detail_exposure',
+            'validation_status' => 'normal',
+            'raw_data' => json_encode($raw, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        Db::name('online_daily_data')->where('id', 501)->update(['compare_type' => 'competitor']);
+        $verifier['platform_storage_scopes']['ctrip']['sample_row_ids'] = [502];
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'ctrip',
+            80,
+            80
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('promotion_authoritative_row_count_mismatch', $result['reason']);
+        self::assertSame(0, Db::name('online_daily_data')->where('validation_status', 'verified')->count());
     }
 
     public function testPreflightRevalidatesExactScopeWithoutWritingRowsOrReceipt(): void
@@ -207,6 +602,56 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
         self::assertSame('success', Db::name('online_daily_data')->where('id', 501)->value('history_status'));
     }
 
+    public function testIdempotentReplayRejectsLegacySingletonReceiptWithoutOperationSelector(): void
+    {
+        [$collection, $verifier] = $this->seedFixture();
+        $service = new OtaCanonicalHistoryPromotionService();
+        self::assertSame('verified', $service->promote(
+            $collection,
+            $verifier,
+            'ctrip',
+            80,
+            80
+        )['status']);
+
+        $stats = json_decode((string)Db::name('platform_data_sync_tasks')
+            ->where('id', 3001)
+            ->value('stats_json'), true, 512, JSON_THROW_ON_ERROR);
+        $legacyReceipt = $stats['canonical_history_promotion'];
+        foreach ([
+            'operation_row_selection_version',
+            'operation_row_selection_status',
+            'operation_row_selection_policy',
+            'operation_row_candidate_ids',
+            'selected_operation_row_id',
+            'operation_row_metric_digests',
+            'operation_row_selection_digest',
+        ] as $selectorField) {
+            unset($legacyReceipt[$selectorField]);
+        }
+        unset($legacyReceipt['content_digest']);
+        ksort($legacyReceipt, SORT_STRING);
+        $legacyReceipt['content_digest'] = hash('sha256', json_encode(
+            $legacyReceipt,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        ));
+        $stats['canonical_history_promotion'] = $legacyReceipt;
+        Db::name('platform_data_sync_tasks')->where('id', 3001)->update([
+            'stats_json' => json_encode($stats, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        $result = $service->promote($collection, $verifier, 'ctrip', 80, 80);
+
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('verified_row_without_matching_promotion_receipt', $result['reason']);
+        self::assertSame('verified', Db::name('online_daily_data')
+            ->where('id', 501)
+            ->value('validation_status'));
+        self::assertSame('success', Db::name('online_daily_data')
+            ->where('id', 501)
+            ->value('history_status'));
+    }
+
     public function testHistoricalPromotionBackfillsOnlyRawProvenCaptureTime(): void
     {
         [$collection, $verifier] = $this->seedHistoricalFixture('2026-08-08T21:09:55.123456Z');
@@ -283,7 +728,11 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
 
     public function testHistoricalPromotionRejectsFutureCaptureTime(): void
     {
-        [$collection, $verifier] = $this->seedHistoricalFixture('2026-08-10 05:09:55');
+        $futureCaptureTime = (new \DateTimeImmutable(
+            'now',
+            new \DateTimeZone('Asia/Shanghai')
+        ))->modify('+1 day')->format('Y-m-d H:i:s');
+        [$collection, $verifier] = $this->seedHistoricalFixture($futureCaptureTime);
 
         $result = (new OtaCanonicalHistoryPromotionService())->promote(
             $collection,
@@ -360,15 +809,14 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
         self::assertSame(0, Db::name('online_daily_data')->where('validation_status', 'verified')->count());
     }
 
-    public function testRejectsCollectionTaskThatWasNotLocallyP0Ready(): void
+    public function testExternalVerifierMaySettleAnAnchoredStaleLocalP0Diagnosis(): void
     {
         [$collection, $verifier] = $this->seedFixture('blocked');
 
         $result = (new OtaCanonicalHistoryPromotionService())->promote($collection, $verifier, 'ctrip', 80, 80);
 
-        self::assertSame('blocked', $result['status']);
-        self::assertSame('promotion_platform_task_not_ready', $result['reason']);
-        self::assertSame('normal', Db::name('online_daily_data')->where('id', 501)->value('validation_status'));
+        self::assertSame('verified', $result['status']);
+        self::assertSame('verified', Db::name('online_daily_data')->where('id', 501)->value('validation_status'));
     }
 
     public function testRejectsProfileHotelRebindingAfterVerifierReceipt(): void
@@ -562,7 +1010,7 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
             $this->dailyRow(501, '', 'normal'),
             $this->dailyRow(
                 502,
-                'catalog:traffic_report:traffic_flow_transform:list_exposure+detail_exposure',
+                'catalog:traffic_report:hotel_bi_mixed_business:list_exposure+detail_exposure',
                 'partial'
             ),
         ]);
@@ -573,15 +1021,17 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
             'platform' => 'ctrip',
             'collection_status' => 'success',
             'p0_status' => $sourceTaskP0Status,
+            'historical_core_contract_status' => 'not_required',
             'row_ids' => $rowIds,
         ];
-        $anchor = hash('sha256', json_encode([$sourceTask], JSON_UNESCAPED_SLASHES) ?: '[]');
+        $anchor = $this->collectionAnchor([$sourceTask]);
         $collection = [
             'schema_version' => 3,
             'hotel_id' => 80,
             'target_date' => '2026-08-09',
             'data_period' => 'realtime_snapshot',
             'source_tasks' => [$sourceTask],
+            'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
             'collection_anchor_hash' => $anchor,
         ];
         $verifier = [
@@ -622,6 +1072,188 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
     }
 
     /** @return array{0:array<string,mixed>,1:array<string,mixed>} */
+    private function seedMeituanHistoricalFixture(bool $includeOrderCore = true): array
+    {
+        Db::name('hotels')->insert([
+            'id' => 80,
+            'tenant_id' => 80,
+        ]);
+        Db::name('platform_data_sources')->insert([
+            'id' => 68,
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'status' => 'success',
+            'enabled' => 1,
+            'ingestion_method' => 'browser_profile',
+            'config_json' => json_encode([
+                'store_id' => 'meituan-store-80',
+                'poi_id' => 'meituan-poi-80',
+                'capture_sections' => ['traffic'],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        Db::name('ota_profile_bindings')->insert([
+            'id' => 68,
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'platform' => 'meituan',
+            'profile_key_hash' => hash('sha256', 'meituan-store-80'),
+            'binding_status' => 'active',
+        ]);
+
+        $rowIds = $includeOrderCore ? [6801, 6891] : [6801];
+        $runReadback = [
+            'readback_verified' => true,
+            'sync_task_id' => 6800,
+            'data_source_id' => 68,
+            'system_hotel_id' => 80,
+            'platform' => 'meituan',
+            'target_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'row_ids' => $rowIds,
+            'p0_status' => 'ready',
+            'field_fact_status' => 'ready',
+            'required_traffic_metric_keys' => self::MEITUAN_REQUIRED_METRICS,
+            'complete_traffic_metric_keys' => self::MEITUAN_REQUIRED_METRICS,
+            'missing_traffic_metric_keys' => [],
+        ];
+        Db::name('platform_data_sync_tasks')->insert([
+            'id' => 6800,
+            'tenant_id' => 80,
+            'data_source_id' => 68,
+            'system_hotel_id' => 80,
+            'platform' => 'meituan',
+            'status' => 'success',
+            'stats_json' => json_encode(['run_readback' => $runReadback], JSON_THROW_ON_ERROR),
+            'update_time' => '2026-08-09 05:10:06',
+        ]);
+        Db::name('online_daily_data')->insert($this->meituanHistoricalRow());
+        if ($includeOrderCore) {
+            Db::name('online_daily_data')->insert($this->meituanHistoricalOrderRow());
+        } else {
+            $olderOrder = $this->meituanHistoricalOrderRow();
+            $olderOrder['id'] = 6791;
+            $olderOrder['sync_task_id'] = 6799;
+            $olderOrder['source_trace_id'] = 'meituan-orders-trace-6791';
+            Db::name('online_daily_data')->insert($olderOrder);
+        }
+
+        // Same hotel/date/period Ctrip facts deliberately coexist. They must
+        // remain outside the source-68 Meituan promotion receipt and writes.
+        $ctripRow = $this->dailyRow(501, '', 'normal');
+        $ctripRaw = json_decode((string)$ctripRow['raw_data'], true, 512, JSON_THROW_ON_ERROR);
+        $ctripRaw['row']['date'] = '2026-08-08';
+        $ctripRaw['captured_at'] = '2026-08-08T21:09:55.123456Z';
+        $ctripRow['data_date'] = '2026-08-08';
+        $ctripRow['data_period'] = 'historical_daily';
+        $ctripRow['snapshot_time'] = '2026-08-09 05:09:55';
+        $ctripRow['raw_data'] = json_encode($ctripRaw, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        Db::name('online_daily_data')->insert($ctripRow);
+
+        $sourceTask = [
+            'data_source_id' => 68,
+            'sync_task_id' => 6800,
+            'platform' => 'meituan',
+            'collection_status' => 'success',
+            'p0_status' => 'ready',
+            'historical_core_contract_status' => 'ready',
+            'row_ids' => $rowIds,
+        ];
+        $anchor = $this->collectionAnchor([$sourceTask]);
+        $collection = [
+            'schema_version' => 3,
+            'hotel_id' => 80,
+            'target_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'required_platforms' => ['meituan'],
+            'source_tasks' => [$sourceTask],
+            'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
+            'collection_anchor_hash' => $anchor,
+        ];
+        $verifier = [
+            'schema_version' => 2,
+            'verification_source' => 'external_p0_verifier',
+            'status' => 'passed',
+            'exit_code' => 0,
+            'authority_ready' => true,
+            'target_date' => '2026-08-08',
+            'hotel_id' => 80,
+            'required_platforms' => ['meituan'],
+            'verified_platforms' => ['meituan'],
+            'collection_anchor_hash' => $anchor,
+            'platform_storage_scopes' => [
+                'meituan' => [
+                    'tenant_id' => 80,
+                    'system_hotel_id' => 80,
+                    'platform' => 'meituan',
+                    'target_date' => '2026-08-08',
+                    'data_source_id' => 68,
+                    'sync_task_id' => 6800,
+                    'authoritative_traffic_row_count' => 1,
+                    'sample_row_ids' => [6801],
+                    'required_metric_keys' => self::MEITUAN_REQUIRED_METRICS,
+                    'complete_metric_keys' => self::MEITUAN_REQUIRED_METRICS,
+                    'missing_metric_keys' => [],
+                    'nonzero_required_metric_rows' => 1,
+                    'explicit_zero_confirmed_rows' => 0,
+                    'observed_traffic_metric_provenance_status' => 'ready',
+                    'synthetic_normalization_provenance_missing_rows' => 0,
+                    'readback_status' => 'ready',
+                ],
+            ],
+            'verifier_report_hash' => str_repeat('c', 64),
+            'sensitive_values_exposed' => false,
+        ];
+        return [$collection, $verifier];
+    }
+
+    /** @return array{0:array<string,mixed>,1:array<string,mixed>} */
+    private function seedEquivalentMeituanMultiRowFixture(bool $differentMetrics): array
+    {
+        [$collection, $verifier] = $this->seedMeituanHistoricalFixture();
+        $row = $this->meituanHistoricalRow();
+        $row['id'] = 6802;
+        $row['source_trace_id'] = 'meituan-trace-6802';
+        $raw = json_decode((string)$row['raw_data'], true, 512, JSON_THROW_ON_ERROR);
+        $raw['source_trace_id'] = $row['source_trace_id'];
+        $raw['source_url_hash'] = hash('sha256', 'meituan-source-url-6802');
+        $raw['capture_evidence']['source_trace_id'] = $row['source_trace_id'];
+        $raw['capture_evidence']['source_url_hash'] = $raw['source_url_hash'];
+        foreach ($raw['field_facts'] as &$fact) {
+            $fact['capture_evidence']['source_trace_id'] = $row['source_trace_id'];
+            $fact['capture_evidence']['source_url_hash'] = $raw['source_url_hash'];
+        }
+        unset($fact);
+        if ($differentMetrics) {
+            $row['detail_exposure'] = 301;
+            $raw['row']['detailExposure'] = 301;
+        }
+        $row['raw_data'] = json_encode($raw, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        Db::name('online_daily_data')->insert($row);
+
+        $rowIds = [6801, 6802, 6891];
+        $stats = json_decode((string)Db::name('platform_data_sync_tasks')
+            ->where('id', 6800)
+            ->value('stats_json'), true, 512, JSON_THROW_ON_ERROR);
+        $stats['run_readback']['row_ids'] = $rowIds;
+        Db::name('platform_data_sync_tasks')->where('id', 6800)->update([
+            'stats_json' => json_encode($stats, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        $collection['source_tasks'][0]['row_ids'] = $rowIds;
+        $collection['collection_anchor_hash'] = $this->collectionAnchor(
+            $collection['source_tasks']
+        );
+        $verifier['collection_anchor_hash'] = $collection['collection_anchor_hash'];
+        $scope =& $verifier['platform_storage_scopes']['meituan'];
+        $scope['authoritative_traffic_row_count'] = 2;
+        $scope['sample_row_ids'] = [6801, 6802];
+        $scope['nonzero_required_metric_rows'] = 2;
+        return [$collection, $verifier];
+    }
+
+    /** @return array{0:array<string,mixed>,1:array<string,mixed>} */
     private function seedHistoricalFixture(?string $capturedAt): array
     {
         [$collection, $verifier] = $this->seedFixture();
@@ -642,21 +1274,35 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
                 'raw_data' => json_encode($raw, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
             ]);
         }
+        Db::name('online_daily_data')->insert($this->ctripHistoricalBusinessRow());
 
         $taskStats = json_decode((string)Db::name('platform_data_sync_tasks')
             ->where('id', 3001)
             ->value('stats_json'), true, 512, JSON_THROW_ON_ERROR);
         $taskStats['run_readback']['target_date'] = '2026-08-08';
         $taskStats['run_readback']['data_period'] = 'historical_daily';
+        $taskStats['run_readback']['row_ids'] = [501, 502, 503];
         Db::name('platform_data_sync_tasks')->where('id', 3001)->update([
             'stats_json' => json_encode($taskStats, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
         ]);
 
         $collection['target_date'] = '2026-08-08';
         $collection['data_period'] = 'historical_daily';
+        $collection['source_tasks'][0]['historical_core_contract_status'] = 'ready';
+        $collection['source_tasks'][0]['row_ids'] = [501, 502, 503];
+        $collection['collection_anchor_hash'] = $this->collectionAnchor(
+            $collection['source_tasks']
+        );
         $verifier['target_date'] = '2026-08-08';
         $verifier['platform_storage_scopes']['ctrip']['target_date'] = '2026-08-08';
+        $verifier['collection_anchor_hash'] = $collection['collection_anchor_hash'];
         return [$collection, $verifier];
+    }
+
+    /** @param array<int,array<string,mixed>> $sourceTasks */
+    private function collectionAnchor(array $sourceTasks): string
+    {
+        return OtaCollectionAnchorService::hash($sourceTasks);
     }
 
     /** @return array<string,mixed> */
@@ -734,6 +1380,161 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
         ];
     }
 
+    /** @return array<string,mixed> */
+    private function meituanHistoricalRow(): array
+    {
+        $traceId = 'meituan-trace-6801';
+        $urlHash = hash('sha256', 'meituan-source-url-6801');
+        $sourceKeys = [
+            'list_exposure' => 'listExposure',
+            'detail_exposure' => 'detailExposure',
+            'flow_rate' => 'flowRate',
+        ];
+        $values = [
+            'list_exposure' => 1200,
+            'detail_exposure' => 300,
+            'flow_rate' => 25,
+        ];
+        $sourceRow = [
+            'date' => '2026-08-08',
+            'poiId' => 'meituan-poi-80',
+            '_capture_source' => 'xhr:traffic',
+            '_observed_traffic_metric_keys' => array_keys($sourceKeys),
+        ];
+        $facts = [];
+        foreach ($sourceKeys as $metricKey => $sourceKey) {
+            $sourceRow[$sourceKey] = $values[$metricKey];
+            $facts[] = [
+                'metric_key' => $metricKey,
+                'status' => 'captured',
+                'source_key' => $sourceKey,
+                'source_path' => 'data.traffic.' . $sourceKey,
+                'storage_field' => 'online_daily_data.' . $metricKey,
+                'stored_value_present' => true,
+                'capture_evidence' => [
+                    'capture_source' => 'xhr:traffic',
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $urlHash,
+                ],
+            ];
+        }
+        $raw = [
+            'row' => $sourceRow,
+            'captured_at' => '2026-08-08T21:09:55.123456Z',
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $urlHash,
+            'capture_evidence' => [
+                'source_trace_id' => $traceId,
+                'source_url_hash' => $urlHash,
+            ],
+            'date_source' => 'request.payload.statDate',
+            'field_facts' => $facts,
+        ];
+        return [
+            'id' => 6801,
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'meituan-poi-80',
+            'data_source_id' => 68,
+            'sync_task_id' => 6800,
+            'source' => 'meituan',
+            'platform' => 'meituan',
+            'data_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'data_type' => 'traffic',
+            'dimension' => '',
+            'compare_type' => '',
+            'validation_status' => 'normal',
+            'readback_verified' => 1,
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => $traceId,
+            'snapshot_time' => null,
+            'list_exposure' => $values['list_exposure'],
+            'detail_exposure' => $values['detail_exposure'],
+            'flow_rate' => $values['flow_rate'],
+            'order_filling_num' => null,
+            'order_submit_num' => null,
+            'raw_data' => json_encode($raw, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            'update_time' => '2026-08-09 05:10:06',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function meituanHistoricalOrderRow(): array
+    {
+        return [
+            'id' => 6891,
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'meituan-poi-80',
+            'data_source_id' => 68,
+            'sync_task_id' => 6800,
+            'source' => 'meituan',
+            'platform' => 'meituan',
+            'data_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'data_type' => 'orders',
+            'dimension' => '',
+            'compare_type' => '',
+            'validation_status' => 'normal',
+            'readback_verified' => 1,
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => 'meituan-orders-trace-6891',
+            'snapshot_time' => '2026-08-09 05:09:54',
+            'amount' => 1280.0,
+            'quantity' => 8,
+            'book_order_num' => 5,
+            'list_exposure' => null,
+            'detail_exposure' => null,
+            'flow_rate' => null,
+            'order_filling_num' => null,
+            'order_submit_num' => null,
+            'raw_data' => json_encode([
+                'row' => ['date' => '2026-08-08', 'poiId' => 'meituan-poi-80'],
+                'source_trace_id' => 'meituan-orders-trace-6891',
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            'update_time' => '2026-08-09 05:10:06',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function ctripHistoricalBusinessRow(): array
+    {
+        return [
+            'id' => 503,
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'ctrip-hotel-80',
+            'data_source_id' => 25,
+            'sync_task_id' => 3001,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'data_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'data_type' => 'business',
+            'dimension' => '',
+            'compare_type' => '',
+            'validation_status' => 'normal',
+            'readback_verified' => 1,
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => 'ctrip-business-trace-503',
+            'snapshot_time' => '2026-08-09 05:10:04',
+            'amount' => 980.0,
+            'quantity' => 6,
+            'book_order_num' => 4,
+            'list_exposure' => null,
+            'detail_exposure' => null,
+            'flow_rate' => null,
+            'order_filling_num' => null,
+            'order_submit_num' => null,
+            'raw_data' => json_encode([
+                'row' => ['date' => '2026-08-08', 'hotelId' => 'ctrip-hotel-80'],
+                'source_trace_id' => 'ctrip-business-trace-503',
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            'update_time' => '2026-08-09 05:10:06',
+        ];
+    }
+
     private static function createSchema(): void
     {
         Db::execute(<<<'SQL'
@@ -773,6 +1574,8 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
                 system_hotel_id INTEGER NOT NULL,
                 platform TEXT NOT NULL,
                 status TEXT NOT NULL,
+                trigger_type TEXT NULL,
+                started_at TEXT NULL,
                 stats_json TEXT NULL,
                 update_time TEXT NULL
             )
@@ -797,6 +1600,9 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
                 ingestion_method TEXT NOT NULL,
                 source_trace_id TEXT NOT NULL,
                 snapshot_time TEXT NULL,
+                amount REAL NULL,
+                quantity REAL NULL,
+                book_order_num REAL NULL,
                 list_exposure REAL NULL,
                 detail_exposure REAL NULL,
                 flow_rate REAL NULL,

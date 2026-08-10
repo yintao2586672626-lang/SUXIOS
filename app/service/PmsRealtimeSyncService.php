@@ -338,20 +338,18 @@ final class PmsRealtimeSyncService
 
     private function sandboxId(int $hotelId, int $userId): string
     {
-        $configured = trim((string)(getenv('SUXIOS_DINGDANDAO_LOCAL_SANDBOX_ID') ?: ''));
-        if ($configured !== '') {
-            return $this->validSandboxId($configured) ? $configured : '';
-        }
-
         $receipt = ($this->receiptLoader)($hotelId, $userId);
-        if (($receipt['execution_mode'] ?? '') !== 'local_shared_browser_sandbox'
-            || (int)($receipt['hotel_id'] ?? 0) !== $hotelId
-            || (int)($receipt['owner_user_id'] ?? 0) !== $userId
-        ) {
+        if (!$this->trustedLocalRunnerReceipt($receipt, $hotelId, $userId)) {
             return '';
         }
         $value = trim((string)($receipt['sandbox_id'] ?? ''));
-        return $this->validSandboxId($value) ? $value : '';
+        $configured = trim((string)(getenv('SUXIOS_DINGDANDAO_LOCAL_SANDBOX_ID') ?: ''));
+        if ($configured !== ''
+            && (!$this->validSandboxId($configured) || !hash_equals($value, $configured))
+        ) {
+            return '';
+        }
+        return $value;
     }
 
     private function validSandboxId(string $value): bool
@@ -373,7 +371,10 @@ final class PmsRealtimeSyncService
                 . DIRECTORY_SEPARATOR . 'user_' . $userId
                 . DIRECTORY_SEPARATOR . 'operating_indicators'
                 . DIRECTORY_SEPARATOR . 'latest.json',
-            $root . DIRECTORY_SEPARATOR . 'latest.json',
+            $root . DIRECTORY_SEPARATOR . 'hotel_' . $hotelId
+                . DIRECTORY_SEPARATOR . 'user_' . $userId
+                . DIRECTORY_SEPARATOR . 'full_diagnostic'
+                . DIRECTORY_SEPARATOR . 'latest.json',
         ];
         foreach ($paths as $path) {
             if (!is_file($path)) {
@@ -382,13 +383,46 @@ final class PmsRealtimeSyncService
             $raw = @file_get_contents($path);
             $decoded = is_string($raw) ? json_decode($raw, true) : null;
             if (is_array($decoded)
-                && (int)($decoded['hotel_id'] ?? 0) === $hotelId
-                && (int)($decoded['owner_user_id'] ?? 0) === $userId
+                && $this->trustedLocalRunnerReceipt($decoded, $hotelId, $userId)
             ) {
                 return $decoded;
             }
         }
         return [];
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private function trustedLocalRunnerReceipt(
+        array $receipt,
+        int $hotelId,
+        int $userId
+    ): bool {
+        $scopeMismatchCodes = $receipt['scope_mismatch_codes'] ?? null;
+        $targetDate = trim((string)($receipt['target_date'] ?? ''));
+        $sandboxId = trim((string)($receipt['sandbox_id'] ?? ''));
+
+        return (int)($receipt['schema_version'] ?? 0) === 1
+            && trim((string)($receipt['run_id'] ?? '')) !== ''
+            && in_array((string)($receipt['status'] ?? ''), ['success', 'partial'], true)
+            && (string)($receipt['source'] ?? '') === 'dingdandao'
+            && (string)($receipt['execution_mode'] ?? '')
+                === 'local_shared_browser_sandbox'
+            && (int)($receipt['hotel_id'] ?? 0) === $hotelId
+            && (int)($receipt['owner_user_id'] ?? 0) === $userId
+            && preg_match('/^\d{4}-\d{2}-\d{2}$/D', $targetDate) === 1
+            && $this->validSandboxId($sandboxId)
+            && (string)($receipt['sandbox_selection'] ?? '') === 'explicit_marker'
+            && (string)($receipt['cdp_scope'] ?? '') === 'loopback'
+            && (string)($receipt['browser_host_status'] ?? '') === 'ready'
+            && ($receipt['collection_success'] ?? false) === true
+            && ($receipt['business_data_persisted'] ?? false) === true
+            && (int)($receipt['capture_id'] ?? 0) > 0
+            && (string)($receipt['identity_status'] ?? '') === 'matched'
+            && (string)($receipt['reconciliation_status'] ?? '') === 'matched'
+            && (string)($receipt['quality_status'] ?? '') === 'verified'
+            && (string)($receipt['readback_status'] ?? '') === 'readback_verified'
+            && is_array($scopeMismatchCodes)
+            && $scopeMismatchCodes === [];
     }
 
     private function probeLocalCdp(string $url): bool

@@ -75,13 +75,24 @@ final class Tc268RevenueAiEvidenceScopeL8Test extends TestCase
         $blockers = $normalizedP0Gate['blocking_missing_inputs'];
         $reasonCodes = $credibilityGate['reason_codes'];
 
-        if ($dataCompleteness === 'complete') {
+        if ($freshness === 'stale') {
+            self::assertNull($overview['metrics']['ota_room_nights']['value'], $caseId);
+            self::assertSame('empty', $overview['metrics']['ota_room_nights']['status'], $caseId);
+        } elseif ($dataCompleteness === 'complete') {
             self::assertSame(6.0, $overview['metrics']['ota_room_nights']['value'], $caseId);
-            self::assertSame('ok', $overview['metrics']['ota_room_nights']['status'], $caseId);
-            self::assertNotContains('required_field_missing:room_nights', $blockers, $caseId);
+            self::assertSame(
+                $upstreamState === 'success' ? 'ok' : 'collection_failed',
+                $overview['metrics']['ota_room_nights']['status'],
+                $caseId
+            );
         } else {
             self::assertNull($overview['metrics']['ota_room_nights']['value'], $caseId);
             self::assertSame('not_calculable', $overview['metrics']['ota_room_nights']['status'], $caseId);
+        }
+
+        if ($dataCompleteness === 'complete') {
+            self::assertNotContains('required_field_missing:room_nights', $blockers, $caseId);
+        } else {
             self::assertContains('required_field_missing:room_nights', $blockers, $caseId);
             self::assertContains(
                 'p0_ota_gate_missing:required_field_missing:room_nights',
@@ -104,14 +115,19 @@ final class Tc268RevenueAiEvidenceScopeL8Test extends TestCase
             self::assertContains('p0_ota_gate_missing:stale_target_date_data', $reasonCodes, $caseId);
         }
 
+        $expectedDatasetStatus = $upstreamState === 'failure'
+            ? 'failed'
+            : ($freshness === 'stale' ? 'empty' : 'ready');
+        $expectedChannelStatus = $upstreamState === 'failure'
+            ? 'failed'
+            : ($freshness === 'stale' ? 'stale' : 'ok');
+        self::assertSame($expectedDatasetStatus, $credibilityGate['evidence']['dataset_status'], $caseId);
+        self::assertSame($expectedChannelStatus, $overview['channel_statuses']['ctrip']['status'], $caseId);
+
         if ($upstreamState === 'success') {
-            self::assertSame('ready', $credibilityGate['evidence']['dataset_status'], $caseId);
-            self::assertSame('ok', $overview['channel_statuses']['ctrip']['status'], $caseId);
             self::assertNotContains('collection_failed', $blockers, $caseId);
             self::assertNotContains('ota_dataset_failed', $reasonCodes, $caseId);
         } else {
-            self::assertSame('failed', $credibilityGate['evidence']['dataset_status'], $caseId);
-            self::assertSame('failed', $overview['channel_statuses']['ctrip']['status'], $caseId);
             self::assertContains('collection_failed', $blockers, $caseId);
             self::assertContains('p0_ota_gate_missing:collection_failed', $reasonCodes, $caseId);
             self::assertContains('ota_dataset_failed', $reasonCodes, $caseId);
@@ -207,7 +223,11 @@ final class Tc268RevenueAiEvidenceScopeL8Test extends TestCase
             'available_room_nights' => 10.0,
             'occupied_room_nights' => 6.0,
             'order_count' => 4,
+            'gross_order_count' => 4,
             'cancel_order_num' => 0,
+            'unknown_status_order_count' => 0,
+            'cancel_rate_basis' =>
+                'cancelled_orders_over_gross_orders_complete_classification',
             'cancel_room_nights' => 0,
             'lead_time_days' => 2,
             'our_price' => 200.0,
@@ -332,11 +352,22 @@ final class Tc268RevenueAiEvidenceScopeL8Test extends TestCase
         return [
             'table' => 'online_daily_data',
             'row_id' => $rowId,
+            'source_trace_id' => 'tc268:' . $rowId . ':' . $date,
+            'data_source_id' => 268,
+            'sync_task_id' => 26800 + $rowId,
             'hotel_key' => 'system:7',
+            'system_hotel_id' => 7,
+            'platform_hotel_id' => 'ctrip-hotel-7',
             'platform' => 'ctrip',
             'data_type' => $dataType,
             'date_key' => $date,
+            'ingestion_method' => 'browser_profile',
+            'collected_at' => $date . ' 09:55:00',
             'updated_at' => $date . ' 10:00:00',
+            'data_period' => 'historical_daily',
+            'is_final' => true,
+            'stored' => $saved,
+            'readback_verified' => $saved,
             'saved_success' => $saved,
             'failure_reasons' => $failureReasons,
         ];

@@ -274,6 +274,11 @@ test('Meituan traffic card response maps to P0 traffic fields', () => {
   assert.equal(rows[0]._order_filling_source_policy, 'meituan_metric_cards_no_separate_order_filling_step_pay_order_count_used');
   assert.equal(rows[0]._source_path, 'data.data.cards');
   assert.equal(rows[0]._meituan_card_metric_sources.list_exposure.card_id, 'EXPOSE_PV_CNT');
+  assert.deepEqual(rows[0]._observed_traffic_metric_keys, [
+    'list_exposure',
+    'detail_exposure',
+    'flow_rate',
+  ]);
   assert.equal(isImportableMeituanTrafficRow(rows[0]), true);
 });
 
@@ -324,6 +329,7 @@ test('Meituan traffic card placeholders remain non-importable', () => {
   assert.equal(rows[0].dataDate, '2026-06-15');
   assert.equal(rows[0].date_source, 'request.query.date');
   assert.equal(rows[0]._meituan_card_metric_missing.length, 4);
+  assert.equal(Object.hasOwn(rows[0], '_observed_traffic_metric_keys'), false);
   assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
 });
 
@@ -480,6 +486,11 @@ test('Meituan traffic DOM keeps funnel and direct source exposure facts separate
   assert.equal(funnel.orderSubmitNum, 3);
   assert.equal(funnel.flowRate, 2.48);
   assert.equal(funnel.dataDate, '2026-07-29');
+  assert.deepEqual(funnel._observed_traffic_metric_keys, [
+    'list_exposure',
+    'detail_exposure',
+    'flow_rate',
+  ]);
 
   const sourceRows = rows.filter(row => row._capture_source === 'dom:traffic:source_breakdown');
   assert.deepEqual(
@@ -565,6 +576,32 @@ test('Meituan myHotel funnel response becomes a truthful core traffic row', () =
   assert.equal(rows[0].traffic_evidence_source, 'page.traffic_period_selection.readback');
   assert.equal(rows[0].traffic_marker, 'meituan_traffic_yesterday_tab');
   assert.equal(rows[0].traffic_request_sequence, 22);
+  assert.deepEqual(rows[0]._observed_traffic_metric_keys, [
+    'list_exposure',
+    'detail_exposure',
+    'flow_rate',
+  ]);
+});
+
+test('Meituan myHotel observed marker cannot be forged by normalized aliases', () => {
+  const rows = normalizeMeituanFlowAnalysisRows({
+    data: {
+      myHotel: {
+        exposureUV: 81,
+        listExposure: 999,
+        _observed_traffic_metric_keys: [
+          'list_exposure',
+          'detail_exposure',
+          'flow_rate',
+        ],
+      },
+    },
+  }, {
+    defaultDataDate: '2026-07-18',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0]._observed_traffic_metric_keys, ['list_exposure']);
 });
 
 test('Meituan order flow response expands verified summary and hotel detail rows', () => {

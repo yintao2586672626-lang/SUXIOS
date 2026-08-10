@@ -154,21 +154,35 @@ final class AgentTest extends TestCase
                 'row' => ['endpoint_id' => 'traffic_hotel_seq', 'rank' => 604],
             ], JSON_THROW_ON_ERROR),
         ]]));
-        self::assertTrue($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+        self::assertFalse($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
             'source' => 'ctrip',
+            'platform' => 'ctrip',
             'data_type' => 'traffic',
             'readback_verified' => 1,
             'validation_status' => 'normal',
             'dimension' => 'catalog:business_overview:business_flow_transform:list_exposure',
             'raw_data' => json_encode(['row' => ['listExposure' => 0]], JSON_THROW_ON_ERROR),
         ]]));
-        self::assertTrue($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+        self::assertFalse($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
             'source' => 'ctrip',
+            'platform' => 'ctrip',
             'data_type' => 'traffic',
             'readback_verified' => 1,
             'validation_status' => 'normal',
             'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
             'raw_data' => json_encode(['row' => ['listExposure' => 134]], JSON_THROW_ON_ERROR),
+        ]]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'readback_verified' => 1,
+            'validation_status' => 'verified',
+            'dimension' => '',
+            'raw_data' => json_encode([
+                'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+                'row' => ['listExposure' => 510],
+            ], JSON_THROW_ON_ERROR),
         ]]));
     }
 
@@ -195,7 +209,10 @@ final class AgentTest extends TestCase
                 'validation_status' => 'normal',
             ];
             if ($platform === 'ctrip') {
-                $row['dimension'] = 'catalog:traffic_report:traffic_flow_transform:list_exposure';
+                $row['raw_data'] = json_encode([
+                    'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+                    'row' => ['listExposure' => $exposure],
+                ], JSON_THROW_ON_ERROR);
             }
             $dataSets[$platform] = [
                 'tenant_id' => 80,
@@ -235,7 +252,11 @@ final class AgentTest extends TestCase
             'detail_exposure' => 10,
             'readback_verified' => 1,
             'validation_status' => 'normal',
-            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+            'dimension' => '',
+            'raw_data' => json_encode([
+                'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+                'row' => ['listExposure' => 100],
+            ], JSON_THROW_ON_ERROR),
         ];
         $result = $this->invokeNonPublic($controller, 'buildAllOtaDiagnosisResult', [[
             'ctrip' => [
@@ -436,6 +457,90 @@ final class AgentTest extends TestCase
 
         self::assertNull($result['metrics']['order_visitors']);
         self::assertSame(1, $result['decision_quality']['superseded_snapshot_count']);
+    }
+
+    public function testOtaDiagnosisCanonicalTrafficSelectionExcludesExplicitOtherPlatformRows(): void
+    {
+        $controller = $this->controller();
+        $base = [
+            'source' => 'ctrip',
+            'system_hotel_id' => 80,
+            'hotel_name' => 'test hotel',
+            'data_type' => 'traffic',
+            'compare_type' => 'self',
+            'data_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+        ];
+
+        $selection = $this->invokeNonPublic($controller, 'selectCanonicalOtaDiagnosisTrafficSnapshots', [[
+            array_merge($base, ['id' => 81818, 'platform' => 'Ctrip', 'list_exposure' => 510]),
+            array_merge($base, ['id' => 81926, 'platform' => 'Qunar', 'list_exposure' => 134]),
+        ], 80, 'test hotel', 'ctrip']);
+
+        self::assertSame([81818], array_column($selection['rows'], 'id'));
+        self::assertSame([], array_column($selection['superseded_rows'], 'id'));
+    }
+
+    public function testOtaDiagnosisTrafficCanonicalizationKeepsSeparateCheckoutAndBookingFacts(): void
+    {
+        $controller = $this->controller();
+        $identity = [
+            'source' => 'ctrip',
+            'platform' => 'Ctrip',
+            'system_hotel_id' => 80,
+            'hotel_id' => '130079194',
+            'hotel_name' => 'test hotel',
+            'compare_type' => 'self',
+            'data_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+        ];
+        $checkout = array_merge($identity, [
+            'id' => 81605,
+            'data_type' => 'business',
+            'amount' => 8468,
+            'quantity' => 12,
+            'book_order_num' => null,
+            'list_exposure' => null,
+            'detail_exposure' => null,
+            'flow_rate' => null,
+            'order_filling_num' => null,
+            'order_submit_num' => null,
+        ]);
+        $booking = array_merge($identity, [
+            'id' => 81929,
+            'data_type' => 'business',
+            'dimension' => 'semantic:ctrip_business_market_overview:booking_order_count',
+            'amount' => null,
+            'quantity' => null,
+            'book_order_num' => 0,
+            'list_exposure' => null,
+            'detail_exposure' => null,
+            'flow_rate' => null,
+            'order_filling_num' => null,
+            'order_submit_num' => null,
+        ]);
+        $traffic = array_merge($identity, [
+            'id' => 81818,
+            'data_type' => 'traffic',
+            'list_exposure' => 510,
+            'detail_exposure' => 96,
+            'flow_rate' => 18.82,
+            'order_filling_num' => 0,
+            'order_submit_num' => 0,
+        ]);
+
+        self::assertFalse($this->invokeNonPublic($controller, 'isOtaDiagnosisTrafficSnapshotRow', [$checkout]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isOtaDiagnosisTrafficSnapshotRow', [$booking]));
+        $selection = $this->invokeNonPublic($controller, 'selectCanonicalOtaDiagnosisTrafficSnapshots', [[
+            $checkout,
+            $booking,
+            $traffic,
+        ], 80, 'test hotel', 'ctrip']);
+
+        self::assertSame([81605, 81929, 81818], array_column($selection['rows'], 'id'));
+        self::assertSame([], array_column($selection['superseded_rows'], 'id'));
     }
 
     public function testOtaDiagnosisCanonicalizesEachDayBeforeAggregatingDateRange(): void
@@ -647,9 +752,7 @@ final class AgentTest extends TestCase
                 'submit_users' => 1,
             ],
             'data_gaps' => [
-                'metric_missing:amount',
-                'metric_missing:quantity',
-                'metric_missing:book_order_num',
+                'metric_missing:advertising_spend',
             ],
         ]]);
         self::assertCount(1, $actions);
@@ -1117,10 +1220,10 @@ final class AgentTest extends TestCase
         self::assertSame('none', $final['priority']);
     }
 
-    public function testOtaDiagnosisCompleteTrafficPathMakesRevenueGapsOptional(): void
+    public function testOtaDiagnosisCompleteTrafficPathStillBlocksMissingRevenueFacts(): void
     {
         $controller = $this->controller();
-        $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [[
+        $input = [
             'metrics' => [
                 'amount' => null,
                 'quantity' => null,
@@ -1143,15 +1246,45 @@ final class AgentTest extends TestCase
             ],
             'main_problems' => ['booking conversion requires review'],
             'data_summary' => ['source_counts' => ['online_rows' => 5]],
-        ]]);
+            'recommended_actions' => ['review booking conversion'],
+            'diagnosis' => [
+                'summary' => 'booking conversion requires review',
+                'actions' => ['review booking conversion'],
+            ],
+            'priority' => 'high',
+        ];
+        $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [$input]);
 
-        self::assertSame('action_required', $closure['status']);
-        self::assertSame([], $closure['data_evidence_input']['blocking_data_gaps']);
+        self::assertSame('blocked_by_missing_facts', $closure['status']);
         self::assertSame(
             ['metric_missing:amount', 'metric_missing:quantity', 'metric_missing:book_order_num'],
-            array_column($closure['data_evidence_input']['optional_data_gaps'], 'code')
+            array_column($closure['data_evidence_input']['blocking_data_gaps'], 'code')
         );
-        self::assertTrue($closure['data_evidence_input']['enough_for_executable_actions']);
+        self::assertSame([], $closure['data_evidence_input']['optional_data_gaps']);
+        self::assertFalse($closure['data_evidence_input']['enough_for_executable_actions']);
+
+        $actions = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActions', [
+            true,
+            false,
+            false,
+            false,
+            $input['metrics'],
+            $input['data_gaps'],
+        ]);
+        self::assertSame([], $actions);
+
+        $final = $this->invokeNonPublic($controller, 'finalizeOtaDiagnosisDecision', [$input]);
+        self::assertSame('blocked_by_missing_facts', $final['decision_status']);
+        self::assertSame('blocked_by_missing_facts', $final['workflow_status']);
+        self::assertSame(
+            ['metric_missing:amount', 'metric_missing:quantity', 'metric_missing:book_order_num'],
+            $final['missing_fact_codes']
+        );
+        self::assertSame([], $final['recommended_actions']);
+        self::assertSame([], $final['action_items']);
+        self::assertSame([], $final['diagnosis']['actions']);
+        self::assertSame('none', $final['priority']);
+        self::assertSame('do_not_create_execution_intent', $final['execution_policy']);
     }
 
     public function testOtaDiagnosisExecutionIntentUsesSavedEvidenceWithoutInventingTargetDelta(): void
@@ -1193,8 +1326,8 @@ final class AgentTest extends TestCase
             'evidence_refs' => ['online_daily_data#901'],
         ], 77, 80, [
             'assignee_id' => 9,
-            'due_at' => '2099-07-18T18:00',
-            'review_at' => '2099-07-19T10:00',
+            'due_at' => '2026-07-15T08:00',
+            'review_at' => '2026-07-15T10:00',
         ]]);
 
         self::assertSame('ota_diagnosis_saved', $input['source_module']);
@@ -1213,8 +1346,8 @@ final class AgentTest extends TestCase
         self::assertSame('increase', $input['evidence']['expected_direction']);
         self::assertSame(['online_daily_data#901'], $input['evidence']['evidence_refs']);
         self::assertSame(9, $input['target_value']['assignee_id']);
-        self::assertSame('2099-07-18 18:00:00', $input['target_value']['due_at']);
-        self::assertSame('2099-07-19 10:00:00', $input['target_value']['review_at']);
+        self::assertSame('2026-07-15 08:00:00', $input['target_value']['due_at']);
+        self::assertSame('2026-07-15 10:00:00', $input['target_value']['review_at']);
         self::assertSame($input['target_value']['workflow_schedule'], $input['evidence']['workflow_schedule']);
     }
 
@@ -1284,8 +1417,8 @@ final class AgentTest extends TestCase
             80,
             [
                 'assignee_id' => 9,
-                'due_at' => '2099-08-09 18:00:00',
-                'review_at' => '2099-08-10 10:00:00',
+                'due_at' => '2026-08-10 08:00:00',
+                'review_at' => '2026-08-10 10:00:00',
             ],
         ]);
         self::assertSame(0, $input['current_value']['list_exposure']);
@@ -1433,6 +1566,27 @@ final class AgentTest extends TestCase
             'due_at' => '2099-07-20 10:00:00',
             'review_at' => '2099-07-19 10:00:00',
         ]]);
+    }
+
+    public function testOtaDiagnosisExecutionScheduleMustUseDiagnosisNextBusinessDate(): void
+    {
+        $controller = $this->controller();
+        $aligned = $this->invokeNonPublic($controller, 'normalizeOtaDiagnosisExecutionSchedule', [[
+            'assignee_id' => 7,
+            'due_at' => '2026-08-09 18:00:00',
+            'review_at' => '2026-08-09 23:00:00',
+        ], '2026-08-08']);
+        self::assertSame('2026-08-09 23:00:00', $aligned['review_at']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(
+            'review_at must use the diagnosis next calendar business date: 2026-08-09'
+        );
+        $this->invokeNonPublic($controller, 'normalizeOtaDiagnosisExecutionSchedule', [[
+            'assignee_id' => 7,
+            'due_at' => '2026-08-10 18:00:00',
+            'review_at' => '2026-08-11 10:00:00',
+        ], '2026-08-08']);
     }
 
     public function testOtaDiagnosisSupersedeScopeUsesRequestedDatesAndSnapshotKeepsRecordStatus(): void

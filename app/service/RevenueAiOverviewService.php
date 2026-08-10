@@ -124,8 +124,12 @@ class RevenueAiOverviewService
         ];
         $hotelKeys = [];
         $platformKeys = [];
+        $channelDatasetStatuses = [];
         foreach (self::CHANNELS as $channel) {
             $dataset = is_array($channelDatasets[$channel] ?? null) ? $channelDatasets[$channel] : [];
+            if ($dataset !== []) {
+                $channelDatasetStatuses[] = strtolower(trim((string)($dataset['status'] ?? '')));
+            }
             foreach ($this->list($dataset['dim_hotel'] ?? []) as $hotel) {
                 $key = (string)($hotel['hotel_key'] ?? json_encode($hotel));
                 if (!isset($hotelKeys[$key])) {
@@ -175,8 +179,144 @@ class RevenueAiOverviewService
         ] as $factKey) {
             $acceptedCount += count($merged[$factKey]);
         }
-        $merged['status'] = $acceptedCount > 0 ? 'ready' : 'empty';
+        $merged['status'] = array_intersect($channelDatasetStatuses, ['failed', 'error']) !== []
+            ? 'failed'
+            : ($acceptedCount > 0 ? 'ready' : 'empty');
         return $merged;
+    }
+
+    /**
+     * Keep the pure overview builder truthful even when a caller supplies a
+     * mixed or stale dataset. Canonical facts must match the requested hotel,
+     * platform and business date before they can enter target-scope metrics.
+     * Missing trace identity is retained as unverified evidence; an explicit
+     * trace mismatch is rejected as a scope mismatch.
+     *
+     * @param array<string, mixed> $dataset
+     * @param array<int, string> $allowedChannels
+     * @return array<string, mixed>
+     */
+    private function scopeDatasetForOverview(
+        array $dataset,
+        string $businessDate,
+        ?int $hotelId,
+        ?string $requiredChannel,
+        array $allowedChannels
+    ): array {
+        $inputStatus = strtolower(trim((string)($dataset['status'] ?? '')));
+        $factKeys = [
+            'fact_ota_daily',
+            'fact_ota_traffic',
+            'fact_ota_advertising',
+            'fact_ota_quality',
+            'fact_ota_search_keyword',
+            'fact_ota_peer_rank',
+            'fact_ota_traffic_analysis',
+            'fact_ota_traffic_forecast',
+            'fact_ota_comment',
+        ];
+        $acceptedCount = 0;
+        $platformKeys = [];
+        $hotelKeys = [];
+        $scopeRejectedRows = [];
+
+        foreach ($factKeys as $factKey) {
+            $scopedRows = [];
+            foreach ($this->list($dataset[$factKey] ?? []) as $row) {
+                if (!$this->factMatchesOverviewScope(
+                    $row,
+                    $businessDate,
+                    $hotelId,
+                    $requiredChannel,
+                    $allowedChannels
+                )) {
+                    $scopeRejectedRows[] = [
+                        'reason' => 'overview_scope_mismatch',
+                        'fact_table' => $factKey,
+                        'date_key' => trim((string)($row['date_key'] ?? '')),
+                        'hotel_key' => trim((string)($row['hotel_key'] ?? '')),
+                        'platform_key' => strtolower(trim((string)($row['platform_key'] ?? ''))),
+                    ];
+                    continue;
+                }
+                $scopedRows[] = $row;
+                $acceptedCount++;
+                $platformKey = strtolower(trim((string)($row['platform_key'] ?? '')));
+                $hotelKey = trim((string)($row['hotel_key'] ?? ''));
+                if ($platformKey !== '') {
+                    $platformKeys[$platformKey] = true;
+                }
+                if ($hotelKey !== '') {
+                    $hotelKeys[$hotelKey] = true;
+                }
+            }
+            $dataset[$factKey] = $scopedRows;
+        }
+
+        $dataset['dim_platform'] = array_values(array_filter(
+            $this->list($dataset['dim_platform'] ?? []),
+            static fn(array $row): bool => isset($platformKeys[strtolower(trim((string)($row['platform_key'] ?? '')))])
+        ));
+        $dataset['dim_hotel'] = array_values(array_filter(
+            $this->list($dataset['dim_hotel'] ?? []),
+            static fn(array $row): bool => isset($hotelKeys[trim((string)($row['hotel_key'] ?? ''))])
+        ));
+        $quality = is_array($dataset['data_quality'] ?? null) ? $dataset['data_quality'] : [];
+        $quality['rejected_rows'] = array_merge(
+            $this->list($quality['rejected_rows'] ?? []),
+            $scopeRejectedRows
+        );
+        if ($acceptedCount === 0 && $scopeRejectedRows !== []) {
+            $quality['accepted_rows'] = 0;
+        }
+        $dataset['data_quality'] = $quality;
+        $dataset['status'] = in_array($inputStatus, ['failed', 'error'], true)
+            ? $inputStatus
+            : ($acceptedCount > 0 ? 'ready' : 'empty');
+        return $dataset;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, string> $allowedChannels
+     */
+    private function factMatchesOverviewScope(
+        array $row,
+        string $businessDate,
+        ?int $hotelId,
+        ?string $requiredChannel,
+        array $allowedChannels
+    ): bool {
+        $dateKey = trim((string)($row['date_key'] ?? ''));
+        $platformKey = strtolower(trim((string)($row['platform_key'] ?? '')));
+        $hotelKey = trim((string)($row['hotel_key'] ?? ''));
+        if ($dateKey !== $businessDate
+            || !in_array($platformKey, $allowedChannels, true)
+            || ($requiredChannel !== null && $platformKey !== $requiredChannel)
+            || ($hotelId !== null && $hotelKey !== 'system:' . $hotelId)) {
+            return false;
+        }
+
+        $trace = is_array($row['source_trace'] ?? null) ? $row['source_trace'] : [];
+        if ($trace === []) {
+            return true;
+        }
+        $traceDate = trim((string)($trace['date_key'] ?? ''));
+        $tracePlatform = strtolower(trim((string)($trace['platform'] ?? '')));
+        $traceHotelId = max(0, (int)($trace['system_hotel_id'] ?? 0));
+        $traceHotelKey = trim((string)($trace['hotel_key'] ?? ''));
+        if ($traceDate !== '' && $traceDate !== $businessDate) {
+            return false;
+        }
+        if ($tracePlatform !== '' && $tracePlatform !== $platformKey) {
+            return false;
+        }
+        if ($hotelId !== null
+            && (($traceHotelId > 0 && $traceHotelId !== $hotelId)
+                || ($traceHotelKey !== '' && $traceHotelKey !== 'system:' . $hotelId))) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -193,6 +333,30 @@ class RevenueAiOverviewService
         $businessDate = $this->businessDate($context['business_date'] ?? null);
         $hotelId = $this->hotelId($context['hotel_id'] ?? null);
         $enabledChannels = $this->enabledChannels($context['enabled_channels'] ?? null);
+        $scopeChannels = $enabledChannels !== [] ? $enabledChannels : self::CHANNELS;
+        $dataset = $this->scopeDatasetForOverview($dataset, $businessDate, $hotelId, null, $scopeChannels);
+        foreach ($channelDatasets as $channel => $channelDataset) {
+            if (!is_array($channelDataset) || !in_array($channel, $scopeChannels, true)) {
+                unset($channelDatasets[$channel]);
+                continue;
+            }
+            $channelDatasets[$channel] = $this->scopeDatasetForOverview(
+                $channelDataset,
+                $businessDate,
+                $hotelId,
+                $channel,
+                $scopeChannels
+            );
+        }
+        if ($channelDatasets !== []) {
+            $datasetMetadata = $dataset;
+            $dataset = $this->mergeChannelDatasets($channelDatasets);
+            foreach (['p0_downstream_gate', 'collection_quality', 'quality'] as $metadataKey) {
+                if (array_key_exists($metadataKey, $datasetMetadata)) {
+                    $dataset[$metadataKey] = $datasetMetadata[$metadataKey];
+                }
+            }
+        }
         $p0GateService = $this->p0GateService;
         if (is_array($context['p0_downstream_gate'] ?? null)) {
             $dataset['p0_downstream_gate'] = $p0GateService->normalize(
@@ -223,10 +387,33 @@ class RevenueAiOverviewService
         $displaySourceChannels = $this->displaySourceChannels($actualScopedSourceChannels, $enabledChannels);
         $lastSuccessAt = $this->lastSuccessAt($dataset, $sourceStatuses, $enabledChannels);
         $channelStatuses = $this->channelStatuses($channelDatasets, $sourceStatuses, $businessDate, $enabledChannels);
+        $channelMetricCoverage = $this->channelMetricCoverage(
+            $channelDatasets,
+            $businessDate,
+            $hotelId,
+            $enabledChannels
+        );
         $missingDatasets = $this->missingDatasets($actualScopedSourceChannels, $channelDatasets, $metricsSummary, $channelStatuses, $enabledChannels);
         $qualityIssues = $this->qualityIssues($dataset, $metricsSummary, $sourceStatuses, $channelStatuses);
-        $completeness = $this->dataCompleteness($dataset, $actualScopedSourceChannels, $missingDatasets, $qualityIssues, $enabledChannels);
-        $dataStatus = $this->overviewDataStatus($dataset, $actualScopedSourceChannels, $sourceStatuses, $missingDatasets, $qualityIssues, $channelStatuses, $enabledChannels);
+        $completeness = $this->dataCompleteness(
+            $dataset,
+            $actualScopedSourceChannels,
+            $missingDatasets,
+            $qualityIssues,
+            $enabledChannels,
+            $channelMetricCoverage['statuses'],
+            $channelMetricCoverage['gaps']
+        );
+        $dataStatus = $this->overviewDataStatus(
+            $dataset,
+            $actualScopedSourceChannels,
+            $sourceStatuses,
+            $missingDatasets,
+            $qualityIssues,
+            $channelStatuses,
+            $enabledChannels,
+            $channelMetricCoverage['statuses']
+        );
         $marketSignals = is_array($context['market_signals'] ?? null) ? $context['market_signals'] : [];
         $revenueFactLayer = is_array($context['revenue_fact_layer'] ?? null)
             ? $context['revenue_fact_layer']
@@ -300,6 +487,52 @@ class RevenueAiOverviewService
                 $completenessContext['truth']['failure_reason'] = (string)($completeness['reason'] ?? 'data_not_complete');
             }
         }
+        $otaAdr = $this->numeric($metricsSummary['totals']['adr'] ?? null);
+        $otaRevpar = $this->numeric($metricsSummary['totals']['revpar'] ?? null);
+        $roomRevenueState = $otaRoomRevenue !== null
+            ? $this->overviewMetricVerifiedState(
+                $roomRevenueContext['truth'] ?? [],
+                $businessDate,
+                $hotelId,
+                $scopeChannels,
+                $channelMetricCoverage['statuses'],
+                'room_revenue',
+                'room_revenue_partial'
+            )
+            : null;
+        $roomNightsState = $otaRoomNights !== null
+            ? $this->overviewMetricVerifiedState(
+                $roomNightsContext['truth'] ?? [],
+                $businessDate,
+                $hotelId,
+                $scopeChannels,
+                $channelMetricCoverage['statuses'],
+                'room_nights',
+                'room_nights_partial'
+            )
+            : null;
+        $adrState = $otaAdr !== null
+            ? $this->overviewMetricVerifiedState(
+                $adrContext['truth'] ?? [],
+                $businessDate,
+                $hotelId,
+                $scopeChannels,
+                $channelMetricCoverage['statuses'],
+                'adr',
+                'adr_partial'
+            )
+            : null;
+        $revparState = $otaRevpar !== null
+            ? $this->overviewMetricVerifiedState(
+                $revparContext['truth'] ?? [],
+                $businessDate,
+                $hotelId,
+                $scopeChannels,
+                $channelMetricCoverage['statuses'],
+                'available_room_nights',
+                'available_room_nights_partial'
+            )
+            : null;
 
         $metrics = array_replace([
             'ota_room_revenue' => $this->metric(
@@ -307,8 +540,8 @@ class RevenueAiOverviewService
                 '昨日OTA房费收入',
                 $dailyFacts !== [] ? $otaRoomRevenue : null,
                 'CNY',
-                $otaRoomRevenue !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
-                $otaRoomRevenue !== null ? '' : ($dailyFacts !== [] ? 'room_revenue_missing' : $dailyMetricReason),
+                $roomRevenueState['status'] ?? ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
+                $roomRevenueState['reason'] ?? ($dailyFacts !== [] ? 'room_revenue_missing' : $dailyMetricReason),
                 $roomRevenueContext,
                 'money'
             ),
@@ -317,28 +550,28 @@ class RevenueAiOverviewService
                 '昨日OTA间夜',
                 $dailyFacts !== [] ? $otaRoomNights : null,
                 'room_nights',
-                $otaRoomNights !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
-                $otaRoomNights !== null ? '' : ($dailyFacts !== [] ? 'room_nights_missing' : $dailyMetricReason),
+                $roomNightsState['status'] ?? ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
+                $roomNightsState['reason'] ?? ($dailyFacts !== [] ? 'room_nights_missing' : $dailyMetricReason),
                 $roomNightsContext,
                 'number'
             ),
             'ota_adr' => $this->metric(
                 'ota_adr',
                 'OTA ADR',
-                $this->numeric($metricsSummary['totals']['adr'] ?? null),
+                $otaAdr,
                 'CNY',
-                $this->numeric($metricsSummary['totals']['adr'] ?? null) !== null ? 'ok' : ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
-                $this->numeric($metricsSummary['totals']['adr'] ?? null) !== null ? '' : ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'adr_denominator_zero'),
+                $adrState['status'] ?? ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
+                $adrState['reason'] ?? ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'adr_denominator_zero'),
                 $adrContext,
                 'money'
             ),
             'ota_contribution_revpar' => $this->metric(
                 'ota_contribution_revpar',
                 'OTA渠道贡献RevPAR',
-                $this->numeric($metricsSummary['totals']['revpar'] ?? null),
+                $otaRevpar,
                 'CNY',
-                $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? 'ok' : ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
-                $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? '' : ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'available_room_nights_missing'),
+                $revparState['status'] ?? ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
+                $revparState['reason'] ?? ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'available_room_nights_missing'),
                 $revparContext,
                 'money'
             ),
@@ -352,7 +585,12 @@ class RevenueAiOverviewService
                 $completenessContext,
                 'percent'
             ),
-        ], $this->revenueFactLayerMetrics($revenueFactLayer));
+        ], $this->revenueFactLayerMetrics(
+            $revenueFactLayer,
+            $businessDate,
+            $hotelId,
+            $channelMetricCoverage['statuses']
+        ));
 
         return [
             'data_status' => $dataStatus,
@@ -384,6 +622,8 @@ class RevenueAiOverviewService
             'quality_issues' => $qualityIssues,
             'issue_summary' => $this->issueSummary($missingDatasets, $qualityIssues),
             'channel_statuses' => $channelStatuses,
+            'channel_metric_statuses' => $channelMetricCoverage['statuses'],
+            'channel_metric_gaps' => $channelMetricCoverage['gaps'],
             'data_completeness' => $completeness,
             'metrics' => $metrics,
             'signals' => $signals,
@@ -434,7 +674,7 @@ class RevenueAiOverviewService
             return $base;
         }
         $columns = $this->tableColumns('online_daily_data');
-        foreach (['system_hotel_id', 'data_date', 'data_type', 'ingestion_method', 'raw_data', 'readback_verified'] as $required) {
+        foreach (['system_hotel_id', 'source', 'data_date', 'data_type', 'ingestion_method', 'raw_data', 'readback_verified'] as $required) {
             if (!isset($columns[$required])) {
                 $base['status'] = 'readback_contract_unavailable';
                 $base['note'] = '人工订单导入缺少精确回读字段，当前不展示聚合结果。';
@@ -442,13 +682,16 @@ class RevenueAiOverviewService
             }
         }
         $fields = array_values(array_filter([
-            'id', 'system_hotel_id', 'data_date', 'data_type', 'ingestion_method',
+            'id', 'system_hotel_id', 'source', 'data_date', 'data_type', 'ingestion_method',
             'validation_status', 'readback_verified', 'source_trace_id', 'raw_data',
         ], static fn(string $field): bool => isset($columns[$field])));
         try {
             $rows = Db::name('online_daily_data')
                 ->field(implode(',', $fields))
                 ->where('system_hotel_id', $hotelId)
+                // online_daily_data.source is the authoritative OTA platform
+                // identity; per-order sales channels live inside raw_data.
+                ->where('source', 'ctrip')
                 ->where('data_date', $businessDate)
                 ->where('data_type', 'order')
                 ->whereIn('ingestion_method', ['manual', 'import_excel', 'import_csv', 'import_json'])
@@ -478,6 +721,13 @@ class RevenueAiOverviewService
 
         $base['status'] = 'available_unverified';
         $base['rows'] = $items;
+        $acceptanceStatuses = array_values(array_unique(array_map(
+            static fn(array $item): string => (string)($item['real_file_acceptance'] ?? 'unverified'),
+            $items
+        )));
+        $base['real_file_acceptance'] = count($acceptanceStatuses) === 1
+            ? $acceptanceStatuses[0]
+            : 'mixed_local_acceptance';
         $base['summary'] = [
             'row_count' => count($items),
             'active_orders' => array_sum(array_map(static fn(array $item): float => (float)($item['active_orders'] ?? 0), $items)),
@@ -497,6 +747,14 @@ class RevenueAiOverviewService
         $stored = $this->jsonLikeArray($row['raw_data'] ?? []);
         $canonical = is_array($stored['row'] ?? null) ? $stored['row'] : [];
         $detail = is_array($canonical['raw_data'] ?? null) ? $canonical['raw_data'] : [];
+        if (strtolower(trim((string)($row['source'] ?? ''))) !== 'ctrip'
+            || strtolower(trim((string)($canonical['platform'] ?? ''))) !== 'ctrip'
+            || (string)($detail['amount_semantics'] ?? '') !== 'reference_bottom_price_not_confirmed_revenue'
+            || (string)($detail['import_contract'] ?? '') !== 'ctrip_order_aggregate_v1'
+            || (string)($detail['pii_policy'] ?? '') !== 'aggregate_only_no_guest_staff_reservation_notes'
+        ) {
+            return null;
+        }
         $channelKey = strtolower(trim((string)($detail['channel_key'] ?? $canonical['source'] ?? '')));
         if ($channelKey === '') {
             return null;
@@ -524,13 +782,21 @@ class RevenueAiOverviewService
             'average_booking_lead_days' => $this->numeric($canonical['avg_lead_days'] ?? $detail['average_booking_lead_days'] ?? null),
             'reference_bottom_price_total' => $this->numeric($canonical['amount'] ?? $detail['bottom_price_sum'] ?? null),
             'reference_bottom_price_adr' => $this->numeric($canonical['bottom_price_adr'] ?? $detail['bottom_price_adr'] ?? null),
+            'reference_bottom_price_coverage_rate' => $this->numeric($detail['bottom_price_coverage_rate'] ?? null),
+            'reference_bottom_price_completeness' => (string)($detail['bottom_price_completeness'] ?? 'unknown'),
             'amount_semantics' => 'reference_bottom_price_not_confirmed_revenue',
             'source_format' => $sourceFormat,
+            'source_layout' => is_scalar($detail['source_layout'] ?? null)
+                ? trim((string)$detail['source_layout']) ?: null
+                : null,
+            'source_file_count' => max(0, (int)($detail['source_file_count'] ?? 0)),
             'quality_status' => 'user_provided_unverified',
             'readback_verified' => true,
             'real_file_acceptance' => (string)($detail['fixture_status'] ?? '') === 'explicit_test_fixture'
                 ? 'test_fixture_only'
-                : 'unverified',
+                : ((string)($detail['file_layout_acceptance'] ?? '') === 'verified_25_column_layout'
+                    ? 'local_25_column_layout_and_readback_verified'
+                    : 'compatible_layout_readback_verified'),
         ];
     }
 
@@ -778,6 +1044,404 @@ class RevenueAiOverviewService
     }
 
     /**
+     * Keep metric completeness isolated by OTA platform. A value from Meituan
+     * must never make the same Ctrip metric look complete (or vice versa).
+     *
+     * @param array<string, array<string, mixed>> $channelDatasets
+     * @param array<int, string> $enabledChannels
+     * @return array{statuses: array<string, array<string, mixed>>, gaps: array<int, array<string, mixed>>}
+     */
+    private function channelMetricCoverage(
+        array $channelDatasets,
+        string $businessDate,
+        ?int $hotelId,
+        array $enabledChannels = []
+    ): array {
+        $channels = $enabledChannels !== [] ? $enabledChannels : self::CHANNELS;
+        $definitions = $this->channelMetricDefinitions();
+        $metricService = new OtaRevenueMetricService();
+        $statuses = [];
+        $gaps = [];
+
+        foreach ($channels as $channel) {
+            $dataset = is_array($channelDatasets[$channel] ?? null)
+                ? $channelDatasets[$channel]
+                : [];
+            $datasetHasFacts = ($dataset['status'] ?? 'empty') !== 'empty';
+            $summary = $metricService->summarizeDataset($dataset);
+            $gapCodes = [];
+            foreach ($this->list($summary['data_gaps'] ?? []) as $gap) {
+                $code = trim((string)($gap['code'] ?? ''));
+                if ($code !== '') {
+                    $gapCodes[$code] = true;
+                }
+            }
+
+            $metrics = [];
+            $readyCount = 0;
+            $missingCount = 0;
+            $partialCount = 0;
+            $unverifiedCount = 0;
+            foreach ($definitions as $metricKey => $definition) {
+                $value = $this->nestedValue($summary, $definition['path']);
+                $numericValue = $this->numeric($value);
+                $partialReason = '';
+                foreach ($definition['partial_reasons'] as $candidate) {
+                    if (isset($gapCodes[$candidate])) {
+                        $partialReason = $candidate;
+                        break;
+                    }
+                }
+                $missingReason = '';
+                foreach ($definition['missing_reasons'] as $candidate) {
+                    if (isset($gapCodes[$candidate])) {
+                        $missingReason = $candidate;
+                        break;
+                    }
+                }
+
+                $trust = is_array($summary['metric_trust'][$definition['trust_key']] ?? null)
+                    ? $summary['metric_trust'][$definition['trust_key']]
+                    : [];
+                $truth = is_array($trust['truth'] ?? null) ? $trust['truth'] : [];
+                $truthStatus = strtolower(trim((string)($truth['status'] ?? 'unverified')));
+                if (!in_array($truthStatus, ['verified', 'partial', 'unverified', 'collection_failed'], true)) {
+                    $truthStatus = 'unverified';
+                }
+                $scopeMismatch = $this->metricTruthScopeMismatch(
+                    $truth,
+                    $businessDate,
+                    $hotelId,
+                    [$channel]
+                );
+
+                if (!$datasetHasFacts) {
+                    $metricStatus = 'missing';
+                    $reason = 'online_daily_data_empty';
+                } elseif ($numericValue === null) {
+                    $metricStatus = 'missing';
+                    $reason = $missingReason !== ''
+                        ? $missingReason
+                        : (string)$definition['missing_reasons'][0];
+                } elseif ($scopeMismatch) {
+                    $metricStatus = 'unverified';
+                    $reason = 'metric_scope_mismatch';
+                } elseif ($truthStatus !== 'verified') {
+                    $metricStatus = $truthStatus;
+                    $reason = 'metric_truth_' . $truthStatus;
+                } elseif ($partialReason !== '') {
+                    $metricStatus = 'partial';
+                    $reason = $partialReason;
+                } else {
+                    $metricStatus = 'ready';
+                    $reason = '';
+                }
+
+                $metrics[$metricKey] = [
+                    'key' => $metricKey,
+                    'label' => (string)$definition['label'],
+                    'value' => $numericValue,
+                    'unit' => (string)$definition['unit'],
+                    'status' => $metricStatus,
+                    'reason' => $reason,
+                    'truth' => $truth,
+                    'source' => [
+                        'hotel_id' => $hotelId,
+                        'platform' => $channel,
+                        'business_date' => $businessDate,
+                        'fact_table' => 'fact_ota_daily',
+                        'source_table' => 'online_daily_data',
+                    ],
+                ];
+
+                if ($metricStatus === 'ready') {
+                    $readyCount++;
+                    continue;
+                }
+                if ($metricStatus === 'partial') {
+                    $partialCount++;
+                } elseif (in_array($metricStatus, ['unverified', 'collection_failed'], true)) {
+                    $unverifiedCount++;
+                } else {
+                    $missingCount++;
+                }
+                if (!$datasetHasFacts) {
+                    continue;
+                }
+                $gaps[] = $this->channelMetricGap(
+                    $channel,
+                    $metricKey,
+                    $definition,
+                    $metricStatus,
+                    $reason,
+                    $businessDate,
+                    $hotelId,
+                    $trust
+                );
+            }
+
+            $coreMissing = array_values(array_filter(
+                ['room_revenue', 'room_nights', 'order_count'],
+                static fn(string $metricKey): bool => ($metrics[$metricKey]['status'] ?? 'missing') !== 'ready'
+            ));
+            $statuses[$channel] = [
+                'channel' => $channel,
+                'channel_label' => $this->channelLabel($channel),
+                'hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+                'status' => !$datasetHasFacts
+                    ? 'missing'
+                    : ($coreMissing !== [] ? 'blocked' : (($missingCount + $partialCount + $unverifiedCount) > 0 ? 'partial' : 'ready')),
+                'fact_row_count' => count($this->list($dataset['fact_ota_daily'] ?? [])),
+                'metric_count' => count($definitions),
+                'ready_metric_count' => $readyCount,
+                'partial_metric_count' => $partialCount,
+                'unverified_metric_count' => $unverifiedCount,
+                'missing_metric_count' => $missingCount,
+                'core_missing_metrics' => $coreMissing,
+                'metrics' => $metrics,
+                'source_policy' => 'same_hotel_same_platform_same_business_date_no_cross_platform_fill',
+            ];
+        }
+
+        return [
+            'statuses' => $statuses,
+            'gaps' => $this->uniqueIssueRows($gaps),
+        ];
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function channelMetricDefinitions(): array
+    {
+        return [
+            'room_revenue' => [
+                'label' => '房费收入', 'path' => ['totals', 'room_revenue'], 'unit' => 'CNY',
+                'trust_key' => 'totals.room_revenue', 'severity' => 'high',
+                'missing_reasons' => ['room_revenue_missing'], 'partial_reasons' => ['room_revenue_partial'],
+            ],
+            'room_nights' => [
+                'label' => '间夜', 'path' => ['totals', 'room_nights'], 'unit' => 'room_nights',
+                'trust_key' => 'totals.room_nights', 'severity' => 'high',
+                'missing_reasons' => ['room_nights_missing'], 'partial_reasons' => [],
+            ],
+            'order_count' => [
+                'label' => '订单数', 'path' => ['totals', 'order_count'], 'unit' => 'orders',
+                'trust_key' => 'totals.order_count', 'severity' => 'high',
+                'missing_reasons' => ['order_count_missing'], 'partial_reasons' => [],
+            ],
+            'adr' => [
+                'label' => 'ADR', 'path' => ['totals', 'adr'], 'unit' => 'CNY',
+                'trust_key' => 'totals.adr', 'severity' => 'high',
+                'missing_reasons' => ['adr_denominator_zero'], 'partial_reasons' => [],
+            ],
+            'available_room_nights' => [
+                'label' => '可售房晚', 'path' => ['totals', 'available_room_nights'], 'unit' => 'room_nights',
+                'trust_key' => 'totals.available_room_nights', 'severity' => 'high',
+                'missing_reasons' => ['available_room_nights_missing'], 'partial_reasons' => ['available_room_nights_partial'],
+            ],
+            'commission_amount' => [
+                'label' => '佣金金额/率', 'path' => ['totals', 'commission_amount'], 'unit' => 'CNY',
+                'trust_key' => 'totals.commission_amount', 'severity' => 'medium',
+                'missing_reasons' => ['commission_fields_missing'], 'partial_reasons' => ['commission_fields_partial'],
+            ],
+            'net_revenue' => [
+                'label' => '净收入', 'path' => ['totals', 'net_revenue'], 'unit' => 'CNY',
+                'trust_key' => 'totals.net_revenue', 'severity' => 'medium',
+                'missing_reasons' => ['net_revenue_fields_missing'], 'partial_reasons' => ['net_revenue_fields_partial'],
+            ],
+            'avg_lead_time_days' => [
+                'label' => '平均提前期', 'path' => ['totals', 'avg_lead_time_days'], 'unit' => 'days',
+                'trust_key' => 'totals.avg_lead_time_days', 'severity' => 'medium',
+                'missing_reasons' => ['lead_time_fields_missing'], 'partial_reasons' => ['lead_time_fields_partial'],
+            ],
+            'cancellation_rate' => [
+                'label' => '取消率', 'path' => ['totals', 'cancellation_rate'], 'unit' => '%',
+                'trust_key' => 'totals.cancellation_rate', 'severity' => 'medium',
+                'missing_reasons' => ['cancellation_fields_missing', 'cancellation_order_base_missing'],
+                'partial_reasons' => ['cancellation_fields_partial'],
+            ],
+            'room_night_cancellation_rate' => [
+                'label' => '取消间夜率', 'path' => ['totals', 'room_night_cancellation_rate'], 'unit' => '%',
+                'trust_key' => 'totals.room_night_cancellation_rate', 'severity' => 'medium',
+                'missing_reasons' => ['cancel_room_nights_missing'], 'partial_reasons' => ['cancel_room_nights_partial'],
+            ],
+            'competitor_price' => [
+                'label' => '可比竞对价', 'path' => ['competitor_price', 'avg_competitor_price'], 'unit' => 'CNY',
+                'trust_key' => 'competitor_price.avg_competitor_price', 'severity' => 'medium',
+                'missing_reasons' => ['competitor_price_fields_missing'], 'partial_reasons' => ['competitor_price_fields_partial'],
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $definition
+     * @param array<string, mixed> $trust
+     * @return array<string, mixed>
+     */
+    private function channelMetricGap(
+        string $channel,
+        string $metricKey,
+        array $definition,
+        string $status,
+        string $reason,
+        string $businessDate,
+        ?int $hotelId,
+        array $trust
+    ): array {
+        $platformLabel = $this->channelLabel($channel);
+        $resolution = $this->channelMetricResolution($channel, $metricKey, $businessDate);
+        return [
+            'key' => $channel . '_metric_' . $metricKey . '_' . $reason,
+            'type' => 'channel_metric_gap',
+            'channel' => $channel,
+            'target_platform' => $channel,
+            'metric_key' => $metricKey,
+            'label' => $platformLabel . (string)$definition['label'],
+            'status' => $status,
+            'reason' => $reason,
+            'severity' => (string)$definition['severity'],
+            'category' => 'metric_source',
+            'display_reason' => $platformLabel . '：' . $this->issueMessage($reason),
+            'next_action' => $resolution['next_action'],
+            'acceptance_check' => $resolution['acceptance_check'],
+            'forbidden_shortcut' => $resolution['forbidden_shortcut'],
+            'completion_state' => $status === 'partial' ? 'partial_source_fact' : 'source_fact_required',
+            'can_auto_fill' => false,
+            'target_page' => $channel === 'ctrip' ? 'ctrip-ebooking' : 'online-data',
+            'target_tab' => 'data-health',
+            'hotel_id' => $hotelId,
+            'business_date' => $businessDate,
+            'source' => [
+                'fact_table' => 'fact_ota_daily',
+                'source_table' => 'online_daily_data',
+                'platform' => $channel,
+                'business_date' => $businessDate,
+            ],
+            'truth' => is_array($trust['truth'] ?? null) ? $trust['truth'] : [],
+        ];
+    }
+
+    /** @return array{next_action: string, acceptance_check: string, forbidden_shortcut: string} */
+    private function channelMetricResolution(string $channel, string $metricKey, string $businessDate): array
+    {
+        $platformLabel = $this->channelLabel($channel);
+        $prefix = $platformLabel . ' ' . $businessDate;
+        $nextAction = match ($metricKey) {
+            'room_revenue' => $channel === 'ctrip'
+                ? '补采目标日 checkout amount，并核对字段事实、保存记录和精确回读；预订金额与参考底价仍只能作为未验证参考。'
+                : '补采目标日平台明确房费收入，并完成同酒店、同平台、同业务日保存回读。',
+            'room_nights' => $channel === 'ctrip'
+                ? '补采目标日 checkout quantity，并与 amount 使用同一来源响应和业务日期。'
+                : '补采目标日平台明确间夜，不能从订单数或物理房间数推算。',
+            'order_count' => $channel === 'ctrip'
+                ? '补采目标日 bookOrderNum 的独立语义投影；如仅有订单文件，可上传并保留 user_provided_unverified，不提升为平台已验证事实。'
+                : '补采目标日平台明确订单数，并保留来源路径和精确回读。',
+            'adr' => '先补齐同一平台、同一业务日的已验证房费收入和正数间夜，ADR 将自动派生。',
+            'available_room_nights' => '补采平台明确的目标日可售房晚；物理总房数、默认库存或 PMS 分母不得替代 OTA 分母。',
+            'commission_amount' => '补采同一成交口径的佣金金额或佣金率；商旅 BPI 佣金率不得当作全渠道佣金。',
+            'net_revenue' => '补采平台净收入，或补齐同口径成交额与佣金后再派生；结算金额不得直接替代净收入。',
+            'avg_lead_time_days' => '补齐真实预订日与入住日，或平台直接提前期；采集时间与 data_date 不得代替预订日。',
+            'cancellation_rate' => '补齐平台取消订单数/取消率及匹配订单基数；历史比例不得回填目标日。',
+            'room_night_cancellation_rate' => '补齐取消订单对应的真实取消间夜；不得按一单一间夜估算。',
+            'competitor_price' => '补齐同入住日、房型、早餐/套餐和取消政策的本店价与竞对价；起价、竞争圈均值和排名不得替代。',
+            default => '补齐同酒店、同平台、同业务日的明确来源事实并完成保存回读。',
+        };
+        $forbiddenShortcut = match ($metricKey) {
+            'room_revenue' => 'booking_amount_or_reference_price_as_verified_room_revenue',
+            'room_nights' => 'orders_or_room_count_as_room_nights',
+            'order_count' => 'ambiguous_booking_or_capacity_count_as_verified_orders',
+            'adr' => 'default_or_cross_platform_adr',
+            'available_room_nights' => 'total_rooms_or_pms_denominator_as_ota_available_room_nights',
+            'commission_amount' => 'business_bpi_rate_as_all_ota_commission',
+            'net_revenue' => 'settlement_amount_as_net_revenue',
+            'avg_lead_time_days' => 'data_date_or_collected_at_as_booking_date',
+            'cancellation_rate' => 'historical_cancel_rate_or_zero_fill',
+            'room_night_cancellation_rate' => 'one_order_equals_one_room_night',
+            'competitor_price' => 'lead_price_rank_or_circle_average_as_comparable_price',
+            default => 'default_zero_old_date_or_cross_platform_fill',
+        };
+        return [
+            'next_action' => $nextAction,
+            'acceptance_check' => $prefix . ' 指标存在可追溯来源、保存成功、精确回读，且指标真值状态不再是 missing/unverified。',
+            'forbidden_shortcut' => $forbiddenShortcut,
+        ];
+    }
+
+    /**
+     * A verified metric must carry the exact target identity. For non-verified
+     * evidence, only an explicit conflicting identity is treated as a scope
+     * mismatch; missing identity remains truthfully unverified.
+     *
+     * @param array<string, mixed> $truth
+     * @param array<int, string> $expectedPlatforms
+     */
+    private function metricTruthScopeMismatch(
+        array $truth,
+        string $businessDate,
+        ?int $hotelId,
+        array $expectedPlatforms,
+        bool $requireExactPlatforms = true
+    ): bool {
+        $verified = strtolower(trim((string)($truth['status'] ?? ''))) === 'verified';
+        $dateRange = is_array($truth['date_range'] ?? null) ? $truth['date_range'] : [];
+        $startDate = trim((string)($dateRange['start'] ?? ''));
+        $endDate = trim((string)($dateRange['end'] ?? ''));
+        if (($startDate !== '' && $startDate !== $businessDate)
+            || ($endDate !== '' && $endDate !== $businessDate)
+            || ($verified && ($startDate === '' || $endDate === ''))) {
+            return true;
+        }
+
+        $platforms = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            is_array($truth['platforms'] ?? null) ? $truth['platforms'] : []
+        ), static fn(string $value): bool => $value !== '')));
+        $expected = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            $expectedPlatforms
+        ), static fn(string $value): bool => $value !== '')));
+        sort($platforms);
+        sort($expected);
+        $unexpectedPlatforms = array_diff($platforms, $expected);
+        if (($platforms !== [] && ($unexpectedPlatforms !== [] || ($requireExactPlatforms && $platforms !== $expected)))
+            || ($verified && $platforms === [])) {
+            return true;
+        }
+
+        if ($hotelId === null) {
+            return false;
+        }
+        $truthHotelIds = [];
+        foreach ($this->list($truth['hotels'] ?? []) as $hotel) {
+            $truthHotelId = max(0, (int)($hotel['system_hotel_id'] ?? $hotel['hotel_id'] ?? 0));
+            if ($truthHotelId > 0) {
+                $truthHotelIds[] = $truthHotelId;
+            }
+        }
+        $truthHotelIds = array_values(array_unique($truthHotelIds));
+        sort($truthHotelIds);
+        return ($truthHotelIds !== [] && $truthHotelIds !== [$hotelId])
+            || ($verified && $truthHotelIds === []);
+    }
+
+    /**
+     * @param array<int, string> $path
+     */
+    private function nestedValue(array $data, array $path): mixed
+    {
+        $value = $data;
+        foreach ($path as $key) {
+            if (!is_array($value) || !array_key_exists($key, $value)) {
+                return null;
+            }
+            $value = $value[$key];
+        }
+        return $value;
+    }
+
+    /**
      * @param array<string, mixed> $dataset
      * @param array<string, mixed> $metricsSummary
      * @param array<string, array<string, mixed>> $sourceStatuses
@@ -830,7 +1494,15 @@ class RevenueAiOverviewService
      * @param array<int, array<string, mixed>> $qualityIssues
      * @return array<string, mixed>
      */
-    private function dataCompleteness(array $dataset, array $sourceChannels, array $missingDatasets, array $qualityIssues, array $enabledChannels = []): array
+    private function dataCompleteness(
+        array $dataset,
+        array $sourceChannels,
+        array $missingDatasets,
+        array $qualityIssues,
+        array $enabledChannels = [],
+        array $channelMetricStatuses = [],
+        array $channelMetricGaps = []
+    ): array
     {
         $quality = is_array($dataset['data_quality'] ?? null) ? $dataset['data_quality'] : [];
         $inputRows = (int)($quality['input_rows'] ?? 0);
@@ -842,14 +1514,37 @@ class RevenueAiOverviewService
         if ($inputRows <= 0) {
             $percent = $channelPercent > 0 ? min(50, $channelPercent) : 0;
         }
-        $status = $percent >= 90 && $missingDatasets === [] && $qualityIssues === [] ? 'ok' : ($percent > 0 ? 'partial' : 'unknown');
+        $metricCount = 0;
+        $readyMetricCount = 0;
+        foreach ($channelMetricStatuses as $channelStatus) {
+            if (!is_array($channelStatus)) {
+                continue;
+            }
+            $metricCount += max(0, (int)($channelStatus['metric_count'] ?? 0));
+            $readyMetricCount += max(0, (int)($channelStatus['ready_metric_count'] ?? 0));
+        }
+        if ($metricCount > 0) {
+            $metricPercent = (int)round($readyMetricCount / $metricCount * 100);
+            $percent = min($percent, $metricPercent);
+        }
+        $hasChannelMetricBlocker = $channelMetricGaps !== [];
+        $status = $percent >= 90
+            && $missingDatasets === []
+            && $qualityIssues === []
+            && !$hasChannelMetricBlocker
+            ? 'ok'
+            : ($percent > 0 ? 'partial' : 'unknown');
         return [
             'percent' => $percent,
             'display' => $percent . '%',
             'status' => $status,
-            'reason' => $status === 'ok' ? '' : ($missingDatasets[0]['reason'] ?? $qualityIssues[0]['reason'] ?? 'data_not_complete'),
+            'reason' => $status === 'ok'
+                ? ''
+                : ($channelMetricGaps[0]['reason'] ?? $missingDatasets[0]['reason'] ?? $qualityIssues[0]['reason'] ?? 'data_not_complete'),
             'input_rows' => $inputRows,
             'accepted_rows' => $acceptedRows,
+            'channel_metric_count' => $metricCount,
+            'channel_metric_ready_count' => $readyMetricCount,
         ];
     }
 
@@ -860,7 +1555,16 @@ class RevenueAiOverviewService
      * @param array<int, array<string, mixed>> $missingDatasets
      * @param array<int, array<string, mixed>> $qualityIssues
      */
-    private function overviewDataStatus(array $dataset, array $sourceChannels, array $sourceStatuses, array $missingDatasets, array $qualityIssues, array $channelStatuses = [], array $enabledChannels = []): string
+    private function overviewDataStatus(
+        array $dataset,
+        array $sourceChannels,
+        array $sourceStatuses,
+        array $missingDatasets,
+        array $qualityIssues,
+        array $channelStatuses = [],
+        array $enabledChannels = [],
+        array $channelMetricStatuses = []
+    ): string
     {
         $expectedChannelCount = max(1, count($enabledChannels !== [] ? $enabledChannels : self::CHANNELS));
         $mappedStatuses = $channelStatuses !== []
@@ -881,7 +1585,14 @@ class RevenueAiOverviewService
         if (in_array('failed', $mappedStatuses, true)) {
             return 'failed';
         }
-        if ($missingDatasets !== [] || $qualityIssues !== [] || count($sourceChannels) < $expectedChannelCount) {
+        $channelMetricIncomplete = array_filter(
+            $channelMetricStatuses,
+            static fn(mixed $row): bool => is_array($row) && ($row['status'] ?? 'missing') !== 'ready'
+        ) !== [];
+        if ($missingDatasets !== []
+            || $qualityIssues !== []
+            || count($sourceChannels) < $expectedChannelCount
+            || $channelMetricIncomplete) {
             return 'partial';
         }
         return 'ok';
@@ -934,6 +1645,46 @@ class RevenueAiOverviewService
     private function numeric(mixed $value): ?float
     {
         return is_numeric($value) ? (float)$value : null;
+    }
+
+    /**
+     * @param array<string, mixed> $truth
+     * @param array<int, string> $allowedPlatforms
+     * @param array<string, array<string, mixed>> $channelMetricStatuses
+     * @return array{status: string, reason: string}
+     */
+    private function overviewMetricVerifiedState(
+        array $truth,
+        string $businessDate,
+        ?int $hotelId,
+        array $allowedPlatforms,
+        array $channelMetricStatuses,
+        string $channelMetricKey,
+        string $partialReason
+    ): array {
+        if ($this->metricTruthScopeMismatch(
+            $truth,
+            $businessDate,
+            $hotelId,
+            $allowedPlatforms,
+            false
+        )) {
+            return ['status' => 'unverified', 'reason' => 'metric_scope_mismatch'];
+        }
+        $truthStatus = strtolower(trim((string)($truth['status'] ?? 'unverified')));
+        if (!in_array($truthStatus, ['verified', 'partial', 'unverified', 'collection_failed'], true)) {
+            $truthStatus = 'unverified';
+        }
+        if ($truthStatus !== 'verified') {
+            return ['status' => $truthStatus, 'reason' => 'metric_truth_' . $truthStatus];
+        }
+        foreach ($channelMetricStatuses as $channelStatus) {
+            if (!is_array($channelStatus)
+                || ($channelStatus['metrics'][$channelMetricKey]['status'] ?? 'missing') !== 'ready') {
+                return ['status' => 'partial', 'reason' => $partialReason];
+            }
+        }
+        return ['status' => 'ok', 'reason' => ''];
     }
 
     /**
@@ -994,7 +1745,12 @@ class RevenueAiOverviewService
      *
      * @return array<string,array<string,mixed>>
      */
-    private function revenueFactLayerMetrics(array $factLayer): array
+    private function revenueFactLayerMetrics(
+        array $factLayer,
+        string $businessDate,
+        ?int $hotelId,
+        array $channelMetricStatuses = []
+    ): array
     {
         $rows = is_array($factLayer['analysis_metrics'] ?? null)
             ? $factLayer['analysis_metrics']
@@ -1012,13 +1768,56 @@ class RevenueAiOverviewService
             $truth = is_array($row['truth'] ?? null)
                 ? $row['truth']
                 : [];
+            $sourceChannels = array_values(array_filter(array_map(
+                'strval',
+                is_array($row['source_channels'] ?? null) ? $row['source_channels'] : []
+            ), static fn(string $channel): bool => trim($channel) !== ''));
+            $status = (string)($row['status'] ?? ($value !== null ? 'ok' : 'not_calculable'));
+            $reason = (string)($row['reason'] ?? '');
+            if ($value !== null) {
+                if ($this->metricTruthScopeMismatch(
+                    $truth,
+                    $businessDate,
+                    $hotelId,
+                    $sourceChannels
+                )) {
+                    $value = null;
+                    $status = 'unverified';
+                    $reason = 'metric_scope_mismatch';
+                } else {
+                    $truthStatus = strtolower(trim((string)($truth['status'] ?? 'unverified')));
+                    if (!in_array($truthStatus, ['verified', 'partial', 'unverified', 'collection_failed'], true)) {
+                        $truthStatus = 'unverified';
+                    }
+                    if ($truthStatus !== 'verified') {
+                        $status = $truthStatus;
+                        $reason = 'metric_truth_' . $truthStatus;
+                    } else {
+                        $channelMetricKey = match ((string)$key) {
+                            'ota_room_revenue' => 'room_revenue',
+                            'ota_room_nights' => 'room_nights',
+                            'ota_adr' => 'adr',
+                            default => '',
+                        };
+                        if ($channelMetricKey !== '') {
+                            foreach ($channelMetricStatuses as $channelStatus) {
+                                if (!is_array($channelStatus)
+                                    || ($channelStatus['metrics'][$channelMetricKey]['status'] ?? 'missing') !== 'ready') {
+                                    $status = 'partial';
+                                    $reason = $channelMetricKey === 'room_revenue'
+                                        ? 'room_revenue_partial'
+                                        : ($channelMetricKey === 'room_nights' ? 'room_nights_partial' : 'adr_partial');
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             $context = [
                 'scope' => (string)($row['scope'] ?? 'ota_channel'),
                 'date_basis' => (string)($row['date_basis'] ?? 'data_date'),
-                'source_channels' => array_values(array_map(
-                    'strval',
-                    $this->list($row['source_channels'] ?? [])
-                )),
+                'source_channels' => $sourceChannels,
                 'last_success_at' => '',
                 'scope_note' => (string)(
                     $truth['scope_label']
@@ -1038,8 +1837,8 @@ class RevenueAiOverviewService
                 (string)($row['label'] ?? $key),
                 $value,
                 $unit,
-                (string)($row['status'] ?? ($value !== null ? 'ok' : 'not_calculable')),
-                (string)($row['reason'] ?? ''),
+                $status,
+                $reason,
                 $context,
                 $format
             );
@@ -5077,8 +5876,33 @@ class RevenueAiOverviewService
     private function issueMessage(string $reason): string
     {
         return match ($reason) {
+            'room_revenue_missing' => '暂缺已验证房费收入；订单 GMV、结算金额和参考底价不能替代。',
+            'room_revenue_partial' => '只有部分 OTA 事实具备已验证房费收入，聚合仅使用已对齐记录。',
+            'room_nights_missing' => '暂缺已验证间夜，不能用订单数、物理房间数或默认值替代。',
+            'room_nights_partial' => '只有部分 OTA 平台具备已验证间夜，当前合计不代表完整双平台结果。',
+            'order_count_missing' => '暂缺语义明确且已回读的订单数。',
+            'adr_denominator_zero' => '暂缺同口径房费收入或正数间夜，ADR 不可计算。',
+            'adr_partial' => '只有部分 OTA 平台具备已验证房费收入和间夜，当前 ADR 为部分口径。',
             'available_room_nights_missing' => '暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。',
+            'available_room_nights_partial' => '只有部分 OTA 事实具备可售房晚，RevPAR 仅使用已对齐记录。',
+            'commission_fields_missing' => '暂缺同一成交口径的佣金金额或佣金率。',
+            'commission_fields_partial' => '只有部分 OTA 事实具备同口径佣金字段。',
+            'net_revenue_fields_missing' => '暂缺平台净收入，且没有同口径佣金事实可安全派生。',
+            'net_revenue_fields_partial' => '只有部分 OTA 事实具备净收入。',
+            'lead_time_fields_missing' => '暂缺真实预订日/入住日或平台直接提前期。',
+            'lead_time_fields_partial' => '只有部分 OTA 事实具备可核验提前期。',
+            'cancellation_fields_missing' => '暂缺平台取消订单数或取消率。',
+            'cancellation_fields_partial' => '只有部分 OTA 事实具备取消字段。',
+            'cancellation_order_base_missing' => '已有取消字段，但缺少同口径订单基数。',
+            'cancel_room_nights_missing' => '暂缺取消订单对应的真实取消间夜。',
+            'cancel_room_nights_partial' => '只有部分 OTA 事实具备取消间夜。',
             'competitor_price_fields_missing' => '暂缺竞对价格字段。',
+            'competitor_price_fields_partial' => '只有部分 OTA 事实具备条件对齐的本店价与竞对价。',
+            'overview_scope_mismatch' => '事实的酒店、平台或业务日期与当前总览范围不一致，已排除出目标日指标。',
+            'metric_scope_mismatch' => '指标事实身份与当前酒店、平台或业务日期不一致，不能作为目标范围已验证指标。',
+            'metric_truth_unverified' => '指标存在数值，但缺少完整来源、保存或精确回读证据，保持未验证。',
+            'metric_truth_partial' => '指标只有部分来源事实通过保存和精确回读，保持部分数据。',
+            'metric_truth_collection_failed' => '指标来源采集失败，当前数值不能提升为已验证事实。',
             'competitor_price_above_competitor' => '本店均价高于竞对均价，需人工复核是否存在价格倒挂或竞争力风险。',
             'competitor_price_below_competitor_review_required' => '本店均价低于竞对均价，需复核是否低于保护价后再判断调价。',
             'competitor_price_aligned' => '本店均价与竞对均价接近。',
@@ -5435,6 +6259,11 @@ class RevenueAiOverviewService
             'RATE_LIMITED' => ['severity' => 'medium', 'category' => 'platform', 'display_reason' => $platformLabel . '平台请求被限流。', 'next_action' => '暂停高频重试，稍后复核采集任务。'],
             'DATE_NOT_AVAILABLE' => ['severity' => 'medium', 'category' => 'data', 'display_reason' => $platformLabel . '未命中目标经营日期入库数据。', 'next_action' => '进入数据健康面板检查目标日期采集和入库记录。'],
             'DATA_STALE' => ['severity' => 'high', 'category' => 'stale', 'display_reason' => $platformLabel . '数据过期，目标经营日期没有新入库证据。', 'next_action' => '进入数据健康面板复核最后同步时间并重新采集。'],
+            'overview_scope_mismatch' => ['severity' => 'high', 'category' => 'scope', 'display_reason' => '事实的酒店、平台或业务日期与当前总览范围不一致，已排除出目标日指标。', 'next_action' => '按当前酒店、平台和业务日期重新采集或导入，并核对来源 trace。'],
+            'metric_scope_mismatch' => ['severity' => 'high', 'category' => 'scope', 'display_reason' => $platformLabel . '指标事实身份与当前酒店、平台或业务日期不一致。', 'next_action' => '核对目标范围、来源 trace、保存记录和精确回读后再使用该指标。'],
+            'metric_truth_unverified' => ['severity' => 'high', 'category' => 'truth', 'display_reason' => $platformLabel . '指标数值缺少完整来源或精确回读证据。', 'next_action' => '补齐来源 trace、保存成功和精确回读证据。'],
+            'metric_truth_partial' => ['severity' => 'medium', 'category' => 'truth', 'display_reason' => $platformLabel . '指标只有部分事实通过真实性门禁。', 'next_action' => '补齐未验证记录的来源和精确回读证据。'],
+            'metric_truth_collection_failed' => ['severity' => 'high', 'category' => 'truth', 'display_reason' => $platformLabel . '指标来源采集失败。', 'next_action' => '先修复采集失败并重新保存、精确回读。'],
             'available_room_nights_missing' => ['severity' => 'high', 'category' => 'denominator', 'display_reason' => '暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。', 'next_action' => '补齐并核验 OTA 渠道可售房晚口径后再计算 OTA 渠道贡献RevPAR。', 'target_platform' => 'ota'],
             'online_daily_data_empty' => ['severity' => 'medium', 'category' => 'data', 'display_reason' => $platformLabel . '目标经营日期没有可用 OTA 入库数据。', 'next_action' => '进入数据健康面板检查该日期采集、导入和字段校验状态。'],
             'ota_revenue_metrics_missing' => ['severity' => 'high', 'category' => 'metric', 'display_reason' => '已命中 OTA 目标日数据，但房费收入或间夜指标缺失。', 'next_action' => '复核 online_daily_data 的 revenue、room_revenue、room_nights 字段映射和入库值。'],

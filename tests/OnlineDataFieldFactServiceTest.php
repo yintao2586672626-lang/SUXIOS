@@ -241,4 +241,42 @@ final class OnlineDataFieldFactServiceTest extends TestCase
         self::assertContains('mt_intention_uv', $meituanKeys);
         self::assertContains('mt_pay_orders', $meituanKeys);
     }
+
+    public function testBusinessCommissionRateNeverUsesTrafficFlowRateStorage(): void
+    {
+        $traceId = 'ctrip:' . str_repeat('a', 64);
+        $sourceUrlHash = str_repeat('b', 64);
+        $row = [
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'flow_rate' => 18.5,
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $sourceUrlHash,
+        ];
+        $raw = [
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $sourceUrlHash,
+            'field_facts' => [[
+                'metric_key' => 'business_commission_rate',
+                'source_path' => 'data.bpi.businessCommissionRate',
+                'value' => 12.0,
+                'status' => 'captured',
+                'capture_evidence' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $sourceUrlHash,
+                ],
+            ]],
+        ];
+
+        $status = OnlineDataFieldFactService::buildStatus($row, $raw);
+        $sample = $status['sample_facts'][0] ?? [];
+
+        self::assertSame('ready', $status['status']);
+        self::assertSame(
+            'online_daily_data.raw_data.facts.metric_key=business_commission_rate',
+            $sample['storage_field'] ?? null
+        );
+        self::assertNotSame('online_daily_data.flow_rate', $sample['storage_field'] ?? null);
+        self::assertSame('raw_data_facts', $sample['storage_field_source'] ?? null);
+    }
 }

@@ -219,6 +219,9 @@ class RoleController extends Base
             ['key' => 'can_use_ai_decision', 'name' => 'Use AI decision', 'group' => 'P0 protected core'],
             ['key' => 'can_use_investment', 'name' => 'Use investment simulation', 'group' => 'P0 protected core'],
             ['key' => 'can_export_data', 'name' => 'Export protected data', 'group' => 'P0 protected core'],
+            ['key' => 'ai.execute', 'name' => '使用 AI 分析（不含运营执行）', 'group' => '受控交付'],
+            ['key' => 'investment.simulate', 'name' => '使用投资测算', 'group' => '受控交付'],
+            ['key' => 'report.export', 'name' => '导出受控报告', 'group' => '受控交付'],
             ['key' => 'can_view_field_assets', 'name' => 'View field assets', 'group' => 'P0 protected core'],
             ['key' => 'can_view_diagnostics', 'name' => 'View diagnostics', 'group' => 'P0 protected core'],
             ['key' => 'can_manage_ai_governance', 'name' => 'Manage AI governance', 'group' => 'P0 protected core'],
@@ -235,6 +238,10 @@ class RoleController extends Base
     {
         $keys = [];
         foreach ($permissions as $permission => $enabled) {
+            if (is_int($permission) && is_string($enabled) && trim($enabled) !== '') {
+                $keys[] = trim($enabled);
+                continue;
+            }
             if ($enabled === true || $enabled === 1 || $enabled === '1') {
                 $keys[] = (string)$permission;
             }
@@ -280,7 +287,10 @@ class RoleController extends Base
     private function validateBuiltInExternalRoleIdentity(Role $role, array $data): ?Response
     {
         $roleId = (int)$role->getAttr('id');
-        if (!in_array($roleId, [Role::BETA_USER, Role::NORMAL_USER], true)) {
+        $roleName = (string)$role->getAttr('name');
+        if (!in_array($roleId, [Role::BETA_USER, Role::NORMAL_USER], true)
+            && $roleName !== Role::CONTROLLED_PARTNER_NAME
+        ) {
             return null;
         }
 
@@ -298,6 +308,17 @@ class RoleController extends Base
 
     private function validateRolePermissionBoundary(string $roleName, array $permissions, ?Role $existingRole = null, ?int $roleLevel = null): ?Response
     {
+        if ($roleName === Role::CONTROLLED_PARTNER_NAME) {
+            if ($roleLevel !== null && $roleLevel !== Role::HOTEL_STAFF) {
+                return $this->error('受控合作伙伴必须使用门店使用人员等级', 422);
+            }
+            $unsafeCapabilities = (new PermissionService())->controlledPartnerUnsafeCapabilities($permissions);
+            if (!empty($unsafeCapabilities)) {
+                return $this->error('受控合作伙伴不能包含采集、删除、系统管理或执行型权限：' . implode('、', $unsafeCapabilities), 422);
+            }
+            return null;
+        }
+
         if (!$this->isNormalExternalRoleIdentity($roleName, $existingRole, $roleLevel)) {
             return null;
         }

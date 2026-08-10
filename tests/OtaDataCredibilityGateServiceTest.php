@@ -268,6 +268,28 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
         self::assertSame(2, $gate['evidence']['rejected_rows']);
     }
 
+    public function testGateRejectsSavedCriticalMetricWithoutVerifiedTruthEnvelope(): void
+    {
+        $metrics = $this->readyMetrics();
+        $metrics['metric_trust']['totals.revenue']['truth'] = [
+            'status' => 'unverified',
+            'failure_reason' => 'readback_not_fully_verified',
+        ];
+
+        $gate = (new OtaDataCredibilityGateService())->evaluate(
+            $this->readyDatasetWithCollectionQuality('available'),
+            $metrics
+        );
+
+        self::assertSame('blocked', $gate['status']);
+        self::assertContains('critical_metric_untrusted:totals.revenue', $gate['reason_codes']);
+        self::assertContains(
+            'critical_metric_untrusted:totals.revenue',
+            $gate['evidence']['failed_critical_metrics']
+        );
+        self::assertFalse($gate['decision_use']['revenue_analysis']['allowed']);
+    }
+
     public function testRevenueMetricsExposeCredibilityGateWithoutPromotingOtaToInvestmentTruth(): void
     {
         $metrics = (new OtaRevenueMetricService())->summarizeDataset([
@@ -290,7 +312,11 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
                 'available_room_nights' => 10.0,
                 'occupied_room_nights' => 6.0,
                 'order_count' => 4,
+                'gross_order_count' => 5,
                 'cancel_order_num' => 1,
+                'unknown_status_order_count' => 0,
+                'cancel_rate_basis' =>
+                    'cancelled_orders_over_gross_orders_complete_classification',
                 'cancel_room_nights' => 1,
                 'lead_time_days' => 8,
                 'our_price' => 200.0,
@@ -299,9 +325,22 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
                 'price_gap_rate' => -9.09,
                 'source_trace' => [
                     'row_id' => 701,
+                    'source_trace_id' => 'credibility-gate:701:2026-06-16',
+                    'data_source_id' => 17,
+                    'sync_task_id' => 7010,
+                    'hotel_key' => 'system:7',
+                    'system_hotel_id' => 7,
+                    'platform_hotel_id' => 'ctrip-hotel-7',
                     'platform' => 'ctrip',
                     'data_type' => 'business',
+                    'date_key' => '2026-06-16',
+                    'ingestion_method' => 'browser_profile',
+                    'collected_at' => '2026-06-16 09:55:00',
                     'saved_success' => true,
+                    'stored' => true,
+                    'readback_verified' => true,
+                    'data_period' => 'historical_daily',
+                    'is_final' => true,
                     'failure_reasons' => [],
                     'updated_at' => '2026-06-16 10:00:00',
                 ],
@@ -338,9 +377,9 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
         ], [
             'status' => 'ready',
             'metric_trust' => [
-                'totals.revenue' => ['saved_success' => true, 'failure_reasons' => []],
-                'totals.room_nights' => ['saved_success' => true, 'failure_reasons' => []],
-                'totals.adr' => ['saved_success' => true, 'failure_reasons' => []],
+                'totals.revenue' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
+                'totals.room_nights' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
+                'totals.adr' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
             ],
             'data_gaps' => [],
         ]);
@@ -370,9 +409,9 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
         ], [
             'status' => 'ready',
             'metric_trust' => [
-                'totals.revenue' => ['saved_success' => true, 'failure_reasons' => []],
-                'totals.room_nights' => ['saved_success' => true, 'failure_reasons' => []],
-                'totals.adr' => ['saved_success' => true, 'failure_reasons' => []],
+                'totals.revenue' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
+                'totals.room_nights' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
+                'totals.adr' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
             ],
             'data_gaps' => [],
         ], [
@@ -399,9 +438,9 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
         ], [
             'status' => 'ready',
             'metric_trust' => [
-                'totals.revenue' => ['saved_success' => true, 'failure_reasons' => []],
-                'totals.room_nights' => ['saved_success' => true, 'failure_reasons' => []],
-                'totals.adr' => ['saved_success' => true, 'failure_reasons' => []],
+                'totals.revenue' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
+                'totals.room_nights' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
+                'totals.adr' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
             ],
             'data_gaps' => [],
         ], [
@@ -660,9 +699,9 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
         return [
             'status' => 'ready',
             'metric_trust' => [
-                'totals.revenue' => ['saved_success' => true, 'failure_reasons' => []],
-                'totals.room_nights' => ['saved_success' => true, 'failure_reasons' => []],
-                'totals.adr' => ['saved_success' => true, 'failure_reasons' => []],
+                'totals.revenue' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
+                'totals.room_nights' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
+                'totals.adr' => ['saved_success' => true, 'failure_reasons' => [], 'truth' => ['status' => 'verified']],
             ],
             'data_gaps' => [],
         ];

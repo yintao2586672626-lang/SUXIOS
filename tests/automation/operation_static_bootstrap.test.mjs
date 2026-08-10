@@ -6,11 +6,18 @@ import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const html = readFrontendContractSource();
 const operationStatic = fs.readFileSync('public/operation-static.js', 'utf8');
+const systemStatic = fs.readFileSync('public/system-static.js', 'utf8');
 
 const loadOperationStaticApi = () => {
   const context = { window: {}, console };
   vm.runInNewContext(operationStatic, context, { filename: 'public/operation-static.js' });
   return context.window.SUXI_OPERATION_STATIC;
+};
+
+const loadSystemStaticApi = () => {
+  const context = { window: {}, console, setTimeout, clearTimeout };
+  vm.runInNewContext(systemStatic, context, { filename: 'public/system-static.js' });
+  return context.window.SUXI_SYSTEM_STATIC;
 };
 
 const openingStaticKeys = [
@@ -196,6 +203,101 @@ test('legacy OTA conversion intent is shown as a readable operation check', () =
   };
 
   assert.equal(api.operationExecutionActionText(item), '运营核查 · 下单转化核查');
+});
+
+test('canonical OTA investigation uses analysis-only source action and status labels', () => {
+  const operationApi = loadOperationStaticApi();
+  const systemApi = loadSystemStaticApi();
+  const actionLabels = {
+    list_detail_math_check: '列表到详情转化数学核查',
+    detail_fill_breakpoint_check: '详情到填单断点核查',
+    fill_submit_chain_check: '填单到提交链路核查',
+    same_scope_recollection_eligibility_check: '同范围重采与准入核查',
+  };
+
+  Object.entries(actionLabels).forEach(([actionType, expectedLabel]) => {
+    const item = {
+      recommendation: {
+        source_module: 'canonical_ota_investigation',
+        object_type: 'operation_checklist',
+        action_type: actionType,
+      },
+    };
+    assert.equal(operationApi.operationExecutionSourceText(item), '携程权威数据核查');
+    assert.equal(operationApi.operationExecutionActionText(item), `运营核查 · ${expectedLabel}`);
+  });
+
+  assert.equal(
+    operationApi.operationExecutionSourceText({
+      recommendation: {
+        source_module: 'canonical_ota_investigation',
+        source_record_id: 81818,
+      },
+    }),
+    '携程权威数据核查 · 源行 #81818',
+  );
+
+  assert.equal(
+    operationApi.operationExecutionSourceText({
+      recommendation: {
+        source_module: 'canonical_ota_investigation',
+        source_record_id: 81866,
+        platform: 'meituan',
+      },
+    }),
+    '美团权威数据核查 · 源行 #81866',
+  );
+  for (const actionType of [
+    'meituan_list_detail_count_order_check',
+    'meituan_list_detail_rate_check',
+    'meituan_observed_flow_rate_alignment_check',
+  ]) {
+    const actionText = operationApi.operationExecutionActionText({
+      recommendation: {
+        source_module: 'canonical_ota_investigation',
+        object_type: 'operation_checklist',
+        action_type: actionType,
+        platform: 'meituan',
+      },
+    });
+    assert.match(actionText, /^运营核查 · /);
+    assert.doesNotMatch(actionText, /ctrip|填单|提交/i);
+  }
+
+  assert.equal(systemApi.operationExecutionStatusLabel('system_authorized_analysis'), '系统授权核查');
+  assert.equal(systemApi.operationExecutionStatusClass('system_authorized_analysis'), 'bg-violet-50 text-violet-700');
+  assert.notEqual(
+    systemApi.operationExecutionStatusClass('system_authorized_analysis'),
+    systemApi.operationExecutionStatusClass('approved'),
+    '系统授权核查必须与人工审批使用不同视觉语义',
+  );
+});
+
+test('canonical analysis-only records expose no operator mutation actions', () => {
+  const api = loadOperationStaticApi();
+  const item = {
+    recommendation: { source_module: 'canonical_ota_investigation', object_type: 'operation_checklist' },
+    approval: { status: 'system_authorized_analysis' },
+    execution: { mode: 'analysis_only', status: 'executed', task_id: 81 },
+    evidence_truth: { source_verified: true },
+    review: { status: 'observing', is_available: true },
+    next_action: { key: 'record_evidence' },
+  };
+
+  assert.equal(api.operationCanApproveExecution(item), false);
+  assert.equal(api.operationCanExecuteWithEvidence(item), false);
+  assert.equal(api.operationCanRecordNodeCheck(item), false);
+  assert.equal(api.operationCanReconcileExecution(item), false);
+  assert.equal(api.operationCanReviewExecution(item), false);
+  assert.equal(api.operationExecutionActionAvailable(item), false);
+
+  const memoryGateStart = html.indexOf('const operationCanSaveOperatingMemory');
+  const memoryGateEnd = html.indexOf('let operationExecutionActionAvailable', memoryGateStart);
+  assert.ok(memoryGateStart > 0 && memoryGateEnd > memoryGateStart);
+  assert.match(
+    html.slice(memoryGateStart, memoryGateEnd),
+    /!operationIsProtectedSystemAnalysis\(item\)/,
+  );
 });
 
 test('revenue node record keeps one fixed scope and explicit missing-state validation', () => {

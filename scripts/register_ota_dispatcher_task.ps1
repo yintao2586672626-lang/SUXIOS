@@ -58,7 +58,7 @@ $dispatcherCommand = 'online-data:auto-fetch'
 $dispatcherMode = if ($Realtime) { 'Realtime' } else { 'Daily' }
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $realtimePollIntervalMinutes = 15
-$dailyRetryOffsetsMinutes = @(0, 14, 28)
+$dailyRetryOffsetsMinutes = @(0, 14, 28, 42, 56, 70, 84)
 
 function Resolve-ExecutablePath {
     param([Parameter(Mandatory = $true)][string]$Candidate)
@@ -267,9 +267,9 @@ $preflight += New-PreflightCheck -Name 'daily_retry_window' -Passed $dailyRetryW
     if ($Realtime) {
         'not applicable to the realtime dispatcher'
     } elseif ($dailyRetryWindowReady) {
-        'daily base attempt and +14/+28 minute retries stay on the same business-date window'
+        'daily base attempt and +14/+28/+42/+56/+70/+84 minute opportunities stay on the same business-date window'
     } else {
-        'DailyAt must leave 28 minutes before midnight so retries cannot change the target business date'
+        'DailyAt must leave 84 minutes before midnight so retries cannot change the target business date'
     }
 )
 
@@ -308,6 +308,14 @@ if (-not $Realtime -and $null -ne $existingTask -and $ReplaceExisting) {
             $deferredDailyStartBoundary = $candidateStartBoundary
         }
     }
+}
+$effectiveDailyStartBoundary = $deferredDailyStartBoundary
+if (-not $Realtime -and $null -eq $effectiveDailyStartBoundary) {
+    $nextDailyStart = [datetime]::Today.Add([timespan]::ParseExact($DailyAt, 'hh\:mm', $null))
+    if ($nextDailyStart -le (Get-Date)) {
+        $nextDailyStart = $nextDailyStart.AddDays(1)
+    }
+    $effectiveDailyStartBoundary = [datetimeoffset]$nextDailyStart
 }
 
 $scopeReductionDetected = $false
@@ -348,12 +356,13 @@ $plan = [ordered]@{
         path = $taskPath
         exists = $null -ne $existingTask
         state = if ($null -ne $existingTask) { [string]$existingTask.State } else { 'absent' }
-        schedule = if ($Realtime) { "hourly base at :$('{0:d2}' -f $RealtimeMinute), polled every $($realtimePollIntervalMinutes)m for bounded retries Asia/Shanghai" } else { "daily $DailyAt with bounded retries +14m/+28m Asia/Shanghai" }
+        schedule = if ($Realtime) { "hourly base at :$('{0:d2}' -f $RealtimeMinute), polled every $($realtimePollIntervalMinutes)m for bounded retries Asia/Shanghai" } else { "daily $DailyAt with bounded retries +14m/+28m/+42m/+56m/+70m/+84m Asia/Shanghai" }
         trigger_count = 1
-        start_boundary = if ($null -ne $deferredDailyStartBoundary) { $deferredDailyStartBoundary.ToString('o') } else { $null }
+        start_boundary = if ($null -ne $effectiveDailyStartBoundary) { $effectiveDailyStartBoundary.ToString('o') } else { $null }
         effective_runs_per_day = if ($Realtime) { 96 } else { $dailyRetryOffsetsMinutes.Count }
         multiple_instances = 'IgnoreNew'
-        execution_time_limit_minutes = if ($Realtime) { 25 } else { 120 }
+        wake_to_run = $true
+        execution_time_limit_minutes = if ($Realtime) { 25 } else { 40 }
     }
     action = [ordered]@{
         execute = $powershellPath
@@ -430,12 +439,9 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
         $taskTrigger = New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.Date.AddMinutes($RealtimeMinute))
         $taskTrigger.Repetition = New-DispatcherRepetitionPattern -Interval 'PT15M' -Duration 'P1D'
     } else {
-        $triggerTime = [datetime]::Today.Add([timespan]::ParseExact($DailyAt, 'hh\:mm', $null))
-        if ($null -ne $deferredDailyStartBoundary) {
-            $triggerTime = $deferredDailyStartBoundary.LocalDateTime
-        }
+        $triggerTime = $effectiveDailyStartBoundary.LocalDateTime
         $taskTrigger = New-ScheduledTaskTrigger -Daily -At $triggerTime
-        $taskTrigger.Repetition = New-DispatcherRepetitionPattern -Interval 'PT14M' -Duration 'PT29M'
+        $taskTrigger.Repetition = New-DispatcherRepetitionPattern -Interval 'PT14M' -Duration 'PT85M'
     }
     $taskPrincipal = New-ScheduledTaskPrincipal `
         -UserId $RunAsUser `
@@ -444,8 +450,9 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
     $taskSettings = New-ScheduledTaskSettingsSet `
         -MultipleInstances IgnoreNew `
         -StartWhenAvailable `
+        -WakeToRun `
         -Hidden `
-        -ExecutionTimeLimit $(if ($Realtime) { New-TimeSpan -Minutes 25 } else { New-TimeSpan -Hours 2 }) `
+        -ExecutionTimeLimit $(if ($Realtime) { New-TimeSpan -Minutes 25 } else { New-TimeSpan -Minutes 40 }) `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries
 
@@ -456,7 +463,7 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
         Trigger = $taskTrigger
         Principal = $taskPrincipal
         Settings = $taskSettings
-        Description = $(if ($Realtime) { 'Authorized local-profile OTA realtime dispatcher. Polls every 15 minutes for bounded retries while avoiding the 08:30 daily trigger; fixed scope when provided, no external delivery, hidden window, and registration does not start it.' } else { 'Authorized local-profile OTA daily dispatcher. Runs yesterday final collection with bounded +14/+28 minute retry opportunities; fixed scope when provided, no external delivery, hidden window, and registration does not start it.' })
+        Description = $(if ($Realtime) { 'Authorized local-profile OTA realtime dispatcher. Polls every 15 minutes for bounded retries while avoiding the 08:30 daily trigger; fixed scope when provided, no external delivery, hidden window, and registration does not start it.' } else { 'Authorized local-profile OTA daily dispatcher. Runs yesterday final collection with bounded +14/+28/+42/+56/+70/+84 minute opportunities; the final slot remains after the fifth exponential retry cooldown and a 40-minute execution cap keeps later recovery reachable; fixed scope when provided, no external delivery, hidden window, and registration does not start it.' })
     }
     if ($null -ne $existingTask) {
         $registrationParameters['Force'] = $true

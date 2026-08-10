@@ -29,6 +29,7 @@ if (!fs.existsSync(startupScriptPath)) {
   const requiredTokens = [
     'Start-LocalMySql',
     'Wait-MySql',
+    '$DatabaseOnly',
     'Assert-DatabaseReady',
     'Assert-DatabaseVersion',
     'Invoke-OtaRetentionPreview',
@@ -62,6 +63,20 @@ if (!fs.existsSync(startupScriptPath)) {
 
   if (!/Start-LocalMySql[\s\S]*Assert-DatabaseReady[\s\S]*Assert-DatabaseVersion[\s\S]*Start-ThinkPhp/.test(script)) {
     failures.push('startup script must verify MySQL and database schema version before starting ThinkPHP');
+  }
+
+  const databaseVersionCall = script.lastIndexOf('Assert-DatabaseVersion');
+  const databaseOnlyGuard = script.indexOf('if ($DatabaseOnly) {', databaseVersionCall);
+  const retentionPreviewCall = script.lastIndexOf('Invoke-OtaRetentionPreview');
+  const nodeResolution = script.indexOf('$NodeExe = Resolve-CommandSource "node"');
+  if (databaseVersionCall < 0
+    || databaseOnlyGuard <= databaseVersionCall
+    || retentionPreviewCall <= databaseOnlyGuard
+    || !/if \(\$DatabaseOnly\) \{[\s\S]{0,240}?return[\s\S]{0,40}?\}/.test(script.slice(databaseOnlyGuard, retentionPreviewCall))) {
+    failures.push('DatabaseOnly must return after database/schema verification and before retention or HTTP worker startup');
+  }
+  if (nodeResolution <= databaseOnlyGuard || nodeResolution >= retentionPreviewCall) {
+    failures.push('DatabaseOnly must not depend on Node.js or the HTTP origin server');
   }
 
   if (/\$response\.Content\s+-like\s+"\*status\*"|\$response\.Content\s+-like\s+"\*ok\*"/.test(script)) {

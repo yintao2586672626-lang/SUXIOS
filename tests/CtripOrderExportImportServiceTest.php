@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 use app\service\CtripOrderExportImportService;
+use app\service\OtaStandardEtlService;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xls;
 use PHPUnit\Framework\TestCase;
@@ -30,7 +32,11 @@ final class CtripOrderExportImportServiceTest extends TestCase
         self::assertSame('O-100', $parsed[0]['订单号']);
         self::assertSame('携程', $parsed[0]['预订网站']);
         self::assertSame('biff_xls', $parsed[0]['_source_format']);
+        self::assertSame('ctrip_order_export_25_columns', $parsed[0]['_source_layout']);
         self::assertArrayNotHasKey('_source_file', $parsed[0]);
+        foreach (['客人姓名', '酒店确认人', '预订号', '备注', '确认备注', '携程提示', '_source_sheet', '_source_row'] as $excludedKey) {
+            self::assertArrayNotHasKey($excludedKey, $parsed[0]);
+        }
 
         $rows = $service->normalizeRows($parsed, [
             'system_hotel_id' => 80,
@@ -50,7 +56,8 @@ final class CtripOrderExportImportServiceTest extends TestCase
         self::assertSame(2, $ctrip['gross_order_num']);
         self::assertSame(0, $ctrip['cancel_order_num']);
         self::assertSame(4.0, $ctrip['quantity']);
-        self::assertSame(900.0, $ctrip['amount']);
+        self::assertNull($ctrip['amount']);
+        self::assertSame(900.0, $ctrip['raw_data']['bottom_price_sum']);
         self::assertSame(225.0, $ctrip['bottom_price_adr']);
         self::assertSame(5.0, $ctrip['avg_lead_days']);
         self::assertLessThanOrEqual(64, strlen($ctrip['source_trace_id']));
@@ -59,6 +66,21 @@ final class CtripOrderExportImportServiceTest extends TestCase
         self::assertSame(1, $ctrip['raw_data']['source_file_count']);
         self::assertSame('biff_xls', $ctrip['raw_data']['source_format']);
         self::assertSame(['biff_xls'], $ctrip['raw_data']['source_formats']);
+        self::assertSame('ctrip_order_export_25_columns', $ctrip['raw_data']['source_layout']);
+        self::assertSame('verified_25_column_layout', $ctrip['raw_data']['file_layout_acceptance']);
+        self::assertEqualsWithDelta(1.0, (float)$ctrip['raw_data']['bottom_price_coverage_rate'], 0.000001);
+        self::assertSame('complete', $ctrip['raw_data']['bottom_price_completeness']);
+
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([array_replace($ctrip, [
+            'id' => 9001,
+            'readback_verified' => 1,
+            'update_time' => '2026-08-08 12:00:00',
+        ])]);
+        self::assertCount(1, $dataset['fact_ota_daily']);
+        $fact = $dataset['fact_ota_daily'][0];
+        self::assertNull($fact['revenue']);
+        self::assertNull($fact['gross_revenue']);
+        self::assertNull($fact['room_revenue']);
 
         $qunar = $byChannel['qunar'];
         self::assertSame(0, $qunar['book_order_num']);
@@ -69,10 +91,16 @@ final class CtripOrderExportImportServiceTest extends TestCase
         self::assertNull($qunar['bottom_price_adr']);
 
         $storedJson = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-        foreach (['O-100', 'O-101', 'O-102', '张三', '李四', '王五', '13800138000', '13900139000', '13700137000', 'TEST-FIXTURE-携程订单-含张三'] as $privateText) {
+        foreach ([
+            'O-100', 'O-101', 'O-102',
+            'PII_GUEST_SENTINEL_A', 'PII_GUEST_SENTINEL_B', 'PII_GUEST_SENTINEL_C',
+            'PII_STAFF_SENTINEL_A', 'PII_RESERVATION_SENTINEL_A',
+            'PII_REMARK_SENTINEL_A', 'PII_CONFIRM_REMARK_SENTINEL_A', 'PII_CTRIP_TIP_SENTINEL_A',
+            'TEST-FIXTURE-携程订单-含张三',
+        ] as $privateText) {
             self::assertStringNotContainsString($privateText, $storedJson);
         }
-        self::assertStringContainsString('guest_name_and_raw_order_id_excluded', $storedJson);
+        self::assertStringContainsString('aggregate_only_no_guest_staff_reservation_notes', $storedJson);
     }
 
     public function testHtmlTableWithXlsExtensionUsesAllowedReaderAndPreservesSafeFormatMetadata(): void
@@ -83,6 +111,7 @@ final class CtripOrderExportImportServiceTest extends TestCase
         $parsed = $service->parseLegacyXls($path, 'PRIVATE-携程订单-张三-13800138000.xls');
         self::assertCount(3, $parsed);
         self::assertSame('html_table_xls', $parsed[0]['_source_format']);
+        self::assertSame('recognized_legacy_order_layout', $parsed[0]['_source_layout']);
         self::assertArrayNotHasKey('_source_file', $parsed[0]);
 
         $rows = $service->normalizeRows($parsed, [
@@ -98,10 +127,12 @@ final class CtripOrderExportImportServiceTest extends TestCase
         }
         self::assertSame(2, $byChannel['ctrip']['book_order_num']);
         self::assertSame(4.0, $byChannel['ctrip']['quantity']);
-        self::assertSame(900.0, $byChannel['ctrip']['amount']);
+        self::assertNull($byChannel['ctrip']['amount']);
+        self::assertSame(900.0, $byChannel['ctrip']['raw_data']['bottom_price_sum']);
         self::assertSame('reference_bottom_price_not_confirmed_revenue', $byChannel['ctrip']['raw_data']['amount_semantics']);
         self::assertSame('html_table_xls', $byChannel['ctrip']['raw_data']['source_format']);
         self::assertSame(['html_table_xls'], $byChannel['ctrip']['raw_data']['source_formats']);
+        self::assertSame('recognized_legacy_order_layout', $byChannel['ctrip']['raw_data']['source_layout']);
         self::assertSame(1, $byChannel['qunar']['cancel_order_num']);
         self::assertSame(0.0, $byChannel['qunar']['quantity']);
 
@@ -158,24 +189,149 @@ final class CtripOrderExportImportServiceTest extends TestCase
         ]));
     }
 
+    public function testRealHotelAliasMatchesSelectedSystemHotelAndWrongHotelFailsClosed(): void
+    {
+        $row = [
+            '城市' => '桂林',
+            '酒店名称' => '漓江望月•Quiet Holiday 湖畔酒店(桂林两江四湖象鼻山景区店)',
+            '订单号' => 'ANON-HOTEL-SCOPE-1',
+            '订单类型' => '新订',
+            '订单状态' => '已接单',
+            '入住日期' => '2026-08-08',
+            '离店日期' => '2026-08-09',
+            '预订时间' => '2026-08-01 10:00:00',
+            '通知时间' => '2026-08-01 10:05:00',
+            '晚数' => '1',
+            '房间数' => '1',
+            '底价' => '300',
+            '预订网站' => '携程',
+            '_source_format' => 'biff_xls',
+            '_source_layout' => 'ctrip_order_export_25_columns',
+        ];
+        $service = new CtripOrderExportImportService();
+
+        $rows = $service->normalizeRows([$row], [
+            'system_hotel_id' => 64,
+            'hotel_name' => '桂林漓江望月',
+        ]);
+        self::assertCount(1, $rows);
+        self::assertSame('桂林漓江望月', $rows[0]['hotel_name']);
+        self::assertSame('matched_to_selected_system_hotel', $rows[0]['raw_data']['hotel_identity_status']);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionCode(422);
+        $this->expectExceptionMessage('酒店与所选酒店不一致');
+        $service->normalizeRows([$row], [
+            'system_hotel_id' => 80,
+            'hotel_name' => '敦煌漠蓝新',
+        ]);
+    }
+
+    public function testGenericHotelFragmentCannotAuthorizeAnotherHotel(): void
+    {
+        $row = [
+            '城市' => '桂林',
+            '酒店名称' => '漓江望月•Quiet Holiday 湖畔酒店(桂林两江四湖象鼻山景区店)',
+            '订单号' => 'ANON-HOTEL-SCOPE-GENERIC',
+            '订单类型' => '新订',
+            '订单状态' => '已接单',
+            '入住日期' => '2026-08-08',
+            '离店日期' => '2026-08-09',
+            '预订时间' => '2026-08-01 10:00:00',
+            '通知时间' => '2026-08-01 10:05:00',
+            '晚数' => '1',
+            '房间数' => '1',
+            '底价' => '300',
+            '预订网站' => '携程',
+            '_source_format' => 'biff_xls',
+            '_source_layout' => 'ctrip_order_export_25_columns',
+        ];
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionCode(422);
+        $this->expectExceptionMessage('酒店与所选酒店不一致');
+        (new CtripOrderExportImportService())->normalizeRows([$row], [
+            'system_hotel_id' => 65,
+            'hotel_name' => '桂林湖畔酒店',
+        ]);
+    }
+
+    public function testPartialBottomPriceCoverageAndUnknownStatusStayExplicitAcrossBatch(): void
+    {
+        $base = [
+            '城市' => '桂林',
+            '酒店名称' => '匿名酒店（测试fixture）',
+            '订单类型' => '新订',
+            '入住日期' => '2026-08-08',
+            '离店日期' => '2026-08-09',
+            '预订时间' => '2026-08-01 10:00:00',
+            '通知时间' => '2026-08-01 10:05:00',
+            '晚数' => '1',
+            '房间数' => '1',
+            '预订网站' => '携程',
+            '_source_format' => 'biff_xls',
+            '_source_layout' => 'ctrip_order_export_25_columns',
+        ];
+        $rows = [
+            array_replace($base, ['订单号' => 'ANON-COVERAGE-1', '订单状态' => '已入住', '底价' => '1,234.50', '_source_file_index' => 1]),
+            array_replace($base, ['订单号' => 'ANON-COVERAGE-2', '订单状态' => '已接单', '底价' => '', '_source_file_index' => 2]),
+            array_replace($base, ['订单号' => 'ANON-COVERAGE-3', '订单状态' => '待人工确认的新状态', '底价' => '500', '_source_file_index' => 2]),
+        ];
+
+        $normalized = (new CtripOrderExportImportService())->normalizeRows($rows, [
+            'system_hotel_id' => 64,
+            'hotel_name' => '匿名酒店（测试fixture）',
+            'test_fixture' => true,
+        ]);
+        self::assertCount(1, $normalized);
+        $item = $normalized[0];
+        self::assertSame(2, $item['book_order_num']);
+        self::assertSame(3, $item['gross_order_num']);
+        self::assertSame(1, $item['unknown_status_order_num']);
+        self::assertNull($item['cancel_rate']);
+        self::assertNull($item['amount']);
+        self::assertSame(1234.5, $item['raw_data']['bottom_price_sum']);
+        self::assertSame(1234.5, $item['bottom_price_adr']);
+        self::assertSame(0.5, $item['raw_data']['bottom_price_coverage_rate']);
+        self::assertSame('partial', $item['raw_data']['bottom_price_completeness']);
+        self::assertSame(1, $item['raw_data']['bottom_price_missing_order_count']);
+        self::assertSame(2, $item['raw_data']['source_file_count']);
+        self::assertSame('unavailable_unknown_status_orders_present', $item['raw_data']['cancel_rate_basis']);
+    }
+
     private function legacyFixturePath(): string
     {
         $xlsPath = $this->temporaryXlsPath('ctrip-order-fixture-');
 
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
-        $sheet->setTitle('携程订单-测试fixture');
-        $sheet->fromArray([['携程旧版订单测试 fixture']], null, 'A1');
-        $sheet->fromArray([[
-            '订单编号', '订单状态名称', '入住时间', '离店时间', '预订日期', '最后更新时间',
-            '间夜数', '房间数量', '底价总额', '售卖价', '房型', '预订渠道', '门店名称',
-            '住客姓名', '联系电话', '订单类型',
-        ]], null, 'A3');
-        $sheet->fromArray([
-            ['O-100', '已确认', '2026-08-08', '2026-08-10', '2026-08-01 09:00:00', '2026-08-01 10:00:00', 2, 1, 400, 520, '江景大床房', '携程', '测试酒店（fixture）', '张三', '13800138000', '正常'],
-            ['O-101', '已入住', '2026-08-08', '2026-08-09', '2026-08-05 09:00:00', '2026-08-05 10:00:00', 1, 2, 500, 620, '双床房', '携程', '测试酒店（fixture）', '李四', '13900139000', '正常'],
-            ['O-102', '已取消', '2026-08-08', '2026-08-09', '2026-08-06 09:00:00', '2026-08-07 10:00:00', 1, 1, 200, 260, '大床房', '去哪儿', '测试酒店（fixture）', '王五', '13700137000', '正常'],
-        ], null, 'A4');
+        $sheet->setTitle('1339783226820260808211005');
+        $matrix = [[
+            '城市', '酒店名称', '订单号', '订单类型', '订单状态', '房型ID', '房型名称', '客人姓名',
+            '入住日期', '离店日期', '晚数', '预订时间', '通知时间', '房间数', '币种', '底价',
+            '卖价', '促销', '确认类型', '酒店确认人', '预订号', '备注', '确认备注', '携程提示', '预订网站',
+        ], [
+            '测试市', '测试酒店（fixture）', 'O-100', '新订', '已确认', 'R-1', '江景大床房', 'PII_GUEST_SENTINEL_A',
+            '2026-08-08', '2026-08-10', '2', '2026-08-01 09:00:00', '2026-08-01 10:00:00', '1', 'CNY', '400',
+            '520', '', '自动确认', 'PII_STAFF_SENTINEL_A', 'PII_RESERVATION_SENTINEL_A', 'PII_REMARK_SENTINEL_A', 'PII_CONFIRM_REMARK_SENTINEL_A', 'PII_CTRIP_TIP_SENTINEL_A', '携程',
+        ], [
+            '测试市', '测试酒店（fixture）', 'O-101', '新订', '已入住', 'R-2', '双床房', 'PII_GUEST_SENTINEL_B',
+            '2026-08-08', '2026-08-09', '1', '2026-08-05 09:00:00', '2026-08-05 10:00:00', '2', 'CNY', '500',
+            '620', '', '自动确认', 'PII_STAFF_SENTINEL_B', 'PII_RESERVATION_SENTINEL_B', 'PII_REMARK_SENTINEL_B', 'PII_CONFIRM_REMARK_SENTINEL_B', 'PII_CTRIP_TIP_SENTINEL_B', '携程',
+        ], [
+            '测试市', '测试酒店（fixture）', 'O-102', '无效', '已取消', 'R-3', '大床房', 'PII_GUEST_SENTINEL_C',
+            '2026-08-08', '2026-08-09', '1', '2026-08-06 09:00:00', '2026-08-07 10:00:00', '1', 'CNY', '200',
+            '260', '', '自动确认', 'PII_STAFF_SENTINEL_C', 'PII_RESERVATION_SENTINEL_C', 'PII_REMARK_SENTINEL_C', 'PII_CONFIRM_REMARK_SENTINEL_C', 'PII_CTRIP_TIP_SENTINEL_C', '去哪儿',
+        ]];
+        foreach ($matrix as $rowOffset => $row) {
+            foreach ($row as $columnOffset => $value) {
+                $sheet->setCellValueExplicit(
+                    [$columnOffset + 1, $rowOffset + 1],
+                    (string)$value,
+                    DataType::TYPE_STRING
+                );
+            }
+        }
 
         (new Xls($spreadsheet))->save($xlsPath);
         $spreadsheet->disconnectWorksheets();

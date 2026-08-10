@@ -378,6 +378,12 @@ final class RevenueFactLayerService
                     'ctrip' => $ota['ctrip']['facts'],
                     'meituan' => $ota['meituan']['facts'],
                     'combined' => $combinedOta['facts'],
+                    'combined_status' => [
+                        'data_status' => $combinedOta['data_status'],
+                        'fact_statuses' => $combinedOta['fact_statuses'],
+                        'analysis_readiness' =>
+                            $combinedOta['analysis_readiness'],
+                    ],
                 ],
                 'cross_source_comparison' => $crossSource,
             ],
@@ -522,9 +528,11 @@ final class RevenueFactLayerService
                     'reason' => $trusted ? '' : 'dingdandao_pms_not_readback_verified',
                 ],
                 'sellable_room_nights' => [
-                    'status' => $trusted ? 'readback_verified' : 'not_verified',
+                    'status' => $trusted ? 'derived_verified' : 'not_calculable',
                     'reason' => $trusted ? '' : 'dingdandao_pms_not_readback_verified',
                     'caliber' => '由出租房晚与入住率交叉推导并校验的可售房晚',
+                    'formula' => 'sold_room_nights / occupancy_rate_decimal',
+                    'basis' => 'derived_from_verified_pms_metrics',
                 ],
                 'occupancy_rate_percent' => [
                     'status' => $trusted ? 'readback_verified' : 'not_verified',
@@ -857,6 +865,13 @@ final class RevenueFactLayerService
                         $operationalMetricKeys,
                         true
                     ) ? ($operationalFacts['cancellation_rate_percent'] ?? null) : null,
+                    'cancellation_gross_order_count' => in_array(
+                        'cancellation_gross_order_count',
+                        $operationalMetricKeys,
+                        true
+                    ) ? ($operationalFacts[
+                        'cancellation_gross_order_count'
+                    ] ?? null) : null,
                 ],
                 'fact_statuses' => $coreFactStatuses,
                 'operational_crosscheck' => [
@@ -1010,6 +1025,10 @@ final class RevenueFactLayerService
                 'totals.cancellation_rate',
                 'totals.cancellation_rate',
             ],
+            'cancellation_gross_order_count' => [
+                'totals.gross_order_count',
+                'totals.gross_order_count',
+            ],
         ];
 
         foreach (['ctrip', 'meituan'] as $platform) {
@@ -1104,6 +1123,9 @@ final class RevenueFactLayerService
                     ),
                     'revenue_representation_conflicts' =>
                         $revenueRepresentationConflicts,
+                    'order_dedup' => is_array(
+                        $etlQuality['order_dedup'] ?? null
+                    ) ? $etlQuality['order_dedup'] : [],
                 ],
                 'data_gaps' => array_values(array_unique($dataGaps)),
             ];
@@ -1184,6 +1206,25 @@ final class RevenueFactLayerService
                     'source_methods' => $this->textList(
                         (array)($source['source_methods'] ?? []),
                         80
+                    ),
+                    'data_periods' => $this->textList(
+                        (array)($source['data_periods'] ?? []),
+                        40
+                    ),
+                    'finality' => in_array(
+                        (string)($source['finality'] ?? ''),
+                        ['final', 'provisional', 'mixed'],
+                        true
+                    ) ? (string)$source['finality'] : 'unknown',
+                    'row_count' => max(
+                        0,
+                        $this->integer($source['row_count'] ?? null) ?? 0
+                    ),
+                    'final_row_count' => max(
+                        0,
+                        $this->integer(
+                            $source['final_row_count'] ?? null
+                        ) ?? 0
                     ),
                     'stored_count' => max(
                         0,
@@ -1381,7 +1422,12 @@ final class RevenueFactLayerService
                 $nearest['reconciliation_status'] ?? ''
             ),
             'readback_status' => (string)($nearest['readback_status'] ?? ''),
-            'may_block_date_alignment' => $trusted,
+            // This row proves only that a different historical business date
+            // was saved and read back. It is not evidence that the current
+            // target-date capture actually observed that date in the PMS UI.
+            'evidence_role' => 'nearest_saved_reference',
+            'reference_only' => true,
+            'may_block_date_alignment' => false,
         ];
     }
 
@@ -1401,14 +1447,6 @@ final class RevenueFactLayerService
         $pmsObservedDate = $pmsRecordId !== null
             ? $this->text($pms['actual_business_date'] ?? null, 10)
             : null;
-        if ($pmsObservedDate === null
-            && ($pmsDateEvidence['status'] ?? '') === 'available'
-        ) {
-            $pmsObservedDate = $this->text(
-                $pmsDateEvidence['business_date'] ?? null,
-                10
-            );
-        }
 
         $sources = [
             'dingdandao_pms' => [
@@ -1574,61 +1612,135 @@ final class RevenueFactLayerService
      */
     private function combinedOta(array $ota): array
     {
-        $trusted = ($ota['ctrip']['data_status'] ?? '') === 'readback_verified'
-            && ($ota['meituan']['data_status'] ?? '') === 'readback_verified'
-            && ($ota['ctrip']['analysis_readiness']['allowed'] ?? false) === true
-            && ($ota['meituan']['analysis_readiness']['allowed'] ?? false) === true
-            && in_array(
-                'ota_channel_revenue_analysis',
-                (array)($ota['ctrip']['allowed_uses'] ?? []),
-                true
-            )
-            && in_array(
-                'ota_channel_revenue_analysis',
-                (array)($ota['meituan']['allowed_uses'] ?? []),
-                true
-            );
         $ctripFacts = is_array($ota['ctrip']['facts'] ?? null)
             ? $ota['ctrip']['facts']
             : [];
         $meituanFacts = is_array($ota['meituan']['facts'] ?? null)
             ? $ota['meituan']['facts']
             : [];
-        $revenue = $trusted
+        $metricReady = function (string $platform, string $metric) use ($ota): bool {
+            $source = is_array($ota[$platform] ?? null)
+                ? $ota[$platform]
+                : [];
+            $facts = is_array($source['facts'] ?? null)
+                ? $source['facts']
+                : [];
+            $statuses = is_array($source['fact_statuses'] ?? null)
+                ? $source['fact_statuses']
+                : [];
+            $status = is_array($statuses[$metric] ?? null)
+                ? $statuses[$metric]
+                : [];
+
+            return $this->metricStatusReady($status, $metric)
+                && $this->number($facts[$metric] ?? null) !== null;
+        };
+        $bothMetricReady = static fn(string $metric): bool =>
+            $metricReady('ctrip', $metric)
+            && $metricReady('meituan', $metric);
+        $revenueInputsReady = $bothMetricReady('revenue');
+        $ordersReady = $bothMetricReady('orders');
+        $roomNightsReady = $bothMetricReady('room_nights');
+        $revenueAnalysisReady = ($ota['ctrip']['analysis_readiness']['allowed']
+                ?? false) === true
+            && ($ota['meituan']['analysis_readiness']['allowed'] ?? false)
+                === true;
+        $revenueReady = $revenueInputsReady && $revenueAnalysisReady;
+        $revenue = $revenueReady
             ? $this->strictSum([
                 $ctripFacts['revenue'] ?? null,
                 $meituanFacts['revenue'] ?? null,
             ])
             : null;
-        $orders = $trusted
+        $orders = $ordersReady
             ? $this->strictSum([
                 $ctripFacts['orders'] ?? null,
                 $meituanFacts['orders'] ?? null,
             ])
             : null;
-        $roomNights = $trusted
+        $roomNights = $roomNightsReady
             ? $this->strictSum([
                 $ctripFacts['room_nights'] ?? null,
                 $meituanFacts['room_nights'] ?? null,
             ])
             : null;
-        $ready = $trusted
-            && $revenue !== null
-            && $orders !== null
-            && $roomNights !== null;
+        $revenueReady = $revenueReady && $revenue !== null;
+        $ordersReady = $ordersReady && $orders !== null;
+        $roomNightsReady = $roomNightsReady && $roomNights !== null;
+        $adrReady = $revenueReady
+            && $roomNightsReady
+            && $roomNights > 0;
+        $aggregateReady = $revenueReady
+            && $ordersReady
+            && $roomNightsReady;
+        $readyCount = count(array_filter([
+            $revenueReady,
+            $ordersReady,
+            $roomNightsReady,
+        ]));
+        $factStatuses = [
+            'revenue' => [
+                'status' => $revenueReady
+                    ? 'readback_verified'
+                    : ($revenueInputsReady
+                        ? 'analysis_blocked'
+                        : 'not_verified'),
+                'reason' => $revenueReady
+                    ? ''
+                    : ($revenueInputsReady
+                        ? 'ota_revenue_analysis_gate_blocked'
+                        : 'platform_revenue_not_readback_verified'),
+            ],
+            'orders' => [
+                'status' => $ordersReady
+                    ? 'readback_verified'
+                    : 'not_verified',
+                'reason' => $ordersReady
+                    ? ''
+                    : 'platform_orders_not_readback_verified',
+            ],
+            'room_nights' => [
+                'status' => $roomNightsReady
+                    ? 'readback_verified'
+                    : 'not_verified',
+                'reason' => $roomNightsReady
+                    ? ''
+                    : 'platform_room_nights_not_readback_verified',
+            ],
+            'adr' => [
+                'status' => $adrReady
+                    ? 'derived_verified'
+                    : 'not_calculable',
+                'reason' => $adrReady
+                    ? ''
+                    : ($revenueReady
+                        ? 'ota_room_nights_denominator_missing_or_zero'
+                        : 'combined_ota_revenue_not_ready'),
+                'formula' => 'combined_ota_revenue / combined_ota_room_nights',
+            ],
+        ];
 
         return [
-            'data_status' => $ready ? 'readback_verified' : 'partial',
+            'data_status' => $aggregateReady
+                ? 'readback_verified'
+                : ($readyCount > 0 ? 'partial_readback_verified' : 'partial'),
             'metric_scope' => 'ota_channel',
             'facts' => [
-                'revenue' => $ready ? round($revenue, 2) : null,
-                'orders' => $ready ? $this->wholeNumber($orders) : null,
-                'room_nights' => $ready
+                'revenue' => $revenueReady ? round($revenue, 2) : null,
+                'orders' => $ordersReady ? $this->wholeNumber($orders) : null,
+                'room_nights' => $roomNightsReady
                     ? $this->wholeNumber($roomNights)
                     : null,
-                'adr' => $ready && $roomNights > 0
+                'adr' => $adrReady
                     ? round($revenue / $roomNights, 2)
                     : null,
+            ],
+            'fact_statuses' => $factStatuses,
+            'analysis_readiness' => [
+                'revenue_allowed' => $revenueAnalysisReady,
+                'status' => $revenueAnalysisReady
+                    ? 'allowed'
+                    : 'blocked',
             ],
         ];
     }
@@ -1646,8 +1758,14 @@ final class RevenueFactLayerService
         $sellable = $this->number(
             $pmsFacts['sellable_room_nights'] ?? null
         );
+        $otaRevenueReady = $this->metricStatusReady(
+            is_array($combinedOta['fact_statuses']['revenue'] ?? null)
+                ? $combinedOta['fact_statuses']['revenue']
+                : [],
+            'revenue'
+        );
         $ready = ($pms['data_status'] ?? '') === 'readback_verified'
-            && ($combinedOta['data_status'] ?? '') === 'readback_verified'
+            && $otaRevenueReady
             && $otaRevenue !== null
             && $sellable !== null
             && $sellable > 0;
@@ -1682,19 +1800,39 @@ final class RevenueFactLayerService
             ? $combinedOta['facts']
             : [];
         $pmsReady = ($pms['data_status'] ?? '') === 'readback_verified';
-        $otaReady = ($combinedOta['data_status'] ?? '') === 'readback_verified';
+        $combinedStatuses = is_array($combinedOta['fact_statuses'] ?? null)
+            ? $combinedOta['fact_statuses']
+            : [];
+        $otaRevenueReady = $this->metricStatusReady(
+            is_array($combinedStatuses['revenue'] ?? null)
+                ? $combinedStatuses['revenue']
+                : [],
+            'revenue'
+        );
+        $otaRoomNightsReady = $this->metricStatusReady(
+            is_array($combinedStatuses['room_nights'] ?? null)
+                ? $combinedStatuses['room_nights']
+                : [],
+            'room_nights'
+        );
+        $otaAdrReady = $this->metricStatusReady(
+            is_array($combinedStatuses['adr'] ?? null)
+                ? $combinedStatuses['adr']
+                : [],
+            'adr'
+        );
         $pmsSold = $this->number($pmsFacts['sold_room_nights'] ?? null);
         $pmsRevenue = $this->number($pmsFacts['room_revenue'] ?? null);
         $otaRoomNights = $this->number($otaFacts['room_nights'] ?? null);
         $otaRevenue = $this->number($otaFacts['revenue'] ?? null);
         $otaAdr = $this->number($otaFacts['adr'] ?? null);
 
-        $roomNightShare = $pmsReady && $otaReady
+        $roomNightShare = $pmsReady && $otaRoomNightsReady
             && $pmsSold !== null && $pmsSold > 0
             && $otaRoomNights !== null
                 ? round($otaRoomNights / $pmsSold * 100, 2)
                 : null;
-        $roomRevenueShare = $pmsReady && $otaReady
+        $roomRevenueShare = $pmsReady && $otaRevenueReady
             && $pmsRevenue !== null && $pmsRevenue > 0
             && $otaRevenue !== null
                 ? round($otaRevenue / $pmsRevenue * 100, 2)
@@ -1707,24 +1845,26 @@ final class RevenueFactLayerService
             $facts = is_array($ota[$platform]['facts'] ?? null)
                 ? $ota[$platform]['facts']
                 : [];
-            $orders = $this->number($facts['orders'] ?? null);
+            $grossOrders = $this->number(
+                $facts['cancellation_gross_order_count'] ?? null
+            );
             $rate = $this->number(
                 $facts['cancellation_rate_percent'] ?? null
             );
-            if ($orders === null || $orders < 0) {
+            if ($grossOrders === null || $grossOrders < 0) {
                 continue;
             }
-            if ($orders === 0.0) {
-                // A verified zero-order platform contributes no weight and
-                // must not make the other platform's cancellation rate vanish.
+            if ($grossOrders === 0.0) {
+                // Only an explicitly verified zero gross-order base contributes
+                // zero weight. Active orders alone cannot prove this boundary.
                 $cancelPlatforms[] = $platform;
                 continue;
             }
             if ($rate === null) {
                 continue;
             }
-            $cancelNumerator += $orders * $rate / 100;
-            $cancelDenominator += $orders;
+            $cancelNumerator += $grossOrders * $rate / 100;
+            $cancelDenominator += $grossOrders;
             $cancelPlatforms[] = $platform;
         }
         $cancellationRate = count($cancelPlatforms) === 2
@@ -1735,7 +1875,7 @@ final class RevenueFactLayerService
         $floorPrice = ($pricingGuard['data_status'] ?? '') === 'ready'
             ? $this->number($pricingGuard['minimum_floor_price'] ?? null)
             : null;
-        $floorGap = $floorPrice !== null && $otaAdr !== null
+        $floorGap = $floorPrice !== null && $otaAdrReady && $otaAdr !== null
             ? round($otaAdr - $floorPrice, 2)
             : null;
 
@@ -1759,7 +1899,7 @@ final class RevenueFactLayerService
                 'CNY',
                 'ota_channel',
                 'ota_room_revenue / ota_room_nights',
-                $otaReady ? '' : 'three_source_ota_facts_partial'
+                $otaAdrReady ? '' : 'combined_ota_adr_not_ready'
             ),
             'ota_room_night_share_percent' => $this->operatingMetric(
                 $roomNightShare,
@@ -1785,11 +1925,11 @@ final class RevenueFactLayerService
                 $cancellationRate,
                 '%',
                 'ota_channel',
-                'sum(platform_cancel_rate * platform_orders) / sum(platform_orders)',
+                'sum(platform_cancel_rate * platform_gross_orders) / sum(platform_gross_orders)',
                 $cancellationRate === null
-                    ? 'all_platform_cancellation_rate_or_order_base_missing'
+                    ? 'all_platform_cancellation_rate_or_gross_order_base_missing'
                     : '',
-                '按平台订单数加权；不与PMS取消口径混算。'
+                '按平台总订单数加权；不与PMS取消口径混算。'
             ),
             'ota_revenue_per_whole_hotel_sellable_room' =>
                 $this->operatingMetric(
@@ -1880,6 +2020,15 @@ final class RevenueFactLayerService
             $suppressedRepresentationRows += max(0, (int)($quality[$key] ?? 0));
         }
         $canonicalizedTrafficProjectionGroups = 0;
+        $orderCandidateRows = 0;
+        $orderCoveredRows = 0;
+        $orderUnverifiableRows = 0;
+        $distinctVerifiedOrderGrains = 0;
+        $suppressedDuplicateOrderRows = 0;
+        $suppressedUntrustedDuplicateOrderRows = 0;
+        $newerUntrustedDuplicateOrderRows = 0;
+        $operationalOrderEvidenceSeen = false;
+        $operationalOrderEvidenceComplete = true;
         $revenueRepresentationConflicts = [];
         foreach (['ctrip', 'meituan'] as $platform) {
             $operationalQuality = is_array(
@@ -1890,6 +2039,52 @@ final class RevenueFactLayerService
                 (int)($operationalQuality
                     ['canonicalized_traffic_projection_groups'] ?? 0)
             );
+            $orderDedup = is_array(
+                $operationalQuality['order_dedup'] ?? null
+            ) ? $operationalQuality['order_dedup'] : [];
+            if ($orderDedup !== []) {
+                $operationalOrderEvidenceSeen = true;
+                $operationalEvidenceStatus = strtolower(trim((string)(
+                    $orderDedup['evidence_status'] ?? ''
+                )));
+                if (!in_array(
+                    $operationalEvidenceStatus,
+                    ['', 'complete', 'provided_rows_complete'],
+                    true
+                )) {
+                    $operationalOrderEvidenceComplete = false;
+                }
+            }
+            $orderCandidateRows += max(
+                0,
+                (int)($orderDedup['order_identity_candidate_rows'] ?? 0)
+            );
+            $orderCoveredRows += max(
+                0,
+                (int)($orderDedup['order_identity_covered_rows'] ?? 0)
+            );
+            $orderUnverifiableRows += max(
+                0,
+                (int)($orderDedup['order_identity_unverifiable_rows'] ?? 0)
+            );
+            $distinctVerifiedOrderGrains += max(
+                0,
+                (int)($orderDedup['distinct_verified_order_grains'] ?? 0)
+            );
+            $suppressedDuplicateOrderRows += max(
+                0,
+                (int)($orderDedup['suppressed_duplicate_order_rows'] ?? 0)
+            );
+            $suppressedUntrustedDuplicateOrderRows += max(
+                0,
+                (int)($orderDedup
+                    ['suppressed_untrusted_duplicate_order_rows'] ?? 0)
+            );
+            $newerUntrustedDuplicateOrderRows += max(
+                0,
+                (int)($orderDedup
+                    ['newer_untrusted_duplicate_order_rows'] ?? 0)
+            );
             foreach ($this->revenueRepresentationConflicts(
                 $operationalQuality['revenue_representation_conflicts'] ?? []
             ) as $conflict) {
@@ -1897,23 +2092,138 @@ final class RevenueFactLayerService
                 $revenueRepresentationConflicts[] = $conflict;
             }
         }
-        $duplicatesCanonicalized = $suppressedRepresentationRows > 0
+        $repositoryOrderDedup = is_array($quality['order_dedup'] ?? null)
+            ? $quality['order_dedup']
+            : [];
+        $repositoryOrderEvidenceStatus = strtolower(trim((string)(
+            $repositoryOrderDedup['evidence_status'] ?? ''
+        )));
+        $orderIdentitySource = $operationalOrderEvidenceSeen
+            ? 'operational_datasets'
+            : 'none';
+        $orderEvidenceComplete = $operationalOrderEvidenceSeen
+            && $operationalOrderEvidenceComplete;
+        if ($repositoryOrderDedup !== []
+            && $repositoryOrderEvidenceStatus === 'complete'
+        ) {
+            $orderCandidateRows = max(
+                0,
+                (int)($repositoryOrderDedup
+                    ['order_identity_candidate_rows'] ?? 0)
+            );
+            $orderCoveredRows = max(
+                0,
+                (int)($repositoryOrderDedup
+                    ['order_identity_covered_rows'] ?? 0)
+            );
+            $orderUnverifiableRows = max(
+                0,
+                (int)($repositoryOrderDedup
+                    ['order_identity_unverifiable_rows'] ?? 0)
+            );
+            $distinctVerifiedOrderGrains = max(
+                0,
+                (int)($repositoryOrderDedup
+                    ['distinct_verified_order_grains'] ?? 0)
+            );
+            $suppressedDuplicateOrderRows = max(
+                0,
+                (int)($repositoryOrderDedup
+                    ['suppressed_duplicate_order_rows'] ?? 0)
+            );
+            $suppressedUntrustedDuplicateOrderRows = max(
+                0,
+                (int)($repositoryOrderDedup
+                    ['suppressed_untrusted_duplicate_order_rows'] ?? 0)
+            );
+            $newerUntrustedDuplicateOrderRows = max(
+                0,
+                (int)($repositoryOrderDedup
+                    ['newer_untrusted_duplicate_order_rows'] ?? 0)
+            );
+            $orderIdentitySource = 'trusted_repository_evidence';
+            $orderEvidenceComplete = true;
+        } elseif ($repositoryOrderDedup !== []) {
+            $orderEvidenceComplete = false;
+        }
+        $orderIdentityCoveragePercent = $orderCandidateRows > 0
+            ? round(($orderCoveredRows / $orderCandidateRows) * 100, 2)
+            : null;
+        $orderIdentityStatus = $orderCandidateRows <= 0
+            || $orderCoveredRows <= 0
+                ? 'not_checkable'
+                : (
+                    !$orderEvidenceComplete
+                    || $orderCoveredRows < $orderCandidateRows
+                        ? 'partial'
+                        : (
+                            $suppressedDuplicateOrderRows > 0
+                                ? 'canonicalized'
+                                : 'matched'
+                        )
+                );
+        $representationCanonicalized = $suppressedRepresentationRows > 0
             || $canonicalizedTrafficProjectionGroups > 0;
+        $orderIdentityDetail = match ($orderIdentityStatus) {
+            'matched' =>
+                "订单身份已覆盖 {$orderCoveredRows}/{$orderCandidateRows} 条候选行，形成 {$distinctVerifiedOrderGrains} 个唯一订单粒度；未发现同酒店、同平台、同业务日、同订单哈希的重复版本。",
+            'canonicalized' =>
+                "订单身份已覆盖 {$orderCoveredRows}/{$orderCandidateRows} 条候选行，形成 {$distinctVerifiedOrderGrains} 个唯一订单粒度，并排除 {$suppressedDuplicateOrderRows} 条重复订单版本。",
+            'partial' =>
+                "订单身份可信覆盖 {$orderCoveredRows}/{$orderCandidateRows} 条候选行（{$orderIdentityCoveragePercent}%），仍有 {$orderUnverifiableRows} 条缺少完整身份或可信回读；不能宣称订单已全面去重。",
+            default => $orderCandidateRows > 0
+                ? "检测到 {$orderCandidateRows} 条订单候选行，但没有同时满足系统酒店、明确平台、精确业务日、订单哈希及可信回读的订单身份，当前不可核验重复订单。"
+                : '当前没有订单明细级身份证据，不能宣称不存在重复订单。',
+        };
+        if ($newerUntrustedDuplicateOrderRows > 0) {
+            $orderIdentityDetail .=
+                " 另有 {$newerUntrustedDuplicateOrderRows} 条时间更新但未通过信任门的同订单版本未覆盖可信事实，需复核其订单状态变化。";
+        }
+        if (!$orderEvidenceComplete) {
+            $orderIdentityDetail .=
+                ' 订单版本证据查询未完整闭合，本次不能升级为订单级全面核验。';
+        }
+        if ($representationCanonicalized) {
+            $orderIdentityDetail .=
+                " 表示层另排除 {$suppressedRepresentationRows} 条周期/快照/汇总重复表示，并择优 {$canonicalizedTrafficProjectionGroups} 组流量投影；这些数量不计入重复订单。";
+        }
         $checks[] = [
             'key' => 'duplicate_orders',
-            'label' => '重复订单/重复汇总',
-            'status' => $duplicatesCanonicalized
-                ? 'canonicalized'
-                : 'not_checkable',
-            'detail' => $duplicatesCanonicalized
-                ? "事实层已排除 {$suppressedRepresentationRows} 条被替代的周期、快照或汇总表示，并按指标择优处理 {$canonicalizedTrafficProjectionGroups} 组同业务日累计漏斗投影；这不等同订单级重复核验。"
-                : '当前没有订单级唯一标识覆盖证明，不能宣称不存在重复订单；汇总与订单明细也不会重复相加。',
+            'label' => '重复订单',
+            'status' => $orderIdentityStatus,
+            'detail' => $orderIdentityDetail,
+            'verification_scope' => 'order_identity',
+            'order_identity_source' => $orderIdentitySource,
+            'order_evidence_status' => $orderEvidenceComplete
+                ? 'complete'
+                : (
+                    $repositoryOrderEvidenceStatus !== ''
+                        ? $repositoryOrderEvidenceStatus
+                        : 'incomplete'
+                ),
+            'order_identity_candidate_rows' => $orderCandidateRows,
+            'order_identity_covered_rows' => $orderCoveredRows,
+            'order_identity_unverifiable_rows' => $orderUnverifiableRows,
+            'order_identity_coverage_percent' =>
+                $orderIdentityCoveragePercent,
+            'distinct_verified_order_grains' =>
+                $distinctVerifiedOrderGrains,
+            'suppressed_duplicate_order_rows' =>
+                $suppressedDuplicateOrderRows,
+            'suppressed_untrusted_duplicate_order_rows' =>
+                $suppressedUntrustedDuplicateOrderRows,
+            'newer_untrusted_duplicate_order_rows' =>
+                $newerUntrustedDuplicateOrderRows,
             'suppressed_representation_rows' => $suppressedRepresentationRows,
             'canonicalized_traffic_projection_groups' =>
                 $canonicalizedTrafficProjectionGroups,
+            'representation_status' => $representationCanonicalized
+                ? 'canonicalized'
+                : 'not_observed',
         ];
 
         $summaryMismatches = [];
+        $summaryComparedMetrics = [];
         foreach (['ctrip', 'meituan'] as $platform) {
             $facts = is_array($ota[$platform]['facts'] ?? null)
                 ? $ota[$platform]['facts']
@@ -1933,6 +2243,10 @@ final class RevenueFactLayerService
                 if ($primary === null || $secondary === null) {
                     continue;
                 }
+                $summaryComparedMetrics[] = [
+                    'platform' => $platform,
+                    'metric' => $metric,
+                ];
                 if (abs($primary - $secondary) > $tolerance) {
                     $summaryMismatches[] = [
                         'platform' => $platform,
@@ -1963,12 +2277,17 @@ final class RevenueFactLayerService
         $checks[] = [
             'key' => 'summary_representation',
             'label' => '汇总与订单表示',
-            'status' => $summaryMismatches === []
-                ? 'matched_or_not_calculable'
-                : 'mismatch',
-            'detail' => $summaryMismatches === []
-                ? '已验证的严格收益汇总与标准指标未发现数值冲突；缺字段仍保持不可核验。'
-                : '严格收益汇总与标准指标存在差异，已阻止静默覆盖，请核对汇总行、订单行和最新快照。',
+            'status' => $summaryMismatches !== []
+                ? 'mismatch'
+                : ($summaryComparedMetrics !== [] ? 'matched' : 'not_checkable'),
+            'detail' => $summaryMismatches !== []
+                ? '严格收益汇总与标准指标存在差异，已阻止静默覆盖，请核对汇总行、订单行和最新快照。'
+                : (
+                    $summaryComparedMetrics !== []
+                        ? '已按同平台同业务日比较严格收益汇总与标准指标，未发现数值冲突。'
+                        : '严格收益汇总或标准指标缺失，没有形成可比指标；不能宣称未发现冲突。'
+                ),
+            'compared_metrics' => $summaryComparedMetrics,
             'differences' => $summaryMismatches,
         ];
 
@@ -1992,7 +2311,7 @@ final class RevenueFactLayerService
                 ? 'ota_only_ready'
                 : 'incomplete',
             'detail' => $cancellationReady
-                ? 'OTA取消率按各平台有效订单数加权；真实零订单平台不增加权重。PMS取消/未入住口径尚未采集，不做跨源相减。'
+                ? 'OTA取消率按各平台已完整分类的总订单数加权；只有已验证总订单数为0的平台才不增加权重。PMS取消/未入住口径尚未采集，不做跨源相减。'
                 : '目标日取消字段未完成可信回读；不以0表示无取消。',
             'platform_rates_percent' => $platformCancellation,
             'combined_rate_percent' => $derivedMetrics[
@@ -2018,15 +2337,103 @@ final class RevenueFactLayerService
         $combinedAdr = $this->number(
             $combinedOta['facts']['adr'] ?? null
         );
+        $targetBusinessDate = (string)(
+            $dateAlignment['target_business_date'] ?? ''
+        );
+        $salesEvidence = $this->otaSalesEvidence(
+            $ota,
+            $targetBusinessDate
+        );
+        $floorEvidence = [
+            'status' => (string)($pricingGuard['data_status'] ?? 'missing'),
+            'source' => is_array($pricingGuard['source'] ?? null)
+                ? $pricingGuard['source']
+                : [],
+            'minimum_floor_price' => $floorReady
+                ? $this->number(
+                    $pricingGuard['minimum_floor_price'] ?? null
+                )
+                : null,
+            'configured_room_type_count' => count(
+                is_array($pricingGuard['items'] ?? null)
+                    ? $pricingGuard['items']
+                    : []
+            ),
+            'forbidden_substitutes' => $this->textList(
+                (array)($pricingGuard['forbidden_substitutes'] ?? []),
+                80
+            ),
+        ];
+        $availableSalesEvidence = array_values(array_filter(
+            $salesEvidence,
+            static fn(array $evidence): bool => in_array(
+                (string)($evidence['status'] ?? ''),
+                ['available', 'conflicted'],
+                true
+            )
+        ));
+        $provisionalSalesEvidence = array_values(array_filter(
+            $availableSalesEvidence,
+            static fn(array $evidence): bool => in_array(
+                (string)($evidence['finality'] ?? ''),
+                ['provisional', 'mixed'],
+                true
+            )
+        ));
+        $salesConflictNotes = [];
+        foreach ($salesEvidence as $platform => $evidence) {
+            $conflict = is_array(
+                $evidence['current_snapshot_conflict'] ?? null
+            ) ? $evidence['current_snapshot_conflict'] : [];
+            $absoluteDelta = $this->number(
+                $conflict['absolute_delta'] ?? null
+            );
+            if ($absoluteDelta === null) {
+                continue;
+            }
+            $platformLabel = $platform === 'ctrip' ? '携程' : '美团';
+            $percent = $this->number(
+                $conflict['delta_percent_of_selected'] ?? null
+            );
+            $salesConflictNotes[] = $platformLabel
+                . '同一采集任务的销售表示相差 ¥'
+                . number_format($absoluteDelta, 2, '.', '')
+                . ($percent !== null
+                    ? '（' . number_format($percent, 2, '.', '') . '%）'
+                    : '')
+                . '，已阻止静默合并。';
+        }
+        if ($floorReady && $combinedAdr !== null) {
+            $floorSalesDetail = '已显示综合OTA ADR与全店最低保护价的粗粒度差值；房型、价格计划、早餐和取消政策未对齐前不能判定低于底价。';
+        } elseif ($availableSalesEvidence !== []) {
+            $missingPieces = [];
+            if (!$floorReady) {
+                $missingPieces[] = '最低保护价未取得';
+            }
+            if ($combinedAdr === null) {
+                $missingPieces[] = '综合OTA ADR未取得或存在表示冲突';
+            }
+            $floorSalesDetail = '已取得 '
+                . count($availableSalesEvidence)
+                . '/2 个平台的目标日OTA销售收入证据；'
+                . implode('、', $missingPieces)
+                . '，当前不可相减。平台起价、销售均价、历史ADR和竞品价均未当作底价。';
+            if ($provisionalSalesEvidence !== []) {
+                $floorSalesDetail .= ' 已取得的销售证据仍含实时快照，不等同日终结算收入。';
+            }
+            if ($salesConflictNotes !== []) {
+                $floorSalesDetail .= ' ' . implode(' ', $salesConflictNotes);
+            }
+        } else {
+            $floorSalesDetail = '最低保护价或OTA销售证据缺失，当前不可比较；不以历史均价、竞品价或平台起价补位。';
+        }
         $checks[] = [
             'key' => 'floor_vs_sales',
             'label' => '底价与销售收入',
             'status' => $floorReady && $combinedAdr !== null
                 ? 'reference_only'
                 : 'incomplete',
-            'detail' => $floorReady && $combinedAdr !== null
-                ? '已显示综合OTA ADR与全店最低保护价的粗粒度差值；房型、价格计划、早餐和取消政策未对齐前不能判定低于底价。'
-                : '最低保护价或OTA ADR缺失，当前不可比较；不以历史均价、竞品价或平台起价补位。',
+            'detail' => $floorSalesDetail,
             'minimum_floor_price' => $floorReady
                 ? $this->number($pricingGuard['minimum_floor_price'] ?? null)
                 : null,
@@ -2034,6 +2441,8 @@ final class RevenueFactLayerService
             'reference_gap' => $derivedMetrics[
                 'ota_adr_minus_minimum_floor_price'
             ]['value'] ?? null,
+            'floor_evidence' => $floorEvidence,
+            'sales_evidence' => $salesEvidence,
         ];
 
         $status = 'partial';
@@ -2044,6 +2453,11 @@ final class RevenueFactLayerService
         } elseif ($dateStatus === 'aligned'
             && $paymentCollected !== null
             && $cancellationReady
+            && in_array(
+                $orderIdentityStatus,
+                ['matched', 'canonicalized'],
+                true
+            )
         ) {
             $status = 'matched_with_scope_caveats';
         }
@@ -2063,6 +2477,142 @@ final class RevenueFactLayerService
     }
 
     /**
+     * @param array{ctrip:array<string,mixed>,meituan:array<string,mixed>} $ota
+     * @return array{ctrip:array<string,mixed>,meituan:array<string,mixed>}
+     */
+    private function otaSalesEvidence(
+        array $ota,
+        string $businessDate
+    ): array {
+        $result = [];
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $source = is_array($ota[$platform] ?? null)
+                ? $ota[$platform]
+                : [];
+            $facts = is_array($source['facts'] ?? null)
+                ? $source['facts']
+                : [];
+            $statuses = is_array($source['fact_statuses'] ?? null)
+                ? $source['fact_statuses']
+                : [];
+            $revenueStatus = is_array($statuses['revenue'] ?? null)
+                ? $statuses['revenue']
+                : [];
+            $value = $this->number($facts['revenue'] ?? null);
+            $dateAligned = $businessDate !== ''
+                && (string)($source['actual_business_date'] ?? '')
+                    === $businessDate;
+            $available = $dateAligned
+                && $value !== null
+                && $this->metricStatusReady($revenueStatus, 'revenue');
+            $provenance = is_array(
+                $revenueStatus['source_provenance'] ?? null
+            ) ? $revenueStatus['source_provenance'] : [];
+            $quality = is_array(
+                $source['source']['operational_data_quality'] ?? null
+            ) ? $source['source']['operational_data_quality'] : [];
+            $conflicts = $this->revenueRepresentationConflicts(
+                $quality['revenue_representation_conflicts'] ?? []
+            );
+            $currentConflict = $this->currentSnapshotRevenueConflict(
+                $conflicts
+            );
+            $finality = in_array(
+                (string)($provenance['finality'] ?? ''),
+                ['final', 'provisional', 'mixed'],
+                true
+            ) ? (string)$provenance['finality'] : 'unknown';
+
+            $result[$platform] = [
+                'status' => !$available
+                    ? 'missing'
+                    : ($conflicts !== [] ? 'conflicted' : 'available'),
+                'value' => $available ? round($value, 2) : null,
+                'currency' => 'CNY',
+                'business_date' => $dateAligned ? $businessDate : null,
+                'basis' => (string)($revenueStatus['caliber'] ?? ''),
+                'finality' => $finality,
+                'source_provenance' => $provenance,
+                'representation_conflict_count' => count($conflicts),
+                'current_snapshot_conflict' => $currentConflict,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $conflicts
+     * @return array<string,mixed>|null
+     */
+    private function currentSnapshotRevenueConflict(array $conflicts): ?array
+    {
+        $matches = [];
+        foreach ($conflicts as $conflict) {
+            $winnerTaskId = $this->positiveInt(
+                $conflict['winner_sync_task_id'] ?? null
+            );
+            $candidateTaskId = $this->positiveInt(
+                $conflict['candidate_sync_task_id'] ?? null
+            );
+            $winnerSnapshot = trim((string)(
+                $conflict['winner_snapshot_time'] ?? ''
+            ));
+            $candidateSnapshot = trim((string)(
+                $conflict['candidate_snapshot_time'] ?? ''
+            ));
+            $sameTask = $winnerTaskId !== null
+                && $winnerTaskId === $candidateTaskId;
+            $sameSnapshot = $winnerSnapshot !== ''
+                && $winnerSnapshot === $candidateSnapshot;
+            if (!$sameTask && !$sameSnapshot) {
+                continue;
+            }
+            $matches[] = $conflict;
+        }
+        if ($matches === []) {
+            return null;
+        }
+        usort(
+            $matches,
+            fn(array $left, array $right): int =>
+                ($this->positiveInt($left['candidate_row_id'] ?? null) ?? 0)
+                <=>
+                ($this->positiveInt($right['candidate_row_id'] ?? null) ?? 0)
+        );
+        $conflict = $matches[count($matches) - 1];
+        $selected = $this->number($conflict['winner_amount'] ?? null);
+        $candidate = $this->number($conflict['candidate_amount'] ?? null);
+        if ($selected === null || $candidate === null) {
+            return null;
+        }
+        $delta = round($candidate - $selected, 2);
+
+        return [
+            'selected_row_id' => $this->positiveInt(
+                $conflict['winner_row_id'] ?? null
+            ),
+            'candidate_row_id' => $this->positiveInt(
+                $conflict['candidate_row_id'] ?? null
+            ),
+            'sync_task_id' => $this->positiveInt(
+                $conflict['winner_sync_task_id'] ?? null
+            ),
+            'snapshot_time' => $this->text(
+                $conflict['winner_snapshot_time'] ?? null,
+                32
+            ),
+            'selected_value' => round($selected, 2),
+            'candidate_value' => round($candidate, 2),
+            'delta' => $delta,
+            'absolute_delta' => round(abs($delta), 2),
+            'delta_percent_of_selected' => $selected > 0
+                ? round(abs($delta) / $selected * 100, 2)
+                : null,
+        ];
+    }
+
+    /**
      * @return array<string,array<string,mixed>>
      */
     private function analysisMetrics(
@@ -2077,6 +2627,27 @@ final class RevenueFactLayerService
         $otaFacts = is_array($combinedOta['facts'] ?? null)
             ? $combinedOta['facts']
             : [];
+        $combinedFactStatuses = is_array(
+            $combinedOta['fact_statuses'] ?? null
+        ) ? $combinedOta['fact_statuses'] : [];
+        $combinedRevenueReady = $this->metricStatusReady(
+            is_array($combinedFactStatuses['revenue'] ?? null)
+                ? $combinedFactStatuses['revenue']
+                : [],
+            'revenue'
+        );
+        $combinedRoomNightsReady = $this->metricStatusReady(
+            is_array($combinedFactStatuses['room_nights'] ?? null)
+                ? $combinedFactStatuses['room_nights']
+                : [],
+            'room_nights'
+        );
+        $combinedAdrReady = $this->metricStatusReady(
+            is_array($combinedFactStatuses['adr'] ?? null)
+                ? $combinedFactStatuses['adr']
+                : [],
+            'adr'
+        );
         $pmsTruth = $this->pmsTruth($hotel, $businessDate, $pms);
         $otaTruth = $this->otaTruth($hotel, $businessDate, $ota);
         $crossTruth = $this->crossSourceTruth(
@@ -2096,9 +2667,9 @@ final class RevenueFactLayerService
                 'data_date',
                 ['ctrip', 'meituan'],
                 $otaTruth,
-                ($combinedOta['data_status'] ?? '') === 'readback_verified'
+                $combinedRevenueReady
                     ? ''
-                    : 'three_source_ota_facts_partial'
+                    : 'combined_ota_revenue_not_ready'
             ),
             'ota_room_nights' => $this->metricRow(
                 'ota_room_nights',
@@ -2109,9 +2680,9 @@ final class RevenueFactLayerService
                 'data_date',
                 ['ctrip', 'meituan'],
                 $otaTruth,
-                ($combinedOta['data_status'] ?? '') === 'readback_verified'
+                $combinedRoomNightsReady
                     ? ''
-                    : 'three_source_ota_facts_partial'
+                    : 'combined_ota_room_nights_not_ready'
             ),
             'ota_adr' => $this->metricRow(
                 'ota_adr',
@@ -2122,9 +2693,9 @@ final class RevenueFactLayerService
                 'data_date',
                 ['ctrip', 'meituan'],
                 $otaTruth,
-                ($combinedOta['data_status'] ?? '') === 'readback_verified'
+                $combinedAdrReady
                     ? ''
-                    : 'three_source_ota_facts_partial'
+                    : 'combined_ota_adr_not_ready'
             ),
             'whole_hotel_room_revenue' => $this->metricRow(
                 'whole_hotel_room_revenue',
@@ -2595,6 +3166,25 @@ final class RevenueFactLayerService
                 'winner_order_count' => $this->number(
                     $entry['winner_order_count'] ?? null
                 ),
+                'winner_sync_task_id' => $this->positiveInt(
+                    $entry['winner_sync_task_id'] ?? null
+                ),
+                'winner_snapshot_time' => $this->text(
+                    $entry['winner_snapshot_time'] ?? null,
+                    32
+                ),
+                'winner_data_period' => $this->text(
+                    $entry['winner_data_period'] ?? null,
+                    40
+                ),
+                'winner_is_final' => array_key_exists(
+                    'winner_is_final',
+                    $entry
+                ) ? in_array(
+                    $entry['winner_is_final'],
+                    [true, 1, '1', 'true'],
+                    true
+                ) : null,
                 'candidate_row_id' => $this->positiveInt(
                     $entry['candidate_row_id'] ?? null
                 ),
@@ -2609,6 +3199,25 @@ final class RevenueFactLayerService
                 'candidate_order_count' => $this->number(
                     $entry['candidate_order_count'] ?? null
                 ),
+                'candidate_sync_task_id' => $this->positiveInt(
+                    $entry['candidate_sync_task_id'] ?? null
+                ),
+                'candidate_snapshot_time' => $this->text(
+                    $entry['candidate_snapshot_time'] ?? null,
+                    32
+                ),
+                'candidate_data_period' => $this->text(
+                    $entry['candidate_data_period'] ?? null,
+                    40
+                ),
+                'candidate_is_final' => array_key_exists(
+                    'candidate_is_final',
+                    $entry
+                ) ? in_array(
+                    $entry['candidate_is_final'],
+                    [true, 1, '1', 'true'],
+                    true
+                ) : null,
                 'amount_delta' => $delta,
                 'amount_delta_percent_of_winner' => $winnerAmount > 0
                     ? round(abs($delta) / $winnerAmount * 100, 2)

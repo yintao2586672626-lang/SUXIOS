@@ -304,10 +304,13 @@ try {
             'room_nights' => $canonicalRow['quantity'] ?? null,
             'cancel_rate' => $canonicalRow['cancel_rate'] ?? null,
             'average_booking_lead_days' => $canonicalRow['avg_lead_days'] ?? null,
-            'reference_bottom_price_total' => $canonicalRow['amount'] ?? null,
+            'reference_bottom_price_total' => $rawData['bottom_price_sum'] ?? null,
             'amount_semantics' => $rawData['amount_semantics'] ?? null,
             'source_format' => $storedSourceFormat,
         ];
+        if (($canonicalRow['amount'] ?? null) !== null) {
+            throw new RuntimeException('Reference bottom price must not occupy the canonical revenue amount field.');
+        }
         $assertOracleValue(
             $canonicalRow['source'] ?? null,
             $channelKey,

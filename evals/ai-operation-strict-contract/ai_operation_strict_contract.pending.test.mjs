@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 
-const service = readFileSync('app/service/OperationManagementService.php', 'utf8');
+const service = readSourceAggregate('app/service/OperationManagementService.php');
 const controller = readFileSync('app/controller/OperationManagement.php', 'utf8');
 const routes = readFileSync('route/app.php', 'utf8');
 const dailyReport = readFileSync('app/service/AiDailyReportService.php', 'utf8');
@@ -78,7 +79,7 @@ test('approval and execution persist state transitions with compare-and-set guar
   const approval = block(service, 'public function approveExecutionIntent', 'public function executeExecutionTask');
   const execution = block(service, 'public function executeExecutionTask', 'public function addExecutionEvidence');
 
-  assertBefore(approval, "->where('status', 'pending_approval')", '->update([', 'approval update must compare the pending state');
+  assertBefore(approval, "->where('status', 'pending_approval')", '->update(array_merge([', 'approval update must compare the pending state');
   assertMatches(approval, /\$affected\s*!==\s*1/, 'approval must reject a lost compare-and-set race');
   assertBefore(execution, "->where('status', $expectedTaskStatus)", '->update($dbUpdate)', 'execution update must compare the previously read task state');
   assertMatches(execution, /\$affected\s*!==\s*1/, 'execution must reject a lost compare-and-set race');
@@ -110,7 +111,7 @@ test('approval verifies intent status and generated task before success toast', 
   assertBefore(
     fn,
     'await readOperationExecutionIntent',
-    "showToast(approved ? '执行意图已审批'",
+    'showToast(approved',
     'approval readback must happen before success toast'
   );
   assertMatches(fn, /approved/, 'approval flow must verify approved state');
@@ -120,11 +121,13 @@ test('approval verifies intent status and generated task before success toast', 
 test('both execution submit paths verify executed task with evidence before success toast', () => {
   const priceFn = block(frontend, 'const recordOperationExecutionEvidence', 'const submitOperationExecutionEvidence');
   const generalFn = block(frontend, 'const submitOperationExecutionEvidence', 'const recordOperationRoiEvidence');
-  for (const [fn, successToast] of [
-    [priceFn, "showToast('调价执行证据已保存"],
-    [generalFn, 'showToast(evidenceMode'],
-  ]) {
-    assertBefore(fn, 'await readOperationExecutionTask', successToast, 'execution readback must happen before success toast');
+  assertBefore(priceFn, 'await readOperationExecutionTask', "showToast('调价执行证据已保存", 'price execution readback must happen before success toast');
+  assertMatches(
+    generalFn,
+    /await readOperationExecutionTask\(responseTaskId, executionHotelId\)[\s\S]*operationEvidenceModalOpen\.value = false;\s*operationEvidenceModalItem\.value = null;\s*showToast\(/,
+    'general execution readback must happen before success toast'
+  );
+  for (const fn of [priceFn, generalFn]) {
     assertMatches(fn, /executed/, 'execution flow must verify executed state');
     assertMatches(fn, /evidence/, 'execution flow must verify evidence');
   }
@@ -140,12 +143,17 @@ test('mutation readbacks use and cross-check the resource id returned by POST', 
   const approval = block(frontend, 'const approveOperationExecutionIntent', 'const recordOperationExecutionEvidence');
   const priceExecution = block(frontend, 'const recordOperationExecutionEvidence', 'const submitOperationExecutionEvidence');
   const generalExecution = block(frontend, 'const submitOperationExecutionEvidence', 'const recordOperationRoiEvidence');
-  const roiEvidence = block(frontend, 'const recordOperationRoiEvidence', 'const reviewOperationExecutionTask');
+  const reconcile = block(frontend, 'const reconcileOperationExecutionReview', 'const closeOperationReviewModal');
   const review = block(frontend, 'const submitOperationExecutionReview', 'const finishOperationAction');
 
   assertMatches(approval, /res\.data\?\.id[\s\S]*?readOperationExecutionIntent\(responseIntentId\)/, 'approval must read the returned intent id');
-  for (const fn of [priceExecution, generalExecution, roiEvidence, review]) {
+  for (const fn of [priceExecution, generalExecution, review]) {
     assertMatches(fn, /res\.data\?\.id[\s\S]*?readOperationExecutionTask\(responseTaskId(?:,\s*executionHotelId)?\)/, 'task mutation must read the returned task id');
     assertMatches(fn, /responseTaskId\s*!==\s*taskId/, 'task mutation must reject a mismatched returned id');
   }
+  assertMatches(
+    reconcile,
+    /const result = res\.data \|\| \{\};[\s\S]*Number\(result\.task_id \|\| 0\) !== taskId[\s\S]*readOperationExecutionTask\(taskId\)/,
+    'reconcile must cross-check returned task_id before exact task readback'
+  );
 });

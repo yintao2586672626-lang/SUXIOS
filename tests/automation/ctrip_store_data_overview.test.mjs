@@ -649,11 +649,13 @@ test('Ctrip store overview ignores stale health responses after hotel switching'
   assert.match(html, /autoFetchHotelId\.value = hotelId/);
   assert.match(html, /coreOperationsHotelId\.value = hotelId/);
   assert.match(html, /if \(tab === 'data-health'\) \{\s*syncCtripDataHealthHotelScope\(\)/);
-  assert.match(html, /data-testid="platform-hotel-context-select"[\s\S]{0,400}@change="handlePlatformHotelContextChange"/);
+  assert.match(html, /data-testid="platform-hotel-context-search"[^>]*role="combobox"/);
+  assert.match(html, /@mousedown\.prevent="selectPlatformHotelOption\(hotel\)"/);
+  assert.match(html, /handlePlatformHotelContextChange\(\{ target: \{ value: hotelId \} \}\)/);
   assert.match(html, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
   assert.match(html, /await applyCtripHotelConfig\(false, \{\s*refreshList: false,\s*refreshLatest: false,\s*skipIfAligned: true,\s*\}\);/);
   assert.match(html, /const requestSeq = \+\+collectionReliabilityRequestSeq/);
-  assert.match(html, /requestSeq !== collectionReliabilityRequestSeq \|\| String\(hotelId \|\| ''\) !== String\(getAutoFetchHotelId\(\) \|\| ''\)/);
+  assert.match(html, /requestSeq !== collectionReliabilityRequestSeq[\s\S]*hotelId !== String\(getAutoFetchHotelId\(\) \|\| ''\)\.trim\(\)[\s\S]*targetDate !== String\(coreOperationsTargetDate\.value \|\| coreOperationsMaxDate\)\.trim\(\)/);
   assert.match(html, /if \(requestSeq === collectionReliabilityRequestSeq\) \{\s*collectionReliabilityLoading\.value = false;/);
 });
 

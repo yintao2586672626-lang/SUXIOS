@@ -22,17 +22,33 @@ test('Ctrip legacy order upload closes through exact readback without revenue ov
   assert.match(importer, /'html_table_xls'/);
   assert.match(importer, /throw new RuntimeException\('携程 XLS 文件内容不受支持或已损坏。', 422\)/);
   assert.doesNotMatch(importer, /\$e->getMessage\(\)/);
-  assert.match(importer, /guest_name_and_raw_order_id_excluded/);
   assert.match(importer, /reference_bottom_price_not_confirmed_revenue/);
+  assert.match(importer, /'amount'\s*=>\s*null/);
+  assert.match(importer, /'bottom_price_sum'\s*=>\s*\$referenceBottomPriceTotal/);
+  assert.match(importer, /ctrip_order_aggregate_v1/);
+  assert.match(importer, /aggregate_only_no_guest_staff_reservation_notes/);
+  assert.match(importer, /ctrip_order_export_25_columns/);
+  assert.match(importer, /SAFE_IMPORT_HEADERS/);
+  assert.match(importer, /bottom_price_coverage_rate/);
+  assert.match(importer, /assertHotelScope/);
   assert.doesNotMatch(importer, /source_files'\s*=>\s*array_keys/);
   assert.doesNotMatch(importer, /\['_source_file'\]/);
 
   assert.match(controller, /value_level_verified/);
   assert.match(controller, /buildChannelOrderImportPreview\(\$readbackRows/);
+  assert.match(controller, /request->file\('files'\)/);
+  assert.match(controller, /count\(\$flat\) > 10/);
+  assert.match(controller, /set_time_limit\(600\)/);
+  assert.match(controller, /matched_to_selected_system_hotel|browser-supplied label must never be trusted/);
 
   assert.match(overview, /manual_order_imports/);
   assert.match(overview, /where\('readback_verified', 1\)/);
+  assert.match(overview, /where\('source', 'ctrip'\)/);
+  assert.match(overview, /ctrip_order_aggregate_v1/);
+  assert.match(overview, /aggregate_only_no_guest_staff_reservation_notes/);
   assert.match(overview, /reference_bottom_price_not_confirmed_revenue/);
+  assert.match(overview, /reference_bottom_price_coverage_rate/);
+  assert.match(overview, /local_25_column_layout_and_readback_verified/);
   assert.match(overview, /'source_format'\s*=>\s*\$sourceFormat/);
   assert.match(smoke, /'source_format'\s*=>\s*\$row\['source_format'\]\s*\?\?\s*null/);
   assert.doesNotMatch(smoke, /'source_format'\s*=>\s*\$databaseEvidence\['source_format'\]/);
@@ -53,10 +69,12 @@ test('Ctrip legacy order upload closes through exact readback without revenue ov
   assert.match(smoke, /\$verifyRevenueRows\(\$taskFixtureRows,\s*'Revenue AI service readback'\)/);
   assert.match(smoke, /\$verifyRevenueRows\(\$httpTaskFixtureRows,\s*'Revenue AI HTTP readback'\)/);
   assert.match(revenuePage, /data-testid="revenue-ai-ctrip-order-import-readback"/);
-  for (const label of ['来源 / 渠道', '业务日期', '有效订单', '房晚', '取消率', '平均提前预订', '参考底价']) {
+  for (const label of ['来源 / 渠道', '业务日期', '有效订单', '含取消总单', '取消单', '房晚', '取消率', '平均提前预订', '参考底价', '底价覆盖率']) {
     assert.ok(revenuePage.includes(label), `missing revenue import column: ${label}`);
   }
 
   assert.match(ctripPage, /accept="\.xls,\.xlsx,\.csv,\.json"/);
+  assert.match(ctripPage, /multiple/);
+  assert.match(ctripPage, /先合并去重/);
   assert.match(ctripPage, /正在保存并回读/);
 });

@@ -6,11 +6,13 @@ namespace app\controller\concern;
 use app\model\OperationLog;
 use app\model\SystemNotification;
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\CanonicalOtaDailyNaturalAcceptanceService;
 use app\service\CtripCollectorWorkflowService;
 use app\service\OtaProfileBindingService;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaFailureNotificationService;
 use app\service\OnlineDailyDataPersistenceService;
+use app\service\OnlineDataAutoFetchStatusStore;
 use app\service\PlatformProfileBindingReadinessService;
 use app\service\PlatformDataSyncService;
 use app\service\ScheduledAutoFetchPolicy;
@@ -412,9 +414,28 @@ trait AutoFetchConcern
 
     private function markAutoFetchRunningStatus(int $hotelId, string $dataDate, string $dataPeriod, array $task, array $fetchOptions): void
     {
-        $statusKey = $this->autoFetchStatusKey($hotelId);
-        $status = cache($statusKey) ?: [];
-        $status = is_array($status) ? $status : [];
+        (new OnlineDataAutoFetchStatusStore())->mutate(
+            $hotelId,
+            fn(array $status): array => $this->buildAutoFetchRunningStatus(
+                $status,
+                $hotelId,
+                $dataDate,
+                $dataPeriod,
+                $task,
+                $fetchOptions
+            )
+        );
+    }
+
+    /** @param array<string,mixed> $status @return array<string,mixed> */
+    private function buildAutoFetchRunningStatus(
+        array $status,
+        int $hotelId,
+        string $dataDate,
+        string $dataPeriod,
+        array $task,
+        array $fetchOptions
+    ): array {
         $runAt = date('Y-m-d H:i:s');
         $mode = $this->normalizeAutoFetchMode($fetchOptions['auto_fetch_mode'] ?? 'hybrid_auto');
         $ctripConfigured = $this->hasCtripFetchConfigForHotel($hotelId);
@@ -457,7 +478,7 @@ trait AutoFetchConcern
             'ctrip_section_concurrency' => $status['ctrip_section_concurrency'],
             'task_id' => (string)$task['task_id'],
         ];
-        cache($statusKey, $status, 86400 * 30);
+        return $status;
     }
 
     private function updateAutoFetchRunningPlatformProgress(
@@ -475,10 +496,26 @@ trait AutoFetchConcern
             return;
         }
 
-        $statusKey = $this->autoFetchStatusKey($hotelId);
-        $status = cache($statusKey) ?: [];
-        if (!is_array($status) || !is_array($status['running_task'] ?? null)) {
-            return;
+        (new OnlineDataAutoFetchStatusStore())->mutate(
+            $hotelId,
+            fn(array $status): array => $this->buildAutoFetchRunningPlatformProgress(
+                $status,
+                $platform,
+                $progressStatus,
+                $details
+            )
+        );
+    }
+
+    /** @param array<string,mixed> $status @return array<string,mixed> */
+    private function buildAutoFetchRunningPlatformProgress(
+        array $status,
+        string $platform,
+        string $progressStatus,
+        array $details
+    ): array {
+        if (!is_array($status['running_task'] ?? null)) {
+            return $status;
         }
 
         $now = date('Y-m-d H:i:s');
@@ -505,17 +542,37 @@ trait AutoFetchConcern
         $platforms[$platform] = $row;
         $status['running_task']['platforms'] = $platforms;
         $status['running_task']['updated_at'] = $now;
-        cache($statusKey, $status, 86400 * 30);
+        return $status;
     }
 
     private function updateFetchStatus(?int $hotelId, bool $success, string $message, ?string $dataDate = null, array $details = []): void
     {
-        $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
-        $status = cache($statusKey) ?: [];
-        if (!is_array($status)) {
-            $status = [];
+        $mutator = fn(array $status): array => $this->buildUpdatedFetchStatus(
+            $status,
+            $success,
+            $message,
+            $dataDate,
+            $details
+        );
+        if ($hotelId !== null && $hotelId > 0) {
+            (new OnlineDataAutoFetchStatusStore())->mutate($hotelId, $mutator);
+            return;
         }
 
+        $statusKey = 'online_data_auto_fetch_status';
+        $status = cache($statusKey) ?: [];
+        $status = is_array($status) ? $status : [];
+        cache($statusKey, $mutator($status), OnlineDataAutoFetchStatusStore::TTL_SECONDS);
+    }
+
+    /** @param array<string,mixed> $status @return array<string,mixed> */
+    private function buildUpdatedFetchStatus(
+        array $status,
+        bool $success,
+        string $message,
+        ?string $dataDate,
+        array $details
+    ): array {
         $runAt = date('Y-m-d H:i:s');
         $dataDate = $dataDate ?: date('Y-m-d', strtotime('-1 day'));
         $taskId = trim((string)($details['task_id'] ?? $details['taskId'] ?? $status['running_task']['task_id'] ?? ''));
@@ -668,7 +725,7 @@ trait AutoFetchConcern
         }
         $status['failed_records'] = array_slice($failedRecords, 0, 30);
 
-        cache($statusKey, $status, 86400 * 30);
+        return $status;
     }
 
     private function recordAutoFetchNotification(int $hotelId, bool $success, string $message, ?string $dataDate, array $details = [], string $action = 'auto_fetch'): void
@@ -3329,6 +3386,7 @@ trait AutoFetchConcern
                     'detail_loaded' => false,
                     'detail_pending' => false,
                     'status_scope' => 'empty',
+                    'natural_daily_acceptance' => $this->naturalDailyAcceptanceStatus(null),
                 ]);
             }
         }
@@ -3404,7 +3462,54 @@ trait AutoFetchConcern
             $status['status_scope'] = 'light';
         }
 
+        $status['natural_daily_acceptance'] = $this->naturalDailyAcceptanceStatus(
+            $hotelId === null ? null : (int)$hotelId
+        );
+
         return $this->success($status);
+    }
+
+    /** @return array<string,mixed> */
+    private function naturalDailyAcceptanceStatus(?int $hotelId): array
+    {
+        try {
+            return (new CanonicalOtaDailyNaturalAcceptanceService())->latestStoredStatus(
+                max(0, (int)$hotelId),
+                rtrim(root_path(), '/\\') . DIRECTORY_SEPARATOR . 'runtime'
+                    . DIRECTORY_SEPARATOR . 'dispatcher'
+            );
+        } catch (\Throwable) {
+            return [
+                'schema_version' => CanonicalOtaDailyNaturalAcceptanceService::SCHEMA_VERSION,
+                'receipt_available' => false,
+                'receipt_readback_verified' => false,
+                'status' => 'no_evidence',
+                'stage' => 'natural_dispatch',
+                'reason_codes' => ['natural_acceptance_status_unavailable'],
+                'hotel_id' => max(0, (int)$hotelId),
+                'target_date' => '',
+                'data_period' => 'historical_daily',
+                'selected_platform' => '',
+                'operation_scope' => [],
+                'action_types' => [],
+                'trusted_analysis_check_count' => 0,
+                'trusted_external_operation_count' => 0,
+                'analysis_only' => false,
+                'operation_readback_verified' => false,
+                'external_action_triggered' => false,
+                'business_outcome_claimed' => false,
+                'causality_claimed' => false,
+                'stability' => [
+                    'status' => 'collecting_evidence',
+                    'consecutive_verified_natural_days' => 0,
+                    'required_days' => CanonicalOtaDailyNaturalAcceptanceService::REQUIRED_STABLE_DAYS,
+                    'stable' => false,
+                    'dates' => [],
+                    'reason' => 'streak_below_three',
+                ],
+                'sensitive_values_exposed' => false,
+            ];
+        }
     }
 
     public function autoFetchRecords(): Response
@@ -3787,16 +3892,21 @@ trait AutoFetchConcern
             : $this->emptyPlatformSyncTaskDeleteResult();
         $deletedCount += (int)$taskDeleteResult['deleted_count'];
         foreach ($hotelIds as $hotelId) {
-            $statusKey = $this->autoFetchStatusKey((int)$hotelId);
-            $status = cache($statusKey);
-            if (!is_array($status)) {
-                continue;
-            }
-            [$status, $count] = $this->removeAutoFetchRecordIds($status, (int)$hotelId, $idSet);
-            if ($count > 0) {
-                $deletedCount += $count;
-                cache($statusKey, $this->rebuildAutoFetchStatusHistory($status), 86400 * 30);
-            }
+            $count = 0;
+            (new OnlineDataAutoFetchStatusStore())->mutate(
+                (int)$hotelId,
+                function (array $status) use ($hotelId, $idSet, &$count): array {
+                    [$updated, $count] = $this->removeAutoFetchRecordIds(
+                        $status,
+                        (int)$hotelId,
+                        $idSet
+                    );
+                    return $count > 0
+                        ? $this->rebuildAutoFetchStatusHistory($updated)
+                        : $status;
+                }
+            );
+            $deletedCount += $count;
         }
 
         OperationLog::record('online_data', 'batch_delete_auto_fetch_records', '批量删除自动抓取记录: ' . $deletedCount . '条', $this->currentUser->id);
@@ -3819,18 +3929,25 @@ trait AutoFetchConcern
         $taskDeleteResult = $this->deletePlatformSyncTaskAutoFetchRecords($hotelIds);
         $clearedCount += (int)$taskDeleteResult['deleted_count'];
         foreach ($hotelIds as $hotelId) {
-            $statusKey = $this->autoFetchStatusKey((int)$hotelId);
-            $status = cache($statusKey);
-            if (!is_array($status)) {
-                continue;
-            }
-            $clearedCount += count(is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : []);
-            $status['recent_runs'] = [];
-            $status['failed_records'] = [];
-            $status['last_result'] = null;
-            $status['last_run_time'] = null;
-            $status['last_data_date'] = null;
-            cache($statusKey, $status, 86400 * 30);
+            $hotelClearedCount = 0;
+            (new OnlineDataAutoFetchStatusStore())->mutate(
+                (int)$hotelId,
+                function (array $status) use (&$hotelClearedCount): array {
+                    if ($status === []) {
+                        return $status;
+                    }
+                    $hotelClearedCount = count(
+                        is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : []
+                    );
+                    $status['recent_runs'] = [];
+                    $status['failed_records'] = [];
+                    $status['last_result'] = null;
+                    $status['last_run_time'] = null;
+                    $status['last_data_date'] = null;
+                    return $status;
+                }
+            );
+            $clearedCount += $hotelClearedCount;
         }
 
         OperationLog::record('online_data', 'clear_auto_fetch_records', '清空自动抓取历史记录: ' . $clearedCount . '条', $this->currentUser->id);
@@ -3866,43 +3983,16 @@ trait AutoFetchConcern
             return $this->error('未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置');
         }
 
-        $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
-        $status = cache($statusKey) ?: [];
-        $status['enabled'] = (bool)$enabled;
         $requestData = $this->requestData();
-        $modeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', $status['auto_fetch_mode'] ?? 'hybrid_auto'));
-        $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($modeRaw);
-        $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
-        $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
-        $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode'] ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
-        if ($enabled && $this->hasMeituanFetchConfigForHotel((int)$hotelId)) {
-            $status['meituan_auto_fetch_mode'] = 'profile_browser';
-        }
-        if (!isset($status['schedule_time'])) {
-            $status['schedule_time'] = '08:30';
-        }
-        if (!isset($status['schedule_minute'])) {
-            $status['schedule_minute'] = 5;
-        }
-        if (!isset($status['realtime_schedule_interval_hours'])) {
-            $status['realtime_schedule_interval_hours'] = 2;
-        }
-        $intervalRaw = $requestData['realtime_schedule_interval_hours'] ?? $requestData['realtimeScheduleIntervalHours'] ?? $requestData['schedule_interval_hours'] ?? $requestData['scheduleIntervalHours'] ?? $status['realtime_schedule_interval_hours'];
-        $status['realtime_schedule_interval_hours'] = $this->normalizeAutoFetchScheduleIntervalHours($intervalRaw) ?? 2;
-        $status['schedule_interval_hours'] = $status['realtime_schedule_interval_hours'];
-        if (!isset($status['daily_report_time'])) {
-            $status['daily_report_time'] = '09:00';
-        }
-        if (array_key_exists('browser_headless', $requestData) || array_key_exists('headless', $requestData)) {
-            $status['browser_headless'] = $this->autoFetchBrowserHeadlessFromRequest($requestData, true);
-        } elseif (!isset($status['browser_headless'])) {
-            $status['browser_headless'] = true;
-        }
-        $status['ctrip_section_concurrency'] = $this->ctripSectionConcurrencyFromRequest(
-            $requestData,
-            (int)($status['ctrip_section_concurrency'] ?? 3)
+        $status = (new OnlineDataAutoFetchStatusStore())->mutate(
+            (int)$hotelId,
+            fn(array $status): array => $this->buildToggledAutoFetchStatus(
+                $status,
+                (int)$hotelId,
+                (bool)$enabled,
+                $requestData
+            )
         );
-        cache($statusKey, $status, 86400 * 30);
 
         OperationLog::record('online_data', 'toggle_auto_fetch', '切换自动获取状态: ' . ($enabled ? '开启' : '关闭') . " (门店ID: {$hotelId})", $this->currentUser->id);
 
@@ -3919,6 +4009,57 @@ trait AutoFetchConcern
             'ctrip_section_concurrency' => (int)$status['ctrip_section_concurrency'],
             'auto_fetch_mode_label' => $this->autoFetchModeLabel($status['auto_fetch_mode']),
         ], $enabled ? '已开启自动获取' : '已关闭自动获取');
+    }
+
+    /** @param array<string,mixed> $status @return array<string,mixed> */
+    private function buildToggledAutoFetchStatus(
+        array $status,
+        int $hotelId,
+        bool $enabled,
+        array $requestData
+    ): array {
+        $status['enabled'] = $enabled;
+        $modeRaw = $this->request->post(
+            'auto_fetch_mode',
+            $this->request->post('autoMode', $status['auto_fetch_mode'] ?? 'hybrid_auto')
+        );
+        $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($modeRaw);
+        $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
+        $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode']
+            ?? ($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
+        $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode']
+            ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
+        if ($enabled && $this->hasMeituanFetchConfigForHotel($hotelId)) {
+            $status['meituan_auto_fetch_mode'] = 'profile_browser';
+        }
+        $status['schedule_time'] = $status['schedule_time'] ?? '08:30';
+        $status['schedule_minute'] = $status['schedule_minute'] ?? 5;
+        $status['realtime_schedule_interval_hours'] =
+            $status['realtime_schedule_interval_hours'] ?? 2;
+        $intervalRaw = $requestData['realtime_schedule_interval_hours']
+            ?? $requestData['realtimeScheduleIntervalHours']
+            ?? $requestData['schedule_interval_hours']
+            ?? $requestData['scheduleIntervalHours']
+            ?? $status['realtime_schedule_interval_hours'];
+        $status['realtime_schedule_interval_hours'] =
+            $this->normalizeAutoFetchScheduleIntervalHours($intervalRaw) ?? 2;
+        $status['schedule_interval_hours'] = $status['realtime_schedule_interval_hours'];
+        $status['daily_report_time'] = $status['daily_report_time'] ?? '09:00';
+        if (array_key_exists('browser_headless', $requestData)
+            || array_key_exists('headless', $requestData)
+        ) {
+            $status['browser_headless'] = $this->autoFetchBrowserHeadlessFromRequest(
+                $requestData,
+                true
+            );
+        } elseif (!isset($status['browser_headless'])) {
+            $status['browser_headless'] = true;
+        }
+        $status['ctrip_section_concurrency'] = $this->ctripSectionConcurrencyFromRequest(
+            $requestData,
+            (int)($status['ctrip_section_concurrency'] ?? 3)
+        );
+        return $status;
     }
 
     /**
@@ -3965,58 +4106,23 @@ trait AutoFetchConcern
             return $this->error('未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置');
         }
 
-        $statusKey = $hotelId ? "online_data_auto_fetch_status_{$hotelId}" : 'online_data_auto_fetch_status';
-        $status = cache($statusKey) ?: [];
-        $status['historical_schedule_time'] = $scheduleTime;
-        $status['realtime_schedule_minute'] = $scheduleMinute ?? $this->normalizeAutoFetchScheduleMinute($status['realtime_schedule_minute'] ?? $status['schedule_minute'] ?? null) ?? 5;
-        $status['realtime_schedule_interval_hours'] = $scheduleIntervalHours ?? $this->normalizeAutoFetchScheduleIntervalHours($status['realtime_schedule_interval_hours'] ?? $status['schedule_interval_hours'] ?? null) ?? 2;
-        $status['historical_enabled'] = array_key_exists('historical_enabled', $requestData) || array_key_exists('historicalEnabled', $requestData)
-            ? $this->isTruthyRequestValue($requestData['historical_enabled'] ?? $requestData['historicalEnabled'] ?? false)
-            : ($status['historical_enabled'] ?? true);
-        $status['realtime_enabled'] = array_key_exists('realtime_enabled', $requestData) || array_key_exists('realtimeEnabled', $requestData)
-            ? $this->isTruthyRequestValue($requestData['realtime_enabled'] ?? $requestData['realtimeEnabled'] ?? false)
-            : ($status['realtime_enabled'] ?? true);
-        $status['schedule_time'] = $status['historical_schedule_time'];
-        $status['schedule_minute'] = $status['realtime_schedule_minute'];
-        $status['schedule_interval_hours'] = $status['realtime_schedule_interval_hours'];
-        $status['daily_report_time'] = $dailyReportTime;
-        if (array_key_exists('browser_headless', $requestData) || array_key_exists('headless', $requestData)) {
-            $status['browser_headless'] = $this->autoFetchBrowserHeadlessFromRequest($requestData, true);
-        } elseif (!isset($status['browser_headless'])) {
-            $status['browser_headless'] = true;
-        }
-        $modeRaw = $this->request->post('auto_fetch_mode', $this->request->post('autoMode', $status['auto_fetch_mode'] ?? 'hybrid_auto'));
-        $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($modeRaw);
-        $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
-        $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
-        $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode'] ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
-        if ($this->hasMeituanFetchConfigForHotel((int)$hotelId)) {
-            // 手动“立即采集”仍由请求显式选择凭据库直连；只有保存到定时状态的美团任务固定复用 Profile。
-            $status['meituan_auto_fetch_mode'] = 'profile_browser';
-        }
-        $status['ctrip_section_concurrency'] = $this->ctripSectionConcurrencyFromRequest(
-            $requestData,
-            (int)($status['ctrip_section_concurrency'] ?? 3)
-        );
         $ctripConfig = $this->resolveCtripFetchConfigForHotel((int)$hotelId);
         $meituanConfig = $this->resolveMeituanFetchConfigForHotel((int)$hotelId);
-        if ($this->autoFetchCredentialReady($ctripConfig)) {
-            $status['ctrip_config_id'] = $this->autoFetchConfigId($ctripConfig);
-            $status['ctrip_request_url'] = $this->autoFetchCtripRequestUrl($ctripConfig);
-            $status['ctrip_node_id'] = $this->autoFetchCtripNodeId($ctripConfig);
-        } else {
-            unset($status['ctrip_config_id'], $status['ctrip_request_url'], $status['ctrip_node_id']);
-        }
-        if ($this->autoFetchCredentialReady($meituanConfig)) {
-            $status['meituan_config_id'] = $this->autoFetchConfigId($meituanConfig);
-        } else {
-            unset($status['meituan_config_id']);
-        }
-        if (!isset($status['enabled'])) {
-            $status['enabled'] = false;
-        }
-        $status = $this->normalizeAutoFetchScheduleStatus($status);
-        cache($statusKey, $status, 86400 * 30);
+        $meituanConfigured = $this->hasMeituanFetchConfigForHotel((int)$hotelId);
+        $status = (new OnlineDataAutoFetchStatusStore())->mutate(
+            (int)$hotelId,
+            fn(array $status): array => $this->buildScheduledAutoFetchStatus(
+                $status,
+                $scheduleTime,
+                $scheduleMinute,
+                $scheduleIntervalHours,
+                $dailyReportTime,
+                $requestData,
+                $ctripConfig,
+                $meituanConfig,
+                $meituanConfigured
+            )
+        );
 
         OperationLog::record('online_data', 'set_schedule', "设置自动获取时间: {$scheduleTime} (门店ID: {$hotelId})", $this->currentUser->id);
 
@@ -4043,6 +4149,95 @@ trait AutoFetchConcern
             'meituan_config_id' => $status['meituan_config_id'] ?? null,
             'auto_fetch_mode_label' => $this->autoFetchModeLabel($status['auto_fetch_mode']),
         ], "设置成功，历史数据 {$scheduleTime} 保底抓取；实时数据每 {$status['realtime_schedule_interval_hours']} 小时第 {$status['schedule_minute']} 分钟抓取");
+    }
+
+    /** @param array<string,mixed> $status @return array<string,mixed> */
+    private function buildScheduledAutoFetchStatus(
+        array $status,
+        string $scheduleTime,
+        ?int $scheduleMinute,
+        ?int $scheduleIntervalHours,
+        string $dailyReportTime,
+        array $requestData,
+        mixed $ctripConfig,
+        mixed $meituanConfig,
+        bool $meituanConfigured
+    ): array {
+        $status['historical_schedule_time'] = $scheduleTime;
+        $status['realtime_schedule_minute'] = $scheduleMinute
+            ?? $this->normalizeAutoFetchScheduleMinute(
+                $status['realtime_schedule_minute'] ?? $status['schedule_minute'] ?? null
+            )
+            ?? 5;
+        $status['realtime_schedule_interval_hours'] = $scheduleIntervalHours
+            ?? $this->normalizeAutoFetchScheduleIntervalHours(
+                $status['realtime_schedule_interval_hours']
+                    ?? $status['schedule_interval_hours']
+                    ?? null
+            )
+            ?? 2;
+        $status['historical_enabled'] = array_key_exists('historical_enabled', $requestData)
+            || array_key_exists('historicalEnabled', $requestData)
+            ? $this->isTruthyRequestValue(
+                $requestData['historical_enabled'] ?? $requestData['historicalEnabled'] ?? false
+            )
+            : ($status['historical_enabled'] ?? true);
+        $status['realtime_enabled'] = array_key_exists('realtime_enabled', $requestData)
+            || array_key_exists('realtimeEnabled', $requestData)
+            ? $this->isTruthyRequestValue(
+                $requestData['realtime_enabled'] ?? $requestData['realtimeEnabled'] ?? false
+            )
+            : ($status['realtime_enabled'] ?? true);
+        $status['schedule_time'] = $status['historical_schedule_time'];
+        $status['schedule_minute'] = $status['realtime_schedule_minute'];
+        $status['schedule_interval_hours'] = $status['realtime_schedule_interval_hours'];
+        $status['daily_report_time'] = $dailyReportTime;
+        if (array_key_exists('browser_headless', $requestData)
+            || array_key_exists('headless', $requestData)
+        ) {
+            $status['browser_headless'] = $this->autoFetchBrowserHeadlessFromRequest(
+                $requestData,
+                true
+            );
+        } elseif (!isset($status['browser_headless'])) {
+            $status['browser_headless'] = true;
+        }
+        $modeRaw = $this->request->post(
+            'auto_fetch_mode',
+            $this->request->post('autoMode', $status['auto_fetch_mode'] ?? 'hybrid_auto')
+        );
+        $status['auto_fetch_mode'] = $this->normalizeAutoFetchMode($modeRaw);
+        $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
+        $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode']
+            ?? ($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
+        $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode']
+            ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
+        if ($meituanConfigured) {
+            // 手动立即采集仍显式选择凭据库直连；定时美团任务固定复用 Profile。
+            $status['meituan_auto_fetch_mode'] = 'profile_browser';
+        }
+        $status['ctrip_section_concurrency'] = $this->ctripSectionConcurrencyFromRequest(
+            $requestData,
+            (int)($status['ctrip_section_concurrency'] ?? 3)
+        );
+        if ($this->autoFetchCredentialReady($ctripConfig)) {
+            $status['ctrip_config_id'] = $this->autoFetchConfigId($ctripConfig);
+            $status['ctrip_request_url'] = $this->autoFetchCtripRequestUrl($ctripConfig);
+            $status['ctrip_node_id'] = $this->autoFetchCtripNodeId($ctripConfig);
+        } else {
+            unset(
+                $status['ctrip_config_id'],
+                $status['ctrip_request_url'],
+                $status['ctrip_node_id']
+            );
+        }
+        if ($this->autoFetchCredentialReady($meituanConfig)) {
+            $status['meituan_config_id'] = $this->autoFetchConfigId($meituanConfig);
+        } else {
+            unset($status['meituan_config_id']);
+        }
+        $status['enabled'] = $status['enabled'] ?? false;
+        return $this->normalizeAutoFetchScheduleStatus($status);
     }
 
     public function retryAutoFetch(): Response

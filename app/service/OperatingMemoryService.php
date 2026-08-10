@@ -544,6 +544,13 @@ final class OperatingMemoryService
         $intent = $this->operationService->readExecutionIntent($intentId, $hotelIds);
         $this->assertExecutionIdentity($task, $intent, $hotelIds, $callerTenantId);
 
+        if (strtolower(trim((string)($intent['source_module'] ?? ''))) === 'canonical_ota_investigation'
+            || strtolower(trim((string)($task['execution_mode'] ?? ''))) === 'analysis_only'
+            || strtolower(trim((string)($intent['status'] ?? ''))) === 'system_authorized_analysis'
+        ) {
+            throw new InvalidArgumentException('system-authorized analysis task cannot become an operating memory');
+        }
+
         if (strtolower(trim((string)($task['status'] ?? ''))) !== 'executed') {
             throw new InvalidArgumentException('只有已执行并完成复盘的任务才能沉淀经营记忆');
         }

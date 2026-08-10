@@ -11,6 +11,7 @@ param(
     [string]$DbPass = "",
     [int]$MySqlWaitSeconds = 20,
     [int]$PhpWaitSeconds = 15,
+    [switch]$DatabaseOnly,
     [switch]$NoBrowser
 )
 
@@ -75,14 +76,6 @@ if (-not $PhpExe) {
 }
 if (-not $PhpExe) {
     throw "PHP was not found. Install XAMPP or add php.exe to PATH."
-}
-
-$NodeExe = Resolve-CommandSource "node"
-if (-not $NodeExe) {
-    throw "Node.js was not found. Install Node.js or add node.exe to PATH."
-}
-if (-not (Test-Path -LiteralPath $OriginServerPath)) {
-    throw "Concurrent local origin server is missing: $OriginServerPath"
 }
 
 $PhpRuntimeArgs = @(
@@ -411,6 +404,17 @@ if (-not (Test-Path (Join-Path $RepoRoot "think"))) {
 Start-LocalMySql
 Assert-DatabaseReady
 Assert-DatabaseVersion
+if ($DatabaseOnly) {
+    Write-Host "[DONE] Database runtime ready on $DbHost`:$DbPort with schema '$DbName'"
+    return
+}
+$NodeExe = Resolve-CommandSource "node"
+if (-not $NodeExe) {
+    throw "Node.js was not found. Install Node.js or add node.exe to PATH."
+}
+if (-not (Test-Path -LiteralPath $OriginServerPath)) {
+    throw "Concurrent local origin server is missing: $OriginServerPath"
+}
 Invoke-OtaRetentionPreview
 Start-ThinkPhp
 

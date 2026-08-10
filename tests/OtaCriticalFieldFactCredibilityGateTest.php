@@ -56,7 +56,7 @@ final class OtaCriticalFieldFactCredibilityGateTest extends TestCase
 
     public function testLegacyNonZeroFormalFactKeepsExistingSourceTraceCompatibility(): void
     {
-        $row = $this->row(false, false);
+        $row = $this->row(false, true);
         $row['amount'] = 100;
         $row['room_revenue'] = 100;
         $row['book_order_num'] = 1;
@@ -64,6 +64,7 @@ final class OtaCriticalFieldFactCredibilityGateTest extends TestCase
         $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
 
         self::assertTrue($metrics['credibility_gate']['decision_use']['revenue_analysis']['allowed']);
+        self::assertSame('verified', $metrics['metric_trust']['totals.revenue']['truth']['status']);
         self::assertSame(
             0,
             $metrics['credibility_gate']['evidence']['critical_field_fact_contract']['checked_rows']

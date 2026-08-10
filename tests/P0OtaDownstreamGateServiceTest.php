@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\P0OtaDownstreamGateService;
+use app\service\OtaCollectionAnchorService;
 use PHPUnit\Framework\TestCase;
 
 final class P0OtaDownstreamGateServiceTest extends TestCase
@@ -130,6 +131,28 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
         );
         self::assertFalse($gate['sensitive_values_exposed']);
         self::assertSame(str_repeat('a', 64), $gate['verifier_report_hash']);
+    }
+
+    public function testRuntimeGateRejectsCoreStatusTamperEvenWhenVerifierKeepsTheOldAnchor(): void
+    {
+        $receipt = $this->authorityReceipt(['ctrip']);
+        $receipt['source_tasks'][0]['historical_core_contract_status'] = 'blocked';
+        $gate = (new P0OtaDownstreamGateService())->fromContinuousTrust(
+            '2026-07-22',
+            7,
+            $this->dataset(['ctrip']),
+            $this->continuousTrust([
+                $this->platformTrust('ctrip', 'verified', 'ready'),
+            ]),
+            ['ctrip'],
+            $receipt
+        );
+
+        self::assertSame('blocked_by_p0_ota_gate', $gate['status']);
+        self::assertContains(
+            'p0_authority_collection_anchor_mismatch',
+            $gate['blocking_missing_inputs']
+        );
     }
 
     public function testRuntimeGateFailsClosedWhenRequestedPlatformReadbackIsMissing(): void
@@ -390,7 +413,20 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
         string $targetDate = '2026-07-22',
         int $hotelId = 7
     ): array {
-        $collectionAnchorHash = str_repeat('c', 64);
+        $sourceTasks = array_map(
+            static fn(string $platform, int $index): array => [
+                'data_source_id' => 100 + $index,
+                'sync_task_id' => 200 + $index,
+                'platform' => $platform,
+                'collection_status' => 'success',
+                'p0_status' => 'ready',
+                'historical_core_contract_status' => 'ready',
+                'row_ids' => [300 + $index],
+            ],
+            $platforms,
+            array_keys($platforms)
+        );
+        $collectionAnchorHash = OtaCollectionAnchorService::hash($sourceTasks);
         return [
             'schema_version' => 3,
             'hotel_id' => $hotelId,
@@ -400,19 +436,9 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
             'collection_complete' => true,
             'exportable_snapshot_complete' => true,
             'dual_ota_p0_complete' => true,
+            'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
             'collection_anchor_hash' => $collectionAnchorHash,
-            'source_tasks' => array_map(
-                static fn(string $platform, int $index): array => [
-                    'data_source_id' => 100 + $index,
-                    'sync_task_id' => 200 + $index,
-                    'platform' => $platform,
-                    'collection_status' => 'success',
-                    'p0_status' => 'ready',
-                    'row_ids' => [300 + $index],
-                ],
-                $platforms,
-                array_keys($platforms)
-            ),
+            'source_tasks' => $sourceTasks,
             'authority_verifier' => [
                 'verification_source' => 'external_p0_verifier',
                 'status' => 'passed',

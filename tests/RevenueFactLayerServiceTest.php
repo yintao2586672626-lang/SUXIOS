@@ -40,6 +40,16 @@ final class RevenueFactLayerServiceTest extends TestCase
             15,
             $layer['facts']['whole_hotel_accommodation']['sellable_room_nights']
         );
+        self::assertSame(
+            'derived_verified',
+            $layer['sources']['dingdandao_pms']['fact_statuses']
+                ['sellable_room_nights']['status']
+        );
+        self::assertSame(
+            'sold_room_nights / occupancy_rate_decimal',
+            $layer['sources']['dingdandao_pms']['fact_statuses']
+                ['sellable_room_nights']['formula']
+        );
         self::assertNull(
             $layer['facts']['whole_hotel_accommodation']['payment_collected_amount']
         );
@@ -90,6 +100,15 @@ final class RevenueFactLayerServiceTest extends TestCase
         );
         self::assertSame('partial', $layer['reconciliation']['status']);
         self::assertSame(
+            'matched',
+            $this->reconciliationCheck($layer, 'summary_representation')['status']
+        );
+        self::assertNotSame(
+            [],
+            $this->reconciliationCheck($layer, 'summary_representation')
+                ['compared_metrics']
+        );
+        self::assertSame(
             'not_comparable',
             $this->reconciliationCheck($layer, 'payment_caliber')['status']
         );
@@ -119,6 +138,54 @@ final class RevenueFactLayerServiceTest extends TestCase
         );
         self::assertFalse(
             $layer['analysis_diagnostics']['decision_use']['ai_manual_review']['allowed']
+        );
+    }
+
+    public function testCombinedCancellationUsesVerifiedGrossOrdersInsteadOfActiveOrders(): void
+    {
+        $operational = $this->otaOperationalMetrics();
+        $operational['ctrip']['facts']['orders'] = 1.0;
+        $operational['ctrip']['facts']['cancellation_gross_order_count'] = 5.0;
+        $operational['ctrip']['facts']['cancellation_rate_percent'] = 20.0;
+        $operational['ctrip']['fact_statuses']['cancellation_rate_percent'] =
+            $operational['ctrip']['fact_statuses']
+                ['cancellation_gross_order_count'];
+        $operational['meituan']['facts']['orders'] = 9.0;
+        $operational['meituan']['facts']['cancellation_gross_order_count'] = 10.0;
+        $operational['meituan']['facts']['cancellation_rate_percent'] = 10.0;
+
+        $layer = (new RevenueFactLayerService())->assemble(
+            $this->hotel(),
+            '2026-07-30',
+            $this->pmsCapture(),
+            $this->otaResult(),
+            [],
+            $operational
+        );
+
+        self::assertSame(
+            13.33,
+            $layer['derived_metrics']['ota_cancellation_rate_percent']['value']
+        );
+        self::assertSame(
+            'sum(platform_cancel_rate * platform_gross_orders) / sum(platform_gross_orders)',
+            $layer['derived_metrics']['ota_cancellation_rate_percent']['formula']
+        );
+
+        $operational['meituan']['facts']['cancellation_gross_order_count'] = null;
+        $operational['meituan']['fact_statuses']
+            ['cancellation_gross_order_count']['status'] = 'missing';
+        $missingGrossLayer = (new RevenueFactLayerService())->assemble(
+            $this->hotel(),
+            '2026-07-30',
+            $this->pmsCapture(),
+            $this->otaResult(),
+            [],
+            $operational
+        );
+        self::assertNull(
+            $missingGrossLayer['derived_metrics']
+                ['ota_cancellation_rate_percent']['value']
         );
     }
 
@@ -178,7 +245,46 @@ final class RevenueFactLayerServiceTest extends TestCase
         );
     }
 
-    public function testUnverifiedAdjacentPmsRowDoesNotCreateFalseDateMismatch(): void
+    public function testVerifiedZeroRoomNightsKeepCombinedCoreReadyWhileAdrIsNotCalculable(): void
+    {
+        $otaResult = $this->otaResult();
+        foreach ($otaResult['rows'] as &$row) {
+            $row['amount'] = 0.0;
+            $row['quantity'] = 0.0;
+            $row['book_order_num'] = 0.0;
+        }
+        unset($row);
+
+        $layer = (new RevenueFactLayerService())->assemble(
+            $this->hotel(),
+            '2026-07-30',
+            $this->pmsCapture(),
+            $otaResult,
+            [],
+            $this->otaOperationalMetrics()
+        );
+
+        self::assertSame(
+            [
+                'revenue' => 0.0,
+                'orders' => 0,
+                'room_nights' => 0,
+                'adr' => null,
+            ],
+            $layer['facts']['ota_channel']['combined']
+        );
+        self::assertSame(
+            'readback_verified',
+            $layer['facts']['ota_channel']['combined_status']['data_status']
+        );
+        self::assertSame(
+            'not_calculable',
+            $layer['facts']['ota_channel']['combined_status']
+                ['fact_statuses']['adr']['status']
+        );
+    }
+
+    public function testVerifiedAdjacentHistoricalPmsRowRemainsReferenceOnly(): void
     {
         $layer = (new RevenueFactLayerService())->assemble(
             $this->hotel(),
@@ -188,19 +294,38 @@ final class RevenueFactLayerServiceTest extends TestCase
             [],
             $this->otaOperationalMetrics(),
             [
-                'status' => 'unverified_candidate',
+                'status' => 'available',
+                'record_id' => 10,
                 'business_date' => '2026-07-29',
-                'readback_status' => 'not_verified',
+                'capture_status' => 'verified',
+                'quality_status' => 'verified',
+                'identity_status' => 'matched',
+                'reconciliation_status' => 'matched',
+                'readback_status' => 'readback_verified',
+                'evidence_role' => 'nearest_saved_reference',
+                'reference_only' => true,
                 'may_block_date_alignment' => false,
             ]
         );
 
         self::assertSame('incomplete', $layer['date_alignment']['status']);
+        self::assertFalse($layer['date_alignment']['comparison_allowed']);
         self::assertSame(
             null,
             $layer['date_alignment']['sources']['dingdandao_pms']['observed_date']
         );
+        self::assertSame(
+            '2026-07-29',
+            $layer['date_alignment']['sources']['dingdandao_pms']
+                ['nearest_saved_evidence']['business_date']
+        );
+        self::assertTrue(
+            $layer['date_alignment']['sources']['dingdandao_pms']
+                ['nearest_saved_evidence']['reference_only']
+        );
         self::assertSame([], $layer['date_alignment']['mismatches']);
+        self::assertSame('partial', $layer['reconciliation']['status']);
+        self::assertSame([], $layer['reconciliation']['hard_blockers']);
         self::assertNotContains(
             'business_date_mismatch',
             array_column($layer['analysis_gaps'], 'code')
@@ -270,6 +395,15 @@ final class RevenueFactLayerServiceTest extends TestCase
             'needs_revision',
             $layer['analysis_diagnostics']['overall_assessment']
         );
+        self::assertSame(
+            'not_checkable',
+            $this->reconciliationCheck($layer, 'summary_representation')['status']
+        );
+        self::assertSame(
+            [],
+            $this->reconciliationCheck($layer, 'summary_representation')
+                ['compared_metrics']
+        );
         self::assertNull(
             $layer['analysis_diagnostics']['metric_diagnostics'][0]['value']
         );
@@ -327,18 +461,43 @@ final class RevenueFactLayerServiceTest extends TestCase
             ['ota_channel_metric_level_display'],
             $layer['sources']['ctrip_ota']['allowed_uses']
         );
-        self::assertNull($layer['facts']['ota_channel']['combined']['orders']);
-        self::assertNull($layer['derived_metrics']['ota_room_night_share_percent']['value']);
+        self::assertSame(1, $layer['facts']['ota_channel']['combined']['orders']);
+        self::assertSame(
+            3,
+            $layer['facts']['ota_channel']['combined']['room_nights']
+        );
+        self::assertNull($layer['facts']['ota_channel']['combined']['revenue']);
+        self::assertSame(
+            'partial_readback_verified',
+            $layer['facts']['ota_channel']['combined_status']['data_status']
+        );
+        self::assertSame(
+            'readback_verified',
+            $layer['facts']['ota_channel']['combined_status']
+                ['fact_statuses']['room_nights']['status']
+        );
+        self::assertSame(
+            20.0,
+            $layer['derived_metrics']['ota_room_night_share_percent']['value']
+        );
+        self::assertNull(
+            $layer['derived_metrics']['ota_room_revenue_share_percent']['value']
+        );
         self::assertSame('incomplete', $layer['date_alignment']['status']);
     }
 
-    public function testTrustedOperationalRevenueStaysPlatformLevelWhenStrictEnvelopeIsMissing(): void
+    public function testTrustedOperationalRevenueCombinesAtMetricLevelWhenAnalysisGateAllows(): void
     {
         $operational = $this->otaOperationalMetrics();
         $operational['ctrip']['facts']['revenue'] = 8468.0;
+        $operational['ctrip']['facts']['room_nights'] = 12.0;
+        $operational['ctrip']['facts']['adr'] = 705.67;
         $operational['ctrip']['fact_statuses']['revenue']['status'] =
             'readback_verified';
         $operational['ctrip']['fact_statuses']['revenue']['reason'] = '';
+        $operational['ctrip']['fact_statuses']['adr']['status'] =
+            'readback_verified';
+        $operational['ctrip']['fact_statuses']['adr']['reason'] = '';
         $operational['ctrip']['fact_statuses']['revenue']['source_provenance'] = [
             'table' => 'online_daily_data',
             'row_ids' => [701],
@@ -386,14 +545,142 @@ final class RevenueFactLayerServiceTest extends TestCase
                 ['operational_metric_provenance']['revenue']
                 ['readback_verified_count']
         );
-        self::assertNull($layer['facts']['ota_channel']['combined']['revenue']);
-        self::assertNull(
-            $layer['derived_metrics']['ota_room_revenue_share_percent']['value']
+        self::assertSame(
+            9500.39,
+            $layer['facts']['ota_channel']['combined']['revenue']
+        );
+        self::assertSame(
+            13,
+            $layer['facts']['ota_channel']['combined']['room_nights']
+        );
+        self::assertSame(
+            730.8,
+            $layer['facts']['ota_channel']['combined']['adr']
+        );
+        self::assertSame(
+            'readback_verified',
+            $layer['facts']['ota_channel']['combined_status']['data_status']
         );
         self::assertSame(
             1,
             $this->reconciliationCheck($layer, 'duplicate_orders')
                 ['canonicalized_traffic_projection_groups']
+        );
+        self::assertSame(
+            'not_checkable',
+            $this->reconciliationCheck($layer, 'duplicate_orders')['status']
+        );
+    }
+
+    public function testOrderIdentityCoverageDrivesDuplicateOrderReconciliation(): void
+    {
+        $operational = $this->otaOperationalMetrics();
+        $operational['ctrip']['data_quality']['order_dedup'] = [
+            'order_identity_candidate_rows' => 3,
+            'order_identity_covered_rows' => 3,
+            'order_identity_unverifiable_rows' => 0,
+            'distinct_verified_order_grains' => 2,
+            'suppressed_duplicate_order_rows' => 1,
+            'suppressed_untrusted_duplicate_order_rows' => 0,
+            'newer_untrusted_duplicate_order_rows' => 0,
+        ];
+        $operational['meituan']['data_quality']['order_dedup'] = [
+            'order_identity_candidate_rows' => 1,
+            'order_identity_covered_rows' => 1,
+            'order_identity_unverifiable_rows' => 0,
+            'distinct_verified_order_grains' => 1,
+            'suppressed_duplicate_order_rows' => 0,
+            'suppressed_untrusted_duplicate_order_rows' => 0,
+            'newer_untrusted_duplicate_order_rows' => 0,
+        ];
+
+        $layer = (new RevenueFactLayerService())->assemble(
+            $this->hotel(),
+            '2026-07-30',
+            $this->pmsCapture(),
+            $this->otaResult(),
+            [],
+            $operational
+        );
+
+        $check = $this->reconciliationCheck($layer, 'duplicate_orders');
+        self::assertSame('canonicalized', $check['status']);
+        self::assertSame('order_identity', $check['verification_scope']);
+        self::assertSame(4, $check['order_identity_candidate_rows']);
+        self::assertSame(4, $check['order_identity_covered_rows']);
+        self::assertSame(100.0, $check['order_identity_coverage_percent']);
+        self::assertSame(3, $check['distinct_verified_order_grains']);
+        self::assertSame(1, $check['suppressed_duplicate_order_rows']);
+    }
+
+    public function testOrderIdentityCoverageIsWeightedAcrossPlatforms(): void
+    {
+        $operational = $this->otaOperationalMetrics();
+        $operational['ctrip']['data_quality']['order_dedup'] = [
+            'order_identity_candidate_rows' => 2,
+            'order_identity_covered_rows' => 1,
+            'order_identity_unverifiable_rows' => 1,
+            'distinct_verified_order_grains' => 1,
+            'suppressed_duplicate_order_rows' => 0,
+        ];
+        $operational['meituan']['data_quality']['order_dedup'] = [
+            'order_identity_candidate_rows' => 8,
+            'order_identity_covered_rows' => 8,
+            'order_identity_unverifiable_rows' => 0,
+            'distinct_verified_order_grains' => 8,
+            'suppressed_duplicate_order_rows' => 0,
+        ];
+
+        $layer = (new RevenueFactLayerService())->assemble(
+            $this->hotel(),
+            '2026-07-30',
+            $this->pmsCapture(),
+            $this->otaResult(),
+            [],
+            $operational
+        );
+
+        $check = $this->reconciliationCheck($layer, 'duplicate_orders');
+        self::assertSame('partial', $check['status']);
+        self::assertSame(10, $check['order_identity_candidate_rows']);
+        self::assertSame(9, $check['order_identity_covered_rows']);
+        self::assertSame(90.0, $check['order_identity_coverage_percent']);
+    }
+
+    public function testRepositoryEvidenceSurfacesNewerUntrustedOrderVersion(): void
+    {
+        $repository = $this->otaResult();
+        $repository['data_quality']['order_dedup'] = [
+            'evidence_status' => 'complete',
+            'order_identity_candidate_rows' => 2,
+            'order_identity_covered_rows' => 1,
+            'order_identity_unverifiable_rows' => 1,
+            'distinct_verified_order_grains' => 1,
+            'suppressed_duplicate_order_rows' => 1,
+            'suppressed_untrusted_duplicate_order_rows' => 1,
+            'newer_untrusted_duplicate_order_rows' => 1,
+        ];
+
+        $layer = (new RevenueFactLayerService())->assemble(
+            $this->hotel(),
+            '2026-07-30',
+            $this->pmsCapture(),
+            $repository,
+            [],
+            $this->otaOperationalMetrics()
+        );
+
+        $check = $this->reconciliationCheck($layer, 'duplicate_orders');
+        self::assertSame('partial', $check['status']);
+        self::assertSame(
+            'trusted_repository_evidence',
+            $check['order_identity_source']
+        );
+        self::assertSame('complete', $check['order_evidence_status']);
+        self::assertSame(1, $check['newer_untrusted_duplicate_order_rows']);
+        self::assertStringContainsString(
+            '时间更新但未通过信任门',
+            $check['detail']
         );
     }
 
@@ -439,17 +726,28 @@ final class RevenueFactLayerServiceTest extends TestCase
         self::assertSame(
             [
                 'revenue' => null,
-                'orders' => null,
-                'room_nights' => null,
+                'orders' => 1,
+                'room_nights' => 1,
                 'adr' => null,
             ],
             $layer['facts']['ota_channel']['combined']
+        );
+        self::assertSame(
+            'analysis_blocked',
+            $layer['facts']['ota_channel']['combined_status']
+                ['fact_statuses']['revenue']['status']
+        );
+        self::assertSame(
+            'readback_verified',
+            $layer['facts']['ota_channel']['combined_status']
+                ['fact_statuses']['orders']['status']
         );
         self::assertNull(
             $layer['facts']['cross_source_comparison']
                 ['ota_revenue_per_whole_hotel_sellable_room']
         );
-        self::assertNull(
+        self::assertSame(
+            6.67,
             $layer['derived_metrics']['ota_room_night_share_percent']['value']
         );
         self::assertNull(
@@ -472,15 +770,30 @@ final class RevenueFactLayerServiceTest extends TestCase
                 'winner_amount' => 1032.39,
                 'winner_room_nights' => 1,
                 'winner_order_count' => 1,
+                'winner_sync_task_id' => 3041,
+                'winner_snapshot_time' => '2026-07-30 10:05:00',
+                'winner_data_period' => 'realtime_snapshot',
+                'winner_is_final' => false,
                 'candidate_row_id' => 81606,
                 'candidate_data_type' => 'order',
                 'candidate_amount' => 1135.63,
                 'candidate_room_nights' => 1,
                 'candidate_order_count' => 1,
+                'candidate_sync_task_id' => 3041,
+                'candidate_snapshot_time' => '2026-07-30 10:05:00',
+                'candidate_data_period' => 'realtime_snapshot',
+                'candidate_is_final' => false,
                 'amount_delta' => 999999,
                 'amount_delta_percent_of_winner' => 999999,
             ]],
         ];
+        $operational['meituan']['fact_statuses']['revenue']
+            ['source_provenance'] = [
+                'finality' => 'provisional',
+                'row_count' => 1,
+                'final_row_count' => 0,
+                'data_periods' => ['realtime_snapshot'],
+            ];
 
         $layer = (new RevenueFactLayerService())->assemble(
             $this->hotel(),
@@ -529,6 +842,34 @@ final class RevenueFactLayerServiceTest extends TestCase
         self::assertSame(
             10.0,
             $check['differences'][0]['delta_percent_of_selected']
+        );
+
+        $floorCheck = $this->reconciliationCheck(
+            $layer,
+            'floor_vs_sales'
+        );
+        self::assertSame('incomplete', $floorCheck['status']);
+        self::assertSame('missing', $floorCheck['floor_evidence']['status']);
+        self::assertSame(
+            'conflicted',
+            $floorCheck['sales_evidence']['meituan']['status']
+        );
+        self::assertSame(
+            'provisional',
+            $floorCheck['sales_evidence']['meituan']['finality']
+        );
+        self::assertSame(
+            103.24,
+            $floorCheck['sales_evidence']['meituan']
+                ['current_snapshot_conflict']['absolute_delta']
+        );
+        self::assertStringContainsString(
+            '销售收入证据',
+            $floorCheck['detail']
+        );
+        self::assertStringContainsString(
+            '¥103.24',
+            $floorCheck['detail']
         );
     }
 
@@ -937,6 +1278,7 @@ final class RevenueFactLayerServiceTest extends TestCase
             'flow_rate_percent',
             'submit_rate_percent',
             'cancellation_rate_percent',
+            'cancellation_gross_order_count',
         ];
         $statusesFor = static function (string $platform) use ($metricKeys): array {
             $statuses = [];
@@ -970,7 +1312,7 @@ final class RevenueFactLayerServiceTest extends TestCase
             $ctripStatuses['cancellation_rate_percent'],
             [
             'status' => 'missing',
-            'reason' => 'ota_order_count_denominator_zero',
+            'reason' => 'ota_gross_order_count_denominator_zero',
             ]
         );
         $meituanStatuses = $statusesFor('meituan');
@@ -992,6 +1334,7 @@ final class RevenueFactLayerServiceTest extends TestCase
                     'flow_rate_percent' => 56.67,
                     'submit_rate_percent' => 0.0,
                     'cancellation_rate_percent' => null,
+                    'cancellation_gross_order_count' => 0.0,
                 ],
                 'fact_statuses' => $ctripStatuses,
                 'data_gaps' => [],
@@ -1012,6 +1355,7 @@ final class RevenueFactLayerServiceTest extends TestCase
                     'flow_rate_percent' => 33.7,
                     'submit_rate_percent' => 4.2,
                     'cancellation_rate_percent' => 12.0,
+                    'cancellation_gross_order_count' => 1.0,
                 ],
                 'fact_statuses' => $meituanStatuses,
                 'data_gaps' => [],

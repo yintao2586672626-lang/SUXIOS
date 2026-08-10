@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -19,6 +19,17 @@ import {
   normalizeCtripCapturePlan,
   normalizeCtripCaptureSections,
 } from '../../scripts/lib/ctrip_capture_catalog.mjs';
+
+test('keeps Ctrip and Qunar raw traffic rows in separate platform identities', () => {
+  const captureSource = readFileSync(
+    new URL('../../scripts/ctrip_browser_capture.mjs', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(captureSource, /\.\.\.row,\s+platform,\s+section,/);
+  assert.match(captureSource, /dedupeRows\(payload\.traffic,[\s\S]*?row\.platform \|\| ''/);
+  assert.match(captureSource, /dedupeRows\(payload\.rows,[\s\S]*?row\.platform \|\| ''/);
+});
 
 test('keeps structural date facts when Profile fields filter business metrics', () => {
   const base = {

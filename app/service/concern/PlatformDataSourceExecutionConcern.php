@@ -738,7 +738,10 @@ trait PlatformDataSourceExecutionConcern
      */
     private function assertRequiredCollectorBinding(array $source, array $options): void
     {
-        if (!$this->truthy($options['require_current_session_probe'] ?? false)) {
+        $required = array_key_exists('require_collector_binding', $options)
+            ? $this->truthy($options['require_collector_binding'])
+            : $this->truthy($options['require_current_session_probe'] ?? false);
+        if (!$required) {
             return;
         }
         $required = is_array($options['required_collector_binding'] ?? null)
@@ -839,13 +842,23 @@ trait PlatformDataSourceExecutionConcern
         array $options,
         array $result
     ): void {
+        $required = array_key_exists('require_current_run_session_probe', $options)
+            ? $this->truthy($options['require_current_run_session_probe'])
+            : $this->truthy($options['require_current_session_probe'] ?? false);
         if (!$this->isOtaBrowserProfileSource($source)
-            || !$this->truthy($options['require_current_session_probe'] ?? false)
+            || !$required
         ) {
             return;
         }
 
         $payload = is_array($result['payload'] ?? null) ? $result['payload'] : [];
+        $networkFreshness = is_array($payload['network_freshness'] ?? null)
+            ? $payload['network_freshness']
+            : [];
+        $networkFreshnessReady = strtolower(trim((string)($networkFreshness['status'] ?? ''))) === 'ready'
+            && ($networkFreshness['http_cache_disabled'] ?? null) === true
+            && ($networkFreshness['service_worker_bypassed'] ?? null) === true
+            && ($networkFreshness['sensitive_values_exposed'] ?? null) === false;
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
         $authCode = strtolower(trim((string)($authStatus['status'] ?? '')));
         $identity = is_array($payload['platform_identity_validation'] ?? null)
@@ -853,17 +866,28 @@ trait PlatformDataSourceExecutionConcern
             : [];
         $identityStatus = strtolower(trim((string)($identity['status'] ?? '')));
         $validatedPlatformHotelId = trim((string)($identity['validated_identifier'] ?? ''));
-        $requiredBinding = is_array($options['required_collector_binding'] ?? null)
-            ? $options['required_collector_binding']
-            : [];
-        $requiredPlatformHotelId = trim((string)($requiredBinding['platform_hotel_id'] ?? ''));
+        $identityEvidenceSource = strtolower(trim((string)($identity['evidence_source'] ?? '')));
+        $identitySourceValidated = ($identity['source_validation'] ?? null) === true
+            || in_array($identityEvidenceSource, ['ota_request', 'trusted_ota_page_state'], true);
+        $requiredPlatformHotelIds = $this->requiredCurrentRunPlatformHotelIds($source, $options);
+        $platformHotelMatched = false;
+        foreach ($requiredPlatformHotelIds as $requiredPlatformHotelId) {
+            if ($validatedPlatformHotelId !== '' && hash_equals($requiredPlatformHotelId, $validatedPlatformHotelId)) {
+                $platformHotelMatched = true;
+                break;
+            }
+        }
         if (($result['status'] ?? '') === 'success'
+            && $networkFreshnessReady
             && ($authStatus['ok'] ?? null) === true
             && in_array($authCode, ['logged_in', 'authorized'], true)
+            && (int)($identity['schema_version'] ?? 0) === 1
             && $identityStatus === 'matched'
+            && $identitySourceValidated
+            && ($identity['sensitive_values_exposed'] ?? false) !== true
             && $validatedPlatformHotelId !== ''
-            && $requiredPlatformHotelId !== ''
-            && hash_equals($requiredPlatformHotelId, $validatedPlatformHotelId)
+            && $requiredPlatformHotelIds !== []
+            && $platformHotelMatched
         ) {
             return;
         }
@@ -872,6 +896,51 @@ trait PlatformDataSourceExecutionConcern
             'Current session proof from this execution is missing or outside the bound platform hotel.',
             422
         );
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $options
+     * @return array<int, string>
+     */
+    private function requiredCurrentRunPlatformHotelIds(array $source, array $options): array
+    {
+        $identifiers = [];
+        $configured = is_array($options['required_platform_hotel_ids'] ?? null)
+            ? $options['required_platform_hotel_ids']
+            : [];
+        $configured[] = $options['required_platform_hotel_id'] ?? '';
+        $binding = is_array($options['required_collector_binding'] ?? null)
+            ? $options['required_collector_binding']
+            : [];
+        $configured[] = $binding['platform_hotel_id'] ?? '';
+        foreach ($configured as $identifier) {
+            if (!is_scalar($identifier)) {
+                continue;
+            }
+            $identifier = trim((string)$identifier);
+            if ($identifier !== '') {
+                $identifiers[$identifier] = true;
+            }
+        }
+        if ($identifiers !== []) {
+            return array_keys($identifiers);
+        }
+
+        $config = is_array($source['config'] ?? null)
+            ? $source['config']
+            : $this->decodeConfig($source['config_json'] ?? []);
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $keys = $platform === 'meituan'
+            ? ['platform_hotel_id', 'store_id', 'storeId', 'poi_id', 'poiId']
+            : ['platform_hotel_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'node_id', 'nodeId'];
+        foreach ($keys as $key) {
+            $identifier = trim((string)($config[$key] ?? ''));
+            if ($identifier !== '') {
+                $identifiers[$identifier] = true;
+            }
+        }
+        return array_keys($identifiers);
     }
 
     /**

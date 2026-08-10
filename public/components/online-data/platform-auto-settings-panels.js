@@ -9,6 +9,14 @@
                 required: true,
             },
         },
+        computed: {
+            naturalDailyAcceptanceStatus() {
+                const builder = window.SUXI_AUTO_FETCH_STATIC?.buildNaturalDailyAcceptanceStatus;
+                return typeof builder === 'function'
+                    ? builder(this.ctx?.autoFetchStatus?.natural_daily_acceptance)
+                    : { visible: false };
+            },
+        },
         template: `
             <div data-testid="platform-auto-settings-panels" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -205,11 +213,33 @@
                     </div>
                 </div>
 
+                <div v-if="naturalDailyAcceptanceStatus?.visible" class="rounded-lg border px-4 py-3 text-sm" :class="naturalDailyAcceptanceStatus.status_class" data-testid="natural-daily-acceptance-status">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="font-semibold text-slate-800">自然日可信闭环</span>
+                        <span class="rounded border border-current px-2 py-0.5 text-xs font-medium">{{ naturalDailyAcceptanceStatus.status_text }}</span>
+                    </div>
+                    <div class="mt-1 text-xs text-slate-700">{{ naturalDailyAcceptanceStatus.scope_text }}</div>
+                    <div class="mt-1 text-xs font-medium">{{ naturalDailyAcceptanceStatus.progress_text }}</div>
+                    <div class="mt-1 text-xs text-slate-700">{{ naturalDailyAcceptanceStatus.operation_text }}</div>
+                    <div class="mt-1 text-xs text-slate-600">{{ naturalDailyAcceptanceStatus.operation_scope_text }}</div>
+                    <div v-if="!['verified', 'stable'].includes(naturalDailyAcceptanceStatus.status)" class="mt-1 text-xs text-rose-800">阻塞阶段：{{ naturalDailyAcceptanceStatus.stage }} · {{ naturalDailyAcceptanceStatus.reason_details_text || naturalDailyAcceptanceStatus.reason_text }}</div>
+                    <div class="mt-1 text-[11px] text-slate-500">{{ naturalDailyAcceptanceStatus.boundary_text }}</div>
+                </div>
+
                 <div v-if="ctx.autoFetchRunState.active || ctx.autoFetchRunState.message || ctx.autoFetchStatus?.last_result" class="rounded-lg border bg-white px-4 py-3 text-sm">
                     <span class="font-medium text-gray-900">最近结果：</span>
                     <span :class="ctx.autoFetchRunState.active ? 'text-blue-700' : ((ctx.autoFetchStatus?.last_result?.success === true || ctx.autoFetchRunState.type === 'success') ? 'text-green-700' : 'text-red-700')">
                         {{ ctx.autoFetchResultMessage(ctx.autoFetchRunState.message || ctx.autoFetchStatus?.last_result?.message) }}
                     </span>
+                    <div v-if="ctx.autoFetchCanonicalOperationStatus?.visible" class="mt-3 rounded-md border px-3 py-2 text-xs" :class="ctx.autoFetchCanonicalOperationStatus.status_class" data-testid="canonical-daily-operation-status">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span class="font-semibold text-slate-800">最近一次单次核查（不计入自然稳定性）</span>
+                            <span class="rounded border border-current px-2 py-0.5 font-medium">{{ ctx.autoFetchCanonicalOperationStatus.status_text }}</span>
+                        </div>
+                        <div class="mt-1 text-slate-700">{{ ctx.autoFetchCanonicalOperationStatus.scope_text }}</div>
+                        <div v-if="ctx.autoFetchCanonicalOperationStatus.status !== 'verified'" class="mt-1 text-rose-800">阻塞阶段：{{ ctx.autoFetchCanonicalOperationStatus.stage }} · {{ ctx.autoFetchCanonicalOperationStatus.reason }}</div>
+                        <div class="mt-1 text-[11px] text-slate-500">{{ ctx.autoFetchCanonicalOperationStatus.boundary_text }}</div>
+                    </div>
                     <div v-if="ctx.autoFetchRunState.active" class="mt-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
                         已运行 {{ ctx.formatAutoFetchElapsed(ctx.autoFetchRunElapsedSeconds) }}。{{ ctx.autoFetchRunningHint }}
                     </div>

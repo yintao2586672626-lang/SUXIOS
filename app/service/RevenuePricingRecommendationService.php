@@ -1687,6 +1687,7 @@ class RevenuePricingRecommendationService
             'system_hotel_id',
             'hotel_id',
             'source',
+            'platform',
             'data_date',
             'data_type',
             'dimension',
@@ -1711,6 +1712,11 @@ class RevenuePricingRecommendationService
                     ->whereOr('data_type', 'like', '%traffic%')
                     ->whereOr('data_type', 'like', '%flow%');
             });
+        }
+        if (isset($columns['platform'])) {
+            $query->whereRaw('LOWER(TRIM(`platform`)) = :ctrip_platform', [
+                'ctrip_platform' => 'ctrip',
+            ]);
         }
 
         return $query->order('data_date', 'asc')->order('id', 'asc')->limit(2000)->select()->toArray();

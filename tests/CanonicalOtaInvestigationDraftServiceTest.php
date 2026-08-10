@@ -170,6 +170,83 @@ final class CanonicalOtaInvestigationDraftServiceTest extends TestCase
         self::assertFalse(is_dir($this->storageRoot));
     }
 
+    public function testPreflightAcceptsExactSelectedMemberOfMultiRowV3Promotion(): void
+    {
+        $task = $this->validMultiRowTask($this->row);
+
+        $result = $this->service($this->row, $task)->preflight($this->scope);
+
+        self::assertSame('ready', $result['status']);
+        $sourceFact = $result['draft_set']['source_fact'];
+        self::assertSame($this->authoritativeFactDigest($this->row), $sourceFact['authoritative_fact_digest']);
+        self::assertSame(str_repeat('c', 64), $sourceFact['promotion_authoritative_fact_digest']);
+        self::assertSame([81871, 81878, 81914], $sourceFact['run_readback_row_ids']);
+        self::assertSame(4, $result['draft_count']);
+    }
+
+    public function testRejectsMultiRowPromotionWhoseDigestMapMembershipIsNotExact(): void
+    {
+        $task = $this->validMultiRowTask($this->row);
+        $stats = json_decode((string)$task['stats_json'], true, 512, JSON_THROW_ON_ERROR);
+        unset($stats['canonical_history_promotion']['authoritative_row_fact_digests'][81914]);
+        $stats['canonical_history_promotion']['content_digest'] = $this->digest(
+            $stats['canonical_history_promotion']
+        );
+        $task['stats_json'] = json_encode($stats, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('canonical_promotion_receipt_row_digest_map_invalid');
+        $this->service($this->row, $task)->preflight($this->scope);
+    }
+
+    public function testRejectsMultiRowPromotionThatSelectsNonDeterministicSecondRow(): void
+    {
+        $task = $this->validMultiRowTask($this->row);
+        $stats = json_decode((string)$task['stats_json'], true, 512, JSON_THROW_ON_ERROR);
+        $receipt = $stats['canonical_history_promotion'];
+        $selection = [
+            'version' => $receipt['operation_row_selection_version'],
+            'status' => $receipt['operation_row_selection_status'],
+            'policy' => $receipt['operation_row_selection_policy'],
+            'platform' => 'ctrip',
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'data_source_id' => 25,
+            'sync_task_id' => 3058,
+            'target_date' => '2026-08-09',
+            'data_period' => 'realtime_snapshot',
+            'candidate_row_ids' => [81878, 81914],
+            'selected_row_id' => 81914,
+            'row_metric_digests' => $receipt['operation_row_metric_digests'],
+        ];
+        $selection['selection_digest'] = $this->digest($selection);
+        $receipt['selected_operation_row_id'] = 81914;
+        $receipt['operation_row_selection_digest'] = $selection['selection_digest'];
+        $receipt['content_digest'] = $this->digest($receipt);
+        $stats['canonical_history_promotion'] = $receipt;
+        $task['stats_json'] = json_encode($stats, JSON_THROW_ON_ERROR);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('canonical_promotion_operation_row_selection_invalid');
+        $this->service($this->row, $task)->preflight($this->scope);
+    }
+
+    public function testRejectsMultiRowPromotionWhoseAggregateCountsDoNotEqualMembership(): void
+    {
+        $task = $this->validMultiRowTask($this->row);
+        $stats = json_decode((string)$task['stats_json'], true, 512, JSON_THROW_ON_ERROR);
+        $stats['canonical_history_promotion']['nonzero_required_metric_rows'] = 0;
+        $stats['canonical_history_promotion']['explicit_zero_confirmed_rows'] = 1;
+        $stats['canonical_history_promotion']['content_digest'] = $this->digest(
+            $stats['canonical_history_promotion']
+        );
+        $task['stats_json'] = json_encode($stats, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('canonical_promotion_receipt_fact_gate_failed');
+        $this->service($this->row, $task)->preflight($this->scope);
+    }
+
     public function testExecuteIsAtomicIdempotentAndExactlyReadable(): void
     {
         $first = $this->service()->execute($this->scope);
@@ -336,14 +413,45 @@ final class CanonicalOtaInvestigationDraftServiceTest extends TestCase
         $this->service()->execute($this->scope);
     }
 
-    public function testRejectsMeituanEvenWhenEveryMetricIsExplicitZero(): void
+    public function testRejectsUnsupportedPlatformEvenWhenEveryMetricIsExplicitZero(): void
     {
         $scope = $this->scope;
-        $scope['platform'] = 'meituan';
+        $scope['platform'] = 'qunar';
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('canonical_scope_platform_invalid');
         $this->service()->preflight($scope);
+    }
+
+    public function testMeituanBusinessTaskBuildsFourIndependentDraftsFromOnlyThreeTrafficFacts(): void
+    {
+        $scope = $this->meituanScope();
+        $row = $this->meituanRow($scope);
+        $task = $this->validMeituanTask($row, $scope);
+
+        $result = $this->service($row, $task)->preflight($scope);
+
+        self::assertSame('ready', $result['status']);
+        self::assertSame(4, $result['draft_count']);
+        self::assertSame([
+            'detail_exposure',
+            'flow_rate',
+            'list_exposure',
+        ], array_keys($result['draft_set']['source_fact']['traffic_metric_values']));
+        $codes = array_column($result['draft_set']['drafts'], 'action_code');
+        self::assertSame([
+            'check_meituan_list_detail_count_order',
+            'calculate_meituan_list_to_detail_rate',
+            'check_meituan_observed_flow_rate_alignment',
+            'prepare_same_scope_recollection_and_entry_eligibility_check',
+        ], $codes);
+        $serialized = strtolower(json_encode(
+            $result['draft_set']['drafts'],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        ));
+        self::assertStringNotContainsString('ctrip', $serialized);
+        self::assertStringNotContainsString('order_filling_num', $serialized);
+        self::assertStringNotContainsString('order_submit_num', $serialized);
     }
 
     public function testRejectsMissingObservedTrafficMetricProvenance(): void
@@ -438,6 +546,10 @@ final class CanonicalOtaInvestigationDraftServiceTest extends TestCase
 
         self::assertIsArray($proof);
         self::assertSame($proof['digest'], $this->authoritativeFactDigest($this->row));
+        self::assertSame(
+            $this->authoritativeFactDigest($this->row),
+            $proof['row_digests'][$this->row['id']]
+        );
         self::assertSame(0, $proof['nonzero_required_metric_rows']);
         self::assertSame(1, $proof['explicit_zero_confirmed_rows']);
 
@@ -623,15 +735,164 @@ final class CanonicalOtaInvestigationDraftServiceTest extends TestCase
         }
     }
 
-    public function testCliUsesCtripOnlyUsageAndDoesNotEchoRawInvalidArguments(): void
+    public function testCliAdvertisesBothSupportedPlatformsAndDoesNotEchoRawInvalidArguments(): void
     {
         $source = file_get_contents(dirname(__DIR__) . '/scripts/create_canonical_ota_investigation_drafts.php');
         self::assertNotFalse($source);
-        self::assertStringContainsString('--platform=ctrip', (string)$source);
-        self::assertStringNotContainsString('ctrip|meituan', (string)$source);
+        self::assertStringContainsString('--platform=ctrip|meituan', (string)$source);
         self::assertStringContainsString('v3 authoritative zero or nonzero traffic row', (string)$source);
         self::assertStringNotContainsString("'invalid_cli_argument:' . \$argument", (string)$source);
         self::assertStringContainsString('canonicalDraftSafeErrorReason($exception)', (string)$source);
+    }
+
+    /** @return array<string,mixed> */
+    private function meituanScope(): array
+    {
+        return [
+            'tenant_id' => 80,
+            'hotel_id' => 80,
+            'data_source_id' => 68,
+            'task_id' => 6800,
+            'row_id' => 6801,
+            'platform' => 'meituan',
+            'target_date' => '2026-08-08',
+            'data_period' => 'historical_daily',
+        ];
+    }
+
+    /** @param array<string,mixed> $scope @return array<string,mixed> */
+    private function meituanRow(array $scope): array
+    {
+        $traceId = 'meituan-trace-6801';
+        $urlHash = hash('sha256', 'meituan-source-url-6801');
+        $sourceKeys = [
+            'list_exposure' => 'listExposure',
+            'detail_exposure' => 'detailExposure',
+            'flow_rate' => 'flowRate',
+        ];
+        $values = [
+            'list_exposure' => 1200,
+            'detail_exposure' => 300,
+            'flow_rate' => 25,
+        ];
+        $sourceRow = [
+            'date' => $scope['target_date'],
+            'poiId' => 'meituan-poi-80',
+            '_capture_source' => 'xhr:traffic',
+            '_observed_traffic_metric_keys' => array_keys($sourceKeys),
+        ];
+        $fieldFacts = [];
+        foreach ($sourceKeys as $metric => $sourceKey) {
+            $sourceRow[$sourceKey] = $values[$metric];
+            $fieldFacts[] = [
+                'metric_key' => $metric,
+                'status' => 'captured',
+                'source_key' => $sourceKey,
+                'source_path' => 'data.traffic.' . $sourceKey,
+                'storage_field' => 'online_daily_data.' . $metric,
+                'stored_value_present' => true,
+                'capture_evidence' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $urlHash,
+                    'capture_source' => 'xhr:traffic',
+                ],
+            ];
+        }
+        return [
+            'id' => $scope['row_id'],
+            'tenant_id' => $scope['tenant_id'],
+            'system_hotel_id' => $scope['hotel_id'],
+            'hotel_id' => 'meituan-poi-80',
+            'data_source_id' => $scope['data_source_id'],
+            'sync_task_id' => $scope['task_id'],
+            'source' => 'meituan',
+            'platform' => 'meituan',
+            'data_date' => $scope['target_date'],
+            'data_period' => $scope['data_period'],
+            'data_type' => 'traffic',
+            'dimension' => '',
+            'compare_type' => 'self',
+            'validation_status' => 'verified',
+            'history_status' => 'success',
+            'readback_verified' => 1,
+            'list_exposure' => $values['list_exposure'],
+            'detail_exposure' => $values['detail_exposure'],
+            'flow_rate' => $values['flow_rate'],
+            'order_filling_num' => null,
+            'order_submit_num' => null,
+            'source_trace_id' => $traceId,
+            'snapshot_time' => '2026-08-09 05:09:55',
+            'raw_data' => json_encode([
+                'row' => $sourceRow,
+                'captured_at' => '2026-08-08T21:09:55.123456Z',
+                'source_trace_id' => $traceId,
+                'source_url_hash' => $urlHash,
+                'date_source' => 'request.payload.statDate',
+                'field_facts' => $fieldFacts,
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ];
+    }
+
+    /** @param array<string,mixed> $row @param array<string,mixed> $scope @return array<string,mixed> */
+    private function validMeituanTask(array $row, array $scope): array
+    {
+        $receipt = [
+            'version' => 'ota_canonical_history_promotion.v3',
+            'tenant_id' => $scope['tenant_id'],
+            'system_hotel_id' => $scope['hotel_id'],
+            'platform' => 'meituan',
+            'target_date' => $scope['target_date'],
+            'data_period' => $scope['data_period'],
+            'data_source_id' => $scope['data_source_id'],
+            'sync_task_id' => $scope['task_id'],
+            'row_ids' => [$scope['row_id']],
+            'collection_anchor_hash' => str_repeat('1', 64),
+            'verifier_report_hash' => str_repeat('2', 64),
+            'authoritative_fact_digest' => $this->authoritativeFactDigest($row),
+            'platform_hotel_identity_digest' => $this->platformHotelIdentityDigest($row, $scope),
+            'nonzero_required_metric_rows' => 1,
+            'explicit_zero_confirmed_rows' => 0,
+            'observed_traffic_metric_provenance_status' => 'ready',
+            'synthetic_normalization_provenance_missing_rows' => 0,
+            'verified_at' => '2026-08-09 05:10:00',
+            'sensitive_values_exposed' => false,
+        ];
+        $receipt['content_digest'] = $this->digest($receipt);
+        $required = ['detail_exposure', 'flow_rate', 'list_exposure'];
+        $stats = [
+            'readback_verified' => true,
+            'run_readback' => [
+                'readback_verified' => true,
+                'sync_task_id' => $scope['task_id'],
+                'data_source_id' => $scope['data_source_id'],
+                'system_hotel_id' => $scope['hotel_id'],
+                'platform' => 'meituan',
+                'target_date' => $scope['target_date'],
+                'data_period' => $scope['data_period'],
+                'row_ids' => [$scope['row_id']],
+                'p0_status' => 'ready',
+                'field_fact_status' => 'ready',
+                'page_field_fact_status' => 'ready',
+                'platform_hotel_identifier_status' => 'ready',
+                'required_traffic_metric_keys' => $required,
+                'complete_traffic_metric_keys' => $required,
+                'missing_traffic_metric_keys' => [],
+            ],
+            'canonical_history_promotion' => $receipt,
+        ];
+        return [
+            'id' => $scope['task_id'],
+            'tenant_id' => $scope['tenant_id'],
+            'system_hotel_id' => $scope['hotel_id'],
+            'data_source_id' => $scope['data_source_id'],
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'status' => 'success',
+            'stats_json' => json_encode(
+                $stats,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            ),
+        ];
     }
 
     /** @return array<string,mixed> */
@@ -704,6 +965,78 @@ final class CanonicalOtaInvestigationDraftServiceTest extends TestCase
         ];
     }
 
+    /** @return array<string,mixed> */
+    private function validMultiRowTask(array $row): array
+    {
+        $task = $this->validTask($row);
+        $stats = json_decode((string)$task['stats_json'], true, 512, JSON_THROW_ON_ERROR);
+        $receipt = $stats['canonical_history_promotion'];
+        $receipt['row_ids'] = [81878, 81914];
+        $receipt['authoritative_fact_digest'] = str_repeat('c', 64);
+        $receipt['authoritative_row_fact_digests'] = [
+            81878 => $this->authoritativeFactDigest($row),
+            81914 => str_repeat('d', 64),
+        ];
+        $receipt['platform_hotel_identity_digest'] = str_repeat('e', 64);
+        $receipt['authoritative_row_platform_hotel_identity_digests'] = [
+            81878 => $this->platformHotelIdentityDigest($row, $this->scope),
+            81914 => str_repeat('f', 64),
+        ];
+        $required = [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
+        $metricValues = [];
+        foreach ($required as $metric) {
+            $metricValues[$metric] = sprintf('%.8F', (float)$row[$metric]);
+        }
+        ksort($metricValues, SORT_STRING);
+        $operationMetricDigest = $this->digest([
+            'required_metric_keys' => $required,
+            'metric_values' => $metricValues,
+            'value_status' => 'explicit_zero',
+        ]);
+        $selection = [
+            'version' => 'ota_operation_row_selection.v1',
+            'status' => 'ready',
+            'policy' => 'singleton_or_equivalent_required_metrics_min_row_id.v1',
+            'platform' => 'ctrip',
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'data_source_id' => 25,
+            'sync_task_id' => 3058,
+            'target_date' => '2026-08-09',
+            'data_period' => 'realtime_snapshot',
+            'candidate_row_ids' => [81878, 81914],
+            'selected_row_id' => 81878,
+            'row_metric_digests' => [
+                81878 => $operationMetricDigest,
+                81914 => $operationMetricDigest,
+            ],
+        ];
+        $selection['selection_digest'] = $this->digest($selection);
+        $receipt['operation_row_selection_version'] = $selection['version'];
+        $receipt['operation_row_selection_status'] = $selection['status'];
+        $receipt['operation_row_selection_policy'] = $selection['policy'];
+        $receipt['operation_row_candidate_ids'] = $selection['candidate_row_ids'];
+        $receipt['selected_operation_row_id'] = $selection['selected_row_id'];
+        $receipt['operation_row_metric_digests'] = $selection['row_metric_digests'];
+        $receipt['operation_row_selection_digest'] = $selection['selection_digest'];
+        $receipt['nonzero_required_metric_rows'] = 0;
+        $receipt['explicit_zero_confirmed_rows'] = 2;
+        $receipt['content_digest'] = $this->digest($receipt);
+        $stats['run_readback']['row_ids'] = [81871, 81878, 81914];
+        $stats['canonical_history_promotion'] = $receipt;
+        $task['stats_json'] = json_encode(
+            $stats,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        );
+        return $task;
+    }
+
     private function service(?array $row = null, ?array $task = null): CanonicalOtaInvestigationDraftService
     {
         $row ??= $this->row;
@@ -722,13 +1055,16 @@ final class CanonicalOtaInvestigationDraftServiceTest extends TestCase
     /** @param array<string,mixed> $row */
     private function authoritativeFactDigest(array $row): string
     {
-        $required = [
-            'list_exposure',
-            'detail_exposure',
-            'flow_rate',
-            'order_filling_num',
-            'order_submit_num',
-        ];
+        $platform = strtolower(trim((string)($row['platform'] ?? $row['source'] ?? '')));
+        $required = $platform === 'meituan'
+            ? ['list_exposure', 'detail_exposure', 'flow_rate']
+            : [
+                'list_exposure',
+                'detail_exposure',
+                'flow_rate',
+                'order_filling_num',
+                'order_submit_num',
+            ];
         $metrics = [];
         foreach ($required as $metric) {
             $metrics[$metric] = sprintf('%.8F', (float)$row[$metric]);
@@ -792,11 +1128,14 @@ final class CanonicalOtaInvestigationDraftServiceTest extends TestCase
     private function platformHotelIdentityDigest(array $row, array $scope): string
     {
         $raw = json_decode((string)$row['raw_data'], true, 512, JSON_THROW_ON_ERROR);
-        $identifier = trim((string)($raw['row']['hotelId'] ?? ''));
+        $platform = strtolower(trim((string)($scope['platform'] ?? '')));
+        $identifier = $platform === 'meituan'
+            ? trim((string)($raw['row']['poiId'] ?? ''))
+            : trim((string)($raw['row']['hotelId'] ?? ''));
         if ($identifier === '') {
             return '';
         }
-        $identifierHash = hash('sha256', 'ctrip' . "\0" . $identifier);
+        $identifierHash = hash('sha256', $platform . "\0" . $identifier);
         return $this->digest([
             'authority_source_ids' => [(int)$scope['data_source_id']],
             'expected_identifier_digest' => hash('sha256', $identifierHash),

@@ -2630,6 +2630,17 @@ class OperationManagementService
         }
     }
 
+    /** @param array<string,mixed> $task @param array<string,mixed> $intent */
+    private function assertExecutionTaskAllowsOperatorMutation(array $task, array $intent): void
+    {
+        if (strtolower(trim((string)($intent['source_module'] ?? ''))) === 'canonical_ota_investigation'
+            || strtolower(trim((string)($task['execution_mode'] ?? ''))) === 'analysis_only'
+            || strtolower(trim((string)($intent['status'] ?? ''))) === 'system_authorized_analysis'
+        ) {
+            throw new \InvalidArgumentException('system-authorized analysis task is immutable');
+        }
+    }
+
     /** @param array<string,mixed> $intent */
     private function assertExecutionTaskAssignee(array $intent, int $operatorId): void
     {
@@ -2654,6 +2665,7 @@ class OperationManagementService
             throw new \RuntimeException('execution intent not found');
         }
         $this->assertExecutionTaskIntentIdentity($task, $intent);
+        $this->assertExecutionTaskAllowsOperatorMutation($task, $intent);
         $evidence = $this->arrayValue($input['evidence'] ?? $input);
         if (empty($evidence)) {
             throw new \InvalidArgumentException('execution evidence is required');
@@ -2917,6 +2929,7 @@ class OperationManagementService
             throw new \RuntimeException('execution intent not found');
         }
         $this->assertExecutionTaskIntentIdentity($task, $intentRow);
+        $this->assertExecutionTaskAllowsOperatorMutation($task, $intentRow);
         if (($task['status'] ?? '') !== 'executed') {
             throw new \InvalidArgumentException('execution task must be executed before review');
         }
@@ -3632,6 +3645,16 @@ class OperationManagementService
         return null;
     }
 
+    /** @param array<string, mixed> $row */
+    private function executionReadbackRowPlatformIdentity(array $row): string
+    {
+        if (array_key_exists('platform', $row)) {
+            return $this->normalizeOtaChannel((string)$row['platform']);
+        }
+
+        return $this->normalizeOtaChannel((string)($row['source'] ?? ''));
+    }
+
     /**
      * Traffic rows are cumulative snapshots, not additive facts. Keep one row
      * per hotel/channel/date: a final historical row wins; otherwise use the
@@ -3667,7 +3690,7 @@ class OperationManagementService
                 continue;
             }
             if ($metric === 'list_exposure') {
-                $channel = $this->normalizeOtaChannel((string)($row['source'] ?? $row['platform'] ?? ''));
+                $channel = $this->executionReadbackRowPlatformIdentity($row);
                 $fieldFact = $this->onlineMetricFieldFact($row, 'list_exposure');
                 if ($channel !== 'ctrip'
                     || !in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)
@@ -3688,7 +3711,7 @@ class OperationManagementService
             }
 
             $hotelId = (int)($row['system_hotel_id'] ?? 0);
-            $channel = $this->normalizeOtaChannel((string)($row['source'] ?? $row['platform'] ?? ''));
+            $channel = $this->executionReadbackRowPlatformIdentity($row);
             $date = substr(trim((string)($row['data_date'] ?? '')), 0, 10);
             if ($hotelId <= 0 || $channel === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) !== 1) {
                 continue;
@@ -4550,7 +4573,7 @@ class OperationManagementService
             if (!$this->isTrustedSelfOtaFactRow($row)) {
                 return false;
             }
-            $channel = $this->normalizeOtaChannel((string)($row['source'] ?? $row['platform'] ?? ''));
+            $channel = $this->executionReadbackRowPlatformIdentity($row);
             if ($platform === 'ota') {
                 if (!in_array($channel, ['ctrip', 'meituan'], true)) {
                     return false;
@@ -4572,7 +4595,7 @@ class OperationManagementService
     {
         $channels = [];
         foreach ($rows as $row) {
-            $channel = $this->normalizeOtaChannel((string)($row['source'] ?? $row['platform'] ?? ''));
+            $channel = $this->executionReadbackRowPlatformIdentity($row);
             if ($channel !== '') {
                 $channels[$channel] = true;
             }

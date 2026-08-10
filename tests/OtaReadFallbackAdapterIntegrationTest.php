@@ -82,11 +82,23 @@ final class OtaReadFallbackAdapterIntegrationTest extends TestCase
         $payloads = [
             [
                 'capture_plan' => ['id' => 'full'],
+                'network_freshness' => [
+                    'status' => 'ready',
+                    'http_cache_disabled' => true,
+                    'service_worker_bypassed' => true,
+                    'sensitive_values_exposed' => false,
+                ],
                 'read_fallbacks' => [
                     $this->diagnostic('ctrip', 'response_observed', 'same_origin_read_replay'),
                 ],
             ],
             [
+                'network_freshness' => [
+                    'status' => 'ready',
+                    'http_cache_disabled' => true,
+                    'service_worker_bypassed' => true,
+                    'sensitive_values_exposed' => false,
+                ],
                 'read_fallbacks' => [
                     $this->diagnostic('ctrip', 'blocked', 'target_date_unverified'),
                 ],

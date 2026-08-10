@@ -107,6 +107,21 @@ trait AgentOtaDiagnosisBuildConcern
         ], array_keys($columns)));
     }
 
+    private function otaDiagnosisStorageSourceForPlatform(string $platform): string
+    {
+        $platform = strtolower(trim($platform));
+        return $platform === 'qunar' ? 'ctrip' : $platform;
+    }
+
+    private function otaDiagnosisRowPlatformIdentity(array $row): string
+    {
+        if (array_key_exists('platform', $row)) {
+            return strtolower(trim((string)$row['platform']));
+        }
+
+        return strtolower(trim((string)($row['source'] ?? '')));
+    }
+
     private function queryOtaDiagnosisData(int $hotelId, string $hotelIdRaw, string $platformHotelIdRaw, string $platform, string $startDate, string $endDate, string $analysisType): array
     {
         $columns = $this->onlineDailyDataColumns();
@@ -127,7 +142,12 @@ trait AgentOtaDiagnosisBuildConcern
             $applyOnlineScope = function ($query) use ($tenantId, $hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $analysisType, $columns) {
                 $query->where('tenant_id', $tenantId);
                 if (isset($columns['source'])) {
-                    $query->where('source', $platform);
+                    $query->where('source', $this->otaDiagnosisStorageSourceForPlatform($platform));
+                }
+                if (isset($columns['platform'])) {
+                    $query->whereRaw('LOWER(TRIM(`platform`)) = :ota_platform', [
+                        'ota_platform' => strtolower(trim($platform)),
+                    ]);
                 }
                 $query->where(function ($q) use ($hotelId, $hotelIdRaw, $platformHotelIdRaw, $columns) {
                     $hasWhere = false;
@@ -349,12 +369,18 @@ trait AgentOtaDiagnosisBuildConcern
         $ownPlatformHotelIds = $this->otaDiagnosisOwnPlatformHotelIds($rows, $hotelId, $platform);
         $groups = [];
         $candidateIndexes = [];
+        $excludedPlatformIndexes = [];
+        $requestedPlatform = strtolower(trim($platform));
 
         foreach ($rows as $index => $row) {
-            if (!is_array($row)
-                || !$this->isOtaDiagnosisTrafficSnapshotRow($row)
-                || !OtaOperatingScope::isOwnOperatingRow($row, null, $ownHotelNames, $ownPlatformHotelIds)
-            ) {
+            if (!is_array($row) || !$this->isOtaDiagnosisTrafficSnapshotRow($row)) {
+                continue;
+            }
+            if ($this->otaDiagnosisRowPlatformIdentity($row) !== $requestedPlatform) {
+                $excludedPlatformIndexes[$index] = true;
+                continue;
+            }
+            if (!OtaOperatingScope::isOwnOperatingRow($row, null, $ownHotelNames, $ownPlatformHotelIds)) {
                 continue;
             }
 
@@ -362,7 +388,7 @@ trait AgentOtaDiagnosisBuildConcern
             if ($date === '') {
                 continue;
             }
-            $source = strtolower(trim((string)($row['source'] ?? $row['platform'] ?? $platform)));
+            $source = $this->otaDiagnosisRowPlatformIdentity($row) ?: strtolower(trim($platform));
             $systemHotelId = (int)($row['system_hotel_id'] ?? 0);
             if ($systemHotelId <= 0) {
                 $systemHotelId = $hotelId;
@@ -394,6 +420,9 @@ trait AgentOtaDiagnosisBuildConcern
         $selectedRows = [];
         $supersededRows = [];
         foreach ($rows as $index => $row) {
+            if (isset($excludedPlatformIndexes[$index])) {
+                continue;
+            }
             if (isset($candidateIndexes[$index]) && !isset($canonicalIndexes[$index])) {
                 $supersededRows[] = $row;
                 continue;
@@ -561,7 +590,7 @@ trait AgentOtaDiagnosisBuildConcern
                     $identityGapCounts['decision_ineligible'] = ($identityGapCounts['decision_ineligible'] ?? 0) + 1;
                     continue;
                 }
-                $rowPlatform = strtolower(trim((string)($row['source'] ?? $row['platform'] ?? '')));
+                $rowPlatform = $this->otaDiagnosisRowPlatformIdentity($row);
                 $rowHotelId = (int)($row['system_hotel_id'] ?? 0);
                 $rowTenantId = (int)($row['tenant_id'] ?? 0);
                 $rowDate = trim((string)($row['data_date'] ?? ''));
@@ -943,9 +972,17 @@ trait AgentOtaDiagnosisBuildConcern
             return false;
         }
 
-        $platform = strtolower(trim((string)($row['source'] ?? $row['platform'] ?? '')));
+        $platform = $this->otaDiagnosisRowPlatformIdentity($row);
         $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
-        if ($platform === 'ctrip' && $dataType === 'traffic') {
+        if ($dataType === 'traffic' && !in_array($platform, ['ctrip', 'qunar', 'meituan'], true)) {
+            return false;
+        }
+        if ($dataType === 'traffic'
+            && str_starts_with(strtolower(trim((string)($row['dimension'] ?? ''))), 'catalog:')
+        ) {
+            return false;
+        }
+        if (in_array($platform, ['ctrip', 'qunar'], true) && $dataType === 'traffic') {
             $endpointId = $this->otaDiagnosisSourceEndpointId($row);
             if (!in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)) {
                 return false;
@@ -1336,6 +1373,10 @@ trait AgentOtaDiagnosisBuildConcern
 
     private function buildOtaDiagnosisActions(bool $hasTraffic, bool $hasCompetitor, bool $hasAdvertising, bool $hasServiceQuality, array $metrics, array $dataGaps = []): array
     {
+        if ($this->blockingOtaDiagnosisDataGaps($dataGaps, ['metrics' => $metrics]) !== []) {
+            return [];
+        }
+
         $actions = [];
         if ($hasTraffic && array_key_exists('list_exposure', $metrics) && $metrics['list_exposure'] !== null && (float)$metrics['list_exposure'] === 0.0) {
             $actions[] = '检查目标日期门店可售状态、列表页内容完整性和平台曝光入口，确认目标平台列表曝光为0的原因。';
@@ -1439,7 +1480,6 @@ trait AgentOtaDiagnosisBuildConcern
             return true;
         };
         $revenueMetricsComplete = $hasCompleteMetricGroup($revenueMetricFields);
-        $trafficMetricsComplete = $hasCompleteMetricGroup($trafficMetricFields);
 
         $blocking = [];
         foreach ($this->normalizeOtaDiagnosisDataGaps($dataGaps) as $gap) {
@@ -1450,8 +1490,8 @@ trait AgentOtaDiagnosisBuildConcern
             }
             if ($isMetricGap) {
                 $metric = substr($code, strlen('metric_missing:'));
-                $isMissingAlternativePathMetric = ($trafficMetricsComplete && in_array($metric, $revenueMetricFields, true))
-                    || ($revenueMetricsComplete && in_array($metric, $trafficMetricFields, true));
+                $isMissingAlternativePathMetric = $revenueMetricsComplete
+                    && in_array($metric, $trafficMetricFields, true);
                 if ($isMissingAlternativePathMetric) {
                     continue;
                 }
@@ -1511,7 +1551,7 @@ trait AgentOtaDiagnosisBuildConcern
         $visibleRows = is_array($dataSet['online_rows'] ?? null) ? $dataSet['online_rows'] : $eligibleRows;
         $systemHotelId = (int)($dataSet['hotel']['id'] ?? 0);
         $hotelName = trim((string)($dataSet['hotel']['name'] ?? ''));
-        $platform = strtolower(trim((string)($eligibleRows[0]['source'] ?? $eligibleRows[0]['platform'] ?? '')));
+        $platform = $eligibleRows === [] ? '' : $this->otaDiagnosisRowPlatformIdentity($eligibleRows[0]);
         $ownHotelNames = $hotelName === '' ? [] : [$hotelName];
         $ownPlatformHotelIds = $this->otaDiagnosisOwnPlatformHotelIds($visibleRows, $systemHotelId, $platform);
         usort($eligibleRows, static function (array $left, array $right): int {
@@ -1713,7 +1753,7 @@ trait AgentOtaDiagnosisBuildConcern
 
         return [
             'tenant_id' => (int)($row['tenant_id'] ?? 0),
-            'platform' => strtolower(trim((string)($row['source'] ?? $row['platform'] ?? ''))),
+            'platform' => $this->otaDiagnosisRowPlatformIdentity($row),
             'system_hotel_id' => (int)($row['system_hotel_id'] ?? 0),
             'platform_hotel_id' => trim((string)($row['hotel_id'] ?? '')),
             'date_role' => trim((string)($row['date_role'] ?? 'target')),

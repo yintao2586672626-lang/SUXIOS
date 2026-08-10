@@ -57,10 +57,15 @@ async function openPublicPage(page) {
   await page.getByTestId('ctrip-public-profile-tab').click();
   await expect(page.getByTestId('ctrip-public-profile-panel')).toBeVisible();
 
-  const hotelSelect = page.getByTestId('platform-hotel-context-select');
-  await expect(hotelSelect.locator(`option[value="${config.hotelId}"]`)).toHaveCount(1);
-  await expect(hotelSelect).toBeEnabled({ timeout: 30000 });
-  await hotelSelect.selectOption(String(config.hotelId));
+  expect(config.hotelName, 'E2E_HOTEL_NAME is required to select the searchable hotel option').not.toBe('');
+  const hotelSearch = page.getByTestId('platform-hotel-context-search');
+  await expect(hotelSearch).toBeEnabled({ timeout: 30000 });
+  await hotelSearch.fill(config.hotelName);
+  const hotelOption = page.locator('#platform-hotel-context-options [role="option"]')
+    .filter({ hasText: config.hotelName });
+  await expect(hotelOption).toHaveCount(1);
+  await hotelOption.click();
+  await expect(hotelSearch).toHaveValue(config.hotelName);
 }
 
 async function readDiagnosis(page, platform, businessDate) {

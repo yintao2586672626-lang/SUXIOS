@@ -8,13 +8,25 @@ use think\facade\Db;
 
 class OtaStandardEtlService
 {
+    private const CTRIP_MARKET_OVERVIEW_BOOKING_DIMENSION =
+        'semantic:ctrip_business_market_overview:booking_order_count';
+    private const CTRIP_MARKET_OVERVIEW_BOOKING_PROJECTION_VERSION =
+        'ctrip_market_overview_metric_projection.v1';
+    private const CTRIP_MARKET_OVERVIEW_BOOKING_SEMANTIC_KEY =
+        'ctrip_market_overview_booking_order_count';
+
     /**
      * @param array<string, mixed> $filters
      * @return array<string, mixed>
      */
     public function buildDataset(array $filters = []): array
     {
-        return $this->buildDatasetFromRows($this->fetchRows($filters));
+        $dataset = $this->buildDatasetFromRows($this->fetchRows($filters));
+        if (is_array($dataset['data_quality']['order_dedup'] ?? null)) {
+            $dataset['data_quality']['order_dedup']['evidence_status'] =
+                'trusted_query_only';
+        }
+        return $dataset;
     }
 
     /**
@@ -25,6 +37,7 @@ class OtaStandardEtlService
     {
         $inputRowCount = count($rows);
         [$rows, $semanticRejectedRows] = $this->resolveLegacyMeituanBusinessSemantics($rows);
+        [$rows, $orderDedupQuality] = $this->deduplicateOrderRows($rows);
         [$rows, $supersededCtripCheckoutRows] = $this->selectCanonicalCtripCheckoutRows($rows);
         [
             $rows,
@@ -55,7 +68,7 @@ class OtaStandardEtlService
             $decodedRaw = $this->decodeJson($row['raw_data'] ?? []);
             $dataType = $this->normalizeDataType((string)($row['data_type'] ?? $decodedRaw['data_type'] ?? 'business'));
             $raw = $this->sanitizeRawData($decodedRaw, $dataType === 'order');
-            $source = $this->platformKey($this->firstText($row, $raw, ['source', 'platform', 'ota_source', 'otaSource']));
+            $source = $this->platformKey($this->firstText($row, $raw, ['platform', 'source', 'ota_source', 'otaSource']));
             $date = $this->dateValue($row['data_date'] ?? $row['date'] ?? $raw['dataDate'] ?? $raw['date'] ?? '');
             $hotelId = trim((string)($row['hotel_id'] ?? $raw['hotelId'] ?? $raw['poiId'] ?? ''));
             $hotelName = trim((string)($row['hotel_name'] ?? $raw['hotelName'] ?? $raw['poiName'] ?? ''));
@@ -200,6 +213,7 @@ class OtaStandardEtlService
                 'superseded_meituan_revenue_rows' => $supersededMeituanRevenueRows,
                 'meituan_revenue_representation_conflicts' =>
                     $meituanRevenueRepresentationConflicts,
+                'order_dedup' => $orderDedupQuality,
                 'accepted_rows' => $acceptedCount,
                 'trusted_rows' => $trustedCount,
                 'untrusted_rows' => $acceptedCount - $trustedCount,
@@ -228,7 +242,7 @@ class OtaStandardEtlService
 
             $raw = $this->decodeJson($row['raw_data'] ?? []);
             $dataType = $this->normalizeDataType((string)($row['data_type'] ?? $raw['data_type'] ?? 'business'));
-            $source = $this->platformKey($this->firstText($row, $raw, ['source', 'platform', 'ota_source', 'otaSource']));
+            $source = $this->platformKey($this->firstText($row, $raw, ['platform', 'source', 'ota_source', 'otaSource']));
             if ($source !== 'meituan' || $dataType !== 'business') {
                 $resolvedRows[] = $row;
                 continue;
@@ -309,8 +323,12 @@ class OtaStandardEtlService
             }
 
             $raw = $this->decodeJson($row['raw_data'] ?? []);
-            $source = $this->platformKey($this->firstText($row, $raw, ['source', 'platform', 'ota_source', 'otaSource']));
+            $source = $this->platformKey($this->firstText($row, $raw, ['platform', 'source', 'ota_source', 'otaSource']));
             $dataType = $this->normalizeDataType((string)($row['data_type'] ?? $raw['data_type'] ?? 'business'));
+            if ($this->isCtripMarketOverviewBookingProjection($row, $raw)) {
+                $selected[$index] = $row;
+                continue;
+            }
             if ($source !== 'ctrip'
                 || $dataType !== 'business'
                 || $this->ctripBusinessEndpointId($row, $raw) !== 'business_market_overview'
@@ -324,7 +342,13 @@ class OtaStandardEtlService
                 ? 'system:' . $systemHotelId
                 : trim((string)($row['hotel_id'] ?? $raw['hotel_id'] ?? $raw['poiId'] ?? ''));
             $date = (string)($row['data_date'] ?? $raw['data_date'] ?? $raw['date'] ?? '');
-            $grouped[$source . '|' . $hotelIdentity . '|' . $date][] = [
+            $grouped[implode('|', [
+                (string)max(0, (int)($row['tenant_id'] ?? $raw['tenant_id'] ?? 0)),
+                $source,
+                $hotelIdentity,
+                trim((string)($row['hotel_id'] ?? $raw['hotel_id'] ?? $raw['poiId'] ?? '')),
+                $date,
+            ])][] = [
                 'index' => $index,
                 'row' => $row,
             ];
@@ -389,6 +413,154 @@ class OtaStandardEtlService
     }
 
     /**
+     * A booking projection is allowed to bypass checkout canonicalization only
+     * when the persisted row, exact source key, semantic contract and readback
+     * evidence all agree. Legacy booking-shaped market rows remain fail-closed.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function isCtripMarketOverviewBookingProjection(array $row, array $raw): bool
+    {
+        $dataDate = trim((string)($row['data_date'] ?? ''));
+        $systemHotelId = (int)($row['system_hotel_id'] ?? 0);
+        $platformHotelId = trim((string)($row['hotel_id'] ?? ''));
+        $rowTraceId = trim((string)($row['source_trace_id'] ?? ''));
+        $rawTraceId = trim((string)($raw['source_trace_id'] ?? ''));
+        if ((int)($row['id'] ?? 0) <= 0
+            || (int)($row['tenant_id'] ?? 0) <= 0
+            || $systemHotelId <= 0
+            || $platformHotelId === ''
+            || $this->platformKey(trim((string)($row['platform'] ?? ''))) !== 'ctrip'
+            || $this->platformKey(trim((string)($row['source'] ?? ''))) !== 'ctrip'
+            || $this->normalizeDataType((string)($row['data_type'] ?? '')) !== 'business'
+            || $this->dateValue($dataDate) !== $dataDate
+            || trim((string)($row['dimension'] ?? '')) !== self::CTRIP_MARKET_OVERVIEW_BOOKING_DIMENSION
+            || $rowTraceId === ''
+            || $rawTraceId !== $rowTraceId
+        ) {
+            return false;
+        }
+
+        $sourceRow = is_array($raw['row'] ?? null) ? $raw['row'] : [];
+        if (strtolower(trim((string)($sourceRow['endpoint_id'] ?? ''))) !== 'business_market_overview'
+            || strtolower(trim((string)($sourceRow['section'] ?? ''))) !== 'business_overview'
+            || !array_key_exists('bookOrderNum', $sourceRow)
+        ) {
+            return false;
+        }
+
+        $projection = is_array($raw['metric_projection'] ?? null)
+            ? $raw['metric_projection']
+            : [];
+        foreach ([
+            'contract_version' => self::CTRIP_MARKET_OVERVIEW_BOOKING_PROJECTION_VERSION,
+            'metric_family' => 'booking',
+            'metric_key' => 'order_count',
+            'semantic_key' => self::CTRIP_MARKET_OVERVIEW_BOOKING_SEMANTIC_KEY,
+            'unit' => 'orders',
+            'source_endpoint_id' => 'business_market_overview',
+            'source_key' => 'bookOrderNum',
+            'business_date' => $dataDate,
+            'separate_from_metric_family' => 'checkout',
+        ] as $key => $expected) {
+            if (trim((string)($projection[$key] ?? '')) !== $expected) {
+                return false;
+            }
+        }
+
+        $storedOrderCount = $this->nonNegativeIntegerValue($row['book_order_num'] ?? null);
+        $sourceOrderCount = $this->nonNegativeIntegerValue($sourceRow['bookOrderNum']);
+        if ($storedOrderCount === null || $sourceOrderCount !== $storedOrderCount) {
+            return false;
+        }
+
+        $orderFact = null;
+        foreach ((array)($raw['field_facts'] ?? []) as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            if (trim((string)($fact['metric_key'] ?? '')) !== 'order_count') {
+                if (strtolower(trim((string)($fact['status'] ?? ''))) === 'captured'
+                    || ($fact['stored_value_present'] ?? false) === true
+                ) {
+                    return false;
+                }
+                continue;
+            }
+            if ($orderFact !== null) {
+                return false;
+            }
+            $orderFact = $fact;
+        }
+        if (!is_array($orderFact)) {
+            return false;
+        }
+
+        $sourcePath = trim((string)($orderFact['source_path'] ?? ''));
+        $captureEvidence = is_array($orderFact['capture_evidence'] ?? null)
+            ? $orderFact['capture_evidence']
+            : [];
+        if (strtolower(trim((string)($orderFact['status'] ?? ''))) !== 'captured'
+            || ($orderFact['stored_value_present'] ?? false) !== true
+            || trim((string)($orderFact['data_type'] ?? '')) !== 'business'
+            || trim((string)($orderFact['storage_field'] ?? '')) !== 'online_daily_data.book_order_num'
+            || trim((string)($orderFact['normalized_field'] ?? '')) !== 'book_order_num'
+            || trim((string)($orderFact['source_key'] ?? '')) !== 'bookOrderNum'
+            || $sourcePath === ''
+            || preg_match('/(?:^|\.)bookOrderNum$/', $sourcePath) !== 1
+            || trim((string)($projection['source_path'] ?? '')) !== $sourcePath
+            || trim((string)($orderFact['semantic_contract_version'] ?? '')) !== 'ota_metric_semantic_binding.v1'
+            || trim((string)($orderFact['semantic_key'] ?? '')) !== self::CTRIP_MARKET_OVERVIEW_BOOKING_SEMANTIC_KEY
+            || trim((string)($orderFact['unit'] ?? '')) !== 'orders'
+            || trim((string)($orderFact['value_type'] ?? '')) !== 'non_negative_integer'
+            || trim((string)($orderFact['source_endpoint_id'] ?? '')) !== 'business_market_overview'
+            || trim((string)($captureEvidence['source_trace_id'] ?? '')) !== $rowTraceId
+        ) {
+            return false;
+        }
+
+        $rawSourceUrlHash = strtolower(trim((string)($raw['source_url_hash'] ?? '')));
+        $factSourceUrlHash = strtolower(trim((string)($captureEvidence['source_url_hash'] ?? '')));
+        if (($rawSourceUrlHash !== '' || $factSourceUrlHash !== '')
+            && ($rawSourceUrlHash === ''
+                || $factSourceUrlHash === ''
+                || preg_match('/^[a-f0-9]{64}$/', $rawSourceUrlHash) !== 1
+                || $factSourceUrlHash !== $rawSourceUrlHash)
+        ) {
+            return false;
+        }
+
+        $trace = $this->rowTrace(
+            $row,
+            'system:' . $systemHotelId,
+            'ctrip',
+            'business',
+            $dataDate
+        );
+        return ($trace['saved_success'] ?? false) === true;
+    }
+
+    private function nonNegativeIntegerValue(mixed $value): ?int
+    {
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+        if ($value === '' || $value === null || !is_numeric($value)) {
+            return null;
+        }
+        $number = (float)$value;
+        if (!is_finite($number)
+            || $number < 0
+            || floor($number) !== $number
+            || $number > PHP_INT_MAX
+        ) {
+            return null;
+        }
+        return (int)$number;
+    }
+
+    /**
      * Meituan can expose the same target-day sales through the official
      * business cards and a paginated order aggregate. They are alternative
      * evidence families, not additive revenue. Keep the newest family and
@@ -408,7 +580,7 @@ class OtaStandardEtlService
             }
 
             $raw = $this->decodeJson($row['raw_data'] ?? []);
-            $source = $this->platformKey($this->firstText($row, $raw, ['source', 'platform', 'ota_source', 'otaSource']));
+            $source = $this->platformKey($this->firstText($row, $raw, ['platform', 'source', 'ota_source', 'otaSource']));
             $dataType = $this->normalizeDataType((string)($row['data_type'] ?? $raw['data_type'] ?? 'business'));
             if ($source !== 'meituan' || !$this->isMeituanRevenueSnapshotCandidate($raw, $dataType)) {
                 $selected[$index] = $row;
@@ -493,6 +665,19 @@ class OtaStandardEtlService
                     'winner_order_count' => is_numeric(
                         $winner['row']['book_order_num'] ?? null
                     ) ? round((float)$winner['row']['book_order_num'], 2) : null,
+                    'winner_sync_task_id' => max(
+                        0,
+                        (int)($winner['row']['sync_task_id'] ?? 0)
+                    ) ?: null,
+                    'winner_snapshot_time' => trim((string)(
+                        $winner['row']['snapshot_time'] ?? ''
+                    )) ?: null,
+                    'winner_data_period' => trim((string)(
+                        $winner['row']['data_period'] ?? ''
+                    )) ?: null,
+                    'winner_is_final' => $this->isFinalPeriodRow(
+                        $winner['row']
+                    ),
                     'candidate_row_id' => max(
                         0,
                         (int)($candidate['row']['id'] ?? 0)
@@ -505,6 +690,19 @@ class OtaStandardEtlService
                     'candidate_order_count' => is_numeric(
                         $candidate['row']['book_order_num'] ?? null
                     ) ? round((float)$candidate['row']['book_order_num'], 2) : null,
+                    'candidate_sync_task_id' => max(
+                        0,
+                        (int)($candidate['row']['sync_task_id'] ?? 0)
+                    ) ?: null,
+                    'candidate_snapshot_time' => trim((string)(
+                        $candidate['row']['snapshot_time'] ?? ''
+                    )) ?: null,
+                    'candidate_data_period' => trim((string)(
+                        $candidate['row']['data_period'] ?? ''
+                    )) ?: null,
+                    'candidate_is_final' => $this->isFinalPeriodRow(
+                        $candidate['row']
+                    ),
                     'amount_delta' => $delta,
                     'amount_delta_percent_of_winner' => $winnerAmount > 0
                         ? round(abs($delta) / $winnerAmount * 100, 2)
@@ -550,6 +748,7 @@ class OtaStandardEtlService
         $columns = $this->tableColumns('online_daily_data');
         $fields = array_values(array_intersect([
             'id',
+            'tenant_id',
             'system_hotel_id',
             'hotel_id',
             'hotel_name',
@@ -638,8 +837,15 @@ class OtaStandardEtlService
         }
         $this->applySystemHotelScopeFilter($query, $filters, $columns);
         $sourceFilter = trim((string)($filters['source'] ?? $filters['platform'] ?? ''));
-        if ($sourceFilter !== '' && isset($columns['source'])) {
-            $query->whereIn('source', $this->sourceFilterValues($sourceFilter));
+        if ($sourceFilter !== '') {
+            $platformFilter = $this->platformKey($sourceFilter);
+            if ($platformFilter !== '' && isset($columns['platform'])) {
+                $query->whereRaw('LOWER(TRIM(`platform`)) = :requested_platform', [
+                    'requested_platform' => $platformFilter,
+                ]);
+            } elseif (isset($columns['source'])) {
+                $query->whereIn('source', $this->sourceFilterValues($sourceFilter));
+            }
         }
         $dataTypeFilter = trim((string)($filters['data_type'] ?? ''));
         if ($dataTypeFilter !== '' && isset($columns['data_type'])) {
@@ -746,7 +952,7 @@ class OtaStandardEtlService
                 $selected[$index] = $row;
                 continue;
             }
-            $source = $this->platformKey($this->firstText($row, $raw, ['source', 'platform', 'ota_source', 'otaSource']));
+            $source = $this->platformKey($this->firstText($row, $raw, ['platform', 'source', 'ota_source', 'otaSource']));
             $systemHotelId = (int)($row['system_hotel_id'] ?? $raw['system_hotel_id'] ?? 0);
             $hotelIdentity = $systemHotelId > 0
                 ? 'system:' . $systemHotelId
@@ -778,6 +984,152 @@ class OtaStandardEtlService
         return [array_values($selected), $superseded];
     }
 
+    /**
+     * Keep the latest trusted version of each exact OTA order identity. The
+     * grain is deliberately strict: system hotel, explicit platform, exact
+     * business date and a normalized order hash. Incomplete or wholly
+     * untrusted groups remain in the dataset and cannot claim verification.
+     *
+     * @param array<int, mixed> $rows
+     * @return array{0:array<int,mixed>,1:array<string,mixed>}
+     */
+    private function deduplicateOrderRows(array $rows): array
+    {
+        $selected = [];
+        $groups = [];
+        $candidateRows = 0;
+        $coveredRows = 0;
+
+        foreach (array_values($rows) as $index => $row) {
+            if (!is_array($row)) {
+                $selected[$index] = $row;
+                continue;
+            }
+            $raw = $this->decodeJson($row['raw_data'] ?? []);
+            $dataType = $this->normalizeDataType((string)(
+                $row['data_type'] ?? $raw['data_type'] ?? 'business'
+            ));
+            if ($dataType !== 'order'
+                || !$this->isSelfRevenueFact($row, $raw, $dataType)
+            ) {
+                $selected[$index] = $row;
+                continue;
+            }
+
+            $candidateRows++;
+            $source = $this->platformKey($this->firstText(
+                $row,
+                $this->rawDetail($raw),
+                ['platform', 'source', 'ota_source', 'otaSource']
+            ));
+            $systemHotelId = (int)($row['system_hotel_id']
+                ?? $raw['system_hotel_id']
+                ?? 0);
+            $businessDate = $this->dateValue(
+                $row['data_date']
+                ?? $row['date']
+                ?? $raw['dataDate']
+                ?? $raw['data_date']
+                ?? $raw['date']
+                ?? ''
+            );
+            $orderIdentityHash = $this->verifiedOrderIdentityHash($row, $raw);
+            if ($systemHotelId <= 0
+                || $source === ''
+                || !$this->isExactBusinessDate($businessDate)
+                || $orderIdentityHash === ''
+            ) {
+                $selected[$index] = $row;
+                continue;
+            }
+
+            $trace = $this->rowTrace(
+                $row,
+                'system:' . $systemHotelId,
+                $source,
+                'order',
+                $businessDate
+            );
+            $trusted = ($trace['saved_success'] ?? false) === true;
+            if ($trusted) {
+                $coveredRows++;
+            }
+            $key = implode('|', [
+                (string)$systemHotelId,
+                $source,
+                $businessDate,
+                $orderIdentityHash,
+            ]);
+            $groups[$key][] = [
+                'index' => $index,
+                'row' => $row,
+                'trusted' => $trusted,
+            ];
+        }
+
+        $verifiedGrains = 0;
+        $suppressedRows = 0;
+        $suppressedUntrustedRows = 0;
+        $newerUntrustedRows = 0;
+        foreach ($groups as $items) {
+            $trustedItems = array_values(array_filter(
+                $items,
+                static fn(array $item): bool => $item['trusted'] === true
+            ));
+            if ($trustedItems === []) {
+                foreach ($items as $item) {
+                    $selected[(int)$item['index']] = $item['row'];
+                }
+                continue;
+            }
+
+            $verifiedGrains++;
+            usort(
+                $trustedItems,
+                fn(array $left, array $right): int =>
+                    $this->periodRowOrder($left['row'])
+                    <=> $this->periodRowOrder($right['row'])
+            );
+            $winner = $trustedItems[count($trustedItems) - 1];
+            $winnerOrder = $this->periodRowOrder($winner['row']);
+            $selected[(int)$winner['index']] = $winner['row'];
+            $suppressedRows += max(0, count($items) - 1);
+            foreach ($items as $item) {
+                if ((int)$item['index'] === (int)$winner['index']
+                    || $item['trusted'] === true
+                ) {
+                    continue;
+                }
+                $suppressedUntrustedRows++;
+                if ($this->periodRowOrder($item['row']) > $winnerOrder) {
+                    $newerUntrustedRows++;
+                }
+            }
+        }
+
+        ksort($selected);
+        $coveragePercent = $candidateRows > 0
+            ? round(($coveredRows / $candidateRows) * 100, 2)
+            : null;
+
+        return [array_values($selected), [
+            'policy' =>
+                'latest_trusted_per_system_hotel_platform_data_date_order_id_hash',
+            'coverage_unit' => 'scoped_order_evidence_rows',
+            'evidence_status' => 'provided_rows_complete',
+            'order_identity_candidate_rows' => $candidateRows,
+            'order_identity_covered_rows' => $coveredRows,
+            'order_identity_unverifiable_rows' =>
+                max(0, $candidateRows - $coveredRows),
+            'order_identity_coverage_percent' => $coveragePercent,
+            'distinct_verified_order_grains' => $verifiedGrains,
+            'suppressed_duplicate_order_rows' => $suppressedRows,
+            'suppressed_untrusted_duplicate_order_rows' =>
+                $suppressedUntrustedRows,
+            'newer_untrusted_duplicate_order_rows' => $newerUntrustedRows,
+        ]];
+    }
+
     /** @param array<string, mixed> $row */
     private function snapshotPeriod(array $row): string
     {
@@ -791,12 +1143,62 @@ class OtaStandardEtlService
      */
     private function stableEventIdentity(array $row, array $raw, string $dataType): string
     {
+        if ($dataType === 'order') {
+            $verifiedIdentity = $this->verifiedOrderIdentityHash($row, $raw);
+            if ($verifiedIdentity !== '') {
+                return 'order:' . $verifiedIdentity;
+            }
+        }
         $detail = $this->rawDetail($raw);
         $keys = $dataType === 'order'
             ? ['order_id_hash', 'orderIdHash', 'order_id', 'orderId', 'order_no', 'orderNo', 'order_sn', 'orderSn', 'booking_id', 'bookingId']
             : ['review_id_hash', 'reviewIdHash', 'comment_id_hash', 'commentIdHash', 'review_id', 'reviewId', 'comment_id', 'commentId'];
         $identity = $this->firstText($row, $detail, $keys);
         return $identity !== '' ? $dataType . ':' . $identity : '';
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function verifiedOrderIdentityHash(array $row, array $raw): string
+    {
+        $sources = [$row, $raw];
+        foreach (['row', 'metrics', 'detail', 'fields'] as $nestedKey) {
+            if (is_array($raw[$nestedKey] ?? null)) {
+                $sources[] = $raw[$nestedKey];
+            }
+        }
+
+        foreach (['order_id_hash', 'orderIdHash', 'order_no_hash', 'booking_id_hash'] as $key) {
+            foreach ($sources as $source) {
+                $value = strtolower(trim((string)($source[$key] ?? '')));
+                if (preg_match('/^[a-f0-9]{64}$/', $value) === 1) {
+                    return $value;
+                }
+            }
+        }
+
+        foreach (['order_id', 'orderId', 'order_no', 'orderNo', 'order_sn', 'orderSn', 'booking_id', 'bookingId'] as $key) {
+            foreach ($sources as $source) {
+                $value = trim((string)($source[$key] ?? ''));
+                if ($value !== '') {
+                    return hash('sha256', 'ota_order|' . $value);
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function isExactBusinessDate(string $value): bool
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
+            return false;
+        }
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        return $date instanceof \DateTimeImmutable
+            && $date->format('Y-m-d') === $value;
     }
 
     /**
@@ -857,6 +1259,17 @@ class OtaStandardEtlService
         ?string $verifiedRoomRevenueBasis = null
     ): array
     {
+        if ($this->isCtripMarketOverviewBookingProjection($row, $raw)) {
+            return $this->ctripMarketOverviewBookingDailyFact(
+                $row,
+                $raw,
+                $hotelKey,
+                $source,
+                $date,
+                $dataType
+            );
+        }
+
         $grossRevenue = $this->nullableNumber($row, $raw, ['amount', 'gross_revenue', 'grossRevenue', 'revenue', 'totalAmount', 'saleAmount', 'order_amount', 'orderAmount']);
         $roomRevenue = $this->nullableNumber($row, $raw, ['room_revenue', 'roomRevenue', 'room_amount', 'roomAmount']);
         $roomNights = $this->nullableNumber($row, $raw, ['quantity', 'room_nights', 'roomNights', 'checkOutQuantity']);
@@ -906,6 +1319,30 @@ class OtaStandardEtlService
         }
         $orders = $orderCountValue !== null ? (int)round($orderCountValue) : null;
         $cancelOrders = $this->nullableNumber($row, $raw, ['cancel_order_num', 'cancelOrderNum', 'cancel_orders', 'cancelOrders']);
+        $grossOrderCountValue = $this->nullableNumber($row, $raw, [
+            'gross_order_num',
+            'grossOrderNum',
+            'gross_order_count',
+            'grossOrderCount',
+        ]);
+        $grossOrderCount = $grossOrderCountValue !== null
+            ? (int)round($grossOrderCountValue)
+            : null;
+        $unknownStatusOrderCountValue = $this->nullableNumber($row, $raw, [
+            'unknown_status_order_num',
+            'unknownStatusOrderNum',
+            'unknown_status_order_count',
+            'unknownStatusOrderCount',
+        ]);
+        $unknownStatusOrderCount = $unknownStatusOrderCountValue !== null
+            ? (int)round($unknownStatusOrderCountValue)
+            : null;
+        $cancelRateBasis = $this->firstText($row, $raw, [
+            'cancel_rate_basis',
+            'cancelRateBasis',
+            'cancellation_rate_basis',
+            'cancellationRateBasis',
+        ]);
         $cancelRoomNights = $this->nullableNumber($row, $raw, ['cancel_room_nights', 'cancelRoomNights', 'cancelled_room_nights', 'cancelledRoomNights']);
         $cancelRate = $this->nullablePercent($row, $raw, ['cancel_rate', 'cancelRate', 'cancellation_rate', 'cancellationRate']);
         $availableRoomNights = $this->nullableNumber($row, $raw, [
@@ -997,6 +1434,11 @@ class OtaStandardEtlService
             'comment_score' => $this->nullableNumber($row, $raw, ['comment_score', 'commentScore', 'score']),
             'data_value' => $this->nullableNumber($row, $raw, ['data_value', 'dataValue']),
             'cancel_order_num' => $cancelOrders,
+            'gross_order_count' => $grossOrderCount,
+            'unknown_status_order_count' => $unknownStatusOrderCount,
+            'cancel_rate_basis' => $cancelRateBasis !== ''
+                ? $cancelRateBasis
+                : null,
             'cancel_room_nights' => $cancelRoomNights,
             'cancel_rate' => $cancelRate,
             'our_price' => $ourPrice,
@@ -1005,6 +1447,63 @@ class OtaStandardEtlService
             'price_gap_rate' => $priceGap !== null && $competitorPrice !== null && $competitorPrice > 0
                 ? round($priceGap / $competitorPrice * 100, 2)
                 : null,
+            'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, $dataType, $date),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function ctripMarketOverviewBookingDailyFact(
+        array $row,
+        array $raw,
+        string $hotelKey,
+        string $source,
+        string $date,
+        string $dataType
+    ): array {
+        return [
+            'date_key' => $date,
+            'hotel_key' => $hotelKey,
+            'platform_key' => $source,
+            'data_type' => $dataType,
+            'dimension' => self::CTRIP_MARKET_OVERVIEW_BOOKING_DIMENSION,
+            'metric_scope' => 'ota_channel',
+            'calculation_basis' => 'ota_daily_standard_fact',
+            'metric_semantic_scope' => 'ctrip_market_overview_booking_daily',
+            'revenue' => null,
+            'gross_revenue' => null,
+            'room_revenue' => null,
+            'room_revenue_basis' => null,
+            'net_revenue' => null,
+            'settlement_amount' => null,
+            'commission_amount' => null,
+            'commission_rate' => null,
+            'net_revenue_basis' => null,
+            'commission_amount_basis' => null,
+            'room_nights' => null,
+            'available_room_nights' => null,
+            'occupied_room_nights' => null,
+            'order_count' => $this->nonNegativeIntegerValue($row['book_order_num'] ?? null),
+            'adr' => null,
+            'occ' => null,
+            'revpar' => null,
+            'net_revpar' => null,
+            'booking_date' => null,
+            'checkin_date' => null,
+            'lead_time_days' => null,
+            'comment_score' => null,
+            'data_value' => null,
+            'cancel_order_num' => null,
+            'cancel_room_nights' => null,
+            'cancel_rate' => null,
+            'our_price' => null,
+            'competitor_price' => null,
+            'price_gap' => null,
+            'price_gap_rate' => null,
             'raw_data' => $raw,
             'source_trace' => $this->rowTrace($row, $hotelKey, $source, $dataType, $date),
         ];

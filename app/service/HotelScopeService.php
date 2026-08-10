@@ -104,6 +104,11 @@ class HotelScopeService
 
         $record = $this->hotelPermissionRecord($user, $hotelId);
         if ($record === null) {
+            // A persisted row that is disabled or expired is an explicit denial.
+            // Do not let the legacy primary-hotel fallback revive it.
+            if ($this->hasAnyHotelPermissionRecord($user, $hotelId)) {
+                return false;
+            }
             return ($this->isOwnedHotel($user, $hotelId) || $this->isPrimaryHotel($user, $hotelId))
                 && $this->ownerDefaultAllows($capability);
         }
@@ -393,6 +398,35 @@ class HotelScopeService
         $cache['permissions'][$cacheKey] = $record;
         $this->storeUserCacheBucket($user, $cache);
         return $record;
+    }
+
+    private function hasAnyHotelPermissionRecord(User $user, int $hotelId): bool
+    {
+        $userId = (int)($user->id ?? 0);
+        if ($userId <= 0 || $hotelId <= 0 || !$this->tableColumnExists('user_hotel_permissions', 'hotel_id')) {
+            return false;
+        }
+
+        $query = Db::name('user_hotel_permissions')
+            ->alias('uhp')
+            ->join('hotels h', 'h.id = uhp.hotel_id')
+            ->where('uhp.user_id', $userId)
+            ->where('uhp.hotel_id', $hotelId);
+
+        if (
+            $this->tableColumnExists('user_hotel_permissions', 'tenant_id')
+            && $this->tableColumnExists('hotels', 'tenant_id')
+        ) {
+            $tenantId = $this->tenantContext->currentUserTenantId($user);
+            if ($tenantId <= 0) {
+                return false;
+            }
+            $query->where('uhp.tenant_id', $tenantId)
+                ->where('h.tenant_id', $tenantId)
+                ->whereColumn('uhp.tenant_id', 'h.tenant_id');
+        }
+
+        return $query->count() > 0;
     }
 
     private function applyPermissionExpiryScope($query, string $alias = ''): void

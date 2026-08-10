@@ -121,6 +121,42 @@ final class AuthRegistrationTest extends TestCase
         self::assertStringContainsString('OTA', (string)$response->getContent());
     }
 
+    public function testControlledPartnerRoleAllowsAnalysisAndControlledReportExport(): void
+    {
+        $reflection = new ReflectionClass(RoleController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('validateRolePermissionBoundary');
+        $method->setAccessible(true);
+
+        $response = $method->invoke($controller, Role::CONTROLLED_PARTNER_NAME, [
+            'ota.view',
+            'report.view',
+            'ai.execute',
+            'investment.simulate',
+            'report.export',
+        ], null, Role::HOTEL_STAFF);
+
+        self::assertNull($response);
+    }
+
+    public function testControlledPartnerRoleRejectsCollectionAndOperationExecution(): void
+    {
+        $reflection = new ReflectionClass(RoleController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('validateRolePermissionBoundary');
+        $method->setAccessible(true);
+
+        foreach (['ota.collect', 'operation.execute', 'system.config'] as $unsafeCapability) {
+            $response = $method->invoke($controller, Role::CONTROLLED_PARTNER_NAME, [
+                'ota.view',
+                'report.view',
+                $unsafeCapability,
+            ], null, Role::HOTEL_STAFF);
+            self::assertSame(422, $response->getCode());
+            self::assertStringContainsString($unsafeCapability, (string)$response->getContent());
+        }
+    }
+
     public function testNormalRoleSaveRejectsLegacyUserManagementPermission(): void
     {
         $reflection = new ReflectionClass(RoleController::class);

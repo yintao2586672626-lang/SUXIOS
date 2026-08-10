@@ -54,6 +54,12 @@ class OtaRevenueMetricService
         $roomRevenue = $this->sum($roomRevenueRows, 'room_revenue');
         $roomNightRows = $this->rowsWithNumeric($daily, 'room_nights');
         $roomNights = $this->sum($roomNightRows, 'room_nights');
+        if (!$roomNightRows) {
+            $dataGaps[] = [
+                'code' => 'room_nights_missing',
+                'message' => 'Verified room nights are missing. Order counts, physical room counts, and defaults cannot replace room nights.',
+            ];
+        }
         $availableRows = $this->rowsWithPositive($daily, 'available_room_nights');
         $availableRoomNights = $this->sum($availableRows, 'available_room_nights');
         $revparRows = array_values(array_filter(
@@ -182,32 +188,246 @@ class OtaRevenueMetricService
 
         $orderCountRows = $this->verifiedOrderCountRows($daily);
         $orderCount = $orderCountRows ? (int)round($this->sum($orderCountRows, 'order_count')) : null;
+        if (!$orderCountRows) {
+            $dataGaps[] = [
+                'code' => 'order_count_missing',
+                'message' => 'Verified order count is missing. Ambiguous booking, capacity, or room-night counts cannot replace orders.',
+            ];
+        }
         $reviewCountRows = $this->rowsWithNumeric($comments, 'comment_count');
         $reviewCount = $reviewCountRows ? $this->sum($reviewCountRows, 'comment_count') : null;
-        $cancelRows = array_values(array_filter($daily, static fn(array $row): bool => array_key_exists('cancel_order_num', $row) && $row['cancel_order_num'] !== null));
-        $directCancelRateRows = array_values(array_filter($daily, fn(array $row): bool => $this->hasNumericValue($row, 'cancel_rate')));
-        $cancelOrders = $this->sum($cancelRows, 'cancel_order_num');
-        $cancelOrderBase = (int)round($this->sum($cancelRows, 'order_count'));
+        $cancellationScopeRows = array_values(array_filter(
+            $daily,
+            fn(array $row): bool => $this->orderCountSemanticAllowed($row)
+                && (
+                    $this->hasNumericValue($row, 'order_count')
+                    || $this->hasNumericValue($row, 'gross_order_count')
+                    || $this->hasNumericValue($row, 'cancel_order_num')
+                    || $this->hasNumericValue($row, 'cancel_rate')
+                    || $this->hasNumericValue(
+                        $row,
+                        'unknown_status_order_count'
+                    )
+                )
+        ));
+        $cancelRows = array_values(array_filter(
+            $cancellationScopeRows,
+            fn(array $row): bool => $this->hasNumericValue(
+                $row,
+                'cancel_order_num'
+            )
+        ));
+        $directCancelRateRows = array_values(array_filter(
+            $cancellationScopeRows,
+            fn(array $row): bool => !$this->hasNumericValue(
+                $row,
+                'cancel_order_num'
+            ) && $this->hasNumericValue($row, 'cancel_rate')
+        ));
+        $completeCancellationRows = array_values(array_filter(
+            $cancelRows,
+            fn(array $row): bool => $this->hasNumericValue(
+                $row,
+                'gross_order_count'
+            )
+                && (float)$row['gross_order_count'] >= 0
+                && $this->hasNumericValue(
+                    $row,
+                    'unknown_status_order_count'
+                )
+                && (float)$row['unknown_status_order_count'] === 0.0
+                && (float)$row['cancel_order_num'] >= 0
+                && (float)$row['cancel_order_num']
+                    <= (float)$row['gross_order_count']
+                && (string)($row['cancel_rate_basis'] ?? '')
+                    === 'cancelled_orders_over_gross_orders_complete_classification'
+        ));
+        $summaryCancellationScopeKeys = $this->cancellationSummaryScopeKeys(
+            $daily
+        );
+        $cancelOrders = null;
+        $cancelOrderBase = null;
+        $cancellationRateBasis = null;
         $cancellationRate = null;
-        if ($cancelRows && $cancelOrderBase > 0) {
-            $cancellationRate = round($cancelOrders / $cancelOrderBase * 100, 2);
-            if (count($cancelRows) < count($daily)) {
+        $cancellationEvidenceRows = [];
+        $grossOrderEvidenceRows = [];
+        $cancelOrderEvidenceRows = [];
+        if ($cancelRows && $directCancelRateRows) {
+            $cancellationEvidenceRows = array_merge(
+                $cancelRows,
+                $directCancelRateRows
+            );
+            $dataGaps[] = [
+                'code' => 'cancellation_evidence_mixed',
+                'message' => 'Count-based and direct-rate cancellation evidence coexist in the same summary scope and cannot be silently merged.',
+            ];
+        } elseif ($cancelRows) {
+            $coverageComplete = count($cancelRows)
+                === count($cancellationScopeRows)
+                && $this->cancellationSummaryScopeKeys($cancelRows)
+                    === $summaryCancellationScopeKeys;
+            $classificationComplete = count($completeCancellationRows)
+                === count($cancelRows);
+            if (!$coverageComplete) {
                 $dataGaps[] = [
                     'code' => 'cancellation_fields_partial',
-                    'message' => 'Cancellation fields are present for only part of OTA daily facts.',
+                    'message' => 'Cancellation counts do not cover every order-bearing OTA daily fact in the same summary scope.',
                 ];
             }
+            if (!$classificationComplete) {
+                $hasUnknownStatuses = count(array_filter(
+                    $cancelRows,
+                    fn(array $row): bool => $this->hasNumericValue(
+                        $row,
+                        'unknown_status_order_count'
+                    ) && (float)$row['unknown_status_order_count'] > 0
+                )) > 0;
+                $hasClassificationMismatch = count(array_filter(
+                    $cancelRows,
+                    fn(array $row): bool => (
+                        $this->hasNumericValue($row, 'gross_order_count')
+                        && (
+                            (float)$row['gross_order_count'] < 0
+                            || (float)$row['cancel_order_num']
+                                > (float)$row['gross_order_count']
+                        )
+                    ) || (float)$row['cancel_order_num'] < 0
+                )) > 0;
+                if ($hasUnknownStatuses) {
+                    $dataGaps[] = [
+                        'code' => 'cancellation_status_classification_incomplete',
+                        'message' => 'Cancellation counts include unknown order statuses, so the gross-order denominator is incomplete.',
+                    ];
+                }
+                if ($hasClassificationMismatch) {
+                    $dataGaps[] = [
+                        'code' => 'cancellation_order_classification_mismatch',
+                        'message' => 'Cancellation counts or the aligned gross-order base are outside the valid classification range.',
+                    ];
+                }
+                if (!$hasUnknownStatuses && !$hasClassificationMismatch) {
+                    $dataGaps[] = [
+                        'code' => 'cancellation_gross_order_base_missing',
+                        'message' => 'Cancellation counts are present, but an aligned gross-order base with complete status classification is missing.',
+                    ];
+                }
+            }
+            if ($coverageComplete && $classificationComplete) {
+                $cancelOrders = $this->sum(
+                    $completeCancellationRows,
+                    'cancel_order_num'
+                );
+                $cancelOrderBase = (int)round($this->sum(
+                    $completeCancellationRows,
+                    'gross_order_count'
+                ));
+                $cancellationRateBasis =
+                    'cancelled_orders_over_gross_orders_complete_classification';
+                $cancellationEvidenceRows = $completeCancellationRows;
+                $grossOrderEvidenceRows = $completeCancellationRows;
+                $cancelOrderEvidenceRows = $completeCancellationRows;
+                if ($cancelOrderBase > 0) {
+                    $cancellationRate = round(
+                        $cancelOrders / $cancelOrderBase * 100,
+                        2
+                    );
+                } else {
+                    $dataGaps[] = [
+                        'code' => 'cancellation_gross_order_base_zero',
+                        'message' => 'The gross-order denominator is verified as zero, so a cancellation rate is not calculable.',
+                    ];
+                }
+            }
         } elseif ($directCancelRateRows) {
-            $cancellationRate = $this->average($directCancelRateRows, 'cancel_rate');
-        } elseif (!$cancelRows) {
+            $validDirectCancelRateRows = array_values(array_filter(
+                $directCancelRateRows,
+                fn(array $row): bool => (float)$row['cancel_rate'] >= 0
+                    && (float)$row['cancel_rate'] <= 100
+                    && (!$this->hasNumericValue(
+                        $row,
+                        'unknown_status_order_count'
+                    ) || (float)$row['unknown_status_order_count'] === 0.0)
+            ));
+            $hasUnknownStatuses = count(array_filter(
+                $directCancelRateRows,
+                fn(array $row): bool => $this->hasNumericValue(
+                    $row,
+                    'unknown_status_order_count'
+                ) && (float)$row['unknown_status_order_count'] > 0
+            )) > 0;
+            $hasInvalidRates = count(array_filter(
+                $directCancelRateRows,
+                static fn(array $row): bool => (float)$row['cancel_rate'] < 0
+                    || (float)$row['cancel_rate'] > 100
+            )) > 0;
+            if ($hasUnknownStatuses) {
+                $dataGaps[] = [
+                    'code' => 'cancellation_status_classification_incomplete',
+                    'message' => 'A direct cancellation rate cannot override explicitly unknown order statuses in the same fact.',
+                ];
+            }
+            if ($hasInvalidRates) {
+                $dataGaps[] = [
+                    'code' => 'cancellation_rate_invalid',
+                    'message' => 'A platform-supplied cancellation rate is outside the valid 0-100 percent range.',
+                ];
+            }
+            $coverageComplete = count($validDirectCancelRateRows)
+                === count($cancellationScopeRows)
+                && $this->cancellationSummaryScopeKeys(
+                    $validDirectCancelRateRows
+                ) === $summaryCancellationScopeKeys;
+            if (!$coverageComplete && !$hasUnknownStatuses && !$hasInvalidRates) {
+                $dataGaps[] = [
+                    'code' => 'cancellation_fields_partial',
+                    'message' => 'Direct cancellation-rate evidence does not cover every order-bearing OTA daily fact in the same summary scope.',
+                ];
+            }
+            if ($coverageComplete) {
+                $cancellationEvidenceRows = $validDirectCancelRateRows;
+                $cancellationRateBasis = 'platform_supplied_direct_rate';
+                $directGrossRows = array_values(array_filter(
+                    $validDirectCancelRateRows,
+                    fn(array $row): bool => $this->hasNumericValue(
+                        $row,
+                        'gross_order_count'
+                    ) && (float)$row['gross_order_count'] >= 0
+                ));
+                if (count($directGrossRows)
+                    === count($validDirectCancelRateRows)
+                ) {
+                    $cancelOrderBase = (int)round($this->sum(
+                        $directGrossRows,
+                        'gross_order_count'
+                    ));
+                    $grossOrderEvidenceRows = $directGrossRows;
+                    if ($cancelOrderBase > 0) {
+                        $weightedRate = 0.0;
+                        foreach ($directGrossRows as $row) {
+                            $weightedRate += (float)$row['cancel_rate']
+                                * (float)$row['gross_order_count'];
+                        }
+                        $cancellationRate = round(
+                            $weightedRate / $cancelOrderBase,
+                            2
+                        );
+                    } else {
+                        $dataGaps[] = [
+                            'code' => 'cancellation_gross_order_base_zero',
+                            'message' => 'The gross-order denominator is verified as zero, so a cancellation rate is not calculable.',
+                        ];
+                    }
+                } else {
+                    $cancellationRate = $this->average(
+                        $validDirectCancelRateRows,
+                        'cancel_rate'
+                    );
+                }
+            }
+        } else {
             $dataGaps[] = [
                 'code' => 'cancellation_fields_missing',
                 'message' => 'Cancellation fields are not present in OTA daily facts.',
-            ];
-        } else {
-            $dataGaps[] = [
-                'code' => 'cancellation_order_base_missing',
-                'message' => 'Cancellation fields are present, but matching order counts are zero or missing.',
             ];
         }
 
@@ -235,6 +455,27 @@ class OtaRevenueMetricService
             ];
         }
 
+        $cancellationGapCodes = $this->dataGapCodesByPrefix(
+            $dataGaps,
+            'cancellation_'
+        );
+        $grossOrderTrustFailures = [];
+        if ($grossOrderEvidenceRows === []) {
+            $grossOrderTrustFailures = $cancellationGapCodes !== []
+                ? $cancellationGapCodes
+                : [
+                    $cancellationRateBasis === 'platform_supplied_direct_rate'
+                        ? 'cancellation_gross_order_base_missing_for_combined_rate'
+                        : 'cancellation_gross_order_base_missing',
+                ];
+        }
+        $cancelOrderTrustFailures = [];
+        if ($cancelOrderEvidenceRows === []) {
+            $cancelOrderTrustFailures = $cancellationGapCodes !== []
+                ? $cancellationGapCodes
+                : ['cancellation_count_not_supplied_by_direct_rate'];
+        }
+
         $metricTrust = $this->buildMetricTrust(
             $daily,
             $traffic,
@@ -248,8 +489,20 @@ class OtaRevenueMetricService
             $netRows,
             $netRevparRows,
             $leadTimeRows,
-            $cancelRows ?: $directCancelRateRows,
+            $cancellationEvidenceRows !== []
+                ? $cancellationEvidenceRows
+                : ($cancelRows ?: $directCancelRateRows),
             $cancelRoomNightRows
+        );
+        $metricTrust['totals.gross_order_count'] = $this->trust(
+            $grossOrderEvidenceRows,
+            'sum(fact_ota_daily.gross_order_count) from one complete cancellation-classification scope',
+            $grossOrderTrustFailures
+        );
+        $metricTrust['totals.cancel_order_count'] = $this->trust(
+            $cancelOrderEvidenceRows,
+            'sum(fact_ota_daily.cancel_order_num) from one complete cancellation-classification scope',
+            $cancelOrderTrustFailures
         );
         $metricTrust['advertising.spend'] = $this->trust($this->rowsWithNumeric($advertising, 'spend'), 'sum(fact_ota_advertising.spend)');
         $metricTrust['advertising.order_amount'] = $this->trust($this->rowsWithNumeric($advertising, 'order_amount'), 'sum(fact_ota_advertising.order_amount)');
@@ -290,6 +543,11 @@ class OtaRevenueMetricService
                 'available_room_nights' => $availableRows ? round($availableRoomNights, 2) : null,
                 'occupied_room_nights' => $occupancyRows ? round($occupiedRoomNights, 2) : null,
                 'order_count' => $orderCount,
+                'gross_order_count' => $cancelOrderBase,
+                'cancel_order_count' => $cancelOrders !== null
+                    ? (int)round($cancelOrders)
+                    : null,
+                'cancellation_rate_basis' => $cancellationRateBasis,
                 'adr' => $roomRevenueRows && $roomNightRows && $roomNights > 0
                     ? round($roomRevenue / $roomNights, 2)
                     : null,
@@ -1815,7 +2073,7 @@ class OtaRevenueMetricService
             'totals.avg_lead_time_days' => $this->trust($leadTimeRows, 'avg(fact_ota_daily.lead_time_days)', $leadTimeFailures),
             'totals.cancellation_rate' => $this->trust(
                 $cancellationRows,
-                'sum(fact_ota_daily.cancel_order_num) / sum(fact_ota_daily.order_count), or avg(fact_ota_daily.cancel_rate) when platform rate is supplied',
+                'sum(fact_ota_daily.cancel_order_num) / sum(fact_ota_daily.gross_order_count) for complete status classification, or avg(fact_ota_daily.cancel_rate) when platform rate is supplied directly',
                 $cancellationFailures
             ),
             'totals.room_night_cancellation_rate' => $this->trust(
@@ -2009,9 +2267,13 @@ class OtaRevenueMetricService
                     'formula' => 'group by checkin month, OTA platform, and lead-time bucket; sum(order_count) / channel-month sum(order_count)',
                     'not_calculable_when' => 'checkin_date, lead_time_days, platform_key, or positive order_count is missing; cells below the minimum order count remain visible as sparse and are not promoted as decision signals',
                 ],
+                'gross_order_count' => [
+                    'formula' => 'sum(gross_order_count) only when the same cancellation scope has complete status classification',
+                    'not_calculable_when' => 'gross_order_count is missing, order statuses are unknown, or cancellation evidence is partial or mixed',
+                ],
                 'cancellation_rate' => [
-                    'formula' => 'cancel_order_num / order_count * 100; uses platform cancel_rate only when supplied directly',
-                    'not_calculable_when' => 'cancel_order_num/cancel_rate is missing, or order_count is zero',
+                    'formula' => 'cancel_order_num / gross_order_count * 100 after complete order-status classification; uses platform cancel_rate only when supplied directly for the full scope',
+                    'not_calculable_when' => 'evidence is partial or mixed, cancel_order_num/cancel_rate is missing, gross_order_count is zero for count evidence, or unknown order statuses remain',
                 ],
                 'room_night_cancellation_rate' => [
                     'formula' => 'cancel_room_nights / room_nights * 100',
@@ -2148,6 +2410,27 @@ class OtaRevenueMetricService
             $traces,
             static fn(array $trace): bool => ($trace['readback_verified'] ?? false) === true
         ));
+        $finalRowCount = count(array_filter(
+            $traces,
+            static fn(array $trace): bool => in_array(
+                $trace['is_final'] ?? null,
+                [true, 1, '1', 'true'],
+                true
+            )
+        ));
+        $dataPeriods = array_values(array_filter(array_map(
+            static fn(mixed $value): string => trim((string)$value),
+            $this->uniqueTraceValues($traces, 'data_period')
+        ), static fn(string $value): bool => $value !== ''));
+        sort($dataPeriods);
+        $rowCount = count($traces);
+        $finality = $rowCount === 0
+            ? 'unknown'
+            : (
+                $finalRowCount === $rowCount
+                    ? 'final'
+                    : ($finalRowCount === 0 ? 'provisional' : 'mixed')
+            );
 
         return [
             'table' => 'online_daily_data',
@@ -2159,6 +2442,9 @@ class OtaRevenueMetricService
             'platforms' => $this->uniqueTraceValues($traces, 'platform'),
             'data_types' => $this->uniqueTraceValues($traces, 'data_type'),
             'source_methods' => $this->uniqueTraceValues($traces, 'ingestion_method'),
+            'data_periods' => $dataPeriods,
+            'finality' => $finality,
+            'final_row_count' => $finalRowCount,
             'date_range' => [
                 'start' => $dates[0] ?? null,
                 'end' => $dates ? $dates[count($dates) - 1] : null,
@@ -2167,7 +2453,7 @@ class OtaRevenueMetricService
                 'start' => $collectedTimes[0] ?? null,
                 'end' => $collectedTimes !== [] ? $collectedTimes[count($collectedTimes) - 1] : null,
             ],
-            'row_count' => count($traces),
+            'row_count' => $rowCount,
             'stored_count' => $storedCount,
             'readback_verified_count' => $readbackVerifiedCount,
         ];
@@ -2252,6 +2538,33 @@ class OtaRevenueMetricService
             }
         }
         return array_values(array_unique($codes));
+    }
+
+    /**
+     * Cancellation coverage is evaluated once per hotel, platform, and
+     * business date. Revenue-only rows in another platform/date scope cannot
+     * disappear merely because they do not expose an order field.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, string>
+     */
+    private function cancellationSummaryScopeKeys(array $rows): array
+    {
+        $keys = [];
+        foreach ($rows as $row) {
+            if (!$this->orderCountSemanticAllowed($row)) {
+                continue;
+            }
+            $key = implode('|', [
+                strtolower(trim((string)($row['hotel_key'] ?? ''))),
+                strtolower(trim((string)($row['platform_key'] ?? ''))),
+                trim((string)($row['date_key'] ?? '')),
+            ]);
+            $keys[$key] = true;
+        }
+        $scopeKeys = array_keys($keys);
+        sort($scopeKeys);
+        return $scopeKeys;
     }
 
     /**

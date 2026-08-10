@@ -156,13 +156,49 @@ final class OtaTrafficAttributionServiceTest extends TestCase
         self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
             'platform' => 'meituan',
             'compare_type' => 'self',
-            'raw_data' => json_encode(['date_source' => 'response.rtDataUpdateTime']),
+            'raw_data' => json_encode([
+                'date_source' => 'response.rtDataUpdateTime',
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
         ], 'meituan'));
 
         self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
             'platform' => 'meituan',
             'compare_type' => 'self',
-            'raw_data' => json_encode(['date_source' => 'page.traffic_period_selection.readback']),
+            'raw_data' => json_encode([
+                'date_source' => 'page.traffic_period_selection.readback',
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
+        ], 'meituan'));
+    }
+
+    public function testMeituanAuthoritativeTrafficRequiresNetworkResponseProvenance(): void
+    {
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'meituan',
+            'compare_type' => 'self',
+            'raw_data' => json_encode([
+                'date_source' => 'page.traffic_period_selection.readback',
+                'row' => [],
+            ]),
+        ], 'meituan'));
+
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'meituan',
+            'compare_type' => 'self',
+            'raw_data' => json_encode([
+                'date_source' => 'page.traffic_period_selection.readback',
+                'row' => ['_capture_source' => 'dom:traffic:flow_funnel'],
+            ]),
+        ], 'meituan'));
+
+        self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'meituan',
+            'compare_type' => 'self',
+            'raw_data' => json_encode([
+                'date_source' => 'page.traffic_period_selection.readback',
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
         ], 'meituan'));
     }
 

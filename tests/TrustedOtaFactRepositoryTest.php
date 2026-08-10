@@ -211,6 +211,116 @@ final class TrustedOtaFactRepositoryTest extends TestCase
         self::assertSame(2, $result['data_quality']['suppressed_mixed_type_rows']);
     }
 
+    public function testTrustedOrderRowsDeduplicateOnlyOnTheExactFourPartIdentity(): void
+    {
+        $hashA = str_repeat('a', 64);
+        $hashB = str_repeat('b', 64);
+        $insertOrder = function (array $overrides, ?string $hash): void {
+            $row = array_merge($this->defaultRow(), [
+                'data_type' => 'order',
+                'dimension' => 'order:confirmed',
+            ], $overrides);
+            $extra = $hash === null ? [] : ['order_id_hash' => $hash];
+            $payload = array_merge([
+                'data_type' => 'order',
+                'dimension' => 'order:confirmed',
+            ], $overrides);
+            $payload['raw_data'] = $this->encodeRaw(
+                $this->trustedRawData($row, $extra)
+            );
+            $this->insertRow($payload);
+        };
+
+        $insertOrder([
+            'amount' => 100,
+            'snapshot_time' => '2026-07-01 09:00:00',
+            'update_time' => '2026-07-01 09:00:00',
+        ], $hashA);
+        $insertOrder([
+            'amount' => 150,
+            'snapshot_time' => '2026-07-01 10:00:00',
+            'update_time' => '2026-07-01 10:00:00',
+        ], $hashA);
+        $insertOrder([
+            'amount' => 80,
+            'snapshot_time' => '2026-07-01 10:30:00',
+            'update_time' => '2026-07-01 10:30:00',
+        ], $hashB);
+        $insertOrder([
+            'amount' => 40,
+            'snapshot_time' => '2026-07-01 11:00:00',
+            'update_time' => '2026-07-01 11:00:00',
+        ], null);
+        $insertOrder([
+            'amount' => 999,
+            'data_type' => ' ORDER ',
+            'snapshot_time' => '2026-07-01 12:00:00',
+            'update_time' => '2026-07-01 12:00:00',
+            'readback_verified' => 0,
+        ], $hashA);
+
+        $result = (new TrustedOtaFactRepository())->pricingHistory(
+            80,
+            '2026-07-01',
+            '2026-07-01'
+        );
+
+        self::assertSame([150.0, 80.0, 40.0], array_column($result['rows'], 'amount'));
+        $quality = $result['data_quality']['order_dedup'];
+        self::assertSame('complete', $quality['evidence_status']);
+        self::assertSame(5, $quality['order_identity_candidate_rows']);
+        self::assertSame(3, $quality['order_identity_covered_rows']);
+        self::assertSame(2, $quality['order_identity_unverifiable_rows']);
+        self::assertSame(60.0, $quality['order_identity_coverage_percent']);
+        self::assertSame(2, $quality['distinct_verified_order_grains']);
+        self::assertSame(2, $quality['suppressed_duplicate_order_rows']);
+        self::assertSame(1, $quality['suppressed_untrusted_duplicate_order_rows']);
+        self::assertSame(1, $quality['newer_untrusted_duplicate_order_rows']);
+
+        $repository = new TrustedOtaFactRepository();
+        $method = new \ReflectionMethod($repository, 'deduplicateTrustedOrderRows');
+        $sameHashRows = [[
+            'id' => 10,
+            'system_hotel_id' => 80,
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_date' => '2026-07-01',
+            'data_type' => 'order',
+            'raw_data' => json_encode(['order_id_hash' => $hashA]),
+        ], [
+            'id' => 11,
+            'system_hotel_id' => 81,
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_date' => '2026-07-01',
+            'data_type' => 'order',
+            'raw_data' => json_encode(['order_id_hash' => $hashA]),
+        ], [
+            'id' => 12,
+            'system_hotel_id' => 80,
+            'platform' => 'meituan',
+            'source' => 'meituan',
+            'data_date' => '2026-07-01',
+            'data_type' => 'order',
+            'raw_data' => json_encode(['order_id_hash' => $hashA]),
+        ], [
+            'id' => 13,
+            'system_hotel_id' => 80,
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_date' => '2026-07-02',
+            'data_type' => 'order',
+            'raw_data' => json_encode(['order_id_hash' => $hashA]),
+        ]];
+        [$isolatedRows, $isolatedQuality] = $method->invoke(
+            $repository,
+            $sameHashRows
+        );
+        self::assertCount(4, $isolatedRows);
+        self::assertSame(0, $isolatedQuality['suppressed_duplicate_order_rows']);
+        self::assertSame(4, $isolatedQuality['distinct_verified_order_grains']);
+    }
+
     public function testDailySummaryDimensionsNeverBlendAcrossSyncTasks(): void
     {
         $this->insertRow([
@@ -254,6 +364,58 @@ final class TrustedOtaFactRepositoryTest extends TestCase
         self::assertSame('business', $result['rows'][0]['data_type']);
         self::assertSame(1, $result['data_quality']['superseded_period_rows']);
         self::assertSame(1, $result['data_quality']['superseded_snapshot_rows']);
+    }
+
+    public function testCanonicalHistoryKeepsCtripAndQunarSeparateWhenStorageSourceMatches(): void
+    {
+        $rows = [[
+            'id' => 1,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'shared-ota-hotel',
+            'data_date' => '2026-07-01',
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'dimension' => '',
+            'compare_type' => 'self',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+            'sync_task_id' => 1001,
+            'snapshot_time' => '2026-07-01 10:00:00',
+            'update_time' => '2026-07-01 10:00:00',
+            'raw_data' => '{}',
+        ], [
+            'id' => 2,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'shared-ota-hotel',
+            'data_date' => '2026-07-01',
+            'source' => 'ctrip',
+            'platform' => 'qunar',
+            'data_type' => 'business',
+            'dimension' => '',
+            'compare_type' => 'self',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+            'sync_task_id' => 1002,
+            'snapshot_time' => '2026-07-01 11:00:00',
+            'update_time' => '2026-07-01 11:00:00',
+            'raw_data' => '{}',
+        ]];
+
+        $repository = new TrustedOtaFactRepository();
+        $canonicalMethod = new \ReflectionMethod($repository, 'selectCanonicalRows');
+        $summaryMethod = new \ReflectionMethod($repository, 'preferSummaryFactsPerSourceDate');
+        $snapshotMethod = new \ReflectionMethod($repository, 'selectLatestSummarySnapshotRows');
+
+        [$canonicalRows, $supersededPeriodRows] = $canonicalMethod->invoke($repository, $rows);
+        [$summaryRows, $suppressedMixedTypeRows] = $summaryMethod->invoke($repository, $canonicalRows);
+        [$snapshotRows, $supersededSnapshotRows] = $snapshotMethod->invoke($repository, $summaryRows);
+
+        self::assertSame([1, 2], array_column($snapshotRows, 'id'));
+        self::assertSame(['ctrip', 'qunar'], array_column($snapshotRows, 'platform'));
+        self::assertSame(0, $supersededPeriodRows);
+        self::assertSame(0, $suppressedMixedTypeRows);
+        self::assertSame(0, $supersededSnapshotRows);
     }
 
     public function testFailsClosedWhenReadbackProofColumnIsMissing(): void
@@ -315,6 +477,7 @@ final class TrustedOtaFactRepositoryTest extends TestCase
         self::assertNull($result['rows'][0]['amount']);
         self::assertNull($result['rows'][0]['quantity']);
         self::assertNull($result['rows'][0]['book_order_num']);
+        self::assertSame('ctrip', $result['rows'][0]['source']);
         self::assertContains('pricing_history_amount_column_missing', $result['data_gaps']);
         self::assertContains('pricing_history_quantity_column_missing', $result['data_gaps']);
         self::assertContains('pricing_history_book_order_num_column_missing', $result['data_gaps']);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\OtaCanonicalHistoryPromotionCoordinator;
+use app\service\OtaCollectionAnchorService;
 use PHPUnit\Framework\TestCase;
 
 final class OtaCanonicalHistoryPromotionCoordinatorTest extends TestCase
@@ -77,6 +78,91 @@ final class OtaCanonicalHistoryPromotionCoordinatorTest extends TestCase
         );
     }
 
+    public function testMissingMeituanSourceTaskDoesNotBlockStrictCtripPromotion(): void
+    {
+        $verifyCalls = [];
+        $promoteCalls = [];
+        $coordinator = new OtaCanonicalHistoryPromotionCoordinator(
+            function (int $hotelId, string $date, array $platforms, string $anchor) use (&$verifyCalls): array {
+                $verifyCalls[] = $platforms;
+                return $this->verifier($platforms, $anchor, $platforms === ['ctrip']);
+            },
+            function (
+                array $collection,
+                array $verifier,
+                string $platform,
+                int $tenantId,
+                int $hotelId
+            ) use (&$promoteCalls): array {
+                $promoteCalls[] = $platform;
+                return $this->promotion($platform);
+            }
+        );
+        $collection = $this->collection(['ctrip', 'meituan']);
+        $collection['source_tasks'] = array_values(array_filter(
+            $collection['source_tasks'],
+            static fn(array $task): bool => $task['platform'] === 'ctrip'
+        ));
+        $collection = $this->reanchor($collection);
+
+        $result = $coordinator->finalize($collection, 80, 80);
+
+        self::assertSame('partial', $result['status']);
+        self::assertFalse($result['canonical_history_complete']);
+        self::assertSame(['ctrip'], $result['promoted_platforms']);
+        self::assertSame(['meituan'], $result['blocked_platforms']);
+        self::assertSame([['ctrip']], $verifyCalls);
+        self::assertSame(['ctrip'], $promoteCalls);
+        self::assertSame([], $result['platform_results']['meituan']['verifier']);
+        self::assertSame(
+            'canonical_history_platform_source_task_missing',
+            $result['platform_results']['meituan']['promotion']['reason']
+        );
+    }
+
+    public function testMissingCtripSourceTaskDoesNotBlockStrictMeituanPromotion(): void
+    {
+        $verifyCalls = [];
+        $promoteCalls = [];
+        $coordinator = new OtaCanonicalHistoryPromotionCoordinator(
+            function (int $hotelId, string $date, array $platforms, string $anchor) use (&$verifyCalls): array {
+                $verifyCalls[] = $platforms;
+                return $this->verifier($platforms, $anchor, $platforms === ['meituan']);
+            },
+            function (
+                array $collection,
+                array $verifier,
+                string $platform,
+                int $tenantId,
+                int $hotelId
+            ) use (&$promoteCalls): array {
+                $promoteCalls[] = [$platform, $tenantId, $hotelId, $verifier['required_platforms'] ?? []];
+                return $this->promotion($platform);
+            }
+        );
+        $collection = $this->collection(['ctrip', 'meituan']);
+        $collection['source_tasks'] = array_values(array_filter(
+            $collection['source_tasks'],
+            static fn(array $task): bool => $task['platform'] === 'meituan'
+        ));
+        $collection = $this->reanchor($collection);
+
+        $result = $coordinator->finalize($collection, 80, 80);
+
+        self::assertSame('partial', $result['status']);
+        self::assertFalse($result['canonical_history_complete']);
+        self::assertSame(['meituan'], $result['promoted_platforms']);
+        self::assertSame(['ctrip'], $result['blocked_platforms']);
+        self::assertSame([['meituan']], $verifyCalls);
+        self::assertSame([['meituan', 80, 80, ['meituan']]], $promoteCalls);
+        self::assertSame([], $result['platform_results']['ctrip']['verifier']);
+        self::assertSame(
+            'canonical_history_platform_source_task_missing',
+            $result['platform_results']['ctrip']['promotion']['reason']
+        );
+        self::assertSame('verified', $result['platform_results']['meituan']['status']);
+    }
+
     public function testMalformedCollectionScopeFailsWithoutRunningCallbacks(): void
     {
         $called = false;
@@ -91,7 +177,65 @@ final class OtaCanonicalHistoryPromotionCoordinatorTest extends TestCase
             }
         );
         $collection = $this->collection(['ctrip']);
-        $collection['source_tasks'][0]['row_ids'] = [];
+        $collection['collection_anchor_hash'] = 'invalid';
+
+        $result = $coordinator->finalize($collection, 80, 80);
+
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('canonical_history_finalization_scope_invalid', $result['reason']);
+        self::assertFalse($called);
+    }
+
+    public function testCoordinatorRejectsTrafficOnlyAnchorWithoutExactTaskCoreClosure(): void
+    {
+        $verifyCalled = false;
+        $promoteCalled = false;
+        $coordinator = new OtaCanonicalHistoryPromotionCoordinator(
+            function () use (&$verifyCalled): array {
+                $verifyCalled = true;
+                return [];
+            },
+            function () use (&$promoteCalled): array {
+                $promoteCalled = true;
+                return [];
+            }
+        );
+        $collection = $this->collection(['ctrip']);
+        $collection['data_period'] = 'historical_daily';
+        $collection['source_tasks'][0]['historical_core_contract_status'] = 'blocked';
+        $collection = $this->reanchor($collection);
+
+        $result = $coordinator->finalize($collection, 80, 80);
+
+        self::assertSame('blocked', $result['status']);
+        self::assertFalse($result['canonical_history_complete']);
+        self::assertSame(['ctrip'], $result['blocked_platforms']);
+        self::assertSame(
+            'canonical_history_platform_core_contract_missing',
+            $result['platform_results']['ctrip']['promotion']['reason']
+        );
+        self::assertFalse($verifyCalled);
+        self::assertFalse($promoteCalled);
+    }
+
+    public function testCoordinatorRejectsCoreStatusTamperBeforeCallingVerifier(): void
+    {
+        $called = false;
+        $coordinator = new OtaCanonicalHistoryPromotionCoordinator(
+            function () use (&$called): array {
+                $called = true;
+                return [];
+            },
+            function () use (&$called): array {
+                $called = true;
+                return [];
+            }
+        );
+        $collection = $this->collection(['ctrip']);
+        $collection['data_period'] = 'historical_daily';
+        $collection['source_tasks'][0]['historical_core_contract_status'] = 'blocked';
+        $collection = $this->reanchor($collection);
+        $collection['source_tasks'][0]['historical_core_contract_status'] = 'ready';
 
         $result = $coordinator->finalize($collection, 80, 80);
 
@@ -134,6 +278,7 @@ final class OtaCanonicalHistoryPromotionCoordinatorTest extends TestCase
                 'platform' => $platform,
                 'collection_status' => 'success',
                 'p0_status' => 'ready',
+                'historical_core_contract_status' => 'not_required',
                 'row_ids' => [501 + $index],
             ];
         }
@@ -143,8 +288,19 @@ final class OtaCanonicalHistoryPromotionCoordinatorTest extends TestCase
             'data_period' => 'realtime_snapshot',
             'required_platforms' => $platforms,
             'source_tasks' => $tasks,
-            'collection_anchor_hash' => str_repeat('a', 64),
+            'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
+            'collection_anchor_hash' => OtaCollectionAnchorService::hash($tasks),
         ];
+    }
+
+    /** @param array<string,mixed> $collection @return array<string,mixed> */
+    private function reanchor(array $collection): array
+    {
+        $collection['collection_anchor_contract_version'] = OtaCollectionAnchorService::CONTRACT_VERSION;
+        $collection['collection_anchor_hash'] = OtaCollectionAnchorService::hash(
+            $collection['source_tasks'] ?? []
+        );
+        return $collection;
     }
 
     /** @param array<int,string> $platforms @return array<string,mixed> */

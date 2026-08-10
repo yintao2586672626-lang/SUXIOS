@@ -13,6 +13,14 @@ final class CloudOtaBundleImportService
         'cloud_bundle_actor_', 'cloud_bundle_destination_', 'cloud_bundle_cloud_source_',
         'cloud_bundle_import_schema_missing:', 'cloud_bundle_table_unavailable:',
     ];
+    private const READBACK_INTEGER_FIELDS = [
+        'tenant_id', 'system_hotel_id', 'data_source_id', 'sync_task_id',
+        'quantity', 'book_order_num', 'list_exposure', 'detail_exposure',
+        'order_filling_num', 'order_submit_num', 'is_final', 'readback_verified',
+    ];
+    private const READBACK_DECIMAL_FIELDS = [
+        'amount', 'comment_score', 'qunar_comment_score', 'data_value', 'flow_rate',
+    ];
 
     /** @return array<string, mixed> */
     public function readBundleFile(string $path): array
@@ -404,7 +412,8 @@ final class CloudOtaBundleImportService
             $rowIdentityHash,
             (string)$rowIdentityOccurrence,
         ]));
-        $data = CloudOtaBundleCodec::allowlistedRow($row);
+        $sourceRow = CloudOtaBundleCodec::allowlistedRow($row);
+        $data = $sourceRow;
         unset(
             $data['tenant_id'],
             $data['system_hotel_id'],
@@ -434,7 +443,7 @@ final class CloudOtaBundleImportService
             'source_row_identity_sha256' => $rowIdentityHash,
             'source_row_identity_occurrence' => $rowIdentityOccurrence,
             'row_index' => $index,
-            'row' => CloudOtaBundleCodec::allowlistedRow($row),
+            'row' => $sourceRow,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
         $data = $this->applyDestinationValidation($data, $columns);
         if ((string)($data['validation_status'] ?? '') === 'abnormal') {
@@ -516,15 +525,34 @@ final class CloudOtaBundleImportService
                 continue;
             }
             if ($field === 'raw_data') {
-                $expectedJson = is_string($expectedValue) ? json_decode($expectedValue, true) : null;
-                $storedJson = is_string($storedValue) ? json_decode($storedValue, true) : null;
-                if (!is_array($expectedJson) || !is_array($storedJson) || $expectedJson != $storedJson) {
+                $expectedJson = $this->canonicalRawJson($expectedValue);
+                $storedJson = $this->canonicalRawJson($storedValue);
+                if ($expectedJson === null
+                    || $storedJson === null
+                    || !hash_equals($expectedJson, $storedJson)
+                ) {
                     return false;
                 }
                 continue;
             }
-            if (is_numeric($expectedValue) && is_numeric($storedValue)) {
-                if (abs((float)$expectedValue - (float)$storedValue) > 0.0001) {
+            if (in_array($field, self::READBACK_INTEGER_FIELDS, true)) {
+                $expectedInteger = $this->canonicalInteger($expectedValue);
+                $storedInteger = $this->canonicalInteger($storedValue);
+                if ($expectedInteger === null
+                    || $storedInteger === null
+                    || !hash_equals($expectedInteger, $storedInteger)
+                ) {
+                    return false;
+                }
+                continue;
+            }
+            if (in_array($field, self::READBACK_DECIMAL_FIELDS, true)) {
+                $expectedDecimal = $this->canonicalDecimal($expectedValue);
+                $storedDecimal = $this->canonicalDecimal($storedValue);
+                if ($expectedDecimal === null
+                    || $storedDecimal === null
+                    || !hash_equals($expectedDecimal, $storedDecimal)
+                ) {
                     return false;
                 }
                 continue;
@@ -534,6 +562,127 @@ final class CloudOtaBundleImportService
             }
         }
         return true;
+    }
+
+    private function canonicalInteger(mixed $value): ?string
+    {
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+        if (is_int($value)) {
+            return (string)$value;
+        }
+        if (is_float($value)) {
+            if (!is_finite($value) || floor($value) !== $value) {
+                return null;
+            }
+            $value = sprintf('%.0F', $value);
+        } elseif (is_string($value)) {
+            $value = trim($value);
+        } else {
+            return null;
+        }
+        if (preg_match('/^-?(?:0|[0-9]+)$/D', $value) !== 1) {
+            return null;
+        }
+        $negative = str_starts_with($value, '-');
+        $digits = ltrim($negative ? substr($value, 1) : $value, '0');
+        if ($digits === '') {
+            return '0';
+        }
+        return $negative ? '-' . $digits : $digits;
+    }
+
+    private function canonicalDecimal(mixed $value): ?string
+    {
+        if (is_int($value)) {
+            $value = (string)$value;
+        } elseif (is_float($value)) {
+            if (!is_finite($value)) {
+                return null;
+            }
+            $encoded = json_encode($value, JSON_PRESERVE_ZERO_FRACTION);
+            if (!is_string($encoded)) {
+                return null;
+            }
+            $value = $encoded;
+        } elseif (is_string($value)) {
+            $value = trim($value);
+        } else {
+            return null;
+        }
+        if (preg_match('/^-?(?:[0-9]+)(?:\.([0-9]+))?$/D', $value, $matches) !== 1) {
+            return null;
+        }
+        $negative = str_starts_with($value, '-');
+        $unsigned = $negative ? substr($value, 1) : $value;
+        [$integer, $fraction] = array_pad(explode('.', $unsigned, 2), 2, '');
+        $integer = ltrim($integer, '0');
+        $integer = $integer === '' ? '0' : $integer;
+        $fraction = rtrim($fraction, '0');
+        $canonical = $fraction === '' ? $integer : $integer . '.' . $fraction;
+        if ($canonical === '0') {
+            return '0';
+        }
+        return $negative ? '-' . $canonical : $canonical;
+    }
+
+    private function canonicalRawJson(mixed $value): ?string
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+        try {
+            $decoded = json_decode($value, false, 512, JSON_THROW_ON_ERROR);
+            if (!$decoded instanceof \stdClass && !is_array($decoded)) {
+                return null;
+            }
+            return json_encode(
+                $this->typedCanonicalJsonNode($decoded),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** @return array{type:string,value:mixed} */
+    private function typedCanonicalJsonNode(mixed $value): array
+    {
+        if ($value instanceof \stdClass) {
+            $properties = get_object_vars($value);
+            ksort($properties, SORT_STRING);
+            $pairs = [];
+            foreach ($properties as $key => $item) {
+                $pairs[] = [(string)$key, $this->typedCanonicalJsonNode($item)];
+            }
+            return ['type' => 'object', 'value' => $pairs];
+        }
+        if (is_array($value)) {
+            return [
+                'type' => 'array',
+                'value' => array_map(fn(mixed $item): array => $this->typedCanonicalJsonNode($item), $value),
+            ];
+        }
+        if ($value === null) {
+            return ['type' => 'null', 'value' => null];
+        }
+        if (is_bool($value)) {
+            return ['type' => 'boolean', 'value' => $value];
+        }
+        if (is_int($value)) {
+            return ['type' => 'integer', 'value' => $value];
+        }
+        if (is_float($value)) {
+            if (!is_finite($value)) {
+                throw new RuntimeException('cloud_bundle_raw_json_number_invalid');
+            }
+            return ['type' => 'decimal', 'value' => $value];
+        }
+        if (is_string($value)) {
+            return ['type' => 'string', 'value' => $value];
+        }
+        throw new RuntimeException('cloud_bundle_raw_json_type_invalid');
     }
 
     /**

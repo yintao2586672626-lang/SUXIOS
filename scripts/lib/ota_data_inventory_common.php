@@ -133,15 +133,22 @@ function ota_inventory_online_duplicate_summary(PDO $pdo): array
                  COALESCE(data_type, '') AS data_type_key,
                  COALESCE(dimension, '') AS dimension_key,
                  COALESCE(compare_type, '') AS compare_type_key,
-                 data_date,
-                 COALESCE(data_period, '') AS period_key,
-                 COALESCE(snapshot_bucket, '') AS bucket_key,
-                 COALESCE(system_hotel_id, 0) AS system_hotel_key,
+                  data_date,
+                  COALESCE(data_period, '') AS period_key,
+                  COALESCE(snapshot_bucket, '') AS bucket_key,
+                  CASE
+                    WHEN LOWER(TRIM(COALESCE(data_type, ''))) IN ('traffic', 'flow', 'conversion')
+                     AND COALESCE(sync_task_id, 0) > 0
+                     AND LOWER(TRIM(COALESCE(ingestion_method, ''))) NOT IN ('manual', 'import_json', 'import_csv', 'import_excel')
+                    THEN sync_task_id
+                    ELSE 0
+                  END AS task_snapshot_key,
+                  COALESCE(system_hotel_id, 0) AS system_hotel_key,
                  COALESCE(NULLIF(hotel_id, ''), CONCAT('name:', COALESCE(hotel_name, ''))) AS hotel_key,
                  COUNT(*) AS cnt
           FROM online_daily_data
           GROUP BY source_key, platform_key, data_type_key, dimension_key, compare_type_key,
-                   data_date, period_key, bucket_key, system_hotel_key, hotel_key
+                   data_date, period_key, bucket_key, task_snapshot_key, system_hotel_key, hotel_key
           HAVING COUNT(*) > 1
         ) x
     ");

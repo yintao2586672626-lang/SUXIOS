@@ -2355,6 +2355,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         draft: '草稿',
         pending_approval: '待审批',
         approved: '已审批',
+        system_authorized_analysis: '系统授权核查',
         rejected: '已驳回',
         blocked: '已阻塞',
         pending_create: '待生成任务',
@@ -2368,6 +2369,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
     }[status] || status || '-');
     const operationExecutionStatusClass = (status) => ({
         approved: 'bg-green-50 text-green-700',
+        system_authorized_analysis: 'bg-violet-50 text-violet-700',
         executed: 'bg-green-50 text-green-700',
         success: 'bg-green-50 text-green-700',
         pending_approval: 'bg-amber-50 text-amber-700',

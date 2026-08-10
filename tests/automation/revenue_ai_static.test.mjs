@@ -20,6 +20,62 @@ const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8')
 const aiDailyReportFragment = readFileSync('resources/frontend/templates/fragments/16-page-ai-daily-report.html', 'utf8');
 const html = `${indexHtml}\n${appTemplate}\n${appMain}`;
 
+const createRevenueAiGapNavigationHarness = (initialFilter = {}, harnessOptions = {}) => {
+  const start = appMain.indexOf('            const openRevenueAiGap =');
+  const end = appMain.indexOf('            const openRevenueAiMetric =', start);
+  assert.ok(start >= 0 && end > start, 'openRevenueAiGap source must remain extractable for behavior tests');
+  const openRevenueAiGapSource = appMain.slice(start, end);
+  const factory = vm.runInNewContext([
+    '(resolveGapTarget, initialFilter, harnessOptions) => {',
+    "  const revenueAiStaticReady = { value: true };",
+    "  const revenueAiStaticError = { value: '' };",
+    "  const revenueAiStaticNotLoadedText = 'not loaded';",
+    "  const filterReportHotel = { value: harnessOptions.filterReportHotel || '999' };",
+    "  const onlineDataFilter = { value: { hotel_id: '999', source: 'all', start_date: '2026-01-01', end_date: '2026-08-09', ...initialFilter } };",
+    "  const autoFetchHotelId = { value: harnessOptions.autoFetchHotelId || '999' };",
+    "  const coreOperationsHotelId = { value: harnessOptions.coreOperationsHotelId || '999' };",
+    "  const coreOperationsTargetDate = { value: harnessOptions.coreOperationsTargetDate || '2026-08-09' };",
+    "  const currentPage = { value: harnessOptions.currentPage || 'revenue-ai' };",
+    "  const platformHotelId = { value: harnessOptions.platformHotelId || '999' };",
+    "  const agentTab = { value: '' };",
+    "  const revenueAgentTab = { value: '' };",
+    '  const events = [];',
+    '  const scopeSnapshot = () => ({',
+    '    hotel_id: onlineDataFilter.value.hotel_id,',
+    '    source: onlineDataFilter.value.source,',
+    '    start_date: onlineDataFilter.value.start_date,',
+    '    end_date: onlineDataFilter.value.end_date,',
+    '  });',
+    "  const ensureRevenueAiStaticReady = async () => true;",
+    "  const showToast = () => {};",
+    "  const resetCoreOperationsScopedState = () => events.push({ kind: 'reset-core-scope' });",
+    '  const applyGeneralHotelToPlatformContext = async (platform, hotelId) => {',
+    "    events.push({ kind: 'platform-context', platform, hotelId, scope: scopeSnapshot(), page: currentPage.value });",
+    '    if (harnessOptions.platformContextResult === false) return false;',
+    '    platformHotelId.value = hotelId;',
+    '    return true;',
+    '  };',
+    '  const nextTick = async (callback) => (typeof callback === \'function\' ? callback() : undefined);',
+    "  const openCtripManualTab = (tab) => events.push({ kind: 'ctrip', tab, scope: scopeSnapshot() });",
+    "  const openMeituanManualTab = (tab) => events.push({ kind: 'meituan', tab, scope: scopeSnapshot() });",
+    '  const openOnlineDataEntryTab = (tab, options) => {',
+    "    events.push({ kind: 'online-data', tab, options, scope: scopeSnapshot() });",
+    "    currentPage.value = 'online-data';",
+    '  };',
+    "  const loadPriceSuggestionWorkbench = async () => {};",
+    "  const loadRoomTypes = async () => {};",
+    "  const loadRevenueAnalysisBundle = async () => {};",
+    '  const revenueAiResolveGapTarget = resolveGapTarget;',
+    openRevenueAiGapSource,
+    '  return {',
+    '    openRevenueAiGap, events, filterReportHotel, onlineDataFilter, autoFetchHotelId,',
+    '    coreOperationsHotelId, coreOperationsTargetDate, currentPage, platformHotelId,',
+    '  };',
+    '}',
+  ].join('\n'), {}, { filename: 'revenue-ai-gap-navigation-harness.js' });
+  return factory(helpers.resolveRevenueAiGapTarget, initialFilter, harnessOptions);
+};
+
 const aiDailyTaskHelpersStart = '// AI_DAILY_REPORT_TASK_HELPERS_START';
 const aiDailyTaskHelpersEnd = '// AI_DAILY_REPORT_TASK_HELPERS_END';
 const aiDailyTaskHelpersSource = appMain.slice(
@@ -116,6 +172,11 @@ test('Revenue AI static helper exposes the required display contract', () => {
   assert.match(helpers.revenueAiStatusClass('missing'), /amber/);
   assert.match(helpers.revenueAiStatusClass('warning'), /amber/);
   assert.equal(helpers.revenueAiReasonText('ZERO_CONFIRMED'), '渠道明确确认目标经营日期无数据。');
+  assert.match(helpers.revenueAiReasonText('metric_scope_mismatch'), /酒店、平台或业务日期/);
+  assert.match(helpers.revenueAiReasonText('metric_truth_unverified'), /未完成.*验证/);
+  assert.match(helpers.revenueAiReasonText('metric_truth_partial'), /部分来源事实/);
+  assert.match(helpers.revenueAiReasonText('metric_truth_collection_failed'), /采集失败/);
+  assert.match(helpers.revenueAiReasonText('overview_scope_mismatch'), /Revenue AI 总览/);
   assert.match(helpers.revenueAiReasonText('competitor_price_above_competitor'), /高于竞对均价/);
   assert.match(helpers.revenueAiReasonText('floor_price_missing'), /最低保护价/);
   assert.match(helpers.revenueAiReasonText('manual_review_workflow_not_connected'), /人工审核工作流/);
@@ -798,6 +859,8 @@ test('Revenue AI gap target resolver defaults to the existing data health entry'
   assert.equal(defaultTarget.targetPlatform, '');
   assert.equal(defaultTarget.targetAgentTab, '');
   assert.equal(defaultTarget.targetRevenueTab, '');
+  assert.equal(defaultTarget.hotelId, '');
+  assert.equal(defaultTarget.businessDate, '');
 
   const snakeCaseTarget = helpers.resolveRevenueAiGapTarget({
     target_page: 'agent-center',
@@ -805,12 +868,16 @@ test('Revenue AI gap target resolver defaults to the existing data health entry'
     target_platform: '',
     target_agent_tab: 'revenue',
     target_revenue_tab: 'config',
+    hotel_id: 80,
+    business_date: '2026-08-01',
   });
   assert.equal(snakeCaseTarget.targetPage, 'agent-center');
   assert.equal(snakeCaseTarget.targetTab, 'config');
   assert.equal(snakeCaseTarget.targetPlatform, '');
   assert.equal(snakeCaseTarget.targetAgentTab, 'revenue');
   assert.equal(snakeCaseTarget.targetRevenueTab, 'config');
+  assert.equal(snakeCaseTarget.hotelId, '80');
+  assert.equal(snakeCaseTarget.businessDate, '2026-08-01');
 
   const camelCaseTarget = helpers.resolveRevenueAiGapTarget({
     targetPage: 'legacy-page',
@@ -818,12 +885,156 @@ test('Revenue AI gap target resolver defaults to the existing data health entry'
     targetPlatform: 'meituan',
     targetAgentTab: 'overview',
     targetRevenueTab: 'analysis',
+    hotelId: '81',
+    businessDate: '2026-08-02',
   });
   assert.equal(camelCaseTarget.targetPage, 'legacy-page');
   assert.equal(camelCaseTarget.targetTab, 'legacy-tab');
   assert.equal(camelCaseTarget.targetPlatform, 'meituan');
   assert.equal(camelCaseTarget.targetAgentTab, 'overview');
   assert.equal(camelCaseTarget.targetRevenueTab, 'analysis');
+  assert.equal(camelCaseTarget.hotelId, '81');
+  assert.equal(camelCaseTarget.businessDate, '2026-08-02');
+});
+
+test('Revenue AI gap navigation aligns hotel platform and exact business date before every data jump', async () => {
+  const cases = [
+    { target_page: 'ctrip-ebooking', target_platform: 'ctrip', expectedEvent: 'ctrip' },
+    { target_page: 'meituan-ebooking', target_platform: 'meituan', expectedEvent: 'meituan' },
+    { target_page: 'online-data', target_platform: 'meituan', expectedEvent: 'online-data' },
+  ];
+
+  for (const target of cases) {
+    const harness = createRevenueAiGapNavigationHarness({
+      hotel_id: '998',
+      source: 'ctrip',
+      start_date: '2026-07-01',
+      end_date: '2026-08-09',
+    });
+    const opened = await harness.openRevenueAiGap({
+      ...target,
+      target_tab: 'data-health',
+      hotel_id: 80,
+      business_date: '2026-08-01',
+    });
+    const expectedScope = {
+      hotel_id: '80',
+      source: target.target_platform,
+      start_date: '2026-08-01',
+      end_date: '2026-08-01',
+    };
+
+    assert.equal(opened, true);
+    assert.deepEqual({
+      hotel_id: harness.onlineDataFilter.value.hotel_id,
+      source: harness.onlineDataFilter.value.source,
+      start_date: harness.onlineDataFilter.value.start_date,
+      end_date: harness.onlineDataFilter.value.end_date,
+    }, expectedScope);
+    assert.equal(harness.filterReportHotel.value, '80');
+    assert.equal(harness.autoFetchHotelId.value, '80');
+    assert.equal(harness.coreOperationsHotelId.value, '80');
+    assert.equal(harness.coreOperationsTargetDate.value, '2026-08-01');
+
+    const jump = harness.events.find((event) => event.kind === target.expectedEvent);
+    assert.ok(jump, `${target.target_page} must execute its real navigation branch`);
+    assert.deepEqual({ ...jump.scope }, expectedScope, 'scope must be exact before navigation starts');
+    if (target.target_page !== 'online-data') {
+      const platformContext = harness.events.find((event) => event.kind === 'platform-context');
+      assert.equal(platformContext.platform, target.target_platform);
+      assert.equal(platformContext.hotelId, '80');
+      assert.equal(platformContext.page, 'revenue-ai');
+      assert.deepEqual({ ...platformContext.scope }, {
+        hotel_id: '998',
+        source: 'ctrip',
+        start_date: '2026-07-01',
+        end_date: '2026-08-09',
+      }, 'general filters must remain untouched until the platform hotel is accepted');
+      assert.equal(harness.platformHotelId.value, '80');
+    }
+  }
+});
+
+test('Revenue AI gap navigation refuses incomplete or contradictory scope without changing the page', async () => {
+  const incompleteHarness = createRevenueAiGapNavigationHarness({
+    hotel_id: '999',
+    source: 'all',
+    start_date: '2026-07-01',
+    end_date: '2026-08-09',
+  });
+  const incompleteOpened = await incompleteHarness.openRevenueAiGap({
+    target_page: 'online-data',
+    target_tab: 'data-health',
+    target_platform: 'meituan',
+  });
+
+  assert.equal(incompleteOpened, false);
+  assert.equal(incompleteHarness.currentPage.value, 'revenue-ai');
+  assert.deepEqual({
+    hotel_id: incompleteHarness.onlineDataFilter.value.hotel_id,
+    source: incompleteHarness.onlineDataFilter.value.source,
+    start_date: incompleteHarness.onlineDataFilter.value.start_date,
+    end_date: incompleteHarness.onlineDataFilter.value.end_date,
+  }, {
+    hotel_id: '999',
+    source: 'all',
+    start_date: '2026-07-01',
+    end_date: '2026-08-09',
+  });
+  assert.equal(incompleteHarness.events.length, 0);
+
+  const contradictoryHarness = createRevenueAiGapNavigationHarness();
+  const contradictoryOpened = await contradictoryHarness.openRevenueAiGap({
+    target_page: 'ctrip-ebooking',
+    target_tab: 'data-health',
+    target_platform: 'meituan',
+    hotel_id: 80,
+    business_date: '2026-08-01',
+  });
+  assert.equal(contradictoryOpened, false);
+  assert.equal(contradictoryHarness.currentPage.value, 'revenue-ai');
+  assert.equal(contradictoryHarness.events.length, 0);
+});
+
+test('Revenue AI gap navigation rolls back general scope when platform hotel alignment fails', async () => {
+  const harness = createRevenueAiGapNavigationHarness({
+    hotel_id: '999',
+    source: 'all',
+    start_date: '2026-07-01',
+    end_date: '2026-08-09',
+  }, {
+    currentPage: 'ctrip-ebooking',
+    platformContextResult: false,
+    platformHotelId: '999',
+  });
+  const opened = await harness.openRevenueAiGap({
+    target_page: 'ctrip-ebooking',
+    target_tab: 'data-health',
+    target_platform: 'ctrip',
+    hotel_id: 80,
+    business_date: '2026-08-01',
+  });
+
+  assert.equal(opened, false);
+  assert.equal(harness.currentPage.value, 'ctrip-ebooking');
+  assert.equal(harness.platformHotelId.value, '999');
+  assert.equal(harness.filterReportHotel.value, '999');
+  assert.equal(harness.autoFetchHotelId.value, '999');
+  assert.equal(harness.coreOperationsHotelId.value, '999');
+  assert.equal(harness.coreOperationsTargetDate.value, '2026-08-09');
+  assert.deepEqual({
+    hotel_id: harness.onlineDataFilter.value.hotel_id,
+    source: harness.onlineDataFilter.value.source,
+    start_date: harness.onlineDataFilter.value.start_date,
+    end_date: harness.onlineDataFilter.value.end_date,
+  }, {
+    hotel_id: '999',
+    source: 'all',
+    start_date: '2026-07-01',
+    end_date: '2026-08-09',
+  });
+  assert.equal(harness.events.filter((event) => event.kind === 'platform-context').length, 1);
+  assert.equal(harness.events.some((event) => ['ctrip', 'online-data'].includes(event.kind)), false);
 });
 
 test('Revenue AI decision basis navigation resolver keeps target parsing pure', () => {
@@ -1071,6 +1282,8 @@ test('Revenue AI surfaces the canonical three-source facts without promoting OTA
     targetPlatform: '',
     targetAgentTab: 'revenue',
     targetRevenueTab: 'suggestions',
+    hotelId: '',
+    businessDate: '',
   });
 
   const statusRows = helpers.buildRevenueAiStatusRows({
@@ -1386,6 +1599,66 @@ test('Revenue AI gap rows expose request failures and source quality issues', ()
   assert.equal(issueRows[1].channelLabel, '美团');
   assert.equal(issueRows[1].statusLabel, '未授权');
   assert.equal(issueRows[1].nextAction, '重新登录美团。');
+});
+
+test('Revenue AI gap rows keep platform metrics separate and expose every source action', () => {
+  const channelMetricGaps = ['ctrip', 'meituan'].flatMap((platform) => (
+    Array.from({ length: 11 }, (_, index) => ({
+      key: `${platform}_metric_gap_${index}`,
+      type: 'channel_metric_gap',
+      channel: platform,
+      target_platform: platform,
+      label: `${platform === 'ctrip' ? '携程' : '美团'}指标${index + 1}`,
+      status: 'missing',
+      reason: index === 0 ? 'room_revenue_missing' : `${platform}_metric_${index}_missing`,
+      severity: index < 3 ? 'high' : 'medium',
+      next_action: `补齐${platform === 'ctrip' ? '携程' : '美团'}指标${index + 1}`,
+      acceptance_check: `验收${platform === 'ctrip' ? '携程' : '美团'}指标${index + 1}`,
+      forbidden_shortcut: 'cross_platform_fill',
+      completion_state: 'source_fact_required',
+      target_page: platform === 'ctrip' ? 'ctrip-ebooking' : 'online-data',
+      target_tab: 'data-health',
+      hotel_id: 80,
+      business_date: '2026-08-01',
+    }))
+  ));
+  const rows = helpers.buildRevenueAiGapRows({
+    overview: {
+      channel_metric_gaps: channelMetricGaps,
+      missing_datasets: [{
+        key: 'global_room_revenue_missing',
+        reason: 'room_revenue_missing',
+        status: 'missing',
+      }],
+      quality_issues: [],
+    },
+  });
+
+  assert.equal(rows.length, 22, 'the gap list must not hide either platform\'s complete metric set');
+  assert.equal(helpers.buildRevenueAiGapSummary(rows).total, 22, 'the summary must use the complete gap list');
+  assert.equal(helpers.buildRevenueAiGapSummary(rows).high, 6);
+  assert.equal(rows[0].channelLabel, '携程');
+  assert.equal(rows[0].target_page, 'ctrip-ebooking');
+  assert.equal(rows[0].acceptanceCheck, '验收携程指标1');
+  assert.equal(rows[0].forbiddenShortcut, 'cross_platform_fill');
+  assert.equal(rows[0].completionState, 'source_fact_required');
+  assert.match(rows[0].reasonText, /房费收入/);
+  assert.equal(rows[21].channelLabel, '美团');
+  assert.equal(rows[21].target_page, 'online-data');
+  assert.equal(rows[21].hotel_id, 80);
+  assert.equal(rows[21].business_date, '2026-08-01');
+  assert.deepEqual({ ...helpers.resolveRevenueAiGapTarget(rows[21]) }, {
+    targetPage: 'online-data',
+    targetTab: 'data-health',
+    targetPlatform: 'meituan',
+    targetAgentTab: '',
+    targetRevenueTab: '',
+    hotelId: '80',
+    businessDate: '2026-08-01',
+  });
+  assert.equal(rows.some((row) => row.key === 'global_room_revenue_missing'), false);
+  assert.match(appMain, /targetPage === 'ctrip-ebooking'/);
+  assert.match(appMain, /openCtripManualTab\(targetTab \|\| 'data-health'\)/);
 });
 
 test('Revenue AI status rows preserve OTA and whole-hotel scope boundaries', () => {

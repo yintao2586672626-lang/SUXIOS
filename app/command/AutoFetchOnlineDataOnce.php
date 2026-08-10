@@ -4,11 +4,11 @@ declare(strict_types=1);
 namespace app\command;
 
 use app\service\OtaFailureNotificationService;
+use app\service\OnlineDataAutoFetchStatusStore;
 use think\console\Command;
 use think\console\Input;
 use think\console\Output;
 use think\console\input\Option;
-use think\facade\Cache;
 
 class AutoFetchOnlineDataOnce extends Command
 {
@@ -162,49 +162,17 @@ class AutoFetchOnlineDataOnce extends Command
             return;
         }
 
-        $statusKey = "online_data_auto_fetch_status_{$hotelId}";
-        $status = Cache::get($statusKey, []);
-        $status = is_array($status) ? $status : [];
-        $runAt = date('Y-m-d H:i:s');
-        $runRecord = [
-            'run_at' => $runAt,
-            'data_date' => $dataDate,
-            'success' => false,
-            'status' => 'failed',
-            'message' => $message,
-            'data_period' => in_array($dataPeriod, ['historical_daily', 'realtime_snapshot'], true) ? $dataPeriod : 'realtime_snapshot',
-            'saved_count' => max(0, (int)($details['saved_count'] ?? 0)),
-        ];
-        if (!empty($body['task_id'])) {
-            $runRecord['task_id'] = (string)$body['task_id'];
-        }
-        if (is_array($details['platform_results'] ?? null)) {
-            $runRecord['platform_results'] = $details['platform_results'];
-        }
-        if (!empty($body['auto_fetch_mode'])) {
-            $runRecord['auto_fetch_mode'] = (string)$body['auto_fetch_mode'];
-        }
-        if (!empty($body['ctrip_section_concurrency']) && is_numeric($body['ctrip_section_concurrency'])) {
-            $runRecord['ctrip_section_concurrency'] = max(1, min(4, (int)$body['ctrip_section_concurrency']));
-        }
-
-        $status['last_run_time'] = $runAt;
-        $status['last_data_date'] = $dataDate;
-        unset($status['running_task']);
-        $status['last_result'] = [
-            'success' => false,
-            'status' => 'failed',
-            'message' => $message,
-            'data_period' => $runRecord['data_period'],
-            'saved_count' => $runRecord['saved_count'],
-            'task_id' => (string)($body['task_id'] ?? ''),
-            'platform_results' => is_array($details['platform_results'] ?? null) ? $details['platform_results'] : [],
-            'timing' => is_array($details['timing'] ?? null) ? $details['timing'] : [],
-        ];
-        $recentRuns = is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : [];
-        array_unshift($recentRuns, $runRecord);
-        $status['recent_runs'] = array_slice($recentRuns, 0, 10);
-        Cache::set($statusKey, $status, 86400 * 30);
+        (new OnlineDataAutoFetchStatusStore())->mutate(
+            $hotelId,
+            fn(array $status): array => $this->buildFailedStatus(
+                $status,
+                $dataDate,
+                $dataPeriod,
+                $message,
+                $body,
+                $details
+            )
+        );
 
         try {
             (new OtaFailureNotificationService())->recordCollectionOutcome([
@@ -223,5 +191,67 @@ class AutoFetchOnlineDataOnce extends Command
                 'exception_type' => get_debug_type($e),
             ]);
         }
+    }
+
+    /** @param array<string,mixed> $status @return array<string,mixed> */
+    private function buildFailedStatus(
+        array $status,
+        string $dataDate,
+        string $dataPeriod,
+        string $message,
+        array $body,
+        array $details
+    ): array {
+        $runAt = date('Y-m-d H:i:s');
+        $runRecord = [
+            'run_at' => $runAt,
+            'data_date' => $dataDate,
+            'success' => false,
+            'status' => 'failed',
+            'message' => $message,
+            'data_period' => in_array(
+                $dataPeriod,
+                ['historical_daily', 'realtime_snapshot'],
+                true
+            ) ? $dataPeriod : 'realtime_snapshot',
+            'saved_count' => max(0, (int)($details['saved_count'] ?? 0)),
+        ];
+        if (!empty($body['task_id'])) {
+            $runRecord['task_id'] = (string)$body['task_id'];
+        }
+        if (is_array($details['platform_results'] ?? null)) {
+            $runRecord['platform_results'] = $details['platform_results'];
+        }
+        if (!empty($body['auto_fetch_mode'])) {
+            $runRecord['auto_fetch_mode'] = (string)$body['auto_fetch_mode'];
+        }
+        if (!empty($body['ctrip_section_concurrency'])
+            && is_numeric($body['ctrip_section_concurrency'])
+        ) {
+            $runRecord['ctrip_section_concurrency'] = max(
+                1,
+                min(4, (int)$body['ctrip_section_concurrency'])
+            );
+        }
+
+        $status['last_run_time'] = $runAt;
+        $status['last_data_date'] = $dataDate;
+        unset($status['running_task']);
+        $status['last_result'] = [
+            'success' => false,
+            'status' => 'failed',
+            'message' => $message,
+            'data_period' => $runRecord['data_period'],
+            'saved_count' => $runRecord['saved_count'],
+            'task_id' => (string)($body['task_id'] ?? ''),
+            'platform_results' => is_array($details['platform_results'] ?? null)
+                ? $details['platform_results']
+                : [],
+            'timing' => is_array($details['timing'] ?? null) ? $details['timing'] : [],
+        ];
+        $recentRuns = is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : [];
+        array_unshift($recentRuns, $runRecord);
+        $status['recent_runs'] = array_slice($recentRuns, 0, 10);
+        return $status;
     }
 }

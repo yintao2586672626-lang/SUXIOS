@@ -15,6 +15,16 @@ final class CtripOrderExportImportService
     private const ACTIVE_STATUSES = ['已入住', '已接单', '已改订', '部分入住', '已确认'];
     private const CANCELLED_STATUSES = ['已取消', '已撤销', '已作废'];
     private const REQUIRED_HEADERS = ['订单号', '订单状态', '入住日期', '离店日期'];
+    private const CTRIP_EXPORT_HEADERS = [
+        '城市', '酒店名称', '订单号', '订单类型', '订单状态', '房型ID', '房型名称', '客人姓名',
+        '入住日期', '离店日期', '晚数', '预订时间', '通知时间', '房间数', '币种', '底价',
+        '卖价', '促销', '确认类型', '酒店确认人', '预订号', '备注', '确认备注', '携程提示', '预订网站',
+    ];
+    private const SAFE_IMPORT_HEADERS = [
+        '城市', '酒店名称', '订单号', '订单类型', '订单状态', '房型ID', '房型名称',
+        '入住日期', '离店日期', '晚数', '预订时间', '通知时间', '房间数', '币种',
+        '底价', '卖价', '预订网站',
+    ];
     private const HEADER_ALIASES = [
         '订单编号' => '订单号',
         '携程订单号' => '订单号',
@@ -89,14 +99,18 @@ final class CtripOrderExportImportService
                     continue;
                 }
 
+                $sourceLayout = $this->sourceLayout($headers);
+                $importColumns = [];
+                foreach ($headers as $columnOffset => $header) {
+                    if (in_array($header, self::SAFE_IMPORT_HEADERS, true)) {
+                        $importColumns[$columnOffset + 1] = $header;
+                    }
+                }
+
                 for ($rowIndex = $headerRow + 1; $rowIndex <= $highestRow; $rowIndex++) {
                     $row = [];
                     $hasValue = false;
-                    for ($columnIndex = 1; $columnIndex <= $highestColumn; $columnIndex++) {
-                        $header = $this->canonicalHeader((string)($headers[$columnIndex - 1] ?? ''));
-                        if ($header === '') {
-                            continue;
-                        }
+                    foreach ($importColumns as $columnIndex => $header) {
                         $value = $this->cellText($worksheet, $columnIndex, $rowIndex);
                         if ($value !== '') {
                             $hasValue = true;
@@ -106,9 +120,8 @@ final class CtripOrderExportImportService
                     if (!$hasValue) {
                         continue;
                     }
-                    $row['_source_sheet'] = $worksheet->getTitle();
-                    $row['_source_row'] = $rowIndex;
                     $row['_source_format'] = $sourceFormat;
+                    $row['_source_layout'] = $sourceLayout;
                     $rows[] = $row;
                 }
             }
@@ -167,6 +180,9 @@ final class CtripOrderExportImportService
         if ($systemHotelId <= 0) {
             throw new RuntimeException('导入携程订单前必须选择目标酒店。', 422);
         }
+        $targetHotelName = $this->text($context['hotel_name'] ?? '');
+        $isTestFixture = !empty($context['test_fixture']);
+        $this->assertHotelScope($rows, $targetHotelName, $isTestFixture);
 
         $orders = [];
         foreach ($rows as $row) {
@@ -200,14 +216,16 @@ final class CtripOrderExportImportService
             }
 
             [$channelKey, $channelLabel] = $this->channel($row['预订网站'] ?? '');
-            $groupKey = $channelKey . '|' . $dataDate;
+            $groupKey = $systemHotelId . '|' . $channelKey . '|' . $dataDate;
             if (!isset($groups[$groupKey])) {
                 $groups[$groupKey] = [
                     'channel_key' => $channelKey,
                     'channel_label' => $channelLabel,
                     'data_date' => $dataDate,
                     'date_source' => $dateSource,
-                    'hotel_name' => $this->text($row['酒店名称'] ?? $context['hotel_name'] ?? ''),
+                    'hotel_name' => $targetHotelName !== ''
+                        ? $targetHotelName
+                        : $this->text($row['酒店名称'] ?? ''),
                     'city' => $this->text($row['城市'] ?? ''),
                     'gross_orders' => 0,
                     'active_orders' => 0,
@@ -216,30 +234,53 @@ final class CtripOrderExportImportService
                     'room_nights' => 0.0,
                     'gross_room_nights' => 0.0,
                     'bottom_price_sum' => 0.0,
+                    'bottom_price_room_nights' => 0.0,
+                    'bottom_price_valid_orders' => 0,
+                    'bottom_price_missing_orders' => 0,
+                    'bottom_price_invalid_orders' => 0,
                     'sell_price_sum' => 0.0,
+                    'sell_price_valid_orders' => 0,
+                    'sell_price_missing_orders' => 0,
+                    'sell_price_invalid_orders' => 0,
                     'los_sum' => 0.0,
                     'lead_days_sum' => 0.0,
                     'lead_days_count' => 0,
                     'single_night_orders' => 0,
                     'room_types' => [],
-                    'order_fingerprints' => [],
+                    'order_fact_fingerprints' => [],
                     'source_formats' => [],
-                    'source_file_count' => 0,
+                    'source_layouts' => [],
+                    'source_file_ids' => [],
                 ];
             }
             $group =& $groups[$groupKey];
             $group['gross_orders']++;
-            $group['order_fingerprints'][] = (string)$row['_order_fingerprint'];
             $sourceFormat = $this->text($row['_source_format'] ?? '');
             if (in_array($sourceFormat, ['biff_xls', 'html_table_xls'], true)) {
                 $group['source_formats'][$sourceFormat] = true;
-                $group['source_file_count'] = 1;
             }
+            $sourceLayout = $this->text($row['_source_layout'] ?? '');
+            if ($sourceLayout !== '') {
+                $group['source_layouts'][$sourceLayout] = true;
+            }
+            $sourceFileId = max(1, (int)($row['_source_file_index'] ?? 1));
+            $group['source_file_ids'][$sourceFileId] = true;
 
             $nights = max(0.0, $this->number($row['晚数'] ?? null) ?? 0.0);
             $rooms = max(0.0, $this->number($row['房间数'] ?? null) ?? 0.0);
             $orderRoomNights = $nights * $rooms;
             $group['gross_room_nights'] += $orderRoomNights;
+            $group['order_fact_fingerprints'][] = hash('sha256', json_encode([
+                'order' => (string)$row['_order_fingerprint'],
+                'state' => $state,
+                'candidate_time' => (string)($row['_candidate_time'] ?? ''),
+                'stay_date' => $stayDate,
+                'departure_date' => $this->date($row['离店日期'] ?? null),
+                'nights' => $nights,
+                'rooms' => $rooms,
+                'bottom_price' => $this->text($row['底价'] ?? ''),
+                'channel' => $channelKey,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 
             if ($state === 'cancelled') {
                 $group['cancelled_orders']++;
@@ -254,8 +295,27 @@ final class CtripOrderExportImportService
 
             $group['active_orders']++;
             $group['room_nights'] += $orderRoomNights;
-            $group['bottom_price_sum'] += $this->number($row['底价'] ?? null) ?? 0.0;
-            $group['sell_price_sum'] += $this->number($row['卖价'] ?? null) ?? 0.0;
+            $bottomPriceText = $this->text($row['底价'] ?? '');
+            $bottomPrice = $this->number($bottomPriceText);
+            if ($bottomPriceText === '') {
+                $group['bottom_price_missing_orders']++;
+            } elseif ($bottomPrice === null || $bottomPrice < 0) {
+                $group['bottom_price_invalid_orders']++;
+            } else {
+                $group['bottom_price_sum'] += $bottomPrice;
+                $group['bottom_price_room_nights'] += $orderRoomNights;
+                $group['bottom_price_valid_orders']++;
+            }
+            $sellPriceText = $this->text($row['卖价'] ?? '');
+            $sellPrice = $this->number($sellPriceText);
+            if ($sellPriceText === '') {
+                $group['sell_price_missing_orders']++;
+            } elseif ($sellPrice === null || $sellPrice < 0) {
+                $group['sell_price_invalid_orders']++;
+            } else {
+                $group['sell_price_sum'] += $sellPrice;
+                $group['sell_price_valid_orders']++;
+            }
             $group['los_sum'] += $nights;
             if ($nights === 1.0) {
                 $group['single_night_orders']++;
@@ -279,14 +339,14 @@ final class CtripOrderExportImportService
             foreach (array_slice($group['room_types'], 0, 5, true) as $roomType => $count) {
                 $topRoomTypes[] = ['name' => $roomType, 'orders' => $count];
             }
-            sort($group['order_fingerprints']);
-            $snapshotHash = hash('sha256', implode('|', $group['order_fingerprints']));
+            sort($group['order_fact_fingerprints']);
+            $snapshotHash = hash('sha256', implode('|', $group['order_fact_fingerprints']));
             $sourceFormats = array_keys($group['source_formats']);
             sort($sourceFormats);
             $sourceFormat = count($sourceFormats) === 1
                 ? $sourceFormats[0]
                 : ($sourceFormats === [] ? null : 'mixed_allowed_formats');
-            $cancelRate = $group['gross_orders'] > 0
+            $cancelRate = $group['gross_orders'] > 0 && $group['unknown_status_orders'] === 0
                 ? $group['cancelled_orders'] / $group['gross_orders']
                 : null;
             $averageLos = $group['active_orders'] > 0
@@ -298,9 +358,28 @@ final class CtripOrderExportImportService
             $averageLeadDays = $group['lead_days_count'] > 0
                 ? $group['lead_days_sum'] / $group['lead_days_count']
                 : null;
-            $bottomPriceAdr = $group['room_nights'] > 0
-                ? $group['bottom_price_sum'] / $group['room_nights']
+            $referenceBottomPriceTotal = $group['active_orders'] === 0
+                ? 0.0
+                : ($group['bottom_price_valid_orders'] > 0 ? $group['bottom_price_sum'] : null);
+            $bottomPriceCoverageRate = $group['active_orders'] > 0
+                ? $group['bottom_price_valid_orders'] / $group['active_orders']
                 : null;
+            $bottomPriceCompleteness = $group['active_orders'] === 0
+                ? 'not_applicable_no_active_orders'
+                : ($group['bottom_price_valid_orders'] === $group['active_orders']
+                    ? 'complete'
+                    : ($group['bottom_price_valid_orders'] > 0 ? 'partial' : 'missing'));
+            $bottomPriceAdr = $referenceBottomPriceTotal !== null && $group['bottom_price_room_nights'] > 0
+                ? $group['bottom_price_sum'] / $group['bottom_price_room_nights']
+                : null;
+            $sourceLayouts = array_keys($group['source_layouts']);
+            sort($sourceLayouts);
+            $sourceLayout = count($sourceLayouts) === 1
+                ? $sourceLayouts[0]
+                : ($sourceLayouts === [] ? null : 'mixed_recognized_layouts');
+            $fileLayoutAcceptance = $sourceLayout === 'ctrip_order_export_25_columns'
+                ? 'verified_25_column_layout'
+                : 'recognized_compatible_layout';
 
             $normalized[] = [
                 'system_hotel_id' => $systemHotelId,
@@ -319,7 +398,10 @@ final class CtripOrderExportImportService
                 'unknown_status_order_num' => $group['unknown_status_orders'],
                 'cancel_rate' => $cancelRate,
                 'quantity' => $group['room_nights'],
-                'amount' => $group['bottom_price_sum'],
+                // The generic amount field is consumed by the standard OTA ETL
+                // as revenue. A Ctrip order export only provides a reference
+                // bottom price, so it must remain outside revenue facts.
+                'amount' => null,
                 'bottom_price_adr' => $bottomPriceAdr,
                 'avg_los' => $averageLos,
                 'avg_lead_days' => $averageLeadDays,
@@ -334,7 +416,8 @@ final class CtripOrderExportImportService
                 'raw_data' => [
                     'metric_scope' => 'ota_channel',
                     'source_method' => 'user_provided_unverified',
-                    'fixture_status' => !empty($context['test_fixture']) ? 'explicit_test_fixture' : 'not_fixture_claimed',
+                    'fixture_status' => $isTestFixture ? 'explicit_test_fixture' : 'not_fixture_claimed',
+                    'hotel_identity_status' => $isTestFixture ? 'fixture_bypassed' : 'matched_to_selected_system_hotel',
                     'channel_key' => $group['channel_key'],
                     'channel_label' => $group['channel_label'],
                     'business_date_basis' => $group['date_source'],
@@ -343,23 +426,38 @@ final class CtripOrderExportImportService
                     'cancel_order_num' => $group['cancelled_orders'],
                     'unknown_status_order_num' => $group['unknown_status_orders'],
                     'cancel_rate' => $cancelRate,
+                    'cancel_rate_basis' => $group['unknown_status_orders'] === 0
+                        ? 'cancelled_orders_over_gross_orders_complete_classification'
+                        : 'unavailable_unknown_status_orders_present',
                     'room_nights' => $group['room_nights'],
                     'gross_room_nights' => $group['gross_room_nights'],
-                    'bottom_price_sum' => $group['bottom_price_sum'],
-                    'sell_price_sum' => $group['sell_price_sum'],
+                    'bottom_price_sum' => $referenceBottomPriceTotal,
+                    'bottom_price_valid_order_count' => $group['bottom_price_valid_orders'],
+                    'bottom_price_missing_order_count' => $group['bottom_price_missing_orders'],
+                    'bottom_price_invalid_order_count' => $group['bottom_price_invalid_orders'],
+                    'bottom_price_coverage_rate' => $bottomPriceCoverageRate,
+                    'bottom_price_completeness' => $bottomPriceCompleteness,
+                    'sell_price_sum' => $group['sell_price_valid_orders'] > 0 ? $group['sell_price_sum'] : null,
+                    'sell_price_valid_order_count' => $group['sell_price_valid_orders'],
+                    'sell_price_missing_order_count' => $group['sell_price_missing_orders'],
+                    'sell_price_invalid_order_count' => $group['sell_price_invalid_orders'],
                     'bottom_price_adr' => $bottomPriceAdr,
                     'amount_basis' => 'ctrip_export_bottom_price_sum',
                     'amount_semantics' => 'reference_bottom_price_not_confirmed_revenue',
+                    'import_contract' => 'ctrip_order_aggregate_v1',
+                    'pii_policy' => 'aggregate_only_no_guest_staff_reservation_notes',
                     'average_los' => $averageLos,
                     'single_night_rate' => $singleNightRate,
                     'average_booking_lead_days' => $averageLeadDays,
                     'top_room_types' => $topRoomTypes,
                     'city' => $group['city'],
-                    'source_file_count' => $group['source_file_count'],
+                    'source_file_count' => count($group['source_file_ids']),
                     'source_format' => $sourceFormat,
                     'source_formats' => $sourceFormats,
+                    'source_layout' => $sourceLayout,
+                    'source_layouts' => $sourceLayouts,
+                    'file_layout_acceptance' => $fileLayoutAcceptance,
                     'snapshot_hash' => $snapshotHash,
-                    'pii_policy' => 'guest_name_and_raw_order_id_excluded',
                 ],
             ];
         }
@@ -383,6 +481,91 @@ final class CtripOrderExportImportService
         $header = trim(str_replace(["\xEF\xBB\xBF", "\r", "\n", "\t", '：', ':'], '', $header));
         $header = (string)preg_replace('/\s+/u', '', $header);
         return self::HEADER_ALIASES[$header] ?? $header;
+    }
+
+    /** @param array<int, string> $headers */
+    private function sourceLayout(array $headers): string
+    {
+        $headers = array_values(array_filter($headers, static fn(string $header): bool => $header !== ''));
+        return $headers === self::CTRIP_EXPORT_HEADERS
+            ? 'ctrip_order_export_25_columns'
+            : 'recognized_legacy_order_layout';
+    }
+
+    /** @param array<int, mixed> $rows */
+    private function assertHotelScope(array $rows, string $targetHotelName, bool $isTestFixture): void
+    {
+        if ($isTestFixture) {
+            return;
+        }
+        if ($targetHotelName === '') {
+            throw new RuntimeException('无法核验目标酒店，请重新选择酒店后导入。', 422);
+        }
+
+        $fileHotelNames = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $fileHotelName = $this->text($row['酒店名称'] ?? '');
+            if ($fileHotelName === '') {
+                throw new RuntimeException('携程订单文件缺少酒店名称，无法验证目标酒店。', 422);
+            }
+            $normalizedFileHotelName = $this->normalizedHotelName($fileHotelName);
+            if ($normalizedFileHotelName !== '') {
+                $fileHotelNames[$normalizedFileHotelName] = true;
+            }
+            if (!$this->hotelNamesMatch(
+                $targetHotelName,
+                $fileHotelName,
+                $this->text($row['城市'] ?? '')
+            )) {
+                throw new RuntimeException('携程订单文件酒店与所选酒店不一致，请重新选择正确酒店。', 422);
+            }
+        }
+        if (count($fileHotelNames) !== 1) {
+            throw new RuntimeException('携程订单文件包含多个酒店，不能合并导入。', 422);
+        }
+    }
+
+    private function hotelNamesMatch(string $targetHotelName, string $fileHotelName, string $city): bool
+    {
+        $target = $this->normalizedHotelName($targetHotelName);
+        $file = $this->normalizedHotelName($fileHotelName);
+        if ($target === '' || $file === '') {
+            return false;
+        }
+        if (hash_equals($target, $file)) {
+            return true;
+        }
+        $city = $this->normalizedHotelName($city);
+        if (mb_strlen($city, 'UTF-8') < 2) {
+            return false;
+        }
+        $targetCore = $this->distinctiveHotelCore($target, $city);
+        if (mb_strlen($targetCore, 'UTF-8') < 4) {
+            return false;
+        }
+        $fileWithoutCity = str_replace($city, '', $file);
+        return str_contains($fileWithoutCity, $targetCore);
+    }
+
+    private function distinctiveHotelCore(string $normalizedName, string $normalizedCity): string
+    {
+        $core = str_replace($normalizedCity, '', $normalizedName);
+        foreach ([
+            '湖畔酒店', '度假酒店', '精品酒店', '国际酒店', '商务酒店', '大酒店',
+            '景区店', '旗舰店', '度假村', '酒店', '宾馆', '客栈', '民宿', '公寓', '旅馆', '旅舍', '分店',
+        ] as $genericTerm) {
+            $core = str_replace($genericTerm, '', $core);
+        }
+        return $core;
+    }
+
+    private function normalizedHotelName(string $value): string
+    {
+        $value = mb_strtolower(trim($value), 'UTF-8');
+        return (string)preg_replace('/[^\p{L}\p{N}]+/u', '', $value);
     }
 
     /** @param array<string, mixed> $row @return array<string, mixed> */

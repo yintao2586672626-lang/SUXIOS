@@ -244,7 +244,9 @@ test('traffic tab exposes one-click four-scope search opportunity panel', () => 
   }
   assert.match(ctripStaticSource, /traffic_rank.*seq_rank.*app_detail_uv_rank/s);
   assert.match(trafficTab, /获取流量数据/);
-  assert.match(html, /data-testid="platform-hotel-context-select"[\s\S]{0,400}@change="handlePlatformHotelContextChange"/);
+  assert.match(html, /data-testid="platform-hotel-context-search"[^>]*role="combobox"/);
+  assert.match(html, /@mousedown\.prevent="selectPlatformHotelOption\(hotel\)"/);
+  assert.match(html, /handlePlatformHotelContextChange\(\{ target: \{ value: hotelId \} \}\)/);
   assert.match(html, /onlineDataTab\.value === 'ctrip-traffic'[\s\S]{0,100}handleCtripTrafficHotelChange\(\)/);
   assert.doesNotMatch(trafficTab, /一键获取流量（含未来搜索）|日期口径|临时 Cookie\/API 辅助内容|刷新已入库数据/);
   assert.match(html, /\/online-data\/ctrip\/search-opportunity\?system_hotel_id=/);

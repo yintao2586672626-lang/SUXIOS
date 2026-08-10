@@ -264,19 +264,69 @@ trait PlatformDataSourceConcern
         try {
             $service = new PlatformDataSyncService();
             $payload = $this->requestData();
-            $file = $this->request->file('file') ?: $this->request->file('import_file');
-            if ($file) {
-                $payload['rows'] = $service->parseImportFile($file->getPathname(), $file->getOriginalName());
+            $systemHotelId = (int)($payload['system_hotel_id'] ?? 0);
+            if ($systemHotelId > 0) {
+                if (!$this->currentUser->isSuperAdmin()
+                    && !$this->currentUser->hasHotelPermission($systemHotelId, 'can_fetch_online_data')
+                ) {
+                    throw new \RuntimeException('无权向该酒店导入平台数据', 403);
+                }
+                $targetHotel = Db::name('hotels')->where('id', $systemHotelId)->field('id,name')->find();
+                if (!is_array($targetHotel)) {
+                    throw new \RuntimeException('目标酒店不存在，请重新选择酒店。', 422);
+                }
+                // The selected hotel identity always comes from the server. A
+                // browser-supplied label must never be trusted for cross-hotel
+                // import validation.
+                $payload['hotel_name'] = trim((string)($targetHotel['name'] ?? ''));
+            }
+
+            $files = $this->manualImportUploadFiles();
+            if ($files !== []) {
+                if (count($files) > 1 && function_exists('set_time_limit')) {
+                    // Authenticated batches are capped at 10 files / 35MB. The
+                    // default 60-second web limit is shorter than parsing five
+                    // real BIFF workbooks plus transactional exact readback.
+                    @set_time_limit(600);
+                }
+                $payload['rows'] = [];
+                $totalBytes = 0;
+                foreach ($files as $fileIndex => $file) {
+                    $path = (string)$file->getPathname();
+                    $originalName = (string)$file->getOriginalName();
+                    $extension = strtolower(pathinfo($originalName ?: $path, PATHINFO_EXTENSION));
+                    if (count($files) > 1 && $extension !== 'xls') {
+                        throw new \RuntimeException('批量导入只支持同一门店的携程旧版 XLS 文件。', 422);
+                    }
+                    $totalBytes += method_exists($file, 'getSize')
+                        ? max(0, (int)$file->getSize())
+                        : (is_file($path) ? max(0, (int)filesize($path)) : 0);
+                    if ($totalBytes > 35 * 1024 * 1024) {
+                        throw new \RuntimeException('批量导入文件总大小不能超过 35MB。', 422);
+                    }
+                    $fileRows = $service->parseImportFile($path, $originalName);
+                    foreach ($fileRows as &$fileRow) {
+                        if (is_array($fileRow)) {
+                            // Safe batch-local identity only. Original names and
+                            // filesystem paths never enter the payload or store.
+                            $fileRow['_source_file_index'] = $fileIndex + 1;
+                        }
+                    }
+                    unset($fileRow);
+                    array_push($payload['rows'], ...$fileRows);
+                }
+                $payload['import_file_count'] = count($files);
             }
             $payload['rows'] = (new \app\service\CtripOrderExportImportService())->normalizeRows(
                 is_array($payload['rows'] ?? null) ? $payload['rows'] : [],
                 [
-                    'system_hotel_id' => (int)($payload['system_hotel_id'] ?? 0),
+                    'system_hotel_id' => $systemHotelId,
                     'hotel_name' => trim((string)($payload['hotel_name'] ?? '')),
                     'test_fixture' => (string)($payload['fixture_status'] ?? '') === 'explicit_test_fixture',
                 ]
             );
             $result = $service->importRows($this->currentUser, $payload);
+            $result['import_file_count'] = max(0, (int)($payload['import_file_count'] ?? 0));
             $isCtripOrderImport = strtolower(trim((string)($payload['platform'] ?? ''))) === 'ctrip'
                 && strtolower(trim((string)($payload['data_type'] ?? ''))) === 'order'
                 && strtolower(trim((string)($payload['ingestion_method'] ?? 'manual'))) !== 'browser_assist_dom';
@@ -311,6 +361,34 @@ trait PlatformDataSourceConcern
         }
     }
 
+    /** @return array<int, object> */
+    private function manualImportUploadFiles(): array
+    {
+        $files = $this->request->file('files');
+        if ($files === null || $files === []) {
+            $single = $this->request->file('file') ?: $this->request->file('import_file');
+            $files = $single ? [$single] : [];
+        } elseif (!is_array($files)) {
+            $files = [$files];
+        }
+
+        $flat = [];
+        foreach ($files as $file) {
+            foreach (is_array($file) ? $file : [$file] as $candidate) {
+                if (is_object($candidate)
+                    && method_exists($candidate, 'getPathname')
+                    && method_exists($candidate, 'getOriginalName')
+                ) {
+                    $flat[] = $candidate;
+                }
+            }
+        }
+        if (count($flat) > 10) {
+            throw new \RuntimeException('单次最多导入 10 份携程 XLS 文件。', 422);
+        }
+        return $flat;
+    }
+
     /**
      * Return a sanitized aggregate for immediate UI readback. The preview never
      * upgrades a manual import to a verified platform fact.
@@ -324,10 +402,19 @@ trait PlatformDataSourceConcern
         $channels = [];
         $dates = [];
         $missingOrderRows = 0;
+        $sawNonFixtureRow = false;
+        $allNonFixtureRowsUseVerifiedLayout = true;
 
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
+            }
+            $detail = is_array($row['raw_data'] ?? null) ? $row['raw_data'] : [];
+            if ((string)($detail['fixture_status'] ?? '') !== 'explicit_test_fixture') {
+                $sawNonFixtureRow = true;
+                if ((string)($detail['file_layout_acceptance'] ?? '') !== 'verified_25_column_layout') {
+                    $allNonFixtureRowsUseVerifiedLayout = false;
+                }
             }
 
             $channelValue = $this->channelOrderImportText($row, [
@@ -465,7 +552,10 @@ trait PlatformDataSourceConcern
             'persistence_readback_status' => 'verified',
             'real_file_acceptance' => (string)($payload['fixture_status'] ?? '') === 'explicit_test_fixture'
                 ? 'test_fixture_only'
-                : 'unverified',
+                : ($sawNonFixtureRow && $allNonFixtureRowsUseVerifiedLayout
+                    ? 'local_25_column_layout_and_readback_verified'
+                    : 'compatible_layout_readback_verified'),
+            'source_file_count' => max(0, (int)($payload['import_file_count'] ?? 0)),
             'ai_usage' => 'supplementary_profile_only',
             'ai_usage_label' => '可用于低置信度 OTA 画像，不单独用于定价或可信收益结论',
             'row_count' => count(array_filter($rows, 'is_array')),

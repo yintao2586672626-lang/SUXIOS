@@ -88,7 +88,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_browser_source_' . $safeStoreId . '_' . date('YmdHis') . '.json';
+        $outputPath = $this->captureOutputPath($outputDir, $safeStoreId);
         $dataDate = $this->normalizeDate((string)($options['data_date'] ?? $options['dataDate'] ?? $config['data_date'] ?? $config['dataDate'] ?? ''));
         if ($dataDate === '') {
             $dataDate = date('Y-m-d', strtotime('-1 day'));
@@ -193,7 +193,10 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
 
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
-        if ($authStatus !== [] && empty($authStatus['ok'])) {
+        $authCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+        $authVerified = ($authStatus['ok'] ?? null) === true
+            && in_array($authCode, ['logged_in', 'authorized'], true);
+        if (!$authVerified) {
             if ($sections === 'ads') {
                 return [
                     'status' => 'waiting_config',
@@ -257,6 +260,24 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if (($identityCheck['ok'] ?? false) !== true) {
             return $this->platformIdentityFailureResult($payload, $runResult, $identityCheck);
+        }
+
+        // The Node collector can persist a diagnostic payload before a
+        // non-zero exit. Keep those diagnostics, but never turn them into
+        // successful business rows. The run-unique path also prevents a rapid
+        // retry from reading a prior invocation's file.
+        if (($runResult['success'] ?? false) !== true) {
+            $message = $this->buildProcessFailureMessage(
+                'Meituan browser capture process failed',
+                $runResult
+            );
+            return [
+                'status' => 'failed',
+                'status_code' => 'capture_process_failed',
+                'error_code' => 'capture_process_failed',
+                'message' => $message,
+                'payload' => $this->compactFailurePayload($payload, $runResult),
+            ];
         }
 
         $validatedPlatformIdentifier = trim((string)(
@@ -716,6 +737,20 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
 
         return ['success' => true, 'message' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    private function captureOutputPath(string $outputDir, string $storeId): string
+    {
+        $runToken = bin2hex(random_bytes(16));
+        return $outputDir
+            . DIRECTORY_SEPARATOR
+            . 'meituan_browser_source_'
+            . $this->safeName($storeId)
+            . '_'
+            . date('YmdHis')
+            . '_'
+            . $runToken
+            . '.json';
     }
 
     private function acquireLock(string $platform, string $profileId)

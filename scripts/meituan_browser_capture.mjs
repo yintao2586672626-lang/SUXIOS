@@ -18,7 +18,10 @@ import {
   classifyOtaEndpointDiscoveryResponse,
   upsertOtaEndpointDiscoveryCandidate,
 } from './lib/ota_endpoint_discovery.mjs';
-import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
+import {
+  launchOtaPersistentContext,
+  requireFreshOtaPageNetwork,
+} from './lib/cloakbrowser_launcher.mjs';
 import {
   attachVerifiedMeituanCaptureScope,
   buildMeituanOrderFlowReplayUrls,
@@ -186,6 +189,7 @@ if (authOnly) {
 }
 
 try {
+  payload.network_freshness = await requireFreshOtaPageNetwork(browser, page);
   const loginStatus = await ensureLoggedIn(page, { interactive: !sessionProbeOnly });
   payload.auth_status = loginStatus;
   if (!loginStatus.ok) {

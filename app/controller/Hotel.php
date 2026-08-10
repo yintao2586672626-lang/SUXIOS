@@ -10,6 +10,8 @@ use app\service\HotelDataMergeService;
 use app\service\HotelCascadeDeletionService;
 use app\service\PermissionService;
 use app\service\BatchStatusPreviewService;
+use app\service\HotelCollectionBindingReceiptService;
+use app\service\HotelCollectionPlanService;
 use app\service\HotelPmsBindingService;
 use DomainException;
 use InvalidArgumentException;
@@ -285,6 +287,206 @@ class Hotel extends Base
             return $this->success($result);
         } catch (InvalidArgumentException) {
             return $this->error('PMS 门店范围或经营日期无效', 422);
+        }
+    }
+
+    /**
+     * Read the exact, secret-free collection identity binding for one hotel.
+     */
+    public function collectionBindingReceipt(int $id): Response
+    {
+        $this->checkPermission();
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
+        if (!$hotel instanceof HotelModel) {
+            return $this->error('酒店不存在', 404);
+        }
+        if (!$this->currentUser->isSuperAdmin()) {
+            $permittedHotelIds = array_values(array_map(
+                'intval',
+                $this->currentUser->getPermittedHotelIds()
+            ));
+            if (!in_array($id, $permittedHotelIds, true)) {
+                return $this->error('无权查看该酒店的采集绑定凭据', 403);
+            }
+            if ($this->requiresOwnHotelScope()) {
+                $creatorColumnError = $this->ensureCreatorColumnIfRequired();
+                if ($creatorColumnError) {
+                    return $creatorColumnError;
+                }
+                if (!$this->currentUserOwnsHotel($hotel)) {
+                    return $this->error('只能查看自己添加酒店的采集绑定凭据', 403);
+                }
+            }
+        }
+
+        try {
+            $designatedSourceIds = [];
+            foreach (['ctrip', 'meituan'] as $platform) {
+                $rawSourceId = trim((string)$this->request->get($platform . '_source_id', ''));
+                if ($rawSourceId === '') {
+                    continue;
+                }
+                if (preg_match('/^[1-9]\d{0,9}$/D', $rawSourceId) !== 1) {
+                    return $this->error('指定的数据源无效', 422);
+                }
+                $designatedSourceIds[$platform] = (int)$rawSourceId;
+            }
+            $receipt = (new HotelCollectionBindingReceiptService())->receipt(
+                $hotel->toArray(),
+                (int)$this->currentUser->id,
+                (string)$this->request->get(
+                    'business_date',
+                    $this->request->get('target_date', '')
+                ),
+                $designatedSourceIds
+            );
+            unset($receipt['execution_owner_user_id']);
+            foreach (['ctrip', 'meituan'] as $platform) {
+                if (is_array($receipt['bindings'][$platform] ?? null)) {
+                    unset($receipt['bindings'][$platform]['execution_owner_user_id']);
+                }
+            }
+            return $this->success($receipt);
+        } catch (InvalidArgumentException) {
+            return $this->error('酒店范围或经营日期无效', 422);
+        }
+    }
+
+    /**
+     * Read the durable, hotel-scoped collection plan and its current binding gate.
+     */
+    public function collectionPlan(int $id): Response
+    {
+        $this->checkPermission();
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
+        if (!$hotel instanceof HotelModel) {
+            return $this->error('酒店不存在', 404);
+        }
+        if (!$this->currentUser->isSuperAdmin()) {
+            $permittedHotelIds = array_values(array_map(
+                'intval',
+                $this->currentUser->getPermittedHotelIds()
+            ));
+            if (!in_array($id, $permittedHotelIds, true)) {
+                return $this->error('无权查看该酒店的采集计划', 403);
+            }
+            if ($this->requiresOwnHotelScope()) {
+                $creatorColumnError = $this->ensureCreatorColumnIfRequired();
+                if ($creatorColumnError) {
+                    return $creatorColumnError;
+                }
+                if (!$this->currentUserOwnsHotel($hotel)) {
+                    return $this->error('只能查看自己添加酒店的采集计划', 403);
+                }
+            }
+        }
+
+        try {
+            $result = (new HotelCollectionPlanService())->read(
+                $hotel->toArray(),
+                (int)$this->currentUser->id,
+                (string)$this->request->get(
+                    'business_date',
+                    $this->request->get('target_date', '')
+                )
+            );
+            return $this->success($result);
+        } catch (InvalidArgumentException) {
+            return $this->error('酒店范围或经营日期无效', 422);
+        } catch (RuntimeException $error) {
+            if ($error->getMessage() === 'hotel_collection_plan_table_missing') {
+                return $this->error('采集计划表尚未安装', 503);
+            }
+            if ($error->getMessage() === 'hotel_collection_plan_signing_key_missing') {
+                return $this->error('采集计划签名配置尚未就绪', 503);
+            }
+            return $this->error('采集计划回读失败', 500);
+        }
+    }
+
+    /**
+     * Save and exactly read back one hotel plan without persisting login state.
+     */
+    public function updateCollectionPlan(int $id): Response
+    {
+        $this->checkPermission();
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
+        if (!$hotel instanceof HotelModel) {
+            return $this->error('酒店不存在', 404);
+        }
+        $authorization = (new PermissionService())->authorize(
+            $this->currentUser,
+            'hotel.update',
+            $id
+        );
+        if (empty($authorization['allowed'])
+            || !$this->currentUserCanManageHotelRecord($hotel)
+        ) {
+            return $this->error('权限不足', 403, $authorization);
+        }
+
+        $input = $this->requestData();
+        try {
+            $result = (new HotelCollectionPlanService())->save(
+                $hotel->toArray(),
+                (int)$this->currentUser->id,
+                $input
+            );
+            OperationLog::record(
+                'hotel',
+                'collection_plan',
+                '维护酒店采集计划: ' . (string)$hotel->name,
+                (int)$this->currentUser->id,
+                $id,
+                null,
+                [
+                    'outcome' => 'success',
+                    'plan_version' => (int)($result['plan_version'] ?? 0),
+                    'plan_status' => (string)($result['plan_status'] ?? 'draft'),
+                    'readback_verified' => ($result['readback_verified'] ?? false) === true,
+                    'execution_authorized' => ($result['execution_authorized'] ?? false) === true,
+                ]
+            );
+            return $this->success($result, '酒店采集计划已保存并精确回读');
+        } catch (InvalidArgumentException $error) {
+            $failureCode = preg_match('/^[a-z0-9_]{1,120}$/D', $error->getMessage()) === 1
+                ? $error->getMessage()
+                : 'hotel_collection_plan_input_invalid';
+            return $this->error('酒店采集计划参数无效', 422, [
+                'failure_code' => $failureCode,
+            ]);
+        } catch (RuntimeException $error) {
+            $failureCode = preg_match('/^[a-z0-9_]{1,120}$/D', $error->getMessage()) === 1
+                ? $error->getMessage()
+                : 'hotel_collection_plan_save_failed';
+            if ($failureCode === 'hotel_collection_plan_table_missing') {
+                return $this->error('采集计划表尚未安装', 503, [
+                    'failure_code' => $failureCode,
+                ]);
+            }
+            if ($failureCode === 'hotel_collection_plan_binding_not_ready') {
+                return $this->error('当前酒店绑定未就绪，计划只能保存为草稿', 409, [
+                    'failure_code' => $failureCode,
+                ]);
+            }
+            if (in_array($failureCode, [
+                'hotel_collection_binding_receipt_scope_mismatch',
+                'hotel_collection_plan_hotel_disabled',
+                'hotel_collection_plan_final_binding_not_ready',
+                'hotel_collection_plan_active_switch_failed',
+            ], true)) {
+                return $this->error('酒店采集计划范围或最终绑定校验未通过', 409, [
+                    'failure_code' => $failureCode,
+                ]);
+            }
+            if ($failureCode === 'hotel_collection_plan_signing_key_missing') {
+                return $this->error('采集计划签名配置尚未就绪', 503, [
+                    'failure_code' => $failureCode,
+                ]);
+            }
+            return $this->error('酒店采集计划保存或回读失败', 500, [
+                'failure_code' => $failureCode,
+            ]);
         }
     }
 

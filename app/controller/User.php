@@ -404,6 +404,13 @@ class User extends Base
         }
 
         $data = $this->requestData();
+        $authorizationExpiry = $this->authorizationExpiryInput($data);
+        if ($authorizationExpiry['error'] !== null) {
+            return $this->error($authorizationExpiry['error'], 422);
+        }
+        if ($authorizationExpiry['explicit'] && !$this->currentUser->isSuperAdmin()) {
+            return $this->error('只有超级管理员可以设置账号授权有效期', 403);
+        }
 
         $username = trim((string)($data['username'] ?? ''));
         $autoGenerateUsername = $username === '';
@@ -502,7 +509,7 @@ class User extends Base
             $user->tenant_id = $hotelId !== null ? ($hotelTenantIds[(int)$hotelId] ?? null) : null;
         }
         $user->status = UserModel::STATUS_ENABLED;
-        Db::transaction(function () use ($user, $hotelIds, $targetRole, $hotelTenantIds, $bootstrapOwnerTenant, $autoGenerateUsername): void {
+        Db::transaction(function () use ($user, $hotelIds, $targetRole, $hotelTenantIds, $bootstrapOwnerTenant, $autoGenerateUsername, $authorizationExpiry): void {
             if ($autoGenerateUsername) {
                 $user->username = $this->nextGeneratedUsername();
             }
@@ -510,7 +517,14 @@ class User extends Base
                 $user->tenant_id = $this->provisionOwnerTenant($user);
             }
             $user->save();
-            $this->syncUserHotelPermissions($user, $hotelIds, $targetRole, $hotelTenantIds);
+            $this->syncUserHotelPermissions(
+                $user,
+                $hotelIds,
+                $targetRole,
+                $hotelTenantIds,
+                $authorizationExpiry['expires_at'],
+                $authorizationExpiry['explicit']
+            );
             OperationLog::record(
                 'user',
                 'create',
@@ -521,6 +535,7 @@ class User extends Base
                 [
                     'tenant_id' => (int)($user->tenant_id ?? 0),
                     'target_user_id' => (int)$user->id,
+                    'authorization_expires_at' => $authorizationExpiry['expires_at'],
                 ]
             );
         });
@@ -585,6 +600,13 @@ class User extends Base
         }
 
         $data = $this->requestData();
+        $authorizationExpiry = $this->authorizationExpiryInput($data);
+        if ($authorizationExpiry['error'] !== null) {
+            return $this->error($authorizationExpiry['error'], 422);
+        }
+        if ($authorizationExpiry['explicit'] && !$this->currentUser->isSuperAdmin()) {
+            return $this->error('只有超级管理员可以设置账号授权有效期', 403);
+        }
         $plannedRoleId = (int)$user->role_id;
         $plannedStatus = (int)$user->status;
         $roleInputExplicit = $this->currentUser->isSuperAdmin() && isset($data['role_id']);
@@ -664,6 +686,9 @@ class User extends Base
         }
 
         if ($roleChanged && $syncHotelIds === null) {
+            $syncHotelIds = $this->existingAssignedHotelIds((int)$user->id, (int)($user->hotel_id ?? 0));
+        }
+        if ($authorizationExpiry['explicit'] && $syncHotelIds === null) {
             $syncHotelIds = $this->existingAssignedHotelIds((int)$user->id, (int)($user->hotel_id ?? 0));
         }
 
@@ -746,7 +771,8 @@ class User extends Base
                 $statusInputExplicit,
                 $hotelInputExplicit,
                 $roleChanged,
-                $statusChanged
+                $statusChanged,
+                $authorizationExpiry
             ): void {
                 $lockedUser = $this->lockUserForTenantWrite((int)$user->id);
                 $roleIntentOverridesLock = $roleInputExplicit && $roleChanged;
@@ -774,7 +800,14 @@ class User extends Base
                 $lockedUser->save();
                 $user = $lockedUser;
                 if ($syncHotelIds !== null && $targetRole instanceof Role) {
-                    $this->syncUserHotelPermissions($user, $syncHotelIds, $targetRole, $hotelTenantIds);
+                    $this->syncUserHotelPermissions(
+                        $user,
+                        $syncHotelIds,
+                        $targetRole,
+                        $hotelTenantIds,
+                        $authorizationExpiry['expires_at'],
+                        $authorizationExpiry['explicit']
+                    );
                 }
                 if ($passwordReset) {
                     OperationLog::record(
@@ -800,6 +833,9 @@ class User extends Base
                     [
                         'target_user_id' => (int)$user->id,
                         'password_reset' => $passwordReset,
+                        'authorization_expires_at' => $authorizationExpiry['explicit']
+                            ? $authorizationExpiry['expires_at']
+                            : $this->authorizationExpirySummary((int)$user->id)['expires_at'],
                     ]
                 );
             });
@@ -933,6 +969,10 @@ class User extends Base
             ? $assignedHotelIds
             : $effectiveHotelIds;
         $data['assigned_hotels'] = $this->hotelSummaries($data['hotel_ids']);
+        $authorizationExpiry = $this->authorizationExpirySummary($userId);
+        $data['authorization_expires_at'] = $authorizationExpiry['expires_at'];
+        $data['authorization_expires_on'] = $authorizationExpiry['expires_on'];
+        $data['authorization_expiry_status'] = $authorizationExpiry['status'];
         $data['hotel_scope_text'] = $this->userDataIsSuperAdmin($data)
             ? '全部门店'
             : $this->hotelScopeText($data['hotel_ids']);
@@ -1089,6 +1129,17 @@ class User extends Base
 
     private function validateExternalUserIssueBoundary(Role $role, array $hotelIds): ?Response
     {
+        if ($this->isControlledPartnerRole($role)) {
+            $unsafeCapabilities = (new PermissionService())->controlledPartnerUnsafeCapabilities($role->getPermissionList());
+            if (!empty($unsafeCapabilities)) {
+                return $this->error('受控合作伙伴不能包含采集、删除、系统管理或执行型权限：' . implode('、', $unsafeCapabilities), 422);
+            }
+            if (empty($hotelIds)) {
+                return $this->error('受控合作伙伴必须先分配门店，避免生成无业务范围的外部账号', 422);
+            }
+            return null;
+        }
+
         if (!$this->isNormalExternalRole($role)) {
             return null;
         }
@@ -1187,9 +1238,18 @@ class User extends Base
 
     private function isNormalExternalRole(Role $role): bool
     {
+        if ($this->isControlledPartnerRole($role)) {
+            return false;
+        }
+
         return (int)$role->getAttr('id') === Role::NORMAL_USER
             || (string)$role->getAttr('name') === 'normal_user'
             || (int)$role->getAttr('level') >= Role::HOTEL_STAFF;
+    }
+
+    private function isControlledPartnerRole(Role $role): bool
+    {
+        return (string)$role->getAttr('name') === Role::CONTROLLED_PARTNER_NAME;
     }
 
     /**
@@ -1363,7 +1423,14 @@ class User extends Base
     /**
      * @param array<int, int> $hotelIds
      */
-    private function syncUserHotelPermissions(UserModel $targetUser, array $hotelIds, Role $targetRole, array $hotelTenantIds = []): void
+    private function syncUserHotelPermissions(
+        UserModel $targetUser,
+        array $hotelIds,
+        Role $targetRole,
+        array $hotelTenantIds = [],
+        ?string $authorizationExpiresAt = null,
+        bool $authorizationExpiryExplicit = false
+    ): void
     {
         $userId = (int)$targetUser->id;
         if ($userId <= 0 || !$this->tableColumnExists('user_hotel_permissions', 'user_id')) {
@@ -1371,12 +1438,22 @@ class User extends Base
         }
 
         $hotelIds = $this->mergeHotelIds($hotelIds);
+        $existingExpiries = $this->authorizationExpiryByHotel($userId);
         Db::name('user_hotel_permissions')->where('user_id', $userId)->delete();
 
         foreach ($hotelIds as $index => $hotelId) {
             $payload = $this->filterExistingColumns(
                 'user_hotel_permissions',
-                $this->buildHotelPermissionPayload($targetUser, $targetRole, $hotelId, $index === 0, $hotelTenantIds)
+                $this->buildHotelPermissionPayload(
+                    $targetUser,
+                    $targetRole,
+                    $hotelId,
+                    $index === 0,
+                    $hotelTenantIds,
+                    $authorizationExpiryExplicit
+                        ? $authorizationExpiresAt
+                        : ($existingExpiries[$hotelId] ?? null)
+                )
             );
             if (!empty($payload)) {
                 Db::name('user_hotel_permissions')->insert($payload);
@@ -1391,7 +1468,8 @@ class User extends Base
         Role $targetRole,
         int $hotelId,
         bool $isPrimary,
-        array $hotelTenantIds = []
+        array $hotelTenantIds = [],
+        ?string $authorizationExpiresAt = null
     ): array
     {
         $permissions = $targetRole->getPermissionList();
@@ -1420,6 +1498,7 @@ class User extends Base
             'can_operation' => $allows('operation.view') || $allows('operation.execute') ? 1 : 0,
             'can_investment' => $allows('investment.view') || $allows('investment.simulate') ? 1 : 0,
             'status' => 'active',
+            'expires_at' => $authorizationExpiresAt,
             'created_by' => (int)($this->currentUser->id ?? 0),
             'can_view_report' => $canViewReport,
             'can_fill_daily_report' => $canFillReport,
@@ -1443,6 +1522,91 @@ class User extends Base
         }
 
         return $payload;
+    }
+
+    /**
+     * @return array{explicit: bool, expires_at: string|null, error: string|null}
+     */
+    private function authorizationExpiryInput(array $data): array
+    {
+        if (!array_key_exists('authorization_expires_on', $data)) {
+            return ['explicit' => false, 'expires_at' => null, 'error' => null];
+        }
+
+        $value = trim((string)($data['authorization_expires_on'] ?? ''));
+        if ($value === '') {
+            return ['explicit' => true, 'expires_at' => null, 'error' => null];
+        }
+
+        $timezone = new \DateTimeZone('Asia/Shanghai');
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value, $timezone);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if (!$date || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+            || $date->format('Y-m-d') !== $value
+        ) {
+            return ['explicit' => true, 'expires_at' => null, 'error' => '授权有效期必须是有效的 YYYY-MM-DD 日期'];
+        }
+
+        if ($date < new \DateTimeImmutable('today', $timezone)) {
+            return ['explicit' => true, 'expires_at' => null, 'error' => '授权有效期不能早于今天'];
+        }
+
+        return [
+            'explicit' => true,
+            'expires_at' => $date->setTime(23, 59, 59)->format('Y-m-d H:i:s'),
+            'error' => null,
+        ];
+    }
+
+    /** @return array<int, string|null> */
+    private function authorizationExpiryByHotel(int $userId): array
+    {
+        if ($userId <= 0 || !$this->tableColumnExists('user_hotel_permissions', 'expires_at')) {
+            return [];
+        }
+
+        $rows = Db::name('user_hotel_permissions')
+            ->where('user_id', $userId)
+            ->field('hotel_id,expires_at')
+            ->select()
+            ->toArray();
+        $result = [];
+        foreach ($rows as $row) {
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            if ($hotelId > 0) {
+                $value = trim((string)($row['expires_at'] ?? ''));
+                $result[$hotelId] = $value !== '' ? $value : null;
+            }
+        }
+        return $result;
+    }
+
+    /** @return array{expires_at: string|null, expires_on: string|null, status: string} */
+    private function authorizationExpirySummary(int $userId): array
+    {
+        $expiries = array_values($this->authorizationExpiryByHotel($userId));
+        if ($expiries === []) {
+            return ['expires_at' => null, 'expires_on' => null, 'status' => 'unassigned'];
+        }
+
+        $unique = array_values(array_unique(array_map(
+            static fn(?string $value): string => $value ?? '',
+            $expiries
+        )));
+        if (count($unique) !== 1) {
+            return ['expires_at' => null, 'expires_on' => null, 'status' => 'mixed'];
+        }
+
+        $expiresAt = $unique[0] !== '' ? $unique[0] : null;
+        if ($expiresAt === null) {
+            return ['expires_at' => null, 'expires_on' => null, 'status' => 'permanent'];
+        }
+
+        return [
+            'expires_at' => $expiresAt,
+            'expires_on' => substr($expiresAt, 0, 10),
+            'status' => strtotime($expiresAt) > time() ? 'active' : 'expired',
+        ];
     }
 
     private function userOwnsHotel(int $userId, int $hotelId): bool

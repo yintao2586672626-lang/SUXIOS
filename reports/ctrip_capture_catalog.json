@@ -904,18 +904,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -3357,18 +3354,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -5068,18 +5062,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -6634,18 +6625,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -8339,18 +8327,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -13114,18 +13099,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -14195,18 +14177,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -15339,18 +15318,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -16483,18 +16459,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -21753,18 +21726,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -23446,18 +23416,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",
@@ -35365,18 +35332,15 @@
         },
         {
           "id": "list_exposure",
-          "label": "列表页曝光量",
+          "label": "列表页曝光人数",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "listExposure"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "仅取 queryFlowTransforNewV1 本店行 listExposure；按携程数据中心已核验口径为去重浏览人数，不接受通用 impressions 替代",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
-          "valueType": "",
+          "valueType": "integer",
           "timeScope": "",
           "sourcePage": "",
           "sourceInterface": "",

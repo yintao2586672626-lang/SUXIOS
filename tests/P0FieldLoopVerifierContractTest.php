@@ -58,10 +58,11 @@ final class P0FieldLoopVerifierContractTest extends TestCase
             ['severity' => 'incomplete', 'code' => 'ctrip_traffic_field_fact_closure_incomplete'],
             ['severity' => 'incomplete', 'code' => 'ctrip_p0_traffic_gate_incomplete'],
             ['severity' => 'incomplete', 'code' => 'ctrip_synthetic_normalization_provenance_missing'],
+            ['severity' => 'incomplete', 'code' => 'ctrip_normalized_projection_conflict'],
             ['severity' => 'failed', 'code' => 'ctrip_raw_data_exposed'],
         ];
         $hard = p0_partition_issues_by_authoritative_gates($hardIssues, $readyCtrip, ['ctrip']);
-        self::assertCount(4, $hard['blocking_issues']);
+        self::assertCount(5, $hard['blocking_issues']);
         self::assertSame([], $hard['reference_issues']);
 
         $mixedPlatforms = [
@@ -404,6 +405,36 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertStringContainsString("\$status = 'exact_run_readback_scope_mismatch';", $verifier);
     }
 
+    public function testLatestAuthoritativeTaskRowsSupersedeOlderReceiptsWithoutFallback(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\p0_latest_authoritative_task_rows')
+            && !function_exists('p0_latest_authoritative_task_rows')
+        ) {
+            $definition = $this->extractFunctionDefinition($verifier, 'p0_latest_authoritative_task_rows');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        $selected = p0_latest_authoritative_task_rows([
+            ['id' => 81824, 'sync_task_id' => 3060, 'data_period' => 'historical_daily'],
+            ['id' => 81880, 'sync_task_id' => 3060, 'data_period' => 'realtime_snapshot'],
+            ['id' => 82001, 'sync_task_id' => 3090, 'data_period' => 'historical_daily'],
+            ['id' => 82002, 'sync_task_id' => 3090, 'data_period' => 'historical_daily'],
+        ]);
+
+        self::assertCount(2, $selected);
+        self::assertSame([3090, 3090], array_column($selected, 'sync_task_id'));
+        self::assertSame([82001, 82002], array_column($selected, 'id'));
+        self::assertSame([], p0_latest_authoritative_task_rows([
+            ['id' => 1, 'sync_task_id' => null],
+        ]));
+        self::assertStringContainsString(
+            'p0_latest_authoritative_task_rows(',
+            $verifier
+        );
+    }
+
     public function testExactRunReadbackMismatchRemainsAStableBlockingTrafficGateStatus(): void
     {
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
@@ -442,6 +473,53 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertSame('not_loaded', $gate['run_readback_membership_status']);
     }
 
+    public function testNormalizedProjectionConflictRemainsAStableBlockingTrafficGateStatus(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach ([
+            'p0_array',
+            'p0_platform_traffic_gate_next_steps',
+            'p0_external_evidence_db_scope',
+            'p0_platform_traffic_gate',
+        ] as $functionName) {
+            if (!function_exists(__NAMESPACE__ . '\\' . $functionName) && !function_exists($functionName)) {
+                $definition = $this->extractFunctionDefinition($verifier, $functionName);
+                self::assertNotSame('', $definition, $functionName);
+                eval($definition);
+            }
+        }
+
+        $gate = p0_platform_traffic_gate([
+            'platform' => 'ctrip',
+            'status' => 'ready',
+            'target_date' => ['traffic_rows' => 2],
+            'traffic_field_fact_closure' => [
+                'status' => 'ready',
+                'traffic_row_count' => 2,
+                'normalized_projection_reference_rows' => 0,
+                'unresolved_normalized_projection_rows' => 1,
+                'observed_traffic_metric_provenance_status' => 'ready',
+                'synthetic_normalization_provenance_missing_rows' => 0,
+                'required_metric_value_status' => 'ready',
+                'nonzero_required_metric_rows' => 2,
+                'run_readback_membership_status' => 'ready',
+                'readback_status' => 'ready',
+            ],
+            'profile_scope_traffic_closure' => ['status' => 'ready'],
+            'hotel_scoped_sources' => [],
+            'hotel_scoped_commands' => [],
+            'hotel_scoped_capture_bridges' => [],
+            'sensitive_values_exposed' => false,
+        ]);
+
+        self::assertSame('normalized_projection_conflict', $gate['status']);
+        self::assertNotSame('ready', $gate['status']);
+        self::assertSame('', $gate['run_readback_scope_block_reason']);
+        self::assertSame(0, $gate['normalized_projection_reference_rows']);
+        self::assertSame(1, $gate['unresolved_normalized_projection_rows']);
+        self::assertStringContainsString("\$platformName . '_normalized_projection_conflict'", $verifier);
+    }
+
     public function testStorageSourceEvidenceExcludesCompetitorAuxiliaryForecastAndQuarantineRows(): void
     {
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
@@ -470,7 +548,7 @@ final class P0FieldLoopVerifierContractTest extends TestCase
             'data_period' => 'day',
             'platform' => 'ctrip',
             'compare_type' => 'self',
-            'dimension' => 'catalog:ctrip:business_flow_transform',
+            'dimension' => '',
             'raw_data' => json_encode([
                 'row' => [
                     'endpoint_id' => 'business_flow_transform',
@@ -1134,12 +1212,30 @@ final class P0FieldLoopVerifierContractTest extends TestCase
             $unclassifiedDimensioned['reason']
         );
 
-        $meituan = p0_traffic_row_scope(['dimension' => 'flow_conversion'], 'meituan');
+        $meituan = p0_traffic_row_scope([
+            'dimension' => 'flow_conversion',
+            'raw_data' => json_encode([
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
+        ], 'meituan');
         self::assertTrue($meituan['authoritative']);
+        self::assertSame('meituan_network_response_traffic_scope', $meituan['reason']);
+
+        $meituanDom = p0_traffic_row_scope([
+            'dimension' => 'flow_conversion',
+            'raw_data' => json_encode([
+                'row' => ['_capture_source' => 'dom:traffic:flow_funnel'],
+            ]),
+        ], 'meituan');
+        self::assertFalse($meituanDom['authoritative']);
+        self::assertSame('meituan_authoritative_capture_source_invalid', $meituanDom['reason']);
 
         $meituanRefreshTimestamp = p0_traffic_row_scope([
             'dimension' => 'flow_conversion',
-            'raw_data' => json_encode(['date_source' => 'response.rtDataUpdateTime']),
+            'raw_data' => json_encode([
+                'date_source' => 'response.rtDataUpdateTime',
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
         ], 'meituan');
         self::assertFalse($meituanRefreshTimestamp['authoritative']);
         self::assertSame(

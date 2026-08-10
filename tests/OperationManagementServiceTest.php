@@ -1606,8 +1606,8 @@ final class OperationManagementServiceTest extends TestCase
             'dimension' => 'catalog:traffic_report:business_flow_transform:list_exposure',
             'list_exposure' => 0,
             'detail_exposure' => 0,
-            'data_period' => 'realtime_snapshot',
-            'is_final' => 0,
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
             'snapshot_time' => '2026-08-09 09:00:00',
             'create_time' => '2026-08-09 09:00:00',
             'update_time' => '2026-08-09 09:00:00',
@@ -1692,6 +1692,110 @@ final class OperationManagementServiceTest extends TestCase
             'canonicalExecutionReadbackRows',
             [[$rankOnly], 'list_exposure']
         ), 'A rank endpoint with normalized zero columns must never become a list-exposure fact.');
+    }
+
+    public function testSavedOtaDiagnosisOrderRateReadbackKeepsCtripAndQunarSeparate(): void
+    {
+        $service = new OperationManagementService();
+        $baselineDate = date('Y-m-d', strtotime('-2 days'));
+        $reviewDate = date('Y-m-d', strtotime('-1 day'));
+        $flowRow = fn(int $id, string $platform, string $date, int $visitors, int $orders): array =>
+            $this->trustedOtaOperatingRow([
+                'id' => $id,
+                'system_hotel_id' => 80,
+                'data_date' => $date,
+                'source' => 'ctrip',
+                'platform' => $platform,
+                'data_type' => 'traffic',
+                'dimension' => 'catalog:traffic_report:traffic_flow_transform:date',
+                'detail_exposure' => $visitors,
+                'order_filling_num' => $orders,
+                'order_submit_num' => $orders,
+                'snapshot_time' => $date . ' 09:00:00',
+            ]);
+
+        $ctripBaseline = $flowRow(81818, 'Ctrip', $baselineDate, 100, 10);
+        $qunarBaseline = $flowRow(81926, 'Qunar', $baselineDate, 30, 0);
+        $ctripReview = $flowRow(82018, 'Ctrip', $reviewDate, 80, 16);
+        $qunarReview = $flowRow(82026, 'Qunar', $reviewDate, 100, 1);
+
+        self::assertSame('qunar', $this->invokeNonPublic(
+            $service,
+            'executionReadbackRowPlatformIdentity',
+            [$qunarBaseline]
+        ));
+        $canonicalMixed = $this->invokeNonPublic(
+            $service,
+            'canonicalExecutionReadbackRows',
+            [[$ctripBaseline, $qunarBaseline], 'order_rate']
+        );
+        $canonicalMixedIds = array_map('intval', array_column($canonicalMixed, 'id'));
+        sort($canonicalMixedIds, SORT_NUMERIC);
+        self::assertSame([81818, 81926], $canonicalMixedIds, 'Different OTA platforms must never compete for one canonical slot.');
+
+        $baselineRows = $this->invokeNonPublic(
+            $service,
+            'trustedExecutionReadbackRows',
+            [[$ctripBaseline, $qunarBaseline], 'ctrip']
+        );
+        $reviewRows = $this->invokeNonPublic(
+            $service,
+            'trustedExecutionReadbackRows',
+            [[$ctripReview, $qunarReview], 'ctrip']
+        );
+        $baselineRows = $this->invokeNonPublic($service, 'canonicalExecutionReadbackRows', [$baselineRows, 'order_rate']);
+        $reviewRows = $this->invokeNonPublic($service, 'canonicalExecutionReadbackRows', [$reviewRows, 'order_rate']);
+
+        self::assertSame([81818], array_map('intval', array_column($baselineRows, 'id')));
+        self::assertSame([82018], array_map('intval', array_column($reviewRows, 'id')));
+        self::assertTrue($this->invokeNonPublic(
+            $service,
+            'trustedExecutionReadbackPlatformCoverage',
+            [$baselineRows, 'ctrip']
+        ));
+        self::assertSame(10.0, $this->invokeNonPublic(
+            $service,
+            'executionReadbackMetricValue',
+            ['order_rate', $baselineRows, 80, $baselineDate]
+        ));
+        self::assertSame(20.0, $this->invokeNonPublic(
+            $service,
+            'executionReadbackMetricValue',
+            ['order_rate', $reviewRows, 80, $reviewDate]
+        ));
+
+        $blankPlatform = array_replace($ctripBaseline, ['id' => 83018, 'platform' => '']);
+        self::assertSame([], $this->invokeNonPublic(
+            $service,
+            'trustedExecutionReadbackRows',
+            [[$blankPlatform], 'ctrip']
+        ));
+        self::assertFalse($this->invokeNonPublic(
+            $service,
+            'trustedExecutionReadbackPlatformCoverage',
+            [[$blankPlatform], 'ctrip']
+        ));
+        self::assertSame([], $this->invokeNonPublic(
+            $service,
+            'canonicalExecutionReadbackRows',
+            [[$blankPlatform], 'order_rate']
+        ));
+
+        $legacyWithoutPlatform = $ctripBaseline;
+        unset($legacyWithoutPlatform['platform']);
+        self::assertSame([81818], array_map('intval', array_column(
+            $this->invokeNonPublic(
+                $service,
+                'trustedExecutionReadbackRows',
+                [[$legacyWithoutPlatform], 'ctrip']
+            ),
+            'id'
+        )));
+        self::assertTrue($this->invokeNonPublic(
+            $service,
+            'trustedExecutionReadbackPlatformCoverage',
+            [[$legacyWithoutPlatform], 'ctrip']
+        ));
     }
 
     public function testExecutionEvidenceBoundaryRejectsOutcomeMetrics(): void

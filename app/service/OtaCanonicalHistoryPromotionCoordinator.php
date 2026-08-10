@@ -54,13 +54,22 @@ final class OtaCanonicalHistoryPromotionCoordinator
     {
         $hotelId = (int)($collectionReceipt['hotel_id'] ?? 0);
         $targetDate = substr(trim((string)($collectionReceipt['target_date'] ?? '')), 0, 10);
+        $dataPeriod = strtolower(trim((string)($collectionReceipt['data_period'] ?? '')));
         $anchorHash = strtolower(trim((string)($collectionReceipt['collection_anchor_hash'] ?? '')));
         $requiredPlatforms = $this->platforms($collectionReceipt['required_platforms'] ?? []);
+        $sourceTasks = OtaCollectionAnchorService::normalize(
+            $collectionReceipt['source_tasks'] ?? []
+        );
+        $anchorReady = (string)($collectionReceipt['collection_anchor_contract_version'] ?? '')
+                === OtaCollectionAnchorService::CONTRACT_VERSION
+            && $sourceTasks !== []
+            && OtaCollectionAnchorService::matches(
+                $collectionReceipt['source_tasks'] ?? [],
+                $anchorHash
+            );
         $sourceTaskPlatforms = [];
-        foreach (is_array($collectionReceipt['source_tasks'] ?? null)
-            ? $collectionReceipt['source_tasks']
-            : [] as $task
-        ) {
+        $sourceTaskCoreReady = [];
+        foreach ($sourceTasks as $task) {
             if (!is_array($task)
                 || (int)($task['data_source_id'] ?? 0) <= 0
                 || (int)($task['sync_task_id'] ?? 0) <= 0
@@ -71,15 +80,21 @@ final class OtaCanonicalHistoryPromotionCoordinator
             $platform = strtolower(trim((string)($task['platform'] ?? '')));
             if (in_array($platform, ['ctrip', 'meituan'], true)) {
                 $sourceTaskPlatforms[$platform] = (int)($sourceTaskPlatforms[$platform] ?? 0) + 1;
+                $taskCoreReady = $dataPeriod !== 'historical_daily'
+                    || strtolower(trim((string)(
+                        $task['historical_core_contract_status'] ?? ''
+                    ))) === 'ready';
+                $sourceTaskCoreReady[$platform] = !array_key_exists($platform, $sourceTaskCoreReady)
+                    ? $taskCoreReady
+                    : false;
             }
         }
         if ($expectedTenantId <= 0
             || $expectedHotelId <= 0
             || $hotelId !== $expectedHotelId
             || !$this->validDate($targetDate)
-            || preg_match('/^[a-f0-9]{64}$/D', $anchorHash) !== 1
+            || !$anchorReady
             || $requiredPlatforms === []
-            || array_diff($requiredPlatforms, array_keys($sourceTaskPlatforms)) !== []
             || array_filter(
                 $sourceTaskPlatforms,
                 static fn(int $count, string $platform): bool =>
@@ -97,34 +112,68 @@ final class OtaCanonicalHistoryPromotionCoordinator
             );
         }
 
-        $overallVerifier = $this->verify(
-            $hotelId,
-            $targetDate,
-            $requiredPlatforms,
-            $anchorHash
-        );
+        $allRequiredPlatformsAnchored =
+            array_diff($requiredPlatforms, array_keys($sourceTaskPlatforms)) === []
+            && array_values(array_filter(
+                $requiredPlatforms,
+                static fn(string $platform): bool => !($sourceTaskCoreReady[$platform] ?? false)
+            )) === [];
+        $overallVerifier = $allRequiredPlatformsAnchored
+            ? $this->verify(
+                $hotelId,
+                $targetDate,
+                $requiredPlatforms,
+                $anchorHash
+            )
+            : [];
         $platformResults = [];
         $promotedPlatforms = [];
         $blockedPlatforms = [];
         foreach ($requiredPlatforms as $platform) {
-            $platformVerifier = count($requiredPlatforms) === 1
-                ? $overallVerifier
-                : $this->verify($hotelId, $targetDate, [$platform], $anchorHash);
-            $promotion = $this->verifierReady($platformVerifier, $hotelId, $targetDate, [$platform], $anchorHash)
-                ? $this->promote(
-                    $collectionReceipt,
-                    $platformVerifier,
-                    $platform,
-                    $expectedTenantId,
-                    $expectedHotelId
-                )
-                : [
+            if ((int)($sourceTaskPlatforms[$platform] ?? 0) !== 1) {
+                $platformVerifier = [];
+                $promotion = [
                     'status' => 'blocked',
-                    'reason' => 'canonical_history_platform_verifier_not_ready',
+                    'reason' => 'canonical_history_platform_source_task_missing',
                     'promoted_count' => 0,
                     'readback_verified' => false,
                     'sensitive_values_exposed' => false,
                 ];
+            } elseif (!($sourceTaskCoreReady[$platform] ?? false)) {
+                $platformVerifier = [];
+                $promotion = [
+                    'status' => 'blocked',
+                    'reason' => 'canonical_history_platform_core_contract_missing',
+                    'promoted_count' => 0,
+                    'readback_verified' => false,
+                    'sensitive_values_exposed' => false,
+                ];
+            } else {
+                $platformVerifier = count($requiredPlatforms) === 1
+                    ? $overallVerifier
+                    : $this->verify($hotelId, $targetDate, [$platform], $anchorHash);
+                $promotion = $this->verifierReady(
+                    $platformVerifier,
+                    $hotelId,
+                    $targetDate,
+                    [$platform],
+                    $anchorHash
+                )
+                    ? $this->promote(
+                        $collectionReceipt,
+                        $platformVerifier,
+                        $platform,
+                        $expectedTenantId,
+                        $expectedHotelId
+                    )
+                    : [
+                        'status' => 'blocked',
+                        'reason' => 'canonical_history_platform_verifier_not_ready',
+                        'promoted_count' => 0,
+                        'readback_verified' => false,
+                        'sensitive_values_exposed' => false,
+                    ];
+            }
             $promotionReady = strtolower(trim((string)($promotion['status'] ?? ''))) === 'verified'
                 && ($promotion['readback_verified'] ?? false) === true
                 && (int)($promotion['tenant_id'] ?? 0) === $expectedTenantId
@@ -164,6 +213,7 @@ final class OtaCanonicalHistoryPromotionCoordinator
             'required_platforms' => $requiredPlatforms,
             'promoted_platforms' => $promotedPlatforms,
             'blocked_platforms' => $blockedPlatforms,
+            'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
             'collection_anchor_hash' => $anchorHash,
             'overall_verifier' => $overallVerifier,
             'platform_results' => $platformResults,
@@ -249,6 +299,7 @@ final class OtaCanonicalHistoryPromotionCoordinator
             'required_platforms' => $platforms,
             'promoted_platforms' => [],
             'blocked_platforms' => $platforms,
+            'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
             'collection_anchor_hash' => preg_match('/^[a-f0-9]{64}$/D', $anchorHash) === 1
                 ? $anchorHash
                 : '',

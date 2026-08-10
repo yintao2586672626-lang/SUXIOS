@@ -158,17 +158,8 @@
                                         <span>{{ revenueAiGapSummary.total &gt; 0 ? `${revenueAiGapSummary.total} 项待处理` : '未返回阻塞缺口' }}</span>
                                     </summary>
                                 <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="revenue-ai-gap-closure">
-                                    <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                                        <div>
-                                            <div class="text-sm font-semibold text-slate-900">数据缺口闭环</div>
-                                            <div class="mt-1 text-xs text-slate-500">缺字段、登录失效、接口未命中和数据过期直接指向数据健康面板。</div>
-                                        </div>
-                                        <span :class="['w-fit rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiGapSummary.total &gt; 0 ? revenueAiStatusClass(revenueAiGapSummary.high &gt; 0 ? 'failed' : 'partial') : revenueAiStatusClass('ok')]">
-                                            {{ revenueAiGapSummary.total &gt; 0 ? `${revenueAiGapSummary.total} 项待处理` : '未返回阻塞缺口' }}
-                                        </span>
-                                    </div>
                                     <div v-if="revenueAiGapRows.length" class="grid grid-cols-1 gap-2 lg:grid-cols-2">
-                                        <button type="button" v-for="row in revenueAiGapRows" :key="row.key" @click="openRevenueAiGap(row)" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left transition hover:border-blue-200 hover:bg-white hover:shadow-sm">
+                                        <button type="button" v-for="row in revenueAiGapRows" :key="row.key" @click="openRevenueAiGap(row)" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left hover:border-blue-200 hover:bg-white">
                                             <div class="flex items-start justify-between gap-3">
                                                 <div class="min-w-0">
                                                     <div class="flex flex-wrap items-center gap-1.5">
@@ -186,6 +177,7 @@
                                                 <span class="line-clamp-1 text-slate-600" :title="row.nextAction">{{ row.nextAction }}</span>
                                                 <span class="shrink-0 font-semibold text-blue-700">查看 <i class="fas fa-arrow-right ml-1 text-[10px]"></i></span>
                                             </div>
+                                            <div v-if="row.acceptanceCheck" class="mt-1 line-clamp-1 text-[11px] text-slate-400" :title="row.acceptanceCheck">验收：{{ row.acceptanceCheck }}</div>
                                         </button>
                                     </div>
                                     <div v-else="" class="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700">
@@ -195,7 +187,10 @@
                                 </details>
                                 <section v-if="revenueAiOverview?.manual_order_imports?.rows?.length" data-testid="revenue-ai-ctrip-order-import-readback" class="rounded-2xl border border-amber-200 bg-amber-50/60 p-3 text-xs text-slate-700">
                                     <b class="text-slate-900">携程订单文件 · 保存回读 · 人工导入待核验</b>；来源、业务日期及指标均来自值级回读，参考底价不是确认收入。
-                                    <p v-for="row in revenueAiOverview.manual_order_imports.rows" :key="row.row_id" class="mt-2 rounded-lg border border-amber-100 bg-white p-2">来源 / 渠道：{{ row.channel_label }} · 业务日期：{{ row.business_date }}（{{ row.business_date_basis === 'stay_date' ? '入住日' : '预订日回退' }}）<br>有效订单 {{ row.active_orders === null ? '-' : formatNumber(row.active_orders) }} · 房晚 {{ row.room_nights === null ? '-' : formatNumber(row.room_nights) }} · 取消率 {{ row.cancel_rate === null ? '-' : (Number(row.cancel_rate) * 100).toFixed(1) + '%' }} · 平均提前预订 {{ row.average_booking_lead_days === null ? '-' : Number(row.average_booking_lead_days).toFixed(1) + ' 天' }} · 参考底价 {{ row.reference_bottom_price_total === null ? '-' : '¥' + formatNumber(row.reference_bottom_price_total) }}（{{ row.reference_bottom_price_adr === null ? '非确认收入' : '约 ¥' + formatNumber(row.reference_bottom_price_adr) + '/房晚，非确认收入' }}）</p>
+                                    <p v-for="row in revenueAiOverview.manual_order_imports.rows" :key="row.row_id" class="mt-2 rounded-lg border border-amber-100 bg-white p-2">
+                                        来源 / 渠道：{{ row.channel_label }} · 业务日期：{{ row.business_date }}（{{ row.business_date_basis === 'stay_date' ? '入住日' : '预订日回退' }}）<br>
+                                        有效订单 {{ row.active_orders === null ? '-' : formatNumber(row.active_orders) }} · 含取消总单 {{ row.gross_orders === null ? '-' : formatNumber(row.gross_orders) }} · 取消单 {{ row.cancelled_orders === null ? '-' : formatNumber(row.cancelled_orders) }} · 房晚 {{ row.room_nights === null ? '-' : formatNumber(row.room_nights) }} · 取消率 {{ row.cancel_rate === null ? '-' : (Number(row.cancel_rate) * 100).toFixed(1) + '%' }} · 平均提前预订 {{ row.average_booking_lead_days === null ? '-' : Number(row.average_booking_lead_days).toFixed(1) + ' 天' }} · 参考底价 {{ row.reference_bottom_price_total === null ? '-' : '¥' + formatNumber(row.reference_bottom_price_total) }}（{{ row.reference_bottom_price_adr === null ? '房晚参考价未提供' : '约 ¥' + formatNumber(row.reference_bottom_price_adr) + '/房晚' }}；{{ row.reference_bottom_price_coverage_rate === null ? '底价覆盖率未提供' : '覆盖 ' + (Number(row.reference_bottom_price_coverage_rate) * 100).toFixed(1) + '% 有效订单' }}；非确认收入）
+                                    </p>
                                 </section>
                                 <div class="grid grid-cols-1 gap-3 xl:grid-cols-12" data-testid="revenue-ai-readonly-state">
                                     <div class="xl:col-span-8 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">

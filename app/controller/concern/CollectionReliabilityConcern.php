@@ -6,6 +6,7 @@ namespace app\controller\concern;
 use app\model\OperationLog;
 use app\model\SystemConfig;
 use app\service\DualOtaContinuousTrustService;
+use app\service\DualOtaPageVerificationService;
 use app\service\OtaFailureNotificationService;
 use app\service\OtaOperatingScope;
 use think\Response;
@@ -2416,6 +2417,80 @@ trait CollectionReliabilityConcern
             return $this->error($e->getMessage());
         } catch (\Throwable $e) {
             return $this->error('采集可靠性查询失败: ' . $e->getMessage());
+        }
+    }
+
+    public function confirmDualOtaPageVerification(): Response
+    {
+        $this->checkPermission();
+
+        $requestData = $this->requestData();
+        $hotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['hotel_id']
+            ?? null
+        );
+        if (!$hotelId) {
+            return $this->error('Please select an exact system hotel before confirming the page receipt.', 400);
+        }
+        $this->checkHotelActionPermission((int)$hotelId, 'can_view_online_data');
+
+        $targetDate = trim((string)($requestData['target_date'] ?? ''));
+        try {
+            $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $targetDate);
+            if (!$date instanceof \DateTimeImmutable || $date->format('Y-m-d') !== $targetDate) {
+                throw new \InvalidArgumentException('target_date must use YYYY-MM-DD.');
+            }
+
+            $hotel = Db::name('hotels')
+                ->where('id', (int)$hotelId)
+                ->field('id,tenant_id')
+                ->find();
+            $tenantId = is_array($hotel) ? (int)($hotel['tenant_id'] ?? 0) : 0;
+            if ($tenantId <= 0) {
+                throw new \RuntimeException('The selected hotel has no authoritative tenant scope.', 409);
+            }
+
+            $trust = (new DualOtaContinuousTrustService())->inspectHotel(
+                (int)$hotelId,
+                $targetDate,
+                $targetDate
+            );
+            $service = new DualOtaPageVerificationService();
+            $receipt = $service->confirm(
+                $trust,
+                $tenantId,
+                (int)$hotelId,
+                (int)($this->currentUser->id ?? 0),
+                $requestData
+            );
+
+            // The page always requests a 30-day light projection. Remove the
+            // exact cached scope and still require the client to force-read it.
+            $startDate = date('Y-m-d', strtotime($targetDate . ' -29 days'));
+            cache($this->collectionReliabilityCacheKey(
+                (int)$hotelId,
+                $startDate,
+                $targetDate,
+                'light'
+            ), null);
+
+            $readbackTrust = (new DualOtaContinuousTrustService())->inspectHotel(
+                (int)$hotelId,
+                $targetDate,
+                $targetDate
+            );
+
+            return $this->success([
+                'receipt' => $receipt,
+                'dual_ota_continuous_trust' => $readbackTrust,
+            ], 'The current dual-OTA page receipt was confirmed and read back exactly.');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 400);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable) {
+            return $this->error('The page confirmation could not be saved and read back exactly.', 500);
         }
     }
 }
