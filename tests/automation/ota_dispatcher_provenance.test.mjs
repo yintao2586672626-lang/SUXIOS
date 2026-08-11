@@ -57,6 +57,7 @@ function normalizePowerShellOutput(result) {
   return `${result.stdout || ''}\n${result.stderr || ''}`
     .replace(/_x([0-9a-f]{4})_/gi, (_match, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
     .replace(/<[^>]+>/g, ' ')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
