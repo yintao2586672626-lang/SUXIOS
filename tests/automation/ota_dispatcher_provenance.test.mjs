@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const helperPath = path.join(repoRoot, 'scripts', 'lib', 'ota_dispatcher_provenance.ps1');
+const powershell = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
 
 function psQuote(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
@@ -28,7 +29,7 @@ function runPowerShell(source, { env = {}, expectSuccess = true } = {}) {
     source,
   ].join('; ');
   const encoded = Buffer.from(script, 'utf16le').toString('base64');
-  const result = spawnSync('powershell.exe', [
+  const result = spawnSync(powershell, [
     '-NoProfile',
     '-NonInteractive',
     '-ExecutionPolicy',
@@ -41,6 +42,8 @@ function runPowerShell(source, { env = {}, expectSuccess = true } = {}) {
     env: { ...process.env, ...env },
     timeout: 30_000,
   });
+
+  assert.equal(result.error, undefined, `PowerShell could not start: ${result.error?.message || 'unknown error'}`);
 
   if (expectSuccess) {
     assert.equal(result.status, 0, `PowerShell failed:\n${result.stdout}\n${result.stderr}`);
