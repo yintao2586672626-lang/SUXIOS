@@ -58,9 +58,18 @@ function normalizePowerShellOutput(result) {
     .replace(/_x([0-9a-f]{4})_/gi, (_match, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
     .replace(/<[^>]+>/g, ' ')
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\s+\|\s+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+test('PowerShell error normalization ignores host presentation markup', () => {
+  const output = normalizePowerShellOutput({
+    stdout: '',
+    stderr: '\u001b[31;1mrequires correlated scheduling and stable\u001b[0m | \u001b[31;1mcode.\u001b[0m',
+  });
+  assert.match(output, /requires correlated scheduling and stable code/i);
+});
 
 function parsePowerShellJson(source, options) {
   const result = runPowerShell(source, options);
