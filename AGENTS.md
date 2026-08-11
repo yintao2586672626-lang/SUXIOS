@@ -442,6 +442,7 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 2. **GitHub 保存点一致性**
    - 单项目边界：`HOTEL` 是唯一宿析OS应用仓库；它的分支、PR 和 worktree 都属于同一个项目。worktree 只用于隔离并发或脏工作区，不得据此新建、迁移或复制为另一个 GitHub 仓库或 Codex 项目。
    - 自动化边界：Git 写入型自动化必须绑定同一个项目 ID 并在同项目隔离 worktree 中执行，不得复用用户原始脏工作区，也不得由多个任务同时推送同一远端分支。
+   - 用户默认只面对 `main`：临时分支、worktree、PR、CI、自动合并和分支清理由 Codex 作为同一项目的内部安全流程负责；检查全部通过后应自动合入 `main` 并核验主线，不把成功改动长期留在 Draft 或功能分支，也不要求用户手动处理 Git。只有真实检查失败、外部鉴权或不可逆决策才暂停并通知用户。
    - 主线边界：每次写入前先抓取最新 `origin/main`，通过 `npm run verify:pr-base-freshness` 确认 base-only 为 0；生成文件只在同步主线后统一重建。`main` 只通过启用 strict up-to-date 和必需检查的 PR 合入。
    - 保存规则：只提交已验证的 P0/P1/P2 改动；提交前跑最小相关验证，显式 stage 文件，`git diff --cached --check` 后再 commit/push；流程/Skill 路由类小优化不混入无关业务保存点。
 
