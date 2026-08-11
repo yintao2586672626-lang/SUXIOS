@@ -1869,13 +1869,14 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
     private function trimLog(string $value): string
     {
-        $value = trim($value);
-        return mb_strlen($value) > 4000 ? mb_substr($value, -4000) : $value;
+        return BrowserProfileProcessOutputSanitizer::sanitizeLog($value);
     }
 
     private function buildProcessFailureMessage(string $prefix, array $runResult): string
     {
-        $message = trim((string)($runResult['message'] ?? 'unknown error'));
+        $message = BrowserProfileProcessOutputSanitizer::sanitizeMessage(
+            (string)($runResult['message'] ?? 'unknown error')
+        );
         $summary = $this->extractProcessErrorSummary(
             (string)($runResult['stderr'] ?? ''),
             (string)($runResult['stdout'] ?? '')
@@ -1886,24 +1887,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
     private function extractProcessErrorSummary(string $stderr, string $stdout): string
     {
-        $text = trim($stderr) !== '' ? $stderr : $stdout;
-        $text = trim((string)preg_replace('/\e\[[\d;]*m/', '', $text));
-        if ($text === '') {
-            return '';
-        }
-        if (stripos($text, 'spawn EPERM') !== false) {
-            return 'browser_runtime_error=spawn EPERM; check browser executable permission and scheduled-task runtime account.';
-        }
-        if (stripos($text, 'spawn EACCES') !== false) {
-            return 'browser_runtime_error=spawn EACCES; check browser executable permission and scheduled-task runtime account.';
-        }
-
-        $lines = array_values(array_filter(array_map('trim', preg_split('/\R+/', $text) ?: [])));
-        foreach ($lines as $line) {
-            if (stripos($line, 'Error') !== false || stripos($line, 'Exception') !== false || stripos($line, 'failed') !== false) {
-                return mb_substr($line, 0, 240);
-            }
-        }
-        return mb_substr((string)end($lines), 0, 240);
+        return BrowserProfileProcessOutputSanitizer::summarize($stderr, $stdout);
     }
 }
