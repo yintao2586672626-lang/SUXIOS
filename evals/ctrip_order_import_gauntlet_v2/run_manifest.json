@@ -1,0 +1,104 @@
+{
+  "contract_version": "ctrip_order_import_gauntlet_v2.1",
+  "frozen_at": "2026-08-09T04:15:00+08:00",
+  "target_user": "hotel operator importing a Ctrip legacy order export into SUXIOS revenue analysis",
+  "user_task": "polish the completed Ctrip legacy XLS upload, aggregation, exact readback, and revenue-analysis loop",
+  "business_boundaries": {
+    "hotel": "explicitly selected system_hotel_id; local acceptance uses hotel 80 only",
+    "tenant": "resolved from the selected hotel and authenticated user scope",
+    "platform": "ctrip manual order import only",
+    "business_date": "stay date with an explicit booking-date fallback",
+    "metric_scope": "OTA channel order aggregates, not whole-hotel revenue",
+    "persistence": "manual-import source plus task-scoped value-level exact readback",
+    "allowed_writes": "scoped source code, tests, eval artifact, and local explicit-fixture records",
+    "external_actions": "none",
+    "non_goals": [
+      "real OTA collection or writeback",
+      "production deployment",
+      "external delivery",
+      "commit or push",
+      "claiming real Ctrip-file acceptance without a real export"
+    ]
+  },
+  "internal_baseline": {
+    "observed_at": "2026-08-09",
+    "environment": "Windows local development_fallback",
+    "phpoffice_phpspreadsheet": "5.9.0@05e99ebf61238a70227b4d9cc02d0030d34f6339",
+    "service_sha256": "5977CC95F889E8A8C06B81F79E51373A8EE24E3F6FF6D735FDB2806972E4D1D2",
+    "phpunit_test_sha256": "112C71AABE9C5005F5CAF07B357EEA1C3408440177967421570512130DAFF709",
+    "closure_contract_sha256": "96E16E383639D24EEF823A97456CF52D9ED29F148934688009F7C12C7BC3FBDE",
+    "deterministic_result": "4 PHPUnit tests / 43 assertions and 1 Node contract passed",
+    "capability_limit": "the .xls path forces the BIFF Xls reader and rejects a content-identified HTML table carrying an .xls filename"
+  },
+  "external_benchmark": [
+    {
+      "source": "PhpSpreadsheet Reading Files",
+      "url": "https://phpspreadsheet.readthedocs.io/en/latest/topics/reading-files/",
+      "observed_at": "2026-08-09",
+      "applies": "content identification can be restricted to an allowed reader subset; XML readers reject declared entities by default",
+      "does_not_prove": "that a real Ctrip export uses HTML content"
+    },
+    {
+      "source": "PhpSpreadsheet Reading and Writing to File",
+      "url": "https://phpspreadsheet.readthedocs.io/en/stable/topics/reading-and-writing-to-file/",
+      "observed_at": "2026-08-09",
+      "applies": "legacy .xls uploads may contain either BIFF data or HTML markup saved with an .xls extension",
+      "does_not_prove": "field compatibility with an unavailable real Ctrip file"
+    },
+    {
+      "source": "OWASP File Upload Cheat Sheet",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html",
+      "observed_at": "2026-08-09",
+      "applies": "server-side extension allowlist, content-type validation, size limits, authorization, and non-trusting of client Content-Type",
+      "does_not_prove": "antivirus or production upload infrastructure readiness"
+    }
+  ],
+  "primary_user_value": {
+    "dimension": "legacy XLS compatibility without truth or privacy regression",
+    "measurement": "accepted safe fixture formats out of two: BIFF XLS and HTML-table-as-XLS",
+    "baseline": "1/2",
+    "material_delta": "candidate must reach 2/2 while all hard gates and regression tests pass",
+    "noise_tolerance": "zero for deterministic fixtures"
+  },
+  "hard_gates": [
+    "only Xls and Html readers may be selected for an .xls upload",
+    "unsupported or malformed content fails closed with HTTP-semantics 422 and no server-path disclosure",
+    "system_hotel_id, platform, business date, and manual-unverified provenance remain explicit",
+    "raw order number, guest name, phone, and source filename are not persisted or returned",
+    "reference bottom price remains reference_bottom_price_not_confirmed_revenue",
+    "saved_count equals value-level exact readback_count",
+    "no real OTA write, external send, production release, commit, or push"
+  ],
+  "capability_set": [
+    "BIFF XLS fixture parses aliases and produces expected channel/date aggregates",
+    "HTML-table-as-XLS fixture is content-identified through the Html reader and produces the same PII-free aggregate contract",
+    "source format is preserved as aggregate provenance without persisting the source filename",
+    "malformed or unsupported .xls content returns a stable sanitized failure"
+  ],
+  "regression_set": [
+    "missing required Ctrip headers fail closed",
+    "canonical non-Ctrip rows pass through unchanged",
+    "duplicate orders remain deduplicated by latest notification time",
+    "cancelled orders do not enter active room nights or reference bottom price",
+    "manual-order rows do not become confirmed OTA room revenue",
+    "frontend closure contract and template gates remain green",
+    "explicit local fixture HTTP upload, persistence, exact readback, and Revenue AI overview remain green"
+  ],
+  "grader_split": {
+    "deterministic": "reader allowlist, fixture outputs, privacy absence, exact readback, status semantics, PHPUnit/Node/template/HTTP commands",
+    "llm_judge": "whether the compatibility change is minimal, comprehensible, and aligned with the frozen user value after deterministic gates pass"
+  },
+  "maturity_target": "integration_pass; comparative_pass only if the frozen 1/2 to 2/2 deterministic format delta repeats with zero hard-gate or regression failures; field_validated remains unavailable",
+  "stop_conditions": [
+    "all deterministic gates pass and blind review returns PASS/READY",
+    "two rounds produce no measurable delta",
+    "the same maximum gap repeats three times",
+    "benchmark invalidation or reviewer isolation failure",
+    "a real-file, production, credential, or external authorization boundary is reached"
+  ],
+  "evidence_limits": [
+    "no real Ctrip order export is present in project scope",
+    "HTML-table-as-XLS compatibility is benchmark-derived and fixture-validated, not field-validated",
+    "Gauntlet v2 itself is an engineering protocol, not proof of product quality"
+  ]
+}

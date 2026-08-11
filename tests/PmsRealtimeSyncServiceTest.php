@@ -11,6 +11,46 @@ use PHPUnit\Framework\TestCase;
 
 final class PmsRealtimeSyncServiceTest extends TestCase
 {
+    public function testSameOwnerFullDiagnosticReceiptProvidesRealtimeSandbox(): void
+    {
+        $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR
+            . 'suxi-pms-receipt-' . bin2hex(random_bytes(6));
+        $receiptDirectory = $root . DIRECTORY_SEPARATOR . 'runtime'
+            . DIRECTORY_SEPARATOR . 'dingdandao_local_scheduler'
+            . DIRECTORY_SEPARATOR . 'hotel_80'
+            . DIRECTORY_SEPARATOR . 'user_7'
+            . DIRECTORY_SEPARATOR . 'full_diagnostic';
+        self::assertTrue(mkdir($receiptDirectory, 0700, true));
+        $receiptPath = $receiptDirectory . DIRECTORY_SEPARATOR . 'latest.json';
+        self::assertNotFalse(file_put_contents(
+            $receiptPath,
+            json_encode(self::trustedReceipt(), JSON_UNESCAPED_SLASHES)
+        ));
+
+        try {
+            $service = new PmsRealtimeSyncService(projectRoot: $root);
+            $loader = new \ReflectionMethod($service, 'loadLocalRunnerReceipt');
+
+            $receipt = $loader->invoke($service, 80, 7);
+
+            self::assertSame(
+                'sbx_dingdandao_h80_primary',
+                $receipt['sandbox_id'] ?? null
+            );
+            self::assertSame([], $loader->invoke($service, 80, 8));
+            self::assertSame([], $loader->invoke($service, 81, 7));
+        } finally {
+            @unlink($receiptPath);
+            @rmdir($receiptDirectory);
+            @rmdir(dirname($receiptDirectory));
+            @rmdir(dirname($receiptDirectory, 2));
+            @rmdir(dirname($receiptDirectory, 3));
+            @rmdir(dirname($receiptDirectory, 4));
+            @rmdir(dirname($receiptDirectory, 5));
+            @rmdir($root);
+        }
+    }
+
     public function testRealtimeSyncRunsIsolatedCollectorAndVerifiesDatabaseReadback(): void
     {
         $command = [];
@@ -19,12 +59,7 @@ final class PmsRealtimeSyncServiceTest extends TestCase
                 'binding_status' => 'configured',
                 'selected_provider' => 'dingdandao_pms',
             ],
-            receiptLoader: static fn(): array => [
-                'execution_mode' => 'local_shared_browser_sandbox',
-                'hotel_id' => 80,
-                'owner_user_id' => 7,
-                'sandbox_id' => 'sbx_dingdandao_h80_primary',
-            ],
+            receiptLoader: static fn(): array => self::trustedReceipt(),
             cdpProbe: static fn(string $url): bool => $url === 'http://127.0.0.1:9223',
             processRunner: static function (array $input) use (&$command): array {
                 $command = $input;
@@ -78,12 +113,7 @@ final class PmsRealtimeSyncServiceTest extends TestCase
                 'binding_status' => 'configured',
                 'selected_provider' => 'dingdandao_pms',
             ],
-            receiptLoader: static fn(): array => [
-                'execution_mode' => 'local_shared_browser_sandbox',
-                'hotel_id' => 80,
-                'owner_user_id' => 7,
-                'sandbox_id' => 'sbx_dingdandao_h80_primary',
-            ],
+            receiptLoader: static fn(): array => self::trustedReceipt(),
             cdpProbe: static fn(): bool => true,
             processRunner: static function (array $input) use (&$command): array {
                 $command = $input;
@@ -169,12 +199,7 @@ final class PmsRealtimeSyncServiceTest extends TestCase
                 'binding_status' => 'configured',
                 'selected_provider' => 'dingdandao_pms',
             ],
-            receiptLoader: static fn(): array => [
-                'execution_mode' => 'local_shared_browser_sandbox',
-                'hotel_id' => 80,
-                'owner_user_id' => 7,
-                'sandbox_id' => 'sbx_dingdandao_h80_primary',
-            ],
+            receiptLoader: static fn(): array => self::trustedReceipt(),
             cdpProbe: static fn(): bool => true,
             processRunner: static fn(): array => [
                 'exit_code' => 1,
@@ -228,12 +253,7 @@ final class PmsRealtimeSyncServiceTest extends TestCase
                 'binding_status' => 'configured',
                 'selected_provider' => 'dingdandao_pms',
             ],
-            receiptLoader: static fn(): array => [
-                'execution_mode' => 'local_shared_browser_sandbox',
-                'hotel_id' => 80,
-                'owner_user_id' => 7,
-                'sandbox_id' => 'sbx_dingdandao_h80_primary',
-            ],
+            receiptLoader: static fn(): array => self::trustedReceipt(),
             cdpProbe: static fn(): bool => true,
             processRunner: static fn(): array => [
                 'exit_code' => 0,
@@ -277,12 +297,7 @@ final class PmsRealtimeSyncServiceTest extends TestCase
                 'binding_status' => 'configured',
                 'selected_provider' => 'dingdandao_pms',
             ],
-            receiptLoader: static fn(): array => [
-                'execution_mode' => 'local_shared_browser_sandbox',
-                'hotel_id' => 80,
-                'owner_user_id' => 7,
-                'sandbox_id' => 'sbx_dingdandao_h80_primary',
-            ],
+            receiptLoader: static fn(): array => self::trustedReceipt(),
             cdpProbe: static fn(): bool => false,
             clock: static fn(): DateTimeImmutable => new DateTimeImmutable(
                 '2026-07-30 09:45:05',
@@ -306,5 +321,79 @@ final class PmsRealtimeSyncServiceTest extends TestCase
             "Route::post('/pms/realtime-sync', 'OperatingTarget/syncSelectedPmsRealtime')",
             $routes
         );
+    }
+
+    public function testBlockedReceiptAndConfiguredSandboxCannotAuthorizeCollection(): void
+    {
+        $previous = getenv('SUXIOS_DINGDANDAO_LOCAL_SANDBOX_ID');
+        putenv('SUXIOS_DINGDANDAO_LOCAL_SANDBOX_ID=sbx_dingdandao_h80_primary');
+        $collectorCalled = false;
+        try {
+            $receipt = self::trustedReceipt();
+            $receipt['status'] = 'blocked';
+            $receipt['collection_success'] = false;
+            $receipt['business_data_persisted'] = false;
+            $receipt['capture_id'] = 0;
+
+            $service = new PmsRealtimeSyncService(
+                bindingResolver: static fn(): array => [
+                    'binding_status' => 'configured',
+                    'selected_provider' => 'dingdandao_pms',
+                ],
+                receiptLoader: static fn(): array => $receipt,
+                cdpProbe: static function () use (&$collectorCalled): bool {
+                    $collectorCalled = true;
+                    return true;
+                },
+                processRunner: static function () use (&$collectorCalled): array {
+                    $collectorCalled = true;
+                    return [];
+                },
+                clock: static fn(): DateTimeImmutable => new DateTimeImmutable(
+                    '2026-07-30 09:45:05',
+                    new DateTimeZone('Asia/Shanghai')
+                )
+            );
+
+            $result = $service->sync(1, 80, 7, '2026-07-30');
+
+            self::assertSame('blocked', $result['status']);
+            self::assertSame('pms_live_sandbox_not_configured', $result['blocker_code']);
+            self::assertFalse($collectorCalled);
+        } finally {
+            if ($previous === false) {
+                putenv('SUXIOS_DINGDANDAO_LOCAL_SANDBOX_ID');
+            } else {
+                putenv('SUXIOS_DINGDANDAO_LOCAL_SANDBOX_ID=' . $previous);
+            }
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private static function trustedReceipt(): array
+    {
+        return [
+            'schema_version' => 1,
+            'run_id' => '20260730_094500_000',
+            'status' => 'success',
+            'source' => 'dingdandao',
+            'execution_mode' => 'local_shared_browser_sandbox',
+            'collection_mode' => 'full_diagnostic',
+            'hotel_id' => 80,
+            'owner_user_id' => 7,
+            'target_date' => '2026-07-30',
+            'sandbox_id' => 'sbx_dingdandao_h80_primary',
+            'sandbox_selection' => 'explicit_marker',
+            'cdp_scope' => 'loopback',
+            'browser_host_status' => 'ready',
+            'collection_success' => true,
+            'business_data_persisted' => true,
+            'capture_id' => 321,
+            'identity_status' => 'matched',
+            'reconciliation_status' => 'matched',
+            'quality_status' => 'verified',
+            'readback_status' => 'readback_verified',
+            'scope_mismatch_codes' => [],
+        ];
     }
 }

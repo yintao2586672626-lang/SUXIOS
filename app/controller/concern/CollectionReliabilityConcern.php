@@ -6,6 +6,8 @@ namespace app\controller\concern;
 use app\model\OperationLog;
 use app\model\SystemConfig;
 use app\service\DualOtaContinuousTrustService;
+use app\service\DualOtaPageVerificationService;
+use app\service\HotelCollectionRunReceiptService;
 use app\service\OtaFailureNotificationService;
 use app\service\OtaOperatingScope;
 use think\Response;
@@ -2391,13 +2393,16 @@ trait CollectionReliabilityConcern
         $hotelId = $this->resolveOnlineDataSystemHotelId($hotelIdRaw);
         [$startDate, $endDate] = $this->resolveDashboardDateRange();
         $mode = $this->normalizeCollectionReliabilityMode($this->request->get('mode', 'full'));
+        $forceRefresh = filter_var($this->request->get('force', false), FILTER_VALIDATE_BOOLEAN);
 
         try {
             if ($mode === 'light') {
                 $cacheKey = $this->collectionReliabilityCacheKey($hotelId, $startDate, $endDate, $mode);
-                $cached = cache($cacheKey);
-                if (is_array($cached)) {
-                    return $this->success($cached);
+                if (!$forceRefresh) {
+                    $cached = cache($cacheKey);
+                    if (is_array($cached)) {
+                        return $this->success($cached);
+                    }
                 }
                 $payload = $this->withPhase1EmployeeQuestions(
                     $this->buildCollectionReliabilityLightPayload($hotelId, $startDate, $endDate)
@@ -2413,6 +2418,127 @@ trait CollectionReliabilityConcern
             return $this->error($e->getMessage());
         } catch (\Throwable $e) {
             return $this->error('采集可靠性查询失败: ' . $e->getMessage());
+        }
+    }
+
+    public function confirmDualOtaPageVerification(): Response
+    {
+        $this->checkPermission();
+
+        $requestData = $this->requestData();
+        $hotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['hotel_id']
+            ?? null
+        );
+        if (!$hotelId) {
+            return $this->error('Please select an exact system hotel before confirming the page receipt.', 400);
+        }
+        $this->checkHotelActionPermission((int)$hotelId, 'can_view_online_data');
+
+        $targetDate = trim((string)($requestData['target_date'] ?? ''));
+        try {
+            $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $targetDate);
+            if (!$date instanceof \DateTimeImmutable || $date->format('Y-m-d') !== $targetDate) {
+                throw new \InvalidArgumentException('target_date must use YYYY-MM-DD.');
+            }
+
+            $hotel = Db::name('hotels')
+                ->where('id', (int)$hotelId)
+                ->field('id,tenant_id')
+                ->find();
+            $tenantId = is_array($hotel) ? (int)($hotel['tenant_id'] ?? 0) : 0;
+            if ($tenantId <= 0) {
+                throw new \RuntimeException('The selected hotel has no authoritative tenant scope.', 409);
+            }
+
+            $trust = (new DualOtaContinuousTrustService())->inspectHotel(
+                (int)$hotelId,
+                $targetDate,
+                $targetDate
+            );
+            $service = new DualOtaPageVerificationService();
+            $receipt = $service->confirm(
+                $trust,
+                $tenantId,
+                (int)$hotelId,
+                (int)($this->currentUser->id ?? 0),
+                $requestData
+            );
+            $collectionRunReceipt = null;
+            $collectionRunAttachment = [
+                'status' => 'not_attached',
+                'failure_code' => 'hotel_collection_page_run_not_found',
+                'readback_verified' => false,
+                'sensitive_values_exposed' => false,
+            ];
+            try {
+                $canonicalContract = DualOtaPageVerificationService::canonicalContract(
+                    $trust,
+                    $tenantId,
+                    (int)$hotelId,
+                    $targetDate
+                );
+                $collectionRunReceipt = (new HotelCollectionRunReceiptService())
+                    ->recordPageAcceptance(
+                        $tenantId,
+                        (int)$hotelId,
+                        $targetDate,
+                        $receipt,
+                        $canonicalContract
+                    );
+                $collectionRunAttachmentVerified =
+                    ($collectionRunReceipt['ledger_structure_verified'] ?? false) === true
+                    && ($collectionRunReceipt['readback_verified'] ?? false) === true
+                    && ($collectionRunReceipt['page_acceptance']['readback_verified'] ?? false) === true
+                    && ($collectionRunReceipt['page_acceptance']['status'] ?? '') === 'verified';
+                $collectionRunAttachment = [
+                    'status' => $collectionRunAttachmentVerified ? 'attached' : 'not_attached',
+                    'dispatcher_run_id' => (string)(
+                        $collectionRunReceipt['dispatcher_run_id'] ?? ''
+                    ),
+                    'failure_code' => $collectionRunAttachmentVerified
+                        ? null
+                        : 'hotel_collection_page_run_attachment_unverified',
+                    'readback_verified' => $collectionRunAttachmentVerified,
+                    'sensitive_values_exposed' => false,
+                ];
+            } catch (\RuntimeException $ledgerError) {
+                $failureCode = trim($ledgerError->getMessage());
+                if (preg_match('/^hotel_collection_(?:page|run)_[a-z0-9_]+$/D', $failureCode) !== 1) {
+                    $failureCode = 'hotel_collection_page_run_attachment_failed';
+                }
+                $collectionRunAttachment['failure_code'] = $failureCode;
+            }
+
+            // The page always requests a 30-day light projection. Remove the
+            // exact cached scope and still require the client to force-read it.
+            $startDate = date('Y-m-d', strtotime($targetDate . ' -29 days'));
+            cache($this->collectionReliabilityCacheKey(
+                (int)$hotelId,
+                $startDate,
+                $targetDate,
+                'light'
+            ), null);
+
+            $readbackTrust = (new DualOtaContinuousTrustService())->inspectHotel(
+                (int)$hotelId,
+                $targetDate,
+                $targetDate
+            );
+
+            return $this->success([
+                'receipt' => $receipt,
+                'collection_run_attachment' => $collectionRunAttachment,
+                'collection_run_receipt' => $collectionRunReceipt,
+                'dual_ota_continuous_trust' => $readbackTrust,
+            ], 'The current dual-OTA page receipt was confirmed and read back exactly.');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 400);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable) {
+            return $this->error('The page confirmation could not be saved and read back exactly.', 500);
         }
     }
 }

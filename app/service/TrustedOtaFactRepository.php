@@ -167,6 +167,15 @@ class TrustedOtaFactRepository
             );
         }
 
+        [$orderEvidenceRows, $orderEvidenceStatus] =
+            $this->loadOrderDedupEvidenceRows(
+                $systemHotelId,
+                $startDate,
+                $endDate,
+                $fields,
+                $columns
+            );
+
         $trustedRows = [];
         $rejectedReasons = [];
         foreach ($sourceRows as $row) {
@@ -182,6 +191,12 @@ class TrustedOtaFactRepository
             $trustedRows[] = $row;
         }
 
+        [$trustedRows, $orderDedupQuality] =
+            $this->deduplicateTrustedOrderRows(
+                $trustedRows,
+                $orderEvidenceRows,
+                $orderEvidenceStatus
+            );
         [$trustedRows, $supersededRows] = $this->selectCanonicalRows($trustedRows);
         [$trustedRows, $suppressedMixedTypeRows] = $this->preferSummaryFactsPerSourceDate($trustedRows);
         [$trustedRows, $supersededSnapshotRows] = $this->selectLatestSummarySnapshotRows($trustedRows);
@@ -204,7 +219,7 @@ class TrustedOtaFactRepository
                 'amount' => $this->metricValue($row, 'amount', $dataGaps),
                 'quantity' => $this->metricValue($row, 'quantity', $dataGaps),
                 'book_order_num' => $this->metricValue($row, 'book_order_num', $dataGaps),
-                'source' => $this->normalizedSource($this->firstText($row, $raw, ['source', 'platform'])),
+                'source' => $this->platformIdentity($row, $raw),
                 'data_type' => $this->normalizedDataType(
                     $this->firstText($row, $raw, ['data_type', 'dataType'])
                 ),
@@ -245,6 +260,7 @@ class TrustedOtaFactRepository
                 'superseded_period_rows' => $supersededRows,
                 'suppressed_mixed_type_rows' => $suppressedMixedTypeRows,
                 'superseded_snapshot_rows' => $supersededSnapshotRows,
+                'order_dedup' => $orderDedupQuality,
             ],
         ];
     }
@@ -264,7 +280,7 @@ class TrustedOtaFactRepository
         foreach ($rows as $row) {
             $raw = $this->decodeRaw($row['raw_data'] ?? null);
             $key = implode('|', [
-                $this->normalizedSource($this->firstText($row, $raw, ['source', 'platform'])),
+                $this->platformIdentity($row, $raw),
                 (string)($row['system_hotel_id'] ?? ''),
                 (string)($row['data_date'] ?? ''),
             ]);
@@ -323,7 +339,7 @@ class TrustedOtaFactRepository
         foreach ($rows as $row) {
             $raw = $this->decodeRaw($row['raw_data'] ?? null);
             $key = implode('|', [
-                $this->normalizedSource($this->firstText($row, $raw, ['source', 'platform'])),
+                $this->platformIdentity($row, $raw),
                 (string)($row['system_hotel_id'] ?? ''),
                 (string)($row['data_date'] ?? ''),
             ]);
@@ -514,8 +530,10 @@ class TrustedOtaFactRepository
         $scopeText = strtolower(implode(' ', [
             $this->firstText($row, [], ['dimension', 'dimName', '_dimName']),
             $this->firstText([], $raw, ['dimension', 'dimName', '_dimName']),
-            $this->firstText($row, [], ['source', 'platform']),
-            $this->firstText([], $raw, ['source', 'platform']),
+            $this->platformIdentity($row, []),
+            $this->firstText($row, [], ['source']),
+            $this->platformIdentity([], $raw),
+            $this->firstText([], $raw, ['source']),
         ]));
         foreach (['competitor', 'competition_circle', 'peer_hotel', '竞品', '商圈酒店', '同业酒店'] as $fragment) {
             if ($scopeText !== '' && str_contains($scopeText, $fragment)) {
@@ -641,14 +659,14 @@ class TrustedOtaFactRepository
 
             $raw = $this->decodeRaw($row['raw_data'] ?? null);
             $dataType = $this->normalizedDataType($this->firstText($row, $raw, ['data_type', 'dataType']));
-            $eventIdentity = $this->stableEventIdentity($raw, $dataType);
+            $eventIdentity = $this->stableEventIdentity($row, $raw, $dataType);
             if ($eventIdentity !== '') {
                 $selected[] = $row;
                 continue;
             }
 
             $key = implode('|', [
-                $this->normalizedSource($this->firstText($row, $raw, ['source', 'platform'])),
+                $this->platformIdentity($row, $raw),
                 trim((string)($row['hotel_id'] ?? '')),
                 (string)($row['data_date'] ?? ''),
                 $dataType,
@@ -684,6 +702,244 @@ class TrustedOtaFactRepository
         return [$selected, $superseded];
     }
 
+    /**
+     * Load order rows from the exact hotel/date scope without allowing them to
+     * enter pricing facts. Untrusted rows are used only to detect a newer
+     * version of an otherwise trusted order identity.
+     *
+     * @param array<int,string> $fields
+     * @param array<string,mixed> $columns
+     * @return array{0:array<int,array<string,mixed>>,1:string}
+     */
+    private function loadOrderDedupEvidenceRows(
+        int $systemHotelId,
+        string $startDate,
+        string $endDate,
+        array $fields,
+        array $columns
+    ): array {
+        try {
+            $query = Db::name(self::TABLE)
+                ->field(implode(',', $fields))
+                ->where('system_hotel_id', $systemHotelId)
+                ->whereBetween('data_date', [$startDate, $endDate])
+                ->order('data_date', 'asc');
+            if (isset($columns['id'])) {
+                $query->order('id', 'asc');
+            }
+            $rows = $query->limit(self::MAX_ROWS + 1)->select()->toArray();
+        } catch (\Throwable) {
+            return [[], 'query_failed'];
+        }
+
+        if (count($rows) > self::MAX_ROWS) {
+            return [[], 'row_limit_exceeded'];
+        }
+
+        return [array_values(array_filter($rows, 'is_array')), 'complete'];
+    }
+
+    /**
+     * Deduplicate only trusted order events with a complete four-part identity.
+     * Untrusted evidence never enters the fact rows, but newer versions remain
+     * visible in quality metadata for review.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @param null|array<int, array<string, mixed>> $evidenceRows
+     * @return array{0:array<int, array<string, mixed>>,1:array<string,mixed>}
+     */
+    private function deduplicateTrustedOrderRows(
+        array $rows,
+        ?array $evidenceRows = null,
+        string $evidenceStatus = 'complete'
+    ): array {
+        $selected = [];
+        $trustedKeys = [];
+        foreach (array_values($rows) as $row) {
+            $trustedKeys[$this->orderEvidenceRowKey($row)] = true;
+            $raw = $this->decodeRaw($row['raw_data'] ?? null);
+            if (!$this->isSelfOrderEvidenceRow($row, $raw)
+                || $this->verifiedOrderGrain($row, $raw) === ''
+            ) {
+                $selected[] = $row;
+            }
+        }
+
+        $evidenceByKey = [];
+        foreach (array_merge($evidenceRows ?? $rows, $rows) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $evidenceByKey[$this->orderEvidenceRowKey($row)] = $row;
+        }
+
+        $groups = [];
+        $candidateRows = 0;
+        $coveredRows = 0;
+        foreach ($evidenceByKey as $rowKey => $row) {
+            $raw = $this->decodeRaw($row['raw_data'] ?? null);
+            if (!$this->isSelfOrderEvidenceRow($row, $raw)) {
+                continue;
+            }
+            $candidateRows++;
+            $grain = $this->verifiedOrderGrain($row, $raw);
+            $trusted = isset($trustedKeys[$rowKey]);
+            if ($grain === '') {
+                continue;
+            }
+            if ($trusted) {
+                $coveredRows++;
+            }
+            $groups[$grain][] = [
+                'row' => $row,
+                'trusted' => $trusted,
+            ];
+        }
+
+        $verifiedGrains = 0;
+        $suppressedRows = 0;
+        $suppressedUntrustedRows = 0;
+        $newerUntrustedRows = 0;
+        foreach ($groups as $items) {
+            $trustedItems = array_values(array_filter(
+                $items,
+                static fn(array $item): bool => $item['trusted'] === true
+            ));
+            if ($trustedItems === []) {
+                continue;
+            }
+            $verifiedGrains++;
+            usort(
+                $trustedItems,
+                fn(array $left, array $right): int =>
+                    $this->periodRowOrder($left['row'])
+                    <=> $this->periodRowOrder($right['row'])
+            );
+            $winner = $trustedItems[count($trustedItems) - 1];
+            $winnerKey = $this->orderEvidenceRowKey($winner['row']);
+            $winnerOrder = $this->periodRowOrder($winner['row']);
+            $selected[] = $winner['row'];
+            $suppressedRows += max(0, count($items) - 1);
+            foreach ($items as $item) {
+                if ($item['trusted'] === true
+                    && $this->orderEvidenceRowKey($item['row']) === $winnerKey
+                ) {
+                    continue;
+                }
+                if ($item['trusted'] === false) {
+                    $suppressedUntrustedRows++;
+                    if ($this->periodRowOrder($item['row']) > $winnerOrder) {
+                        $newerUntrustedRows++;
+                    }
+                }
+            }
+        }
+
+        usort($selected, static function (array $left, array $right): int {
+            $dateCompare = ((string)($left['data_date'] ?? ''))
+                <=> ((string)($right['data_date'] ?? ''));
+            return $dateCompare !== 0
+                ? $dateCompare
+                : ((int)($left['id'] ?? 0) <=> (int)($right['id'] ?? 0));
+        });
+        $coveragePercent = $candidateRows > 0
+            ? round(($coveredRows / $candidateRows) * 100, 2)
+            : null;
+
+        return [array_values($selected), [
+            'policy' =>
+                'latest_trusted_per_system_hotel_platform_data_date_order_id_hash',
+            'coverage_unit' => 'scoped_order_evidence_rows',
+            'evidence_status' => $evidenceStatus,
+            'order_identity_candidate_rows' => $candidateRows,
+            'order_identity_covered_rows' => $coveredRows,
+            'order_identity_unverifiable_rows' =>
+                max(0, $candidateRows - $coveredRows),
+            'order_identity_coverage_percent' => $coveragePercent,
+            'distinct_verified_order_grains' => $verifiedGrains,
+            'suppressed_duplicate_order_rows' => $suppressedRows,
+            'suppressed_untrusted_duplicate_order_rows' =>
+                $suppressedUntrustedRows,
+            'newer_untrusted_duplicate_order_rows' => $newerUntrustedRows,
+        ]];
+    }
+
+    /** @param array<string,mixed> $row */
+    private function orderEvidenceRowKey(array $row): string
+    {
+        if (isset($row['id']) && trim((string)$row['id']) !== '') {
+            return 'id:' . (string)$row['id'];
+        }
+        return 'row:' . hash('sha256', (string)json_encode(
+            $row,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        ));
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $raw
+     */
+    private function isSelfOrderEvidenceRow(array $row, array $raw): bool
+    {
+        $dataType = $this->normalizedDataType(
+            $this->firstText($row, $raw, ['data_type', 'dataType'])
+        );
+        if (!in_array($dataType, ['order', 'orders', 'order_list'], true)) {
+            return false;
+        }
+        foreach ([
+            $this->firstText($row, [], ['compare_type', 'compareType']),
+            $this->firstText([], $raw, ['compare_type', 'compareType']),
+        ] as $compareType) {
+            $compareType = strtolower(trim($compareType));
+            if ($compareType !== ''
+                && !in_array(
+                    $compareType,
+                    ['self', 'own', 'ours', 'target_hotel'],
+                    true
+                )
+            ) {
+                return false;
+            }
+        }
+        $scopeText = strtolower(implode(' ', [
+            $this->firstText($row, [], ['dimension', 'dimName', '_dimName']),
+            $this->firstText([], $raw, ['dimension', 'dimName', '_dimName']),
+        ]));
+        foreach (['competitor', 'competition_circle', 'peer_hotel'] as $fragment) {
+            if ($scopeText !== '' && str_contains($scopeText, $fragment)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $raw
+     */
+    private function verifiedOrderGrain(array $row, array $raw): string
+    {
+        $systemHotelId = (int)($row['system_hotel_id'] ?? 0);
+        $platform = $this->platformIdentity($row, $raw);
+        $businessDate = trim((string)($row['data_date'] ?? ''));
+        $orderIdentityHash = $this->verifiedOrderIdentityHash($row, $raw);
+        if ($systemHotelId <= 0
+            || $platform === ''
+            || !$this->isExactBusinessDate($businessDate)
+            || $orderIdentityHash === ''
+        ) {
+            return '';
+        }
+        return implode('|', [
+            (string)$systemHotelId,
+            $platform,
+            $businessDate,
+            $orderIdentityHash,
+        ]);
+    }
+
     /** @param array<string, mixed> $row */
     private function isFinalPeriodRow(array $row): bool
     {
@@ -707,22 +963,80 @@ class TrustedOtaFactRepository
         return max(0, (int)($row['id'] ?? 0));
     }
 
-    /** @param array<string, mixed> $raw */
-    private function stableEventIdentity(array $raw, string $dataType): string
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function stableEventIdentity(array $row, array $raw, string $dataType): string
     {
         if (!in_array($dataType, ['order', 'orders', 'order_list'], true)) {
             return '';
         }
-        return $this->firstText([], $raw, [
+        $verifiedIdentity = $this->verifiedOrderIdentityHash($row, $raw);
+        if ($verifiedIdentity !== '') {
+            return $verifiedIdentity;
+        }
+        return $this->firstText($row, $raw, [
             'order_id_hash',
             'orderIdHash',
+            'order_no_hash',
+            'booking_id_hash',
             'order_id',
             'orderId',
             'order_no',
             'orderNo',
+            'order_sn',
+            'orderSn',
             'booking_id',
             'bookingId',
         ]);
+    }
+
+    /**
+     * Return a normalized hash without exposing the original order identifier.
+     * A claimed pre-hash must be a full SHA-256 value; raw identifiers are
+     * hashed in memory with the established OTA order namespace.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function verifiedOrderIdentityHash(array $row, array $raw): string
+    {
+        $sources = [$row, $raw];
+        foreach (['row', 'metrics', 'detail', 'fields'] as $nestedKey) {
+            if (is_array($raw[$nestedKey] ?? null)) {
+                $sources[] = $raw[$nestedKey];
+            }
+        }
+        foreach (['order_id_hash', 'orderIdHash', 'order_no_hash', 'booking_id_hash'] as $key) {
+            foreach ($sources as $source) {
+                $preHashed = strtolower(trim((string)($source[$key] ?? '')));
+                if (preg_match('/^[a-f0-9]{64}$/', $preHashed) === 1) {
+                    return $preHashed;
+                }
+            }
+        }
+
+        foreach (['order_id', 'orderId', 'order_no', 'orderNo', 'order_sn', 'orderSn', 'booking_id', 'bookingId'] as $key) {
+            foreach ($sources as $source) {
+                $rawIdentity = trim((string)($source[$key] ?? ''));
+                if ($rawIdentity !== '') {
+                    return hash('sha256', 'ota_order|' . $rawIdentity);
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function isExactBusinessDate(string $value): bool
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
+            return false;
+        }
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        return $date instanceof DateTimeImmutable
+            && $date->format('Y-m-d') === $value;
     }
 
     /** @param array<string, mixed> $raw */
@@ -867,6 +1181,32 @@ class TrustedOtaFactRepository
         }
 
         return '';
+    }
+
+    /**
+     * Resolve the OTA business platform without allowing a storage-source
+     * alias (for example source=ctrip for Qunar rows) to override it. Source
+     * is a legacy fallback only when no platform field exists in the row or
+     * its persisted raw evidence.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function platformIdentity(array $row, array $raw): string
+    {
+        $sources = [$row, $raw];
+        foreach (['row', 'metrics', 'detail'] as $nestedKey) {
+            if (is_array($raw[$nestedKey] ?? null)) {
+                $sources[] = $raw[$nestedKey];
+            }
+        }
+        foreach ($sources as $source) {
+            if (array_key_exists('platform', $source)) {
+                return $this->normalizedSource($this->scalarText($source['platform']));
+            }
+        }
+
+        return $this->normalizedSource($this->firstText($row, $raw, ['source']));
     }
 
     private function flattenFlags(mixed $flags): string

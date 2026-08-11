@@ -41,6 +41,7 @@ CREATE TABLE online_daily_data (
     hotel_name TEXT NOT NULL,
     data_date TEXT NOT NULL,
     source TEXT NOT NULL,
+    platform TEXT,
     data_type TEXT NOT NULL,
     dimension TEXT NOT NULL,
     compare_type TEXT NOT NULL,
@@ -125,6 +126,37 @@ SQL);
         self::assertSame(1, $dataset['data_quality']['untrusted_rows']);
     }
 
+    public function testSourceFilterUsesExplicitPlatformWhenStorageSourceIsShared(): void
+    {
+        $qunarRow = $this->row(4, 400, 1, 'normal');
+        $qunarRow['platform'] = 'qunar';
+        Db::name('online_daily_data')->insert($qunarRow);
+
+        $ctripDataset = (new OtaStandardEtlService())->buildDataset([
+            'system_hotel_id' => 80,
+            'source' => 'ctrip',
+            'start_date' => '2026-07-18',
+            'end_date' => '2026-07-18',
+        ]);
+        $qunarDataset = (new OtaStandardEtlService())->buildDataset([
+            'system_hotel_id' => 80,
+            'source' => 'qunar',
+            'start_date' => '2026-07-18',
+            'end_date' => '2026-07-18',
+        ]);
+
+        self::assertSame(
+            [1],
+            array_column(array_column($ctripDataset['fact_ota_daily'], 'source_trace'), 'row_id')
+        );
+        self::assertSame(['ctrip'], array_column($ctripDataset['fact_ota_daily'], 'platform_key'));
+        self::assertSame(
+            [4],
+            array_column(array_column($qunarDataset['fact_ota_daily'], 'source_trace'), 'row_id')
+        );
+        self::assertSame(['qunar'], array_column($qunarDataset['fact_ota_daily'], 'platform_key'));
+    }
+
     /** @return array<string, mixed> */
     private function row(int $id, float $amount, int $readbackVerified, string $validationStatus): array
     {
@@ -135,6 +167,7 @@ SQL);
             'hotel_name' => 'Test Hotel',
             'data_date' => '2026-07-18',
             'source' => 'ctrip',
+            'platform' => 'ctrip',
             'data_type' => 'business',
             'dimension' => 'daily_business',
             'compare_type' => 'self',

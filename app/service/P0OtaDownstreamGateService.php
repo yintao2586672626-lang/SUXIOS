@@ -507,7 +507,12 @@ class P0OtaDownstreamGateService
         $verifierAnchorHash = strtolower(trim((string)(
             $verifier['collection_anchor_hash'] ?? ''
         )));
-        if (preg_match('/^[a-f0-9]{64}$/D', $collectionAnchorHash) !== 1
+        if ((string)($receipt['collection_anchor_contract_version'] ?? '')
+                !== OtaCollectionAnchorService::CONTRACT_VERSION
+            || !OtaCollectionAnchorService::matches(
+                $receipt['source_tasks'] ?? [],
+                $collectionAnchorHash
+            )
             || !hash_equals($collectionAnchorHash, $verifierAnchorHash)
         ) {
             $missing[] = 'p0_authority_collection_anchor_mismatch';
@@ -584,8 +589,9 @@ class P0OtaDownstreamGateService
         $readyPlatforms = [];
         foreach ($sourceTasks as $task) {
             if (!is_array($task)
-                || strtolower(trim((string)($task['collection_status'] ?? ''))) !== 'success'
-                || strtolower(trim((string)($task['p0_status'] ?? ''))) !== 'ready'
+                || strtolower(trim((string)(
+                    $task['historical_core_contract_status'] ?? ''
+                ))) !== 'ready'
                 || (int)($task['data_source_id'] ?? 0) <= 0
                 || (int)($task['sync_task_id'] ?? 0) <= 0
                 || $this->positiveIds($task['row_ids'] ?? []) === []

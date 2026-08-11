@@ -43,6 +43,24 @@ class PermissionService
         'system.config',
     ];
 
+    private const CONTROLLED_PARTNER_DENIED_CAPABILITIES = [
+        'all',
+        'hotel.create',
+        'hotel.update',
+        'hotel.delete',
+        'ota.collect',
+        'ota.delete',
+        'ota.collect_batch',
+        'ota.export',
+        'report.fill',
+        'report.update',
+        'report.delete',
+        'ai.governance',
+        'operation.execute',
+        'user.role_change',
+        'system.config',
+    ];
+
     public function __construct(private ?HotelScopeService $hotelScopeService = null)
     {
         $this->hotelScopeService ??= new HotelScopeService();
@@ -128,6 +146,10 @@ class PermissionService
             return false;
         }
 
+        if ($this->isControlledPartnerUser($user) && $this->isControlledPartnerCapabilityDenied($capability)) {
+            return false;
+        }
+
         if ($this->isNormalExternalUser($user) && $this->isNormalExternalCapabilityDenied($capability)) {
             return false;
         }
@@ -150,7 +172,12 @@ class PermissionService
         }
 
         $capabilities = $this->expandCapabilities($role->getPermissionList());
-        if ($this->isNormalExternalUser($user)) {
+        if ($this->isControlledPartnerUser($user)) {
+            $capabilities = array_values(array_filter(
+                $capabilities,
+                fn(string $capability): bool => !$this->isControlledPartnerCapabilityDenied($capability)
+            ));
+        } elseif ($this->isNormalExternalUser($user)) {
             $capabilities = array_values(array_filter(
                 $capabilities,
                 fn(string $capability): bool => !$this->isNormalExternalCapabilityDenied($capability)
@@ -190,6 +217,11 @@ class PermissionService
         return in_array($this->normalizeCapability($capability), self::NORMAL_EXTERNAL_DENIED_CAPABILITIES, true);
     }
 
+    public function isControlledPartnerCapabilityDenied(string $capability): bool
+    {
+        return in_array($this->normalizeCapability($capability), self::CONTROLLED_PARTNER_DENIED_CAPABILITIES, true);
+    }
+
     /**
      * @param array<int, string> $permissions
      * @return array<int, string>
@@ -198,6 +230,22 @@ class PermissionService
     {
         $unsafe = [];
         foreach (self::NORMAL_EXTERNAL_DENIED_CAPABILITIES as $capability) {
+            if (Role::permissionListAllows($permissions, $capability)) {
+                $unsafe[] = $capability;
+            }
+        }
+
+        return array_values(array_unique($unsafe));
+    }
+
+    /**
+     * @param array<int, string> $permissions
+     * @return array<int, string>
+     */
+    public function controlledPartnerUnsafeCapabilities(array $permissions): array
+    {
+        $unsafe = [];
+        foreach (self::CONTROLLED_PARTNER_DENIED_CAPABILITIES as $capability) {
             if (Role::permissionListAllows($permissions, $capability)) {
                 $unsafe[] = $capability;
             }
@@ -227,6 +275,10 @@ class PermissionService
 
     private function isNormalExternalUser(User $user): bool
     {
+        if ($this->isControlledPartnerUser($user)) {
+            return false;
+        }
+
         if ((int)($user->role_id ?? 0) === Role::NORMAL_USER) {
             return true;
         }
@@ -242,6 +294,20 @@ class PermissionService
         } catch (\Throwable) {
             return (string)($role->name ?? '') === 'normal_user'
                 || (int)($role->level ?? 0) >= Role::HOTEL_STAFF;
+        }
+    }
+
+    private function isControlledPartnerUser(User $user): bool
+    {
+        $role = $user->role;
+        if (!$role instanceof Role) {
+            return false;
+        }
+
+        try {
+            return (string)$role->getAttr('name') === Role::CONTROLLED_PARTNER_NAME;
+        } catch (\Throwable) {
+            return (string)($role->name ?? '') === Role::CONTROLLED_PARTNER_NAME;
         }
     }
 }

@@ -307,10 +307,6 @@ function field_groups(): array
                 'availableRooms',
                 'salable_rooms',
                 'salableRooms',
-                'total_rooms_count',
-                'totalRoomsCount',
-                'rooms_total',
-                'roomsTotal',
             ],
         ],
         'commission' => [
@@ -338,8 +334,6 @@ function field_groups(): array
                 'netAmount',
                 'after_commission_revenue',
                 'afterCommissionRevenue',
-                'settlement_amount',
-                'settlementAmount',
             ],
         ],
         'cancellation' => [
@@ -409,18 +403,19 @@ function decode_raw(mixed $raw): array
 /**
  * @return array<string, bool>
  */
-function raw_key_map(mixed $value): array
+function raw_value_key_map(mixed $value): array
 {
     $keys = [];
     if (!is_array($value)) {
         return $keys;
     }
     foreach ($value as $key => $child) {
-        if (is_string($key)) {
-            $keys[normalized_key($key)] = true;
-        }
         if (is_array($child)) {
-            $keys += raw_key_map($child);
+            $keys += raw_value_key_map($child);
+            continue;
+        }
+        if (is_string($key) && $child !== null && (!is_string($child) || trim($child) !== '')) {
+            $keys[normalized_key($key)] = true;
         }
     }
     return $keys;
@@ -438,7 +433,7 @@ function row_has_value(array $row, array $columns): bool
 
 function row_raw_has_group(array $row, array $groupColumns): bool
 {
-    $rawKeys = raw_key_map(decode_raw($row['raw_data'] ?? null));
+    $rawKeys = raw_value_key_map(decode_raw($row['raw_data'] ?? null));
     foreach ($groupColumns as $column) {
         if (isset($rawKeys[normalized_key($column)])) {
             return true;
@@ -456,19 +451,19 @@ function source_field_coverage(array $rows, array $tableColumns): array
     foreach (field_groups() as $groupName => $group) {
         $physical = array_values(array_intersect($group['columns'], array_keys($tableColumns)));
         $rowsWithPhysicalValue = 0;
-        $rowsWithRawKey = 0;
+        $rowsWithRawValue = 0;
         foreach ($rows as $row) {
             if (row_has_value($row, $physical)) {
                 $rowsWithPhysicalValue++;
             }
             if (row_raw_has_group($row, $group['columns'])) {
-                $rowsWithRawKey++;
+                $rowsWithRawValue++;
             }
         }
         $coverage[$groupName] = [
             'physical_columns' => $physical,
             'rows_with_physical_value' => $rowsWithPhysicalValue,
-            'rows_with_raw_key' => $rowsWithRawKey,
+            'rows_with_raw_value' => $rowsWithRawValue,
             'source_rows' => count($rows),
             'gap_missing' => $group['gap_missing'],
             'gap_partial' => $group['gap_partial'],
@@ -541,12 +536,17 @@ function require_gap(array &$issues, array $gapCodes, string $gapCode, string $m
 
 function expected_metrics(array $daily): array
 {
-    $revenue = sum_rows($daily, 'revenue');
-    $roomRevenue = sum_rows_with_fallback($daily, 'room_revenue', 'revenue');
-    $roomNights = sum_rows($daily, 'room_nights');
+    $revenueRows = array_values(array_filter($daily, static fn(array $row): bool => has_numeric_value($row, 'revenue')));
+    $roomRevenueRows = array_values(array_filter($daily, static fn(array $row): bool => has_numeric_value($row, 'room_revenue')));
+    $roomNightRows = array_values(array_filter($daily, static fn(array $row): bool => has_numeric_value($row, 'room_nights')));
+    $revenue = sum_rows($revenueRows, 'revenue');
+    $roomRevenue = sum_rows($roomRevenueRows, 'room_revenue');
+    $roomNights = sum_rows($roomNightRows, 'room_nights');
     $availableRows = array_values(array_filter($daily, static fn(array $row): bool => has_numeric_value($row, 'available_room_nights') && (float)$row['available_room_nights'] > 0));
     $availableRoomNights = sum_rows($availableRows, 'available_room_nights');
-    $revparRoomRevenue = sum_rows_with_fallback($availableRows, 'room_revenue', 'revenue');
+    $revparRows = array_values(array_filter($availableRows, static fn(array $row): bool => has_numeric_value($row, 'room_revenue')));
+    $revparRoomRevenue = sum_rows($revparRows, 'room_revenue');
+    $revparAvailableRoomNights = sum_rows($revparRows, 'available_room_nights');
     $occupancyRows = array_values(array_filter($daily, static function (array $row): bool {
         return has_numeric_value($row, 'available_room_nights')
             && (float)$row['available_room_nights'] > 0
@@ -568,18 +568,21 @@ function expected_metrics(array $daily): array
     $netRevparAvailableRoomNights = sum_rows($netRevparRows, 'available_room_nights');
 
     return [
-        'revenue' => round($revenue, 2),
-        'room_revenue' => round($roomRevenue, 2),
-        'room_nights' => round($roomNights, 2),
+        'revenue' => $revenueRows ? round($revenue, 2) : null,
+        'room_revenue' => $roomRevenueRows ? round($roomRevenue, 2) : null,
+        'room_nights' => $roomNightRows ? round($roomNights, 2) : null,
         'available_room_nights' => $availableRows ? round($availableRoomNights, 2) : null,
         'occupied_room_nights' => $occupancyRows ? round($occupiedRoomNights, 2) : null,
-        'adr' => $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : null,
+        'adr' => $roomRevenueRows && $roomNightRows && $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : null,
         'occ' => $occupancyRows && $occupancyAvailableRoomNights > 0 ? round($occupiedRoomNights / $occupancyAvailableRoomNights * 100, 2) : null,
-        'revpar' => $availableRows && $availableRoomNights > 0 ? round($revparRoomRevenue / $availableRoomNights, 2) : null,
+        'revpar' => $revparRows && $revparAvailableRoomNights > 0 ? round($revparRoomRevenue / $revparAvailableRoomNights, 2) : null,
         'commission_amount' => $commissionRows ? round($commissionAmount, 2) : null,
         'commission_rate' => $commissionRows && $commissionGrossRevenue > 0 ? round($commissionAmount / $commissionGrossRevenue * 100, 2) : null,
         'net_revenue' => $netRows ? round($netRevenue, 2) : null,
         'net_revpar' => $netRevparRows && $netRevparAvailableRoomNights > 0 ? round($netRevparNetRevenue / $netRevparAvailableRoomNights, 2) : null,
+        'revenue_rows' => count($revenueRows),
+        'room_revenue_rows' => count($roomRevenueRows),
+        'room_night_rows' => count($roomNightRows),
         'available_rows' => count($availableRows),
         'occupancy_rows' => count($occupancyRows),
         'commission_rows' => count($commissionRows),
@@ -685,12 +688,12 @@ try {
     $coverage = source_field_coverage($sourceRows, $columns);
     $result['facts']['source_field_coverage'] = $coverage;
     foreach ($coverage as $groupName => $groupCoverage) {
-        if ($groupCoverage['physical_columns'] === [] && $groupCoverage['rows_with_raw_key'] === 0) {
+        if ($groupCoverage['physical_columns'] === [] && $groupCoverage['rows_with_raw_value'] === 0) {
             add_issue($issues, 'warning', 'missing_field_group', "No source field evidence found for {$groupName}.", [
                 'group' => $groupName,
                 'expected_gap_code' => $groupCoverage['gap_missing'],
             ]);
-        } elseif ($groupCoverage['rows_with_physical_value'] === 0 && $groupCoverage['rows_with_raw_key'] === 0) {
+        } elseif ($groupCoverage['rows_with_physical_value'] === 0 && $groupCoverage['rows_with_raw_value'] === 0) {
             add_issue($issues, 'warning', 'empty_field_group', "Source field group {$groupName} exists but has no values in sampled rows.", [
                 'group' => $groupName,
                 'expected_gap_code' => $groupCoverage['gap_missing'],
@@ -760,6 +763,14 @@ try {
     assert_metric($issues, $metrics, 'totals.net_revpar', $expected['net_revpar'], 'caliber_mismatch');
 
     $gapCodes = $result['facts']['metrics']['data_gap_codes'];
+    if (count($daily) > 0 && $expected['room_revenue_rows'] === 0) {
+        require_gap($issues, $gapCodes, 'room_revenue_missing', 'Missing verified room revenue must be exposed through data_gaps.');
+    } elseif ($expected['room_revenue_rows'] > 0 && $expected['room_revenue_rows'] < count($daily)) {
+        require_gap($issues, $gapCodes, 'room_revenue_partial', 'Partial verified room revenue must be exposed through data_gaps.');
+    }
+    if (count($daily) > 0 && $expected['room_night_rows'] === 0) {
+        require_gap($issues, $gapCodes, 'room_nights_missing', 'Missing verified room nights must be exposed through data_gaps.');
+    }
     if (count($daily) > 0 && $expected['available_rows'] === 0) {
         require_gap($issues, $gapCodes, 'available_room_nights_missing', 'Missing available room nights must be exposed through data_gaps.');
     } elseif ($expected['available_rows'] > 0 && $expected['available_rows'] < count($daily)) {

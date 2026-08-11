@@ -56,6 +56,18 @@ final class OtaOrderedCollectionPlanner
         'meituan' => ['list_exposure', 'detail_exposure', 'flow_rate'],
     ];
 
+    /** @var array<string,string> */
+    private const STORAGE_FIELD_COLUMNS = [
+        'order_amount' => 'amount',
+        'room_nights' => 'quantity',
+        'order_count' => 'book_order_num',
+        'list_exposure' => 'list_exposure',
+        'detail_exposure' => 'detail_exposure',
+        'flow_rate' => 'flow_rate',
+        'order_filling_num' => 'order_filling_num',
+        'order_submit_num' => 'order_submit_num',
+    ];
+
     /**
      * Only interfaces already present in the current collector/catalog are
      * listed. Supporting example capabilities are deliberately absent.
@@ -175,6 +187,15 @@ final class OtaOrderedCollectionPlanner
         return self::REQUIRED_FIELD_KEYS[$platform];
     }
 
+    /** @return array<int,string> */
+    public static function requiredStorageColumns(string $platform): array
+    {
+        return array_values(array_map(
+            static fn(string $fieldKey): string => self::STORAGE_FIELD_COLUMNS[$fieldKey],
+            self::requiredFieldKeys($platform)
+        ));
+    }
+
     /** @return array<int, string> */
     public static function defaultSections(string $platform): array
     {
@@ -280,7 +301,19 @@ final class OtaOrderedCollectionPlanner
             if (!is_array($row)) {
                 continue;
             }
+            $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+            $eligibleFieldKeys = match (true) {
+                $dataType === '' => self::REQUIRED_FIELD_KEYS[$platform],
+                in_array($dataType, ['traffic', 'flow', 'conversion'], true) =>
+                    self::TRAFFIC_FIELD_KEYS[$platform],
+                in_array($dataType, ['business', 'business_overview', 'revenue', 'order', 'orders'], true) =>
+                    self::REVENUE_FIELD_KEYS[$platform],
+                default => [],
+            };
             foreach (self::REQUIRED_FIELD_KEYS[$platform] as $fieldKey) {
+                if (!in_array($fieldKey, $eligibleFieldKeys, true)) {
+                    continue;
+                }
                 foreach ($aliases[$fieldKey] ?? [$fieldKey] as $alias) {
                     if (array_key_exists($alias, $row) && self::hasFactValue($row[$alias])) {
                         $captured[$fieldKey] = true;
@@ -288,20 +321,8 @@ final class OtaOrderedCollectionPlanner
                     }
                 }
             }
-
-            $raw = self::decodeArray($row['raw_data'] ?? []);
-            foreach (is_array($raw['field_facts'] ?? null) ? $raw['field_facts'] : [] as $fact) {
-                if (!is_array($fact)) {
-                    continue;
-                }
-                $key = strtolower(trim((string)($fact['metric_key'] ?? '')));
-                if (in_array($key, self::REQUIRED_FIELD_KEYS[$platform], true)
-                    && (($fact['stored_value_present'] ?? null) === true
-                        || strtolower(trim((string)($fact['status'] ?? ''))) === 'captured')
-                ) {
-                    $captured[$key] = true;
-                }
-            }
+            // raw_data.field_facts is provenance only. Completeness must be
+            // established by a persisted top-level canonical value above.
         }
 
         return array_values(array_filter(

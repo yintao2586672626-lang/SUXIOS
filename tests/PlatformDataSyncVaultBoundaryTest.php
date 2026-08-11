@@ -1160,7 +1160,16 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         $finishTask = new \ReflectionMethod($service, 'finishTask');
         $finishTask->setAccessible(true);
         foreach ([$wrongTenantTaskId, $wrongHotelTaskId] as $pollutedTaskId) {
-            $finishTask->invoke($service, $pollutedTaskId, $source, 'failed', 'must-not-write', 0, 0, []);
+            try {
+                $finishTask->invoke($service, $pollutedTaskId, $source, 'failed', 'must-not-write', 0, 0, []);
+                self::fail('A task outside the source tenant/hotel scope must be rejected.');
+            } catch (\RuntimeException $exception) {
+                self::assertSame(409, $exception->getCode());
+                self::assertSame(
+                    'Sync task identity does not match the source scope.',
+                    $exception->getMessage()
+                );
+            }
             $pollutedTask = Db::name('platform_data_sync_tasks')->where('id', $pollutedTaskId)->find();
             self::assertSame('running', $pollutedTask['status']);
             self::assertSame('polluted-active-sentinel', $pollutedTask['message']);

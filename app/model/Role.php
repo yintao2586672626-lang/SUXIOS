@@ -29,6 +29,10 @@ class Role extends Model
     const BETA_USER = 2;
     const NORMAL_USER = 3;
 
+    // Controlled external role template learned from the JHIRA partner handoff contract.
+    // It remains hotel-scoped but may use selected analysis/export capabilities.
+    const CONTROLLED_PARTNER_NAME = 'controlled_partner';
+
     // Legacy aliases kept for older code paths.
     const SUPER_ADMIN = self::ADMIN;
     const HOTEL_MANAGER = self::BETA_USER;

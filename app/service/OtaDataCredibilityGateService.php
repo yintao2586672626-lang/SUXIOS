@@ -92,7 +92,12 @@ class OtaDataCredibilityGateService
                 continue;
             }
             $failureReasons = $this->stringList($trust['failure_reasons'] ?? []);
-            if (($trust['saved_success'] ?? false) !== true || $failureReasons !== []) {
+            $truth = is_array($trust['truth'] ?? null) ? $trust['truth'] : [];
+            $truthStatus = strtolower(trim((string)($truth['status'] ?? 'unverified')));
+            if (($trust['saved_success'] ?? false) !== true
+                || $failureReasons !== []
+                || $truthStatus !== 'verified'
+            ) {
                 $code = 'critical_metric_untrusted:' . $metricKey;
                 $reasonCodes[] = $code;
                 $failedCriticalMetrics[] = $code;

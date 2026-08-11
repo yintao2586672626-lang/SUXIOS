@@ -22,6 +22,7 @@ use app\service\CompetitorPriceReadinessService;
 use app\service\FeasibilityReportService;
 use app\service\KnowledgeDecisionGateService;
 use app\service\LlmClient;
+use app\service\OnlineDataFieldFactService;
 use app\service\OperationManagementService;
 use app\service\OtaOperatingScope;
 use app\service\RevenueAiOverviewService;
@@ -106,6 +107,21 @@ trait AgentOtaDiagnosisBuildConcern
         ], array_keys($columns)));
     }
 
+    private function otaDiagnosisStorageSourceForPlatform(string $platform): string
+    {
+        $platform = strtolower(trim($platform));
+        return $platform === 'qunar' ? 'ctrip' : $platform;
+    }
+
+    private function otaDiagnosisRowPlatformIdentity(array $row): string
+    {
+        if (array_key_exists('platform', $row)) {
+            return strtolower(trim((string)$row['platform']));
+        }
+
+        return strtolower(trim((string)($row['source'] ?? '')));
+    }
+
     private function queryOtaDiagnosisData(int $hotelId, string $hotelIdRaw, string $platformHotelIdRaw, string $platform, string $startDate, string $endDate, string $analysisType): array
     {
         $columns = $this->onlineDailyDataColumns();
@@ -126,7 +142,12 @@ trait AgentOtaDiagnosisBuildConcern
             $applyOnlineScope = function ($query) use ($tenantId, $hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $analysisType, $columns) {
                 $query->where('tenant_id', $tenantId);
                 if (isset($columns['source'])) {
-                    $query->where('source', $platform);
+                    $query->where('source', $this->otaDiagnosisStorageSourceForPlatform($platform));
+                }
+                if (isset($columns['platform'])) {
+                    $query->whereRaw('LOWER(TRIM(`platform`)) = :ota_platform', [
+                        'ota_platform' => strtolower(trim($platform)),
+                    ]);
                 }
                 $query->where(function ($q) use ($hotelId, $hotelIdRaw, $platformHotelIdRaw, $columns) {
                     $hasWhere = false;
@@ -348,12 +369,18 @@ trait AgentOtaDiagnosisBuildConcern
         $ownPlatformHotelIds = $this->otaDiagnosisOwnPlatformHotelIds($rows, $hotelId, $platform);
         $groups = [];
         $candidateIndexes = [];
+        $excludedPlatformIndexes = [];
+        $requestedPlatform = strtolower(trim($platform));
 
         foreach ($rows as $index => $row) {
-            if (!is_array($row)
-                || !$this->isOtaDiagnosisTrafficSnapshotRow($row)
-                || !OtaOperatingScope::isOwnOperatingRow($row, null, $ownHotelNames, $ownPlatformHotelIds)
-            ) {
+            if (!is_array($row) || !$this->isOtaDiagnosisTrafficSnapshotRow($row)) {
+                continue;
+            }
+            if ($this->otaDiagnosisRowPlatformIdentity($row) !== $requestedPlatform) {
+                $excludedPlatformIndexes[$index] = true;
+                continue;
+            }
+            if (!OtaOperatingScope::isOwnOperatingRow($row, null, $ownHotelNames, $ownPlatformHotelIds)) {
                 continue;
             }
 
@@ -361,7 +388,7 @@ trait AgentOtaDiagnosisBuildConcern
             if ($date === '') {
                 continue;
             }
-            $source = strtolower(trim((string)($row['source'] ?? $row['platform'] ?? $platform)));
+            $source = $this->otaDiagnosisRowPlatformIdentity($row) ?: strtolower(trim($platform));
             $systemHotelId = (int)($row['system_hotel_id'] ?? 0);
             if ($systemHotelId <= 0) {
                 $systemHotelId = $hotelId;
@@ -393,6 +420,9 @@ trait AgentOtaDiagnosisBuildConcern
         $selectedRows = [];
         $supersededRows = [];
         foreach ($rows as $index => $row) {
+            if (isset($excludedPlatformIndexes[$index])) {
+                continue;
+            }
             if (isset($candidateIndexes[$index]) && !isset($canonicalIndexes[$index])) {
                 $supersededRows[] = $row;
                 continue;
@@ -560,7 +590,7 @@ trait AgentOtaDiagnosisBuildConcern
                     $identityGapCounts['decision_ineligible'] = ($identityGapCounts['decision_ineligible'] ?? 0) + 1;
                     continue;
                 }
-                $rowPlatform = strtolower(trim((string)($row['source'] ?? $row['platform'] ?? '')));
+                $rowPlatform = $this->otaDiagnosisRowPlatformIdentity($row);
                 $rowHotelId = (int)($row['system_hotel_id'] ?? 0);
                 $rowTenantId = (int)($row['tenant_id'] ?? 0);
                 $rowDate = trim((string)($row['data_date'] ?? ''));
@@ -885,6 +915,8 @@ trait AgentOtaDiagnosisBuildConcern
             'action_items' => $actionItems,
             'evidence_sources' => $evidenceSources,
             'priority' => $priority,
+            'workflow_status' => $coverageComplete ? 'facts_ready' : 'blocked_by_missing_facts',
+            'missing_fact_codes' => $coverageComplete ? [] : ['all_ota_platform_source_missing'],
             'source_policy' => 'database_only_same_tenant_hotel_requested_date_ctrip_meituan_per_platform_metrics_no_cross_platform_sum',
             'source_summary' => [
                 'scope' => [
@@ -930,13 +962,83 @@ trait AgentOtaDiagnosisBuildConcern
             return false;
         }
 
-        return in_array($this->otaDiagnosisRowQualityStatus($row), [
+        if (!in_array($this->otaDiagnosisRowQualityStatus($row), [
             'normal',
             'available',
             'ok',
             'valid',
             'verified',
-        ], true);
+        ], true)) {
+            return false;
+        }
+
+        $platform = $this->otaDiagnosisRowPlatformIdentity($row);
+        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        if ($dataType === 'traffic' && !in_array($platform, ['ctrip', 'qunar', 'meituan'], true)) {
+            return false;
+        }
+        if ($dataType === 'traffic'
+            && str_starts_with(strtolower(trim((string)($row['dimension'] ?? ''))), 'catalog:')
+        ) {
+            return false;
+        }
+        if (in_array($platform, ['ctrip', 'qunar'], true) && $dataType === 'traffic') {
+            $endpointId = $this->otaDiagnosisSourceEndpointId($row);
+            if (!in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @param array<string,mixed>|null $decodedRaw */
+    private function otaDiagnosisSourceEndpointId(array $row, ?array $decodedRaw = null): string
+    {
+        $raw = $decodedRaw;
+        if ($raw === null) {
+            if (is_array($row['raw_data'] ?? null)) {
+                $raw = $row['raw_data'];
+            } elseif (is_string($row['raw_data'] ?? null) && trim((string)$row['raw_data']) !== '') {
+                $decoded = json_decode((string)$row['raw_data'], true);
+                $raw = is_array($decoded) ? $decoded : [];
+            } else {
+                $raw = [];
+            }
+        }
+        $dimensionEndpoint = '';
+        if (preg_match('/^catalog:[^:]+:([^:]+)/', trim((string)($row['dimension'] ?? '')), $matches) === 1) {
+            $dimensionEndpoint = strtolower(trim((string)($matches[1] ?? '')));
+        }
+        $rawRow = is_array($raw['row'] ?? null) ? $raw['row'] : [];
+        $captureEvidence = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
+        $ids = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            [
+                $dimensionEndpoint,
+                $raw['endpoint_id'] ?? $raw['endpointId'] ?? '',
+                $rawRow['endpoint_id'] ?? $rawRow['endpointId'] ?? '',
+                $captureEvidence['endpoint_id'] ?? $captureEvidence['endpointId'] ?? '',
+            ]
+        ), static fn(string $value): bool => $value !== '')));
+        if (count($ids) > 1) {
+            return 'conflicting_endpoint_identity';
+        }
+        return (string)($ids[0] ?? '');
+    }
+
+    /** @return array<string,mixed> */
+    private function otaDiagnosisMetricFieldFact(array $raw, string $metricKey): array
+    {
+        $metricKey = strtolower(trim($metricKey));
+        foreach (is_array($raw['field_facts'] ?? null) ? $raw['field_facts'] : [] as $fact) {
+            if (is_array($fact)
+                && strtolower(trim((string)($fact['metric_key'] ?? ''))) === $metricKey
+            ) {
+                return $fact;
+            }
+        }
+        return [];
     }
 
     private function otaDiagnosisRowQualityStatus(array $row): string
@@ -979,27 +1081,6 @@ trait AgentOtaDiagnosisBuildConcern
                 'sync_logs' => $sourceCounts['sync_logs'],
             ],
         ]];
-        $actions = ['默认使用携程/美团浏览器 Profile 采集入口补齐同日 OTA 数据，再重新生成 AI 诊断和运营执行动作；手动 Cookie/API 仅作临时补数或排障。'];
-        $actionItems = [[
-            'id' => 'ota_action_collect_same_period_data',
-            'action' => $actions[0],
-            'status' => 'blocked_by_missing_ota_data',
-            'evidence_refs' => ['ota_no_data_scope'],
-            'required_evidence' => ['same_period_ota_data'],
-            'missing_evidence' => [[
-                'code' => 'missing_same_period_ota_data',
-                'label' => '同日 OTA 入库数据',
-                'next_action' => '默认使用携程/美团浏览器 Profile 采集入口补齐同日 OTA 数据后重新诊断；手动 Cookie/API 仅作临时补数或排障。',
-            ]],
-            'execution_ready' => false,
-            'can_request_execution_intent' => false,
-            'human_confirmation_required' => true,
-            'human_confirmation_status' => 'blocked',
-            'blocked_reason' => 'missing same-period OTA evidence',
-            'source_policy' => 'must collect same-period OTA evidence before diagnosis or execution',
-            'owner' => '酒店运营人员',
-            'protected_boundary' => '不改变采集字段、字段映射、携程/美团手动或自动获取逻辑。',
-        ]];
         $diagnosis = [
             'summary' => '暂无该酒店在该日期范围内的 OTA 数据，不能生成可信经营诊断。',
             'exposure_analysis' => '',
@@ -1010,7 +1091,7 @@ trait AgentOtaDiagnosisBuildConcern
             'advertising_analysis' => '',
             'service_quality_analysis' => '',
             'comment_analysis' => '',
-            'actions' => $actions,
+            'actions' => [],
         ];
 
         $result = [
@@ -1036,13 +1117,16 @@ trait AgentOtaDiagnosisBuildConcern
             'core_conclusion' => $diagnosis['summary'],
             'main_problems' => [],
             'possible_reasons' => [],
-            'recommended_actions' => $actions,
+            'recommended_actions' => [],
             'data_anomalies_needing_confirmation' => $missingSections,
             'evidence_sources' => $evidenceSources,
-            'action_items' => $actionItems,
+            'action_items' => [],
             'diagnosis_sections' => $this->buildOtaDiagnosisSections($diagnosis, $missingSections),
             'priority' => 'none',
             'source_policy' => 'database_only_no_synthetic_conclusion',
+            'workflow_status' => 'blocked_by_missing_facts',
+            'missing_fact_codes' => ['ota_same_period_source_rows_missing'],
+            'reference_only_history' => null,
         ];
         $result['ai_governance'] = $this->buildAiGovernancePayload('ota_diagnosis', $result, [
             'ok' => true,
@@ -1289,6 +1373,10 @@ trait AgentOtaDiagnosisBuildConcern
 
     private function buildOtaDiagnosisActions(bool $hasTraffic, bool $hasCompetitor, bool $hasAdvertising, bool $hasServiceQuality, array $metrics, array $dataGaps = []): array
     {
+        if ($this->blockingOtaDiagnosisDataGaps($dataGaps, ['metrics' => $metrics]) !== []) {
+            return [];
+        }
+
         $actions = [];
         if ($hasTraffic && array_key_exists('list_exposure', $metrics) && $metrics['list_exposure'] !== null && (float)$metrics['list_exposure'] === 0.0) {
             $actions[] = '检查目标日期门店可售状态、列表页内容完整性和平台曝光入口，确认目标平台列表曝光为0的原因。';
@@ -1392,7 +1480,6 @@ trait AgentOtaDiagnosisBuildConcern
             return true;
         };
         $revenueMetricsComplete = $hasCompleteMetricGroup($revenueMetricFields);
-        $trafficMetricsComplete = $hasCompleteMetricGroup($trafficMetricFields);
 
         $blocking = [];
         foreach ($this->normalizeOtaDiagnosisDataGaps($dataGaps) as $gap) {
@@ -1403,8 +1490,8 @@ trait AgentOtaDiagnosisBuildConcern
             }
             if ($isMetricGap) {
                 $metric = substr($code, strlen('metric_missing:'));
-                $isMissingAlternativePathMetric = ($trafficMetricsComplete && in_array($metric, $revenueMetricFields, true))
-                    || ($revenueMetricsComplete && in_array($metric, $trafficMetricFields, true));
+                $isMissingAlternativePathMetric = $revenueMetricsComplete
+                    && in_array($metric, $trafficMetricFields, true);
                 if ($isMissingAlternativePathMetric) {
                     continue;
                 }
@@ -1464,7 +1551,7 @@ trait AgentOtaDiagnosisBuildConcern
         $visibleRows = is_array($dataSet['online_rows'] ?? null) ? $dataSet['online_rows'] : $eligibleRows;
         $systemHotelId = (int)($dataSet['hotel']['id'] ?? 0);
         $hotelName = trim((string)($dataSet['hotel']['name'] ?? ''));
-        $platform = strtolower(trim((string)($eligibleRows[0]['source'] ?? $eligibleRows[0]['platform'] ?? '')));
+        $platform = $eligibleRows === [] ? '' : $this->otaDiagnosisRowPlatformIdentity($eligibleRows[0]);
         $ownHotelNames = $hotelName === '' ? [] : [$hotelName];
         $ownPlatformHotelIds = $this->otaDiagnosisOwnPlatformHotelIds($visibleRows, $systemHotelId, $platform);
         usort($eligibleRows, static function (array $left, array $right): int {
@@ -1648,6 +1735,13 @@ trait AgentOtaDiagnosisBuildConcern
         $captureMeta = is_array($raw['capture_meta'] ?? null)
             ? $raw['capture_meta']
             : (is_array($raw['captureMeta'] ?? null) ? $raw['captureMeta'] : []);
+        $listExposureFactStatus = OnlineDataFieldFactService::buildMetricStatus(
+            $row,
+            $raw,
+            ['list_exposure']
+        );
+        $listExposureFieldFact = $this->otaDiagnosisMetricFieldFact($raw, 'list_exposure');
+        $sourceEndpointId = $this->otaDiagnosisSourceEndpointId($row, $raw);
         $firstText = static function (array $values): string {
             foreach ($values as $value) {
                 if (is_scalar($value) && trim((string)$value) !== '') {
@@ -1659,7 +1753,7 @@ trait AgentOtaDiagnosisBuildConcern
 
         return [
             'tenant_id' => (int)($row['tenant_id'] ?? 0),
-            'platform' => strtolower(trim((string)($row['source'] ?? $row['platform'] ?? ''))),
+            'platform' => $this->otaDiagnosisRowPlatformIdentity($row),
             'system_hotel_id' => (int)($row['system_hotel_id'] ?? 0),
             'platform_hotel_id' => trim((string)($row['hotel_id'] ?? '')),
             'date_role' => trim((string)($row['date_role'] ?? 'target')),
@@ -1667,6 +1761,7 @@ trait AgentOtaDiagnosisBuildConcern
             'readback_verified' => (int)($row['readback_verified'] ?? 0) === 1,
             'readback_verified_at' => (string)($row['readback_verified_at'] ?? ''),
             'source_trace_id' => trim((string)($row['source_trace_id'] ?? '')),
+            'source_endpoint_id' => $sourceEndpointId,
             'captured_at' => $firstText([
                 $row['collected_at'] ?? null,
                 $captureMeta['captured_at'] ?? null,
@@ -1692,6 +1787,129 @@ trait AgentOtaDiagnosisBuildConcern
                 $captureMeta['evidence_asset_ref'] ?? null,
                 $captureMeta['screenshot_ref'] ?? null,
             ]),
+            'metric_fact_statuses' => [
+                'list_exposure' => [
+                    'status' => (string)($listExposureFactStatus['status'] ?? 'not_loaded'),
+                    'captured_metric_keys' => array_values(array_map(
+                        'strval',
+                        is_array($listExposureFactStatus['captured_metric_keys'] ?? null)
+                            ? $listExposureFactStatus['captured_metric_keys']
+                            : []
+                    )),
+                    'missing_requested_metric_keys' => array_values(array_map(
+                        'strval',
+                        is_array($listExposureFactStatus['missing_requested_metric_keys'] ?? null)
+                            ? $listExposureFactStatus['missing_requested_metric_keys']
+                            : ['list_exposure']
+                    )),
+                    'field_fact_required' => true,
+                    'source_policy' => 'captured_source_path_and_persisted_value_readback_required',
+                    'source_endpoint_id' => $sourceEndpointId,
+                    'source_key' => trim((string)($listExposureFieldFact['source_key'] ?? '')),
+                    'source_path' => trim((string)($listExposureFieldFact['source_path'] ?? '')),
+                ],
+            ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function otaDiagnosisExecutionMetricSemantic(string $metricKey, string $platform): array
+    {
+        $metricKey = strtolower(trim($metricKey));
+        $platform = strtolower(trim($platform));
+        if ($metricKey !== 'list_exposure' || $platform !== 'ctrip') {
+            return [];
+        }
+
+        return [
+            'contract_version' => 'ota_metric_semantic_binding.v2',
+            'platform' => 'ctrip',
+            'source_module' => 'ctrip_data_center_flow_transform',
+            'source_endpoint_family' => 'ctrip_query_flow_transform_new_v1',
+            'source_endpoint_ids' => ['business_flow_transform', 'traffic_flow_transform'],
+            'metric_key' => 'list_exposure',
+            'semantic_key' => 'ctrip_datacenter_list_exposure_uv',
+            'unit' => 'unique_users',
+            'value_type' => 'non_negative_integer',
+            'source_table' => 'online_daily_data',
+            'source_field' => 'list_exposure',
+            'field_fact_required' => true,
+            'blocked_aliases' => ['generic_impression_count', 'advertising_impressions'],
+        ];
+    }
+
+    /**
+     * @param array<int,string> $refs
+     * @param array<int,array<string,mixed>> $evidenceSources
+     * @return array{status:string,code:string,message:string,semantic:array<string,mixed>}
+     */
+    private function otaDiagnosisExecutionMetricEvidenceStatus(
+        string $metricKey,
+        string $platform,
+        array $refs,
+        array $evidenceSources
+    ): array {
+        $metricKey = strtolower(trim($metricKey));
+        $platform = strtolower(trim($platform));
+        if ($metricKey !== 'list_exposure') {
+            return ['status' => 'ready', 'code' => '', 'message' => '', 'semantic' => []];
+        }
+        $semantic = $this->otaDiagnosisExecutionMetricSemantic($metricKey, $platform);
+        if ($semantic === []) {
+            return [
+                'status' => 'blocked',
+                'code' => 'unverified_metric_semantics:list_exposure:' . ($platform !== '' ? $platform : 'unknown'),
+                'message' => 'list_exposure execution is supported only for the frozen Ctrip unique-user definition',
+                'semantic' => [],
+            ];
+        }
+
+        $allowedEndpointIds = is_array($semantic['source_endpoint_ids'] ?? null)
+            ? $semantic['source_endpoint_ids']
+            : [];
+        foreach ($evidenceSources as $source) {
+            if (!is_array($source)
+                || !in_array((string)($source['ref'] ?? ''), $refs, true)
+                || strtolower(trim((string)($source['table'] ?? ''))) !== 'online_daily_data'
+                || strtolower(trim((string)($source['platform'] ?? ''))) !== 'ctrip'
+            ) {
+                continue;
+            }
+            $metrics = is_array($source['metrics'] ?? null) ? $source['metrics'] : [];
+            $value = $metrics['list_exposure'] ?? null;
+            $factStatuses = is_array($source['metric_fact_statuses'] ?? null)
+                ? $source['metric_fact_statuses']
+                : [];
+            $factStatus = is_array($factStatuses['list_exposure'] ?? null)
+                ? $factStatuses['list_exposure']
+                : [];
+            $missing = is_array($factStatus['missing_requested_metric_keys'] ?? null)
+                ? $factStatus['missing_requested_metric_keys']
+                : ['list_exposure'];
+            if ((string)($factStatus['status'] ?? '') === 'ready'
+                && $missing === []
+                && in_array((string)($source['source_endpoint_id'] ?? ''), $allowedEndpointIds, true)
+                && in_array((string)($factStatus['source_endpoint_id'] ?? ''), $allowedEndpointIds, true)
+                && (string)($factStatus['source_key'] ?? '') === 'listExposure'
+                && trim((string)($factStatus['source_path'] ?? '')) !== ''
+                && is_numeric($value)
+                && (float)$value >= 0.0
+                && floor((float)$value) === (float)$value
+            ) {
+                return [
+                    'status' => 'ready',
+                    'code' => '',
+                    'message' => '',
+                    'semantic' => $semantic,
+                ];
+            }
+        }
+
+        return [
+            'status' => 'blocked',
+            'code' => 'missing_verified_field_fact:list_exposure',
+            'message' => 'list_exposure requires an explicit captured field fact and exact persisted readback',
+            'semantic' => $semantic,
         ];
     }
 
@@ -1795,8 +2013,23 @@ trait AgentOtaDiagnosisBuildConcern
             $missingTags = $this->missingOtaEvidenceTags($requiredTags, $evidenceSources);
             $isDataRepairAction = $this->isOtaDataRepairAction($actionText);
             $hasExecutableRefs = $this->hasExecutableOtaEvidenceRefs($refs, $evidenceSources);
-            $executionReady = !$isDataRepairAction && empty($missingTags) && $hasExecutableRefs;
-            [$actionType, $expectedMetric] = $this->classifyOtaDiagnosisExecutionAction($actionText);
+            $metrics = is_array($context['metrics'] ?? null) ? $context['metrics'] : [];
+            [$actionType, $expectedMetric] = $this->classifyOtaDiagnosisExecutionAction($actionText, $metrics);
+            $hasMetricContext = array_key_exists('metrics', $context);
+            $hasMeasurableBaseline = !$hasMetricContext
+                || (array_key_exists($expectedMetric, $metrics) && is_numeric($metrics[$expectedMetric]));
+            $metricEvidenceStatus = $this->otaDiagnosisExecutionMetricEvidenceStatus(
+                $expectedMetric,
+                (string)($context['platform'] ?? ''),
+                $refs,
+                $evidenceSources
+            );
+            $hasMetricEvidence = ($metricEvidenceStatus['status'] ?? '') === 'ready';
+            $executionReady = !$isDataRepairAction
+                && empty($missingTags)
+                && $hasExecutableRefs
+                && $hasMeasurableBaseline
+                && $hasMetricEvidence;
             $status = $executionReady ? 'pending_manual_review' : 'blocked_by_insufficient_evidence';
             $blockedReason = '';
             $missingEvidence = $this->buildOtaMissingEvidenceItems($missingTags);
@@ -1823,6 +2056,20 @@ trait AgentOtaDiagnosisBuildConcern
                         'next_action' => (string)($gap['next_action'] ?? '补齐目标日期核心 OTA 数据后重新生成诊断。'),
                     ];
                 }
+            } elseif (!$hasMeasurableBaseline) {
+                $blockedReason = 'same-criterion metric baseline is missing: ' . $expectedMetric;
+                $missingEvidence[] = [
+                    'code' => 'missing_expected_metric_baseline:' . $expectedMetric,
+                    'label' => '同口径指标基线',
+                    'next_action' => '补齐目标日期的 ' . $expectedMetric . ' 可信指标后重新生成诊断。',
+                ];
+            } elseif (!$hasMetricEvidence) {
+                $blockedReason = (string)($metricEvidenceStatus['message'] ?? 'metric evidence is not execution ready');
+                $missingEvidence[] = [
+                    'code' => (string)($metricEvidenceStatus['code'] ?? 'metric_evidence_not_ready'),
+                    'label' => '指标字段事实与语义口径',
+                    'next_action' => '补齐平台权威语义和目标日期字段事实回读后重新生成诊断。',
+                ];
             } elseif (!$hasExecutableRefs) {
                 $blockedReason = 'action has no non-derived OTA evidence reference';
                 if (empty($missingEvidence)) {
@@ -1844,6 +2091,9 @@ trait AgentOtaDiagnosisBuildConcern
                 'action_type' => $actionType,
                 'recommendation_type' => $isDataRepairAction ? 'data_repair' : 'operation',
                 'expected_metric' => $expectedMetric,
+                'metric_semantic' => is_array($metricEvidenceStatus['semantic'] ?? null)
+                    ? $metricEvidenceStatus['semantic']
+                    : [],
                 'review_window' => '执行后在下一可用数据日按同酒店、同平台、同指标口径与执行前数据复核',
                 'status' => $status,
                 'evidence_refs' => $refs,
@@ -2051,12 +2301,36 @@ trait AgentOtaDiagnosisBuildConcern
     private function blockOtaDiagnosisActionsForLatestAvailableData(array $result, string $requestedStartDate, string $requestedEndDate, string $effectiveStartDate, string $effectiveEndDate): array
     {
         $guardRef = 'ota_latest_available_not_target_date';
+        $referenceEvidence = [];
+        foreach ((array)($result['evidence_sources'] ?? []) as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $source['decision_eligible'] = false;
+            $source['excluded_from_decision'] = true;
+            $source['exclusion_reason'] = 'not_requested_business_date';
+            $referenceEvidence[] = $source;
+        }
+        $result['reference_only_history'] = [
+            'status' => 'reference_only_not_decision_eligible',
+            'requested_date_range' => ['start_date' => $requestedStartDate, 'end_date' => $requestedEndDate],
+            'effective_date_range' => ['start_date' => $effectiveStartDate, 'end_date' => $effectiveEndDate],
+            'metrics' => is_array($result['metrics'] ?? null) ? $result['metrics'] : [],
+            'diagnosis_summary' => (string)($result['core_conclusion'] ?? $result['diagnosis']['summary'] ?? ''),
+            'evidence_sources' => $referenceEvidence,
+            'source_policy' => 'historical_rows_may_be_displayed_but_must_not_drive_target_date_diagnosis_or_actions',
+        ];
         $result['source_policy'] = 'database_only_latest_available_reference_not_execution_ready';
         $result['data_summary']['target_date_execution_ready'] = false;
-        $result['evidence_sources'] = array_values(array_merge(
-            (array)($result['evidence_sources'] ?? []),
-            [$this->buildOtaLatestAvailableEvidenceSource($requestedStartDate, $requestedEndDate, $effectiveStartDate, $effectiveEndDate)]
-        ));
+        $result['data_summary']['used_latest_available_data'] = true;
+        $result['workflow_status'] = 'blocked_by_missing_facts';
+        $result['missing_fact_codes'] = ['ota_requested_period_source_rows_missing_used_latest_available'];
+        $result['date_range'] = ['start_date' => $requestedStartDate, 'end_date' => $requestedEndDate];
+        $result['effective_date_range'] = ['start_date' => $effectiveStartDate, 'end_date' => $effectiveEndDate];
+        $result['metrics'] = [];
+        $result['evidence_sources'] = [
+            $this->buildOtaLatestAvailableEvidenceSource($requestedStartDate, $requestedEndDate, $effectiveStartDate, $effectiveEndDate),
+        ];
         $existingGapCodes = array_values(array_filter(array_map(
             static fn($item): string => is_array($item) ? (string)($item['code'] ?? '') : '',
             (array)($result['data_gaps'] ?? [])
@@ -2065,30 +2339,18 @@ trait AgentOtaDiagnosisBuildConcern
             $result['data_gaps'][] = $this->buildOtaLatestAvailableDataGap($requestedStartDate, $requestedEndDate, $effectiveStartDate, $effectiveEndDate);
         }
 
-        $items = [];
-        foreach ((array)($result['action_items'] ?? []) as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-            $refs = array_values(array_unique(array_filter(array_map('strval', array_merge((array)($item['evidence_refs'] ?? []), [$guardRef])))));
-            $item['original_status'] = (string)($item['status'] ?? '');
-            $item['status'] = 'blocked_by_non_target_date_data';
-            $item['evidence_refs'] = $refs;
-            $item['execution_ready'] = false;
-            $item['can_request_execution_intent'] = false;
-            $item['human_confirmation_required'] = true;
-            $item['human_confirmation_status'] = 'blocked';
-            $item['source_policy'] = 'target-date OTA evidence required before execution';
-            $item['blocked_reason'] = 'requested date has no same-period OTA rows; latest available data is reference only';
-            $item['missing_evidence'] = array_values(array_merge((array)($item['missing_evidence'] ?? []), [[
-                'code' => 'missing_target_date_ota_evidence',
-                'label' => '目标日期 OTA 证据',
-                'next_action' => '补齐目标日期 OTA 入库数据后重新生成 AI 诊断。',
-            ]]));
-            $item['protected_boundary'] = '不改变采集字段、字段映射、携程/美团手动或自动获取逻辑。';
-            $items[] = $item;
-        }
-        $result['action_items'] = $items;
+        $summary = '请求经营日期缺少可信 OTA 事实，历史数据仅作只读参考；本次不生成收益诊断或推荐动作。';
+        $result['diagnosis'] = [
+            'summary' => $summary,
+            'abnormal_metrics' => [],
+            'actions' => [],
+        ];
+        $result['core_conclusion'] = $summary;
+        $result['main_problems'] = [];
+        $result['possible_reasons'] = [];
+        $result['recommended_actions'] = [];
+        $result['action_items'] = [];
+        $result['priority'] = 'none';
 
         return $result;
     }

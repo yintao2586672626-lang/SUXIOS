@@ -349,6 +349,7 @@ window.SUXI_HOME_STATIC = (() => {
     const homeBusinessStatusClass = (status) => ({
         '已取得': 'border-emerald-200 bg-emerald-50 text-emerald-700',
         '已验证': 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        '事实已回读·分析受限': 'border-amber-200 bg-amber-50 text-amber-700',
         '已形成': 'border-emerald-200 bg-emerald-50 text-emerald-700',
         '部分取得': 'border-amber-200 bg-amber-50 text-amber-700',
         '正在读取': 'border-blue-200 bg-blue-50 text-blue-700',
@@ -365,12 +366,56 @@ window.SUXI_HOME_STATIC = (() => {
         && Number.isFinite(Number(value))
     );
 
+    const homeFactValueText = (value, format, formatNumber) => {
+        if (!homeBusinessMetricAvailable(value)) return '未取得';
+        const numeric = Number(value);
+        if (format === 'money') {
+            const rounded = Math.round((numeric + Number.EPSILON) * 100) / 100;
+            return `¥${rounded.toLocaleString('zh-CN', {
+                minimumFractionDigits: Number.isInteger(rounded) ? 0 : 2,
+                maximumFractionDigits: 2,
+            })}`;
+        }
+        if (format === 'percent') return `${formatNumber(numeric)}%`;
+        if (format === 'orders') return `${formatNumber(numeric)}单`;
+        if (format === 'room_nights') return `${formatNumber(numeric)}间夜`;
+        if (format === 'visits') return `${formatNumber(numeric)}次`;
+        return formatNumber(numeric);
+    };
+
+    const homeFactStatusText = (ready, loading, loadError) => {
+        if (loading) return '正在读取';
+        if (loadError) return '读取失败';
+        return ready ? '已验证' : '未取得';
+    };
+
+    const homeReconciliationStatusText = (status) => ({
+        matched: '已对齐',
+        canonicalized: '订单级已去重',
+        matched_or_not_calculable: '证据不全',
+        ota_only_ready: '仅OTA可用',
+        available: '已取得',
+        reference_only: '仅作参考',
+        matched_with_scope_caveats: '同日可对照',
+        blocked: '日期阻断',
+        mismatch: '发现差异',
+        review_needed: '待复核',
+        incomplete: '证据不全',
+        not_comparable: '口径不可比',
+        not_checkable: '不可核验',
+        partial: '部分可对照',
+    }[String(status || '')] || '待核验');
+
     const buildHomeBusinessTimeModel = ({
         temporalData = {},
         hotelName = '',
         futureCard = null,
         revenueMetricCards = [],
         revenueOverviewScope = '',
+        revenueFactLayer = null,
+        selectedHotelId = '',
+        revenueFactLayerLoading = false,
+        revenueFactLayerError = '',
         loading = false,
         error = '',
         helpers = {},
@@ -379,11 +424,27 @@ window.SUXI_HOME_STATIC = (() => {
         const past = temporal.past && typeof temporal.past === 'object' ? temporal.past : {};
         const present = temporal.present && typeof temporal.present === 'object' ? temporal.present : {};
         const future = temporal.future && typeof temporal.future === 'object' ? temporal.future : {};
+        const rawFactLayer = revenueFactLayer && typeof revenueFactLayer === 'object'
+            ? revenueFactLayer
+            : {};
+        const selectedHotelKey = String(selectedHotelId || '').trim();
+        const rawFactLayerHotelKey = String(
+            rawFactLayer.hotel?.system_hotel_id || ''
+        ).trim();
+        const factLayerMatchesHotel = selectedHotelKey !== ''
+            && rawFactLayerHotelKey === selectedHotelKey;
+        const factLayerHotelMismatch = selectedHotelKey !== ''
+            && rawFactLayerHotelKey !== ''
+            && rawFactLayerHotelKey !== selectedHotelKey;
+        const factLayer = factLayerMatchesHotel ? rawFactLayer : {};
+        const factLayerDate = String(factLayer.business_date || '').trim();
         const formatNumber = typeof helpers.formatNumber === 'function'
             ? helpers.formatNumber
             : (value) => Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
         const loadError = String(error || '').trim();
-        const targetDate = String(past?.period?.end_date || '').trim();
+        const targetDate = String(
+            past?.period?.end_date || factLayerDate || ''
+        ).trim();
         const pastSeries = Array.isArray(past.series) ? past.series : [];
         const yesterdayRow = targetDate
             ? pastSeries.find(row => String(row?.date || '') === targetDate) || null
@@ -418,17 +479,437 @@ window.SUXI_HOME_STATIC = (() => {
             };
         });
 
+        const factLayerMatchesTarget = !!targetDate && factLayerDate === targetDate;
+        const factLayerLoading = !factLayerMatchesTarget
+            && (revenueFactLayerLoading === true || (!factLayerDate && loading));
+        const factLayerError = factLayerMatchesTarget
+            ? ''
+            : String(revenueFactLayerError || '').trim();
+        const dateAlignment = factLayer.date_alignment && typeof factLayer.date_alignment === 'object'
+            ? factLayer.date_alignment
+            : {};
+        const reconciliation = factLayer.reconciliation && typeof factLayer.reconciliation === 'object'
+            ? factLayer.reconciliation
+            : {};
+        const wholeHotelSource = factLayer.sources?.dingdandao_pms || {};
+        const wholeHotelValues = factLayer.facts?.whole_hotel_accommodation || {};
+        const otaChannelValues = factLayer.facts?.ota_channel || {};
+        const combinedOtaValues = otaChannelValues.combined || {};
+        const combinedOtaStatus = otaChannelValues.combined_status || {};
+        const derivedValues = factLayer.derived_metrics || {};
+        const exactDateBlocked = String(dateAlignment.status || '') === 'blocked_date_mismatch';
+        const wholeHotelReady = factLayerMatchesTarget
+            && !exactDateBlocked
+            && String(wholeHotelSource.data_status || '') === 'readback_verified'
+            && String(wholeHotelSource.actual_business_date || '') === targetDate;
+        const wholeHotelMetricReady = (metricKey, allowDerived = false) => {
+            const statuses = wholeHotelSource.fact_statuses;
+            if (!statuses || typeof statuses !== 'object'
+                || !Object.prototype.hasOwnProperty.call(statuses, metricKey)
+            ) {
+                return wholeHotelReady;
+            }
+            const status = String(statuses?.[metricKey]?.status || '');
+            return wholeHotelReady && (
+                status === 'readback_verified'
+                || (allowDerived && status === 'derived_verified')
+            );
+        };
+        const otaPlatformDatesMatch = factLayerMatchesTarget
+            && ['ctrip_ota', 'meituan_ota'].every((sourceKey) => (
+                String(
+                    factLayer.sources?.[sourceKey]?.actual_business_date || ''
+                ) === targetDate
+            ));
+        const legacyCombinedOtaReady = otaPlatformDatesMatch
+            && ['ctrip_ota', 'meituan_ota'].every((sourceKey) => {
+                const source = factLayer.sources?.[sourceKey] || {};
+                return String(source.data_status || '') === 'readback_verified';
+            });
+        const combinedOtaMetricReady = (metricKey) => {
+            const statuses = combinedOtaStatus.fact_statuses;
+            if (!statuses || typeof statuses !== 'object') {
+                return legacyCombinedOtaReady;
+            }
+            if (!Object.prototype.hasOwnProperty.call(statuses, metricKey)) {
+                return false;
+            }
+            const status = String(statuses?.[metricKey]?.status || '');
+            return otaPlatformDatesMatch && (
+                status === 'readback_verified'
+                || (metricKey === 'adr' && status === 'derived_verified')
+            );
+        };
+        const combinedOtaReady = [
+            'revenue',
+            'orders',
+            'room_nights',
+        ].every(combinedOtaMetricReady);
+        const factCard = ({ key, label, value, format, ready, detail, reason = '' }) => {
+            const valueReady = ready && homeBusinessMetricAvailable(value);
+            const status = homeFactStatusText(valueReady, factLayerLoading, factLayerError);
+            return {
+                key,
+                label,
+                value: factLayerLoading
+                    ? '读取中'
+                    : (factLayerError ? '读取失败' : homeFactValueText(valueReady ? value : null, format, formatNumber)),
+                status,
+                statusClass: homeBusinessStatusClass(status),
+                ready: valueReady,
+                detail: valueReady
+                    ? detail
+                    : `${targetDate || '目标日待确认'}未取得${label}${reason ? `：${reason}` : ''}；不使用0、旧日期或另一口径补齐。`,
+            };
+        };
+        const wholeHotelFacts = [
+            factCard({
+                key: 'sold_room_nights',
+                label: '出租房晚',
+                value: wholeHotelValues.sold_room_nights,
+                format: 'room_nights',
+                ready: wholeHotelMetricReady('sold_room_nights'),
+                detail: `${targetDate} · PMS全酒店住宿口径 · 精确回读`,
+            }),
+            factCard({
+                key: 'sellable_room_nights',
+                label: '可售房晚（推导校验）',
+                value: wholeHotelValues.sellable_room_nights,
+                format: 'room_nights',
+                ready: wholeHotelMetricReady('sellable_room_nights', true),
+                detail: `${targetDate} · PMS全酒店住宿口径 · 由出租房晚与入住率交叉校验`,
+            }),
+            factCard({
+                key: 'payment_collected_amount',
+                label: '支付实收（非会计收入）',
+                value: wholeHotelValues.payment_collected_amount,
+                format: 'money',
+                ready: wholeHotelMetricReady('payment_collected_amount'),
+                detail: `${targetDate} · PMS支付通道实收`,
+                reason: '当前PMS合同只有住宿房费，支付实收字段未接入',
+            }),
+            factCard({
+                key: 'occupancy_rate_percent',
+                label: '入住率',
+                value: wholeHotelValues.occupancy_rate_percent,
+                format: 'percent',
+                ready: wholeHotelMetricReady('occupancy_rate_percent'),
+                detail: `${targetDate} · 出租房晚 / 可售房晚`,
+            }),
+        ];
+        const wholeHotelDerivedFacts = [
+            factCard({
+                key: 'room_revenue',
+                label: '住宿房费（非实收）',
+                value: wholeHotelValues.room_revenue,
+                format: 'money',
+                ready: wholeHotelMetricReady('room_revenue'),
+                detail: `${targetDate} · PMS住宿房费，不等同支付实收`,
+            }),
+            factCard({
+                key: 'whole_hotel_adr',
+                label: 'ADR',
+                value: derivedValues.whole_hotel_adr?.value,
+                format: 'money',
+                ready: wholeHotelMetricReady('adr', true)
+                    && derivedValues.whole_hotel_adr?.status === 'ready',
+                detail: `${targetDate} · PMS住宿房费 / 出租房晚`,
+            }),
+            factCard({
+                key: 'whole_hotel_revpar',
+                label: 'RevPAR',
+                value: derivedValues.whole_hotel_revpar?.value,
+                format: 'money',
+                ready: wholeHotelMetricReady('revpar', true)
+                    && derivedValues.whole_hotel_revpar?.status === 'ready',
+                detail: `${targetDate} · PMS住宿房费 / 可售房晚`,
+            }),
+        ];
+        const otaChannelFacts = [
+            factCard({
+                key: 'ota_orders',
+                label: '渠道订单',
+                value: combinedOtaValues.orders,
+                format: 'orders',
+                ready: combinedOtaMetricReady('orders'),
+                detail: `${targetDate} · 携程+美团OTA渠道，不代表全酒店订单`,
+            }),
+            factCard({
+                key: 'ota_room_nights',
+                label: '渠道房晚',
+                value: combinedOtaValues.room_nights,
+                format: 'room_nights',
+                ready: combinedOtaMetricReady('room_nights'),
+                detail: `${targetDate} · 携程+美团OTA渠道`,
+            }),
+            factCard({
+                key: 'ota_adr',
+                label: '渠道ADR',
+                value: derivedValues.ota_adr?.value,
+                format: 'money',
+                ready: combinedOtaMetricReady('adr')
+                    && derivedValues.ota_adr?.status === 'ready',
+                detail: `${targetDate} · OTA房费 / OTA房晚`,
+            }),
+            factCard({
+                key: 'ota_room_night_share_percent',
+                label: '渠道房晚占比',
+                value: derivedValues.ota_room_night_share_percent?.value,
+                format: 'percent',
+                ready: factLayerMatchesTarget
+                    && !exactDateBlocked
+                    && derivedValues.ota_room_night_share_percent?.status === 'ready',
+                detail: `${targetDate} · OTA房晚 / PMS全酒店出租房晚`,
+            }),
+            factCard({
+                key: 'ota_room_revenue_share_percent',
+                label: '渠道房费结构占比',
+                value: derivedValues.ota_room_revenue_share_percent?.value,
+                format: 'percent',
+                ready: factLayerMatchesTarget
+                    && !exactDateBlocked
+                    && derivedValues.ota_room_revenue_share_percent?.status === 'ready',
+                detail: `${targetDate} · OTA房费 / PMS住宿房费；不是全酒店总营收或支付实收占比`,
+            }),
+            factCard({
+                key: 'ota_cancellation_rate_percent',
+                label: '取消率',
+                value: derivedValues.ota_cancellation_rate_percent?.value,
+                format: 'percent',
+                ready: otaPlatformDatesMatch
+                    && derivedValues.ota_cancellation_rate_percent?.status === 'ready',
+                detail: `${targetDate} · 按携程/美团已完整分类的总订单数加权，仅OTA渠道口径`,
+            }),
+        ];
+        const otaPlatformRows = ['ctrip', 'meituan'].map((platform) => {
+            const source = factLayer.sources?.[`${platform}_ota`] || {};
+            const values = otaChannelValues[platform] || {};
+            const platformDateReady = factLayerMatchesTarget
+                && String(source.actual_business_date || '') === targetDate;
+            const platformAnalysisLimited = source.analysis_readiness?.allowed === false;
+            const metricReady = (metricKey) => {
+                const metricStatus = String(
+                    source.fact_statuses?.[metricKey]?.status || ''
+                );
+                return platformDateReady && (
+                    metricStatus === 'readback_verified'
+                    || (metricKey === 'adr' && metricStatus === 'derived_verified')
+                    || (
+                        metricStatus === ''
+                        && String(source.data_status || '') === 'readback_verified'
+                    )
+                );
+            };
+            const readyMetricCount = [
+                'revenue',
+                'orders',
+                'room_nights',
+                'adr',
+                'list_exposure',
+                'detail_exposure',
+                'flow_rate_percent',
+                'submit_rate_percent',
+                'cancellation_rate_percent',
+            ].filter(metricReady).length;
+            const platformStatus = factLayerLoading
+                ? '正在读取'
+                : (factLayerError
+                    ? '读取失败'
+                    : (
+                        String(source.data_status || '') === 'readback_verified'
+                            ? (
+                                platformAnalysisLimited
+                                    ? '事实已回读·分析受限'
+                                    : '已验证'
+                            )
+                            : (readyMetricCount > 0 ? '部分取得' : '未取得')
+                    ));
+            const platformLabel = platform === 'ctrip' ? '携程' : '美团';
+            return {
+                key: platform,
+                label: platformLabel,
+                status: platformStatus,
+                statusClass: homeBusinessStatusClass(platformStatus),
+                date: String(source.actual_business_date || source.business_date || ''),
+                facts: [
+                    factCard({ key: `${platform}-revenue`, label: '渠道成交额', value: values.revenue, format: 'money', ready: metricReady('revenue'), detail: `${targetDate} · ${platformLabel}渠道成交额；不代表全酒店收入` }),
+                    factCard({ key: `${platform}-orders`, label: '订单', value: values.orders, format: 'orders', ready: metricReady('orders'), detail: `${targetDate} · ${platformLabel}渠道` }),
+                    factCard({ key: `${platform}-room-nights`, label: '房晚', value: values.room_nights, format: 'room_nights', ready: metricReady('room_nights'), detail: `${targetDate} · ${platformLabel}渠道` }),
+                    factCard({ key: `${platform}-adr`, label: 'ADR', value: values.adr, format: 'money', ready: metricReady('adr'), detail: `${targetDate} · ${platformLabel}渠道` }),
+                    factCard({ key: `${platform}-list-exposure`, label: '列表曝光', value: values.list_exposure, format: 'visits', ready: metricReady('list_exposure'), detail: `${targetDate} · ${platformLabel}列表流量事实` }),
+                    factCard({ key: `${platform}-detail-exposure`, label: '详情曝光', value: values.detail_exposure, format: 'visits', ready: metricReady('detail_exposure'), detail: `${targetDate} · ${platformLabel}流量事实` }),
+                    factCard({ key: `${platform}-flow-rate`, label: '流量转化', value: values.flow_rate_percent, format: 'percent', ready: metricReady('flow_rate_percent'), detail: `${targetDate} · ${platformLabel}流量转化口径` }),
+                    factCard({ key: `${platform}-submit-rate`, label: '提交转化', value: values.submit_rate_percent, format: 'percent', ready: metricReady('submit_rate_percent'), detail: `${targetDate} · ${platformLabel}提交转化口径` }),
+                    factCard({ key: `${platform}-cancel-rate`, label: '取消率', value: values.cancellation_rate_percent, format: 'percent', ready: metricReady('cancellation_rate_percent'), detail: `${targetDate} · ${platformLabel}订单取消口径` }),
+                ],
+            };
+        });
+        const dateSourceLabels = {
+            dingdandao_pms: 'PMS实际业务日',
+            ctrip_ota: '携程实际业务日',
+            meituan_ota: '美团实际业务日',
+        };
+        const dateSourceRows = Object.entries(dateSourceLabels).map(([key, label]) => {
+            const source = dateAlignment.sources?.[key] || factLayer.sources?.[key] || {};
+            const actualDate = String(
+                source.observed_date || source.actual_business_date || source.business_date || ''
+            ).trim();
+            const sourceStatus = String(source.status || source.data_status || '').trim();
+            const aligned = factLayerMatchesTarget
+                && actualDate === targetDate
+                && sourceStatus === 'readback_verified';
+            const partiallyAligned = factLayerMatchesTarget
+                && actualDate === targetDate
+                && ['partial', 'partial_readback_verified'].includes(sourceStatus);
+            const status = actualDate && actualDate !== targetDate
+                ? '日期错位'
+                : (
+                    aligned
+                        ? '同日已验证'
+                        : (partiallyAligned ? '同日部分已验证' : '日期未取得')
+                );
+            return {
+                key,
+                label,
+                date: actualDate || '未取得',
+                status,
+                statusClass: homeBusinessStatusClass(
+                    status === '同日已验证'
+                        ? '已验证'
+                        : (
+                            status === '同日部分已验证'
+                                ? '部分取得'
+                                : (status === '日期错位' ? '读取失败' : '未取得')
+                        )
+                ),
+            };
+        });
+        const reconciliationRows = (Array.isArray(reconciliation.checks) ? reconciliation.checks : []).map((row) => {
+            const status = homeReconciliationStatusText(row?.status);
+            let value = '';
+            if (row?.key === 'duplicate_orders') {
+                const candidateRows = Math.max(0, Number(row?.order_identity_candidate_rows) || 0);
+                const coveredRows = Math.max(0, Number(row?.order_identity_covered_rows) || 0);
+                const suppressedOrders = Math.max(0, Number(row?.suppressed_duplicate_order_rows) || 0);
+                const suppressedRepresentations = Math.max(0, Number(row?.suppressed_representation_rows) || 0);
+                if (suppressedOrders > 0) {
+                    value = `已排除 ${formatNumber(suppressedOrders)} 条重复订单版本`;
+                } else if (candidateRows > 0 && coveredRows >= candidateRows) {
+                    value = `订单身份覆盖 ${formatNumber(coveredRows)}/${formatNumber(candidateRows)}`;
+                } else if (candidateRows > 0) {
+                    value = `可信订单身份 ${formatNumber(coveredRows)}/${formatNumber(candidateRows)}`;
+                } else if (suppressedRepresentations > 0) {
+                    value = `仅归并 ${formatNumber(suppressedRepresentations)} 条重复表示，订单级未核验`;
+                } else {
+                    value = '缺少订单明细身份';
+                }
+            } else if (row?.key === 'summary_representation' && Array.isArray(row?.differences)) {
+                value = row.differences.length > 0
+                    ? `${formatNumber(row.differences.length)} 项数值差异`
+                    : (
+                        String(row?.status || '') === 'matched'
+                            ? '未发现数值冲突'
+                            : '缺少同口径可比指标'
+                    );
+            } else if (row?.key === 'cancellation' && homeBusinessMetricAvailable(row?.combined_rate_percent)) {
+                value = `OTA加权取消率 ${formatNumber(Number(row.combined_rate_percent))}%`;
+            } else if (row?.key === 'floor_vs_sales') {
+                if (homeBusinessMetricAvailable(row?.reference_gap)) {
+                    value = `综合OTA ADR - 最低保护价：¥${formatNumber(Number(row.reference_gap))}`;
+                } else {
+                    const salesEvidence = row?.sales_evidence && typeof row.sales_evidence === 'object'
+                        ? Object.values(row.sales_evidence)
+                        : [];
+                    const availableSales = salesEvidence.filter((evidence) => (
+                        ['available', 'conflicted'].includes(String(evidence?.status || ''))
+                        && homeBusinessMetricAvailable(evidence?.value)
+                    ));
+                    if (availableSales.length > 0) {
+                        const floorStatus = String(row?.floor_evidence?.status || 'missing');
+                        value = `销售证据 ${formatNumber(availableSales.length)}/2；${floorStatus === 'ready' ? '综合ADR未就绪' : '最低保护价未取得'}`;
+                        const currentConflict = availableSales
+                            .map((evidence) => evidence?.current_snapshot_conflict)
+                            .find((conflict) => homeBusinessMetricAvailable(conflict?.absolute_delta));
+                        if (currentConflict) {
+                            const conflictDelta = Number(
+                                currentConflict.absolute_delta
+                            ).toLocaleString('zh-CN', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            });
+                            value += `；同批表示差 ¥${conflictDelta}`;
+                        }
+                    }
+                }
+            }
+            return {
+                key: String(row?.key || ''),
+                label: String(row?.label || '对账项'),
+                status,
+                statusClass: homeBusinessStatusClass(
+                    ['已对齐', '订单级已去重', '未发现冲突', '同日可对照'].includes(status)
+                        ? '已验证'
+                        : (['日期阻断', '发现差异'].includes(status) ? '读取失败' : '部分取得')
+                ),
+                value,
+                detail: String(row?.detail || '尚无对账说明。'),
+            };
+        });
+
+        const wholeHotelFactsComplete = [
+            ...wholeHotelFacts,
+            ...wholeHotelDerivedFacts,
+        ].every((fact) => fact.ready === true);
+        const otaChannelFactsComplete = otaChannelFacts.every(
+            (fact) => fact.ready === true,
+        ) && otaPlatformRows.every(
+            (row) => Array.isArray(row.facts)
+                && row.facts.every((fact) => fact.ready === true),
+        );
+        const dualScopeReady = factLayerMatchesTarget
+            && !exactDateBlocked
+            && wholeHotelFactsComplete
+            && otaChannelFactsComplete;
+        const anyStrictFactReady = [
+            ...wholeHotelFacts,
+            ...wholeHotelDerivedFacts,
+            ...otaChannelFacts,
+            ...otaPlatformRows.flatMap((row) => (
+                Array.isArray(row.facts) ? row.facts : []
+            )),
+        ].some((fact) => fact.ready === true);
+
         const readyFactCount = facts.filter(fact => fact.ready).length;
         let yesterdayStatus = readyFactCount === facts.length ? '已取得' : (readyFactCount > 0 ? '部分取得' : '未取得');
         if (loading) yesterdayStatus = '正在读取';
         if (loadError) yesterdayStatus = '读取失败';
-        const yesterdaySummary = loadError
+        let yesterdaySummary = loadError
             ? `昨日事实读取失败：${loadError}`
             : (loading
                 ? '正在读取目标日已定稿事实。'
                 : (readyFactCount > 0
                     ? `${targetDate}已取得 ${readyFactCount}/${facts.length} 项 OTA 渠道事实；缺失项保持“未取得”。`
                     : `${targetDate || '目标日'}未取得已定稿 OTA 事实${latestHistoricalDate && latestHistoricalDate !== targetDate ? `；最近历史日 ${latestHistoricalDate} 不用于替代` : ''}。`));
+        if (factLayerMatchesTarget) {
+            if (exactDateBlocked) {
+                yesterdayStatus = '读取失败';
+                yesterdaySummary = `${targetDate}发现PMS与OTA实际业务日期错位，本次不可对账；页面不会自动改日或混合口径。`;
+            } else if (dualScopeReady) {
+                yesterdayStatus = '已取得';
+                yesterdaySummary = `${targetDate}要求的全酒店PMS事实、派生指标和携程/美团OTA渠道事实均已逐指标验证，并按两个口径分开显示。`;
+            } else {
+                yesterdayStatus = anyStrictFactReady
+                    ? '部分取得'
+                    : '未取得';
+                yesterdaySummary = `${targetDate}双口径事实仅部分取得；已验证值按两个口径分开显示，缺失指标、来源和分母保持“未取得”。`;
+            }
+        } else if (factLayerHotelMismatch) {
+            yesterdayStatus = '读取失败';
+            yesterdaySummary = '当前返回的经营事实不属于所选门店，已阻止显示；请刷新该门店事实，旧门店数据不会沿用。';
+        } else if (factLayerDate) {
+            yesterdayStatus = '未取得';
+            yesterdaySummary = `${targetDate || '目标日'}未取得同日PMS与OTA严格事实；当前回读日 ${factLayerDate} 不用于替代或计入完成度。`;
+        }
 
         const presentRowCount = Number.isFinite(Number(present.snapshot_row_count))
             ? Number(present.snapshot_row_count)
@@ -468,7 +949,8 @@ window.SUXI_HOME_STATIC = (() => {
             const methods = card?.truth?.source?.methods;
             return Array.isArray(methods) ? methods.map(method => String(method || '').toLowerCase()) : [];
         });
-        const hasPmsSource = verifiedSourceMethods.some(method => /(pms|crs|property_management)/.test(method));
+        const hasPmsSource = wholeHotelReady
+            || verifiedSourceMethods.some(method => /(pms|crs|property_management)/.test(method));
         const hasImportSource = verifiedSourceMethods.some(method => /(import|manual|excel|daily_report|file)/.test(method));
         const hasUnclassifiedWholeHotel = verifiedWholeHotelCards.length > 0
             || String(revenueOverviewScope || '').toLowerCase() === 'hotel';
@@ -508,7 +990,28 @@ window.SUXI_HOME_STATIC = (() => {
             statusClass: homeBusinessStatusClass(yesterdayStatus),
             summary: yesterdaySummary,
             facts,
-            sourceText: `${platformText} OTA · ${targetDate || '目标日待确认'}定稿事实 · 入库与回读证据见数据健康`,
+            wholeHotelFacts,
+            wholeHotelDerivedFacts,
+            otaChannelFacts,
+            otaPlatformRows,
+            dateSourceRows,
+            reconciliationRows,
+            reconciliationStatus: homeReconciliationStatusText(reconciliation.status),
+            reconciliationStatusClass: homeBusinessStatusClass(
+                reconciliation.status === 'blocked'
+                    ? '读取失败'
+                    : (reconciliation.status === 'matched_with_scope_caveats' ? '已验证' : '部分取得')
+            ),
+            dateAlignmentStatus: String(dateAlignment.status || 'incomplete'),
+            dateAlignmentMessage: String(dateAlignment.message || '尚未取得三源同日证据。'),
+            dualScopeReady,
+            requiresHotelSelection: selectedHotelKey === '',
+            hotelScopeMismatch: factLayerHotelMismatch,
+            sourceText: factLayerMatchesTarget
+                ? `PMS全酒店住宿事实 + 携程/美团OTA渠道事实 · ${targetDate} · 保存与精确回读证据见昨日经营闭环`
+                : (factLayerDate && !factLayerHotelMismatch
+                    ? `严格经营事实层 · 目标日 ${targetDate || '待确认'} 未命中 · 当前回读日 ${factLayerDate} 不作替代`
+                    : `${platformText} OTA · ${targetDate || '目标日待确认'}定稿事实 · 入库与回读证据见数据健康`),
         };
         const today = {
             status: todayStatus,
@@ -928,6 +1431,190 @@ window.SUXI_HOME_STATIC = (() => {
                 }, model.notice) : null,
                 body,
             ]);
+        },
+    };
+    const HomeYesterdayOperatingFacts = {
+        name: 'HomeYesterdayOperatingFacts',
+        props: {
+            model: { type: Object, default: () => ({}) },
+            showHeader: { type: Boolean, default: false },
+            showControls: { type: Boolean, default: false },
+            hotelOptions: { type: Array, default: () => [] },
+            selectedHotelId: { type: [String, Number], default: '' },
+            refreshing: { type: Boolean, default: false },
+        },
+        emits: ['update:selectedHotelId', 'refresh'],
+        render() {
+            const h = window.Vue?.h;
+            const Fragment = window.Vue?.Fragment;
+            if (typeof h !== 'function' || !Fragment) return null;
+            const model = this.model && typeof this.model === 'object' ? this.model : {};
+            const yesterday = model.yesterday && typeof model.yesterday === 'object'
+                ? model.yesterday
+                : {};
+            const statusPill = (label, className) => h('span', {
+                class: ['home-status-pill', className],
+            }, label || '待核验');
+            const factCard = (fact) => h('div', {
+                key: fact?.key,
+                class: 'rounded-xl border border-white bg-white px-3 py-3 shadow-sm',
+            }, [
+                h('div', { class: 'flex items-center justify-between gap-2' }, [
+                    h('span', { class: 'text-xs font-medium text-slate-600' }, fact?.label || '指标'),
+                    statusPill(fact?.status, fact?.statusClass),
+                ]),
+                h('strong', { class: 'mt-2 block text-lg text-slate-900' }, fact?.value || '未取得'),
+                h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, fact?.detail || '口径说明未返回。'),
+            ]);
+            const derivedCard = (fact) => h('div', {
+                key: fact?.key,
+                class: 'rounded-xl border border-emerald-100 bg-white px-3 py-3',
+            }, [
+                h('span', { class: 'text-xs font-medium text-slate-500' }, fact?.label || '派生指标'),
+                h('strong', { class: 'mt-1 block text-base text-slate-900' }, fact?.value || '未取得'),
+            ]);
+            const platformCard = (platform) => h('div', {
+                key: platform?.key,
+                class: 'rounded-xl border border-blue-100 bg-white p-3',
+            }, [
+                h('div', { class: 'flex items-center justify-between gap-2' }, [
+                    h('strong', { class: 'text-sm text-slate-800' }, `${platform?.label || 'OTA'} · ${platform?.date || '日期未取得'}`),
+                    statusPill(platform?.status, platform?.statusClass),
+                ]),
+                h('div', { class: 'mt-2 grid grid-cols-2 gap-2 text-xs' }, (
+                    Array.isArray(platform?.facts) ? platform.facts : []
+                ).map(fact => h('div', {
+                    key: fact?.key,
+                    class: 'rounded-lg bg-slate-50 px-2 py-2',
+                }, [
+                    h('span', { class: 'text-slate-500' }, fact?.label || '指标'),
+                    h('strong', { class: 'mt-1 block text-slate-800' }, fact?.value || '未取得'),
+                ]))),
+            ]);
+            const pmsPanel = h('article', {
+                class: 'rounded-2xl border border-emerald-200 bg-emerald-50 p-4',
+                'data-testid': 'home-whole-hotel-scope',
+            }, [
+                h('strong', { class: 'text-base text-slate-900' }, '全酒店口径（PMS）'),
+                h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, '住宿经营事实；住宿房费与支付实收严格分开。'),
+                h('div', { class: 'mt-3 grid gap-2 sm:grid-cols-2' }, (
+                    Array.isArray(yesterday.wholeHotelFacts) ? yesterday.wholeHotelFacts : []
+                ).map(factCard)),
+                h('div', { class: 'mt-3 grid gap-2 sm:grid-cols-3' }, (
+                    Array.isArray(yesterday.wholeHotelDerivedFacts) ? yesterday.wholeHotelDerivedFacts : []
+                ).map(derivedCard)),
+            ]);
+            const otaPanel = h('article', {
+                class: 'rounded-2xl border border-blue-200 bg-blue-50 p-4',
+                'data-testid': 'home-ota-channel-scope',
+            }, [
+                h('strong', { class: 'text-base text-slate-900' }, 'OTA 渠道口径（携程 + 美团）'),
+                h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, '渠道订单、房晚、价格、流量与转化；不代表整家酒店。'),
+                h('div', { class: 'mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3' }, (
+                    Array.isArray(yesterday.otaChannelFacts) ? yesterday.otaChannelFacts : []
+                ).map(factCard)),
+                h('div', { class: 'mt-3 grid gap-2 sm:grid-cols-2' }, (
+                    Array.isArray(yesterday.otaPlatformRows) ? yesterday.otaPlatformRows : []
+                ).map(platformCard)),
+            ]);
+            const dateRows = h('div', { class: 'mt-3 grid gap-2 sm:grid-cols-3' }, (
+                Array.isArray(yesterday.dateSourceRows) ? yesterday.dateSourceRows : []
+            ).map(row => h('div', {
+                key: row?.key,
+                class: 'rounded-xl border border-slate-200 bg-white px-3 py-2',
+            }, [
+                h('span', { class: 'text-xs text-slate-500' }, row?.label || '来源业务日'),
+                h('div', { class: 'mt-1 flex items-center justify-between gap-2' }, [
+                    h('strong', { class: 'text-sm text-slate-800' }, row?.date || '未取得'),
+                    statusPill(row?.status, row?.statusClass),
+                ]),
+            ])));
+            const checkRows = h('div', { class: 'mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3' }, (
+                Array.isArray(yesterday.reconciliationRows) ? yesterday.reconciliationRows : []
+            ).map(row => h('div', {
+                key: row?.key,
+                class: 'rounded-xl border border-slate-200 bg-white px-3 py-3',
+            }, [
+                h('div', { class: 'flex items-center justify-between gap-2' }, [
+                    h('strong', { class: 'text-sm text-slate-800' }, row?.label || '对账项'),
+                    statusPill(row?.status, row?.statusClass),
+                ]),
+                row?.value ? h('strong', { class: 'mt-2 block text-xs text-slate-700' }, row.value) : null,
+                h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, row?.detail || '尚无对账说明。'),
+            ])));
+            const reconciliation = h('article', {
+                class: 'mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4',
+                'data-testid': 'home-reconciliation-facts',
+            }, [
+                h('div', { class: 'flex flex-wrap items-start justify-between gap-2' }, [
+                    h('div', null, [
+                        h('strong', { class: 'text-base text-slate-900' }, 'PMS 与 OTA 对账'),
+                        h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, `目标日 ${yesterday.date || '待确认'} · ${yesterday.dateAlignmentMessage || '尚未取得三源同日证据。'}`),
+                    ]),
+                    statusPill(yesterday.reconciliationStatus, yesterday.reconciliationStatusClass),
+                ]),
+                dateRows,
+                checkRows,
+            ]);
+            const controls = this.showControls ? h('div', {
+                class: 'flex flex-wrap items-center justify-end gap-2',
+            }, [
+                h('select', {
+                    class: 'input-field',
+                    value: String(this.selectedHotelId || ''),
+                    'aria-label': '昨日经营事实门店',
+                    onChange: event => this.$emit(
+                        'update:selectedHotelId',
+                        String(event?.target?.value || '')
+                    ),
+                }, [
+                    h('option', { value: '' }, '请选择具体门店'),
+                    ...this.hotelOptions.map(hotel => h('option', {
+                        key: hotel?.id,
+                        value: String(hotel?.id || ''),
+                    }, hotel?.name || `门店 ${hotel?.id || ''}`)),
+                ]),
+                h('button', {
+                    type: 'button',
+                    class: 'compass-primary-cta disabled:opacity-60',
+                    disabled: this.refreshing,
+                    onClick: () => this.$emit('refresh'),
+                }, this.refreshing ? '刷新中' : '刷新事实'),
+            ]) : null;
+            const header = this.showHeader ? h('div', {
+                class: 'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between',
+            }, [
+                h('div', { class: 'min-w-0' }, [
+                    h('p', { class: 'text-xs font-semibold uppercase tracking-wide text-amber-700' }, '昨日经营事实'),
+                    h('h2', { class: 'mt-1 text-xl font-semibold text-slate-900' }, `${model.hotelName || '门店'} · ${yesterday.date || '目标日待确认'}`),
+                    h('p', { class: 'mt-1 text-sm leading-6 text-slate-600' }, yesterday.summary || '等待读取经营事实。'),
+                ]),
+                h('div', { class: 'flex flex-col items-end gap-2' }, [
+                    statusPill(yesterday.reconciliationStatus, yesterday.reconciliationStatusClass),
+                    controls,
+                ]),
+            ]) : null;
+            const body = yesterday.requiresHotelSelection
+                ? h('div', {
+                    class: 'mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900',
+                    'data-testid': 'home-yesterday-hotel-required',
+                }, '请选择一个具体门店后读取事实。PMS 与 OTA 不允许跨门店汇总后对账。')
+                : h(Fragment, null, [
+                    h('div', {
+                        class: 'mt-4 grid gap-4 lg:grid-cols-2',
+                        'data-testid': 'home-yesterday-dual-scope',
+                    }, [pmsPanel, otaPanel]),
+                    reconciliation,
+                    h('p', { class: 'mt-3 text-xs text-slate-500' }, yesterday.sourceText || ''),
+                ]);
+            return h('section', {
+                class: this.showHeader
+                    ? 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5'
+                    : 'mt-5',
+                'data-testid': this.showHeader
+                    ? 'home-yesterday-operating-facts'
+                    : 'home-yesterday-facts',
+            }, [header, body]);
         },
     };
     const HomeBusinessTimeAxis = {
@@ -1504,6 +2191,7 @@ window.SUXI_HOME_STATIC = (() => {
         buildHomeBusinessTimeModel,
         buildHomeOperatingScheduleModel,
         HomeOperatingOrchestration,
+        HomeYesterdayOperatingFacts,
         HomeBusinessTimeAxis,
         buildHomeDataSources,
         buildCompassDataReadiness,

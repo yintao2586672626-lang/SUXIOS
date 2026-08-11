@@ -5,6 +5,8 @@ namespace app\service;
 
 class OtaRevenueMetricService
 {
+    private const CHANNEL_BOOKING_WINDOW_MIN_ORDERS = 10;
+
     /**
      * @param array<string, mixed> $dataset
      * @return array<string, mixed>
@@ -21,6 +23,24 @@ class OtaRevenueMetricService
         $trafficForecast = $this->list($dataset['fact_ota_traffic_forecast'] ?? []);
         $comments = $this->list($dataset['fact_ota_comment'] ?? []);
         $dataGaps = [];
+        $trafficFlowRows = $this->canonicalTrafficMetricRows(
+            $traffic,
+            'flow_rate'
+        );
+        $trafficSubmitRows = $this->canonicalTrafficMetricRows(
+            $traffic,
+            'submit_rate'
+        );
+        $trafficListExposureRows = $this->canonicalTrafficMetricRows(
+            $traffic,
+            'list_exposure'
+        );
+        $trafficDetailExposureRows = $this->canonicalTrafficMetricRows(
+            $traffic,
+            'detail_exposure'
+        );
+        $trafficProjectionOverlapGroups =
+            $this->trafficProjectionOverlapGroupCount($traffic);
 
         $revenueRows = $this->rowsWithNumeric($daily, 'revenue');
         $grossRevenueRows = $this->rowsWithNumeric($daily, 'gross_revenue');
@@ -34,6 +54,12 @@ class OtaRevenueMetricService
         $roomRevenue = $this->sum($roomRevenueRows, 'room_revenue');
         $roomNightRows = $this->rowsWithNumeric($daily, 'room_nights');
         $roomNights = $this->sum($roomNightRows, 'room_nights');
+        if (!$roomNightRows) {
+            $dataGaps[] = [
+                'code' => 'room_nights_missing',
+                'message' => 'Verified room nights are missing. Order counts, physical room counts, and defaults cannot replace room nights.',
+            ];
+        }
         $availableRows = $this->rowsWithPositive($daily, 'available_room_nights');
         $availableRoomNights = $this->sum($availableRows, 'available_room_nights');
         $revparRows = array_values(array_filter(
@@ -128,35 +154,280 @@ class OtaRevenueMetricService
                 'message' => 'Booking date and check-in date fields are missing, so lead time is not calculable.',
             ];
         }
+        $bookingWindowAdrRows = array_values(array_filter($leadTimeRows, function (array $row): bool {
+            return (float)$row['lead_time_days'] >= 0
+                && $this->hasNumericValue($row, 'room_revenue')
+                && $this->hasNumericValue($row, 'room_nights')
+                && (float)$row['room_nights'] > 0;
+        }));
+        if ($leadTimeRows && !$bookingWindowAdrRows) {
+            $dataGaps[] = [
+                'code' => 'booking_window_adr_fields_missing',
+                'message' => 'Lead time exists, but aligned verified room revenue and positive room nights are missing, so booking-window ADR is not calculable.',
+            ];
+        } elseif (count($bookingWindowAdrRows) < count($leadTimeRows)) {
+            $dataGaps[] = [
+                'code' => 'booking_window_adr_fields_partial',
+                'message' => 'Only part of the lead-time facts have aligned verified room revenue and positive room nights, so booking-window ADR uses aligned rows only.',
+            ];
+        }
+        $bookingWindowAdr = $this->bookingWindowAdrSummary($bookingWindowAdrRows, count($leadTimeRows));
 
-        $orderCountRows = $this->rowsWithNumeric($daily, 'order_count');
+        $channelBookingWindowMonthRows = array_values(array_filter($leadTimeRows, function (array $row): bool {
+            return (float)$row['lead_time_days'] >= 0
+                && trim((string)($row['platform_key'] ?? '')) !== ''
+                && $this->hasNumericValue($row, 'order_count')
+                && $this->orderCountSemanticAllowed($row)
+                && (float)$row['order_count'] > 0
+                && $this->stayMonth((string)($row['checkin_date'] ?? '')) !== '';
+        }));
+        $channelBookingWindowMonth = $this->channelBookingWindowMonthSummary(
+            $channelBookingWindowMonthRows,
+            count($leadTimeRows)
+        );
+
+        $orderCountRows = $this->verifiedOrderCountRows($daily);
         $orderCount = $orderCountRows ? (int)round($this->sum($orderCountRows, 'order_count')) : null;
+        if (!$orderCountRows) {
+            $dataGaps[] = [
+                'code' => 'order_count_missing',
+                'message' => 'Verified order count is missing. Ambiguous booking, capacity, or room-night counts cannot replace orders.',
+            ];
+        }
         $reviewCountRows = $this->rowsWithNumeric($comments, 'comment_count');
         $reviewCount = $reviewCountRows ? $this->sum($reviewCountRows, 'comment_count') : null;
-        $cancelRows = array_values(array_filter($daily, static fn(array $row): bool => array_key_exists('cancel_order_num', $row) && $row['cancel_order_num'] !== null));
-        $directCancelRateRows = array_values(array_filter($daily, fn(array $row): bool => $this->hasNumericValue($row, 'cancel_rate')));
-        $cancelOrders = $this->sum($cancelRows, 'cancel_order_num');
-        $cancelOrderBase = (int)round($this->sum($cancelRows, 'order_count'));
+        $cancellationScopeRows = array_values(array_filter(
+            $daily,
+            fn(array $row): bool => $this->orderCountSemanticAllowed($row)
+                && (
+                    $this->hasNumericValue($row, 'order_count')
+                    || $this->hasNumericValue($row, 'gross_order_count')
+                    || $this->hasNumericValue($row, 'cancel_order_num')
+                    || $this->hasNumericValue($row, 'cancel_rate')
+                    || $this->hasNumericValue(
+                        $row,
+                        'unknown_status_order_count'
+                    )
+                )
+        ));
+        $cancelRows = array_values(array_filter(
+            $cancellationScopeRows,
+            fn(array $row): bool => $this->hasNumericValue(
+                $row,
+                'cancel_order_num'
+            )
+        ));
+        $directCancelRateRows = array_values(array_filter(
+            $cancellationScopeRows,
+            fn(array $row): bool => !$this->hasNumericValue(
+                $row,
+                'cancel_order_num'
+            ) && $this->hasNumericValue($row, 'cancel_rate')
+        ));
+        $completeCancellationRows = array_values(array_filter(
+            $cancelRows,
+            fn(array $row): bool => $this->hasNumericValue(
+                $row,
+                'gross_order_count'
+            )
+                && (float)$row['gross_order_count'] >= 0
+                && $this->hasNumericValue(
+                    $row,
+                    'unknown_status_order_count'
+                )
+                && (float)$row['unknown_status_order_count'] === 0.0
+                && (float)$row['cancel_order_num'] >= 0
+                && (float)$row['cancel_order_num']
+                    <= (float)$row['gross_order_count']
+                && (string)($row['cancel_rate_basis'] ?? '')
+                    === 'cancelled_orders_over_gross_orders_complete_classification'
+        ));
+        $summaryCancellationScopeKeys = $this->cancellationSummaryScopeKeys(
+            $daily
+        );
+        $cancelOrders = null;
+        $cancelOrderBase = null;
+        $cancellationRateBasis = null;
         $cancellationRate = null;
-        if ($cancelRows && $cancelOrderBase > 0) {
-            $cancellationRate = round($cancelOrders / $cancelOrderBase * 100, 2);
-            if (count($cancelRows) < count($daily)) {
+        $cancellationEvidenceRows = [];
+        $grossOrderEvidenceRows = [];
+        $cancelOrderEvidenceRows = [];
+        if ($cancelRows && $directCancelRateRows) {
+            $cancellationEvidenceRows = array_merge(
+                $cancelRows,
+                $directCancelRateRows
+            );
+            $dataGaps[] = [
+                'code' => 'cancellation_evidence_mixed',
+                'message' => 'Count-based and direct-rate cancellation evidence coexist in the same summary scope and cannot be silently merged.',
+            ];
+        } elseif ($cancelRows) {
+            $coverageComplete = count($cancelRows)
+                === count($cancellationScopeRows)
+                && $this->cancellationSummaryScopeKeys($cancelRows)
+                    === $summaryCancellationScopeKeys;
+            $classificationComplete = count($completeCancellationRows)
+                === count($cancelRows);
+            if (!$coverageComplete) {
                 $dataGaps[] = [
                     'code' => 'cancellation_fields_partial',
-                    'message' => 'Cancellation fields are present for only part of OTA daily facts.',
+                    'message' => 'Cancellation counts do not cover every order-bearing OTA daily fact in the same summary scope.',
                 ];
             }
+            if (!$classificationComplete) {
+                $hasUnknownStatuses = count(array_filter(
+                    $cancelRows,
+                    fn(array $row): bool => $this->hasNumericValue(
+                        $row,
+                        'unknown_status_order_count'
+                    ) && (float)$row['unknown_status_order_count'] > 0
+                )) > 0;
+                $hasClassificationMismatch = count(array_filter(
+                    $cancelRows,
+                    fn(array $row): bool => (
+                        $this->hasNumericValue($row, 'gross_order_count')
+                        && (
+                            (float)$row['gross_order_count'] < 0
+                            || (float)$row['cancel_order_num']
+                                > (float)$row['gross_order_count']
+                        )
+                    ) || (float)$row['cancel_order_num'] < 0
+                )) > 0;
+                if ($hasUnknownStatuses) {
+                    $dataGaps[] = [
+                        'code' => 'cancellation_status_classification_incomplete',
+                        'message' => 'Cancellation counts include unknown order statuses, so the gross-order denominator is incomplete.',
+                    ];
+                }
+                if ($hasClassificationMismatch) {
+                    $dataGaps[] = [
+                        'code' => 'cancellation_order_classification_mismatch',
+                        'message' => 'Cancellation counts or the aligned gross-order base are outside the valid classification range.',
+                    ];
+                }
+                if (!$hasUnknownStatuses && !$hasClassificationMismatch) {
+                    $dataGaps[] = [
+                        'code' => 'cancellation_gross_order_base_missing',
+                        'message' => 'Cancellation counts are present, but an aligned gross-order base with complete status classification is missing.',
+                    ];
+                }
+            }
+            if ($coverageComplete && $classificationComplete) {
+                $cancelOrders = $this->sum(
+                    $completeCancellationRows,
+                    'cancel_order_num'
+                );
+                $cancelOrderBase = (int)round($this->sum(
+                    $completeCancellationRows,
+                    'gross_order_count'
+                ));
+                $cancellationRateBasis =
+                    'cancelled_orders_over_gross_orders_complete_classification';
+                $cancellationEvidenceRows = $completeCancellationRows;
+                $grossOrderEvidenceRows = $completeCancellationRows;
+                $cancelOrderEvidenceRows = $completeCancellationRows;
+                if ($cancelOrderBase > 0) {
+                    $cancellationRate = round(
+                        $cancelOrders / $cancelOrderBase * 100,
+                        2
+                    );
+                } else {
+                    $dataGaps[] = [
+                        'code' => 'cancellation_gross_order_base_zero',
+                        'message' => 'The gross-order denominator is verified as zero, so a cancellation rate is not calculable.',
+                    ];
+                }
+            }
         } elseif ($directCancelRateRows) {
-            $cancellationRate = $this->average($directCancelRateRows, 'cancel_rate');
-        } elseif (!$cancelRows) {
+            $validDirectCancelRateRows = array_values(array_filter(
+                $directCancelRateRows,
+                fn(array $row): bool => (float)$row['cancel_rate'] >= 0
+                    && (float)$row['cancel_rate'] <= 100
+                    && (!$this->hasNumericValue(
+                        $row,
+                        'unknown_status_order_count'
+                    ) || (float)$row['unknown_status_order_count'] === 0.0)
+            ));
+            $hasUnknownStatuses = count(array_filter(
+                $directCancelRateRows,
+                fn(array $row): bool => $this->hasNumericValue(
+                    $row,
+                    'unknown_status_order_count'
+                ) && (float)$row['unknown_status_order_count'] > 0
+            )) > 0;
+            $hasInvalidRates = count(array_filter(
+                $directCancelRateRows,
+                static fn(array $row): bool => (float)$row['cancel_rate'] < 0
+                    || (float)$row['cancel_rate'] > 100
+            )) > 0;
+            if ($hasUnknownStatuses) {
+                $dataGaps[] = [
+                    'code' => 'cancellation_status_classification_incomplete',
+                    'message' => 'A direct cancellation rate cannot override explicitly unknown order statuses in the same fact.',
+                ];
+            }
+            if ($hasInvalidRates) {
+                $dataGaps[] = [
+                    'code' => 'cancellation_rate_invalid',
+                    'message' => 'A platform-supplied cancellation rate is outside the valid 0-100 percent range.',
+                ];
+            }
+            $coverageComplete = count($validDirectCancelRateRows)
+                === count($cancellationScopeRows)
+                && $this->cancellationSummaryScopeKeys(
+                    $validDirectCancelRateRows
+                ) === $summaryCancellationScopeKeys;
+            if (!$coverageComplete && !$hasUnknownStatuses && !$hasInvalidRates) {
+                $dataGaps[] = [
+                    'code' => 'cancellation_fields_partial',
+                    'message' => 'Direct cancellation-rate evidence does not cover every order-bearing OTA daily fact in the same summary scope.',
+                ];
+            }
+            if ($coverageComplete) {
+                $cancellationEvidenceRows = $validDirectCancelRateRows;
+                $cancellationRateBasis = 'platform_supplied_direct_rate';
+                $directGrossRows = array_values(array_filter(
+                    $validDirectCancelRateRows,
+                    fn(array $row): bool => $this->hasNumericValue(
+                        $row,
+                        'gross_order_count'
+                    ) && (float)$row['gross_order_count'] >= 0
+                ));
+                if (count($directGrossRows)
+                    === count($validDirectCancelRateRows)
+                ) {
+                    $cancelOrderBase = (int)round($this->sum(
+                        $directGrossRows,
+                        'gross_order_count'
+                    ));
+                    $grossOrderEvidenceRows = $directGrossRows;
+                    if ($cancelOrderBase > 0) {
+                        $weightedRate = 0.0;
+                        foreach ($directGrossRows as $row) {
+                            $weightedRate += (float)$row['cancel_rate']
+                                * (float)$row['gross_order_count'];
+                        }
+                        $cancellationRate = round(
+                            $weightedRate / $cancelOrderBase,
+                            2
+                        );
+                    } else {
+                        $dataGaps[] = [
+                            'code' => 'cancellation_gross_order_base_zero',
+                            'message' => 'The gross-order denominator is verified as zero, so a cancellation rate is not calculable.',
+                        ];
+                    }
+                } else {
+                    $cancellationRate = $this->average(
+                        $validDirectCancelRateRows,
+                        'cancel_rate'
+                    );
+                }
+            }
+        } else {
             $dataGaps[] = [
                 'code' => 'cancellation_fields_missing',
                 'message' => 'Cancellation fields are not present in OTA daily facts.',
-            ];
-        } else {
-            $dataGaps[] = [
-                'code' => 'cancellation_order_base_missing',
-                'message' => 'Cancellation fields are present, but matching order counts are zero or missing.',
             ];
         }
 
@@ -184,6 +455,27 @@ class OtaRevenueMetricService
             ];
         }
 
+        $cancellationGapCodes = $this->dataGapCodesByPrefix(
+            $dataGaps,
+            'cancellation_'
+        );
+        $grossOrderTrustFailures = [];
+        if ($grossOrderEvidenceRows === []) {
+            $grossOrderTrustFailures = $cancellationGapCodes !== []
+                ? $cancellationGapCodes
+                : [
+                    $cancellationRateBasis === 'platform_supplied_direct_rate'
+                        ? 'cancellation_gross_order_base_missing_for_combined_rate'
+                        : 'cancellation_gross_order_base_missing',
+                ];
+        }
+        $cancelOrderTrustFailures = [];
+        if ($cancelOrderEvidenceRows === []) {
+            $cancelOrderTrustFailures = $cancellationGapCodes !== []
+                ? $cancellationGapCodes
+                : ['cancellation_count_not_supplied_by_direct_rate'];
+        }
+
         $metricTrust = $this->buildMetricTrust(
             $daily,
             $traffic,
@@ -197,8 +489,20 @@ class OtaRevenueMetricService
             $netRows,
             $netRevparRows,
             $leadTimeRows,
-            $cancelRows ?: $directCancelRateRows,
+            $cancellationEvidenceRows !== []
+                ? $cancellationEvidenceRows
+                : ($cancelRows ?: $directCancelRateRows),
             $cancelRoomNightRows
+        );
+        $metricTrust['totals.gross_order_count'] = $this->trust(
+            $grossOrderEvidenceRows,
+            'sum(fact_ota_daily.gross_order_count) from one complete cancellation-classification scope',
+            $grossOrderTrustFailures
+        );
+        $metricTrust['totals.cancel_order_count'] = $this->trust(
+            $cancelOrderEvidenceRows,
+            'sum(fact_ota_daily.cancel_order_num) from one complete cancellation-classification scope',
+            $cancelOrderTrustFailures
         );
         $metricTrust['advertising.spend'] = $this->trust($this->rowsWithNumeric($advertising, 'spend'), 'sum(fact_ota_advertising.spend)');
         $metricTrust['advertising.order_amount'] = $this->trust($this->rowsWithNumeric($advertising, 'order_amount'), 'sum(fact_ota_advertising.order_amount)');
@@ -208,6 +512,16 @@ class OtaRevenueMetricService
         $metricTrust['peer_rank.rows'] = $this->trust($peerRanks, 'count(fact_ota_peer_rank)');
         $metricTrust['traffic_analysis.rows'] = $this->trust($trafficAnalysis, 'count(fact_ota_traffic_analysis)');
         $metricTrust['traffic_forecast.rows'] = $this->trust($trafficForecast, 'count(fact_ota_traffic_forecast)');
+        $metricTrust['booking_window_adr.buckets'] = $this->trust(
+            $bookingWindowAdrRows,
+            'group by lead_time_days bucket; sum(fact_ota_daily.room_revenue) / sum(fact_ota_daily.room_nights)',
+            $this->dataGapCodesByPrefix($dataGaps, 'booking_window_adr_')
+        );
+        $metricTrust['channel_booking_window_month.cells'] = $this->trust(
+            $channelBookingWindowMonthRows,
+            'group by checkin month, platform_key, and lead_time_days bucket; sum(order_count) / channel-month sum(order_count)',
+            ($channelBookingWindowMonth['reason'] ?? '') !== '' ? [(string)$channelBookingWindowMonth['reason']] : []
+        );
 
         $result = [
             'status' => $daily || $traffic || $advertising || $quality || $searchKeywords || $peerRanks || $trafficAnalysis || $trafficForecast || $comments ? 'ready' : 'empty',
@@ -229,6 +543,11 @@ class OtaRevenueMetricService
                 'available_room_nights' => $availableRows ? round($availableRoomNights, 2) : null,
                 'occupied_room_nights' => $occupancyRows ? round($occupiedRoomNights, 2) : null,
                 'order_count' => $orderCount,
+                'gross_order_count' => $cancelOrderBase,
+                'cancel_order_count' => $cancelOrders !== null
+                    ? (int)round($cancelOrders)
+                    : null,
+                'cancellation_rate_basis' => $cancellationRateBasis,
                 'adr' => $roomRevenueRows && $roomNightRows && $roomNights > 0
                     ? round($roomRevenue / $roomNights, 2)
                     : null,
@@ -243,10 +562,36 @@ class OtaRevenueMetricService
             ],
             'traffic' => [
                 'rows' => count($traffic),
-                'avg_flow_rate' => $this->average($traffic, 'flow_rate'),
-                'avg_submit_rate' => $this->average($traffic, 'submit_rate'),
-                'list_exposure' => ($rows = $this->rowsWithNumeric($traffic, 'list_exposure')) ? (int)round($this->sum($rows, 'list_exposure')) : null,
-                'detail_exposure' => ($rows = $this->rowsWithNumeric($traffic, 'detail_exposure')) ? (int)round($this->sum($rows, 'detail_exposure')) : null,
+                'avg_flow_rate' => $this->average(
+                    $trafficFlowRows,
+                    'flow_rate'
+                ),
+                'avg_submit_rate' => $this->average(
+                    $trafficSubmitRows,
+                    'submit_rate'
+                ),
+                'list_exposure' => $trafficListExposureRows
+                    ? (int)round($this->sum(
+                        $trafficListExposureRows,
+                        'list_exposure'
+                    ))
+                    : null,
+                'detail_exposure' => $trafficDetailExposureRows
+                    ? (int)round($this->sum(
+                        $trafficDetailExposureRows,
+                        'detail_exposure'
+                    ))
+                    : null,
+                'metric_source_rows' => [
+                    'flow_rate' => count($trafficFlowRows),
+                    'submit_rate' => count($trafficSubmitRows),
+                    'list_exposure' => count($trafficListExposureRows),
+                    'detail_exposure' => count($trafficDetailExposureRows),
+                ],
+                'projection_policy' =>
+                    'same_business_date_latest_final_meituan_total_funnel_prefers_structured_xhr_over_dom',
+                'canonicalized_projection_groups' =>
+                    $trafficProjectionOverlapGroups,
             ],
             'advertising' => $this->advertisingSummary($advertising),
             'quality' => $this->qualitySummary($quality),
@@ -257,6 +602,8 @@ class OtaRevenueMetricService
                 'avg_price_gap' => $this->average($priceRows, 'price_gap'),
                 'avg_price_gap_rate' => $this->average($priceRows, 'price_gap_rate'),
             ],
+            'booking_window_adr' => $bookingWindowAdr,
+            'channel_booking_window_month' => $channelBookingWindowMonth,
             'channel_contribution' => $this->channelContribution($daily, $revenue, $netRevenue),
             'by_platform' => $this->groupDailyBy($daily, 'platform_key', $revenue, $netRevenue),
             'by_hotel' => $this->groupDailyBy($daily, 'hotel_key', $revenue, $netRevenue),
@@ -651,6 +998,207 @@ class OtaRevenueMetricService
     }
 
     /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private function bookingWindowAdrSummary(array $rows, int $leadTimeRowCount): array
+    {
+        $definitions = $this->bookingWindowDefinitions();
+        $groups = [];
+        foreach ($definitions as $definition) {
+            $groups[$definition['key']] = [
+                'key' => $definition['key'],
+                'label' => $definition['label'],
+                'row_count' => 0,
+                'room_revenue' => 0.0,
+                'room_nights' => 0.0,
+                'order_count' => 0,
+                'has_order_count' => false,
+            ];
+        }
+
+        foreach ($rows as $row) {
+            $days = (int)round((float)$row['lead_time_days']);
+            foreach ($definitions as $definition) {
+                if ($days < $definition['min']) {
+                    continue;
+                }
+                if ($definition['max'] !== null && $days > $definition['max']) {
+                    continue;
+                }
+                $key = $definition['key'];
+                $groups[$key]['row_count']++;
+                $groups[$key]['room_revenue'] += (float)$row['room_revenue'];
+                $groups[$key]['room_nights'] += (float)$row['room_nights'];
+                if ($this->hasNumericValue($row, 'order_count')
+                    && $this->orderCountSemanticAllowed($row)
+                ) {
+                    $groups[$key]['order_count'] += (int)round((float)$row['order_count']);
+                    $groups[$key]['has_order_count'] = true;
+                }
+                break;
+            }
+        }
+
+        $buckets = [];
+        foreach ($definitions as $definition) {
+            $group = $groups[$definition['key']];
+            if ($group['row_count'] <= 0 || $group['room_nights'] <= 0) {
+                continue;
+            }
+            $buckets[] = [
+                'key' => $group['key'],
+                'label' => $group['label'],
+                'row_count' => $group['row_count'],
+                'room_revenue' => round($group['room_revenue'], 2),
+                'room_nights' => round($group['room_nights'], 2),
+                'order_count' => $group['has_order_count'] ? $group['order_count'] : null,
+                'adr' => round($group['room_revenue'] / $group['room_nights'], 2),
+            ];
+        }
+
+        $alignedRowCount = count($rows);
+        return [
+            'status' => $alignedRowCount === 0
+                ? 'not_calculable'
+                : ($alignedRowCount < $leadTimeRowCount ? 'partial' : 'ready'),
+            'reason' => $alignedRowCount === 0
+                ? ($leadTimeRowCount > 0 ? 'booking_window_adr_fields_missing' : 'lead_time_fields_missing')
+                : ($alignedRowCount < $leadTimeRowCount ? 'booking_window_adr_fields_partial' : ''),
+            'scope' => 'ota_channel',
+            'date_basis' => 'lead_time_days',
+            'lead_time_row_count' => $leadTimeRowCount,
+            'aligned_row_count' => $alignedRowCount,
+            'bucket_count' => count($buckets),
+            'buckets' => $buckets,
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private function channelBookingWindowMonthSummary(array $rows, int $leadTimeRowCount): array
+    {
+        $definitions = $this->bookingWindowDefinitions();
+        $groups = [];
+        $channelMonthTotals = [];
+        foreach ($rows as $row) {
+            $stayMonth = $this->stayMonth((string)($row['checkin_date'] ?? ''));
+            $platform = strtolower(trim((string)($row['platform_key'] ?? '')));
+            $orderCount = (int)round((float)($row['order_count'] ?? 0));
+            if ($stayMonth === '' || $platform === '' || $orderCount <= 0) {
+                continue;
+            }
+            $days = (int)round((float)$row['lead_time_days']);
+            foreach ($definitions as $index => $definition) {
+                if ($days < $definition['min'] || ($definition['max'] !== null && $days > $definition['max'])) {
+                    continue;
+                }
+                $channelMonthKey = $stayMonth . '|' . $platform;
+                $groupKey = $channelMonthKey . '|' . $definition['key'];
+                if (!isset($groups[$groupKey])) {
+                    $groups[$groupKey] = [
+                        'stay_month' => $stayMonth,
+                        'platform_key' => $platform,
+                        'booking_window_key' => $definition['key'],
+                        'booking_window_label' => $definition['label'],
+                        'booking_window_order' => $index,
+                        'row_count' => 0,
+                        'order_count' => 0,
+                    ];
+                }
+                $groups[$groupKey]['row_count']++;
+                $groups[$groupKey]['order_count'] += $orderCount;
+                $channelMonthTotals[$channelMonthKey] = ($channelMonthTotals[$channelMonthKey] ?? 0) + $orderCount;
+                break;
+            }
+        }
+
+        $cells = [];
+        $months = [];
+        $channels = [];
+        $supportedCellCount = 0;
+        $sparseCellCount = 0;
+        foreach ($groups as $group) {
+            $channelMonthKey = $group['stay_month'] . '|' . $group['platform_key'];
+            $totalOrders = (int)($channelMonthTotals[$channelMonthKey] ?? 0);
+            $supported = $group['order_count'] >= self::CHANNEL_BOOKING_WINDOW_MIN_ORDERS;
+            $supported ? $supportedCellCount++ : $sparseCellCount++;
+            $months[$group['stay_month']] = true;
+            $channels[$group['platform_key']] = true;
+            $cells[] = [
+                'stay_month' => $group['stay_month'],
+                'platform_key' => $group['platform_key'],
+                'booking_window_key' => $group['booking_window_key'],
+                'booking_window_label' => $group['booking_window_label'],
+                'row_count' => $group['row_count'],
+                'order_count' => $group['order_count'],
+                'channel_month_order_count' => $totalOrders,
+                'order_share' => $totalOrders > 0 ? round($group['order_count'] / $totalOrders * 100, 2) : null,
+                'sample_status' => $supported ? 'supported' : 'sparse',
+                '_booking_window_order' => $group['booking_window_order'],
+            ];
+        }
+        usort($cells, static function (array $left, array $right): int {
+            return [$left['stay_month'], $left['platform_key'], $left['_booking_window_order']]
+                <=> [$right['stay_month'], $right['platform_key'], $right['_booking_window_order']];
+        });
+        foreach ($cells as &$cell) {
+            unset($cell['_booking_window_order']);
+        }
+        unset($cell);
+
+        $alignedRowCount = count($rows);
+        $reason = '';
+        if ($alignedRowCount === 0) {
+            $reason = $leadTimeRowCount > 0 ? 'channel_booking_window_month_fields_missing' : 'lead_time_fields_missing';
+        } elseif ($alignedRowCount < $leadTimeRowCount) {
+            $reason = 'channel_booking_window_month_fields_partial';
+        } elseif ($sparseCellCount > 0) {
+            $reason = 'channel_booking_window_month_sparse_cells';
+        }
+
+        return [
+            'status' => $alignedRowCount === 0 ? 'not_calculable' : ($reason === '' ? 'ready' : 'partial'),
+            'reason' => $reason,
+            'scope' => 'ota_channel',
+            'date_basis' => 'checkin_month',
+            'lead_time_row_count' => $leadTimeRowCount,
+            'aligned_row_count' => $alignedRowCount,
+            'month_count' => count($months),
+            'channel_count' => count($channels),
+            'cell_count' => count($cells),
+            'supported_cell_count' => $supportedCellCount,
+            'sparse_cell_count' => $sparseCellCount,
+            'minimum_order_count' => self::CHANNEL_BOOKING_WINDOW_MIN_ORDERS,
+            'cells' => $cells,
+        ];
+    }
+
+    /** @return array<int, array{key: string, label: string, min: int, max: ?int}> */
+    private function bookingWindowDefinitions(): array
+    {
+        return [
+            ['key' => 'same_day', 'label' => '当天', 'min' => 0, 'max' => 0],
+            ['key' => 'days_1_3', 'label' => '1-3天', 'min' => 1, 'max' => 3],
+            ['key' => 'days_4_7', 'label' => '4-7天', 'min' => 4, 'max' => 7],
+            ['key' => 'days_8_14', 'label' => '8-14天', 'min' => 8, 'max' => 14],
+            ['key' => 'days_15_30', 'label' => '15-30天', 'min' => 15, 'max' => 30],
+            ['key' => 'days_31_plus', 'label' => '31天以上', 'min' => 31, 'max' => null],
+        ];
+    }
+
+    private function stayMonth(string $date): string
+    {
+        $date = trim($date);
+        $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        return $parsed instanceof \DateTimeImmutable && $parsed->format('Y-m-d') === $date
+            ? $parsed->format('Y-m')
+            : '';
+    }
+
+    /**
      * @param mixed $rows
      * @return array<int, array<string, mixed>>
      */
@@ -701,6 +1249,362 @@ class OtaRevenueMetricService
     private function rowsWithNumeric(array $rows, string $key): array
     {
         return array_values(array_filter($rows, fn(array $row): bool => $this->hasNumericValue($row, $key)));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function verifiedOrderCountRows(array $rows): array
+    {
+        return array_values(array_filter(
+            $rows,
+            fn(array $row): bool =>
+                $this->hasNumericValue($row, 'order_count')
+                && $this->orderCountSemanticAllowed($row)
+        ));
+    }
+
+    /** @param array<string, mixed> $row */
+    private function orderCountSemanticAllowed(array $row): bool
+    {
+        $dimension = strtolower(trim((string)($row['dimension'] ?? '')));
+        if (str_contains($dimension, 'business_capacity')
+            || str_contains($dimension, 'occupied_room')
+            || str_contains($dimension, 'occupiedrooms')
+        ) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Canonicalize only explicit whole-property funnel projections. Meituan
+     * chooses the newest daily snapshot across collection tasks, then prefers
+     * its structured XHR projection over the DOM fallback. Ctrip headline
+     * traffic uses only the self total funnel and excludes competitor, source
+     * breakdown, and business-visitor rows from the additive headline.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function canonicalTrafficMetricRows(
+        array $rows,
+        string $metricKey
+    ): array {
+        $metricRows = $this->rowsWithNumeric($rows, $metricKey);
+        $metricRows = $this->canonicalMeituanTrafficMetricRows($metricRows);
+        return $this->canonicalCtripTrafficMetricRows($metricRows);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function canonicalMeituanTrafficMetricRows(array $rows): array
+    {
+        $selected = [];
+        $groups = [];
+        foreach ($rows as $row) {
+            $projection = $this->meituanTrafficProjection($row);
+            if ($projection === 'non_total') {
+                continue;
+            }
+            if ($projection === null) {
+                $selected[] = $row;
+                continue;
+            }
+            $compareType = strtolower(trim((string)(
+                $row['compare_type'] ?? 'self'
+            ))) ?: 'self';
+            $key = implode('|', [
+                (string)($row['hotel_key'] ?? ''),
+                (string)($row['platform_key'] ?? ''),
+                (string)($row['date_key'] ?? ''),
+                $compareType,
+            ]);
+            $groups[$key][] = [
+                'projection' => $projection,
+                'row' => $row,
+            ];
+        }
+
+        foreach ($groups as $items) {
+            $runs = [];
+            foreach ($items as $item) {
+                $trace = is_array($item['row']['source_trace'] ?? null)
+                    ? $item['row']['source_trace']
+                    : [];
+                $syncTaskId = (int)($trace['sync_task_id'] ?? 0);
+                $runKey = $syncTaskId > 0
+                    ? 'task:' . $syncTaskId
+                    : 'row:' . $this->trafficMetricRowOrder($item['row']);
+                $runs[$runKey][] = $item;
+            }
+            uasort(
+                $runs,
+                fn(array $left, array $right): int =>
+                    $this->trafficMetricRowCompare(
+                        $this->latestTrafficMetricItem($left)['row'],
+                        $this->latestTrafficMetricItem($right)['row']
+                    )
+            );
+            $latestRun = end($runs);
+            $structured = array_values(array_filter(
+                $latestRun,
+                static fn(array $item): bool =>
+                    $item['projection'] === 'structured_xhr'
+            ));
+            $pool = $structured !== [] ? $structured : $latestRun;
+            usort(
+                $pool,
+                fn(array $left, array $right): int =>
+                    $this->trafficMetricRowCompare(
+                        $left['row'],
+                        $right['row']
+                    )
+            );
+            $selected[] = $pool[count($pool) - 1]['row'];
+        }
+        return array_values($selected);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function canonicalCtripTrafficMetricRows(array $rows): array
+    {
+        $selected = [];
+        $groups = [];
+        foreach ($rows as $row) {
+            if (strtolower(trim((string)($row['platform_key'] ?? '')))
+                !== 'ctrip'
+            ) {
+                $selected[] = $row;
+                continue;
+            }
+            $key = implode('|', [
+                (string)($row['hotel_key'] ?? ''),
+                (string)($row['platform_key'] ?? ''),
+                (string)($row['date_key'] ?? ''),
+            ]);
+            $groups[$key][] = $row;
+        }
+
+        foreach ($groups as $items) {
+            $totalRows = array_values(array_filter(
+                $items,
+                fn(array $row): bool =>
+                    $this->ctripTrafficProjection($row) === 'total_self'
+            ));
+            if ($totalRows !== []) {
+                usort(
+                    $totalRows,
+                    fn(array $left, array $right): int =>
+                        $this->trafficMetricRowCompare($left, $right)
+                );
+                $selected[] = $totalRows[count($totalRows) - 1];
+                continue;
+            }
+            foreach ($items as $row) {
+                if ($this->ctripTrafficProjection($row) === null) {
+                    $selected[] = $row;
+                }
+            }
+        }
+        return array_values($selected);
+    }
+
+    /** @param array<string, mixed> $row */
+    private function meituanTrafficProjection(array $row): ?string
+    {
+        if (strtolower(trim((string)($row['platform_key'] ?? '')))
+            !== 'meituan'
+        ) {
+            return null;
+        }
+        $raw = is_array($row['raw_data'] ?? null)
+            ? $row['raw_data']
+            : [];
+        $rawRow = is_array($raw['row'] ?? null) ? $raw['row'] : [];
+        $captureEvidence = is_array($raw['capture_evidence'] ?? null)
+            ? $raw['capture_evidence']
+            : [];
+        $rowCaptureEvidence = is_array(
+            $rawRow['capture_evidence'] ?? null
+        ) ? $rawRow['capture_evidence'] : [];
+        $captureSources = [
+            $raw['_capture_source'] ?? null,
+            $captureEvidence['capture_source'] ?? null,
+            $rawRow['_capture_source'] ?? null,
+            $rowCaptureEvidence['capture_source'] ?? null,
+        ];
+        $capturePaths = [
+            $raw['_source_path'] ?? null,
+            $captureEvidence['source_path'] ?? null,
+            $rawRow['_source_path'] ?? null,
+            $rowCaptureEvidence['source_path'] ?? null,
+        ];
+        foreach ($captureSources as $source) {
+            $source = strtolower(trim((string)($source ?? '')));
+            if ($source === 'dom:traffic:flow_funnel') {
+                return 'dom_fallback';
+            }
+            if ($source === 'xhr:traffic:source_breakdown') {
+                return 'non_total';
+            }
+            if ($source === 'xhr:traffic:traffic') {
+                foreach ($capturePaths as $path) {
+                    $path = strtolower(trim((string)($path ?? '')));
+                    if (str_starts_with($path, 'data.myhotel')) {
+                        return 'structured_xhr';
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function ctripTrafficProjection(array $row): ?string
+    {
+        if (strtolower(trim((string)($row['platform_key'] ?? '')))
+            !== 'ctrip'
+        ) {
+            return null;
+        }
+        $compareType = strtolower(trim((string)(
+            $row['compare_type'] ?? 'self'
+        ))) ?: 'self';
+        if ($compareType !== 'self') {
+            return 'non_self';
+        }
+        $raw = is_array($row['raw_data'] ?? null)
+            ? $row['raw_data']
+            : [];
+        $rawRow = is_array($raw['row'] ?? null) ? $raw['row'] : [];
+        $dimension = strtolower(trim((string)(
+            $row['dimension']
+                ?? $rawRow['dimension']
+                ?? ''
+        )));
+        if (str_contains($dimension, 'business_visitor_title')) {
+            return 'other_semantic';
+        }
+        if (str_contains($dimension, 'traffic_flow_transform')
+            && preg_match('/:\s*0\.date$/', $dimension) === 1
+        ) {
+            return 'total_self';
+        }
+
+        $paths = [
+            $raw['_source_path'] ?? null,
+            $rawRow['_source_path'] ?? null,
+        ];
+        foreach ($paths as $path) {
+            $path = strtolower(trim((string)($path ?? '')));
+            if (str_contains($path, 'flowsourcedetails')) {
+                return 'source_breakdown';
+            }
+            if ($path === '$[0]') {
+                return 'total_self';
+            }
+        }
+        return null;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function trafficMetricRowOrder(array $row): int
+    {
+        $trace = is_array($row['source_trace'] ?? null)
+            ? $row['source_trace']
+            : [];
+        foreach (['collected_at', 'updated_at'] as $key) {
+            $value = trim((string)($trace[$key] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            $time = strtotime($value);
+            if ($time !== false) {
+                return $time * 1000000
+                    + max(0, (int)($trace['row_id'] ?? 0));
+            }
+        }
+        return max(0, (int)($trace['row_id'] ?? 0));
+    }
+
+    /**
+     * @param array<int,array{projection:string,row:array<string,mixed>}> $items
+     * @return array{projection:string,row:array<string,mixed>}
+     */
+    private function latestTrafficMetricItem(array $items): array
+    {
+        usort(
+            $items,
+            fn(array $left, array $right): int =>
+                $this->trafficMetricRowCompare($left['row'], $right['row'])
+        );
+        return $items[count($items) - 1];
+    }
+
+    /** @param array<string,mixed> $left @param array<string,mixed> $right */
+    private function trafficMetricRowCompare(array $left, array $right): int
+    {
+        $leftFinal = $this->trafficMetricRowFinal($left);
+        $rightFinal = $this->trafficMetricRowFinal($right);
+        if ($leftFinal !== $rightFinal) {
+            return $leftFinal <=> $rightFinal;
+        }
+        return $this->trafficMetricRowOrder($left)
+            <=> $this->trafficMetricRowOrder($right);
+    }
+
+    /** @param array<string,mixed> $row */
+    private function trafficMetricRowFinal(array $row): bool
+    {
+        $trace = is_array($row['source_trace'] ?? null)
+            ? $row['source_trace']
+            : [];
+        if (($trace['is_final'] ?? false) === true
+            || in_array($trace['is_final'] ?? null, [1, '1', 'true'], true)
+        ) {
+            return true;
+        }
+        return strtolower(trim((string)($trace['data_period'] ?? '')))
+            === 'historical_daily';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     */
+    private function trafficProjectionOverlapGroupCount(array $rows): int
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            $projection = $this->meituanTrafficProjection($row);
+            if ($projection === null || $projection === 'non_total') {
+                continue;
+            }
+            $compareType = strtolower(trim((string)(
+                $row['compare_type'] ?? 'self'
+            )));
+            if ($compareType === '') {
+                $compareType = 'self';
+            }
+            $key = implode('|', [
+                (string)($row['hotel_key'] ?? ''),
+                (string)($row['platform_key'] ?? ''),
+                (string)($row['date_key'] ?? ''),
+                $compareType,
+            ]);
+            $groups[$key][] = $projection;
+        }
+
+        return count(array_filter(
+            $groups,
+            static fn(array $projections): bool => count($projections) > 1
+        ));
     }
 
     /**
@@ -771,7 +1675,9 @@ class OtaRevenueMetricService
                 $groups[$groupKey]['has_room_nights'] = true;
                 $groups[$groupKey]['room_nights'] += (float)$row['room_nights'];
             }
-            if ($this->hasNumericValue($row, 'order_count')) {
+            if ($this->hasNumericValue($row, 'order_count')
+                && $this->orderCountSemanticAllowed($row)
+            ) {
                 $groups[$groupKey]['has_order_count'] = true;
                 $groups[$groupKey]['order_count'] += (int)$row['order_count'];
             }
@@ -898,18 +1804,49 @@ class OtaRevenueMetricService
             $resource = $this->channelResource($row, (string)($row['data_type'] ?? 'business'));
             $this->appendChannelMetric($metrics, $row, $resource, 'revenue', $row['revenue'] ?? null);
             $this->appendChannelMetric($metrics, $row, $resource, 'room_nights', $row['room_nights'] ?? null);
-            $this->appendChannelMetric($metrics, $row, $resource, 'order_count', $row['order_count'] ?? null);
+            $this->appendChannelMetric(
+                $metrics,
+                $row,
+                $resource,
+                'order_count',
+                $this->orderCountSemanticAllowed($row)
+                    ? ($row['order_count'] ?? null)
+                    : null
+            );
             $this->appendChannelMetric($metrics, $row, $resource, 'adr', $row['adr'] ?? null, $row['room_nights'] ?? null);
             $this->appendChannelMetric($metrics, $row, 'competitor_price', 'our_price', $row['our_price'] ?? null);
             $this->appendChannelMetric($metrics, $row, 'competitor_price', 'competitor_price', $row['competitor_price'] ?? null);
             $this->appendChannelMetric($metrics, $row, 'competitor_price', 'price_gap', $row['price_gap'] ?? null);
         }
 
-        foreach ($traffic as $row) {
+        foreach ($this->canonicalTrafficMetricRows(
+            $traffic,
+            'list_exposure'
+        ) as $row) {
             $this->appendChannelMetric($metrics, $row, 'traffic', 'list_exposure', $row['list_exposure'] ?? null);
+        }
+        foreach ($this->canonicalTrafficMetricRows(
+            $traffic,
+            'detail_exposure'
+        ) as $row) {
             $this->appendChannelMetric($metrics, $row, 'traffic', 'detail_exposure', $row['detail_exposure'] ?? null);
+        }
+        foreach ($this->canonicalTrafficMetricRows(
+            $traffic,
+            'flow_rate'
+        ) as $row) {
             $this->appendChannelMetric($metrics, $row, 'traffic', 'flow_rate', $row['flow_rate'] ?? null, $row['list_exposure'] ?? null);
+        }
+        foreach ($this->canonicalTrafficMetricRows(
+            $traffic,
+            'order_filling_num'
+        ) as $row) {
             $this->appendChannelMetric($metrics, $row, 'traffic', 'order_filling_num', $row['order_filling_num'] ?? null);
+        }
+        foreach ($this->canonicalTrafficMetricRows(
+            $traffic,
+            'order_submit_num'
+        ) as $row) {
             $this->appendChannelMetric($metrics, $row, 'traffic', 'order_submit_num', $row['order_submit_num'] ?? null, $row['order_filling_num'] ?? null);
         }
 
@@ -1089,7 +2026,7 @@ class OtaRevenueMetricService
         $grossRevenueRows = $this->rowsWithNumeric($daily, 'gross_revenue');
         $roomRevenueRows = $this->rowsWithNumeric($daily, 'room_revenue');
         $roomNightRows = $this->rowsWithNumeric($daily, 'room_nights');
-        $orderCountRows = $this->rowsWithNumeric($daily, 'order_count');
+        $orderCountRows = $this->verifiedOrderCountRows($daily);
         $adrRows = $this->mergeMetricRows($roomRevenueRows, $roomNightRows);
         $revparRows = array_values(array_filter(
             $availableRows,
@@ -1136,7 +2073,7 @@ class OtaRevenueMetricService
             'totals.avg_lead_time_days' => $this->trust($leadTimeRows, 'avg(fact_ota_daily.lead_time_days)', $leadTimeFailures),
             'totals.cancellation_rate' => $this->trust(
                 $cancellationRows,
-                'sum(fact_ota_daily.cancel_order_num) / sum(fact_ota_daily.order_count), or avg(fact_ota_daily.cancel_rate) when platform rate is supplied',
+                'sum(fact_ota_daily.cancel_order_num) / sum(fact_ota_daily.gross_order_count) for complete status classification, or avg(fact_ota_daily.cancel_rate) when platform rate is supplied directly',
                 $cancellationFailures
             ),
             'totals.room_night_cancellation_rate' => $this->trust(
@@ -1147,10 +2084,22 @@ class OtaRevenueMetricService
             'totals.review_count' => $this->trust($this->rowsWithNumeric($comments, 'comment_count'), 'sum(fact_ota_comment.comment_count)'),
             'totals.avg_comment_score' => $this->trust($this->rowsWithNumeric($comments, 'comment_score'), 'avg(fact_ota_comment.comment_score)'),
             'traffic.rows' => $this->trust($traffic, 'count(fact_ota_traffic)'),
-            'traffic.avg_flow_rate' => $this->trust($traffic, 'avg(fact_ota_traffic.flow_rate)'),
-            'traffic.avg_submit_rate' => $this->trust($traffic, 'avg(fact_ota_traffic.submit_rate)'),
-            'traffic.list_exposure' => $this->trust($traffic, 'sum(fact_ota_traffic.list_exposure)'),
-            'traffic.detail_exposure' => $this->trust($traffic, 'sum(fact_ota_traffic.detail_exposure)'),
+            'traffic.avg_flow_rate' => $this->trust(
+                $this->canonicalTrafficMetricRows($traffic, 'flow_rate'),
+                'avg(canonical fact_ota_traffic.flow_rate)'
+            ),
+            'traffic.avg_submit_rate' => $this->trust(
+                $this->canonicalTrafficMetricRows($traffic, 'submit_rate'),
+                'avg(canonical fact_ota_traffic.submit_rate)'
+            ),
+            'traffic.list_exposure' => $this->trust(
+                $this->canonicalTrafficMetricRows($traffic, 'list_exposure'),
+                'sum(canonical fact_ota_traffic.list_exposure)'
+            ),
+            'traffic.detail_exposure' => $this->trust(
+                $this->canonicalTrafficMetricRows($traffic, 'detail_exposure'),
+                'sum(canonical fact_ota_traffic.detail_exposure)'
+            ),
             'competitor_price.rows' => $this->trust($priceRows, 'count(fact_ota_daily rows with our_price and competitor_price)', $priceFailures),
             'competitor_price.avg_our_price' => $this->trust($priceRows, 'avg(fact_ota_daily.our_price)', $priceFailures),
             'competitor_price.avg_competitor_price' => $this->trust($priceRows, 'avg(fact_ota_daily.competitor_price)', $priceFailures),
@@ -1182,7 +2131,7 @@ class OtaRevenueMetricService
         $revenueRows = $this->rowsWithNumeric($rows, 'revenue');
         $roomRevenueRows = $this->rowsWithNumeric($rows, 'room_revenue');
         $roomNightRows = $this->rowsWithNumeric($rows, 'room_nights');
-        $orderCountRows = $this->rowsWithNumeric($rows, 'order_count');
+        $orderCountRows = $this->verifiedOrderCountRows($rows);
         $adrRows = $this->mergeMetricRows($roomRevenueRows, $roomNightRows);
         $availableRows = $this->rowsWithPositive($rows, 'available_room_nights');
         $occupancyRows = array_values(array_filter($rows, function (array $row): bool {
@@ -1310,9 +2259,21 @@ class OtaRevenueMetricService
                     'formula' => 'checkin_date - booking_date',
                     'not_calculable_when' => 'booking_date or checkin_date is missing',
                 ],
+                'booking_window_adr' => [
+                    'formula' => 'group by lead_time_days bucket; sum(room_revenue) / sum(room_nights)',
+                    'not_calculable_when' => 'lead_time_days, verified room_revenue, or positive room_nights is missing; partial aligned rows are reported in data_gaps',
+                ],
+                'channel_booking_window_month' => [
+                    'formula' => 'group by checkin month, OTA platform, and lead-time bucket; sum(order_count) / channel-month sum(order_count)',
+                    'not_calculable_when' => 'checkin_date, lead_time_days, platform_key, or positive order_count is missing; cells below the minimum order count remain visible as sparse and are not promoted as decision signals',
+                ],
+                'gross_order_count' => [
+                    'formula' => 'sum(gross_order_count) only when the same cancellation scope has complete status classification',
+                    'not_calculable_when' => 'gross_order_count is missing, order statuses are unknown, or cancellation evidence is partial or mixed',
+                ],
                 'cancellation_rate' => [
-                    'formula' => 'cancel_order_num / order_count * 100; uses platform cancel_rate only when supplied directly',
-                    'not_calculable_when' => 'cancel_order_num/cancel_rate is missing, or order_count is zero',
+                    'formula' => 'cancel_order_num / gross_order_count * 100 after complete order-status classification; uses platform cancel_rate only when supplied directly for the full scope',
+                    'not_calculable_when' => 'evidence is partial or mixed, cancel_order_num/cancel_rate is missing, gross_order_count is zero for count evidence, or unknown order statuses remain',
                 ],
                 'room_night_cancellation_rate' => [
                     'formula' => 'cancel_room_nights / room_nights * 100',
@@ -1449,15 +2410,41 @@ class OtaRevenueMetricService
             $traces,
             static fn(array $trace): bool => ($trace['readback_verified'] ?? false) === true
         ));
+        $finalRowCount = count(array_filter(
+            $traces,
+            static fn(array $trace): bool => in_array(
+                $trace['is_final'] ?? null,
+                [true, 1, '1', 'true'],
+                true
+            )
+        ));
+        $dataPeriods = array_values(array_filter(array_map(
+            static fn(mixed $value): string => trim((string)$value),
+            $this->uniqueTraceValues($traces, 'data_period')
+        ), static fn(string $value): bool => $value !== ''));
+        sort($dataPeriods);
+        $rowCount = count($traces);
+        $finality = $rowCount === 0
+            ? 'unknown'
+            : (
+                $finalRowCount === $rowCount
+                    ? 'final'
+                    : ($finalRowCount === 0 ? 'provisional' : 'mixed')
+            );
 
         return [
             'table' => 'online_daily_data',
             'row_ids' => $this->uniqueTraceValues($traces, 'row_id'),
             'trace_ids' => $this->uniqueTraceValues($traces, 'source_trace_id'),
+            'data_source_ids' => $this->uniqueTraceValues($traces, 'data_source_id'),
+            'sync_task_ids' => $this->uniqueTraceValues($traces, 'sync_task_id'),
             'hotels' => $this->sourceHotels($traces),
             'platforms' => $this->uniqueTraceValues($traces, 'platform'),
             'data_types' => $this->uniqueTraceValues($traces, 'data_type'),
             'source_methods' => $this->uniqueTraceValues($traces, 'ingestion_method'),
+            'data_periods' => $dataPeriods,
+            'finality' => $finality,
+            'final_row_count' => $finalRowCount,
             'date_range' => [
                 'start' => $dates[0] ?? null,
                 'end' => $dates ? $dates[count($dates) - 1] : null,
@@ -1466,7 +2453,7 @@ class OtaRevenueMetricService
                 'start' => $collectedTimes[0] ?? null,
                 'end' => $collectedTimes !== [] ? $collectedTimes[count($collectedTimes) - 1] : null,
             ],
-            'row_count' => count($traces),
+            'row_count' => $rowCount,
             'stored_count' => $storedCount,
             'readback_verified_count' => $readbackVerifiedCount,
         ];
@@ -1551,6 +2538,33 @@ class OtaRevenueMetricService
             }
         }
         return array_values(array_unique($codes));
+    }
+
+    /**
+     * Cancellation coverage is evaluated once per hotel, platform, and
+     * business date. Revenue-only rows in another platform/date scope cannot
+     * disappear merely because they do not expose an order field.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, string>
+     */
+    private function cancellationSummaryScopeKeys(array $rows): array
+    {
+        $keys = [];
+        foreach ($rows as $row) {
+            if (!$this->orderCountSemanticAllowed($row)) {
+                continue;
+            }
+            $key = implode('|', [
+                strtolower(trim((string)($row['hotel_key'] ?? ''))),
+                strtolower(trim((string)($row['platform_key'] ?? ''))),
+                trim((string)($row['date_key'] ?? '')),
+            ]);
+            $keys[$key] = true;
+        }
+        $scopeKeys = array_keys($keys);
+        sort($scopeKeys);
+        return $scopeKeys;
     }
 
     /**

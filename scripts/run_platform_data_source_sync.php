@@ -9,13 +9,38 @@ use think\facade\Db;
 require dirname(__DIR__) . '/vendor/autoload.php';
 (new App())->initialize();
 
-$options = getopt('', ['source-id:', 'data-date:', 'timeout-seconds::', 'trigger-type::']);
+$options = getopt('', ['source-id:', 'data-date:', 'timeout-seconds::', 'trigger-type::', 'capture-sections:']);
 $sourceId = max(0, (int)($options['source-id'] ?? 0));
 $dataDate = trim((string)($options['data-date'] ?? ''));
 $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $dataDate);
 if ($sourceId <= 0 || !$date || $date->format('Y-m-d') !== $dataDate) {
     fwrite(STDERR, json_encode(['status' => 'failed', 'reason' => 'source_or_date_invalid']) . PHP_EOL);
     exit(1);
+}
+
+$captureSectionsText = strtolower(trim((string)($options['capture-sections'] ?? '')));
+$captureSections = array_values(array_unique(array_filter(array_map(
+    static fn(string $section): string => trim($section),
+    preg_split('/[,\s]+/', $captureSectionsText) ?: []
+))));
+if ($captureSectionsText !== '') {
+    $sourcePlatform = strtolower(trim((string)Db::name('platform_data_sources')
+        ->where('id', $sourceId)
+        ->value('platform')));
+    $allowedSections = match ($sourcePlatform) {
+        'ctrip' => ['business_overview', 'traffic_report'],
+        'meituan' => ['orders', 'traffic'],
+        default => [],
+    };
+    if ($captureSections === [] || array_diff($captureSections, $allowedSections) !== []) {
+        fwrite(STDERR, json_encode([
+            'status' => 'failed',
+            'reason' => 'capture_sections_invalid_for_source_platform',
+            'platform' => $sourcePlatform,
+            'allowed_sections' => $allowedSections,
+        ], JSON_UNESCAPED_SLASHES) . PHP_EOL);
+        exit(1);
+    }
 }
 
 $timeoutSeconds = max(60, min(900, (int)($options['timeout-seconds'] ?? 600)));
@@ -29,7 +54,7 @@ $user = new class {
     }
 };
 
-$result = (new PlatformDataSyncService())->syncDataSource($user, $sourceId, [
+$syncOptions = [
     'trigger_type' => $triggerType,
     'data_date' => $dataDate,
     'data_period' => 'historical_daily',
@@ -38,7 +63,13 @@ $result = (new PlatformDataSyncService())->syncDataSource($user, $sourceId, [
     'browser_headless' => true,
     'timeout_seconds' => $timeoutSeconds,
     'ctrip_section_concurrency' => 3,
-]);
+];
+if ($captureSections !== []) {
+    $boundedSections = implode(',', $captureSections);
+    $syncOptions['capture_sections'] = $boundedSections;
+    $syncOptions['bounded_capture_sections'] = $boundedSections;
+}
+$result = (new PlatformDataSyncService())->syncDataSource($user, $sourceId, $syncOptions);
 
 $payload = is_array($result['payload'] ?? null) ? $result['payload'] : [];
 $taskId = (int)($result['task_id'] ?? 0);
@@ -117,6 +148,7 @@ $summary = [
     'task_id' => $taskId,
     'source_id' => $sourceId,
     'data_date' => $dataDate,
+    'capture_sections' => $captureSections,
     'row_count' => (int)($result['row_count'] ?? $taskStats['normalized_count'] ?? 0),
     'saved_count' => (int)($result['saved_count'] ?? $taskStats['saved_count'] ?? 0),
     'readback_verified' => ($taskStats['readback_verified'] ?? $receipt['readback_verified'] ?? false) === true,

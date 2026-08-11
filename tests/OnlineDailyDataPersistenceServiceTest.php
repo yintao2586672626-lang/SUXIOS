@@ -321,6 +321,7 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             'tenant_id' => 80,
             'system_hotel_id' => 80,
             'data_source_id' => 12,
+            'sync_task_id' => 3001,
             'source' => 'ctrip',
             'platform' => 'ctrip',
             'hotel_id' => '832085',
@@ -342,12 +343,19 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             $columns
         );
         self::assertNotSame($first['persistence_identity_hash'], $rebound['persistence_identity_hash']);
+
+        $nextTask = OnlineDailyDataPersistenceService::resetReadbackVerification(
+            array_merge($row, ['sync_task_id' => 3002]),
+            $columns
+        );
+        self::assertNotSame($first['persistence_identity_hash'], $nextTask['persistence_identity_hash']);
     }
 
     public function testBusinessReadbackMustMatchIdentityAndActualMetricValuesBeforeTrust(): void
     {
         $expected = [
             'tenant_id' => 44,
+            'sync_task_id' => 3001,
             'source' => 'ctrip',
             'data_type' => 'business',
             'data_date' => '2026-07-15',
@@ -360,11 +368,16 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         ];
         $persisted = array_merge($expected, [
             'system_hotel_id' => '7',
+            'sync_task_id' => '3001',
             'amount' => '1280.50',
             'quantity' => '10',
         ]);
 
         self::assertTrue(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
+
+        $persisted['sync_task_id'] = '3002';
+        self::assertFalse(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
+        $persisted['sync_task_id'] = '3001';
 
         $persisted['tenant_id'] = '45';
         self::assertFalse(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
@@ -407,7 +420,22 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         $normalizedPersistence = (string)file_get_contents(
             $root . '/app/service/PlatformNormalizedRowPersistenceService.php'
         );
-        self::assertStringContainsString('$service->syncDataSource(', $scheduled);
+        self::assertStringContainsString(
+            '$cloudProfileLeases instanceof CloudOtaProfileLeaseService',
+            $scheduled
+        );
+        self::assertStringContainsString(
+            'fn(string $cdpUrl): array => $this->syncBrowserProfileSource(',
+            $scheduled
+        );
+        self::assertStringContainsString(
+            ': $this->syncBrowserProfileSource(',
+            $scheduled
+        );
+        self::assertStringContainsString(
+            '(new PlatformDataSyncService())->syncDataSource(',
+            $scheduled
+        );
         self::assertStringContainsString('readStoredRowsForCollectionPlan(', $scheduled);
         self::assertStringNotContainsString("Db::name('online_daily_data')", $scheduled);
         self::assertStringNotContainsString('resetReadbackVerification(', $scheduled);

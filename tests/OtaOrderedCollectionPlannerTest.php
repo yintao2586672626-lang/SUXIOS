@@ -28,6 +28,24 @@ final class OtaOrderedCollectionPlannerTest extends TestCase
         self::assertStringNotContainsString('subchannel', $encoded);
         self::assertStringContainsString('queryflowtransformnewv1', $encoded);
         self::assertStringContainsString('/api/v1/ebooking/orders', $encoded);
+        self::assertSame([
+            'amount',
+            'quantity',
+            'book_order_num',
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ], OtaOrderedCollectionPlanner::requiredStorageColumns('ctrip'));
+        self::assertSame([
+            'amount',
+            'quantity',
+            'book_order_num',
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+        ], OtaOrderedCollectionPlanner::requiredStorageColumns('meituan'));
     }
 
     public function testMissingFieldsSelectOnlyTheExistingTargetedSections(): void
@@ -77,6 +95,97 @@ final class OtaOrderedCollectionPlannerTest extends TestCase
             OtaOrderedCollectionPlanner::capturedFieldKeys('ctrip', $rows)
         );
         self::assertSame([], OtaOrderedCollectionPlanner::missingFieldKeys('ctrip', $rows));
+    }
+
+    public function testRawFieldFactsCannotReplaceAbsentOrNullPersistedColumns(): void
+    {
+        $rawFacts = array_map(
+            static fn(string $key): array => [
+                'metric_key' => $key,
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ],
+            OtaOrderedCollectionPlanner::requiredFieldKeys('meituan')
+        );
+        $raw = json_encode(['field_facts' => $rawFacts], JSON_THROW_ON_ERROR);
+        $rows = [
+            [
+                'source' => 'meituan',
+                'data_type' => 'orders',
+                'data_period' => 'historical_daily',
+                'readback_verified' => 1,
+                'compare_type' => 'self',
+                'raw_data' => $raw,
+            ],
+            [
+                'source' => 'meituan',
+                'data_type' => 'traffic',
+                'data_period' => 'historical_daily',
+                'readback_verified' => 1,
+                'compare_type' => 'self',
+                'list_exposure' => null,
+                'detail_exposure' => null,
+                'flow_rate' => null,
+                'raw_data' => $raw,
+            ],
+        ];
+
+        self::assertSame([], OtaOrderedCollectionPlanner::capturedFieldKeys('meituan', $rows));
+        self::assertSame(
+            OtaOrderedCollectionPlanner::requiredFieldKeys('meituan'),
+            OtaOrderedCollectionPlanner::missingFieldKeys('meituan', $rows)
+        );
+        $plan = OtaOrderedCollectionPlanner::requestPlanFromStoredRows(
+            'meituan',
+            '2026-07-24',
+            $rows
+        );
+        self::assertSame(['orders', 'traffic'], $plan['sections']);
+    }
+
+    public function testPersistedCanonicalZeroRemainsCompleteWhenRawMetadataClaimsMissing(): void
+    {
+        $raw = json_encode(['field_facts' => [[
+            'metric_key' => 'flow_rate',
+            'status' => 'missing',
+            'stored_value_present' => false,
+        ]]], JSON_THROW_ON_ERROR);
+        $rows = [
+            [
+                'source' => 'meituan',
+                'data_type' => 'orders',
+                'data_period' => 'historical_daily',
+                'readback_verified' => 1,
+                'compare_type' => 'self',
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+                'raw_data' => $raw,
+            ],
+            [
+                'source' => 'meituan',
+                'data_type' => 'traffic',
+                'data_period' => 'historical_daily',
+                'readback_verified' => 1,
+                'compare_type' => 'self',
+                'list_exposure' => 0,
+                'detail_exposure' => 0,
+                'flow_rate' => 0.0,
+                'raw_data' => $raw,
+            ],
+        ];
+
+        self::assertSame(
+            OtaOrderedCollectionPlanner::requiredFieldKeys('meituan'),
+            OtaOrderedCollectionPlanner::capturedFieldKeys('meituan', $rows)
+        );
+        $plan = OtaOrderedCollectionPlanner::requestPlanFromStoredRows(
+            'meituan',
+            '2026-07-24',
+            $rows
+        );
+        self::assertSame('verified_complete', $plan['stage']);
+        self::assertSame([], $plan['sections']);
     }
 
     public function testRequestPlanCarriesTargetDateInterfacesFieldsAndExplicitExcludedExamples(): void
@@ -189,6 +298,66 @@ final class OtaOrderedCollectionPlannerTest extends TestCase
         self::assertSame('verified_complete', $completePlan['stage']);
         self::assertSame([], $completePlan['sections']);
         self::assertSame([], $completePlan['missing_field_keys']);
+    }
+
+    public function testBusinessRowsCannotSatisfyTrafficEvenWhenTheirPayloadContainsTrafficShapedFields(): void
+    {
+        $business = [
+            'source' => 'meituan',
+            'data_type' => 'business',
+            'data_period' => 'historical_daily',
+            'readback_verified' => 1,
+            'compare_type' => 'self',
+            'amount' => 680,
+            'quantity' => 3,
+            'book_order_num' => 1,
+            'listExposure' => 100,
+            'detailExposure' => 50,
+            'flowRate' => 50,
+            'raw_data' => json_encode([
+                'field_facts' => [
+                    [
+                        'metric_key' => 'list_exposure',
+                        'status' => 'captured',
+                        'stored_value_present' => true,
+                    ],
+                ],
+            ], JSON_THROW_ON_ERROR),
+        ];
+
+        self::assertSame(
+            ['order_amount', 'room_nights', 'order_count'],
+            OtaOrderedCollectionPlanner::capturedFieldKeys('meituan', [$business])
+        );
+        $gapPlan = OtaOrderedCollectionPlanner::requestPlanFromStoredRows(
+            'meituan',
+            '2026-07-24',
+            [$business]
+        );
+        self::assertSame('targeted_gap', $gapPlan['stage']);
+        self::assertSame(['traffic'], $gapPlan['sections']);
+        self::assertSame(
+            ['list_exposure', 'detail_exposure', 'flow_rate'],
+            $gapPlan['missing_field_keys']
+        );
+
+        $traffic = [
+            'source' => 'meituan',
+            'data_type' => 'traffic',
+            'data_period' => 'historical_daily',
+            'readback_verified' => 1,
+            'compare_type' => 'self',
+            'list_exposure' => 100,
+            'detail_exposure' => 50,
+            'flow_rate' => 50,
+        ];
+        $complete = OtaOrderedCollectionPlanner::requestPlanFromStoredRows(
+            'meituan',
+            '2026-07-24',
+            [$business, $traffic]
+        );
+        self::assertSame('verified_complete', $complete['stage']);
+        self::assertSame([], $complete['sections']);
     }
 
     public function testDegradedSourceForcesDeterministicFullRecoveryDespiteOldRows(): void

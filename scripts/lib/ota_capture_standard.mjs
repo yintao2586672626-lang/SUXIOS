@@ -71,7 +71,7 @@ export const PLATFORM_CONFIGS = {
     blockedResponseRules: [],
     responseRules: [
       { section: 'order_flow', keywords: ['/peerrank/order/loss/query'] },
-      { section: 'traffic', keywords: ['businessdata', 'weighttraffic', 'traffic', 'peertrends', 'peer/rank', 'flowconversion', 'flowtrend', 'flowtrenddetail', 'flowforecast', 'searchkeyword', 'search-keyword'] },
+      { section: 'traffic', keywords: ['/api/v1/ebooking/workbench/business/analysis', 'businessdata', 'weighttraffic', 'traffic', 'peertrends', 'peer/rank', 'flowconversion', 'flowtrend', 'flowtrenddetail', 'flowforecast', 'searchkeyword', 'search-keyword'] },
       { section: 'room_types', keywords: ['roomtype', 'room-type'] },
       { section: 'ads', keywords: ['cureshops'] },
       { section: 'orders', keywords: ['/api/v1/ebooking/orders', '/order/unhandled/count', '/order-eb/'] },

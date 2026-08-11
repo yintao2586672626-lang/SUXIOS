@@ -91,7 +91,9 @@ final class CloudOtaPlatformDataSyncGuardTest extends TestCase
     private function options(): array
     {
         return [
-            'require_current_session_probe' => true,
+            'require_collector_binding' => true,
+            'require_current_run_session_probe' => true,
+            'required_platform_hotel_id' => 'hotel-80',
             'required_collector_binding' => [
                 'mode' => 'single_user_local',
                 'tenant_id' => 9,
@@ -111,13 +113,22 @@ final class CloudOtaPlatformDataSyncGuardTest extends TestCase
         return [
             'status' => 'success',
             'payload' => [
+                'network_freshness' => [
+                    'status' => 'ready',
+                    'http_cache_disabled' => true,
+                    'service_worker_bypassed' => true,
+                    'sensitive_values_exposed' => false,
+                ],
                 'auth_status' => [
                     'ok' => true,
                     'status' => 'logged_in',
                 ],
                 'platform_identity_validation' => [
+                    'schema_version' => 1,
                     'status' => 'matched',
+                    'source_validation' => true,
                     'validated_identifier' => $validatedIdentifier,
+                    'sensitive_values_exposed' => false,
                 ],
             ],
         ];

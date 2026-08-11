@@ -131,7 +131,7 @@ test('Meituan saved config list shows collapsed history and verified-current sem
   assert.notEqual(meituanConfigIndex, -1);
   const listIndex = html.indexOf('<!-- 已保存的配置列表 -->', meituanConfigIndex);
   assert.notEqual(listIndex, -1);
-  const listEndIndex = html.indexOf('<div v-if="currentPage === \'agent-center\'">', listIndex);
+  const listEndIndex = html.indexOf('<div v-if="currentPage === \'agent-center\'"', listIndex);
   assert.notEqual(listEndIndex, -1);
   const list = html.slice(listIndex, listEndIndex);
   assert.match(list, /config\.history_count/);
@@ -210,7 +210,8 @@ test('new employee usernames and status are server-controlled while passwords re
   assert.match(roleModal, /内部运营人员/);
   assert.match(html, /roleForm = ref\(\{ id: null, name: '', display_name: '', description: '', level: 3/);
   assert.match(roleModal, /<div v-if="roleForm\.id">\s*<label[^>]*>状态/);
-  assert.match(saveRole, /if \(!isEdit\) \{\s*delete data\.name;\s*delete data\.status;/);
+  assert.match(html, /const controlledPartnerRolePreset = Object\.freeze\(\{\s*name: 'controlled_partner'/);
+  assert.match(saveRole, /if \(!isEdit\) \{\s*if \(!String\(data\.name \|\| ''\)\.trim\(\)\) delete data\.name;\s*delete data\.status;/);
   assert.match(roleController, /\$roleName = trim\(\(string\)\(\$data\['name'\] \?\? ''\)\);/);
   assert.match(roleController, /\$roleName = \$this->nextGeneratedRoleName\(\);/);
   assert.match(roleController, /\$role->status = Role::STATUS_ENABLED;/);

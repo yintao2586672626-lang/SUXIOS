@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\OtaLocalCollectorService;
+use app\service\PlatformDataSyncService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -129,6 +130,69 @@ final class OtaLocalCollectorServiceTest extends TestCase
             'profile_key_hash' => str_repeat('a', 64),
         ]);
         self::addToAssertionCount(1);
+    }
+
+    public function testVerifiedLocalCaptureBuildsAllowlistedCanonicalIdentityEvidence(): void
+    {
+        $profileHash = str_repeat('a', 64);
+        $configMethod = new \ReflectionMethod(OtaLocalCollectorService::class, 'localCollectorSourceConfig');
+        $configMethod->setAccessible(true);
+        $config = $configMethod->invoke(
+            new OtaLocalCollectorService(),
+            [
+                'id' => 55,
+                'profile_key_hash' => $profileHash,
+                'last_session_verified_at' => '2026-08-10 08:00:00',
+            ],
+            [
+                'platform_hotel_id' => 'CTRIP-101',
+                'platform_hotel_name' => 'Hotel A',
+            ],
+            ['device_public_id' => 'operator-owned-device']
+        );
+
+        self::assertSame('CTRIP-101', $config['platform_hotel_id']);
+        self::assertSame($profileHash, $config['profile_key_hash']);
+        self::assertSame('local_collector_verified_capture', $config['platform_hotel_identity_source']);
+        self::assertNotFalse(strtotime((string)$config['platform_hotel_identity_checked_at']));
+
+        $allowlistMethod = new \ReflectionMethod(PlatformDataSyncService::class, 'allowlistedOtaSourceConfig');
+        $allowlistMethod->setAccessible(true);
+        $publicPersistable = $allowlistMethod->invoke(new PlatformDataSyncService(), $config, 'ctrip');
+        self::assertArrayNotHasKey('platform_hotel_identity_source', $publicPersistable);
+        self::assertArrayNotHasKey('platform_hotel_identity_checked_at', $publicPersistable);
+
+        $persistable = $allowlistMethod->invoke(new PlatformDataSyncService(), $config, 'ctrip', true);
+
+        self::assertSame(
+            'local_collector_verified_capture',
+            $persistable['platform_hotel_identity_source']
+        );
+        self::assertSame(
+            $config['platform_hotel_identity_checked_at'],
+            $persistable['platform_hotel_identity_checked_at']
+        );
+        self::assertArrayNotHasKey('device_public_id', $persistable);
+    }
+
+    public function testTrustedIdentityWriteRejectsManualEvidenceClaimsBeforePersistence(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Verified local collector identity evidence is invalid.');
+
+        (new PlatformDataSyncService())->saveVerifiedLocalCollectorDataSource($this->actor(), [
+            'name' => 'Forged local identity source',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'local_collector',
+            'config' => [
+                'platform_hotel_id' => 'CTRIP-101',
+                'platform_hotel_identity_source' => 'manual_claim',
+                'platform_hotel_identity_checked_at' => date('Y-m-d H:i:s'),
+                'current_session_verified' => true,
+            ],
+        ]);
     }
 
     public function testDeviceCannotLeaseTaskAfterItsOwnerLosesThatHotelPermission(): void
@@ -422,6 +486,9 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame($revoked['device_token_hash'], $afterStaleTouch['device_token_hash']);
         self::assertSame($revoked['update_time'], $afterStaleTouch['update_time']);
 
+        // A deterministic non-manual backfill key can already exist as a
+        // historical cancelled row. It must not turn the revoke fence failure
+        // into a successful historical-task replay.
         $idempotencyKey = hash(
             'sha256',
             implode('|', [
@@ -600,8 +667,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'status' => 'active',
                     'enabled' => 1,
                 ]);
-                Db::name('online_daily_data')->insert([
-                    'id' => 7001,
+                $baseRow = [
                     'tenant_id' => (int)$task['tenant_id'],
                     'system_hotel_id' => (int)$task['system_hotel_id'],
                     'data_source_id' => 88,
@@ -609,13 +675,20 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'data_date' => (string)$task['data_date'],
                     'platform' => (string)$task['platform'],
                     'source' => (string)$task['platform'],
-                    'data_type' => 'business',
                     'data_period' => 'historical_daily',
                     'readback_verified' => 1,
                     'validation_status' => 'valid',
+                ];
+                Db::name('online_daily_data')->insert($baseRow + [
+                    'id' => 7001,
+                    'data_type' => 'business',
                     'amount' => 688,
                     'quantity' => 2,
                     'book_order_num' => 6,
+                ]);
+                Db::name('online_daily_data')->insert($baseRow + [
+                    'id' => 7002,
+                    'data_type' => 'traffic',
                     'list_exposure' => 120,
                     'detail_exposure' => 40,
                     'flow_rate' => 0.33,
@@ -626,9 +699,9 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'status' => 'success',
                     'data_source_id' => 88,
                     'task_id' => 99,
-                    'normalized_count' => count($rows),
-                    'saved_count' => count($rows),
-                    'readback_count' => count($rows),
+                    'normalized_count' => 2,
+                    'saved_count' => 2,
+                    'readback_count' => 2,
                     'readback_verified' => count($rows) > 0,
                     'run_readback' => [
                         'tenant_id' => (int)$task['tenant_id'],
@@ -637,10 +710,10 @@ final class OtaLocalCollectorServiceTest extends TestCase
                         'system_hotel_id' => (int)$task['system_hotel_id'],
                         'target_date' => (string)$task['data_date'],
                         'platform' => (string)$task['platform'],
-                        'readback_count' => 1,
+                        'readback_count' => 2,
                         'readback_verified' => true,
                         'p0_status' => 'ready',
-                        'row_ids' => [7001],
+                        'row_ids' => [7001, 7002],
                     ],
                     'deterministic_readback' => [
                         'tenant_id' => (int)$task['tenant_id'],
@@ -649,9 +722,9 @@ final class OtaLocalCollectorServiceTest extends TestCase
                         'system_hotel_id' => (int)$task['system_hotel_id'],
                         'target_date' => (string)$task['data_date'],
                         'platform' => (string)$task['platform'],
-                        'readback_count' => 1,
+                        'readback_count' => 2,
                         'readback_verified' => true,
-                        'row_ids' => [7001],
+                        'row_ids' => [7001, 7002],
                     ],
                     'sync_diagnostics' => [
                         'target_date' => (string)$task['data_date'],
@@ -772,7 +845,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
                 array $device,
                 array $rows
             ) use ($variant): array {
-                $rowIds = [7001];
+                $rowIds = [7001, 7002];
                 $runReadback = [
                     'tenant_id' => (int)$task['tenant_id'],
                     'data_source_id' => 88,
@@ -780,7 +853,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'system_hotel_id' => (int)$task['system_hotel_id'],
                     'target_date' => (string)$task['data_date'],
                     'platform' => (string)$task['platform'],
-                    'readback_count' => 1,
+                    'readback_count' => 2,
                     'readback_verified' => true,
                     'p0_status' => 'ready',
                     'row_ids' => $rowIds,
@@ -792,7 +865,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'system_hotel_id' => (int)$task['system_hotel_id'],
                     'target_date' => (string)$task['data_date'],
                     'platform' => (string)$task['platform'],
-                    'readback_count' => 1,
+                    'readback_count' => 2,
                     'readback_verified' => true,
                     'row_ids' => $rowIds,
                 ];
@@ -822,8 +895,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
                         'status' => 'active',
                         'enabled' => 1,
                     ]);
-                    Db::name('online_daily_data')->insert([
-                        'id' => 7001,
+                    $baseRow = [
                         'tenant_id' => (int)$task['tenant_id'],
                         'system_hotel_id' => (int)$task['system_hotel_id'],
                         'data_source_id' => 88,
@@ -831,13 +903,20 @@ final class OtaLocalCollectorServiceTest extends TestCase
                         'data_date' => (string)$task['data_date'],
                         'platform' => (string)$task['platform'],
                         'source' => (string)$task['platform'],
-                        'data_type' => 'business',
                         'data_period' => 'historical_daily',
                         'readback_verified' => 1,
                         'validation_status' => 'valid',
+                    ];
+                    Db::name('online_daily_data')->insert($baseRow + [
+                        'id' => 7001,
+                        'data_type' => 'business',
                         'amount' => 688,
                         'quantity' => 2,
                         'book_order_num' => 6,
+                    ]);
+                    Db::name('online_daily_data')->insert($baseRow + [
+                        'id' => 7002,
+                        'data_type' => 'traffic',
                         'list_exposure' => 120,
                         'detail_exposure' => 40,
                         'flow_rate' => 0.33,
@@ -850,9 +929,9 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'status' => 'success',
                     'data_source_id' => 88,
                     'task_id' => 99,
-                    'normalized_count' => count($rows),
-                    'saved_count' => count($rows),
-                    'readback_count' => count($rows),
+                    'normalized_count' => 2,
+                    'saved_count' => 2,
+                    'readback_count' => 2,
                     'readback_verified' => true,
                     'sync_diagnostics' => [
                         'target_date' => (string)$task['data_date'],
@@ -940,7 +1019,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
             self::assertSame('success', $result['status']);
             self::assertTrue($result['summary']['run_readback_scope_verified']);
             self::assertSame(12, $result['summary']['run_readback']['tenant_id']);
-            self::assertSame([7001], $result['summary']['deterministic_readback']['row_ids']);
+            self::assertSame([7001, 7002], $result['summary']['deterministic_readback']['row_ids']);
             return;
         }
         self::assertNotSame('success', $result['status']);
@@ -1517,6 +1596,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame('retry_wait', $result['status']);
         self::assertSame('identity_unverified', $result['error_code']);
         self::assertSame(0, $importCalls);
+        self::assertSame(0, Db::name('platform_data_sources')->count());
         self::assertNull(
             Db::name('ota_local_collector_tasks')->where('id', (int)$task['id'])->value('result_summary_json')
         );
@@ -2019,8 +2099,9 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'status' => 'active',
                     'enabled' => 1,
                 ]);
-                Db::name('online_daily_data')->insert([
-                    'id' => $platform === 'ctrip' ? 401 : 402,
+                $businessRowId = $platform === 'ctrip' ? 401 : 402;
+                $trafficRowId = $platform === 'ctrip' ? 411 : 412;
+                $baseRow = [
                     'tenant_id' => (int)$task['tenant_id'],
                     'system_hotel_id' => (int)$task['system_hotel_id'],
                     'data_source_id' => $sourceId,
@@ -2028,13 +2109,20 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'data_date' => (string)$task['data_date'],
                     'platform' => $platform,
                     'source' => $platform,
-                    'data_type' => 'business',
                     'data_period' => 'historical_daily',
                     'readback_verified' => 1,
                     'validation_status' => 'valid',
+                ];
+                Db::name('online_daily_data')->insert($baseRow + [
+                    'id' => $businessRowId,
+                    'data_type' => 'business',
                     'amount' => 688,
                     'quantity' => 2,
                     'book_order_num' => 6,
+                ]);
+                Db::name('online_daily_data')->insert($baseRow + [
+                    'id' => $trafficRowId,
+                    'data_type' => 'traffic',
                     'list_exposure' => 120,
                     'detail_exposure' => 40,
                     'flow_rate' => 0.33,
@@ -2045,9 +2133,9 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'status' => 'success',
                     'data_source_id' => $sourceId,
                     'task_id' => $syncTaskId,
-                    'normalized_count' => count($rows),
-                    'saved_count' => count($rows),
-                    'readback_count' => count($rows),
+                    'normalized_count' => 2,
+                    'saved_count' => 2,
+                    'readback_count' => 2,
                     'readback_verified' => true,
                     'run_readback' => [
                         'tenant_id' => (int)$task['tenant_id'],
@@ -2056,10 +2144,10 @@ final class OtaLocalCollectorServiceTest extends TestCase
                         'system_hotel_id' => (int)$task['system_hotel_id'],
                         'target_date' => (string)$task['data_date'],
                         'platform' => $platform,
-                        'readback_count' => 1,
+                        'readback_count' => 2,
                         'readback_verified' => true,
                         'p0_status' => 'ready',
-                        'row_ids' => [$platform === 'ctrip' ? 401 : 402],
+                        'row_ids' => [$businessRowId, $trafficRowId],
                     ],
                     'deterministic_readback' => [
                         'tenant_id' => (int)$task['tenant_id'],
@@ -2068,9 +2156,9 @@ final class OtaLocalCollectorServiceTest extends TestCase
                         'system_hotel_id' => (int)$task['system_hotel_id'],
                         'target_date' => (string)$task['data_date'],
                         'platform' => $platform,
-                        'readback_count' => 1,
+                        'readback_count' => 2,
                         'readback_verified' => true,
-                        'row_ids' => [$platform === 'ctrip' ? 401 : 402],
+                        'row_ids' => [$businessRowId, $trafficRowId],
                     ],
                     'sync_diagnostics' => [
                         'target_date' => (string)$task['data_date'],
@@ -2108,6 +2196,16 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'verified_platforms' => $platforms,
                     'collection_anchor_hash' => $collectionAnchorHash,
                     'platform_statuses' => ['ctrip' => 'ready', 'meituan' => 'ready'],
+                    'platform_storage_scopes' => [
+                        'ctrip' => [
+                            'observed_traffic_metric_provenance_status' => 'ready',
+                            'synthetic_normalization_provenance_missing_rows' => 0,
+                        ],
+                        'meituan' => [
+                            'observed_traffic_metric_provenance_status' => 'ready',
+                            'synthetic_normalization_provenance_missing_rows' => 0,
+                        ],
+                    ],
                     'p0_platforms_ready' => 2,
                     'traffic_gates_ready' => 2,
                     'continuous_trust_status' => 'verified',
@@ -2447,6 +2545,532 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame([], $ready['missing_platforms']);
     }
 
+    public function testOnlyTheIdempotencyUniqueConstraintCanReuseAnExistingTask(): void
+    {
+        $method = new \ReflectionMethod(OtaLocalCollectorService::class, 'isIdempotencyKeyConflict');
+        $method->setAccessible(true);
+        $service = new OtaLocalCollectorService();
+
+        self::assertTrue($method->invoke($service, new RuntimeException(
+            "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry for key 'uniq_task_idempotency'",
+            23000
+        )));
+        self::assertTrue($method->invoke($service, new RuntimeException(
+            'UNIQUE constraint failed: ota_local_collector_tasks.idempotency_key',
+            23000
+        )));
+        self::assertFalse($method->invoke($service, new RuntimeException(
+            'SQLSTATE[23000]: Integrity constraint violation: foreign key constraint fails',
+            23000
+        )));
+        self::assertFalse($method->invoke($service, new RuntimeException(
+            "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry for key 'other_unique_key'",
+            23000
+        )));
+    }
+
+    public function testPlanCollectionUsesExactSourceBindingAndSameDispatcherIsIdempotent(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->planCollectionFixture($service);
+
+        $first = $service->schedulePlanCollection($fixture['scope']);
+        $second = $service->schedulePlanCollection($fixture['scope']);
+
+        self::assertSame('queued', $first['status']);
+        self::assertSame($fixture['scope']['dispatcher_run_id'], $first['dispatcher_run_id']);
+        self::assertSame(501, (int)$first['data_source_id']);
+        self::assertGreaterThan(0, (int)$first['local_collector_task_id']);
+        self::assertSame(
+            (int)$first['local_collector_task_id'],
+            (int)$second['local_collector_task_id']
+        );
+        self::assertSame(1, Db::name('ota_local_collector_tasks')->count());
+
+        $task = Db::name('ota_local_collector_tasks')
+            ->where('id', (int)$first['local_collector_task_id'])
+            ->find();
+        self::assertIsArray($task);
+        self::assertSame((int)$fixture['account']['id'], (int)$task['account_id']);
+        self::assertSame((int)$fixture['device']['id'], (int)$task['device_id']);
+        self::assertSame(7, (int)$task['user_id']);
+        self::assertSame(101, (int)$task['system_hotel_id']);
+        self::assertSame('ctrip', $task['platform']);
+        self::assertSame('2026-08-09', $task['data_date']);
+
+        $request = json_decode((string)$task['request_json'], true, 64, JSON_THROW_ON_ERROR);
+        self::assertSame($fixture['scope']['dispatcher_run_id'], $request['dispatcher_run_id']);
+        self::assertSame(501, (int)$request['data_source_id']);
+        self::assertSame(7, (int)$request['execution_owner_user_id']);
+        self::assertSame('scheduler', $request['trigger_type']);
+
+        self::assertSame(0, Db::name('ota_local_collector_tasks')
+            ->where('account_id', (int)$fixture['decoy_account']['id'])
+            ->count());
+        self::assertSame(0, Db::name('ota_local_collector_tasks')
+            ->where('device_id', (int)$fixture['decoy_device']['id'])
+            ->count());
+    }
+
+    #[DataProvider('planCollectionSourceFenceDriftProvider')]
+    public function testPlanCollectionRejectsAnySourceIdentityFenceDrift(string $variant): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->planCollectionFixture($service);
+        $source = Db::name('platform_data_sources')->where('id', 501)->find();
+        self::assertIsArray($source);
+        $config = json_decode((string)$source['config_json'], true, 64, JSON_THROW_ON_ERROR);
+
+        if ($variant === 'account') {
+            $config['local_collector_account_id'] = (int)$fixture['decoy_account']['id'];
+        } elseif ($variant === 'device') {
+            $config['collector_device_id_hash'] = hash(
+                'sha256',
+                (string)$fixture['decoy_device']['device_public_id']
+            );
+        } elseif ($variant === 'profile') {
+            $config['profile_key_hash'] = (string)$fixture['decoy_account']['profile_key_hash'];
+        } elseif ($variant === 'mapping_source') {
+            Db::name('ota_local_collector_account_hotels')
+                ->where('id', (int)$fixture['mapping']['id'])
+                ->update(['data_source_id' => 502]);
+        } elseif ($variant === 'execution_owner') {
+            $fixture['scope']['execution_owner_user_id'] = 8;
+        }
+
+        if ($variant !== 'mapping_source' && $variant !== 'execution_owner') {
+            Db::name('platform_data_sources')->where('id', 501)->update([
+                'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ]);
+        }
+
+        try {
+            $service->schedulePlanCollection($fixture['scope']);
+            self::fail('A plan source identity fence drift must fail closed.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('local_collector_plan_', $exception->getMessage());
+        }
+        self::assertSame(0, Db::name('ota_local_collector_tasks')->count());
+    }
+
+    /** @return array<string, array{string}> */
+    public static function planCollectionSourceFenceDriftProvider(): array
+    {
+        return [
+            'source account differs from mapping account' => ['account'],
+            'source device hash differs from account device' => ['device'],
+            'source profile hash differs from account profile' => ['profile'],
+            'mapping no longer points at the selected source' => ['mapping_source'],
+            'execution owner differs from local account owner' => ['execution_owner'],
+        ];
+    }
+
+    public function testPlanCollectionDoesNotReuseTerminalTaskAcrossDispatchers(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->planCollectionFixture($service);
+        $runA = $fixture['scope'];
+        $scheduledA = $service->schedulePlanCollection($runA);
+        $taskA = (int)$scheduledA['local_collector_task_id'];
+        Db::name('ota_local_collector_tasks')->where('id', $taskA)->update([
+            'status' => 'success',
+            'result_summary_json' => json_encode([
+                'dispatcher_run_id' => $runA['dispatcher_run_id'],
+                'local_collector_task_id' => $taskA,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'finished_at' => date('Y-m-d H:i:s'),
+            'update_time' => date('Y-m-d H:i:s'),
+        ]);
+
+        $sameRun = $service->schedulePlanCollection($runA);
+        self::assertSame($taskA, (int)$sameRun['local_collector_task_id']);
+        self::assertSame(1, Db::name('ota_local_collector_tasks')->count());
+
+        $runB = $runA;
+        $runB['dispatcher_run_id'] = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        $scheduledB = $service->schedulePlanCollection($runB);
+        $taskB = (int)$scheduledB['local_collector_task_id'];
+
+        self::assertGreaterThan(0, $taskB);
+        self::assertNotSame($taskA, $taskB);
+        self::assertSame(2, Db::name('ota_local_collector_tasks')->count());
+        $requestB = json_decode(
+            (string)Db::name('ota_local_collector_tasks')->where('id', $taskB)->value('request_json'),
+            true,
+            64,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertSame($runB['dispatcher_run_id'], $requestB['dispatcher_run_id']);
+    }
+
+    public function testPlanCollectionDoesNotAdoptAnotherDispatchersActiveTask(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->planCollectionFixture($service);
+        $runA = $fixture['scope'];
+        $scheduledA = $service->schedulePlanCollection($runA);
+        $taskA = (int)$scheduledA['local_collector_task_id'];
+
+        $runB = $runA;
+        $runB['dispatcher_run_id'] = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+        $blockedB = $service->schedulePlanCollection($runB);
+
+        self::assertNotSame('queued', $blockedB['status']);
+        self::assertSame(0, (int)($blockedB['local_collector_task_id'] ?? 0));
+        self::assertStringContainsString('dispatcher', (string)$blockedB['failure_reason']);
+        self::assertSame(1, Db::name('ota_local_collector_tasks')->count());
+        $task = Db::name('ota_local_collector_tasks')->where('id', $taskA)->find();
+        self::assertIsArray($task);
+        self::assertSame('queued', $task['status']);
+        $request = json_decode((string)$task['request_json'], true, 64, JSON_THROW_ON_ERROR);
+        self::assertSame($runA['dispatcher_run_id'], $request['dispatcher_run_id']);
+    }
+
+    public function testPlanCollectionQueuesOnlyTheOriginalDeviceWhenItIsOffline(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->planCollectionFixture($service, true, false);
+
+        $scheduled = $service->schedulePlanCollection($fixture['scope']);
+
+        self::assertSame('device_offline', $scheduled['status']);
+        self::assertSame($fixture['scope']['dispatcher_run_id'], $scheduled['dispatcher_run_id']);
+        self::assertGreaterThan(0, (int)$scheduled['local_collector_task_id']);
+        $task = Db::name('ota_local_collector_tasks')
+            ->where('id', (int)$scheduled['local_collector_task_id'])
+            ->find();
+        self::assertIsArray($task);
+        self::assertSame((int)$fixture['account']['id'], (int)$task['account_id']);
+        self::assertSame((int)$fixture['device']['id'], (int)$task['device_id']);
+        self::assertSame(0, Db::name('ota_local_collector_tasks')
+            ->where('device_id', (int)$fixture['decoy_device']['id'])
+            ->count());
+    }
+
+    public function testPlanCollectionExpiredSessionProbesAndResumesOnlyTheOriginalAccountDevice(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->planCollectionFixture($service, false, true);
+
+        $scheduled = $service->schedulePlanCollection($fixture['scope']);
+        $probeId = (int)$scheduled['local_collector_task_id'];
+        self::assertGreaterThan(0, $probeId);
+        $probe = Db::name('ota_local_collector_tasks')->where('id', $probeId)->find();
+        self::assertIsArray($probe);
+        self::assertSame('session_probe', $probe['task_type']);
+        self::assertSame((int)$fixture['account']['id'], (int)$probe['account_id']);
+        self::assertSame((int)$fixture['device']['id'], (int)$probe['device_id']);
+        $probeRequest = json_decode((string)$probe['request_json'], true, 64, JSON_THROW_ON_ERROR);
+        self::assertSame($fixture['scope']['dispatcher_run_id'], $probeRequest['dispatcher_run_id']);
+        self::assertCount(1, $probeRequest['resume_collections']);
+        $resume = $probeRequest['resume_collections'][0];
+        self::assertSame((int)$fixture['account']['id'], (int)$resume['account_id']);
+        self::assertSame((int)$fixture['device']['id'], (int)$resume['device_id']);
+        self::assertSame($fixture['scope']['dispatcher_run_id'], $resume['request']['dispatcher_run_id']);
+        self::assertSame(501, (int)$resume['request']['data_source_id']);
+
+        $leased = $service->nextTask(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token']
+        );
+        self::assertSame($probeId, (int)$leased['task']['id']);
+        $verified = $service->submitTaskResult(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token'],
+            $probeId,
+            [
+                'lease_token' => $leased['task']['lease_token'],
+                'success' => true,
+                'session_status' => 'current_session_verified',
+            ]
+        );
+        self::assertSame('queued', $verified['summary']['resume_status']);
+        self::assertCount(1, $verified['summary']['resumed_collection_task_ids']);
+        $resumedId = (int)$verified['summary']['resumed_collection_task_ids'][0];
+        $resumed = Db::name('ota_local_collector_tasks')->where('id', $resumedId)->find();
+        self::assertIsArray($resumed);
+        self::assertSame((int)$fixture['account']['id'], (int)$resumed['account_id']);
+        self::assertSame((int)$fixture['device']['id'], (int)$resumed['device_id']);
+        $resumedRequest = json_decode((string)$resumed['request_json'], true, 64, JSON_THROW_ON_ERROR);
+        self::assertSame($fixture['scope']['dispatcher_run_id'], $resumedRequest['dispatcher_run_id']);
+        self::assertSame(0, Db::name('ota_local_collector_tasks')
+            ->where('account_id', (int)$fixture['decoy_account']['id'])
+            ->count());
+    }
+
+    public function testScheduledLoginFailureRecoversOnlyThroughTheOriginalProbeAndDispatcher(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->planCollectionFixture($service);
+        $scope = $fixture['scope'];
+
+        $scheduled = $service->schedulePlanCollection($scope);
+        $failedCollectionId = (int)$scheduled['local_collector_task_id'];
+        $leasedCollection = $service->nextTask(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token']
+        );
+        self::assertSame($failedCollectionId, (int)$leasedCollection['task']['id']);
+
+        $failed = $service->submitTaskResult(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token'],
+            $failedCollectionId,
+            [
+                'lease_token' => $leasedCollection['task']['lease_token'],
+                'success' => false,
+                'error_code' => 'login_required',
+                'error_summary' => 'session expired on the original device',
+            ]
+        );
+        $probeId = (int)($failed['recovery_task_id'] ?? 0);
+        self::assertSame('login_required', $failed['status']);
+        self::assertSame('queued', $failed['recovery_status']);
+        self::assertGreaterThan(0, $probeId);
+
+        $probe = Db::name('ota_local_collector_tasks')->where('id', $probeId)->find();
+        self::assertIsArray($probe);
+        self::assertSame('session_probe', $probe['task_type']);
+        self::assertSame((int)$fixture['account']['id'], (int)$probe['account_id']);
+        self::assertSame((int)$fixture['device']['id'], (int)$probe['device_id']);
+        $probeRequest = json_decode((string)$probe['request_json'], true, 64, JSON_THROW_ON_ERROR);
+        self::assertSame($scope['dispatcher_run_id'], $probeRequest['dispatcher_run_id']);
+        self::assertSame($failedCollectionId, (int)$probeRequest['recovery_of_task_id']);
+        self::assertSame(
+            $failedCollectionId,
+            (int)$probeRequest['resume_collections'][0]['request']['recovery_of_task_id']
+        );
+
+        $leasedProbe = $service->nextTask(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token']
+        );
+        self::assertSame($probeId, (int)$leasedProbe['task']['id']);
+        $verified = $service->submitTaskResult(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token'],
+            $probeId,
+            [
+                'lease_token' => $leasedProbe['task']['lease_token'],
+                'success' => true,
+                'session_status' => 'current_session_verified',
+            ]
+        );
+        self::assertSame('queued', $verified['summary']['resume_status']);
+        self::assertCount(1, $verified['summary']['resumed_collection_task_ids']);
+        $recoveredCollectionId = (int)$verified['summary']['resumed_collection_task_ids'][0];
+        self::assertNotSame($failedCollectionId, $recoveredCollectionId);
+
+        $recovered = Db::name('ota_local_collector_tasks')
+            ->where('id', $recoveredCollectionId)
+            ->find();
+        self::assertIsArray($recovered);
+        self::assertSame((int)$fixture['account']['id'], (int)$recovered['account_id']);
+        self::assertSame((int)$fixture['device']['id'], (int)$recovered['device_id']);
+        $recoveredRequest = json_decode(
+            (string)$recovered['request_json'],
+            true,
+            64,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertSame($scope['dispatcher_run_id'], $recoveredRequest['dispatcher_run_id']);
+        self::assertSame($failedCollectionId, (int)$recoveredRequest['recovery_of_task_id']);
+        self::assertSame('session_recovery', $recoveredRequest['retry_trigger']);
+
+        $repolled = $service->schedulePlanCollection($scope);
+        self::assertSame($recoveredCollectionId, (int)$repolled['local_collector_task_id']);
+        self::assertSame(3, Db::name('ota_local_collector_tasks')
+            ->where('account_id', (int)$fixture['account']['id'])
+            ->count());
+        self::assertSame(0, Db::name('ota_local_collector_tasks')
+            ->where('account_id', (int)$fixture['decoy_account']['id'])
+            ->count());
+    }
+
+    public function testScheduledSessionProbeCannotBeAdoptedByAnotherDispatcher(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->planCollectionFixture($service, false, true);
+        $runA = $fixture['scope'];
+        $probeA = $service->schedulePlanCollection($runA);
+
+        $runB = $runA;
+        $runB['dispatcher_run_id'] = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+        try {
+            $service->schedulePlanCollection($runB);
+            self::fail('A foreign dispatcher must not adopt an active session probe.');
+        } catch (\RuntimeException $error) {
+            self::assertSame(
+                'local_collector_plan_dispatcher_task_in_progress',
+                $error->getMessage()
+            );
+        }
+
+        self::assertSame(1, Db::name('ota_local_collector_tasks')->count());
+        self::assertSame(
+            (int)$probeA['local_collector_task_id'],
+            (int)Db::name('ota_local_collector_tasks')->value('id')
+        );
+        self::assertSame(0, Db::name('ota_local_collector_tasks')
+            ->where('account_id', (int)$fixture['decoy_account']['id'])
+            ->count());
+    }
+
+    public function testScheduledCollectionSuccessReturnsExactDispatcherReadbackAndBothTaskIds(): void
+    {
+        $syncTaskId = 9901;
+        $service = new OtaLocalCollectorService(
+            static function ($owner, array $task) use ($syncTaskId): array {
+                $request = json_decode((string)$task['request_json'], true, 64, JSON_THROW_ON_ERROR);
+                $dispatcherRunId = (string)$request['dispatcher_run_id'];
+                Db::name('platform_data_sync_tasks')->insert([
+                    'id' => $syncTaskId,
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'data_source_id' => 501,
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'platform' => (string)$task['platform'],
+                    'status' => 'success',
+                    'stats_json' => json_encode([
+                        'dispatcher_run_id' => $dispatcherRunId,
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                ]);
+                $baseRow = [
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'data_source_id' => 501,
+                    'sync_task_id' => $syncTaskId,
+                    'data_date' => (string)$task['data_date'],
+                    'platform' => (string)$task['platform'],
+                    'source' => (string)$task['platform'],
+                    'data_period' => 'historical_daily',
+                    'readback_verified' => 1,
+                    'validation_status' => 'valid',
+                ];
+                Db::name('online_daily_data')->insert($baseRow + [
+                    'id' => 8101,
+                    'data_type' => 'business',
+                    'amount' => 688,
+                    'quantity' => 2,
+                    'book_order_num' => 6,
+                ]);
+                Db::name('online_daily_data')->insert($baseRow + [
+                    'id' => 8102,
+                    'data_type' => 'traffic',
+                    'list_exposure' => 120,
+                    'detail_exposure' => 40,
+                    'flow_rate' => 0.33,
+                    'order_filling_num' => 9,
+                    'order_submit_num' => 4,
+                ]);
+                $readback = [
+                    'dispatcher_run_id' => $dispatcherRunId,
+                    'tenant_id' => (int)$task['tenant_id'],
+                    'data_source_id' => 501,
+                    'sync_task_id' => $syncTaskId,
+                    'system_hotel_id' => (int)$task['system_hotel_id'],
+                    'target_date' => (string)$task['data_date'],
+                    'platform' => (string)$task['platform'],
+                    'readback_count' => 2,
+                    'readback_verified' => true,
+                    'p0_status' => 'ready',
+                    'row_ids' => [8101, 8102],
+                ];
+                return [
+                    'status' => 'success',
+                    'dispatcher_run_id' => $dispatcherRunId,
+                    'data_source_id' => 501,
+                    'task_id' => $syncTaskId,
+                    'sync_task_id' => $syncTaskId,
+                    'normalized_count' => 2,
+                    'saved_count' => 2,
+                    'readback_count' => 2,
+                    'readback_verified' => true,
+                    'run_readback' => $readback,
+                    'deterministic_readback' => $readback,
+                    'sync_diagnostics' => [
+                        'target_date' => (string)$task['data_date'],
+                        'requires_target_date_traffic' => true,
+                        'p0_status' => 'ready',
+                    ],
+                ];
+            }
+        );
+        $fixture = $this->planCollectionFixture($service);
+        $scheduled = $service->schedulePlanCollection($fixture['scope']);
+        $localTaskId = (int)$scheduled['local_collector_task_id'];
+        $leased = $service->nextTask(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token']
+        );
+        self::assertSame($localTaskId, (int)$leased['task']['id']);
+
+        $result = $service->submitTaskResult(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token'],
+            $localTaskId,
+            [
+                'lease_token' => $leased['task']['lease_token'],
+                'success' => true,
+                'capture_summary' => [
+                    'platform_identity_validation' => [
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'validated_identifier' => 'CTRIP-PLAN-101',
+                    ],
+                ],
+                'rows' => [[
+                    'data_date' => '2026-08-09',
+                    'platform_hotel_id' => 'CTRIP-PLAN-101',
+                    'data_type' => 'business',
+                    'order_amount' => 688,
+                    'room_nights' => 2,
+                    'order_count' => 6,
+                    'list_exposure' => 120,
+                    'detail_exposure' => 40,
+                    'flow_rate' => 0.33,
+                    'order_filling_num' => 9,
+                    'order_submit_num' => 4,
+                ]],
+            ]
+        );
+
+        self::assertSame('success', $result['status']);
+        $summary = $result['summary'];
+        self::assertSame($fixture['scope']['dispatcher_run_id'], $summary['dispatcher_run_id']);
+        self::assertSame($localTaskId, (int)$summary['local_collector_task_id']);
+        self::assertSame($syncTaskId, (int)$summary['sync_task_id']);
+        self::assertSame(
+            $fixture['scope']['dispatcher_run_id'],
+            $summary['run_readback']['dispatcher_run_id']
+        );
+        self::assertSame($syncTaskId, (int)$summary['run_readback']['sync_task_id']);
+        self::assertSame([8101, 8102], $summary['run_readback']['row_ids']);
+        self::assertTrue($summary['run_readback']['readback_verified']);
+
+        $stored = Db::name('ota_local_collector_tasks')->where('id', $localTaskId)->find();
+        self::assertIsArray($stored);
+        $storedSummary = json_decode(
+            (string)$stored['result_summary_json'],
+            true,
+            64,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertSame($summary['dispatcher_run_id'], $storedSummary['dispatcher_run_id']);
+        self::assertSame($summary['local_collector_task_id'], $storedSummary['local_collector_task_id']);
+        self::assertSame($summary['sync_task_id'], $storedSummary['sync_task_id']);
+        self::assertSame($summary['run_readback'], $storedSummary['run_readback']);
+
+        $polled = $service->schedulePlanCollection($fixture['scope']);
+        self::assertSame('success', $polled['status']);
+        self::assertTrue($polled['success']);
+        self::assertSame($fixture['scope']['dispatcher_run_id'], $polled['dispatcher_run_id']);
+        self::assertSame($localTaskId, (int)$polled['local_collector_task_id']);
+        self::assertSame($syncTaskId, (int)$polled['platform_sync_task_id']);
+        self::assertSame([8101, 8102], $polled['run_readback']['row_ids']);
+        self::assertTrue($polled['readback_verified']);
+        self::assertSame(1, Db::name('ota_local_collector_tasks')->count());
+    }
+
     private function actor(): object
     {
         return new class {
@@ -2464,6 +3088,134 @@ final class OtaLocalCollectorServiceTest extends TestCase
                 return false;
             }
         };
+    }
+
+    /**
+     * @return array{
+     *   pair:array<string,mixed>,
+     *   device:array<string,mixed>,
+     *   account:array<string,mixed>,
+     *   mapping:array<string,mixed>,
+     *   decoy_device:array<string,mixed>,
+     *   decoy_account:array<string,mixed>,
+     *   scope:array<string,mixed>
+     * }
+     */
+    private function planCollectionFixture(
+        OtaLocalCollectorService $service,
+        bool $sessionVerified = true,
+        bool $deviceOnline = true
+    ): array {
+        $actor = $this->actor();
+        $pair = $service->pairDevice([
+            'pair_code' => $service->createPairCode(
+                $actor,
+                ['device_name' => 'Plan owner PC']
+            )['pair_code'],
+            'device_platform' => 'windows',
+            'collector_version' => 'test',
+        ]);
+        $created = $service->createAccount($actor, [
+            'device_id' => $pair['device_id'],
+            'platform' => 'ctrip',
+            'account_alias' => 'Plan owner account',
+            'system_hotel_id' => 101,
+            'platform_hotel_id' => 'CTRIP-PLAN-101',
+            'platform_hotel_name' => 'Hotel A OTA',
+        ]);
+        Db::name('ota_local_collector_accounts')->where('id', $created['account_id'])->update([
+            'status' => $sessionVerified ? 'active' : 'login_required',
+            'session_status' => $sessionVerified ? 'current_session_verified' : 'login_required',
+            'last_session_verified_at' => $sessionVerified ? date('Y-m-d H:i:s') : null,
+        ]);
+        Db::name('ota_local_collector_account_hotels')
+            ->where('account_id', $created['account_id'])
+            ->where('system_hotel_id', 101)
+            ->where('platform', 'ctrip')
+            ->update(['data_source_id' => 501]);
+        Db::name('ota_local_collector_devices')->where('id', $pair['device_id'])->update([
+            'status' => 'online',
+            'last_seen_at' => $deviceOnline
+                ? date('Y-m-d H:i:s')
+                : date('Y-m-d H:i:s', time() - 600),
+        ]);
+
+        $decoyPair = $service->pairDevice([
+            'pair_code' => $service->createPairCode(
+                $actor,
+                ['device_name' => 'Unrelated owner PC']
+            )['pair_code'],
+            'device_platform' => 'windows',
+            'collector_version' => 'test',
+        ]);
+        $decoyCreated = $service->createAccount($actor, [
+            'device_id' => $decoyPair['device_id'],
+            'platform' => 'ctrip',
+            'account_alias' => 'Unrelated account',
+            'system_hotel_id' => 102,
+            'platform_hotel_id' => 'CTRIP-DECOY-102',
+            'platform_hotel_name' => 'Hotel B OTA',
+        ]);
+        Db::name('ota_local_collector_accounts')->where('id', $decoyCreated['account_id'])->update([
+            'status' => 'active',
+            'session_status' => 'current_session_verified',
+            'last_session_verified_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $device = Db::name('ota_local_collector_devices')->where('id', $pair['device_id'])->find();
+        $account = Db::name('ota_local_collector_accounts')->where('id', $created['account_id'])->find();
+        $mapping = Db::name('ota_local_collector_account_hotels')
+            ->where('account_id', $created['account_id'])
+            ->where('system_hotel_id', 101)
+            ->where('platform', 'ctrip')
+            ->find();
+        $decoyDevice = Db::name('ota_local_collector_devices')->where('id', $decoyPair['device_id'])->find();
+        $decoyAccount = Db::name('ota_local_collector_accounts')->where('id', $decoyCreated['account_id'])->find();
+        self::assertIsArray($device);
+        self::assertIsArray($account);
+        self::assertIsArray($mapping);
+        self::assertIsArray($decoyDevice);
+        self::assertIsArray($decoyAccount);
+
+        Db::name('platform_data_sources')->insert([
+            'id' => 501,
+            'tenant_id' => 12,
+            'user_id' => 7,
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'local_collector',
+            'status' => 'active',
+            'enabled' => 1,
+            'config_json' => json_encode([
+                'local_collector_account_id' => (int)$account['id'],
+                'collector_device_id_hash' => hash('sha256', (string)$device['device_public_id']),
+                'profile_key_hash' => (string)$account['profile_key_hash'],
+                'platform_hotel_id' => (string)$mapping['platform_hotel_id'],
+                'platform_hotel_identity_source' => 'local_collector_verified_capture',
+                'platform_hotel_identity_checked_at' => date('Y-m-d H:i:s'),
+                'current_session_verified' => true,
+                'source_method' => 'local_account_profile',
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
+
+        return [
+            'pair' => $pair,
+            'device' => $device,
+            'account' => $account,
+            'mapping' => $mapping,
+            'decoy_device' => $decoyDevice,
+            'decoy_account' => $decoyAccount,
+            'scope' => [
+                'tenant_id' => 12,
+                'system_hotel_id' => 101,
+                'platform' => 'ctrip',
+                'data_source_id' => 501,
+                'business_date' => '2026-08-09',
+                'dispatcher_run_id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                'execution_owner_user_id' => 7,
+            ],
+        ];
     }
 
     /** @return array{pair: array<string, mixed>, task: array<string, mixed>} */
@@ -2556,7 +3308,8 @@ final class OtaLocalCollectorServiceTest extends TestCase
             started_at TEXT, finished_at TEXT, create_time TEXT, update_time TEXT
         )');
         Db::execute('CREATE TABLE platform_data_sources (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, user_id INTEGER,
+            system_hotel_id INTEGER NOT NULL,
             platform TEXT NOT NULL, data_type TEXT NOT NULL, ingestion_method TEXT NOT NULL, status TEXT NOT NULL,
             enabled INTEGER NOT NULL, config_json TEXT, last_sync_time TEXT, last_sync_status TEXT, last_error TEXT
         )');

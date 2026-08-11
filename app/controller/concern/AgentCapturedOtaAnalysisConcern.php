@@ -2007,7 +2007,17 @@ trait AgentCapturedOtaAnalysisConcern
         $dataQuality = is_array($context['data_quality'] ?? null) ? $context['data_quality'] : [];
         $evidenceReady = $evidenceRefs !== []
             && ($dataQuality['is_reliable'] ?? true) !== false
-            && !in_array($decisionStatus, ['blocked', 'blocked_by_data'], true);
+            && !in_array($decisionStatus, ['blocked', 'blocked_by_data', 'blocked_by_missing_facts'], true);
+        $evidenceStatusLabel = match (true) {
+            $evidenceReady => '已使用',
+            $evidenceRefs !== [] => '关键指标不完整',
+            default => '证据不足',
+        };
+        $evidenceDetail = match (true) {
+            $evidenceReady => sprintf('已绑定 %d 条可追溯数据库证据，并先执行确定性规则。', count($evidenceRefs)),
+            $evidenceRefs !== [] => '已有可追溯目标范围事实，但关键收益或流量指标不完整，暂不能行动；未用 0、旧值或默认值补齐。',
+            default => '目标范围缺少可用数据库证据；未用 0、旧值或默认值补齐。',
+        };
 
         $modelCalled = ($runtime['model_called'] ?? false) === true;
         $modelCall = is_array($governance['model_call'] ?? null) ? $governance['model_call'] : [];
@@ -2037,10 +2047,8 @@ trait AgentCapturedOtaAnalysisConcern
                     'key' => 'verified_evidence',
                     'label' => '真实数据与规则',
                     'status' => $evidenceReady ? 'used' : 'blocked',
-                    'status_label' => $evidenceReady ? '已使用' : '证据不足',
-                    'detail' => $evidenceReady
-                        ? sprintf('已绑定 %d 条可追溯数据库证据，并先执行确定性规则。', count($evidenceRefs))
-                        : '目标范围缺少可用数据库证据；未用 0、旧值或默认值补齐。',
+                    'status_label' => $evidenceStatusLabel,
+                    'detail' => $evidenceDetail,
                     'refs' => array_slice($evidenceRefs, 0, 6),
                 ],
                 [

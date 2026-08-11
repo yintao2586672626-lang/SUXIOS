@@ -3,11 +3,27 @@ declare(strict_types=1);
 
 namespace app\service\operation;
 
+use app\service\CanonicalOtaScheduledAnalysisAuthorizationService;
+use Closure;
+
 final class ExecutionFlowReadService
 {
+    /** @var Closure(array<string,mixed>,int,int,string):array<string,mixed> */
+    private Closure $scheduledAuthorizationResolver;
+
     public function __construct(
-        private readonly ExecutionOutcomeService $executionOutcomeService
+        private readonly ExecutionOutcomeService $executionOutcomeService,
+        ?callable $scheduledAuthorizationResolver = null
     ) {
+        $this->scheduledAuthorizationResolver = $scheduledAuthorizationResolver !== null
+            ? Closure::fromCallable($scheduledAuthorizationResolver)
+            : static fn(array $authorization, int $tenantId, int $hotelId, string $platform): array =>
+                (new CanonicalOtaScheduledAnalysisAuthorizationService())->assertMatches(
+                    $authorization,
+                    $tenantId,
+                    $hotelId,
+                    $platform
+                );
     }
 
     /** @param array<string, mixed> $intent @param array<string, mixed> $task */
@@ -392,6 +408,8 @@ final class ExecutionFlowReadService
         $revenueLiftValues = [];
         $profitable = 0;
         $approved = 0;
+        $authorized = 0;
+        $systemAuthorizedAnalysis = 0;
         $executed = 0;
         $operatorReportedExecuted = 0;
         $sourceVerifiedExecuted = 0;
@@ -415,7 +433,13 @@ final class ExecutionFlowReadService
                 $approved++;
             }
             $executionReported = ($item['execution']['status'] ?? '') === 'executed';
-            $approvalReady = ($item['approval']['status'] ?? '') === 'approved';
+            $approvalReady = $this->itemExecutionAuthorized($item);
+            if ($approvalReady) {
+                $authorized++;
+            }
+            if (($item['approval']['status'] ?? '') === 'system_authorized_analysis') {
+                $systemAuthorizedAnalysis++;
+            }
             if ($executionReported) {
                 $operatorReportedExecuted++;
             }
@@ -469,6 +493,8 @@ final class ExecutionFlowReadService
             'stage_counts' => $stageCounts,
             'bottleneck' => $this->buildBottleneck($stageCounts),
             'approved' => $approved,
+            'authorized' => $authorized,
+            'system_authorized_analysis' => $systemAuthorizedAnalysis,
             'executed' => $executed,
             'operator_reported_executed' => $operatorReportedExecuted,
             'source_verified_executed' => $sourceVerifiedExecuted,
@@ -481,6 +507,7 @@ final class ExecutionFlowReadService
             'avg_roi' => $roiPercentReady > 0 ? round(array_sum($roiPercentValues) / $roiPercentReady, 2) : null,
             'avg_revenue_lift' => $revenueLiftReady > 0 ? round(array_sum($revenueLiftValues) / $revenueLiftReady, 2) : null,
             'approval_rate' => $total > 0 ? round($approved / $total * 100, 2) : null,
+            'authorization_rate' => $total > 0 ? round($authorized / $total * 100, 2) : null,
             'execution_rate' => $total > 0 ? round($executed / $total * 100, 2) : null,
             'operator_reported_execution_rate' => $total > 0
                 ? round($operatorReportedExecuted / $total * 100, 2)
@@ -688,6 +715,16 @@ final class ExecutionFlowReadService
 
     private function buildNextAction(string $stage, array $intent, array $task): array
     {
+        if ((string)($intent['source_module'] ?? '') === 'canonical_ota_investigation'
+            && (string)($intent['status'] ?? '') === 'system_authorized_analysis'
+        ) {
+            return [
+                'key' => 'none',
+                'label' => '核查已完成；经营效果未声明',
+                'priority' => 'low',
+                'target_id' => (int)($task['id'] ?? 0),
+            ];
+        }
         return match ($stage) {
             'approval' => [
                 'key' => 'approve_intent',
@@ -810,7 +847,7 @@ final class ExecutionFlowReadService
         if ($intentStatus === 'rejected') {
             return 'rejected';
         }
-        if ($intentStatus !== 'approved') {
+        if (!$this->intentExecutionAuthorized($intent)) {
             return 'approval';
         }
         if ($task === []) {
@@ -843,6 +880,152 @@ final class ExecutionFlowReadService
         }
 
         return 'review';
+    }
+
+    /** @param array<string,mixed> $intent */
+    private function intentExecutionAuthorized(array $intent): bool
+    {
+        if ((string)($intent['status'] ?? '') === 'approved') {
+            return true;
+        }
+        if ((string)($intent['status'] ?? '') !== 'system_authorized_analysis'
+            || (string)($intent['source_module'] ?? '') !== 'canonical_ota_investigation'
+            || (int)($intent['created_by'] ?? 0) !== 0
+            || (int)($intent['approved_by'] ?? 0) !== 0
+            || trim((string)($intent['approved_at'] ?? '')) !== ''
+        ) {
+            return false;
+        }
+        $evidence = $this->arrayValue($intent['evidence'] ?? []);
+        return (string)($evidence['execution_scope'] ?? '') === 'analysis_only'
+            && $this->analysisApprovalAuthorityValid(
+                $evidence,
+                (int)($intent['tenant_id'] ?? 0),
+                (int)($intent['hotel_id'] ?? 0),
+                strtolower(trim((string)($intent['platform'] ?? '')))
+            )
+            && ($evidence['human_approval_claimed'] ?? true) === false
+            && ($evidence['external_write'] ?? true) === false
+            && ($evidence['causality_claimed'] ?? true) === false
+            && ($evidence['outcome_claimed'] ?? true) === false;
+    }
+
+    /** @param array<string,mixed> $item */
+    private function itemExecutionAuthorized(array $item): bool
+    {
+        $status = (string)($item['approval']['status'] ?? '');
+        if ($status === 'approved') {
+            return true;
+        }
+        $recommendation = $this->arrayValue($item['recommendation'] ?? []);
+        $evidence = $this->arrayValue($recommendation['evidence'] ?? []);
+        return $status === 'system_authorized_analysis'
+            && (string)($recommendation['source_module'] ?? '') === 'canonical_ota_investigation'
+            && (string)($evidence['execution_scope'] ?? '') === 'analysis_only'
+            && $this->analysisApprovalAuthorityValid(
+                $evidence,
+                (int)($evidence['tenant_id'] ?? 0),
+                (int)($item['hotel_id'] ?? 0),
+                strtolower(trim((string)($recommendation['platform'] ?? '')))
+            )
+            && ($evidence['human_approval_claimed'] ?? true) === false
+            && ($evidence['external_write'] ?? true) === false
+            && ($evidence['causality_claimed'] ?? true) === false
+            && ($evidence['outcome_claimed'] ?? true) === false;
+    }
+
+    /** @param array<string,mixed> $evidence */
+    private function analysisApprovalAuthorityValid(
+        array $evidence,
+        int $expectedTenantId,
+        int $expectedHotelId,
+        string $expectedPlatform
+    ): bool {
+        $authority = (string)($evidence['approval_authority'] ?? '');
+        if ($authority === 'system_goal_scoped_analysis') {
+            return !array_key_exists('scheduled_analysis_authorization', $evidence);
+        }
+        if ($authority !== 'system_scheduled_analysis') {
+            return false;
+        }
+        $authorization = $this->arrayValue($evidence['scheduled_analysis_authorization'] ?? []);
+        $digest = strtolower(trim((string)($authorization['content_digest'] ?? '')));
+        $selfValid = $expectedTenantId > 0
+            && $expectedHotelId > 0
+            && in_array($expectedPlatform, ['ctrip', 'meituan'], true)
+            && (string)($authorization['schema_version'] ?? '')
+                === 'canonical_ota_scheduled_analysis_authorization.v1'
+            && ($authorization['enabled'] ?? false) === true
+            && preg_match(
+                '/^[a-z0-9][a-z0-9._:-]{2,119}$/D',
+                strtolower(trim((string)($authorization['plan_id'] ?? '')))
+            ) === 1
+            && (int)($authorization['tenant_id'] ?? 0) === $expectedTenantId
+            && (int)($authorization['hotel_id'] ?? 0) === $expectedHotelId
+            && strtolower(trim((string)($authorization['platform'] ?? ''))) === $expectedPlatform
+            && strtolower(trim((string)($authorization['trigger'] ?? '')))
+                === 'historical_daily_canonical_promotion'
+            && strtolower(trim((string)($authorization['authorized_by'] ?? ''))) === 'user_goal'
+            && $this->authorizationTimestampValid((string)($authorization['authorized_at'] ?? ''))
+            && ($authorization['analysis_only'] ?? false) === true
+            && (int)($authorization['operation_count'] ?? 0) === 4
+            && ($authorization['external_action_allowed'] ?? true) === false
+            && preg_match('/^[a-f0-9]{64}$/D', $digest) === 1
+            && hash_equals(
+                $digest,
+                strtolower(trim((string)($evidence['scheduled_analysis_authorization_digest'] ?? '')))
+            )
+            && hash_equals($digest, $this->authorizationDigest($authorization));
+        if (!$selfValid) {
+            return false;
+        }
+        try {
+            $resolvedAuthorization = ($this->scheduledAuthorizationResolver)(
+                $authorization,
+                $expectedTenantId,
+                $expectedHotelId,
+                $expectedPlatform
+            );
+        } catch (\Throwable) {
+            return false;
+        }
+        return $resolvedAuthorization === $authorization;
+    }
+
+    /** @param array<string,mixed> $authorization */
+    private function authorizationDigest(array $authorization): string
+    {
+        unset($authorization['content_digest']);
+        try {
+            return hash('sha256', json_encode(
+                $this->canonicalize($authorization),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            ));
+        } catch (\JsonException) {
+            return '';
+        }
+    }
+
+    private function authorizationTimestampValid(string $value): bool
+    {
+        $time = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:sP', trim($value));
+        return $time instanceof \DateTimeImmutable
+            && $time->format('Y-m-d\TH:i:sP') === trim($value);
+    }
+
+    private function canonicalize(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map(fn(mixed $item): mixed => $this->canonicalize($item), $value);
+        }
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalize($item);
+        }
+        return $value;
     }
 
     private function arrayValue(mixed $value): array

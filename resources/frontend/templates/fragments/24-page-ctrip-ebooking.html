@@ -222,6 +222,18 @@
                                                 </div>
                                             </div>
 
+                                            <section data-testid="ctrip-channel-order-upload" class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-sm">
+                                                <b>门店渠道订单</b> · 自动绑定 {{ platformHotelSelectedName || '当前酒店' }} <button type="button" @click="ctripChannelOrderUploadOpen = !ctripChannelOrderUploadOpen" class="ml-2 rounded-lg bg-[#65502f] px-4 py-2 font-semibold text-white">{{ ctripChannelOrderUploadOpen ? '收起上传' : '上传渠道订单' }}</button>
+                                                <div v-if="ctripChannelOrderUploadOpen" class="mt-3 border-t border-emerald-100 pt-3">
+                                                    <input type="file" accept=".xls,.xlsx,.csv,.json" multiple @change="handleCtripChannelOrderFileChange" class="block w-full rounded-lg border bg-white p-2">
+                                                    <p class="mt-2 text-xs text-gray-500">可一次选择多份同一门店的携程旧版 <code>.xls</code>，系统会先合并去重，再按渠道和入住日聚合，避免同日期文件互相覆盖；单文件仍支持 XLS、XLSX、CSV、JSON。参考底价只作参考，不是确认收入。</p>
+                                                    <p v-if="ctripChannelOrderUploadFile" class="mt-2 text-xs font-medium text-emerald-800">已选择 {{ ctripChannelOrderUploadFile.length }} 份文件；请确认顶部酒店与文件内门店一致。</p>
+                                                    <button type="button" @click="uploadCtripChannelOrders" :disabled="ctripChannelOrderUploading || !ctripChannelOrderUploadFile || !platformHotelSelectedId" class="mt-2 rounded bg-emerald-700 px-4 py-2 font-semibold text-white disabled:bg-gray-300">{{ ctripChannelOrderUploading ? '正在保存并回读' : '确认上传' }}</button>
+                                                    <p v-if="ctripChannelOrderUploadError" class="mt-2 rounded bg-red-50 p-2 text-red-700">{{ ctripChannelOrderUploadError }}</p>
+                                                    <p v-if="ctripChannelOrderUploadResult" class="mt-2 rounded bg-white p-2 text-emerald-800">上传完成 · {{ ctripChannelOrderUploadReceiptText }}</p>
+                                                </div>
+                                            </section>
+
                                             <div v-if="ctripEbookingBusinessDetailsReady" data-testid="ctrip-store-overview-business-details" class="space-y-4">
                                                 <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
                                                     <div class="border rounded-lg bg-white p-4">
@@ -501,9 +513,14 @@
                                     <div v-if="ctripRankingDisplayActivated &amp;&amp; ctripHotelsList &amp;&amp; ctripHotelsList.length &gt; 0" class="mt-4" data-download-target="ctrip-business">
                                         <!-- backend display summary -->
                                         <div class="mb-4">
+                                            <div class="ctrip-summary-card-toolbar">
+                                                <span><i class="fas fa-grip-horizontal" aria-hidden="true"></i> 拖拽卡片调整顺序</span>
+                                                <button v-if="ctripSummaryHasCustomOrder" type="button" @click="resetCtripSummaryCardOrder">恢复默认排序</button>
+                                            </div>
                                             <div class="responsive-metric-grid ctrip-business-summary-grid">
-                                                <div v-for="card in ctripBusinessSummaryCards" :key="card.key" :class="['rounded-lg p-3 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200']">
-                                                    <div :class="['text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value || '-' }}</div>
+                                                <div v-for="card in ctripSummaryDisplayCards" :key="card.key" draggable="true" data-testid="ctrip-summary-card" :class="['ctrip-summary-card rounded-lg p-3 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200', ctripSummaryDraggedCardKey === String(card.key) ? 'is-dragging' : '', ctripSummaryDragOverCardKey === String(card.key) &amp;&amp; ctripSummaryDraggedCardKey !== String(card.key) ? 'is-drag-over' : '']" @dragstart="startCtripSummaryCardDrag($event, card.key)" @dragenter.prevent="enterCtripSummaryCardDrag(card.key)" @dragover.prevent @drop.prevent="dropCtripSummaryCard(card.key)" @dragend="clearCtripSummaryCardDragState">
+                                                    <span class="ctrip-summary-card-handle" aria-hidden="true"><i class="fas fa-grip-vertical"></i></span>
+                                                    <div :class="['ctrip-summary-card-value text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value ?? '-' }}</div>
                                                     <div class="text-xs text-gray-500">{{ card.label }}</div>
                                                     <div v-if="card.level" :class="['text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
                                                 </div>
@@ -559,9 +576,9 @@
                                                         <td class="px-3 py-2 border text-left font-medium">
                                                             <div :title="hotel.hotelName + ' · 酒店ID ' + hotel.hotelId">{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-semibold text-green-600">{{ hasDisplayValue(hotel.amount) ? formatNumber(Math.round(Number(hotel.amount))) : '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-green-600">{{ hasDisplayValue(hotel.amount) ? Number(hotel.amount).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-yellow-600">{{ formatOptionalNumber(hotel.quantity) }}</td>
-                                                        <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? formatNumber(Math.round(Number(hotel.adr))) : '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? Number(hotel.adr).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
                                                         <td class="ctrip-sales-order-cell px-3 py-2 border text-center font-semibold text-blue-700" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
                                                             <span v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
@@ -1848,9 +1865,14 @@
                                         <div v-else="">
                                         <!-- backend display summary -->
                                         <div class="mb-4">
+                                            <div class="ctrip-summary-card-toolbar">
+                                                <span><i class="fas fa-grip-horizontal" aria-hidden="true"></i> 拖拽卡片调整顺序</span>
+                                                <button v-if="ctripSummaryHasCustomOrder" type="button" @click="resetCtripSummaryCardOrder">恢复默认排序</button>
+                                            </div>
                                             <div class="responsive-metric-grid ctrip-business-summary-grid">
-                                                <div v-for="card in ctripBusinessSummaryCards" :key="card.key" :class="['rounded-lg p-3 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200']">
-                                                    <div :class="['text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value || '-' }}</div>
+                                                <div v-for="card in ctripSummaryDisplayCards" :key="card.key" draggable="true" data-testid="ctrip-summary-card" :class="['ctrip-summary-card rounded-lg p-3 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200', ctripSummaryDraggedCardKey === String(card.key) ? 'is-dragging' : '', ctripSummaryDragOverCardKey === String(card.key) &amp;&amp; ctripSummaryDraggedCardKey !== String(card.key) ? 'is-drag-over' : '']" @dragstart="startCtripSummaryCardDrag($event, card.key)" @dragenter.prevent="enterCtripSummaryCardDrag(card.key)" @dragover.prevent @drop.prevent="dropCtripSummaryCard(card.key)" @dragend="clearCtripSummaryCardDragState">
+                                                    <span class="ctrip-summary-card-handle" aria-hidden="true"><i class="fas fa-grip-vertical"></i></span>
+                                                    <div :class="['ctrip-summary-card-value text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value ?? '-' }}</div>
                                                     <div class="text-xs text-gray-500">{{ card.label }}</div>
                                                     <div v-if="card.level" :class="['text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
                                                 </div>
@@ -1901,9 +1923,9 @@
                                                         <td class="px-3 py-2 border text-left font-medium">
                                                             <div :title="hotel.hotelName + ' · 酒店ID ' + hotel.hotelId">{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-semibold text-green-600">{{ hasDisplayValue(hotel.amount) ? formatNumber(Math.round(Number(hotel.amount))) : '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-green-600">{{ hasDisplayValue(hotel.amount) ? Number(hotel.amount).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-yellow-600">{{ formatOptionalNumber(hotel.quantity) }}</td>
-                                                        <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? formatNumber(Math.round(Number(hotel.adr))) : '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? Number(hotel.adr).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
                                                         <td class="ctrip-sales-order-cell px-3 py-2 border text-center font-semibold text-blue-700" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
                                                             <span v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>

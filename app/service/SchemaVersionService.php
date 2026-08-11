@@ -48,6 +48,18 @@ final class SchemaVersionService
             '867b1adbbe762b04101dfbe6ef91f6c613fd9ed2149ba8846ebb1780f0bfc35e'
                 => '578e9f96fa438e8ff2ba2539dca34322889ec2e16933a7ebe3087d4f1709cd70',
         ],
+        '20260809_b_absorb_ctrip_commission_reform_watch.sql' => [
+            'e7634290b67bd1c42c0ea4daed10efa2943df806395faa9f1f525da4a97300f7'
+                => 'b0b3786d1f1074ca4b5ec7329fb359c9d1571f5f138198bea7b4c748d86479ad',
+        ],
+        '20260809_c_repair_ctrip_reform_watch_retrieval_traceability.sql' => [
+            'd3c3ad5b87199fdba481b9fd6fbe2b3d4f20ce9033cd72673eeeb966019ec18d'
+                => '60aae2f7cd0292b45a7d740edd3886a5d78f1c96d2c5c5e8f23ceaf0167935ad',
+        ],
+        '20260809_d_repair_ctrip_reform_watch_checklist_evidence_label.sql' => [
+            'd89bc7633624351221cb2cf6786a042758afd9266864c62181c8478acd45494e'
+                => '1e044674a15b745c94dbadb4b23f8065897ce1a1b03891235ffea3297e3f709a',
+        ],
     ];
     private const HISTORICAL_NOT_APPLICABLE_GUARDS = [
         '20260723_validate_owner_tenant_bootstrap_targets.sql' => [

@@ -149,6 +149,16 @@ final class P0OtaFieldLoopVerifierRunner
             && (int)($summary['traffic_gates_ready'] ?? -1) === count($platforms)
             && (int)($summary['traffic_gates_incomplete'] ?? -1) === 0;
         $issueCodes = $this->issueCodes($decoded['issues'] ?? []);
+        $storageScopeResult = $this->platformStorageScopeReceipts(
+            $decoded['traffic_evidence_availability'] ?? [],
+            $hotelId,
+            $targetDate,
+            $platforms
+        );
+        $platformStorageScopes = $storageScopeResult['scopes'];
+        foreach ($storageScopeResult['issue_codes'] as $storageScopeIssue) {
+            $issueCodes[] = $storageScopeIssue;
+        }
 
         try {
             $continuousTrust = is_callable($this->continuousTrustResolver)
@@ -177,12 +187,17 @@ final class P0OtaFieldLoopVerifierRunner
         $issueCodes = array_values(array_unique($issueCodes));
         sort($issueCodes, SORT_STRING);
 
+        // Exact fact authority is decided by the bounded
+        // hotel/platform/date/storage receipt. Continuous collection health is
+        // reported alongside it, but cannot overwrite a proven historical
+        // fact or block canonical promotion of that exact row set.
         $authorityReady = $exitCode === 0
             && $verifierStatus === 'passed'
             && $scopeMatches
             && $summaryReady
             && $verifiedPlatforms === $platforms
-            && $continuousReady;
+            && array_keys($platformStorageScopes) === $platforms
+            && $storageScopeResult['issue_codes'] === [];
 
         if (!$scopeMatches) {
             $issueCodes[] = 'p0_verifier_scope_mismatch';
@@ -197,7 +212,7 @@ final class P0OtaFieldLoopVerifierRunner
         sort($issueCodes, SORT_STRING);
 
         return [
-            'schema_version' => 1,
+            'schema_version' => 2,
             'verification_source' => 'external_p0_verifier',
             'script' => 'scripts/verify_p0_ota_field_loop_closure.php',
             'status' => $authorityReady
@@ -211,15 +226,149 @@ final class P0OtaFieldLoopVerifierRunner
             'verified_platforms' => $verifiedPlatforms,
             'collection_anchor_hash' => $collectionAnchorHash,
             'platform_statuses' => $platformStatuses,
+            'platform_storage_scopes' => $platformStorageScopes,
             'p0_platforms_ready' => (int)($summary['p0_platforms_ready'] ?? 0),
             'traffic_gates_ready' => (int)($summary['traffic_gates_ready'] ?? 0),
             'continuous_trust_status' => strtolower(trim((string)($continuousTrust['status'] ?? 'partial'))),
+            'continuous_trust_ready' => $continuousReady,
             'continuous_trust_missing_steps' => $continuousMissing,
             'issue_codes' => $issueCodes,
             'verifier_report_hash' => hash('sha256', $stdout),
             'checked_at' => date('Y-m-d H:i:s'),
             'sensitive_values_exposed' => false,
         ];
+    }
+
+    /**
+     * Preserve only the bounded exact storage identities proven by the strict
+     * verifier. Raw rows, platform identifiers, URLs, and response payloads
+     * are intentionally excluded from this receipt.
+     *
+     * @param mixed $availability
+     * @param array<int, string> $platforms
+     * @return array{scopes:array<string,array<string,mixed>>,issue_codes:array<int,string>}
+     */
+    private function platformStorageScopeReceipts(
+        mixed $availability,
+        int $hotelId,
+        string $targetDate,
+        array $platforms
+    ): array {
+        $scopes = [];
+        $issues = [];
+        foreach (is_array($availability) ? $availability : [] as $platformEvidence) {
+            if (!is_array($platformEvidence)) {
+                continue;
+            }
+            $platform = strtolower(trim((string)($platformEvidence['platform'] ?? '')));
+            if (!in_array($platform, $platforms, true)) {
+                continue;
+            }
+            if (isset($scopes[$platform])) {
+                $issues[] = $platform . '_p0_storage_scope_ambiguous';
+                unset($scopes[$platform]);
+                continue;
+            }
+            $fieldFacts = is_array($platformEvidence['traffic_field_fact_closure'] ?? null)
+                ? $platformEvidence['traffic_field_fact_closure']
+                : [];
+            $storageScope = is_array($fieldFacts['storage_scope'] ?? null)
+                ? $fieldFacts['storage_scope']
+                : [];
+            $tenantId = (int)($storageScope['tenant_id'] ?? 0);
+            $dataSourceId = (int)($storageScope['data_source_id'] ?? 0);
+            $syncTaskId = (int)($storageScope['sync_task_id'] ?? 0);
+            $scopeHotelId = (int)($storageScope['system_hotel_id'] ?? 0);
+            $scopePlatform = strtolower(trim((string)($storageScope['platform'] ?? '')));
+            $requiredMetrics = $this->metricKeyList($fieldFacts['required_metric_keys'] ?? []);
+            $completeMetrics = $this->metricKeyList($fieldFacts['complete_metric_keys'] ?? []);
+            $missingMetrics = $this->metricKeyList($fieldFacts['missing_metric_keys'] ?? []);
+            $sampleRowIds = [];
+            foreach (is_array($fieldFacts['sample_metric_rows'] ?? null) ? $fieldFacts['sample_metric_rows'] : [] as $sample) {
+                $rowId = is_array($sample) ? (int)($sample['row_id'] ?? 0) : 0;
+                if ($rowId > 0) {
+                    $sampleRowIds[] = $rowId;
+                }
+            }
+            $sampleRowIds = array_values(array_unique($sampleRowIds));
+            sort($sampleRowIds, SORT_NUMERIC);
+
+            $observedProvenanceStatus = strtolower(trim((string)(
+                $fieldFacts['observed_traffic_metric_provenance_status'] ?? ''
+            )));
+            $syntheticProvenanceMissingRows = (int)(
+                $fieldFacts['synthetic_normalization_provenance_missing_rows'] ?? -1
+            );
+            if ($observedProvenanceStatus !== 'ready' || $syntheticProvenanceMissingRows !== 0) {
+                $issues[] = $platform . '_synthetic_normalization_provenance_missing';
+                continue;
+            }
+
+            $scopeReady = strtolower(trim((string)($platformEvidence['status'] ?? ''))) === 'ready'
+                && (int)($platformEvidence['system_hotel_id'] ?? 0) === $hotelId
+                && strtolower(trim((string)($fieldFacts['status'] ?? ''))) === 'ready'
+                && substr(trim((string)($fieldFacts['target_date'] ?? '')), 0, 10) === $targetDate
+                && (int)($fieldFacts['system_hotel_id'] ?? 0) === $hotelId
+                && strtolower(trim((string)($storageScope['status'] ?? ''))) === 'ready'
+                && $tenantId > 0
+                && $dataSourceId > 0
+                && $syncTaskId > 0
+                && $scopeHotelId === $hotelId
+                && $scopePlatform === $platform
+                && $requiredMetrics !== []
+                && array_diff($requiredMetrics, $completeMetrics) === []
+                && $missingMetrics === []
+                && (int)($fieldFacts['authoritative_traffic_row_count'] ?? 0) > 0
+                && strtolower(trim((string)($fieldFacts['readback_status'] ?? ''))) === 'ready'
+                && $sampleRowIds !== [];
+            if (!$scopeReady) {
+                $issues[] = $platform . '_p0_storage_scope_missing';
+                continue;
+            }
+
+            $scopes[$platform] = [
+                'tenant_id' => $tenantId,
+                'data_source_id' => $dataSourceId,
+                'sync_task_id' => $syncTaskId,
+                'system_hotel_id' => $scopeHotelId,
+                'platform' => $platform,
+                'target_date' => $targetDate,
+                'selection_basis' => preg_replace(
+                    '/[^a-z0-9_]+/',
+                    '_',
+                    strtolower(trim((string)($storageScope['selection_basis'] ?? '')))
+                ) ?: '',
+                'authoritative_traffic_row_count' => max(0, (int)($fieldFacts['authoritative_traffic_row_count'] ?? 0)),
+                'sample_row_ids' => $sampleRowIds,
+                'required_metric_keys' => $requiredMetrics,
+                'complete_metric_keys' => $completeMetrics,
+                'missing_metric_keys' => [],
+                'nonzero_required_metric_rows' => max(0, (int)($fieldFacts['nonzero_required_metric_rows'] ?? 0)),
+                'explicit_zero_confirmed_rows' => max(0, (int)($fieldFacts['explicit_zero_confirmed_rows'] ?? 0)),
+                'observed_traffic_metric_provenance_status' => 'ready',
+                'synthetic_normalization_provenance_missing_rows' => 0,
+                'readback_status' => 'ready',
+            ];
+        }
+        ksort($scopes, SORT_STRING);
+        $issues = array_values(array_unique($issues));
+        sort($issues, SORT_STRING);
+        return ['scopes' => $scopes, 'issue_codes' => $issues];
+    }
+
+    /** @return array<int, string> */
+    private function metricKeyList(mixed $value): array
+    {
+        $keys = [];
+        foreach (is_array($value) ? $value : [] as $key) {
+            $key = strtolower(trim((string)$key));
+            if (preg_match('/^[a-z][a-z0-9_]{0,79}$/D', $key) === 1) {
+                $keys[$key] = true;
+            }
+        }
+        $keys = array_keys($keys);
+        sort($keys, SORT_STRING);
+        return $keys;
     }
 
     /**
@@ -392,7 +541,7 @@ final class P0OtaFieldLoopVerifierRunner
         int $exitCode = 1
     ): array {
         return [
-            'schema_version' => 1,
+            'schema_version' => 2,
             'verification_source' => 'external_p0_verifier',
             'script' => 'scripts/verify_p0_ota_field_loop_closure.php',
             'status' => 'failed',
@@ -403,9 +552,11 @@ final class P0OtaFieldLoopVerifierRunner
             'required_platforms' => $platforms,
             'verified_platforms' => [],
             'platform_statuses' => [],
+            'platform_storage_scopes' => [],
             'p0_platforms_ready' => 0,
             'traffic_gates_ready' => 0,
             'continuous_trust_status' => 'not_evaluated',
+            'continuous_trust_ready' => false,
             'continuous_trust_missing_steps' => [],
             'issue_codes' => [$issueCode],
             'failure_type' => $failureType,

@@ -1,40 +1,15 @@
                                 <section v-if="currentPage === 'compass'" class="compass-hero-bezel" data-testid="home-executive-answer">
                                     <div class="compass-hero-core">
-                                        <div class="compass-hero-grid">
-                                            <div class="compass-hero-copy">
-                                                <div class="compass-eyebrow"><span></span> 自家门店经营首页</div>
-                                                <h1>{{ homeBusinessTimeModel.hotelName }} · 昨天经营事实</h1>
-                                                <p>{{ homeBusinessTimeModel.yesterday.summary }}</p>
-                                                <div class="home-fact-meta">
-                                                    <span>目标日 {{ homeBusinessTimeModel.yesterday.date }} · OTA渠道事实</span>
-                                                    <span :class="['home-status-pill', homeBusinessTimeModel.yesterday.statusClass]">{{ homeBusinessTimeModel.yesterday.status }}</span>
-                                                </div>
-                                            </div>
-                                            <div class="compass-hero-action">
-                                                <select v-model="filterReportHotel" class="input-field">
-                                                    <option value="">全部可见门店</option>
-                                                    <option v-for="hotel in compassHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                                <button type="button" @click="refreshCompassDashboard" :disabled="compassLoading" class="compass-primary-cta disabled:opacity-60">{{ compassLoading ? '刷新中' : '刷新事实' }}</button>
-                                            </div>
-                                        </div>
-
-                                        <div class="compass-signal-grid" data-testid="home-yesterday-facts">
-                                            <article v-for="fact in homeBusinessTimeModel.yesterday.facts" :key="fact.key" class="compass-signal-card">
-                                                <span class="compass-signal-label">{{ fact.label }}</span>
-                                                <span :class="['home-status-pill', fact.statusClass]">{{ fact.status }}</span>
-                                                <strong>{{ fact.value }}</strong>
-                                            </article>
-                                        </div>
-                                        <p>{{ homeBusinessTimeModel.yesterday.sourceText }}</p>
-
-                                        <div class="home-scope-grid" data-testid="home-scope-boundaries">
-                                            <article v-for="scope in homeBusinessTimeModel.scopeRows" :key="scope.key" class="compass-signal-card">
-                                                <span class="compass-signal-label">{{ scope.label }}</span>
-                                                <span :class="['home-status-pill', scope.statusClass]">{{ scope.status }}</span>
-                                                <p>{{ scope.detail }}</p>
-                                            </article>
-                                        </div>
+                                        <home-yesterday-operating-facts
+                                            :model="homeBusinessTimeModel"
+                                            :show-header="true"
+                                            :show-controls="true"
+                                            :hotel-options="compassHotelOptions"
+                                            :selected-hotel-id="filterReportHotel"
+                                            :refreshing="compassLoading || revenueAiOverviewLoading"
+                                            @update:selected-hotel-id="filterReportHotel = $event"
+                                            @refresh="refreshCompassDashboard">
+                                        </home-yesterday-operating-facts>
 
                                         <!-- 昨天事实 / 今天状态 / 未来 AI 研判 · data-testid="home-temporal-axis" data-testid="home-competitor-diagnostic-reference" -->
                                         <home-business-time-axis

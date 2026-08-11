@@ -103,4 +103,62 @@ final class OperationExecutionIdentityGuardTest extends TestCase
         self::assertSame(0.0, $summary['execution_rate']);
         self::assertSame(100.0, $summary['operator_reported_execution_rate']);
     }
+
+    public function testScheduledAnalysisReadbackRejectsSelfRehashedAuthorizationWithoutServerGrant(): void
+    {
+        $authorization = [
+            'schema_version' => 'canonical_ota_scheduled_analysis_authorization.v1',
+            'enabled' => true,
+            'plan_id' => 'forged_but_rehashed_plan',
+            'tenant_id' => 1,
+            'hotel_id' => 80,
+            'platform' => 'ctrip',
+            'trigger' => 'historical_daily_canonical_promotion',
+            'authorized_at' => '2026-08-09T10:00:00+08:00',
+            'authorized_by' => 'user_goal',
+            'analysis_only' => true,
+            'operation_count' => 4,
+            'external_action_allowed' => false,
+        ];
+        $authorization['content_digest'] = $this->digest($authorization);
+        $service = new ExecutionFlowReadService(
+            new ExecutionOutcomeService(),
+            static function (): array {
+                throw new \RuntimeException('canonical_scheduled_analysis_grant_mismatch');
+            }
+        );
+        $method = new \ReflectionMethod($service, 'analysisApprovalAuthorityValid');
+        $evidence = [
+            'approval_authority' => 'system_scheduled_analysis',
+            'scheduled_analysis_authorization' => $authorization,
+            'scheduled_analysis_authorization_digest' => $authorization['content_digest'],
+        ];
+
+        self::assertFalse($method->invoke($service, $evidence, 1, 80, 'ctrip'));
+    }
+
+    /** @param array<string,mixed> $value */
+    private function digest(array $value): string
+    {
+        unset($value['content_digest']);
+        return hash('sha256', json_encode(
+            $this->canonicalize($value),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        ));
+    }
+
+    private function canonicalize(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map(fn(mixed $item): mixed => $this->canonicalize($item), $value);
+        }
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalize($item);
+        }
+        return $value;
+    }
 }

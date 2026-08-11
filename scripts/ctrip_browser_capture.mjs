@@ -2,11 +2,15 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
-import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
+import {
+  launchOtaPersistentContext,
+  requireFreshOtaPageNetwork,
+} from './lib/cloakbrowser_launcher.mjs';
 import {
   buildCtripEndpointCandidates,
   buildCtripStandardRowsFromFacts,
   buildCtripPageUrls,
+  ctripCaptureRowPeriodMetadata,
   ctripCatalogSummary,
   extractCtripCatalogFacts,
   filterCtripCatalogFactsForProfileFields,
@@ -61,6 +65,10 @@ import {
   replayObservedOtaReadRequests,
 } from './lib/ota_read_fallback.mjs';
 import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
+import {
+  normalizeObservedCtripTrafficMetrics,
+  observedCtripTrafficMetricKeys,
+} from './lib/ctrip_observed_traffic_metrics.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const PAGE_URLS = buildCtripPageUrls();
@@ -281,6 +289,7 @@ if (authOnly) {
 }
 
 try {
+  payload.network_freshness = await requireFreshOtaPageNetwork(browser, page);
   const loginStatus = await ensureLoggedIn(page, { interactive: !sessionProbeOnly });
   payload.auth_status = loginStatus;
   if (!loginStatus.ok) {
@@ -571,9 +580,15 @@ async function holdInteractiveLoginWindow(page, platformName) {
 
 async function finalizePayload() {
   dedupeRows(payload.business, row => row._fingerprint || JSON.stringify([row.hotelId, row.dataDate, row.amount, row.quantity, row.bookOrderNum]));
-  dedupeRows(payload.traffic, row => row._fingerprint || JSON.stringify([row.hotelId, row.date, row.listExposure, row.detailExposure, row.orderFillingNum, row.orderSubmitNum]));
+  dedupeRows(payload.traffic, row => JSON.stringify([
+    row.platform || '',
+    row._fingerprint || [row.hotelId, row.date, row.listExposure, row.detailExposure, row.orderFillingNum, row.orderSubmitNum],
+  ]));
   dedupeRows(payload.reviews, row => row.review_id || JSON.stringify([row.content || '', row.user_name || '', row.comment_time || '']));
-  dedupeRows(payload.rows, row => row._fingerprint || JSON.stringify([row.source_trace_id || row.source_url_hash || row.capture_evidence?.source_trace_id || row.capture_evidence?.source_url_hash || '', row.hotelId, row.dataDate || row.date, row.data_type, row.metric_key || '', row.value || row.amount || row.quantity || '']));
+  dedupeRows(payload.rows, row => JSON.stringify([
+    row.platform || '',
+    row._fingerprint || [row.source_trace_id || row.source_url_hash || row.capture_evidence?.source_trace_id || row.capture_evidence?.source_url_hash || '', row.hotelId, row.dataDate || row.date, row.data_type, row.metric_key || '', row.value || row.amount || row.quantity || ''],
+  ]));
   dedupeRows(payload.standard_rows, row => JSON.stringify([row.source, row.data_type, row.hotel_id, row.system_hotel_id || '', row.data_date, row.dimension]));
   dedupeRows(payload.catalog_facts, fact => JSON.stringify([
     fact.source_trace_id || fact.source_url_hash || '',
@@ -763,10 +778,12 @@ async function captureSectionWithNewPage(context, section, workerIndex = 1) {
   const target = createSectionCaptureTarget(section);
   const state = createCaptureState(section);
   const sectionPage = await context.newPage();
-  registerResponseCapture(sectionPage, target, state);
   let ok = true;
   let error = '';
+  let networkFreshness = null;
   try {
+    networkFreshness = await requireFreshOtaPageNetwork(context, sectionPage);
+    registerResponseCapture(sectionPage, target, state);
     const pageTargets = PAGE_URLS[section] || [];
     if (pageTargets.length === 0) {
       target.pages.push({ name: section, label: sectionLabel(section), url: '', ok: false, error: 'no page URL configured' });
@@ -796,6 +813,12 @@ async function captureSectionWithNewPage(context, section, workerIndex = 1) {
     standard_row_count: target.standard_rows.length,
     catalog_fact_count: target.catalog_facts.length,
     row_count: target.rows.length,
+    network_freshness: networkFreshness || {
+      status: 'blocked',
+      http_cache_disabled: false,
+      service_worker_bypassed: false,
+      sensitive_values_exposed: false,
+    },
     ...(error ? { error } : {}),
   };
 }
@@ -803,8 +826,9 @@ async function captureSectionWithNewPage(context, section, workerIndex = 1) {
 async function retrySectionsSequentially(context, sections) {
   const retryPage = await context.newPage();
   const retryState = createCaptureState('');
-  registerResponseCapture(retryPage, payload, retryState);
   try {
+    payload.capture_execution.retry_network_freshness = await requireFreshOtaPageNetwork(context, retryPage);
+    registerResponseCapture(retryPage, payload, retryState);
     for (const section of sections) {
       const pageTargets = PAGE_URLS[section] || [];
       if (pageTargets.length === 0) {
@@ -843,13 +867,16 @@ function sectionHasUsableData(target, section) {
   ));
 }
 
-function ctripEndpointNeedsReadFallback(target, endpointId) {
+function ctripEndpointNeedsReadFallback(target, endpointId, targetDate = '') {
   const normalizedEndpointId = String(endpointId || '').trim();
   if (!normalizedEndpointId) {
     return false;
   }
   return !(Array.isArray(target.responses) ? target.responses : []).some(response => (
     String(response?.endpoint_id || '').trim() === normalizedEndpointId
+    && (!targetDate
+      || !['business_flow_transform', 'traffic_flow_transform'].includes(normalizedEndpointId)
+      || String(response?.request_date || '').trim() === targetDate)
     && (
       Number(response?.standard_row_count || 0) > 0
       || Number(response?.catalog_fact_count || 0) > 0
@@ -930,7 +957,11 @@ async function captureSection(page, section, url, confidence = '', target = payl
         section,
         targetDate: defaultDataDate,
         maxAttempts: capturePlan.lightweight ? 1 : 3,
-        shouldReplay: template => ctripEndpointNeedsReadFallback(target, template.endpoint_id),
+        shouldReplay: template => ctripEndpointNeedsReadFallback(
+          target,
+          template.endpoint_id,
+          defaultDataDate,
+        ),
       },
     );
     target.read_fallbacks.push(...fallbackDiagnostics);
@@ -1461,8 +1492,15 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     });
     const rows = normalizeRows(safeBody, dataType, url, requestDateEvidence, {
       allowDiscoveredBusiness: Boolean(discoveryCandidate?.auto_capture),
-    }).map(row => attachCtripCaptureEvidence({
+    }).map(row => ({
       ...row,
+      ...ctripCaptureRowPeriodMetadata(row.data_date || row.date || row.dataDate || '', {
+        capturePlan: capturePlan.id,
+        defaultDataDate,
+      }),
+    })).map(row => attachCtripCaptureEvidence({
+      ...row,
+      platform,
       section,
       data_type: dataType,
       endpoint_id: endpoint?.id || '',
@@ -1532,6 +1570,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       request_type: requestType,
       keyword_hit: Boolean(urlSection),
       row_count: rows.length,
+      request_date: requestDateEvidence.date || '',
       parse_status: parsedResponse.evidence.status,
       parse_reason: parsedResponse.evidence.reason,
       response_body_format: parsedResponse.evidence.format,
@@ -1895,20 +1934,20 @@ function looksLikeTrafficRow(row) {
 }
 
 function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
-  const listExposure = numberValue(firstValue(row, ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view'], undefined), null);
-  const detailExposure = numberValue(firstValue(row, ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views', 'pageViews'], undefined), null);
-  const orderFillingNum = numberValue(firstValue(row, ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clicks', 'clickNum', 'fillUsers'], undefined), null);
-  const orderSubmitNum = numberValue(firstValue(row, ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'], undefined), null);
-  const derivedFlowRate = listExposure !== null
-    && detailExposure !== null
-    && listExposure > 0
-    ? (detailExposure / listExposure) * 100
-    : null;
-  const flowRate = normalizePercent(firstValue(row, ['flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'], undefined), derivedFlowRate);
+  const observedMetrics = normalizeObservedCtripTrafficMetrics(row);
+  const observedMetricKeys = observedCtripTrafficMetricKeys(observedMetrics);
+  const listExposure = observedMetrics.listExposure ?? null;
+  const detailExposure = observedMetrics.detailExposure ?? null;
+  const orderFillingNum = observedMetrics.orderFillingNum ?? null;
+  const orderSubmitNum = observedMetrics.orderSubmitNum ?? null;
   const hasRank = firstValue(row, ['rank', 'ranking', 'competitionRank', 'competitorRank', 'competeRank', 'categoryRank', 'cateRank', 'categoryRanking', 'rankJson', 'rawRankJson', 'rankingJson'], '') !== '';
-  const hasTrafficMetric = [listExposure, detailExposure, orderFillingNum, orderSubmitNum, flowRate]
-    .some(value => value !== null);
-  if (!hasTrafficMetric && !hasRank) {
+  if (listExposure === null
+    && detailExposure === null
+    && orderFillingNum === null
+    && orderSubmitNum === null
+    && observedMetrics.flowRate === undefined
+    && !hasRank
+  ) {
     return null;
   }
 
@@ -1937,14 +1976,19 @@ function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
       : 'capture_scope_default',
     date: dataDate,
     ...(dateSource ? { date_source: dateSource } : {}),
-    listExposure: listExposure === null ? null : Math.round(listExposure),
-    detailExposure: detailExposure === null ? null : Math.round(detailExposure),
-    flowRate: flowRate === null ? null : Math.round(flowRate * 100) / 100,
-    orderFillingNum: orderFillingNum === null ? null : Math.round(orderFillingNum),
-    orderSubmitNum: orderSubmitNum === null ? null : Math.round(orderSubmitNum),
+    ...observedMetrics,
+    _observed_traffic_metric_keys: observedMetricKeys,
     _source_url: sourceUrl,
     _capture_source: 'xhr:traffic',
-    _fingerprint: JSON.stringify([resolvedHotelId, dataDate, listExposure, detailExposure, orderFillingNum, orderSubmitNum]),
+    _fingerprint: JSON.stringify([
+      resolvedHotelId,
+      dataDate,
+      listExposure,
+      detailExposure,
+      orderFillingNum,
+      orderSubmitNum,
+      observedMetrics.flowRate ?? null,
+    ]),
   };
 }
 

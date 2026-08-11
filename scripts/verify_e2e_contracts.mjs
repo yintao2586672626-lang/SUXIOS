@@ -470,9 +470,9 @@ requireText('public/index.html', 'const ctripTargetHotelOptions = computed(() =>
 requirePattern('public/index.html', /const ctripTargetHotelOptions = computed\(\(\) => \{[\s\S]{0,500}?hasCtripFetchConfigByHotelId/, 'Ctrip manual target options retain the configured-source filter');
 requireText('public/index.html', 'const meituanTargetHotelOptions = computed(() => {', 'Meituan manual target hotel list is filtered to configured Meituan data sources');
 requirePattern('public/index.html', /const meituanTargetHotelOptions = computed\(\(\) => \{[\s\S]{0,500}?hasMeituanFetchConfigByHotelId/, 'Meituan manual target options retain the configured-source filter');
-requireText('public/index.html', 'data-testid="platform-hotel-context-select"', 'manual OTA pages expose one unified platform hotel selector');
-requireText('public/index.html', '<option v-for="hotel in (platformHotelContext === \'meituan\' ? meituanTargetHotelOptions : ctripTargetHotelOptions)" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>', 'the unified OTA hotel selector renders only the active platform configured options');
-requireText('public/index.html', "'暂无已配置酒店'", 'the unified OTA hotel selector reports an explicit configured-hotel empty state');
+requireText('public/index.html', 'data-testid="platform-hotel-context-search"', 'manual OTA pages expose one unified searchable platform hotel selector');
+requirePattern('public/index.html', /const platformHotelOptions = computed\(\(\) => \{[\s\S]{0,300}?platformHotelContext\.value === 'meituan'[\s\S]{0,180}?meituanTargetHotelOptions\.value[\s\S]{0,180}?platformHotelContext\.value === 'ctrip'[\s\S]{0,180}?ctripTargetHotelOptions\.value/, 'the unified OTA hotel selector renders only the active platform configured options');
+requireText('public/index.html', 'data-testid="platform-hotel-context-config"', 'the unified OTA hotel selector exposes an explicit configuration action when no configured hotel is available');
 requireText('public/ctrip-static.js', 'const buildTruthfulCtripDisplayModel', 'Ctrip display strips unsupported estimate fields from legacy snapshots');
 requireNoText('public/ctrip-static.js', "if (field === 'aiEstimatedTotalRoomNights')", 'Ctrip static sorter omits the unsupported AI estimate field');
 requireText('app/controller/concern/OnlineDataHistoryConcern.php', 'findLatestCtripRankRowsWithTraffic($latest, $hotelId, $currentUser, $columns)', 'Ctrip latest rank display falls back to the newest rank batch with traffic when the latest batch has no traffic fields');
@@ -627,7 +627,7 @@ requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>'
 requireText('public/index.html', 'const openOnlinePlatformAutoTab = (options = {}) =>', 'cross-page platform auto navigation uses the deduplicated entrypoint');
 requireText('public/index.html', 'const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;', 'platform auto-fetch delays schedule/browser settings behind immediate collect controls');
 requireText('public/index.html', 'const platformAutoSettingsPanelsReady = ref(false);', 'platform auto-fetch tracks settings readiness separately from core controls');
-requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260719-session-proof-hd0bfaeed76';", 'platform auto-fetch extension panels use a versioned lazy component script');
+requirePattern('public/index.html', /const platformAutoPanelsScript = 'components\/online-data\/platform-auto-settings-panels\.js\?v=[a-z0-9._-]+';/, 'platform auto-fetch extension panels use a versioned lazy component script');
 requireText('public/index.html', 'const ensurePlatformAutoPanelsReady = async () => {', 'platform auto-fetch extension panels load only after the delayed panel timers fire');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')", 'platform auto-fetch settings panel resolves the lazy body component after script load');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')", 'platform auto-fetch secondary panel resolves the lazy body component after script load');
@@ -892,9 +892,10 @@ requireText('public/index.html', 'const autoFetchStatusRequestPromises = new Map
 requireText('public/index.html', 'const AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS = AUTO_FETCH_PANEL_CACHE_TTL_MS;', 'entry reuses the platform-auto panel TTL for recent light auto-fetch status requests across core OTA switches');
 requireText('public/index.html', 'const autoFetchStatusResultCache = new Map();', 'entry tracks just-completed light auto-fetch status requests');
 requireText('public/index.html', 'const resetAutoFetchStatusResultCache = () => {', 'entry can clear just-completed auto-fetch status cache before explicit refreshes');
-requireText('public/index.html', "const requestKey = `${String(hotelId || '')}|${includeDetail ? 'full' : 'light'}`;", 'auto-fetch status request dedupe is scoped by hotel and detail level');
+requireText('public/index.html', 'const requestScopeKey = `${requestSession.epoch}:${requestHotelId}`;', 'auto-fetch status request dedupe is scoped by authenticated session and hotel');
+requireText('public/index.html', "const requestKey = `${requestScopeKey}|${includeDetail ? 'full' : 'light'}`;", 'auto-fetch status request dedupe is scoped by hotel and detail level');
 requireText('public/index.html', "if (!force && !includeDetail) {", 'auto-fetch status result cache only applies to non-forced light requests');
-requireText('public/index.html', 'autoFetchStatusResultCache.set(requestKey, { expiresAt: Date.now() + AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS });', 'successful light auto-fetch status reads populate the recent result cache');
+requirePattern('public/index.html', /autoFetchStatusResultCache\.set\(requestKey,\s*\{\s*expiresAt: Date\.now\(\) \+ AUTO_FETCH_STATUS_RESULT_CACHE_TTL_MS,\s*data: nextStatus,\s*\}\);/, 'successful light auto-fetch status reads populate the recent result cache with its scoped status snapshot');
 requireText('public/index.html', 'resetAutoFetchStatusResultCache();\n                return loadAutoFetchStatus({ detail: false });', 'scheduled auto-fetch status refresh clears the recent result cache before explicit refresh');
 requireText('public/index.html', '@change="schedulePlatformAutoFetchPanelLoad({ force: true, delayMs: 80 })"', 'platform auto-fetch hotel switches use the deferred non-blocking panel scheduler');
 requireNoText('public/index.html', '@change="loadAutoFetchStatus"', 'platform auto-fetch hotel switches must not directly trigger full status loading');
@@ -1227,7 +1228,8 @@ requireNoText('public/index.html', 'ctripConfigDetailCache.set(', 'Ctrip entry m
 requireText('public/index.html', 'const scheduleCtripHotelConfigApply = (event = null, options = {}) => {', 'Ctrip hotel selection uses a non-blocking config apply scheduler');
 requireText('public/index.html', 'const applyVersion = ++ctripHotelConfigApplyVersion;', 'Ctrip hotel selection ignores stale deferred metadata responses');
 requireText('public/index.html', 'const config = resolveCtripConfigMetadata(configSource);', 'Ctrip hotel selection applies metadata without credential-detail loading');
-requireText('public/index.html', '@change="handlePlatformHotelContextChange"', 'the unified OTA hotel selector uses the non-blocking platform selection handler');
+requireText('public/index.html', '@mousedown.prevent="selectPlatformHotelOption(hotel)"', 'the unified OTA hotel selector uses its searchable option selection handler');
+requireText('public/index.html', 'handlePlatformHotelContextChange({ target: { value: hotelId } });', 'the searchable OTA hotel selector delegates to the non-blocking platform selection handler');
 requireTextBetween('public/index.html', 'const handlePlatformHotelContextChange = (event) => {', 'const openPlatformHotelContextConfig = () =>', 'selectedCtripHotelId.value = hotelId;', 'the unified Ctrip hotel handler updates the explicit platform scope');
 requireTextBetween('public/index.html', 'const handlePlatformHotelContextChange = (event) => {', 'const openPlatformHotelContextConfig = () =>', 'else openCtripManualTab(onlineDataTab.value);', 'the unified Ctrip hotel handler delegates asynchronous page work to the tab scheduler');
 requireNoText('public/index.html', '@change="applyCtripHotelConfig"', 'Ctrip manual hotel selects must not block on metadata application');
@@ -2127,7 +2129,7 @@ requireNoText('public/index.html', 'const normalizePhase1EmployeeMetricDomainSum
 requireText('public/index.html', 'let onlineHistoryHotelListLoadingPromise = null;', 'online history hotel filter options deduplicate in-flight hotel list loads');
 requireText('public/index.html', 'const onlineHistoryHotelListLoaded = ref(false);', 'online history hotel filter options track loaded state');
 requireText('public/index.html', 'const refreshOnlineHistory = async (options = {}) => {', 'online history refresh supports skipping hotel filter reloads');
-requireText('public/index.html', "const scheduleOnlineHistoryRefresh = () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory({ refreshHotels: false }), 340);", 'post-fetch history refresh does not reload the hotel filter list');
+requirePattern('public/index.html', /const scheduleOnlineHistoryRefresh = \(\) => schedulePostFetchRefresh\('online-history',[\s\S]{0,240}?refreshOnlineHistory\(\{ refreshHotels: false \}\)[\s\S]{0,100}?, 340\);/, 'post-fetch history refresh does not reload the hotel filter list');
 requireNoText('public/index.html', 'await Promise.all([loadOnlineHistory(), loadOnlineHistoryHotelList()]);', 'online history refresh must not always reload the hotel filter list');
 requireNoText('public/index.html', "schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340)", 'post-fetch history refresh must skip hotel filter reloads');
 requireNoText('public/index.html', "params.append('hotel_id', filter.hotel_scope);", 'online history hotel scope query construction is not re-inlined');

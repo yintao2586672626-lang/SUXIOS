@@ -11,6 +11,13 @@ final class CloudOtaBundleExportService
     private const TRUSTED_VALIDATION_STATUSES = [
         'normal', 'available', 'verified', 'ok', 'success', 'complete', 'completed', 'readback_verified',
     ];
+    private const P0_METRIC_KEYS = [
+        'ctrip' => [
+            'list_exposure', 'detail_exposure', 'flow_rate',
+            'order_filling_num', 'order_submit_num',
+        ],
+        'meituan' => ['list_exposure', 'detail_exposure', 'flow_rate'],
+    ];
     /**
      * @param array<string, mixed> $binding
      * @param array<int, string> $requiredPlatforms
@@ -237,6 +244,10 @@ final class CloudOtaBundleExportService
     {
         $columns = $this->tableColumns('online_daily_data');
         $fields = array_values(array_intersect(CloudOtaBundleCodec::rowFields(), array_keys($columns)));
+        $selectFields = $fields;
+        if (isset($columns['raw_data'])) {
+            $selectFields[] = 'raw_data';
+        }
         $base = Db::name('online_daily_data')
             ->where('tenant_id', $tenantId)
             ->where('system_hotel_id', $hotelId)
@@ -260,7 +271,7 @@ final class CloudOtaBundleExportService
             ->whereIn('validation_status', self::TRUSTED_VALIDATION_STATUSES)
             ->order('id', 'asc')
             ->limit(CloudOtaBundleCodec::MAX_ROWS + 1)
-            ->field('id,' . implode(',', $fields))
+            ->field('id,' . implode(',', array_values(array_unique($selectFields))))
             ->select()
             ->toArray();
         if (count($rows) > CloudOtaBundleCodec::MAX_ROWS) {
@@ -273,7 +284,24 @@ final class CloudOtaBundleExportService
         $trustedRowIds = [];
         foreach ($rows as $row) {
             $trustedRowIds[] = (int)($row['id'] ?? 0);
-            $normalized[] = CloudOtaBundleCodec::allowlistedRow($row);
+            $transportRow = CloudOtaBundleCodec::allowlistedRow($row);
+            $originIngestionMethod = $this->safeOriginIngestionMethod($row, $syncTask, $source);
+            if ($originIngestionMethod !== null) {
+                $transportRow['ingestion_method'] = $originIngestionMethod;
+            }
+            $dataType = strtolower(trim((string)($transportRow['data_type'] ?? '')));
+            if (in_array($dataType, ['traffic', 'flow', 'conversion'], true)) {
+                $transportRow = array_merge(
+                    $transportRow,
+                    $this->safeP0Evidence($row, strtolower((string)($source['platform'] ?? '')))
+                );
+            } else {
+                $captureSource = $this->safeCaptureSource($row['raw_data'] ?? null);
+                if ($captureSource !== null) {
+                    $transportRow['capture_source'] = $captureSource;
+                }
+            }
+            $normalized[] = $transportRow;
         }
         sort($trustedRowIds, SORT_NUMERIC);
         if (array_diff($trustedRowIds, $targetRowIds) !== []
@@ -284,6 +312,342 @@ final class CloudOtaBundleExportService
             );
         }
         return [$normalized, $targetRowCount];
+    }
+
+    /** @param array<string, mixed> $row @param array<string, mixed> $syncTask @param array<string, mixed> $source */
+    private function safeOriginIngestionMethod(array $row, array $syncTask, array $source): ?string
+    {
+        foreach ([
+            $row['ingestion_method'] ?? null,
+            $syncTask['ingestion_method'] ?? null,
+            $source['ingestion_method'] ?? null,
+        ] as $candidate) {
+            $method = strtolower(trim((string)$candidate));
+            if ($method === '') {
+                continue;
+            }
+            return in_array($method, ['browser_profile', 'profile_browser', 'local_collector'], true)
+                ? $method
+                : null;
+        }
+        return null;
+    }
+
+    private function safeCaptureSource(mixed $rawData): ?string
+    {
+        if (is_string($rawData) && trim($rawData) !== '') {
+            try {
+                $rawData = json_decode($rawData, true, 64, JSON_THROW_ON_ERROR);
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+        if (!is_array($rawData)) {
+            return null;
+        }
+
+        $containers = [$rawData];
+        foreach (['row', 'source_row', 'capture_evidence'] as $key) {
+            if (is_array($rawData[$key] ?? null)) {
+                $containers[] = $rawData[$key];
+            }
+        }
+        foreach (['row', 'source_row'] as $key) {
+            $sourceRow = is_array($rawData[$key] ?? null) ? $rawData[$key] : [];
+            if (is_array($sourceRow['capture_evidence'] ?? null)) {
+                $containers[] = $sourceRow['capture_evidence'];
+            }
+        }
+
+        $candidates = [];
+        foreach ($containers as $container) {
+            foreach (['_capture_source', 'capture_source'] as $key) {
+                $value = strtolower(trim((string)($container[$key] ?? '')));
+                if ($value !== '') {
+                    $candidates[$value] = true;
+                }
+            }
+        }
+        if (count($candidates) !== 1) {
+            return null;
+        }
+
+        $captureSource = (string)array_key_first($candidates);
+        return mb_strlen($captureSource) <= 160
+            && preg_match(
+                '/^(?:xhr|fetch|same_origin_api|browser_response|network_response)(?::[a-z0-9._-]+)*$/D',
+                $captureSource
+            ) === 1
+                ? $captureSource
+                : null;
+    }
+
+    /** @param array<string, mixed> $row @return array<string, mixed> */
+    private function safeP0Evidence(array $row, string $platform): array
+    {
+        if (!isset(self::P0_METRIC_KEYS[$platform])) {
+            throw new RuntimeException('cloud_bundle_export_p0_platform_invalid');
+        }
+        $raw = $this->decodeRawData($row['raw_data'] ?? null);
+        if ($raw === []) {
+            throw new RuntimeException('cloud_bundle_export_p0_raw_data_missing:' . $platform);
+        }
+
+        $rowTraceId = trim((string)($row['source_trace_id'] ?? ''));
+        if ($rowTraceId === '' || mb_strlen($rowTraceId) > 200 || $this->containsCredentialMaterial($rowTraceId)) {
+            throw new RuntimeException('cloud_bundle_export_p0_source_trace_invalid:' . $platform);
+        }
+        $rawTraceId = $this->singleEvidenceValue(
+            $this->evidenceContainers($raw),
+            ['source_trace_id', '_source_trace_id', 'trace_id', '_trace_id'],
+            200
+        );
+        if ($rawTraceId === '' || !hash_equals($rowTraceId, $rawTraceId)) {
+            throw new RuntimeException('cloud_bundle_export_p0_source_trace_mismatch:' . $platform);
+        }
+
+        $sourceUrlHash = strtolower($this->singleEvidenceValue(
+            $this->evidenceContainers($raw),
+            ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash'],
+            64
+        ));
+        if (preg_match('/^[a-f0-9]{64}$/D', $sourceUrlHash) !== 1) {
+            throw new RuntimeException('cloud_bundle_export_p0_source_url_hash_invalid:' . $platform);
+        }
+        $captureSource = $this->safeCaptureSource($raw);
+        if ($captureSource === null) {
+            throw new RuntimeException('cloud_bundle_export_p0_capture_source_invalid:' . $platform);
+        }
+
+        $facts = $raw['field_facts'] ?? null;
+        if (!is_array($facts)
+            || $facts === []
+            || array_keys($facts) !== range(0, count($facts) - 1)
+            || count($facts) > 64
+        ) {
+            throw new RuntimeException('cloud_bundle_export_p0_field_facts_invalid:' . $platform);
+        }
+
+        $allowedMetrics = self::P0_METRIC_KEYS[$platform];
+        $normalizedFacts = [];
+        $seen = [];
+        foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                throw new RuntimeException('cloud_bundle_export_p0_field_fact_invalid:' . $platform);
+            }
+            if ($this->containsCredentialMaterial($fact)) {
+                throw new RuntimeException('cloud_bundle_export_p0_credential_evidence_rejected:' . $platform);
+            }
+            $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
+            if (!in_array($metricKey, $allowedMetrics, true)) {
+                continue;
+            }
+            if (isset($seen[$metricKey])) {
+                throw new RuntimeException('cloud_bundle_export_p0_metric_duplicate:' . $metricKey);
+            }
+            $seen[$metricKey] = true;
+            if (!array_key_exists($metricKey, $row)
+                || !is_numeric($row[$metricKey])
+                || !is_finite((float)$row[$metricKey])
+            ) {
+                throw new RuntimeException('cloud_bundle_export_p0_metric_value_invalid:' . $metricKey);
+            }
+
+            $sourceKey = $this->strictEvidenceText($fact['source_key'] ?? null, 160);
+            $sourcePath = $this->strictEvidenceText($fact['source_path'] ?? null, 500);
+            if ($sourceKey === ''
+                || $sourcePath === ''
+                || (!str_contains($sourcePath, '.') && !str_contains($sourcePath, '[') && !str_contains($sourcePath, '/'))
+                || str_contains($sourcePath, '://')
+                || str_starts_with($sourcePath, '//')
+                || $this->credentialFieldReference($sourceKey)
+                || $this->credentialFieldReference($sourcePath)
+            ) {
+                throw new RuntimeException('cloud_bundle_export_p0_fact_source_invalid:' . $metricKey);
+            }
+            if (trim((string)($fact['storage_field'] ?? '')) !== 'online_daily_data.' . $metricKey
+                || ($fact['stored_value_present'] ?? null) !== true
+                || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured'
+            ) {
+                throw new RuntimeException('cloud_bundle_export_p0_fact_contract_invalid:' . $metricKey);
+            }
+
+            $factEvidence = is_array($fact['capture_evidence'] ?? null) ? $fact['capture_evidence'] : [];
+            $factContainers = [$fact, $factEvidence];
+            $factTraceId = $this->singleEvidenceValue(
+                $factContainers,
+                ['source_trace_id', '_source_trace_id', 'trace_id', '_trace_id'],
+                200
+            );
+            $factUrlHash = strtolower($this->singleEvidenceValue(
+                $factContainers,
+                ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash'],
+                64
+            ));
+            $factCaptureSource = strtolower($this->singleEvidenceValue(
+                $factContainers,
+                ['capture_source', '_capture_source'],
+                160
+            ));
+            if ($factTraceId === ''
+                || !hash_equals($rowTraceId, $factTraceId)
+                || preg_match('/^[a-f0-9]{64}$/D', $factUrlHash) !== 1
+                || !hash_equals($sourceUrlHash, $factUrlHash)
+            ) {
+                throw new RuntimeException('cloud_bundle_export_p0_fact_evidence_mismatch:' . $metricKey);
+            }
+            if ($factCaptureSource !== '' && preg_match(
+                '/^(?:xhr|fetch|same_origin_api|browser_response|network_response)(?::[a-z0-9._-]+)*$/D',
+                $factCaptureSource
+            ) !== 1) {
+                throw new RuntimeException('cloud_bundle_export_p0_fact_capture_source_invalid:' . $metricKey);
+            }
+            if ($platform === 'meituan'
+                && ($factCaptureSource === '' || !hash_equals($captureSource, $factCaptureSource))
+            ) {
+                throw new RuntimeException('cloud_bundle_export_meituan_fact_capture_source_mismatch:' . $metricKey);
+            }
+
+            $transportEvidence = [
+                'source_trace_id' => $factTraceId,
+                'source_url_hash' => $factUrlHash,
+            ];
+            if ($factCaptureSource !== '') {
+                $transportEvidence['capture_source'] = $factCaptureSource;
+            }
+            $normalizedFacts[] = [
+                'metric_key' => $metricKey,
+                'source_key' => $sourceKey,
+                'source_path' => $sourcePath,
+                'storage_field' => 'online_daily_data.' . $metricKey,
+                'stored_value_present' => true,
+                'status' => 'captured',
+                'capture_evidence' => $transportEvidence,
+            ];
+        }
+        if ($normalizedFacts === []) {
+            throw new RuntimeException('cloud_bundle_export_p0_field_facts_missing:' . $platform);
+        }
+        if ($platform === 'meituan' && array_diff($allowedMetrics, array_keys($seen)) !== []) {
+            throw new RuntimeException('cloud_bundle_export_meituan_field_facts_incomplete');
+        }
+        usort($normalizedFacts, static fn(array $left, array $right): int => strcmp(
+            (string)$left['metric_key'],
+            (string)$right['metric_key']
+        ));
+        return [
+            'source_url_hash' => $sourceUrlHash,
+            'capture_source' => $captureSource,
+            'field_facts' => $normalizedFacts,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function decodeRawData(mixed $rawData): array
+    {
+        if (is_array($rawData)) {
+            return $rawData;
+        }
+        if (!is_string($rawData) || trim($rawData) === '') {
+            return [];
+        }
+        try {
+            $decoded = json_decode($rawData, true, 64, JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            return [];
+        }
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @param array<string, mixed> $raw @return array<int, array<string, mixed>> */
+    private function evidenceContainers(array $raw): array
+    {
+        $containers = [$raw];
+        foreach (['row', 'source_row', 'capture_evidence'] as $key) {
+            if (is_array($raw[$key] ?? null)) {
+                $containers[] = $raw[$key];
+            }
+        }
+        foreach (['row', 'source_row'] as $key) {
+            $sourceRow = is_array($raw[$key] ?? null) ? $raw[$key] : [];
+            if (is_array($sourceRow['capture_evidence'] ?? null)) {
+                $containers[] = $sourceRow['capture_evidence'];
+            }
+        }
+        return $containers;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $containers
+     * @param array<int, string> $keys
+     */
+    private function singleEvidenceValue(array $containers, array $keys, int $limit): string
+    {
+        $values = [];
+        foreach ($containers as $container) {
+            foreach ($keys as $key) {
+                if (!array_key_exists($key, $container)) {
+                    continue;
+                }
+                $value = $this->strictEvidenceText($container[$key], $limit);
+                if ($value !== '') {
+                    $values[$value] = true;
+                }
+            }
+        }
+        if (count($values) > 1) {
+            throw new RuntimeException('cloud_bundle_export_p0_evidence_conflict');
+        }
+        return count($values) === 1 ? (string)array_key_first($values) : '';
+    }
+
+    private function strictEvidenceText(mixed $value, int $limit): string
+    {
+        if (!is_scalar($value) && $value !== null) {
+            throw new RuntimeException('cloud_bundle_export_p0_evidence_shape_invalid');
+        }
+        $text = trim((string)$value);
+        if ($text === '') {
+            return '';
+        }
+        if (mb_strlen($text) > $limit || $this->containsCredentialMaterial($text)) {
+            throw new RuntimeException('cloud_bundle_export_p0_evidence_sensitive_or_oversized');
+        }
+        return $text;
+    }
+
+    private function containsCredentialMaterial(mixed $value, int $depth = 0): bool
+    {
+        if ($depth > 6) {
+            return true;
+        }
+        if (is_array($value)) {
+            if (count($value) > 64) {
+                return true;
+            }
+            foreach ($value as $key => $item) {
+                if (preg_match('/^(?:authorization|cookie|token|password|secret|session|headers?|profile)$/i', (string)$key) === 1
+                    || $this->containsCredentialMaterial($item, $depth + 1)
+                ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (!is_scalar($value) || $value === null) {
+            return false;
+        }
+        $text = trim((string)$value);
+        return preg_match('/(?:authorization["\x27]?\s*[:=]|bearer\s+[a-z0-9._~+\/-]{8,}|(?:cookie|token|password|secret|session)["\x27]?\s*[:=]\s*["\x27]?\S{4,})/i', $text) === 1
+            || preg_match('#https://qyapi\.weixin\.qq\.com/cgi-bin/webhook/send\?key=#i', $text) === 1;
+    }
+
+    private function credentialFieldReference(string $value): bool
+    {
+        return preg_match(
+            '/(?:^|[.\[\]\/\\:_-])(?:authorization|cookie|token|password|secret|session|headers?)(?:$|[.\[\]\/\\:_-])/i',
+            $value
+        ) === 1;
     }
 
     /** @param array<string, mixed> $syncTask @param array<int, array<string, mixed>> $rows @return array<string, string> */

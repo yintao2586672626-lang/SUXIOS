@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
   buildOtaPersistentContextOptions,
+  requireFreshOtaPageNetwork,
   createConnectedContextFacade,
   launchOtaPersistentContext,
   resolveOtaBrowserBinaryPath,
@@ -33,6 +35,64 @@ test('request chrome path is used when no process-wide binary is configured', ()
     if (previous === undefined) delete process.env.CLOAKBROWSER_BINARY_PATH;
     else process.env.CLOAKBROWSER_BINARY_PATH = previous;
   }
+});
+
+test('fresh OTA page network disables cache and bypasses service workers', async () => {
+  const calls = [];
+  const page = {};
+  const session = {
+    async send(method, params) {
+      calls.push([method, params]);
+    },
+  };
+  const context = {
+    async newCDPSession(receivedPage) {
+      assert.equal(receivedPage, page);
+      return session;
+    },
+  };
+
+  assert.deepEqual(await requireFreshOtaPageNetwork(context, page), {
+    status: 'ready',
+    http_cache_disabled: true,
+    service_worker_bypassed: true,
+    sensitive_values_exposed: false,
+  });
+  assert.deepEqual(calls, [
+    ['Network.enable', undefined],
+    ['Network.setCacheDisabled', { cacheDisabled: true }],
+    ['Network.setBypassServiceWorker', { bypass: true }],
+  ]);
+});
+
+test('fresh OTA page network fails closed without leaking CDP errors', async () => {
+  const context = {
+    async newCDPSession() {
+      return {
+        async send(method) {
+          if (method === 'Network.setCacheDisabled') {
+            throw new Error('secret browser diagnostic');
+          }
+        },
+      };
+    },
+  };
+
+  await assert.rejects(
+    () => requireFreshOtaPageNetwork(context, {}),
+    error => error?.message === 'ota_browser_fresh_network_control_unavailable'
+      && !error.message.includes('secret'),
+  );
+});
+
+test('every Ctrip and Meituan capture page installs the fresh network gate', async () => {
+  const ctrip = await readFile(new URL('../../scripts/ctrip_browser_capture.mjs', import.meta.url), 'utf8');
+  const meituan = await readFile(new URL('../../scripts/meituan_browser_capture.mjs', import.meta.url), 'utf8');
+
+  assert.match(ctrip, /payload\.network_freshness = await requireFreshOtaPageNetwork\(browser, page\)/);
+  assert.match(ctrip, /networkFreshness = await requireFreshOtaPageNetwork\(context, sectionPage\)/);
+  assert.match(ctrip, /retry_network_freshness = await requireFreshOtaPageNetwork\(context, retryPage\)/);
+  assert.match(meituan, /payload\.network_freshness = await requireFreshOtaPageNetwork\(browser, page\)/);
 });
 
 test('cloud Profile CDP accepts only the protected loopback endpoint', () => {

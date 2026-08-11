@@ -127,6 +127,9 @@ Route::group('api/hotels', function () {
     Route::post('/merge-execute', 'Hotel/mergeExecute');
     Route::get('/:id/pms-binding', 'Hotel/pmsBinding');
     Route::put('/:id/pms-binding', 'Hotel/updatePmsBinding');
+    Route::get('/:id/collection-binding-receipt', 'Hotel/collectionBindingReceipt');
+    Route::get('/:id/collection-plan', 'Hotel/collectionPlan');
+    Route::put('/:id/collection-plan', 'Hotel/updateCollectionPlan');
     Route::get('/:id', 'Hotel/read');
     Route::post('/', 'Hotel/create');
     Route::put('/:id', 'Hotel/update');
@@ -382,6 +385,7 @@ Route::group('api/online-data', function () {
     Route::get('/public-endpoint-security', 'OnlineData/publicEndpointSecurity');
     Route::get('/release-evidence-status', 'OnlineData/releaseEvidenceStatus');
     Route::get('/collection-reliability', 'OnlineData/collectionReliability');
+    Route::post('/dual-ota-page-verification', 'OnlineData/confirmDualOtaPageVerification');
     Route::get('/daily-workbench', 'OnlineData/dailyWorkbench');
     Route::get('/manual-fetch-evidence', 'OnlineData/manualFetchEvidence');
     Route::get('/manual-fetch-task-status', 'ota.SyncController/manualFetchTaskStatus');

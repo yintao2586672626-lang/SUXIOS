@@ -26,6 +26,9 @@ param(
     [ValidateSet('operating_indicators', 'full_diagnostic')]
     [string]$CollectionMode = 'operating_indicators',
 
+    [ValidateRange(-7, 0)]
+    [int]$TargetDateOffsetDays = 0,
+
     [ValidateRange(30, 1200)]
     [int]$TimeoutSeconds = 300,
 
@@ -53,14 +56,14 @@ function Get-JsonField {
     return $property.Value
 }
 
-function Read-LastJsonObject {
-    param([Parameter(Mandatory = $true)][string[]]$Paths)
+function Read-LastJsonText {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string[]]$Texts)
 
-    foreach ($path in $Paths) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+    foreach ($text in $Texts) {
+        if ([string]::IsNullOrWhiteSpace($text)) {
             continue
         }
-        $lines = [System.IO.File]::ReadAllLines($path, $utf8)
+        $lines = $text -split "`r?`n"
         for ($index = $lines.Length - 1; $index -ge 0; $index--) {
             $line = $lines[$index].Trim()
             if (-not $line.StartsWith('{')) {
@@ -105,24 +108,33 @@ if ([System.Uri]$CdpUrl -as [System.Uri]) {
 if (-not $cdpUri.IsLoopback -or $cdpUri.Scheme -ne 'http' -or $cdpUri.Port -gt 65535) {
     throw 'CDP URL must be a loopback HTTP endpoint.'
 }
+if ($TargetDateOffsetDays -lt 0 -and $CollectionMode -ne 'operating_indicators') {
+    throw 'Historical collection requires operating_indicators mode.'
+}
 
 $receiptRoot = Join-Path $resolvedRoot 'runtime\dingdandao_local_scheduler'
+$receiptScope = if ($TargetDateOffsetDays -lt 0) {
+    Join-Path $CollectionMode "historical_offset_$([Math]::Abs($TargetDateOffsetDays))"
+} else {
+    $CollectionMode
+}
 $receiptDirectory = Join-Path `
     (Join-Path (Join-Path $receiptRoot "hotel_$HotelId") "user_$OwnerUserId") `
-    $CollectionMode
+    $receiptScope
 New-Item -ItemType Directory -Force -Path $receiptDirectory | Out-Null
 $runId = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
-$stdoutPath = Join-Path $receiptDirectory "run_$runId.stdout.tmp"
-$stderrPath = Join-Path $receiptDirectory "run_$runId.stderr.tmp"
 $startedAt = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+$targetDate = (Get-Date).Date.AddDays($TargetDateOffsetDays).ToString('yyyy-MM-dd')
 $exitCode = 1
 $payload = $null
 $browserHost = $null
+$browserVisibleReused = $false
 
 $processArguments = @(
     ('"{0}"' -f $runnerPath),
     "--hotel-id=$HotelId",
     "--owner-user-id=$OwnerUserId",
+    "--target-date=$targetDate",
     "--cdp-url=$CdpUrl",
     "--sandbox-id=$SandboxId",
     "--collection-mode=$CollectionMode",
@@ -133,52 +145,85 @@ if ($Push) {
 }
 
 try {
-    $launcherOutput = @(
-        & $browserLauncherPath `
-            -ProjectRoot $resolvedRoot `
-            -Port $cdpUri.Port `
-            -Platform 'dingdandao' `
-            -SandboxId $SandboxId 2>&1
-    )
+    try {
+        $launcherOutput = @(
+            & $browserLauncherPath `
+                -ProjectRoot $resolvedRoot `
+                -Port $cdpUri.Port `
+                -Platform 'dingdandao' `
+                -SandboxId $SandboxId 2>&1
+        )
+    } catch {
+        $launcherReason = ConvertTo-SafeReason -Value $_.Exception.Message
+        if ($launcherReason -ne 'local_browser_sandbox_mode_switch_required') {
+            throw
+        }
+        $launcherOutput = @(
+            & $browserLauncherPath `
+                -ProjectRoot $resolvedRoot `
+                -Port $cdpUri.Port `
+                -Platform 'dingdandao' `
+                -SandboxId $SandboxId `
+                -InteractiveLogin 2>&1
+        )
+        $browserVisibleReused = $true
+    }
     $browserHost = ($launcherOutput -join [Environment]::NewLine) |
         ConvertFrom-Json -ErrorAction Stop
     if ($null -eq $browserHost -or
         ([string](Get-JsonField -Object $browserHost -Name 'cdp_status' -Fallback '') -ne 'ready') -or
-        ([bool](Get-JsonField -Object $browserHost -Name 'headless' -Fallback $false) -ne $true) -or
         ([string](Get-JsonField -Object $browserHost -Name 'isolation' -Fallback '') -ne 'process_profile')
     ) {
-        throw 'local_browser_sandbox_headless_start_failed'
+        throw 'local_browser_sandbox_start_failed'
     }
 
-    $process = Start-Process `
-        -FilePath $resolvedPhp `
-        -ArgumentList $processArguments `
-        -WorkingDirectory $resolvedRoot `
-        -RedirectStandardOutput $stdoutPath `
-        -RedirectStandardError $stderrPath `
-        -PassThru `
-        -NoNewWindow
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        throw 'dingdandao_scheduled_collector_timeout'
+    $processStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $processStartInfo.FileName = $resolvedPhp
+    $processStartInfo.Arguments = $processArguments -join ' '
+    $processStartInfo.WorkingDirectory = $resolvedRoot
+    $processStartInfo.UseShellExecute = $false
+    $processStartInfo.RedirectStandardOutput = $true
+    $processStartInfo.RedirectStandardError = $true
+    $processStartInfo.CreateNoWindow = $true
+    $processStartInfo.StandardOutputEncoding = $utf8
+    $processStartInfo.StandardErrorEncoding = $utf8
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $processStartInfo
+    try {
+        if (-not $process.Start()) {
+            throw 'dingdandao_scheduled_collector_start_failed'
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw 'dingdandao_scheduled_collector_timeout'
+        }
+        $process.WaitForExit()
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $exitCode = [int]$process.ExitCode
+        $payload = Read-LastJsonText -Texts @($stdout, $stderr)
+        if ($null -eq $payload) {
+            throw 'dingdandao_scheduled_collector_output_invalid'
+        }
+    } finally {
+        $process.Dispose()
     }
-    $process.Refresh()
-    $exitCode = [int]$process.ExitCode
-    $payload = Read-LastJsonObject -Paths @($stdoutPath, $stderrPath)
 } catch {
     $payload = [pscustomobject]@{
         status = 'blocked'
         reason = ConvertTo-SafeReason -Value $_.Exception.Message
+        collection_success = $false
         business_data_persisted = $false
+        hotel_id = $HotelId
+        target_date = $targetDate
+        sandbox_id = $SandboxId
+        sandbox_selection = 'explicit_marker'
+        collection_mode = $CollectionMode
         message_sent = $false
     }
     $exitCode = 1
-} finally {
-    foreach ($path in @($stdoutPath, $stderrPath)) {
-        if (Test-Path -LiteralPath $path -PathType Leaf) {
-            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
-        }
-    }
 }
 
 $payloadStatus = [string](Get-JsonField -Object $payload -Name 'status' -Fallback 'blocked')
@@ -221,7 +266,7 @@ if ($payloadHotelId -ne $HotelId) {
     $scopeMismatchCodes += 'hotel_scope_mismatch'
 }
 if ($payloadTargetDate -notmatch '^\d{4}-\d{2}-\d{2}$' -or
-    $payloadTargetDate -ne (Get-Date).ToString('yyyy-MM-dd')
+    $payloadTargetDate -ne $targetDate
 ) {
     $scopeMismatchCodes += 'target_date_scope_mismatch'
 }
@@ -300,6 +345,12 @@ $receipt = [ordered]@{
     source = 'dingdandao'
     execution_mode = 'local_shared_browser_sandbox'
     collection_mode = $CollectionMode
+    target_date_offset_days = $TargetDateOffsetDays
+    target_date_role = if ($TargetDateOffsetDays -lt 0) {
+        'historical_business_date'
+    } else {
+        'capture_date'
+    }
     hotel_id = $HotelId
     owner_user_id = $OwnerUserId
     target_date = if ($payloadTargetDate -match '^\d{4}-\d{2}-\d{2}$') {
@@ -313,6 +364,7 @@ $receipt = [ordered]@{
     browser_host_status = [string](Get-JsonField -Object $browserHost -Name 'cdp_status' -Fallback 'not_ready')
     browser_host_started = [bool](Get-JsonField -Object $browserHost -Name 'browser_started' -Fallback $false)
     browser_headless = [bool](Get-JsonField -Object $browserHost -Name 'headless' -Fallback $false)
+    browser_visible_reused = $browserVisibleReused
     collection_success = $collectionSuccess
     downstream_satisfied = $downstreamSatisfied
     diagnostic_satisfied = $diagnosticSatisfied

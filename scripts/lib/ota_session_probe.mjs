@@ -434,6 +434,7 @@ function isRecognizedOtaSessionProbeRoute(platform, parsed) {
     return false;
   }
   const protectedRoutePatterns = [
+    /\/workbench\/business\/analysis(?:\/|$)/i,
     /\/business\/(?:businessdata|weighttraffic|peer\/rank|peertrends|flowconversion|flowtrend|flowtrenddetail|flowforecast|search-?keywords?|room-?types?)(?:\/|$)/i,
     /\/peerrank\/order\/loss\/query(?:\/|$)/i,
     /\/orders(?:\/list)?(?:\/|$)/i,

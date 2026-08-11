@@ -4,9 +4,19 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync('public/ota-diagnosis-static.js', 'utf8');
+const appMainSource = readFileSync('public/app-main.js', 'utf8');
+const agentCenterTemplate = readFileSync('resources/frontend/templates/fragments/27-page-agent-center.html', 'utf8');
+const onlineDataTemplate = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
 const sandbox = { window: {} };
 vm.runInNewContext(`${source}\nthis.api = window.SUXI_OTA_DIAGNOSIS_STATIC;`, sandbox);
 const api = sandbox.api;
+const scheduleHelpersStart = appMainSource.indexOf('// OTA_DIAGNOSIS_SCHEDULE_HELPERS_START');
+const scheduleHelpersEnd = appMainSource.indexOf('// OTA_DIAGNOSIS_SCHEDULE_HELPERS_END');
+assert.ok(scheduleHelpersStart >= 0 && scheduleHelpersEnd > scheduleHelpersStart, 'OTA diagnosis schedule helpers must remain extractable');
+const scheduleHelpersSource = appMainSource.slice(scheduleHelpersStart, scheduleHelpersEnd);
+const scheduleSandbox = {};
+vm.runInNewContext(`${scheduleHelpersSource}\nthis.api = { buildOtaDiagnosisDefaultExecutionSchedule, validateOtaDiagnosisExecutionSchedule };`, scheduleSandbox);
+const scheduleApi = scheduleSandbox.api;
 
 test('no_action is shown as a completed daily decision without an execution task', () => {
   const result = {
@@ -160,6 +170,110 @@ test('blocked target-date evidence keeps revenue analysis and review blocked wit
   assert.equal(gaps.filter(gap => gap.code === 'metric_missing:amount').length, 1);
   assert.equal(gaps.filter(gap => gap.code === 'optional_missing_section').length, 2);
   assert.match(metrics.find(card => card.label === '入库记录').hint, /不代表核心经营事实/);
+});
+
+test('blocked_by_missing_facts remains explicit, keeps string gaps, and exposes zero handoff counts', () => {
+  const gaps = api.buildOtaDiagnosisDataGapRows({
+    decision_status: 'blocked_by_missing_facts',
+    action_count: 0,
+    action_items: [],
+    data_gaps: ['metric_missing:amount', 'metric_missing:quantity'],
+  });
+
+  assert.deepEqual(Array.from(gaps, gap => gap.code), [
+    'metric_missing:amount',
+    'metric_missing:quantity',
+  ]);
+  assert.match(appMainSource, /blocked_by_missing_facts: '缺少可信事实，已阻断'/);
+  assert.match(appMainSource, /normalized\.startsWith\('blocked'\)/);
+  assert.match(appMainSource, /typeof item === 'string'\s*\? item\.trim\(\)/);
+  assert.match(appMainSource, /rawActionCount !== null[\s\S]*Number\.isFinite\(parsedActionCount\)/);
+  assert.match(appMainSource, /const ready = isApprovable\(item\)/);
+  assert.match(agentCenterTemplate, /data-testid="ota-diagnosis-decision-status"/);
+  assert.match(agentCenterTemplate, /建议动作 \{\{ otaDiagnosisActionCount \}\}/);
+  assert.match(agentCenterTemplate, /可审批任务 \{\{ otaDiagnosisApprovableTaskCount \}\}/);
+  assert.match(onlineDataTemplate, /建议动作 \{\{ item\.actionCount \}\}/);
+  assert.match(onlineDataTemplate, /可审批任务 \{\{ item\.approvableTaskCount \}\}/);
+  assert.match(onlineDataTemplate, /v-if="item\.ready &amp;&amp; coreOperationsCanExecute"/);
+});
+
+test('execution intent schedule is anchored to diagnosis baseline plus one day and blocks stale windows', () => {
+  const baselineBusinessDate = '2026-08-08';
+  const defaultSchedule = scheduleApi.buildOtaDiagnosisDefaultExecutionSchedule({
+    baselineBusinessDate,
+    assigneeId: 7,
+    now: '2026-08-08T12:00:00',
+  });
+  assert.equal(defaultSchedule.ready, true);
+  assert.equal(defaultSchedule.executionBusinessDate, '2026-08-09');
+  assert.equal(defaultSchedule.schedule.assignee_id, '7');
+  assert.equal(defaultSchedule.schedule.due_at, '2026-08-09T18:00');
+  assert.equal(defaultSchedule.schedule.review_at, '2026-08-09T23:00');
+
+  const stillFutureOnReviewDay = scheduleApi.buildOtaDiagnosisDefaultExecutionSchedule({
+    baselineBusinessDate,
+    assigneeId: 7,
+    now: '2026-08-09T17:59:59',
+  });
+  assert.equal(stillFutureOnReviewDay.ready, true);
+
+  const elapsedWindow = scheduleApi.buildOtaDiagnosisDefaultExecutionSchedule({
+    baselineBusinessDate,
+    assigneeId: 7,
+    now: '2026-08-09T18:00:00',
+  });
+  assert.equal(elapsedWindow.ready, false);
+  assert.equal(elapsedWindow.code, 'schedule_window_elapsed');
+  assert.match(elapsedWindow.message, /请重新生成最新诊断/);
+
+  const passedBusinessDate = scheduleApi.buildOtaDiagnosisDefaultExecutionSchedule({
+    baselineBusinessDate,
+    assigneeId: 7,
+    now: '2026-08-10T08:00:00',
+  });
+  assert.equal(passedBusinessDate.ready, false);
+  assert.equal(passedBusinessDate.code, 'next_business_date_passed');
+
+  const editedSchedule = scheduleApi.validateOtaDiagnosisExecutionSchedule({
+    baselineBusinessDate,
+    assigneeId: 9,
+    dueAt: '2026-08-09T19:00',
+    reviewAt: '2026-08-09T22:00',
+    now: '2026-08-09T17:00:00',
+  });
+  assert.equal(editedSchedule.ready, true);
+  assert.equal(editedSchedule.schedule.assignee_id, 9);
+
+  const wrongBusinessDate = scheduleApi.validateOtaDiagnosisExecutionSchedule({
+    baselineBusinessDate,
+    assigneeId: 7,
+    dueAt: '2026-08-10T18:00',
+    reviewAt: '2026-08-10T23:00',
+    now: '2026-08-09T10:00:00',
+  });
+  assert.equal(wrongBusinessDate.code, 'schedule_business_date_mismatch');
+
+  const unorderedSchedule = scheduleApi.validateOtaDiagnosisExecutionSchedule({
+    baselineBusinessDate,
+    assigneeId: 7,
+    dueAt: '2026-08-09T20:00',
+    reviewAt: '2026-08-09T20:00',
+    now: '2026-08-09T10:00:00',
+  });
+  assert.equal(unorderedSchedule.code, 'schedule_time_order_invalid');
+
+  const missingBaseline = scheduleApi.buildOtaDiagnosisDefaultExecutionSchedule({
+    baselineBusinessDate: '',
+    assigneeId: 7,
+    now: '2026-08-09T10:00:00',
+  });
+  assert.equal(missingBaseline.code, 'baseline_business_date_missing');
+  assert.match(missingBaseline.message, /重新生成并保存诊断/);
+
+  assert.doesNotMatch(appMainSource, /otaDiagnosisScheduleDateTime\(/);
+  assert.match(appMainSource, /setResult: updateIfCurrent\(value => \{[\s\S]*?resetOtaDiagnosisExecutionSchedule\(value\)/);
+  assert.match(appMainSource, /const createCoreOperationsDiagnosisIntent = async \(item\) => \{[\s\S]*?openWorkflowFormDialog\(\{[\s\S]*?validateOtaDiagnosisExecutionSchedule\(\{/);
+  assert.match(appMainSource, /baselineBusinessDate: otaDiagnosisBaselineBusinessDate\(otaDiagnosisResult\.value\)/);
 });
 
 test('daily Meituan diagnosis uses the bound browser Profile before supplemental APIs', async () => {

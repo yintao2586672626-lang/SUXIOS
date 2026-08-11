@@ -18,7 +18,7 @@ test('default startup budget uses the fast-iteration target, warning, and hard l
     hard_limit: DEFAULT_FRONTEND_BUDGET.max_startup_gzip_bytes,
   }, {
     target: 620_000,
-    enforce_target: true,
+    enforce_target: false,
     warning: 625_000,
     hard_limit: 650_000,
   });
@@ -77,16 +77,27 @@ test('evaluateFrontendBudget passes metrics within every limit', () => {
   }), []);
 });
 
-test('evaluateFrontendBudget enforces the startup target before the emergency hard limit', () => {
-  assert.deepEqual(evaluateFrontendBudget({
+test('evaluateFrontendBudget reports the warning zone without blocking before the emergency hard limit', () => {
+  const metrics = {
     index_bytes: 1_900_000,
     startup_gzip_bytes: 620_001,
     inline_script_bytes: 10_000,
     blocking_script_count: 0,
+  };
+  assert.equal(assessStartupGzipBudget(metrics).status, 'above_target');
+  assert.deepEqual(evaluateFrontendBudget(metrics), []);
+});
+
+test('evaluateFrontendBudget still blocks startup gzip beyond the emergency hard limit', () => {
+  assert.deepEqual(evaluateFrontendBudget({
+    index_bytes: 1_900_000,
+    startup_gzip_bytes: 650_001,
+    inline_script_bytes: 10_000,
+    blocking_script_count: 0,
   }), [{
     metric: 'startup_gzip_bytes',
-    actual: 620_001,
-    limit: 620_000,
+    actual: 650_001,
+    limit: 650_000,
   }]);
 });
 

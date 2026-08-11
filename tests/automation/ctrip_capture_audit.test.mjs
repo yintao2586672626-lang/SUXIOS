@@ -647,10 +647,10 @@ test('Ctrip browser traffic normalization preserves missing fields instead of wr
     script.indexOf('function normalizeCommentList'),
   );
 
-  assert.match(block, /firstValue\(row,[\s\S]*?undefined\), null\)/);
-  assert.match(block, /const hasTrafficMetric = \[/);
-  assert.match(block, /listExposure:\s*listExposure === null \? null : Math\.round\(listExposure\)/);
-  assert.match(block, /flowRate:\s*flowRate === null \? null :/);
+  assert.match(block, /normalizeObservedCtripTrafficMetrics\(row\)/);
+  assert.match(block, /observedCtripTrafficMetricKeys\(observedMetrics\)/);
+  assert.match(block, /\.\.\.observedMetrics/);
+  assert.doesNotMatch(block, /const derivedFlowRate/);
   assert.doesNotMatch(block, /listExposure[\s\S]{0,220}\), 0\)/);
 });
 

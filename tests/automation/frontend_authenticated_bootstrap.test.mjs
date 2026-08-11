@@ -177,6 +177,16 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.doesNotMatch(authenticatedLoad, /void loadDeferredAuthenticatedAssets\(/);
   assert.match(authenticatedLoad, /await loadScript\(entry\);/);
   assert.match(appMain, /requestSuxiFullRenderForPage = \(page\) => \{[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS\(\)/);
+  assert.match(
+    appMain,
+    /const promoteSuxiFullRender = \(\) => \{[\s\S]*const deferredAssetsReady = document\.documentElement\.dataset\.suxiFullRenderReady === '1';[\s\S]*!deferredAssetsReady\) return false;/,
+    'full render must not mount while deferred helper namespaces are still loading',
+  );
+  assert.match(
+    appMain,
+    /const handleSuxiFullRenderReady = \(\) => \{\s*document\.documentElement\.dataset\.suxiFullRenderReady = '1';[\s\S]*requestSuxiFullRenderForPage\(pendingFullRenderPage\)/,
+    'the completed deferred-asset event must release the full-render barrier',
+  );
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
 });
 
@@ -199,6 +209,16 @@ test('deferred data-health helpers are resolved lazily after the authenticated s
   assert.match(
     appMain,
     /window\.SUXI_DATA_HEALTH_STATIC\s*\?\s*otaConfigOverviewAllRows\.value[\s\S]*:\s*null/,
+  );
+  assert.match(
+    appMain,
+    /dataHealthTodayWorkOrders:\s*\(dataHealthStaticVersion\.value,\s*window\.SUXI_DATA_HEALTH_STATIC\s*\?\s*dataHealthTodayWorkOrders\.value\s*:\s*\[\]\)/,
+    'startup notifications must defer data-health work orders until the helper namespace is ready',
+  );
+  assert.match(
+    appMain,
+    /const scheduleOnlineHistoryRefresh = \(\) => schedulePostFetchRefresh\('online-history',[\s\S]*window\.SUXI_DATA_HEALTH_STATIC[\s\S]*refreshOnlineHistory\(\{ refreshHotels: false \}\)[\s\S]*:\s*null/,
+    'post-fetch history refresh must skip the startup shell until deferred data-health helpers are ready',
   );
   assert.match(
     appMain,

@@ -2706,6 +2706,88 @@ trait CtripTestCases
         self::assertNotSame($rows[0]['source_trace_id'], $changedRows[0]['source_trace_id']);
     }
 
+    public function testCtripCatalogTrafficRowsRecomputeObservedMetricMarkerFromCapturedFacts(): void
+    {
+        $controller = $this->controller();
+        $expected = [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
+        $enabledKeys = [
+            'list_exposure',
+            'detail_visitor',
+            'flow_rate',
+            'order_page_visitor',
+            'order_submit_user',
+        ];
+        $fieldFacts = [];
+        foreach ($expected as $field) {
+            $fieldFacts[] = [
+                'metric_key' => $field,
+                'source_key' => $field,
+                'source_path' => 'data.0.' . $field,
+                'storage_field' => 'online_daily_data.' . $field,
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ];
+        }
+        $payload = [
+            'standard_rows' => [[
+                'hotel_id' => '130079194',
+                'hotel_name' => 'Demo Hotel',
+                'data_date' => '2026-08-08',
+                'data_type' => 'traffic',
+                'capture_section' => 'traffic_report',
+                'endpoint_id' => 'traffic_flow_transform',
+                'dimension' => 'catalog:traffic_report:traffic_flow_transform:traffic_funnel:self',
+                'list_exposure' => 510,
+                'detail_exposure' => 96,
+                'flow_rate' => 18.82,
+                'order_filling_num' => 0,
+                'order_submit_num' => 0,
+                'raw_data' => [
+                    'source' => 'ctrip_catalog_facts',
+                    'endpoint_id' => 'traffic_flow_transform',
+                    'metrics' => array_fill_keys($enabledKeys, true),
+                    'field_facts' => $fieldFacts,
+                ],
+            ]],
+        ];
+
+        $rows = $this->invokeNonPublic($controller, 'extractCtripStandardRows', [
+            $payload,
+            80,
+            '2026-08-08',
+            '130079194',
+            25,
+            $enabledKeys,
+        ]);
+
+        self::assertCount(1, $rows);
+        self::assertSame($expected, $rows[0]['_observed_traffic_metric_keys']);
+        $rawData = json_decode($rows[0]['raw_data'], true);
+        self::assertSame($expected, $rawData['_observed_traffic_metric_keys']);
+
+        $incompletePayload = $payload;
+        array_pop($incompletePayload['standard_rows'][0]['raw_data']['field_facts']);
+        $incompleteRows = $this->invokeNonPublic($controller, 'extractCtripStandardRows', [
+            $incompletePayload,
+            80,
+            '2026-08-08',
+            '130079194',
+            25,
+            $enabledKeys,
+        ]);
+
+        self::assertCount(1, $incompleteRows);
+        self::assertArrayNotHasKey('_observed_traffic_metric_keys', $incompleteRows[0]);
+        $incompleteRawData = json_decode($incompleteRows[0]['raw_data'], true);
+        self::assertArrayNotHasKey('_observed_traffic_metric_keys', $incompleteRawData);
+    }
+
     public function testCtripCaptureCountsExposeStandardRowsByTypeAndSection(): void
     {
         $controller = $this->controller();

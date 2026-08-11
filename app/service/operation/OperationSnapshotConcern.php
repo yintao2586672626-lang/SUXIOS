@@ -288,7 +288,7 @@ trait OperationSnapshotConcern
                 'source_record_id' => (int)($row['id'] ?? 0),
                 'source' => strtolower(trim((string)($row['source'] ?? ''))),
                 'platform' => strtolower(trim((string)($row['platform'] ?? ''))),
-                'endpoint_id' => $this->onlineEndpointIdFromDimension((string)($row['dimension'] ?? '')),
+                'endpoint_id' => $this->onlineEndpointIdFromRow($row),
                 'data_date' => (string)($row['data_date'] ?? ''),
                 'validation_status' => (string)($row['validation_status'] ?? ''),
                 'ingestion_method' => (string)($row['ingestion_method'] ?? ''),
@@ -447,6 +447,21 @@ trait OperationSnapshotConcern
             && (array)($status['missing_requested_metric_keys'] ?? []) === [];
     }
 
+    /** @return array<string, mixed> */
+    private function onlineMetricFieldFact(array $row, string $metricKey): array
+    {
+        $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
+        $metricKey = strtolower(trim($metricKey));
+        foreach (is_array($raw['field_facts'] ?? null) ? $raw['field_facts'] : [] as $fact) {
+            if (is_array($fact)
+                && strtolower(trim((string)($fact['metric_key'] ?? ''))) === $metricKey
+            ) {
+                return $fact;
+            }
+        }
+        return [];
+    }
+
     /**
      * A traffic collection can persist several field rows for the same snapshot.
      * Keep only the latest verified snapshot for each hotel/channel/date so one
@@ -466,7 +481,7 @@ trait OperationSnapshotConcern
             if ($dataType !== '' && !in_array($dataType, ['traffic', 'flow', 'traffic_flow', 'traffic_overview'], true)) {
                 continue;
             }
-            $endpointId = $this->onlineEndpointIdFromDimension((string)($row['dimension'] ?? ''));
+            $endpointId = $this->onlineEndpointIdFromRow($row);
             if ($endpointId !== '' && !in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)) {
                 continue;
             }
@@ -839,6 +854,27 @@ trait OperationSnapshotConcern
             return (string)($matches[1] ?? '');
         }
         return '';
+    }
+
+    /** @param array<string,mixed> $row */
+    private function onlineEndpointIdFromRow(array $row): string
+    {
+        $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
+        $rawRow = is_array($raw['row'] ?? null) ? $raw['row'] : [];
+        $captureEvidence = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
+        $ids = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            [
+                $this->onlineEndpointIdFromDimension((string)($row['dimension'] ?? '')),
+                $raw['endpoint_id'] ?? $raw['endpointId'] ?? '',
+                $rawRow['endpoint_id'] ?? $rawRow['endpointId'] ?? '',
+                $captureEvidence['endpoint_id'] ?? $captureEvidence['endpointId'] ?? '',
+            ]
+        ), static fn(string $value): bool => $value !== '')));
+        if (count($ids) > 1) {
+            return 'conflicting_endpoint_identity';
+        }
+        return (string)($ids[0] ?? '');
     }
 
     /** @param array<string, mixed> $row */

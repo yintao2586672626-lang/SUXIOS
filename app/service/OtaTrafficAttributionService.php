@@ -7,6 +7,7 @@ final class OtaTrafficAttributionService
 {
     private const TRAFFIC_DATA_TYPES = ['traffic', 'flow', 'conversion'];
     private const PROFILE_INGESTION_METHODS = ['browser_profile', 'profile_browser'];
+    private const TRAFFIC_ENDPOINT_CONFLICT = '__endpoint_conflict__';
 
     /**
      * A Profile source can provide traffic even when its primary data_type is
@@ -79,8 +80,8 @@ final class OtaTrafficAttributionService
             return false;
         }
 
-        if ($platform !== 'ctrip') {
-            return true;
+        if ($platform === 'meituan') {
+            return self::rowCaptureSourceIsAuthoritative($row);
         }
 
         $endpointId = self::trafficRowEndpointId($row);
@@ -89,6 +90,20 @@ final class OtaTrafficAttributionService
         }
 
         return in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true);
+    }
+
+    /** @param array<string,mixed> $row */
+    private static function rowCaptureSourceIsAuthoritative(array $row): bool
+    {
+        $raw = self::decodeRawData($row['raw_data'] ?? null);
+        $sourceRow = is_array($raw['row'] ?? null) ? $raw['row'] : $raw;
+        $captureSource = strtolower(trim((string)(
+            $sourceRow['_capture_source'] ?? $sourceRow['capture_source'] ?? ''
+        )));
+        return preg_match(
+            '/^(?:xhr|fetch|same_origin_api|browser_response|network_response)(?::|$)/',
+            $captureSource
+        ) === 1;
     }
 
     /** @param array<string, mixed> $row */
@@ -127,25 +142,39 @@ final class OtaTrafficAttributionService
     /** @param array<string, mixed> $row */
     private static function trafficRowEndpointId(array $row): string
     {
-        $dimension = trim((string)($row['dimension'] ?? ''));
-        if (preg_match('/^catalog:[^:]+:([^:]+)/', $dimension, $matches) === 1) {
-            return strtolower(trim((string)($matches[1] ?? '')));
-        }
-
+        $endpointIds = [];
         $raw = self::decodeRawData($row['raw_data'] ?? null);
         foreach ([
-            $raw['endpoint_id'] ?? null,
-            $raw['endpointId'] ?? null,
-            $raw['capture']['endpoint_id'] ?? null,
-            $raw['capture']['endpointId'] ?? null,
-        ] as $candidate) {
-            $endpointId = strtolower(trim((string)$candidate));
-            if ($endpointId !== '') {
-                return $endpointId;
+            is_array($raw['row'] ?? null) ? $raw['row'] : [],
+            is_array($raw['source_row'] ?? null) ? $raw['source_row'] : [],
+            is_array($raw['row']['capture'] ?? null) ? $raw['row']['capture'] : [],
+            is_array($raw['source_row']['capture'] ?? null) ? $raw['source_row']['capture'] : [],
+            is_array($raw['capture'] ?? null) ? $raw['capture'] : [],
+            $raw,
+            $row,
+        ] as $container) {
+            foreach (['endpoint_id', 'endpointId', '_endpoint_id'] as $key) {
+                $endpointId = strtolower(trim((string)($container[$key] ?? '')));
+                if ($endpointId !== '') {
+                    $endpointIds[$endpointId] = true;
+                }
             }
         }
 
-        return '';
+        $dimension = trim((string)($row['dimension'] ?? ''));
+        if (preg_match('/^catalog:[^:]+:([^:]+)/', $dimension, $matches) === 1) {
+            $endpointId = strtolower(trim((string)($matches[1] ?? '')));
+            if ($endpointId !== '') {
+                $endpointIds[$endpointId] = true;
+            }
+        }
+
+        $resolved = array_keys($endpointIds);
+        if (count($resolved) > 1) {
+            return self::TRAFFIC_ENDPOINT_CONFLICT;
+        }
+
+        return $resolved[0] ?? '';
     }
 
     /** @return array<string, mixed> */

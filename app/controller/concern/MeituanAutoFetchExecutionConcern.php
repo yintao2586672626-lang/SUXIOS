@@ -25,6 +25,13 @@ trait MeituanAutoFetchExecutionConcern
         $apiStatus = $this->meituanAutoFetchConfigStatus($config, $hotelId);
         $missingText = (string)$apiStatus['missing_text'];
         $mode = $this->resolvePlatformAutoFetchMode($config, $options, 'meituan');
+        $dataPeriod = strtolower(trim((string)($options['data_period'] ?? 'historical_daily'))) ?: 'historical_daily';
+        $runScope = $this->buildAutoFetchPlatformRunScope(
+            $hotelId,
+            'meituan',
+            $dataDate,
+            $dataPeriod
+        );
         $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
         $runProfileBrowser = $this->shouldRunProfileBrowser($mode);
         $browserProfileSources = $this->listCollectableBrowserProfileDataSources($hotelId, 'meituan');
@@ -44,6 +51,9 @@ trait MeituanAutoFetchExecutionConcern
                 'success' => false,
                 'message' => $message,
                 'saved_count' => 0,
+                'write_success' => false,
+                'receipt_status' => 'failed',
+                'gap_codes' => ['configuration_missing'],
                 'auto_fetch_mode' => $mode,
                 'mode_label' => $this->autoFetchModeLabel($mode),
                 'modules' => [
@@ -72,7 +82,7 @@ trait MeituanAutoFetchExecutionConcern
                 if (($task['platform'] ?? '') !== 'meituan') {
                     continue;
                 }
-                $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate);
+                $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate, $runScope);
                 $savedCount += (int)($taskResult['saved_count'] ?? 0);
                 $modules[] = $taskResult;
                 if (empty($taskResult['success']) && empty($taskResult['skipped'])) {
@@ -124,8 +134,9 @@ trait MeituanAutoFetchExecutionConcern
             }
         }
 
-        $runReadback = is_array($browserResult['run_readback'] ?? null) ? $browserResult['run_readback'] : [];
+        $runReadback = $this->selectCurrentAutoFetchPlatformRunReadback($modules, $browserResult, $runScope);
         $coreReadbackVerified = $this->autoFetchRunReadbackCoreVerified($runReadback);
+        $receiptMeta = $this->buildAutoFetchPlatformReceiptMeta($savedCount, $runReadback);
         if ($savedCount > 0) {
             \think\facade\Log::info("美团自动获取已写入", [
                 'hotel_id' => $hotelId,
@@ -139,7 +150,10 @@ trait MeituanAutoFetchExecutionConcern
                     ? "完成 {$savedCount} 次写入并验证本次任务核心指标回执"
                     : "已发生 {$savedCount} 次写入，但本次任务、入库行、来源追踪与收入/间夜/ADR 回执未完整绑定",
                 'saved_count' => $savedCount,
-                'data_period' => $options['data_period'] ?? 'historical_daily',
+                'write_success' => $receiptMeta['write_success'],
+                'receipt_status' => $receiptMeta['receipt_status'],
+                'gap_codes' => $receiptMeta['gap_codes'],
+                'data_period' => $dataPeriod,
                 'auto_fetch_mode' => $mode,
                 'mode_label' => $this->autoFetchModeLabel($mode),
                 'modules' => $modules,
@@ -156,7 +170,10 @@ trait MeituanAutoFetchExecutionConcern
             'success' => false,
             'message' => $message,
             'saved_count' => 0,
-            'data_period' => $options['data_period'] ?? 'historical_daily',
+            'write_success' => false,
+            'receipt_status' => $receiptMeta['receipt_status'],
+            'gap_codes' => $receiptMeta['gap_codes'],
+            'data_period' => $dataPeriod,
             'auto_fetch_mode' => $mode,
             'mode_label' => $this->autoFetchModeLabel($mode),
             'modules' => $modules,

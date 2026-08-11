@@ -180,7 +180,7 @@ test('online-data surface exposes the six-step operating loop and retains collec
   assert.match(appMain, /allPlatformsWrote = allPlatformsReported && runOutcome\.results\.every\(item => item\.savedCount > 0\)/);
   assert.match(appMain, /noPlatformsWrote = allPlatformsReported && runOutcome\.results\.every\(item => item\.savedCount === 0\)/);
   assert.match(appMain, /allReadbackBound: results\.every\(item => item\.readbackBound === true\)/);
-  assert.match(appMain, /verifiedNewWrites = verifiedPlatforms === 2[\s\S]*strictBackendSucceeded[\s\S]*allPlatformsWrote[\s\S]*runOutcome\.allReadbackBound/);
+  assert.match(appMain, /verifiedNewWrites = verifiedPlatforms === 2[\s\S]*dualOtaAcceptance\.allVerified[\s\S]*strictBackendSucceeded[\s\S]*allPlatformsWrote/);
   assert.match(appMain, /verified_mixed/);
   assert.match(appMain, /written_unbound/);
   assert.match(appMain, /不宣称本次采集成功/);
@@ -199,7 +199,7 @@ test('online-data surface exposes the six-step operating loop and retains collec
   assert.doesNotMatch(autoFetchConcern, /'success' => true, 'message' => \$message, 'saved_count' => \$savedCount/);
   assert.match(autoFetchConcern, /syncMeituanBrowserProfileDataSourcesForAutoFetch/);
   assert.match(autoFetchOnceCommand, /'platform_results' => is_array\(\$details\['platform_results'\]/);
-  assert.match(appMain, /await refreshCoreOperationsLoop\(\{ hotelId, targetDate \}\)/);
+  assert.match(appMain, /await refreshCoreOperationsLoop\(\{ hotelId, targetDate, forceCollectionReliability: true \}\)/);
   assert.match(appMain, /verifiedPlatforms === 2/);
   const truthfulClassificationIndex = appMain.indexOf('if (verifiedNewWrites || verifiedExisting || verifiedMixed || writtenUnbound)');
   const strictFailureIndex = appMain.indexOf('if (!strictBackendSucceeded)', truthfulClassificationIndex);

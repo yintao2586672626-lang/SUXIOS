@@ -97,7 +97,9 @@ test('OTA pages can read one exact stored business date without triggering colle
 test('competition-circle selector keeps persistence guidance concise', () => {
   const html = readFrontendContractSource();
 
-  assert.match(html, /data-testid="platform-hotel-context-select"[\s\S]{0,400}@change="handlePlatformHotelContextChange"/);
+  assert.match(html, /data-testid="platform-hotel-context-search"[^>]*role="combobox"/);
+  assert.match(html, /@mousedown\.prevent="selectPlatformHotelOption\(hotel\)"/);
+  assert.match(html, /handlePlatformHotelContextChange\(\{ target: \{ value: hotelId \} \}\)/);
   assert.match(html, /class="text-xs font-medium text-slate-500">当前酒店/);
   assert.match(html, /请先在顶栏选择酒店/);
   assert.doesNotMatch(html, />数据归属门店<\/label>/);

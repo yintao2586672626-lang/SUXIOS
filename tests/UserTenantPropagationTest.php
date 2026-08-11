@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\controller\User as UserController;
 use app\model\User as UserModel;
+use app\service\PermissionService;
 use PHPUnit\Framework\TestCase;
 use think\App;
 use think\Response;
@@ -151,6 +152,68 @@ final class UserTenantPropagationTest extends TestCase
             1,
             (int)Db::name('users')->where('username', 'VIP010')->value('status')
         );
+    }
+
+    public function testControlledPartnerExpiryIsSavedReadBackAndEnforced(): void
+    {
+        $this->createSchema(true);
+        $this->seedRoleAndHotels();
+        $expiresOn = (new \DateTimeImmutable('today', new \DateTimeZone('Asia/Shanghai')))
+            ->modify('+30 days')
+            ->format('Y-m-d');
+
+        $payload = $this->json($this->userController([
+            'password' => 'Strong123!',
+            'realname' => 'Controlled partner',
+            'role_id' => 9,
+            'hotel_ids' => [10],
+            'authorization_expires_on' => $expiresOn,
+        ])->create());
+
+        self::assertSame(200, $payload['code']);
+        self::assertSame($expiresOn, $payload['data']['authorization_expires_on']);
+        self::assertSame('active', $payload['data']['authorization_expiry_status']);
+        $userId = (int)$payload['data']['id'];
+        self::assertSame(
+            $expiresOn . ' 23:59:59',
+            Db::name('user_hotel_permissions')->where('user_id', $userId)->value('expires_at')
+        );
+
+        $user = UserModel::with(['role'])->find($userId);
+        self::assertInstanceOf(UserModel::class, $user);
+        $permissions = new PermissionService();
+        self::assertTrue($permissions->authorize($user, 'ota.view', 10)['allowed']);
+        self::assertTrue($permissions->authorize($user, 'ai.execute', 10)['allowed']);
+        self::assertTrue($permissions->authorize($user, 'investment.simulate', 10)['allowed']);
+        self::assertTrue($permissions->authorize($user, 'report.export', 10)['allowed']);
+        self::assertFalse($permissions->authorize($user, 'ota.collect', 10)['allowed']);
+        self::assertFalse($permissions->authorize($user, 'operation.execute', 10)['allowed']);
+        self::assertFalse($permissions->authorize($user, 'system.config', 10)['allowed']);
+
+        Db::name('user_hotel_permissions')->where('user_id', $userId)->update([
+            'expires_at' => '2020-01-01 23:59:59',
+        ]);
+        $expiredUser = UserModel::with(['role'])->find($userId);
+        self::assertInstanceOf(UserModel::class, $expiredUser);
+        self::assertFalse((new PermissionService())->authorize($expiredUser, 'ota.view', 10)['allowed']);
+    }
+
+    public function testControlledPartnerRejectsPastExpiryWithoutWrites(): void
+    {
+        $this->createSchema(true);
+        $this->seedRoleAndHotels();
+
+        $payload = $this->json($this->userController([
+            'password' => 'Strong123!',
+            'role_id' => 9,
+            'hotel_ids' => [10],
+            'authorization_expires_on' => '2020-01-01',
+        ])->create());
+
+        self::assertSame(422, $payload['code']);
+        self::assertStringContainsString('不能早于今天', (string)$payload['message']);
+        self::assertSame(0, Db::name('users')->count());
+        self::assertSame(0, Db::name('user_hotel_permissions')->count());
     }
 
     public function testOwnerAccountWithoutHotelGetsDedicatedTenantAtomically(): void
@@ -828,6 +891,7 @@ final class UserTenantPropagationTest extends TestCase
             can_ai INTEGER,
             can_operation INTEGER,
             can_investment INTEGER,
+            expires_at DATETIME,
             status VARCHAR(20),
             created_by INTEGER,
             can_view_report INTEGER,
@@ -891,6 +955,20 @@ final class UserTenantPropagationTest extends TestCase
                 'display_name' => 'Owner beta user',
                 'level' => 2,
                 'permissions' => json_encode(['hotel.create', 'hotel.view', 'report.view'], JSON_THROW_ON_ERROR),
+                'status' => 1,
+            ],
+            [
+                'id' => 9,
+                'name' => 'controlled_partner',
+                'display_name' => 'Controlled partner',
+                'level' => 3,
+                'permissions' => json_encode([
+                    'ota.view',
+                    'report.view',
+                    'ai.execute',
+                    'investment.simulate',
+                    'report.export',
+                ], JSON_THROW_ON_ERROR),
                 'status' => 1,
             ],
         ]);

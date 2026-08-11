@@ -6,7 +6,7 @@
                     <p class="text-xs font-semibold tracking-[0.18em] text-[#96743f]">运营自动化中心 · 运行总览</p>
                     <h2 class="text-xl font-semibold text-slate-900">今日数据与推送监控</h2>
                 </div>
-                <p class="mt-1.5 max-w-5xl text-sm leading-6 text-slate-600">自动计划持续核验全部有权限的营业门店；需要补数时，可在携程、美团或主 PMS 列原地手动抓取/回读。每店只显示一个主 PMS，缺失配置与企业微信回执仍保留为明确阻断。</p>
+                <p class="mt-1.5 max-w-5xl text-sm leading-6 text-slate-600">逐店核验携程、美团和主 PMS；需要补数时可原地抓取/回读。缺失绑定、数据或企业微信回执始终明确阻断。</p>
                 <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                     <span>最近核验：{{ automationMonitor.observed_at || '尚未取得' }}（北京时间）</span>
                     <span>每 {{ automationMonitor.refresh_interval_seconds || 60 }} 秒准实时刷新</span>
@@ -48,6 +48,8 @@
     </section>
 
     <p v-if="automationMonitorError" data-testid="automation-monitor-error" class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ automationMonitorError }}</p>
+
+    <component :is="automationCollectionContractBody" :ctx="$root"></component>
 
     <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="automation-monitor-table-section">
         <header class="flex flex-col gap-2 border-b border-slate-200 bg-[#f7f9f8] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">

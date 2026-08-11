@@ -161,6 +161,12 @@ export function applyMeituanTrafficSelectionDateEvidence(data, targetDate) {
     && String(evidence.evidence_source || evidence.evidenceSource || '').trim() === 'page.traffic_period_selection.readback'
     && String(evidence.marker || '').trim() === expectedMarker;
   if (!selectionVerified) return next;
+  const verifiedTrafficEpoch = Number(evidence.traffic_capture_epoch || evidence.trafficCaptureEpoch || 0);
+  const epochResponseCount = Number(evidence.response_count || evidence.responseCount || 0);
+  const epochFunnelRowCount = Number(evidence.funnel_row_count || evidence.funnelRowCount || 0);
+  const selectedRequestSequence = Number(
+    evidence.selected_request_sequence || evidence.selectedRequestSequence || 0
+  );
 
   // This evidence belongs only to the top traffic funnel. Lower traffic
   // modules and peer ranking have independent period controls, even when
@@ -179,7 +185,27 @@ export function applyMeituanTrafficSelectionDateEvidence(data, targetDate) {
         || /(?:^|\.)cards\.rtdataupdatetime$/.test(normalizedSource);
       const selectedRelativeRangeSource = normalizedSource === 'request.query.daterange=0';
       const undatedDomRow = rowDate === '' && source === '' && /^dom:traffic:/.test(String(row._capture_source || ''));
-      if (!refreshTimestampSource && !selectedRelativeRangeSource && !undatedDomRow) {
+      const structuredFunnelRow = /^xhr:/.test(String(row._capture_source || ''))
+        && isMeituanTrafficFunnelRow(row);
+      const epochBoundStructuredRow = (
+        normalizedSource === 'capture_context.default_data_date'
+          || selectedRelativeRangeSource
+          || refreshTimestampSource
+      )
+        && isMeituanTrafficFunnelRow(row)
+        && verifiedTrafficEpoch > 0
+        && epochResponseCount > 0
+        && epochFunnelRowCount > 0
+        && selectedRequestSequence > 0
+        && Number(row.traffic_capture_epoch || row.trafficCaptureEpoch || 0) === verifiedTrafficEpoch
+        && Number(row.traffic_request_sequence || row.trafficRequestSequence || 0) === selectedRequestSequence
+        && String(row.traffic_relative_range || row.trafficRelativeRange || '').trim() === relativeRange
+        && String(row.traffic_evidence_source || row.trafficEvidenceSource || '').trim() === 'page.traffic_period_selection.readback'
+        && String(row.traffic_marker || row.trafficMarker || '').trim() === expectedMarker;
+      if (structuredFunnelRow && !epochBoundStructuredRow) {
+        return row;
+      }
+      if (!refreshTimestampSource && !selectedRelativeRangeSource && !undatedDomRow && !epochBoundStructuredRow) {
         return row;
       }
       return {

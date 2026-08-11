@@ -225,8 +225,13 @@ window.SUXI_OPERATION_STATIC = (() => {
             },
         ];
     };
-    const operationCanApproveExecution = (item) => item?.approval?.status === 'pending_approval';
+    const operationIsProtectedSystemAnalysis = (item) => item?.recommendation?.source_module === 'canonical_ota_investigation'
+        || item?.execution?.mode === 'analysis_only'
+        || item?.approval?.status === 'system_authorized_analysis';
+    const operationCanApproveExecution = (item) => !operationIsProtectedSystemAnalysis(item)
+        && item?.approval?.status === 'pending_approval';
     const operationCanExecuteWithEvidence = (item) => {
+        if (operationIsProtectedSystemAnalysis(item)) return false;
         const status = item?.execution?.status || '';
         const canStartExecution = ['pending_execute', 'executing'].includes(status);
         const canSupplementManualEvidence = status === 'executed'
@@ -234,10 +239,12 @@ window.SUXI_OPERATION_STATIC = (() => {
             && item?.next_action?.key === 'record_evidence';
         return (canStartExecution || canSupplementManualEvidence) && Number(item?.execution?.task_id || 0) > 0;
     };
-    const operationCanRecordNodeCheck = (item) => ['pending_execute', 'executing', 'executed'].includes(item?.execution?.status || '')
+    const operationCanRecordNodeCheck = (item) => !operationIsProtectedSystemAnalysis(item)
+        && ['pending_execute', 'executing', 'executed'].includes(item?.execution?.status || '')
         && Number(item?.execution?.task_id || 0) > 0;
-    const operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
-    const operationCanReconcileExecution = (item) => item?.execution?.status === 'executed'
+    const operationCanReviewExecution = (item) => !operationIsProtectedSystemAnalysis(item) && item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
+    const operationCanReconcileExecution = (item) => !operationIsProtectedSystemAnalysis(item)
+        && item?.execution?.status === 'executed'
         && item?.review?.is_available === true
         && item?.evidence_truth?.source_verified !== true
         && item?.recommendation?.source_module === 'ota_diagnosis_saved'
@@ -288,6 +295,12 @@ window.SUXI_OPERATION_STATIC = (() => {
         const resolved = source && !source.endsWith('#0') ? source : (item?.recommendation?.source_module || '');
         const sourceKey = String(resolved).toLowerCase();
         if (sourceKey === 'manual') return '人工创建';
+        if (sourceKey.startsWith('canonical_ota_investigation')) {
+            const sourceRecordId = Number(item?.recommendation?.source_record_id || 0);
+            const platform = String(item?.recommendation?.platform || '').trim().toLowerCase();
+            const platformText = platform === 'meituan' ? '美团' : '携程';
+            return sourceRecordId > 0 ? `${platformText}权威数据核查 · 源行 #${sourceRecordId}` : `${platformText}权威数据核查`;
+        }
         if (sourceKey.startsWith('ota_diagnosis_saved')) return 'OTA诊断行动';
         if (sourceKey.startsWith('daily_workbench_patrol')) return '巡检补证任务';
         if (sourceKey.startsWith('ota_diagnosis')) return '历史OTA诊断行动';
@@ -316,6 +329,13 @@ window.SUXI_OPERATION_STATIC = (() => {
             service_quality_improvement: '服务质量核查',
             advertising_optimization: '广告优化',
             ota_operation_follow_up: 'OTA运营跟进',
+            list_detail_math_check: '列表到详情转化数学核查',
+            detail_fill_breakpoint_check: '详情到填单断点核查',
+            fill_submit_chain_check: '填单到提交链路核查',
+            meituan_list_detail_count_order_check: '列表与详情数量次序核查',
+            meituan_list_detail_rate_check: '列表到详情率核查',
+            meituan_observed_flow_rate_alignment_check: '观测流量率一致性核查',
+            same_scope_recollection_eligibility_check: '同范围重采与准入核查',
         }[actionType] || strategyTypeLabel(actionType));
         return `${objectText} · ${actionText}`;
     };

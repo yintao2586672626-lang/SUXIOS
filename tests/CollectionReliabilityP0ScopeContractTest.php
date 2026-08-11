@@ -7,6 +7,17 @@ use PHPUnit\Framework\TestCase;
 
 final class CollectionReliabilityP0ScopeContractTest extends TestCase
 {
+    public function testAuthenticatedExactRunReadbackCanBypassTheLightCache(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/controller/concern/CollectionReliabilityConcern.php'
+        );
+
+        self::assertStringContainsString("\$this->request->get('force', false)", $source);
+        self::assertStringContainsString('if (!$forceRefresh)', $source);
+        self::assertStringContainsString('cache($cacheKey, $payload, 45);', $source);
+    }
+
     public function testEmployeeConsoleScopesSourcesAndFactsByHotelAndTenant(): void
     {
         $source = (string)file_get_contents(

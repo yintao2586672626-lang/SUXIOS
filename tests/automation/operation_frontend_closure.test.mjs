@@ -130,8 +130,8 @@ test('non-price execution evidence can be saved without fabricating revenue or R
   assert.match(evidenceFlow, /readOperationExecutionTask\(responseTaskId, executionHotelId\)/);
   assert.match(evidenceFlow, /不自动生成收入或ROI/);
   assert.match(trackPage, /data-testid="operation-evidence-modal"/);
-  assert.match(trackPage, /已完成运营动作（效果待观察）/);
-  assert.match(trackPage, /未观察到的收入、成本和 ROI 保持为空/);
+  assert.match(trackPage, /保存后标记为“已执行、效果待观察”，不会自动生成收入或 ROI/);
+  assert.match(trackPage, /缺证不生成收入或 ROI/);
   assert.match(trackPage, /submitOperationExecutionEvidence/);
 });
 
@@ -230,12 +230,14 @@ test('effect review uses an in-page form and preserves the observing state when 
   const reviewFlow = appMain.slice(start, end);
   assert.match(reviewFlow, /operationReviewModalOpen\.value = true/);
   assert.match(reviewFlow, /result_summary: resultSummary \|\| '继续观察，等待次日收益或ROI证据'/);
-  assert.match(reviewFlow, /readback_evidence:/);
-  assert.match(reviewFlow, /operator_attested: true/);
-  assert.match(reviewFlow, /verification_status: 'operator_attested'/);
-  assert.doesNotMatch(reviewFlow, /readback_verified: true/);
-  assert.match(reviewFlow, /必须提交人工平台复查声明/);
+  assert.match(reviewFlow, /\/reconcile-review/);
+  assert.match(reviewFlow, /source_verified_metric_readback/);
+  assert.match(reviewFlow, /evidence_truth\?\.source_verified !== true/);
+  assert.match(reviewFlow, /effect_review_summary\?\.verified_count/);
+  assert.match(reviewFlow, /persistence_status \|\| ''\) !== 'readback_verified'/);
+  assert.doesNotMatch(reviewFlow, /readback_evidence:|operator_attested/);
   assert.match(trackPage, /data-testid="operation-review-readback-gate"/);
-  assert.match(trackPage, /不代表 OTA 来源已被服务端验证/);
-  assert.match(trackPage, /不会自动向 OTA 写入价格、库存或活动/);
+  assert.match(trackPage, /同酒店、同平台、同指标来源事实/);
+  assert.match(trackPage, /不会把人工填值写成来源事实/);
+  assert.match(trackPage, /不会自动修改 OTA/);
 });

@@ -113,6 +113,27 @@ final class OperatingMemoryServiceTest extends TestCase
         self::assertSame(2, (int)Db::name(OperatingMemoryService::TABLE)->count());
     }
 
+    public function testRejectsSystemAuthorizedAnalysisWithoutWritingMemory(): void
+    {
+        $source = $this->operationSource();
+        $source->intent['source_module'] = 'canonical_ota_investigation';
+        $source->intent['status'] = 'system_authorized_analysis';
+        $source->task['execution_mode'] = 'analysis_only';
+        $service = new OperatingMemoryService($source);
+
+        try {
+            $service->createFromExecutionTask(301, 10, [20], 7);
+            self::fail('System-authorized analysis must not become an operating review memory.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertSame(
+                'system-authorized analysis task cannot become an operating memory',
+                $exception->getMessage()
+            );
+        }
+
+        self::assertSame(0, (int)Db::name(OperatingMemoryService::TABLE)->count());
+    }
+
     public function testRejectsUnreviewedTaskAndKeepsTenantReadScope(): void
     {
         $source = $this->operationSource();

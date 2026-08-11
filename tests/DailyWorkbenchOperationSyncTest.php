@@ -70,6 +70,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         $this->createdPatrolPaths = [];
         Db::name('online_daily_data')->delete(true);
         Db::name('agent_logs')->delete(true);
+        Db::name('operation_effect_reviews')->delete(true);
         Db::name('operation_execution_evidence')->delete(true);
         Db::name('operation_execution_tasks')->delete(true);
         Db::name('operation_execution_intents')->delete(true);
@@ -663,14 +664,24 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
 
     public function testSavedOtaDiagnosisReviewUsesBusinessDateScheduledWindowAndCanonicalTrafficSnapshot(): void
     {
-        $businessDate = date('Y-m-d', strtotime('-3 days'));
-        $executedDate = date('Y-m-d', strtotime('-2 days'));
+        $businessDate = date('Y-m-d', strtotime('-2 days'));
+        $executedDate = $businessDate;
         $reviewDate = date('Y-m-d', strtotime('-1 day'));
-        $executedAt = $executedDate . ' 12:00:00';
+        $executedAt = $executedDate . ' 23:30:00';
         $reviewAt = $reviewDate . ' 10:00:00';
         $actionId = 'action-orders-1';
         $actionText = 'Optimize the Ctrip campaign and observe order lift.';
         $idempotencyKey = 'ota-diagnosis-test-key';
+        $approvalService = new OperationManagementService();
+        $metricDefinition = (new ReflectionMethod(
+            OperationManagementService::class,
+            'savedOtaDiagnosisMetricDefinition'
+        ))->invoke($approvalService, 'order_rate');
+        $metricDefinitionDigest = (new ReflectionMethod(
+            OperationManagementService::class,
+            'savedOtaDiagnosisMetricDefinitionDigest'
+        ))->invoke($approvalService, 'order_rate', $metricDefinition);
+        $approvedAt = $businessDate . ' 11:00:00';
 
         $oldRealtimeId = $this->insertOnlineTrafficSnapshot(
             $businessDate,
@@ -724,6 +735,24 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'online_daily_data#' . $finalBaselineId,
             'online_daily_data#' . $competitorId,
         ];
+        $recommendation = [
+            'id' => $actionId,
+            'action' => $actionText,
+            'action_type' => 'campaign_optimization',
+            'expected_metric' => 'order_rate',
+            'execution_ready' => true,
+            'can_request_execution_intent' => true,
+            'can_create_execution_intent' => true,
+            'evidence_refs' => $sourceRefs,
+            'decision_quality' => [
+                'contract_version' => \app\service\AiDecisionQualityService::CONTRACT_VERSION,
+                'execution_ready' => true,
+            ],
+        ];
+        $recommendationDigest = (new ReflectionMethod(
+            OperationManagementService::class,
+            'decisionRecommendationDigest'
+        ))->invoke($approvalService, $recommendation);
 
         $logId = (int)Db::name('agent_logs')->insertGetId([
             'hotel_id' => 7,
@@ -747,16 +776,28 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
                 'order_submit_num' => 1,
             ], JSON_UNESCAPED_UNICODE),
             'target_value_json' => json_encode([
+                'target_metric' => 'order_rate',
                 'action_text' => $actionText,
                 'review_at' => $reviewAt,
                 'workflow_schedule' => ['review_at' => $reviewAt],
+                'target_type' => 'delta',
+                'expected_direction' => 'increase',
+                'expected_delta_status' => 'manual_confirmed',
+                'metric_definition' => $metricDefinition,
+                'metric_definition_digest' => $metricDefinitionDigest,
             ], JSON_UNESCAPED_UNICODE),
             'evidence_json' => json_encode([
                 'action_index' => 0,
                 'action_item_id' => $actionId,
                 'action_idempotency_key' => $idempotencyKey,
                 'evidence_refs' => $sourceRefs,
-                'expected_delta_status' => 'quantified',
+                'expected_delta_status' => 'manual_confirmed',
+                'target_type' => 'delta',
+                'expected_direction' => 'increase',
+                'metric_definition' => $metricDefinition,
+                'metric_definition_digest' => $metricDefinitionDigest,
+                'decision_recommendation' => $recommendation,
+                'decision_recommendation_digest' => $recommendationDigest,
             ], JSON_UNESCAPED_UNICODE),
             'expected_metric' => 'order_rate',
             'expected_delta' => 2,
@@ -764,26 +805,84 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'blocked_reason' => '',
             'status' => 'approved',
             'created_by' => 3,
+            'approved_by' => 3,
+            'approved_at' => $approvedAt,
             'created_at' => $executedAt,
             'updated_at' => $executedAt,
         ]);
+        $approvalContract = [
+            'version' => 'ota_execution_approval_target.v1',
+            'intent_id' => $intentId,
+            'tenant_id' => 42,
+            'hotel_id' => 7,
+            'source_module' => 'ota_diagnosis_saved',
+            'source_record_id' => $logId,
+            'platform' => 'ctrip',
+            'baseline_business_date' => $businessDate,
+            'review_business_date' => $reviewDate,
+            'expected_metric' => 'order_rate',
+            'metric_definition' => $metricDefinition,
+            'metric_definition_digest' => $metricDefinitionDigest,
+            'expected_direction' => 'increase',
+            'target_type' => 'delta',
+            'target_value' => null,
+            'expected_delta' => '2.000000',
+            'expected_delta_status' => 'manual_confirmed',
+            'approved_by' => 3,
+            'approved_at' => $approvedAt,
+            'diagnosis_recommendation_digest' => $recommendationDigest,
+            'source_policy' => 'saved_diagnosis_metric_and_human_target_frozen_before_task_creation',
+        ];
+        $approvalTargetDigest = (new ReflectionMethod(
+            OperationManagementService::class,
+            'savedOtaDiagnosisApprovalTargetDigest'
+        ))->invoke($approvalService, $approvalContract);
+        $approvalContract['content_digest'] = $approvalTargetDigest;
+        $targetValue = json_decode((string)Db::name('operation_execution_intents')
+            ->where('id', $intentId)->value('target_value_json'), true);
+        $intentEvidence = json_decode((string)Db::name('operation_execution_intents')
+            ->where('id', $intentId)->value('evidence_json'), true);
+        $targetValue['expected_delta'] = 2;
+        $targetValue['review_business_date'] = $reviewDate;
+        $targetValue['approval_target_digest'] = $approvalTargetDigest;
+        $intentEvidence['target_type'] = 'delta';
+        $intentEvidence['expected_direction'] = 'increase';
+        $intentEvidence['expected_delta'] = 2;
+        $intentEvidence['target_value'] = null;
+        $intentEvidence['review_business_date'] = $reviewDate;
+        $intentEvidence['approval_target'] = $approvalContract;
+        $intentEvidence['approval_target_digest'] = $approvalTargetDigest;
+        Db::name('operation_execution_intents')->where('id', $intentId)->update([
+            'target_value_json' => json_encode($targetValue, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'evidence_json' => json_encode($intentEvidence, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
+        $legacyAction = $recommendation;
+        unset($legacyAction['can_create_execution_intent'], $legacyAction['decision_quality']);
+        $legacyAction['execution_intent_id'] = $intentId;
+        $legacyAction['execution_idempotency_key'] = $idempotencyKey;
+        $readbackIdentityDigest = str_repeat('e', 64);
         $diagnosisResult = [
+            'record_status' => 'active',
             'hotel' => ['id' => 7],
             'platform' => 'ctrip',
             'date_range' => ['start_date' => $businessDate, 'end_date' => $businessDate],
+            'requested_date_range' => ['start_date' => $businessDate, 'end_date' => $businessDate],
             'decision_status' => 'action_required',
-            'action_items' => [[
-                'id' => $actionId,
-                'action' => $actionText,
-                'execution_ready' => true,
-                'can_request_execution_intent' => true,
-                'evidence_refs' => $sourceRefs,
-                'execution_intent_id' => $intentId,
-                'execution_idempotency_key' => $idempotencyKey,
-            ]],
+            'metrics' => ['order_rate' => 0.52],
+            'saved_record' => [
+                'saved' => true,
+                'readback_verified' => true,
+                'id' => $logId,
+                'readback_identity_digest' => $readbackIdentityDigest,
+            ],
+            'action_items' => [$legacyAction],
         ];
         Db::name('agent_logs')->where('id', $logId)->update([
-            'context_data' => json_encode(['diagnosis_result' => $diagnosisResult], JSON_UNESCAPED_UNICODE),
+            'context_data' => json_encode([
+                'record_status' => 'active',
+                'readback_identity_digest' => $readbackIdentityDigest,
+                'diagnosis_result' => $diagnosisResult,
+            ], JSON_UNESCAPED_UNICODE),
         ]);
         $taskId = (int)Db::name('operation_execution_tasks')->insertGetId([
             'intent_id' => $intentId,
@@ -821,13 +920,16 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             $verifyProvenance->invoke($service, $normalizedIntent),
             'Legacy execution flags must not establish verified OTA diagnosis provenance.'
         );
-        $diagnosisResult['action_items'][0]['can_create_execution_intent'] = true;
-        $diagnosisResult['action_items'][0]['decision_quality'] = [
-            'contract_version' => \app\service\AiDecisionQualityService::CONTRACT_VERSION,
-            'execution_ready' => true,
+        $diagnosisResult['action_items'][0] = $recommendation + [
+            'execution_intent_id' => $intentId,
+            'execution_idempotency_key' => $idempotencyKey,
         ];
         Db::name('agent_logs')->where('id', $logId)->update([
-            'context_data' => json_encode(['diagnosis_result' => $diagnosisResult], JSON_UNESCAPED_UNICODE),
+            'context_data' => json_encode([
+                'record_status' => 'active',
+                'readback_identity_digest' => $readbackIdentityDigest,
+                'diagnosis_result' => $diagnosisResult,
+            ], JSON_UNESCAPED_UNICODE),
         ]);
         self::assertTrue(
             $verifyProvenance->invoke($service, $normalizedIntent),
@@ -934,9 +1036,24 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         ];
         $reconciledIntent = $normalizedIntent;
         $reconciledIntent['evidence']['evidence_refs'] = $reconciledRefs;
-        $diagnosisResult['action_items'][0]['evidence_refs'] = $reconciledRefs;
+        $reconciledRecommendation = $recommendation;
+        $reconciledRecommendation['evidence_refs'] = $reconciledRefs;
+        $reconciledRecommendationDigest = (new ReflectionMethod(
+            OperationManagementService::class,
+            'decisionRecommendationDigest'
+        ))->invoke($approvalService, $reconciledRecommendation);
+        $reconciledIntent['evidence']['decision_recommendation'] = $reconciledRecommendation;
+        $reconciledIntent['evidence']['decision_recommendation_digest'] = $reconciledRecommendationDigest;
+        $diagnosisResult['action_items'][0] = $reconciledRecommendation + [
+            'execution_intent_id' => $intentId,
+            'execution_idempotency_key' => $idempotencyKey,
+        ];
         Db::name('agent_logs')->where('id', $logId)->update([
-            'context_data' => json_encode(['diagnosis_result' => $diagnosisResult], JSON_UNESCAPED_UNICODE),
+            'context_data' => json_encode([
+                'record_status' => 'active',
+                'readback_identity_digest' => $readbackIdentityDigest,
+                'diagnosis_result' => $diagnosisResult,
+            ], JSON_UNESCAPED_UNICODE),
         ]);
         $reconciledPayload = $buildReadback->invoke($service, $normalizedTask, $reconciledIntent);
         self::assertNotNull($reconciledPayload);
@@ -952,9 +1069,16 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         self::assertTrue($reconciledPayload['platform_response']['original_intent_evidence_preserved']);
         self::assertFalse($reconciledPayload['platform_response']['historical_intent_mutated']);
 
-        $diagnosisResult['action_items'][0]['evidence_refs'] = $sourceRefs;
+        $diagnosisResult['action_items'][0] = $recommendation + [
+            'execution_intent_id' => $intentId,
+            'execution_idempotency_key' => $idempotencyKey,
+        ];
         Db::name('agent_logs')->where('id', $logId)->update([
-            'context_data' => json_encode(['diagnosis_result' => $diagnosisResult], JSON_UNESCAPED_UNICODE),
+            'context_data' => json_encode([
+                'record_status' => 'active',
+                'readback_identity_digest' => $readbackIdentityDigest,
+                'diagnosis_result' => $diagnosisResult,
+            ], JSON_UNESCAPED_UNICODE),
         ]);
 
         $fallbackIntent = $normalizedIntent;
@@ -980,6 +1104,12 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
 
         self::assertSame('success', $reviewed['result_status']);
         self::assertTrue($reviewed['evidence_truth']['source_verified']);
+        self::assertCount(1, $reviewed['execution_evidence']);
+        self::assertCount(1, $reviewed['effect_source_evidence']);
+        self::assertCount(1, $reviewed['effect_reviews']);
+        self::assertSame(1, $reviewed['effect_review_summary']['verified_count']);
+        self::assertSame('readback_verified', $reviewed['effect_review_summary']['persistence_status']);
+        self::assertSame(1, (int)Db::name('operation_effect_reviews')->where('task_id', $taskId)->count());
         self::assertSame('candidate', $reviewed['sop_candidate']['status']);
         self::assertSame('pending_approval', $reviewed['sop_candidate']['approval_status']);
         self::assertFalse($reviewed['sop_candidate']['boundaries']['automatic_publish_enabled']);
@@ -1323,6 +1453,7 @@ SQL);
         Db::execute(<<<'SQL'
 CREATE TABLE operation_execution_intents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL DEFAULT 42,
     source_module TEXT NOT NULL,
     source_record_id INTEGER NOT NULL,
     hotel_id INTEGER NOT NULL,
@@ -1335,7 +1466,7 @@ CREATE TABLE operation_execution_intents (
     target_value_json TEXT,
     evidence_json TEXT,
     expected_metric TEXT NOT NULL DEFAULT '',
-    expected_delta REAL NOT NULL DEFAULT 0,
+    expected_delta REAL DEFAULT NULL,
     risk_level TEXT NOT NULL DEFAULT 'medium',
     blocked_reason TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
@@ -1351,6 +1482,7 @@ SQL);
         Db::execute(<<<'SQL'
 CREATE TABLE operation_execution_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL DEFAULT 42,
     intent_id INTEGER NOT NULL,
     hotel_id INTEGER NOT NULL,
     execution_mode TEXT NOT NULL DEFAULT 'manual',
@@ -1371,6 +1503,7 @@ SQL);
         Db::execute(<<<'SQL'
 CREATE TABLE operation_execution_evidence (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL DEFAULT 42,
     task_id INTEGER NOT NULL,
     evidence_type TEXT NOT NULL DEFAULT 'manual',
     before_json TEXT,
@@ -1382,6 +1515,44 @@ CREATE TABLE operation_execution_evidence (
     created_at TEXT,
     updated_at TEXT,
     deleted_at TEXT
+)
+SQL);
+        Db::execute(<<<'SQL'
+CREATE TABLE operation_effect_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    hotel_id INTEGER NOT NULL,
+    intent_id INTEGER NOT NULL,
+    task_id INTEGER NOT NULL,
+    platform TEXT NOT NULL,
+    baseline_business_date TEXT NOT NULL,
+    review_business_date TEXT NOT NULL,
+    metric_key TEXT NOT NULL,
+    metric_definition_json TEXT NOT NULL,
+    metric_definition_digest TEXT NOT NULL,
+    approval_target_digest TEXT NOT NULL,
+    before_value REAL NOT NULL,
+    after_value REAL NOT NULL,
+    expected_direction TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_value REAL,
+    expected_delta REAL,
+    expected_delta_status TEXT NOT NULL,
+    target_confirmed_by INTEGER NOT NULL,
+    target_confirmed_at TEXT NOT NULL,
+    baseline_refs_json TEXT NOT NULL,
+    followup_refs_json TEXT NOT NULL,
+    source_readback_evidence_id INTEGER NOT NULL,
+    outcome_status TEXT NOT NULL,
+    outcome_json TEXT NOT NULL,
+    result_status TEXT NOT NULL,
+    result_summary TEXT NOT NULL,
+    causality_claimed INTEGER NOT NULL,
+    reviewed_by INTEGER NOT NULL,
+    reviewed_at TEXT NOT NULL,
+    content_digest TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, hotel_id, task_id, content_digest)
 )
 SQL);
         Db::execute(<<<'SQL'

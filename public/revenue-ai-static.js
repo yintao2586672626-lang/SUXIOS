@@ -58,9 +58,29 @@
         '': '数据已命中当前口径。',
         online_daily_data_empty: '目标经营日期没有可用 OTA 入库数据。',
         source_not_loaded: '未找到对应渠道的数据源或入库状态。',
+        metric_scope_mismatch: '指标事实与当前酒店、平台或业务日期不一致。',
+        metric_truth_unverified: '指标有值，但尚未完成来源事实和精确回读验证。',
+        metric_truth_partial: '指标只有部分来源事实通过验证。',
+        metric_truth_collection_failed: '指标所需的平台事实采集失败。',
+        overview_scope_mismatch: 'Revenue AI 总览与请求的酒店或业务日期不一致。',
+        room_revenue_missing: '暂缺已验证房费收入；订单 GMV、结算金额和参考底价不能替代。',
+        room_revenue_partial: '只有部分 OTA 事实具备已验证房费收入。',
+        room_nights_missing: '暂缺已验证间夜，不能用订单数、物理房间数或默认值替代。',
+        order_count_missing: '暂缺语义明确且已回读的订单数。',
         available_room_nights_missing: '暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。',
+        available_room_nights_partial: '只有部分 OTA 事实具备可售房晚。',
         adr_denominator_zero: 'OTA 间夜为 0，ADR 不可计算。',
+        commission_fields_missing: '暂缺同一成交口径的佣金金额或佣金率。',
+        commission_fields_partial: '只有部分 OTA 事实具备同口径佣金字段。',
+        net_revenue_fields_missing: '暂缺平台净收入，且没有同口径佣金事实可安全派生。',
+        net_revenue_fields_partial: '只有部分 OTA 事实具备净收入。',
+        cancellation_fields_missing: '暂缺平台取消订单数或取消率。',
+        cancellation_fields_partial: '只有部分 OTA 事实具备取消字段。',
+        cancellation_order_base_missing: '已有取消字段，但缺少同口径订单基数。',
+        cancel_room_nights_missing: '暂缺取消订单对应的真实取消间夜。',
+        cancel_room_nights_partial: '只有部分 OTA 事实具备取消间夜。',
         competitor_price_fields_missing: '暂缺竞对价格字段。',
+        competitor_price_fields_partial: '只有部分 OTA 事实具备条件对齐的本店价与竞对价。',
         source_status_missing: '未找到平台数据源状态。',
         source_status_unknown: '未命中明确同步状态。',
         waiting_config: '平台数据源仍待授权或配置。',
@@ -98,6 +118,16 @@
         competitor_price_above_competitor: '本店均价高于竞对均价，需人工复核是否存在价格倒挂或竞争力风险。',
         competitor_price_below_competitor_review_required: '本店均价低于竞对均价，需复核是否低于保护价后再判断调价。',
         competitor_price_aligned: '本店均价与竞对均价接近。',
+        lead_time_fields_missing: '暂缺预订日或入住日，不能计算提前预订天数。',
+        lead_time_fields_partial: '只有部分 OTA 事实具备可核验提前期。',
+        booking_window_adr_fields_missing: '已有提前期，但缺少同一事实上的已验证房费收入或正数间夜，不能计算提前期房费结构。',
+        booking_window_adr_fields_partial: '只有部分提前期事实具备已验证房费收入和正数间夜，当前结构仅使用已对齐记录。',
+        booking_window_adr_single_bucket: '当前只有一个提前期分组，能够展示该组 ADR，但不足以比较早订与临近入住差异。',
+        booking_window_adr_structure_available: '已按提前期分组计算 OTA 房费加权 ADR；仅作历史结构观察。',
+        channel_booking_window_month_fields_missing: '缺少真实入住日期、提前期、OTA渠道或正数订单量，不能生成渠道预售窗口。',
+        channel_booking_window_month_fields_partial: '只有部分记录具备入住月、提前期、渠道和订单量，当前仅展示已对齐记录。',
+        channel_booking_window_month_sparse_cells: '部分交叉格子的订单量不足，稀疏格子保留在明细中但不生成决策信号。',
+        channel_booking_window_month_structure_available: '已形成渠道、入住月和提前期的订单结构；仅用于观察预售窗口。',
         floor_price_missing: '暂缺最低保护价。',
         missing_pricing_inputs_skipped_by_operator_policy: '旧记录缺少可核验的操作者、确认时间和持久化记录，按定价输入缺口阻断。',
         manual_review_workflow_not_connected: '暂未接入人工审核工作流。',
@@ -829,12 +859,28 @@
         }
 
         const canonicalFactLayerGaps = revenueAiCanonicalFactLayerGaps(overview);
+        const channelMetricGaps = Array.isArray(overview.channel_metric_gaps)
+            ? overview.channel_metric_gaps
+            : [];
         const missing = Array.isArray(overview.missing_datasets) ? overview.missing_datasets : [];
         const issues = Array.isArray(overview.quality_issues) ? overview.quality_issues : [];
-        const rows = canonicalFactLayerGaps === null
-            ? [...missing, ...issues]
-            : canonicalFactLayerGaps;
-        return rows.slice(0, 8).map((row, index) => {
+        const channelReasons = new Set(channelMetricGaps.map((row) => String(row?.reason || '')).filter(Boolean));
+        const legacyRows = [...missing, ...issues].filter((row) => {
+            const reason = String(row?.reason || '');
+            const channel = String(row?.channel || row?.target_platform || '').toLowerCase();
+            return !(channelReasons.has(reason) && ['', 'ota', 'ota_channel'].includes(channel));
+        });
+        const sourceRows = canonicalFactLayerGaps === null
+            ? [...channelMetricGaps, ...legacyRows]
+            : [...channelMetricGaps, ...canonicalFactLayerGaps];
+        const seen = new Set();
+        const rows = sourceRows.filter((row, index) => {
+            const key = String(row?.key || `${row?.channel || row?.target_platform || ''}:${row?.reason || ''}:${index}`);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        return rows.map((row, index) => {
             const channel = row.channel || row.target_platform || '';
             const status = row.status || (row.type === 'missing_dataset' ? 'empty' : 'unknown');
             const severity = row.severity || 'medium';
@@ -853,6 +899,11 @@
                 target_platform: row.target_platform || '',
                 target_agent_tab: row.target_agent_tab || '',
                 target_revenue_tab: row.target_revenue_tab || '',
+                hotel_id: row.hotel_id ?? overview.hotel_id ?? null,
+                business_date: row.business_date || overview.business_date || '',
+                acceptanceCheck: row.acceptance_check || '',
+                forbiddenShortcut: row.forbidden_shortcut || '',
+                completionState: row.completion_state || '',
                 raw: row,
             };
         });
@@ -863,13 +914,18 @@
         high: rows.filter((row) => row.severityLabel === revenueAiSeverityLabel('high')).length,
     });
 
-    const resolveRevenueAiGapTarget = (row = {}) => ({
-        targetPage: row.target_page || row.targetPage || 'online-data',
-        targetTab: row.target_tab || row.targetTab || 'data-health',
-        targetPlatform: row.target_platform || row.targetPlatform || '',
-        targetAgentTab: row.target_agent_tab || row.targetAgentTab || '',
-        targetRevenueTab: row.target_revenue_tab || row.targetRevenueTab || '',
-    });
+    const resolveRevenueAiGapTarget = (row = {}) => {
+        const raw = row.raw && typeof row.raw === 'object' ? row.raw : {};
+        return {
+            targetPage: row.target_page || row.targetPage || 'online-data',
+            targetTab: row.target_tab || row.targetTab || 'data-health',
+            targetPlatform: row.target_platform || row.targetPlatform || raw.target_platform || raw.targetPlatform || '',
+            targetAgentTab: row.target_agent_tab || row.targetAgentTab || '',
+            targetRevenueTab: row.target_revenue_tab || row.targetRevenueTab || '',
+            hotelId: String(row.hotel_id ?? row.hotelId ?? raw.hotel_id ?? raw.hotelId ?? '').trim(),
+            businessDate: String(row.business_date || row.businessDate || raw.business_date || raw.businessDate || '').trim(),
+        };
+    };
 
     const resolveRevenueAiDecisionBasisNavigation = (basis = {}) => ({
         targetPage: String(basis.targetPage || basis.target_page || '').trim(),
@@ -1003,6 +1059,8 @@
             { key: 'holiday_event', label: '事件/节假日影响' },
             { key: 'demand_7d', label: '未来7天需求信号' },
             { key: 'competitor_price_warning', label: '竞对价格倒挂预警' },
+            { key: 'booking_window_adr', label: '提前期房费结构' },
+            { key: 'channel_booking_window_month', label: '渠道预售窗口' },
             { key: 'pricing_advice', label: '今日调价建议' },
         ];
         return definitions.map((definition) => {

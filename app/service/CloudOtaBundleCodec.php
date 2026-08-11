@@ -23,6 +23,23 @@ final class CloudOtaBundleCodec
     private const COLLECTION_STATUSES = [
         'success', 'partial', 'target_date_missing', 'login_expired', 'failed', 'not_collected',
     ];
+    private const PROFILE_ORIGIN_INGESTION_METHODS = [
+        'browser_profile', 'profile_browser', 'local_collector',
+    ];
+    private const P0_METRIC_KEYS = [
+        'ctrip' => [
+            'list_exposure', 'detail_exposure', 'flow_rate',
+            'order_filling_num', 'order_submit_num',
+        ],
+        'meituan' => ['list_exposure', 'detail_exposure', 'flow_rate'],
+    ];
+    private const FIELD_FACT_FIELDS = [
+        'metric_key', 'source_key', 'source_path', 'storage_field',
+        'stored_value_present', 'status', 'capture_evidence',
+    ];
+    private const FIELD_FACT_EVIDENCE_FIELDS = [
+        'source_trace_id', 'source_url_hash', 'capture_source',
+    ];
     private const ROW_FIELDS = [
         'tenant_id', 'system_hotel_id', 'data_source_id', 'hotel_id', 'hotel_name',
         'data_date', 'source', 'platform', 'data_type', 'dimension', 'compare_type',
@@ -30,7 +47,8 @@ final class CloudOtaBundleCodec
         'data_value', 'list_exposure', 'detail_exposure', 'flow_rate',
         'order_filling_num', 'order_submit_num', 'data_period', 'snapshot_time',
         'snapshot_bucket', 'is_final', 'validation_status', 'validation_flags',
-        'source_trace_id', 'readback_verified', 'readback_verified_at', 'create_time', 'update_time',
+        'source_trace_id', 'source_url_hash', 'ingestion_method', 'capture_source', 'field_facts',
+        'readback_verified', 'readback_verified_at', 'create_time', 'update_time',
     ];
 
     /**
@@ -231,6 +249,9 @@ final class CloudOtaBundleCodec
                 }
                 $row = self::allowlistedRow($row);
                 foreach ($row as $field => $value) {
+                    if ($field === 'field_facts') {
+                        continue;
+                    }
                     if (!is_scalar($value) && $value !== null) {
                         throw new RuntimeException('cloud_bundle_row_value_not_scalar:' . (string)$field);
                     }
@@ -253,6 +274,29 @@ final class CloudOtaBundleCodec
                 if (trim((string)($row['hotel_id'] ?? '')) === '' || trim((string)($row['data_type'] ?? '')) === '') {
                     throw new RuntimeException('cloud_bundle_row_required_field_missing');
                 }
+                $dataType = strtolower(trim((string)$row['data_type']));
+                $isTrafficRow = in_array($dataType, ['traffic', 'flow', 'conversion'], true);
+                $ingestionMethod = strtolower(trim((string)($row['ingestion_method'] ?? '')));
+                if ($ingestionMethod !== '') {
+                    if (!in_array($ingestionMethod, self::PROFILE_ORIGIN_INGESTION_METHODS, true)) {
+                        throw new RuntimeException('cloud_bundle_row_ingestion_method_invalid');
+                    }
+                    $row['ingestion_method'] = $ingestionMethod;
+                }
+                if ($isTrafficRow && $ingestionMethod === '') {
+                    throw new RuntimeException('cloud_bundle_p0_ingestion_method_missing');
+                }
+
+                $captureSource = strtolower(trim((string)($row['capture_source'] ?? '')));
+                if ($captureSource !== '') {
+                    if (!self::authoritativeCaptureSource($captureSource)) {
+                        throw new RuntimeException('cloud_bundle_row_capture_source_invalid');
+                    }
+                    $row['capture_source'] = $captureSource;
+                }
+                if ($platform === 'meituan' && $isTrafficRow && $captureSource === '') {
+                    throw new RuntimeException('cloud_bundle_meituan_p0_capture_source_missing');
+                }
                 $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
                 if (!in_array($validationStatus, self::TRUSTED_VALIDATION_STATUSES, true)) {
                     throw new RuntimeException('cloud_bundle_row_validation_untrusted');
@@ -263,6 +307,31 @@ final class CloudOtaBundleCodec
                 $traceId = trim((string)($row['source_trace_id'] ?? ''));
                 if ($traceId === '' || mb_strlen($traceId) > 200 || self::containsSecretValue($traceId)) {
                     throw new RuntimeException('cloud_bundle_row_source_trace_invalid');
+                }
+                $row['source_trace_id'] = $traceId;
+
+                $sourceUrlHash = strtolower(trim((string)($row['source_url_hash'] ?? '')));
+                if ($sourceUrlHash !== '' && !self::validSha256($sourceUrlHash)) {
+                    throw new RuntimeException('cloud_bundle_row_source_url_hash_invalid');
+                }
+                if ($isTrafficRow && $sourceUrlHash === '') {
+                    throw new RuntimeException('cloud_bundle_p0_source_url_hash_missing');
+                }
+                if ($sourceUrlHash !== '') {
+                    $row['source_url_hash'] = $sourceUrlHash;
+                }
+
+                if ($isTrafficRow) {
+                    $row['field_facts'] = self::normalizeFieldFacts(
+                        $row['field_facts'] ?? null,
+                        $row,
+                        $platform,
+                        $traceId,
+                        $sourceUrlHash,
+                        $captureSource
+                    );
+                } elseif (array_key_exists('field_facts', $row) || array_key_exists('source_url_hash', $row)) {
+                    throw new RuntimeException('cloud_bundle_p0_evidence_on_non_traffic_row');
                 }
                 $normalizedRows[] = $row;
             }
@@ -418,6 +487,163 @@ final class CloudOtaBundleCodec
     private static function validSha256(string $value): bool
     {
         return preg_match('/^[a-f0-9]{64}$/D', $value) === 1;
+    }
+
+    private static function authoritativeCaptureSource(string $value): bool
+    {
+        return mb_strlen($value) <= 160
+            && preg_match(
+                '/^(?:xhr|fetch|same_origin_api|browser_response|network_response)(?::[a-z0-9._-]+)*$/D',
+                $value
+            ) === 1;
+    }
+
+    /**
+     * @param mixed $facts
+     * @param array<string, mixed> $row
+     * @return array<int, array<string, mixed>>
+     */
+    private static function normalizeFieldFacts(
+        mixed $facts,
+        array $row,
+        string $platform,
+        string $rowTraceId,
+        string $rowUrlHash,
+        string $rowCaptureSource
+    ): array {
+        if (!is_array($facts)
+            || $facts === []
+            || array_keys($facts) !== range(0, count($facts) - 1)
+            || count($facts) > 16
+        ) {
+            throw new RuntimeException('cloud_bundle_p0_field_facts_invalid');
+        }
+
+        $allowedMetrics = self::P0_METRIC_KEYS[$platform];
+        $normalized = [];
+        $seen = [];
+        foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                throw new RuntimeException('cloud_bundle_field_fact_invalid');
+            }
+            $unknownKeys = array_diff(array_keys($fact), self::FIELD_FACT_FIELDS);
+            if ($unknownKeys !== []) {
+                throw new RuntimeException('cloud_bundle_field_fact_field_not_allowed:' . (string)reset($unknownKeys));
+            }
+
+            $metricKey = strtolower(self::strictSafeText((string)($fact['metric_key'] ?? ''), 80));
+            if (!in_array($metricKey, $allowedMetrics, true)) {
+                throw new RuntimeException('cloud_bundle_field_fact_metric_invalid:' . $metricKey);
+            }
+            if (isset($seen[$metricKey])) {
+                throw new RuntimeException('cloud_bundle_field_fact_metric_duplicate:' . $metricKey);
+            }
+            $seen[$metricKey] = true;
+            if (!array_key_exists($metricKey, $row)
+                || !is_numeric($row[$metricKey])
+                || !is_finite((float)$row[$metricKey])
+            ) {
+                throw new RuntimeException('cloud_bundle_field_fact_metric_value_invalid:' . $metricKey);
+            }
+
+            $sourceKey = self::strictSafeText((string)($fact['source_key'] ?? ''), 160);
+            $sourcePath = self::strictSafeText((string)($fact['source_path'] ?? ''), 500);
+            if ($sourceKey === ''
+                || $sourcePath === ''
+                || (!str_contains($sourcePath, '.') && !str_contains($sourcePath, '[') && !str_contains($sourcePath, '/'))
+                || str_contains($sourcePath, '://')
+                || str_starts_with($sourcePath, '//')
+                || self::credentialFieldReference($sourceKey)
+                || self::credentialFieldReference($sourcePath)
+            ) {
+                throw new RuntimeException('cloud_bundle_field_fact_source_invalid:' . $metricKey);
+            }
+
+            $storageField = self::strictSafeText((string)($fact['storage_field'] ?? ''), 160);
+            if ($storageField !== 'online_daily_data.' . $metricKey) {
+                throw new RuntimeException('cloud_bundle_field_fact_storage_invalid:' . $metricKey);
+            }
+            if (($fact['stored_value_present'] ?? null) !== true
+                || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured'
+            ) {
+                throw new RuntimeException('cloud_bundle_field_fact_status_invalid:' . $metricKey);
+            }
+
+            $evidence = $fact['capture_evidence'] ?? null;
+            if (!is_array($evidence)) {
+                throw new RuntimeException('cloud_bundle_field_fact_evidence_invalid:' . $metricKey);
+            }
+            $unknownEvidenceKeys = array_diff(array_keys($evidence), self::FIELD_FACT_EVIDENCE_FIELDS);
+            if ($unknownEvidenceKeys !== []) {
+                throw new RuntimeException(
+                    'cloud_bundle_field_fact_evidence_field_not_allowed:' . (string)reset($unknownEvidenceKeys)
+                );
+            }
+            $factTraceId = self::strictSafeText((string)($evidence['source_trace_id'] ?? ''), 200);
+            $factUrlHash = strtolower(trim((string)($evidence['source_url_hash'] ?? '')));
+            if ($factTraceId === ''
+                || !hash_equals($rowTraceId, $factTraceId)
+                || !self::validSha256($factUrlHash)
+                || !hash_equals($rowUrlHash, $factUrlHash)
+            ) {
+                throw new RuntimeException('cloud_bundle_field_fact_evidence_mismatch:' . $metricKey);
+            }
+
+            $factCaptureSource = strtolower(trim((string)($evidence['capture_source'] ?? '')));
+            if ($factCaptureSource !== '' && !self::authoritativeCaptureSource($factCaptureSource)) {
+                throw new RuntimeException('cloud_bundle_field_fact_capture_source_invalid:' . $metricKey);
+            }
+            if ($platform === 'meituan'
+                && ($factCaptureSource === ''
+                    || $rowCaptureSource === ''
+                    || !hash_equals($rowCaptureSource, $factCaptureSource))
+            ) {
+                throw new RuntimeException('cloud_bundle_meituan_field_fact_capture_source_mismatch:' . $metricKey);
+            }
+
+            $normalizedEvidence = [
+                'source_trace_id' => $factTraceId,
+                'source_url_hash' => $factUrlHash,
+            ];
+            if ($factCaptureSource !== '') {
+                $normalizedEvidence['capture_source'] = $factCaptureSource;
+            }
+            $normalized[] = [
+                'metric_key' => $metricKey,
+                'source_key' => $sourceKey,
+                'source_path' => $sourcePath,
+                'storage_field' => $storageField,
+                'stored_value_present' => true,
+                'status' => 'captured',
+                'capture_evidence' => $normalizedEvidence,
+            ];
+        }
+
+        if ($platform === 'meituan' && array_diff($allowedMetrics, array_keys($seen)) !== []) {
+            throw new RuntimeException('cloud_bundle_meituan_p0_field_facts_incomplete');
+        }
+        usort($normalized, static fn(array $left, array $right): int => strcmp(
+            (string)$left['metric_key'],
+            (string)$right['metric_key']
+        ));
+        return $normalized;
+    }
+
+    private static function strictSafeText(string $value, int $limit): string
+    {
+        $value = trim($value);
+        if ($value === '' || mb_strlen($value) > $limit || self::containsSecretValue($value)) {
+            return $value === '' ? '' : throw new RuntimeException('cloud_bundle_sensitive_or_oversized_evidence');
+        }
+        return $value;
+    }
+
+    private static function credentialFieldReference(string $value): bool
+    {
+        return preg_match(
+            '/(?:^|[.\[\]\/\\:_-])(?:authorization|cookie|token|password|secret|session|headers?)(?:$|[.\[\]\/\\:_-])/i',
+            $value
+        ) === 1;
     }
 
     private static function safeText(string $value, int $limit): string

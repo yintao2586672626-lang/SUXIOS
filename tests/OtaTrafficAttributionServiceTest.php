@@ -83,6 +83,59 @@ final class OtaTrafficAttributionServiceTest extends TestCase
             'raw_data' => '{}',
         ], 'ctrip'));
 
+        self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => '',
+            'dimension' => '',
+            'raw_data' => json_encode(['row' => ['endpoint_id' => 'traffic_flow_transform']]),
+        ], 'ctrip'));
+
+        self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => '',
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+            'raw_data' => json_encode(['row' => ['endpoint_id' => 'traffic_flow_transform']]),
+        ], 'ctrip'));
+
+        foreach (['traffic_hotel_seq', 'traffic_flow_source'] as $auxiliaryEndpoint) {
+            self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+                'platform' => 'ctrip',
+                'compare_type' => '',
+                'dimension' => '',
+                'raw_data' => json_encode(['row' => ['endpoint_id' => $auxiliaryEndpoint]]),
+            ], 'ctrip'));
+        }
+
+        foreach ([
+            ['row' => ['capture' => ['endpoint_id' => 'traffic_hotel_seq']]],
+            ['source_row' => ['endpoint_id' => 'traffic_flow_source']],
+            ['source_row' => ['capture' => ['endpointId' => 'traffic_hotel_seq']]],
+        ] as $nestedAuxiliaryRaw) {
+            self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+                'platform' => 'ctrip',
+                'compare_type' => '',
+                'dimension' => '',
+                'raw_data' => json_encode($nestedAuxiliaryRaw),
+            ], 'ctrip'));
+        }
+
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => '',
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+            'raw_data' => json_encode(['row' => ['endpoint_id' => 'traffic_hotel_seq']]),
+        ], 'ctrip'));
+
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'ctrip',
+            'compare_type' => '',
+            'dimension' => '',
+            'raw_data' => json_encode([
+                'endpoint_id' => 'traffic_flow_transform',
+                'row' => ['endpoint_id' => 'traffic_flow_source'],
+            ]),
+        ], 'ctrip'));
+
         self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
             'platform' => 'ctrip',
             'compare_type' => 'self',
@@ -103,13 +156,49 @@ final class OtaTrafficAttributionServiceTest extends TestCase
         self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
             'platform' => 'meituan',
             'compare_type' => 'self',
-            'raw_data' => json_encode(['date_source' => 'response.rtDataUpdateTime']),
+            'raw_data' => json_encode([
+                'date_source' => 'response.rtDataUpdateTime',
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
         ], 'meituan'));
 
         self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
             'platform' => 'meituan',
             'compare_type' => 'self',
-            'raw_data' => json_encode(['date_source' => 'page.traffic_period_selection.readback']),
+            'raw_data' => json_encode([
+                'date_source' => 'page.traffic_period_selection.readback',
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
+        ], 'meituan'));
+    }
+
+    public function testMeituanAuthoritativeTrafficRequiresNetworkResponseProvenance(): void
+    {
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'meituan',
+            'compare_type' => 'self',
+            'raw_data' => json_encode([
+                'date_source' => 'page.traffic_period_selection.readback',
+                'row' => [],
+            ]),
+        ], 'meituan'));
+
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'meituan',
+            'compare_type' => 'self',
+            'raw_data' => json_encode([
+                'date_source' => 'page.traffic_period_selection.readback',
+                'row' => ['_capture_source' => 'dom:traffic:flow_funnel'],
+            ]),
+        ], 'meituan'));
+
+        self::assertTrue(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'meituan',
+            'compare_type' => 'self',
+            'raw_data' => json_encode([
+                'date_source' => 'page.traffic_period_selection.readback',
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
         ], 'meituan'));
     }
 

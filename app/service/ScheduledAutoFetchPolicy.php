@@ -266,6 +266,32 @@ final class ScheduledAutoFetchPolicy
     }
 
     /**
+     * Keep scheduler execution/retry caches isolated by the exact requested
+     * source and platform scope. Empty arrays are explicit dynamic markers,
+     * so legacy unscoped keys can never satisfy a newly scoped dispatcher.
+     *
+     * @param array<int, int> $sourceIds
+     * @param array<int, string> $platforms
+     */
+    public function cacheScopeSuffix(array $sourceIds, array $platforms): string
+    {
+        $sourceIds = $this->positiveIds($sourceIds);
+        sort($sourceIds, SORT_NUMERIC);
+        $platforms = $this->platformList($platforms);
+        $descriptor = [
+            'source_ids' => $sourceIds,
+            'source_mode' => $sourceIds === [] ? 'dynamic' : 'fixed',
+            'platforms' => $platforms,
+            'platform_mode' => $platforms === [] ? 'dynamic' : 'fixed',
+        ];
+        ksort($descriptor, SORT_STRING);
+        return '_scope_' . substr(hash('sha256', json_encode(
+            $descriptor,
+            JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        )), 0, 16);
+    }
+
+    /**
      * @param array<int, int> $sourceIds
      * @param array<string, mixed> $outcome
      * @param array<string, mixed> $result
@@ -289,17 +315,116 @@ final class ScheduledAutoFetchPolicy
         )));
         sort($sourceIds, SORT_NUMERIC);
         $sourceTasks = [];
+        $failedSourceTasks = [];
+        $safeOperationalCode = static function (mixed $value): string {
+            $value = strtolower(trim((string)$value));
+            return preg_match('/^[a-z0-9][a-z0-9._:-]{0,119}$/D', $value) === 1
+                ? $value
+                : '';
+        };
         foreach ((array)($result['platform_results'] ?? []) as $platformResult) {
             if (!is_array($platformResult)) {
                 continue;
             }
             $readback = is_array($platformResult['run_readback'] ?? null) ? $platformResult['run_readback'] : [];
             $dataSourceId = (int)($readback['data_source_id'] ?? $platformResult['data_source_id'] ?? 0);
-            $syncTaskId = (int)($readback['sync_task_id'] ?? 0);
+            $ingestionMethod = strtolower(trim((string)($platformResult['ingestion_method'] ?? '')));
+            if (!in_array($ingestionMethod, ['browser_profile', 'local_collector'], true)) {
+                $ingestionMethod = '';
+            }
+            $localCollectorTaskId = max(0, (int)(
+                $platformResult['local_collector_task_id']
+                ?? $platformResult['collector_task_id']
+                ?? 0
+            ));
+            $executionOwnerUserId = max(0, (int)(
+                $platformResult['execution_owner_user_id'] ?? 0
+            ));
+            $syncTaskId = (int)(
+                $readback['sync_task_id']
+                ?? $platformResult['platform_sync_task_id']
+                ?? ($ingestionMethod === 'local_collector'
+                    ? 0
+                    : ($platformResult['task_id'] ?? 0))
+            );
             $receiptHotelId = (int)($readback['system_hotel_id'] ?? 0);
             $receiptDate = substr(trim((string)($readback['target_date'] ?? '')), 0, 10);
             $platform = strtolower(trim((string)($readback['platform'] ?? $platformResult['platform'] ?? '')));
             $p0Status = strtolower(trim((string)($readback['p0_status'] ?? '')));
+            $dispatcherRunId = strtolower(trim((string)($readback['dispatcher_run_id'] ?? '')));
+            if ($dispatcherRunId === '') {
+                $dispatcherRunId = strtolower(trim((string)($platformResult['dispatcher_run_id'] ?? '')));
+            }
+            if (preg_match(
+                '/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/D',
+                $dispatcherRunId
+            ) !== 1) {
+                $dispatcherRunId = '';
+            }
+            $triggerType = strtolower(trim((string)($readback['trigger_type'] ?? '')));
+            if (preg_match('/^[a-z][a-z0-9_]{0,79}$/D', $triggerType) !== 1) {
+                $triggerType = '';
+            }
+            $startedAt = trim((string)($readback['started_at'] ?? ''));
+            $historicalCoreStatus = $dataPeriod === 'historical_daily'
+                ? strtolower(trim((string)($platformResult['historical_core_contract_status'] ?? '')))
+                : 'not_required';
+            if (!in_array($historicalCoreStatus, ['ready', 'blocked', 'not_required'], true)) {
+                $historicalCoreStatus = 'not_ready';
+            }
+            $platformResultHotelId = max(0, (int)($platformResult['system_hotel_id'] ?? 0));
+            $platformResultDate = substr(trim((string)($platformResult['target_date'] ?? '')), 0, 10);
+            $platformResultStatus = $safeOperationalCode(
+                $platformResult['source_task_status'] ?? $platformResult['status'] ?? ''
+            );
+            $failureReason = $safeOperationalCode($platformResult['failure_reason'] ?? '');
+            if ($failureReason === '') {
+                $failureReason = $safeOperationalCode($platformResult['message'] ?? '');
+            }
+            if ($failureReason === '' && $historicalCoreStatus === 'blocked') {
+                $failureReason = 'historical_core_contract_incomplete';
+            }
+            $platformReadbackVerified = ($platformResult['readback_verified'] ?? false) === true
+                || ($readback['readback_verified'] ?? false) === true;
+            $platformReadbackCount = max(
+                0,
+                (int)($platformResult['readback_count'] ?? count(
+                    is_array($readback['row_ids'] ?? null) ? $readback['row_ids'] : []
+                ))
+            );
+            $failedScopeMatches = $dataSourceId > 0
+                && ($syncTaskId > 0
+                    || ($ingestionMethod === 'local_collector' && $localCollectorTaskId > 0))
+                && in_array($platform, self::REQUIRED_DAILY_PLATFORMS, true)
+                && ($sourceIds === [] || in_array($dataSourceId, $sourceIds, true))
+                && $platformResultHotelId === $hotelId
+                && $platformResultDate === $targetDate;
+            if (empty($platformResult['success']) && $failedScopeMatches) {
+                $failedTask = [
+                    'data_source_id' => $dataSourceId,
+                    'sync_task_id' => $syncTaskId > 0 ? $syncTaskId : null,
+                    'platform' => $platform,
+                    'target_date' => $targetDate,
+                    'status' => $platformResultStatus !== '' ? $platformResultStatus : 'failed',
+                    'failure_reason' => $failureReason !== '' ? $failureReason : 'collection_not_verified',
+                    'readback_count' => $platformReadbackCount,
+                    'readback_verified' => $platformReadbackVerified,
+                    'historical_core_contract_status' => $historicalCoreStatus,
+                ];
+                if ($ingestionMethod !== '') {
+                    $failedTask['ingestion_method'] = $ingestionMethod;
+                }
+                if ($localCollectorTaskId > 0) {
+                    $failedTask['local_collector_task_id'] = $localCollectorTaskId;
+                }
+                if ($executionOwnerUserId > 0) {
+                    $failedTask['execution_owner_user_id'] = $executionOwnerUserId;
+                }
+                if ($dispatcherRunId !== '') {
+                    $failedTask['dispatcher_run_id'] = $dispatcherRunId;
+                }
+                $failedSourceTasks[$dataSourceId] = $failedTask;
+            }
             $rowIds = array_values(array_unique(array_filter(array_map(
                 'intval',
                 is_array($readback['row_ids'] ?? null) ? $readback['row_ids'] : []
@@ -309,6 +434,11 @@ final class ScheduledAutoFetchPolicy
             // stale while the verifier is checking the same persisted rows, so
             // do not discard a valid anchor merely because that preliminary
             // diagnosis is still `partial` or `blocked`.
+            $producerIdentityReady = $ingestionMethod === 'local_collector'
+                ? ($localCollectorTaskId > 0 && $triggerType === 'local_collector_upload')
+                : ($ingestionMethod === 'browser_profile'
+                    ? ($localCollectorTaskId === 0 && $triggerType === 'daily_profile_reuse')
+                    : true);
             if (($readback['readback_verified'] ?? false) !== true
                 || $dataSourceId <= 0
                 || $syncTaskId <= 0
@@ -316,19 +446,45 @@ final class ScheduledAutoFetchPolicy
                 || $receiptDate !== $targetDate
                 || !in_array($platform, self::REQUIRED_DAILY_PLATFORMS, true)
                 || $rowIds === []
+                || !$producerIdentityReady
             ) {
                 continue;
             }
-            $sourceTasks[$dataSourceId] = [
+            $sourceTask = [
                 'data_source_id' => $dataSourceId,
                 'sync_task_id' => $syncTaskId,
                 'platform' => $platform,
                 'collection_status' => !empty($platformResult['success']) ? 'success' : 'partial',
                 'p0_status' => $p0Status !== '' ? $p0Status : 'not_ready',
+                'historical_core_contract_status' => $historicalCoreStatus,
                 'row_ids' => $rowIds,
+                'readback_verified' => true,
             ];
+            if ($ingestionMethod !== '') {
+                $sourceTask['ingestion_method'] = $ingestionMethod;
+            }
+            if ($localCollectorTaskId > 0) {
+                $sourceTask['local_collector_task_id'] = $localCollectorTaskId;
+            }
+            if ($executionOwnerUserId > 0) {
+                $sourceTask['execution_owner_user_id'] = $executionOwnerUserId;
+            }
+            if ($dispatcherRunId !== '') {
+                $sourceTask['dispatcher_run_id'] = $dispatcherRunId;
+            }
+            if ($triggerType !== '') {
+                $sourceTask['trigger_type'] = $triggerType;
+            }
+            if ($startedAt !== '') {
+                $sourceTask['started_at'] = $startedAt;
+            }
+            $sourceTasks[$dataSourceId] = $sourceTask;
+            if (!empty($platformResult['success'])) {
+                unset($failedSourceTasks[$dataSourceId]);
+            }
         }
         ksort($sourceTasks, SORT_NUMERIC);
+        ksort($failedSourceTasks, SORT_NUMERIC);
         $receiptSourceIds = array_map('intval', array_keys($sourceTasks));
         $expectedSourceIds = $sourceIds === [] ? $receiptSourceIds : $sourceIds;
         $requiredPlatforms = $this->platformList(
@@ -341,12 +497,29 @@ final class ScheduledAutoFetchPolicy
         $exportableSnapshotComplete = $expectedSourceIds !== []
             && $receiptSourceIds === $expectedSourceIds
             && array_diff($requiredPlatforms, $receiptPlatforms) === [];
-        $collectionComplete = !empty($outcome['complete']) && $exportableSnapshotComplete;
         $authorityRequired = $dataPeriod === 'historical_daily';
-        $collectionAnchorHash = hash(
-            'sha256',
-            json_encode(array_values($sourceTasks), JSON_UNESCAPED_SLASHES) ?: '[]'
+        $historicalCoreContractComplete = !$authorityRequired || (
+            count($sourceTasks) === count($requiredPlatforms)
+            && array_values(array_filter(
+                $sourceTasks,
+                static fn(array $task): bool =>
+                    ($task['historical_core_contract_status'] ?? '') !== 'ready'
+            )) === []
         );
+        $collectionComplete = !empty($outcome['complete'])
+            && $exportableSnapshotComplete
+            && $historicalCoreContractComplete;
+        $authorityScopeComplete = $collectionComplete && !$authorityRequired;
+        // A complete two-source/task/row projection may be hashed before the
+        // external P0 authority settles a stale local P0 diagnosis. Missing or
+        // failed source facts never enter that projection and therefore never
+        // receive an anchor merely because a failure sidecar exists.
+        $anchorMaterialComplete = $exportableSnapshotComplete
+            && $historicalCoreContractComplete
+            && count($sourceTasks) === count($requiredPlatforms);
+        $collectionAnchorHash = $anchorMaterialComplete
+            ? OtaCollectionAnchorService::hash(array_values($sourceTasks))
+            : '';
 
         return [
             'schema_version' => 3,
@@ -354,11 +527,13 @@ final class ScheduledAutoFetchPolicy
             'target_date' => $targetDate,
             'data_period' => $dataPeriod,
             'source_ids' => $expectedSourceIds,
+            'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
             'collection_anchor_hash' => $collectionAnchorHash,
             'required_platforms' => $requiredPlatforms,
             'status' => (string)($outcome['status'] ?? ''),
             'collection_complete' => $collectionComplete,
             'exportable_snapshot_complete' => $exportableSnapshotComplete,
+            'historical_core_contract_complete' => $historicalCoreContractComplete,
             'authority_verifier_required' => $authorityRequired,
             'authority_verifier' => [
                 'verification_source' => $authorityRequired
@@ -376,8 +551,11 @@ final class ScheduledAutoFetchPolicy
                     : [],
                 'sensitive_values_exposed' => false,
             ],
-            'dual_ota_p0_complete' => $collectionComplete && !$authorityRequired,
+            'authority_scope_complete' => $authorityScopeComplete,
+            'dual_ota_p0_complete' => $authorityScopeComplete
+                && $requiredPlatforms === self::REQUIRED_DAILY_PLATFORMS,
             'source_tasks' => array_values($sourceTasks),
+            'failed_source_tasks' => array_values($failedSourceTasks),
         ];
     }
 
@@ -411,8 +589,33 @@ final class ScheduledAutoFetchPolicy
         $verifierAnchorHash = strtolower(trim((string)(
             $verifier['collection_anchor_hash'] ?? ''
         )));
-        $anchorReady = preg_match('/^[a-f0-9]{64}$/D', $collectionAnchorHash) === 1
+        $anchorReady = (string)($receipt['collection_anchor_contract_version'] ?? '')
+                === OtaCollectionAnchorService::CONTRACT_VERSION
+            && OtaCollectionAnchorService::matches(
+                $receipt['source_tasks'] ?? [],
+                $collectionAnchorHash
+            )
+            && $this->hasCompleteSourceTaskAnchor($receipt)
             && hash_equals($collectionAnchorHash, $verifierAnchorHash);
+        $storageScopes = is_array($verifier['platform_storage_scopes'] ?? null)
+            ? $verifier['platform_storage_scopes']
+            : [];
+        $syntheticProvenanceMissingRows = 0;
+        $observedMetricProvenanceReady = $requiredPlatforms !== [];
+        foreach ($requiredPlatforms as $requiredPlatform) {
+            $scope = is_array($storageScopes[$requiredPlatform] ?? null)
+                ? $storageScopes[$requiredPlatform]
+                : [];
+            $missingRows = max(0, (int)(
+                $scope['synthetic_normalization_provenance_missing_rows'] ?? 0
+            ));
+            $syntheticProvenanceMissingRows += $missingRows;
+            if (strtolower(trim((string)(
+                $scope['observed_traffic_metric_provenance_status'] ?? ''
+            ))) !== 'ready' || $missingRows !== 0) {
+                $observedMetricProvenanceReady = false;
+            }
+        }
         $authorityReady = ($verifier['authority_ready'] ?? false) === true
             && strtolower(trim((string)($verifier['verification_source'] ?? ''))) === 'external_p0_verifier'
             && strtolower(trim((string)($verifier['status'] ?? ''))) === 'passed'
@@ -422,6 +625,7 @@ final class ScheduledAutoFetchPolicy
             && $verifiedPlatforms === $requiredPlatforms
             && (int)($verifier['p0_platforms_ready'] ?? -1) === count($requiredPlatforms)
             && (int)($verifier['traffic_gates_ready'] ?? -1) === count($requiredPlatforms)
+            && $observedMetricProvenanceReady
             && strtolower(trim((string)($verifier['continuous_trust_status'] ?? ''))) === 'verified'
             && $this->stringList($verifier['continuous_trust_missing_steps'] ?? []) === [];
 
@@ -441,6 +645,10 @@ final class ScheduledAutoFetchPolicy
             'platform_statuses' => is_array($verifier['platform_statuses'] ?? null)
                 ? $verifier['platform_statuses']
                 : [],
+            'observed_traffic_metric_provenance_status' => $observedMetricProvenanceReady
+                ? 'ready'
+                : 'synthetic_normalization_provenance_missing',
+            'synthetic_normalization_provenance_missing_rows' => $syntheticProvenanceMissingRows,
             'p0_platforms_ready' => max(0, (int)($verifier['p0_platforms_ready'] ?? 0)),
             'traffic_gates_ready' => max(0, (int)($verifier['traffic_gates_ready'] ?? 0)),
             'continuous_trust_status' => strtolower(trim((string)(
@@ -460,27 +668,19 @@ final class ScheduledAutoFetchPolicy
             'sensitive_values_exposed' => false,
         ];
         // The authority verifier checks the exact persisted target-date rows
-        // represented by the source-task anchor.  When it passes for every
-        // required platform, it is allowed to settle a stale local P0 task
-        // diagnosis; it never creates an anchor or fills a missing task.
+        // represented by the source-task anchor. When it passes for every
+        // required platform it may settle a stale local diagnosis, but the
+        // signed source-task projection itself must remain immutable.
         if ($authorityReady && $this->hasCompleteSourceTaskAnchor($receipt)) {
-            foreach ((array)($receipt['source_tasks'] ?? []) as $index => $task) {
-                if (!is_array($task)) {
-                    continue;
-                }
-                $platform = strtolower(trim((string)($task['platform'] ?? '')));
-                if (in_array($platform, $verifiedPlatforms, true)) {
-                    $receipt['source_tasks'][$index]['p0_status'] = 'ready';
-                    $receipt['source_tasks'][$index]['collection_status'] = 'success';
-                }
-            }
             $receipt['collection_complete'] = true;
             $receipt['exportable_snapshot_complete'] = true;
         }
-        $receipt['dual_ota_p0_complete'] = ($receipt['collection_complete'] ?? false) === true
+        $receipt['authority_scope_complete'] = ($receipt['collection_complete'] ?? false) === true
             && ($receipt['exportable_snapshot_complete'] ?? false) === true
             && $authorityReady;
-        $receipt['status'] = $receipt['dual_ota_p0_complete']
+        $receipt['dual_ota_p0_complete'] = ($receipt['authority_scope_complete'] ?? false) === true
+            && $requiredPlatforms === self::REQUIRED_DAILY_PLATFORMS;
+        $receipt['status'] = ($receipt['authority_scope_complete'] ?? false) === true
             ? 'verified'
             : (($receipt['collection_complete'] ?? false) === true ? 'partial_success' : (string)($receipt['status'] ?? 'failed'));
         return $receipt;
@@ -489,6 +689,7 @@ final class ScheduledAutoFetchPolicy
     /** @param array<string,mixed> $receipt */
     private function hasCompleteSourceTaskAnchor(array $receipt): bool
     {
+        $historical = strtolower(trim((string)($receipt['data_period'] ?? ''))) === 'historical_daily';
         $expectedSourceIds = array_values(array_unique(array_filter(array_map(
             'intval',
             is_array($receipt['source_ids'] ?? null) ? $receipt['source_ids'] : []
@@ -509,7 +710,11 @@ final class ScheduledAutoFetchPolicy
                 is_array($task['row_ids'] ?? null) ? $task['row_ids'] : []
             ), static fn(int $id): bool => $id > 0));
             $platform = strtolower(trim((string)($task['platform'] ?? '')));
-            if ($sourceId <= 0 || $taskId <= 0 || $rowIds === [] || !in_array($platform, $requiredPlatforms, true)) {
+            if ($sourceId <= 0 || $taskId <= 0 || $rowIds === []
+                || !in_array($platform, $requiredPlatforms, true)
+                || ($historical
+                    && strtolower(trim((string)($task['historical_core_contract_status'] ?? ''))) !== 'ready')
+            ) {
                 return false;
             }
             $sourceIds[] = $sourceId;
@@ -527,14 +732,24 @@ final class ScheduledAutoFetchPolicy
     public function dailyTrustReceiptReady(
         array $receipt,
         ?string $expectedDate = null,
-        ?int $expectedHotelId = null
+        ?int $expectedHotelId = null,
+        ?array $expectedSourceIds = null,
+        ?array $expectedPlatforms = null
     ): bool {
+        if (!$this->receiptMatchesExpectedScope(
+            $receipt,
+            $expectedSourceIds,
+            $expectedPlatforms
+        ) || !$this->collectionAnchorReady($receipt)) {
+            return false;
+        }
         if (strtolower(trim((string)($receipt['data_period'] ?? ''))) === 'realtime_snapshot') {
             return $this->realtimeTrustReceiptReady($receipt, $expectedDate, $expectedHotelId);
         }
         if (($receipt['collection_complete'] ?? false) !== true
             || ($receipt['exportable_snapshot_complete'] ?? false) !== true
-            || ($receipt['dual_ota_p0_complete'] ?? false) !== true
+            || ($receipt['historical_core_contract_complete'] ?? false) !== true
+            || ($receipt['authority_scope_complete'] ?? false) !== true
             || ($expectedDate !== null
                 && substr(trim((string)($receipt['target_date'] ?? '')), 0, 10) !== $expectedDate)
             || ($expectedHotelId !== null && (int)($receipt['hotel_id'] ?? 0) !== $expectedHotelId)
@@ -543,18 +758,15 @@ final class ScheduledAutoFetchPolicy
         }
         $requiredPlatforms = $this->platformList($receipt['required_platforms'] ?? []);
         sort($requiredPlatforms, SORT_STRING);
-        if ($requiredPlatforms !== self::REQUIRED_DAILY_PLATFORMS) {
+        if ($requiredPlatforms === []) {
             return false;
         }
         $readyPlatforms = [];
         foreach (is_array($receipt['source_tasks'] ?? null) ? $receipt['source_tasks'] : [] as $task) {
             if (!is_array($task)
-                || strtolower(trim((string)($task['collection_status'] ?? ''))) !== 'success'
-                || !in_array(
-                    strtolower(trim((string)($task['p0_status'] ?? ''))),
-                    ['ready', 'not_required'],
-                    true
-                )
+                || strtolower(trim((string)(
+                    $task['historical_core_contract_status'] ?? ''
+                ))) !== 'ready'
                 || (int)($task['data_source_id'] ?? 0) <= 0
                 || (int)($task['sync_task_id'] ?? 0) <= 0
                 || array_values(array_filter(
@@ -565,17 +777,17 @@ final class ScheduledAutoFetchPolicy
                 continue;
             }
             $platform = strtolower(trim((string)($task['platform'] ?? '')));
-            if (in_array($platform, self::REQUIRED_DAILY_PLATFORMS, true)) {
+            if (in_array($platform, $requiredPlatforms, true)) {
                 $readyPlatforms[$platform] = true;
             }
         }
         $readyPlatforms = array_keys($readyPlatforms);
         sort($readyPlatforms, SORT_STRING);
-        if ($readyPlatforms !== self::REQUIRED_DAILY_PLATFORMS) {
+        if ($readyPlatforms !== $requiredPlatforms) {
             return false;
         }
-        if (($receipt['authority_verifier_required'] ?? true) !== true) {
-            return true;
+        if (($receipt['authority_verifier_required'] ?? false) !== true) {
+            return false;
         }
         $verifier = is_array($receipt['authority_verifier'] ?? null)
             ? $receipt['authority_verifier']
@@ -597,9 +809,13 @@ final class ScheduledAutoFetchPolicy
                 strtolower(trim((string)$receipt['collection_anchor_hash'])),
                 strtolower(trim((string)($verifier['collection_anchor_hash'] ?? '')))
             )
-            && $verifiedPlatforms === self::REQUIRED_DAILY_PLATFORMS
-            && (int)($verifier['p0_platforms_ready'] ?? -1) === count(self::REQUIRED_DAILY_PLATFORMS)
-            && (int)($verifier['traffic_gates_ready'] ?? -1) === count(self::REQUIRED_DAILY_PLATFORMS)
+            && $verifiedPlatforms === $requiredPlatforms
+            && (int)($verifier['p0_platforms_ready'] ?? -1) === count($requiredPlatforms)
+            && (int)($verifier['traffic_gates_ready'] ?? -1) === count($requiredPlatforms)
+            && strtolower(trim((string)(
+                $verifier['observed_traffic_metric_provenance_status'] ?? ''
+            ))) === 'ready'
+            && (int)($verifier['synthetic_normalization_provenance_missing_rows'] ?? -1) === 0
             && strtolower(trim((string)($verifier['continuous_trust_status'] ?? ''))) === 'verified'
             && $this->stringList($verifier['continuous_trust_missing_steps'] ?? []) === [];
     }
@@ -612,12 +828,13 @@ final class ScheduledAutoFetchPolicy
     ): bool {
         if (($receipt['collection_complete'] ?? false) !== true
             || ($receipt['exportable_snapshot_complete'] ?? false) !== true
-            || ($receipt['dual_ota_p0_complete'] ?? false) !== true
+            || ($receipt['authority_scope_complete'] ?? false) !== true
             || ($receipt['authority_verifier_required'] ?? true) !== false
             || ($expectedDate !== null
                 && substr(trim((string)($receipt['target_date'] ?? '')), 0, 10) !== $expectedDate)
             || ($expectedHotelId !== null && (int)($receipt['hotel_id'] ?? 0) !== $expectedHotelId)
             || !$this->hasCompleteSourceTaskAnchor($receipt)
+            || !$this->collectionAnchorReady($receipt)
         ) {
             return false;
         }
@@ -647,6 +864,46 @@ final class ScheduledAutoFetchPolicy
         $readyPlatforms = array_keys($readyPlatforms);
         sort($readyPlatforms, SORT_STRING);
         return $readyPlatforms === $requiredPlatforms;
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private function collectionAnchorReady(array $receipt): bool
+    {
+        return (string)($receipt['collection_anchor_contract_version'] ?? '')
+                === OtaCollectionAnchorService::CONTRACT_VERSION
+            && OtaCollectionAnchorService::matches(
+                $receipt['source_tasks'] ?? [],
+                $receipt['collection_anchor_hash'] ?? ''
+            );
+    }
+
+    /**
+     * @param array<string, mixed> $receipt
+     * @param array<int, int>|null $expectedSourceIds
+     * @param array<int, string>|null $expectedPlatforms
+     */
+    private function receiptMatchesExpectedScope(
+        array $receipt,
+        ?array $expectedSourceIds,
+        ?array $expectedPlatforms
+    ): bool {
+        if ($expectedSourceIds !== null) {
+            $expectedSourceIds = $this->positiveIds($expectedSourceIds);
+            sort($expectedSourceIds, SORT_NUMERIC);
+            $receiptSourceIds = $this->positiveIds($receipt['source_ids'] ?? []);
+            sort($receiptSourceIds, SORT_NUMERIC);
+            if ($receiptSourceIds !== $expectedSourceIds) {
+                return false;
+            }
+        }
+        if ($expectedPlatforms !== null) {
+            $expectedPlatforms = $this->platformList($expectedPlatforms);
+            $receiptPlatforms = $this->platformList($receipt['required_platforms'] ?? []);
+            if ($receiptPlatforms !== $expectedPlatforms) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -715,6 +972,9 @@ final class ScheduledAutoFetchPolicy
         }
         $missingPlatforms = array_values(array_unique($missingPlatforms));
         sort($missingPlatforms, SORT_STRING);
+        if ($ready) {
+            $missingPlatforms = [];
+        }
 
         $gapCodes = [];
         if (($receipt['collection_complete'] ?? false) !== true) {

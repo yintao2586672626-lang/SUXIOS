@@ -18,7 +18,10 @@ import {
   classifyOtaEndpointDiscoveryResponse,
   upsertOtaEndpointDiscoveryCandidate,
 } from './lib/ota_endpoint_discovery.mjs';
-import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
+import {
+  launchOtaPersistentContext,
+  requireFreshOtaPageNetwork,
+} from './lib/cloakbrowser_launcher.mjs';
 import {
   attachVerifiedMeituanCaptureScope,
   buildMeituanOrderFlowReplayUrls,
@@ -152,13 +155,17 @@ const pendingResponseCaptures = new Set();
 const requestQueryEvidence = new WeakMap();
 const requestForecastTabEvidence = new WeakMap();
 const requestBusinessTabEvidence = new WeakMap();
+const requestTrafficTabEvidence = new WeakMap();
 const observedPlatformIdentifiers = new Set();
 let activeOrderQueryEvidence = null;
 let activeForecastTabEvidence = null;
 let activeBusinessTabEvidence = null;
+let activeTrafficTabEvidence = null;
 let orderQueryEpoch = 0;
 let forecastTabEpoch = 0;
 let businessTabEpoch = 0;
+let trafficTabEpoch = 0;
+let activeTrafficRequestSequence = 0;
 let sessionProbeSuccessfulApiResponseCount = 0;
 const sessionProbeResponseDiagnostics = {
   recognized_response_count: 0,
@@ -185,6 +192,7 @@ if (authOnly) {
 }
 
 try {
+  payload.network_freshness = await requireFreshOtaPageNetwork(browser, page);
   const loginStatus = await ensureLoggedIn(page, { interactive: !sessionProbeOnly });
   payload.auth_status = loginStatus;
   if (!loginStatus.ok) {
@@ -681,25 +689,16 @@ async function runMeituanTrafficInteractionPlan(page) {
     }
   }
   if (targetRelativeRange) {
-    await clickMeituanTrafficFunnelPeriod(
-      page,
-      results,
-      targetRelativeRange,
-      `restore target traffic period ${targetRelativeRange}`,
-      1800,
-    );
-    const selected = await readMeituanTrafficPeriodSelection(page, targetRelativeRange);
     const marker = targetDateIsToday
       ? 'meituan_traffic_today_realtime_tab'
       : 'meituan_traffic_yesterday_tab';
-    payload.section_evidence.traffic = {
-      status: selected ? 'target_date_relative_range_selected' : 'target_date_relative_range_not_selected',
-      target_date: defaultDataDate,
-      relative_range: targetRelativeRange,
-      evidence_source: 'page.traffic_period_selection.readback',
+    await captureMeituanTrafficFunnelPeriod(
+      page,
+      results,
+      targetRelativeRange,
       marker,
-      date_scope_policy: 'selected_relative_range_readback_not_refresh_timestamp',
-    };
+      temporalCapture,
+    );
   }
 
   return results;
@@ -714,6 +713,95 @@ function buildMeituanRelativePeriodEvidence(selected, relativeRange, marker, evi
     marker,
     date_scope_policy: 'selected_relative_range_readback_not_refresh_timestamp',
   };
+}
+
+async function captureMeituanTrafficFunnelPeriod(page, results, label, marker, temporalCapture) {
+  const alternateLabel = label === '\u4eca\u65e5\u5b9e\u65f6' ? '\u6628\u65e5' : '\u4eca\u65e5\u5b9e\u65f6';
+  await clickMeituanTrafficFunnelPeriod(
+    page,
+    results,
+    alternateLabel,
+    `switch away before verified target traffic period ${label}`,
+    1200,
+  );
+  await waitForPendingResponseCaptures(page);
+
+  const epoch = ++trafficTabEpoch;
+  if (temporalCapture) {
+    payload.flowAnalysis = [];
+    payload.responses = payload.responses.filter(
+      response => String(response?.payload_key || '') !== 'flowAnalysis',
+    );
+  }
+  activeTrafficTabEvidence = {
+    selected: true,
+    target_date: defaultDataDate,
+    relative_range: label,
+    evidence_source: 'page.traffic_period_selection.readback',
+    marker,
+    traffic_capture_epoch: epoch,
+  };
+  activeTrafficRequestSequence = 0;
+  try {
+    await clickMeituanTrafficFunnelPeriod(
+      page,
+      results,
+      label,
+      `restore target traffic period ${label}`,
+      1800,
+    );
+    await waitForPendingResponseCaptures(page);
+  } finally {
+    activeTrafficTabEvidence = null;
+  }
+
+  const selected = await readMeituanTrafficPeriodSelection(page, label);
+  const epochResponses = payload.responses.filter(response => (
+    String(response?.payload_key || '') === 'flowAnalysis'
+    && Number(response?.traffic_capture_epoch || 0) === epoch
+    && Number(response?.traffic_request_sequence || 0) > 0
+  ));
+  const responseCount = epochResponses.length;
+  const selectedRequestSequence = epochResponses.reduce(
+    (latest, response) => Math.max(latest, Number(response?.traffic_request_sequence || 0)),
+    0,
+  );
+  const funnelRowCount = payload.flowAnalysis.filter(row => (
+    Number(row?.traffic_capture_epoch || 0) === epoch
+    && Number(row?.traffic_request_sequence || 0) === selectedRequestSequence
+    && String(row?.data_type || '').trim() === 'traffic'
+    && String(row?.dimension || '').trim() === 'flow_conversion'
+  )).length;
+  const captured = selected && selectedRequestSequence > 0 && funnelRowCount > 0;
+  payload.section_evidence.traffic = {
+    ...buildMeituanRelativePeriodEvidence(
+      captured,
+      label,
+      marker,
+      'page.traffic_period_selection.readback',
+    ),
+    traffic_capture_epoch: epoch,
+    response_count: responseCount,
+    selected_request_sequence: selectedRequestSequence,
+    funnel_row_count: funnelRowCount,
+  };
+  results.push({
+    action: 'readback_captured_traffic_period',
+    text: label,
+    selected,
+    traffic_capture_epoch: epoch,
+    response_count: responseCount,
+    selected_request_sequence: selectedRequestSequence,
+    funnel_row_count: funnelRowCount,
+  });
+  payload.flowAnalysis = payload.flowAnalysis.filter(row => (
+    Number(row?.traffic_capture_epoch || 0) !== epoch
+    || (captured && Number(row?.traffic_request_sequence || 0) === selectedRequestSequence)
+  ));
+  payload.responses = payload.responses.filter(response => (
+    Number(response?.traffic_capture_epoch || 0) !== epoch
+    || (captured && Number(response?.traffic_request_sequence || 0) === selectedRequestSequence)
+  ));
 }
 
 async function selectMeituanForecastTab(page, results, label, forecastType) {
@@ -1054,6 +1142,7 @@ async function clickMeituanTrafficFunnelPeriod(page, results, label, reason, wai
     await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
     await page.waitForTimeout(waitMs);
   }
+  return clicked;
 }
 
 async function readMeituanTrafficPeriodSelection(page, label) {
@@ -1377,6 +1466,12 @@ function registerResponseCapture(page, target) {
     if (activeBusinessTabEvidence) {
       requestBusinessTabEvidence.set(request, { ...activeBusinessTabEvidence });
     }
+    if (activeTrafficTabEvidence) {
+      requestTrafficTabEvidence.set(request, {
+        ...activeTrafficTabEvidence,
+        traffic_request_sequence: ++activeTrafficRequestSequence,
+      });
+    }
     const requestPayload = request.postData() || '';
     observeOtaReadFallbackRequest(meituanReadFallbackState, request, {
       requestDateEvidence: extractOtaRequestDateEvidence({
@@ -1385,7 +1480,7 @@ function registerResponseCapture(page, target) {
       }),
       dateContext: activeBusinessTabEvidence
         ? { ...activeBusinessTabEvidence }
-        : {},
+        : (activeTrafficTabEvidence ? { ...activeTrafficTabEvidence } : {}),
     });
   });
   page.on('response', response => {
@@ -1435,6 +1530,7 @@ async function captureMeituanResponse(response, target) {
     const queryEvidence = requestQueryEvidence.get(request) || null;
     const forecastTabEvidence = requestForecastTabEvidence.get(request) || null;
     const businessTabEvidence = requestBusinessTabEvidence.get(request) || null;
+    const trafficTabEvidence = requestTrafficTabEvidence.get(request) || null;
     const requestPayload = request?.postData?.() || '';
     const requestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
     const contentType = response.headers()['content-type'] || '';
@@ -1526,6 +1622,7 @@ async function captureMeituanResponse(response, target) {
       requestDateEvidence,
       forecastTabEvidence,
       businessTabEvidence,
+      trafficTabEvidence,
     );
     const targetPayloadKey = meituanPayloadKeyForResponse(url, safeBody, section);
     if (
@@ -1578,6 +1675,11 @@ async function captureMeituanResponse(response, target) {
       business_relative_range: supplementalMeta.businessRelativeRange,
       business_evidence_source: supplementalMeta.businessEvidenceSource,
       business_capture_epoch: supplementalMeta.businessCaptureEpoch,
+      traffic_relative_range: supplementalMeta.trafficRelativeRange,
+      traffic_evidence_source: supplementalMeta.trafficEvidenceSource,
+      traffic_marker: supplementalMeta.trafficMarker,
+      traffic_capture_epoch: supplementalMeta.trafficCaptureEpoch,
+      traffic_request_sequence: supplementalMeta.trafficRequestSequence,
       data: safeBody,
       ...(queryEvidence || {}),
     });
@@ -1737,7 +1839,12 @@ function meituanPayloadKeyForResponse(url, body, section) {
   if (value.includes('/business/peer/rank/data/detail') || bodyHasPath(body, ['data', 'peerRankData']) || bodyHasPath(body, ['peerRankData'])) {
     return 'peerRank';
   }
-  if (value.includes('flowconversion') || value.includes('flowtrenddetail') || value.includes('flowtrend')) {
+  if (
+    value.includes('/api/v1/ebooking/workbench/business/analysis')
+    || value.includes('flowconversion')
+    || value.includes('flowtrenddetail')
+    || value.includes('flowtrend')
+  ) {
     return 'flowAnalysis';
   }
   if (value.includes('searchkeywords') || bodyHasSearchKeywordCards(body) || bodyHasPath(body, ['data', 'searchKeywords']) || bodyHasPath(body, ['data', 'searchKeyWords'])) {
@@ -1754,6 +1861,7 @@ function meituanSupplementalResponseMeta(
   requestDateEvidence = {},
   forecastTabEvidence = null,
   businessTabEvidence = null,
+  trafficTabEvidence = null,
 ) {
   const query = urlQueryParams(url);
   const verifiedForecastType = (
@@ -1776,6 +1884,11 @@ function meituanSupplementalResponseMeta(
     businessRelativeRange: String(businessTabEvidence?.relative_range || '').trim(),
     businessEvidenceSource: String(businessTabEvidence?.evidence_source || '').trim(),
     businessCaptureEpoch: Number(businessTabEvidence?.business_capture_epoch || 0),
+    trafficRelativeRange: String(trafficTabEvidence?.relative_range || '').trim(),
+    trafficEvidenceSource: String(trafficTabEvidence?.evidence_source || '').trim(),
+    trafficMarker: String(trafficTabEvidence?.marker || '').trim(),
+    trafficCaptureEpoch: Number(trafficTabEvidence?.traffic_capture_epoch || 0),
+    trafficRequestSequence: Number(trafficTabEvidence?.traffic_request_sequence || 0),
     analysisType: meituanFlowAnalysisType(url),
     orderFlowDirection: query.get('lossType') === '1' ? 'inflow' : (query.get('lossType') === '0' ? 'loss' : ''),
     periodStart: query.get('startDate') || '',

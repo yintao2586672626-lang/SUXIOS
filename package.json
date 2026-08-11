@@ -106,6 +106,7 @@
     "hook:pre-commit": "powershell -NoProfile -ExecutionPolicy Bypass -File hooks/pre-commit.ps1",
     "verify:worktree": "node scripts/verify_worktree_guard.mjs",
     "inspect:worktree-divergence": "node scripts/inspect_worktree_divergence.mjs",
+    "verify:pr-base-freshness": "node scripts/verify_pr_base_freshness.mjs",
     "export:worktree-quarantine": "node scripts/create_worktree_quarantine_bundle.mjs",
     "review:non-security": "node scripts/verify_non_security_review.mjs",
     "review:report-security-finance": "node scripts/run_php.mjs scripts/verify_report_security_finance_regressions.php",

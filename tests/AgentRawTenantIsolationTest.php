@@ -57,7 +57,7 @@ final class AgentRawTenantIsolationTest extends TestCase
         Db::connect(null, true);
 
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(100), status INTEGER)');
-        Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, data_source_id INTEGER, data_date DATE NOT NULL, source VARCHAR(50), data_type VARCHAR(50), amount DECIMAL(12,2), quantity INTEGER, book_order_num INTEGER, list_exposure INTEGER, detail_exposure INTEGER, order_filling_num INTEGER, order_submit_num INTEGER, readback_verified INTEGER, validation_status VARCHAR(30), raw_data TEXT, create_time DATETIME, update_time DATETIME)');
+        Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, data_source_id INTEGER, data_date DATE NOT NULL, source VARCHAR(50), platform VARCHAR(30), data_type VARCHAR(50), amount DECIMAL(12,2), quantity INTEGER, book_order_num INTEGER, list_exposure INTEGER, detail_exposure INTEGER, order_filling_num INTEGER, order_submit_num INTEGER, readback_verified INTEGER, validation_status VARCHAR(30), raw_data TEXT, create_time DATETIME, update_time DATETIME)');
         Db::execute('CREATE TABLE platform_data_sources (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(30), config_json TEXT)');
 
         Db::name('hotels')->insert(['id' => 20, 'tenant_id' => 10, 'name' => 'Tenant 10 Hotel', 'status' => 1]);
@@ -69,6 +69,7 @@ final class AgentRawTenantIsolationTest extends TestCase
                 'data_source_id' => 1001,
                 'data_date' => '2026-07-21',
                 'source' => 'ctrip',
+                'platform' => 'ctrip',
                 'data_type' => 'traffic',
                 'amount' => 100,
                 'quantity' => 10,
@@ -79,7 +80,9 @@ final class AgentRawTenantIsolationTest extends TestCase
                 'order_submit_num' => 10,
                 'readback_verified' => 1,
                 'validation_status' => 'verified',
-                'raw_data' => '{}',
+                'raw_data' => json_encode([
+                    'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+                ], JSON_THROW_ON_ERROR),
             ],
             [
                 'id' => 2,
@@ -88,6 +91,7 @@ final class AgentRawTenantIsolationTest extends TestCase
                 'data_source_id' => 2002,
                 'data_date' => '2026-07-21',
                 'source' => 'ctrip',
+                'platform' => 'ctrip',
                 'data_type' => 'traffic',
                 'amount' => 9999,
                 'quantity' => 999,
@@ -98,7 +102,31 @@ final class AgentRawTenantIsolationTest extends TestCase
                 'order_submit_num' => 999,
                 'readback_verified' => 1,
                 'validation_status' => 'verified',
-                'raw_data' => '{}',
+                'raw_data' => json_encode([
+                    'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+                ], JSON_THROW_ON_ERROR),
+            ],
+            [
+                'id' => 3,
+                'tenant_id' => 10,
+                'system_hotel_id' => 20,
+                'data_source_id' => 1001,
+                'data_date' => '2026-07-21',
+                'source' => 'ctrip',
+                'platform' => 'qunar',
+                'data_type' => 'traffic',
+                'amount' => 300,
+                'quantity' => 30,
+                'book_order_num' => 15,
+                'list_exposure' => 3000,
+                'detail_exposure' => 300,
+                'order_filling_num' => 30,
+                'order_submit_num' => 15,
+                'readback_verified' => 1,
+                'validation_status' => 'verified',
+                'raw_data' => json_encode([
+                    'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+                ], JSON_THROW_ON_ERROR),
             ],
         ]);
         Db::name('platform_data_sources')->insertAll([
@@ -136,6 +164,19 @@ final class AgentRawTenantIsolationTest extends TestCase
         self::assertSame([1], array_map('intval', array_column($diagnosis['online_rows'], 'id')));
         self::assertSame(100.0, (float)$diagnosis['online_rows'][0]['amount']);
 
+        $qunarDiagnosis = $this->method(Agent::class, 'queryOtaDiagnosisData')->invoke(
+            $agent,
+            20,
+            '',
+            '',
+            'qunar',
+            '2026-07-21',
+            '2026-07-21',
+            'traffic'
+        );
+        self::assertSame([3], array_map('intval', array_column($qunarDiagnosis['online_rows'], 'id')));
+        self::assertSame(300.0, (float)$qunarDiagnosis['online_rows'][0]['amount']);
+
         $ownOtaIds = $this->method(Agent::class, 'otaDiagnosisOwnPlatformHotelIds')->invoke(
             $agent,
             [['data_source_id' => 1001], ['data_source_id' => 2002]],
@@ -153,6 +194,35 @@ final class AgentRawTenantIsolationTest extends TestCase
         );
         self::assertSame([1], array_map('intval', array_column($trafficRows, 'id')));
         self::assertSame(1000, (int)$trafficRows[0]['list_exposure']);
+    }
+
+    public function testDiagnosisPersistenceEvidenceReadbackRejectsCrossPlatformReference(): void
+    {
+        $agent = (new ReflectionClass(Agent::class))->newInstanceWithoutConstructor();
+        $method = $this->method(Agent::class, 'assertOtaDiagnosisDecisionEvidenceScope');
+        $snapshot = [
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#1',
+                'platform' => 'ctrip',
+                'decision_eligible' => true,
+            ]],
+            'action_items' => [[
+                'evidence_refs' => ['online_daily_data#1'],
+            ]],
+        ];
+        $method->invoke($agent, $snapshot, 20, 'ctrip', [
+            'start_date' => '2026-07-21',
+            'end_date' => '2026-07-21',
+        ]);
+
+        $snapshot['evidence_sources'][0]['ref'] = 'online_daily_data#3';
+        $snapshot['action_items'][0]['evidence_refs'] = ['online_daily_data#3'];
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('identity mismatch');
+        $method->invoke($agent, $snapshot, 20, 'ctrip', [
+            'start_date' => '2026-07-21',
+            'end_date' => '2026-07-21',
+        ]);
     }
 
     private function method(string $class, string $name): ReflectionMethod

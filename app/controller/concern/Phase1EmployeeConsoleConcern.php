@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\OperationManagementService;
+use app\service\OnlineDataTrustStatusService;
 use app\service\OtaP0ScopeProjectionService;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaRevenueMetricService;
@@ -3165,9 +3166,12 @@ trait Phase1EmployeeConsoleConcern
             $systemHotelId > 0 ? $systemHotelId : null,
             $tenantId > 0 ? $tenantId : null
         );
-        $targetDateTrafficRows = (string)($scopeProjection['status'] ?? '') === 'ready'
-            ? max(0, (int)($scopeProjection['own_traffic_row_count'] ?? 0))
-            : 0;
+        $targetDateTrafficRows = count($this->phase1P0TrafficRows(
+            $platform,
+            $targetDate,
+            $systemHotelId,
+            $tenantId
+        ));
         $targetDateDataTypes = array_values(array_filter(array_map(
             static fn($value): string => strtolower(trim((string)$value)),
             (array)($context['target_date_data_types'] ?? [])
@@ -3388,9 +3392,11 @@ trait Phase1EmployeeConsoleConcern
             $currentSessionVerified = $this->phase1TrafficProfileLoginStateVerified($row);
             $historicalLoginMetadataPresent = $this->phase1TrafficHistoricalLoginMetadataPresent($config);
             $profileLoginTrigger = $this->phase1P0ProfileLoginTriggerAction($platform, (int)($row['id'] ?? 0), $rowSystemHotelId, $targetDate);
-            $profilePriority = (($config['registered_by'] ?? '') === 'p0_ota_field_loop' ? 8 : 0)
-                + ((int)($row['id'] ?? 0) > 0 ? 4 : 0)
-                + (in_array($status, ['ready', 'success'], true) ? 1 : 0);
+            $profilePriority = ($currentSessionVerified ? 32 : 0)
+                + (!empty($latestSyncTask['target_date_rows_proved']) ? 16 : 0)
+                + (in_array($status, ['ready', 'success', 'partial_success'], true) ? 8 : 0)
+                + (($config['registered_by'] ?? '') === 'p0_ota_field_loop' ? 2 : 0)
+                + ((int)($row['id'] ?? 0) > 0 ? 1 : 0);
             if ($rowSystemHotelId > 0
                 && (!isset($profileReadinessByHotel[$rowSystemHotelId]) || $profilePriority > (int)$profilePriorityByHotel[$rowSystemHotelId])
             ) {
@@ -4309,70 +4315,165 @@ trait Phase1EmployeeConsoleConcern
         int $tenantId = 0
     ): array
     {
-        if (!$this->phase1TableExists('online_daily_data')) {
+        $platform = strtolower(trim($platform));
+        $systemHotelId = max(0, $systemHotelId);
+        $tenantId = max(0, $tenantId);
+        if (!in_array($platform, ['ctrip', 'meituan'], true)
+            || $systemHotelId <= 0
+            || $tenantId <= 0
+            || !$this->phase1TableExists('online_daily_data')
+            || !$this->phase1TableExists('platform_data_sources')
+            || !$this->phase1TableExists('platform_data_sync_tasks')
+        ) {
             return [];
         }
         $columns = $this->phase1TableColumns('online_daily_data');
-        foreach (['source', 'data_date', 'data_type', 'raw_data'] as $required) {
+        foreach (['tenant_id', 'data_source_id', 'sync_task_id', 'system_hotel_id', 'source', 'data_date', 'data_type', 'readback_verified', 'raw_data'] as $required) {
             if (!isset($columns[$required])) {
                 return [];
             }
         }
         $fields = array_values(array_filter([
             'id',
+            'tenant_id',
+            'data_source_id',
+            'sync_task_id',
+            'system_hotel_id',
             'source',
             'data_date',
             'data_type',
+            'readback_verified',
             'raw_data',
             isset($columns['platform']) ? 'platform' : '',
             isset($columns['compare_type']) ? 'compare_type' : '',
             isset($columns['dimension']) ? 'dimension' : '',
             isset($columns['data_period']) ? 'data_period' : '',
+            isset($columns['validation_status']) ? 'validation_status' : '',
             isset($columns['list_exposure']) ? 'list_exposure' : '',
             isset($columns['detail_exposure']) ? 'detail_exposure' : '',
             isset($columns['flow_rate']) ? 'flow_rate' : '',
             isset($columns['order_filling_num']) ? 'order_filling_num' : '',
             isset($columns['order_submit_num']) ? 'order_submit_num' : '',
             isset($columns['source_trace_id']) ? 'source_trace_id' : '',
-            isset($columns['sync_task_id']) ? 'sync_task_id' : '',
-            isset($columns['system_hotel_id']) ? 'system_hotel_id' : '',
-            isset($columns['tenant_id']) ? 'tenant_id' : '',
         ], static fn(string $field): bool => $field !== ''));
-        $systemHotelId = max(0, $systemHotelId);
-        $tenantId = max(0, $tenantId);
-        if ($systemHotelId > 0 && !isset($columns['system_hotel_id'])) {
+        $sourceFields = $this->phase1ExistingColumns('platform_data_sources', [
+            'id', 'tenant_id', 'system_hotel_id', 'platform', 'enabled', 'data_type', 'config_json',
+        ]);
+        if (array_diff(['id', 'tenant_id', 'system_hotel_id', 'platform', 'enabled'], $sourceFields) !== []) {
             return [];
         }
-        if ($tenantId > 0 && !isset($columns['tenant_id'])) {
+        $taskFields = $this->phase1ExistingColumns('platform_data_sync_tasks', [
+            'id', 'tenant_id', 'data_source_id', 'system_hotel_id', 'platform', 'data_type',
+            'status', 'stats_json', 'started_at', 'create_time', 'update_time',
+        ]);
+        if (array_diff(['id', 'tenant_id', 'data_source_id', 'system_hotel_id', 'platform', 'data_type', 'status', 'stats_json'], $taskFields) !== []) {
             return [];
         }
 
         try {
-            $query = Db::name('online_daily_data')
-                ->field(implode(',', $fields))
-                ->where('source', $platform)
-                ->where('data_date', $targetDate)
-                ->whereIn('data_type', ['traffic', 'flow', 'conversion']);
-            if ($systemHotelId > 0) {
-                $query->where('system_hotel_id', $systemHotelId);
-            }
-            if ($tenantId > 0) {
-                $query->where('tenant_id', $tenantId);
-            }
-            if (isset($columns['data_period'])) {
-                $query->where(static function ($scope): void {
-                    $scope
-                        ->whereNull('data_period')
-                        ->whereOr('data_period', 'not in', ['next_7_days', 'next_30_days', 'forecast', 'future_forecast']);
-                });
-            }
-            return array_values(array_filter(
-                $query->select()->toArray(),
-                static fn(array $row): bool => OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic($row, $platform)
-            ));
-        } catch (\Throwable $e) {
+            $query = Db::name('platform_data_sources')
+                ->field(implode(',', $sourceFields));
+            $query->where('tenant_id', $tenantId);
+            $query->where('system_hotel_id', $systemHotelId);
+            $sources = $query
+                ->where('platform', $platform)
+                ->where('enabled', 1)
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
             return [];
         }
+        $blockedValidationStatuses = array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            OnlineDataTrustStatusService::blockingValidationStatuses()
+        );
+        $allowedTaskDataTypes = ['traffic', 'business', 'flow', 'conversion', 'all', 'mixed', 'composite'];
+        $candidates = [];
+        foreach ($sources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $config = json_decode((string)($source['config_json'] ?? ''), true);
+            $config = is_array($config) ? $config : [];
+            if (!OtaTrafficAttributionService::sourceCanProvideTraffic($source, $config)) {
+                continue;
+            }
+            $dataSourceId = max(0, (int)($source['id'] ?? 0));
+            try {
+                $tasks = Db::name('platform_data_sync_tasks')
+                    ->field(implode(',', $taskFields))
+                    ->where('tenant_id', $tenantId)
+                    ->where('data_source_id', $dataSourceId)
+                    ->where('system_hotel_id', $systemHotelId)
+                    ->where('platform', $platform)
+                    ->order('id', 'desc')
+                    ->limit(30)
+                    ->select()
+                    ->toArray();
+            } catch (\Throwable) {
+                return [];
+            }
+            $syncTaskId = 0;
+            foreach ($tasks as $task) {
+                if (!is_array($task)) {
+                    continue;
+                }
+                $stats = json_decode((string)($task['stats_json'] ?? ''), true);
+                $stats = is_array($stats) ? $stats : [];
+                if ($this->phase1P0SyncTaskTargetDate($stats) !== $targetDate
+                    || !in_array(strtolower(trim((string)($task['data_type'] ?? ''))), $allowedTaskDataTypes, true)
+                ) {
+                    continue;
+                }
+                if (!in_array(
+                    $this->phase1EffectiveSyncTaskStatus($task),
+                    ['success', 'partial_success'],
+                    true
+                )) {
+                    // Latest exact-date failure blocks the UI matrix; an older
+                    // successful task must not replace the user's latest run.
+                    $syncTaskId = 0;
+                    break;
+                }
+                $syncTaskId = max(0, (int)($task['id'] ?? 0));
+                break;
+            }
+            if ($syncTaskId <= 0) {
+                continue;
+            }
+            try {
+                $rows = Db::name('online_daily_data')
+                    ->field(implode(',', $fields))
+                    ->where('tenant_id', $tenantId)
+                    ->where('data_source_id', $dataSourceId)
+                    ->where('sync_task_id', $syncTaskId)
+                    ->where('system_hotel_id', $systemHotelId)
+                    ->where('source', $platform)
+                    ->where('data_date', $targetDate)
+                    ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
+                    ->where('readback_verified', 1)
+                    ->select()
+                    ->toArray();
+            } catch (\Throwable) {
+                return [];
+            }
+            $rows = array_values(array_filter($rows, static function (array $row) use ($platform, $blockedValidationStatuses): bool {
+                if (isset($row['platform']) && strtolower(trim((string)$row['platform'])) !== $platform) {
+                    return false;
+                }
+                $dataPeriod = strtolower(trim((string)($row['data_period'] ?? '')));
+                if (in_array($dataPeriod, ['next_7_days', 'next_30_days', 'forecast', 'future_forecast'], true)) {
+                    return false;
+                }
+                $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
+                return ($validationStatus === '' || !in_array($validationStatus, $blockedValidationStatuses, true))
+                    && OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic($row, $platform);
+            }));
+            if ($rows !== []) {
+                $candidates[] = $rows;
+            }
+        }
+        return count($candidates) === 1 ? $candidates[0] : [];
     }
 
     private function phase1P0DecodeRawData(mixed $rawData): array

@@ -97,6 +97,261 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         if (row?.skipped) return 'bg-gray-100 text-gray-600 border-gray-200';
         return 'bg-red-100 text-red-700 border-red-200';
     };
+    const buildCanonicalDailyOperationStatus = (lastResult) => {
+        const finalization = lastResult?.trust_receipt?.canonical_operation_finalization;
+        if (!finalization || typeof finalization !== 'object' || Array.isArray(finalization)) {
+            return { visible: false };
+        }
+
+        const scope = finalization.scope && typeof finalization.scope === 'object' && !Array.isArray(finalization.scope)
+            ? finalization.scope
+            : {};
+        const platform = String(scope.platform || '').trim().toLowerCase();
+        const exactScope = ['ctrip', 'meituan'].includes(platform)
+            && String(scope.data_period || '').trim().toLowerCase() === 'historical_daily'
+            && /^\d{4}-\d{2}-\d{2}$/.test(String(scope.target_date || '').trim())
+            && ['tenant_id', 'hotel_id', 'data_source_id', 'task_id', 'row_id']
+                .every(key => Number.isInteger(Number(scope[key])) && Number(scope[key]) > 0);
+        const verified = String(finalization.status || '').trim().toLowerCase() === 'verified'
+            && String(finalization.analysis_status || '').trim().toLowerCase() === 'verified'
+            && exactScope
+            && Number(finalization.draft_count) === 4
+            && Number(finalization.trusted_operational_check_count) === 4
+            && Number(finalization.trusted_external_operation_count) === 0
+            && finalization.draft_readback_verified === true
+            && finalization.db_readback_verified === true
+            && finalization.operation_flow_readback_verified === true
+            && finalization.external_action_triggered === false
+            && finalization.business_outcome_claimed === false
+            && finalization.causality_claimed === false;
+        const stage = String(finalization.stage || '').trim() || 'receipt_validation';
+        const reason = String(finalization.reason || '').trim() || 'canonical_operation_receipt_incomplete';
+        const platformText = platform === 'meituan' ? '美团' : '携程';
+        const scopeText = exactScope
+            ? `酒店 #${scope.hotel_id} · ${scope.target_date} · 渠道 ${platformText} · 来源 #${scope.data_source_id} · 任务 #${scope.task_id} · 源行 #${scope.row_id}`
+            : '当前回执缺少可精确核对的酒店、日期、来源、任务或源行范围。';
+        return {
+            visible: true,
+            status: verified ? 'verified' : 'blocked',
+            status_text: verified ? '已保存并精确回读 4 条' : '已阻塞（0/4）',
+            status_class: verified
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-rose-200 bg-rose-50 text-rose-700',
+            stage,
+            reason,
+            scope_text: scopeText,
+            boundary_text: '仅当前 OTA 渠道分析；不触发 OTA/外部动作，不声明经营结果或因果。采集结果与本核查状态独立。',
+        };
+    };
+    const buildNaturalDailyAcceptanceStatus = (receipt) => {
+        if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
+            return { visible: false };
+        }
+
+        const stability = receipt.stability && typeof receipt.stability === 'object' && !Array.isArray(receipt.stability)
+            ? receipt.stability
+            : {};
+        const expectedPlatforms = Array.isArray(receipt.expected_platforms)
+            ? [...new Set(receipt.expected_platforms.map(value => String(value || '').trim().toLowerCase()).filter(Boolean))].sort()
+            : [];
+        const selectedPlatform = String(receipt.selected_platform || '').trim().toLowerCase();
+        const operationScope = receipt.operation_scope && typeof receipt.operation_scope === 'object' && !Array.isArray(receipt.operation_scope)
+            ? receipt.operation_scope
+            : {};
+        const actionTypes = Array.isArray(receipt.action_types)
+            ? receipt.action_types.map(value => String(value || '').trim()).filter(Boolean)
+            : [];
+        const actionManifest = {
+            ctrip: [
+                'list_detail_math_check',
+                'detail_fill_breakpoint_check',
+                'fill_submit_chain_check',
+                'same_scope_recollection_eligibility_check',
+            ],
+            meituan: [
+                'meituan_list_detail_count_order_check',
+                'meituan_list_detail_rate_check',
+                'meituan_observed_flow_rate_alignment_check',
+                'same_scope_recollection_eligibility_check',
+            ],
+        };
+        const actionLabels = {
+            list_detail_math_check: '列表到详情数学核查',
+            detail_fill_breakpoint_check: '详情到填单断点核查',
+            fill_submit_chain_check: '填单到提交链路核查',
+            same_scope_recollection_eligibility_check: '同范围重采准入核查',
+            meituan_list_detail_count_order_check: '列表与详情量级核查',
+            meituan_list_detail_rate_check: '列表到详情率核查',
+            meituan_observed_flow_rate_alignment_check: '观测流量转化率对齐核查',
+        };
+        const targetDate = String(receipt.target_date || '').trim();
+        const targetDateParts = targetDate.split('-').map(Number);
+        const targetDateValue = targetDateParts.length === 3
+            ? new Date(Date.UTC(targetDateParts[0], targetDateParts[1] - 1, targetDateParts[2]))
+            : null;
+        const targetDateValid = targetDateValue instanceof Date
+            && !Number.isNaN(targetDateValue.getTime())
+            && targetDateValue.getUTCFullYear() === targetDateParts[0]
+            && targetDateValue.getUTCMonth() === targetDateParts[1] - 1
+            && targetDateValue.getUTCDate() === targetDateParts[2];
+        const expectedTargetDate = String(receipt.expected_target_date || '').trim();
+        const freshnessCurrent = targetDateValid
+            && expectedTargetDate === targetDate
+            && String(receipt.freshness_status || '').trim().toLowerCase() === 'current';
+        const requiredDays = 3;
+        const reportedConsecutiveDays = Math.max(0, Math.min(requiredDays, Number.parseInt(stability.consecutive_verified_natural_days, 10) || 0));
+        const receiptAvailable = receipt.receipt_available === true;
+        const noEvidence = String(receipt.status || '').trim().toLowerCase() === 'no_evidence' && !receiptAvailable;
+        const exactScope = Number.isInteger(Number(receipt.hotel_id))
+            && Number(receipt.hotel_id) > 0
+            && targetDateValid
+            && freshnessCurrent
+            && String(receipt.data_period || '').trim().toLowerCase() === 'historical_daily'
+            && expectedPlatforms.length === 2
+            && expectedPlatforms[0] === 'ctrip'
+            && expectedPlatforms[1] === 'meituan';
+        const exactOperationScope = exactScope
+            && Number(operationScope.hotel_id) === Number(receipt.hotel_id)
+            && Number.isInteger(Number(operationScope.tenant_id))
+            && Number(operationScope.tenant_id) > 0
+            && Number.isInteger(Number(operationScope.data_source_id))
+            && Number(operationScope.data_source_id) > 0
+            && Number.isInteger(Number(operationScope.task_id))
+            && Number(operationScope.task_id) > 0
+            && Number.isInteger(Number(operationScope.row_id))
+            && Number(operationScope.row_id) > 0
+            && String(operationScope.platform || '').trim().toLowerCase() === selectedPlatform
+            && String(operationScope.target_date || '').trim() === targetDate
+            && String(operationScope.data_period || '').trim().toLowerCase() === 'historical_daily';
+        const componentsReady = ['natural_dispatch_status', 'collection_status', 'continuous_trust_status', 'operations_status']
+            .every(key => String(receipt[key] || '').trim().toLowerCase() === 'verified');
+        const dailyVerified = String(receipt.schema_version || '') === 'suxios_ota_daily_natural_acceptance.v1'
+            && String(receipt.status || '').trim().toLowerCase() === 'verified'
+            && receiptAvailable
+            && receipt.receipt_readback_verified === true
+            && exactScope
+            && componentsReady
+            && ['ctrip', 'meituan'].includes(selectedPlatform)
+            && exactOperationScope
+            && Array.isArray(actionManifest[selectedPlatform])
+            && actionTypes.length === 4
+            && actionTypes.every((value, index) => value === actionManifest[selectedPlatform][index])
+            && Number(receipt.trusted_analysis_check_count) === 4
+            && Number(receipt.trusted_external_operation_count) === 0
+            && receipt.analysis_only === true
+            && receipt.operation_readback_verified === true
+            && receipt.external_action_triggered === false
+            && receipt.business_outcome_claimed === false
+            && receipt.causality_claimed === false
+            && receipt.sensitive_values_exposed === false;
+        const stabilityDates = Array.isArray(stability.dates)
+            ? [...new Set(stability.dates.map(value => String(value || '').trim()).filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value)))].sort()
+            : [];
+        const stabilityWindow = stabilityDates.slice(-requiredDays);
+        const firstDateParts = stabilityWindow[0]?.split('-').map(Number) || [];
+        const firstDate = firstDateParts.length === 3
+            ? new Date(Date.UTC(firstDateParts[0], firstDateParts[1] - 1, firstDateParts[2]))
+            : null;
+        const stabilityDateSet = new Set(stabilityDates);
+        let derivedConsecutiveDays = 0;
+        if (targetDateValid) {
+            for (let offset = 0; offset < requiredDays; offset += 1) {
+                const expected = new Date(targetDateValue.getTime() - offset * 86400000).toISOString().slice(0, 10);
+                if (!stabilityDateSet.has(expected)) break;
+                derivedConsecutiveDays += 1;
+            }
+        }
+        const consecutiveDays = Math.min(reportedConsecutiveDays, derivedConsecutiveDays);
+        const datesConsecutive = firstDate instanceof Date
+            && !Number.isNaN(firstDate.getTime())
+            && firstDate.getUTCFullYear() === firstDateParts[0]
+            && firstDate.getUTCMonth() === firstDateParts[1] - 1
+            && firstDate.getUTCDate() === firstDateParts[2]
+            && stabilityWindow.length === requiredDays
+            && stabilityWindow[requiredDays - 1] === targetDate
+            && stabilityWindow.every((date, index) => {
+                const expected = new Date(firstDate.getTime() + index * 86400000);
+                return expected.toISOString().slice(0, 10) === date;
+            });
+        const stable = dailyVerified
+            && stability.stable === true
+            && consecutiveDays === requiredDays
+            && datesConsecutive;
+        const status = stable
+            ? 'stable'
+            : (dailyVerified ? 'verified' : (noEvidence ? 'no_evidence' : 'blocked'));
+        const reasons = Array.isArray(receipt.reason_codes)
+            ? receipt.reason_codes
+                .map(value => String(value || '').trim().toLowerCase())
+                .filter(value => /^[a-z0-9_]{1,120}$/.test(value))
+                .slice(0, 12)
+            : [];
+        const reason = reasons[0] || (noEvidence ? 'natural_dispatch_receipt_missing' : (dailyVerified ? 'streak_below_three' : 'daily_acceptance_receipt_incomplete'));
+        const reasonTextMap = {
+            natural_dispatch_receipt_missing: '等待计划任务首次自然触发并生成验收回执',
+            latest_natural_business_date_missing: '尚未取得上海时区昨日的自然验收回执',
+            natural_acceptance_log_unavailable: '自然验收日志暂不可读取',
+            natural_acceptance_status_unavailable: '自然验收状态暂不可读取',
+            daily_acceptance_sidecar_unavailable: '自然验收计算未完成',
+            daily_acceptance_receipt_missing_for_latest_attempt: '最近一次自然日运行未生成验收回执',
+            daily_acceptance_receipt_invalid: '最近一次自然验收回执无法解析',
+            daily_acceptance_digest_invalid: '自然验收回执摘要校验失败',
+            daily_acceptance_receipt_ambiguous: '同一次运行出现多份验收回执',
+            daily_acceptance_receipt_scope_mismatch: '自然验收回执与当前酒店或业务日不一致',
+            daily_acceptance_dispatcher_run_mismatch: '验收回执不属于最近一次自然调度运行',
+            daily_acceptance_readback_unverified: '自然验收回执未完成日志内唯一回读',
+            pipeline_contract_changed: '验收回执来自旧版流程合同，不能计入当前稳定性',
+            dispatcher_start_receipt_invalid: '最近一次调度的启动身份证据无法解析',
+            dispatcher_start_scope_mismatch: '最近一次调度的酒店范围证据不一致',
+            dispatcher_finish_receipt_missing: '最近一次调度缺少完成身份证据',
+            dispatcher_provenance_ambiguous: '最近一次调度出现多份启动或完成身份证据',
+            dispatcher_latest_attempt_ambiguous: '同一时刻出现多次自然调度，无法唯一确定最新运行',
+            dispatcher_provenance_time_invalid: '最近一次自然调度的起止时间证据无效',
+            dispatcher_run_scope_mismatch: '最近一次调度的运行编号或双平台范围不一致',
+            dispatcher_database_preflight_blocked: '本次自然调度在数据采集前被数据库预检阻塞',
+            daily_acceptance_receipt_consistency_invalid: '验收总状态与分项证据不一致',
+            natural_scheduler_not_correlated: '未确认本次由 Windows 计划任务自然触发',
+            manual_task_run_detected: '检测到手工启动，不能计入自然稳定天数',
+            daily_trust_receipt_not_ready: '采集、保存或严格回读尚未同时闭合',
+            dual_ota_continuous_trust_not_ready: '携程与美团当日可信数据尚未同时通过',
+            daily_operation_finalization_not_verified: '4 条可信运营核查尚未完整闭合',
+            daily_platform_owner_readback_invalid: '4 条核查的固定渠道归属或回读不一致',
+            streak_below_three: '当日已通过，继续等待连续 3 个自然业务日',
+        };
+        const platformText = selectedPlatform === 'meituan' ? '美团' : (selectedPlatform === 'ctrip' ? '携程' : '待确定');
+        const scopeText = exactScope
+            ? `酒店 #${receipt.hotel_id} · 业务日 ${targetDate} · 携程 + 美团`
+            : '尚无可精确核对的自然业务日范围';
+        return {
+            visible: true,
+            status,
+            status_text: stable
+                ? `连续稳定 ${consecutiveDays}/${requiredDays}`
+                : (dailyVerified
+                    ? `当日通过 ${consecutiveDays}/${requiredDays}`
+                    : (noEvidence ? `等待首日 0/${requiredDays}` : `本日阻塞 ${consecutiveDays}/${requiredDays}`)),
+            status_class: stable
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : (dailyVerified
+                    ? 'border-blue-200 bg-blue-50 text-blue-700'
+                    : (noEvidence
+                        ? 'border-amber-200 bg-amber-50 text-amber-800'
+                        : 'border-rose-200 bg-rose-50 text-rose-700')),
+            stage: String(receipt.stage || '').trim() || 'natural_dispatch',
+            reason,
+            reason_text: reasonTextMap[reason] || reason,
+            reason_details_text: [...new Set(reasons)].map(value => reasonTextMap[value] || value).join('；'),
+            scope_text: scopeText,
+            progress_text: `连续自然日 ${consecutiveDays}/${requiredDays}；仅 3/3 才可声明每天稳定`,
+            operation_text: dailyVerified
+                ? `已固定 ${platformText}生成并精确回读 4 条 analysis-only 核查：${actionTypes.map(value => actionLabels[value] || value).join('、')}；外部动作 0 条`
+                : '未满足当日闭环时不生成或补造可信运营动作',
+            operation_scope_text: exactOperationScope
+                ? `运营范围：来源 #${operationScope.data_source_id} · 任务 #${operationScope.task_id} · 源行 #${operationScope.row_id}`
+                : '运营范围尚未通过精确回读',
+            boundary_text: '自然验收独立于“最近采集成功”；手工运行、旧回执和一次成功均不计入连续稳定天数。',
+        };
+    };
     const autoFetchModuleLabel = (module) => ({
         business: '经营',
         traffic: '流量',
@@ -823,6 +1078,8 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         formatAutoFetchMs,
         autoFetchResultStatusText,
         autoFetchResultStatusClass,
+        buildCanonicalDailyOperationStatus,
+        buildNaturalDailyAcceptanceStatus,
         autoFetchModuleLabel,
         platformProfileMachineText,
         platformProfileStatusLabel,

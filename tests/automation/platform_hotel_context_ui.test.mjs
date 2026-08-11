@@ -36,13 +36,16 @@ const deferred = () => {
 
 test('platform pages expose one sticky header hotel context switcher', () => {
   assert.match(appShell, /data-testid="platform-hotel-context"/);
-  assert.match(appShell, /data-testid="platform-hotel-context-select"/);
+  assert.match(appShell, /data-testid="platform-hotel-context-search"/);
+  assert.match(appShell, /role="combobox"/);
+  assert.match(appShell, /id="platform-hotel-context-options"/);
+  assert.match(appShell, /v-for="hotel in filteredPlatformHotelOptions"/);
+  assert.match(appShell, /@mousedown\.prevent="selectPlatformHotelOption\(hotel\)"/);
   assert.match(appShell, /data-testid="platform-hotel-context-config"/);
   assert.match(appShell, /class="platform-hotel-context-config"/);
   assert.match(appShell, /v-if="platformHotelContext"/);
   assert.match(appShell, /meituanTargetHotelOptions/);
   assert.match(appShell, /ctripTargetHotelOptions/);
-  assert.match(appShell, /@change="handlePlatformHotelContextChange"/);
   assert.match(appShell, /@click="openPlatformHotelContextConfig"/);
   assert.match(appShell, /fetchingData \|\| ctripTrafficBundleLoading/);
   assert.match(appShell, /ctripCommentBrowserCaptureRunning/);
@@ -276,6 +279,7 @@ test('Ctrip header traffic switch dispatches through scoped reset path', () => {
     suppressNextMeituanHotelConfigApply: false,
     trafficDispatches: 0,
     openDispatches: 0,
+    clearPlatformHotelSearch: () => {},
     handleCtripTrafficHotelChange: () => { sandbox.trafficDispatches += 1; },
     clearCtripOverviewDisplayState: () => {},
     switchToMeituanDownloadCenter: () => {},

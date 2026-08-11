@@ -7,6 +7,576 @@ use PHPUnit\Framework\TestCase;
 
 final class P0FieldLoopVerifierContractTest extends TestCase
 {
+    public function testBroadInspectorIssuesCannotOverrideExactAuthoritativeTrafficGates(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\p0_partition_issues_by_authoritative_gates')
+            && !function_exists('p0_partition_issues_by_authoritative_gates')
+        ) {
+            $definition = $this->extractFunctionDefinition($verifier, 'p0_partition_issues_by_authoritative_gates');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        $readyCtrip = [[
+            'platform' => 'ctrip',
+            'p0_traffic_gate' => ['status' => 'ready'],
+        ]];
+        $broadIssues = [
+            [
+                'severity' => 'incomplete',
+                'code' => 'live_closure_incomplete',
+                'details' => ['missing_codes' => [
+                    'ctrip_field_fact_closure_incomplete',
+                    'ai_diagnosis_action_items_blocked',
+                    'operation_execution_sample_missing',
+                ]],
+            ],
+            ['severity' => 'incomplete', 'code' => 'runtime_field_fact_summary_ready'],
+            ['severity' => 'incomplete', 'code' => 'ctrip_field_fact_closure_incomplete'],
+        ];
+        $ready = p0_partition_issues_by_authoritative_gates($broadIssues, $readyCtrip, ['ctrip']);
+        self::assertTrue($ready['all_authoritative_gates_ready']);
+        self::assertSame([], $ready['blocking_issues']);
+        self::assertCount(3, $ready['reference_issues']);
+        foreach ($ready['reference_issues'] as $reference) {
+            self::assertSame('reference', $reference['disposition'] ?? null);
+            self::assertSame('broad_source_summary', $reference['authority'] ?? null);
+            self::assertSame(['ctrip:p0_traffic_gate.ready'], $reference['covered_by'] ?? null);
+        }
+
+        $incompleteCtrip = [[
+            'platform' => 'ctrip',
+            'p0_traffic_gate' => ['status' => 'traffic_field_fact_closure_incomplete'],
+        ]];
+        $notReady = p0_partition_issues_by_authoritative_gates($broadIssues, $incompleteCtrip, ['ctrip']);
+        self::assertFalse($notReady['all_authoritative_gates_ready']);
+        self::assertCount(3, $notReady['blocking_issues']);
+        self::assertSame([], $notReady['reference_issues']);
+
+        $hardIssues = [
+            ['severity' => 'incomplete', 'code' => 'ctrip_traffic_field_fact_closure_incomplete'],
+            ['severity' => 'incomplete', 'code' => 'ctrip_p0_traffic_gate_incomplete'],
+            ['severity' => 'incomplete', 'code' => 'ctrip_synthetic_normalization_provenance_missing'],
+            ['severity' => 'incomplete', 'code' => 'ctrip_normalized_projection_conflict'],
+            ['severity' => 'failed', 'code' => 'ctrip_raw_data_exposed'],
+        ];
+        $hard = p0_partition_issues_by_authoritative_gates($hardIssues, $readyCtrip, ['ctrip']);
+        self::assertCount(5, $hard['blocking_issues']);
+        self::assertSame([], $hard['reference_issues']);
+
+        $mixedPlatforms = [
+            ['platform' => 'ctrip', 'p0_traffic_gate' => ['status' => 'ready']],
+            ['platform' => 'meituan', 'p0_traffic_gate' => ['status' => 'traffic_field_fact_closure_incomplete']],
+        ];
+        $mixed = p0_partition_issues_by_authoritative_gates($broadIssues, $mixedPlatforms, ['ctrip', 'meituan']);
+        self::assertFalse($mixed['all_authoritative_gates_ready']);
+        self::assertCount(2, $mixed['blocking_issues']);
+        self::assertCount(1, $mixed['reference_issues']);
+        self::assertSame('ctrip_field_fact_closure_incomplete', $mixed['reference_issues'][0]['code'] ?? null);
+
+        $unknownLiveIssue = [[
+            'severity' => 'incomplete',
+            'code' => 'live_closure_incomplete',
+            'details' => ['missing_codes' => ['unknown_core_gap']],
+        ]];
+        $unknown = p0_partition_issues_by_authoritative_gates($unknownLiveIssue, $readyCtrip, ['ctrip']);
+        self::assertCount(1, $unknown['blocking_issues']);
+        self::assertSame([], $unknown['reference_issues']);
+
+        $emptyLiveIssue = [[
+            'severity' => 'incomplete',
+            'code' => 'live_closure_incomplete',
+            'details' => ['missing_codes' => []],
+        ]];
+        $empty = p0_partition_issues_by_authoritative_gates($emptyLiveIssue, $readyCtrip, ['ctrip']);
+        self::assertCount(1, $empty['blocking_issues']);
+        self::assertSame([], $empty['reference_issues']);
+
+        foreach ([
+            'ctrip_traffic_field_fact_closure_incomplete',
+            'ctrip_unknown_field_fact_integrity_gap',
+            'ctrip_raw_data_field_fact_exposed',
+        ] as $nestedHardCode) {
+            $nestedHard = p0_partition_issues_by_authoritative_gates([[
+                'severity' => 'incomplete',
+                'code' => 'live_closure_incomplete',
+                'details' => ['missing_codes' => [$nestedHardCode]],
+            ]], $readyCtrip, ['ctrip']);
+            self::assertCount(1, $nestedHard['blocking_issues'], $nestedHardCode);
+            self::assertSame([], $nestedHard['reference_issues'], $nestedHardCode);
+        }
+
+        $unexpectedSeverity = p0_partition_issues_by_authoritative_gates([[
+            'severity' => 'warning',
+            'code' => 'ctrip_field_fact_closure_incomplete',
+        ]], $readyCtrip, ['ctrip']);
+        self::assertCount(1, $unexpectedSeverity['blocking_issues']);
+        self::assertSame([], $unexpectedSeverity['reference_issues']);
+
+        $externalOrInspectorFailure = [
+            ['severity' => 'failed', 'code' => 'live_closure_inspector_failed'],
+            ['severity' => 'incomplete', 'code' => 'external_traffic_evidence_not_valid'],
+        ];
+        $failures = p0_partition_issues_by_authoritative_gates(
+            $externalOrInspectorFailure,
+            $readyCtrip,
+            ['ctrip']
+        );
+        self::assertCount(2, $failures['blocking_issues']);
+        self::assertSame([], $failures['reference_issues']);
+    }
+
+    public function testTrafficStorageSourceSelectionUsesExactTargetDateReadbackEvidence(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\p0_select_traffic_storage_source_candidates')
+            && !function_exists('p0_select_traffic_storage_source_candidates')
+        ) {
+            $definition = $this->extractFunctionDefinition($verifier, 'p0_select_traffic_storage_source_candidates');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        $selected = p0_select_traffic_storage_source_candidates([
+            [
+                'source' => ['id' => 25, 'tenant_id' => 80, 'system_hotel_id' => 80, 'platform' => 'ctrip'],
+                'latest_sync_task' => [
+                    'task_id' => 3034,
+                    'status' => 'success',
+                    'target_date_matches_task' => true,
+                ],
+                'target_date_readback_traffic_rows' => 2,
+            ],
+            [
+                'source' => ['id' => 343, 'tenant_id' => 80, 'system_hotel_id' => 80, 'platform' => 'ctrip'],
+                'latest_sync_task' => ['task_id' => 0],
+                'target_date_readback_traffic_rows' => 0,
+            ],
+        ]);
+
+        self::assertSame('ready', $selected['status']);
+        self::assertSame(25, $selected['source_id']);
+        self::assertSame(3034, $selected['sync_task_id']);
+        self::assertSame('target_date_readback_traffic_rows', $selected['selection_basis']);
+
+        $reobservedHistoricalRow = p0_select_traffic_storage_source_candidates([[
+            'source' => ['id' => 25],
+            'latest_sync_task' => [
+                'task_id' => 3084,
+                'status' => 'success',
+                'target_date_matches_task' => true,
+            ],
+            'evidence_sync_task' => [
+                'task_id' => 3085,
+                'status' => 'partial_success',
+                'target_date_matches_task' => false,
+                'row_target_date_matches' => true,
+            ],
+            'target_date_readback_traffic_rows' => 1,
+        ]]);
+        self::assertSame('ready', $reobservedHistoricalRow['status']);
+        self::assertSame(3085, $reobservedHistoricalRow['sync_task_id']);
+        self::assertFalse($reobservedHistoricalRow['latest_sync_task']['target_date_matches_task']);
+        self::assertTrue($reobservedHistoricalRow['latest_sync_task']['row_target_date_matches']);
+
+        $ambiguous = p0_select_traffic_storage_source_candidates([
+            [
+                'source' => ['id' => 25],
+                'latest_sync_task' => ['task_id' => 3034, 'status' => 'success', 'target_date_matches_task' => true],
+                'target_date_readback_traffic_rows' => 2,
+            ],
+            [
+                'source' => ['id' => 343],
+                'latest_sync_task' => ['task_id' => 3035, 'status' => 'success', 'target_date_matches_task' => true],
+                'target_date_readback_traffic_rows' => 1,
+            ],
+        ]);
+        self::assertSame('scope_missing', $ambiguous['status']);
+        self::assertSame('traffic_data_source_ambiguous', $ambiguous['reason']);
+
+        $emptyButExact = p0_select_traffic_storage_source_candidates([
+            [
+                'source' => ['id' => 68],
+                'latest_sync_task' => ['task_id' => 3017, 'status' => 'partial_success', 'target_date_matches_task' => true],
+                'target_date_readback_traffic_rows' => 0,
+            ],
+            [
+                'source' => ['id' => 101],
+                'latest_sync_task' => ['task_id' => 0],
+                'target_date_readback_traffic_rows' => 0,
+            ],
+        ]);
+        self::assertSame('ready', $emptyButExact['status']);
+        self::assertSame(68, $emptyButExact['source_id']);
+        self::assertSame('unique_target_date_sync_task', $emptyButExact['selection_basis']);
+
+        $failedTask = p0_select_traffic_storage_source_candidates([[
+            'source' => ['id' => 68],
+            'latest_sync_task' => ['task_id' => 3016, 'status' => 'failed', 'target_date_matches_task' => true],
+            'target_date_readback_traffic_rows' => 1,
+        ]]);
+        self::assertSame('scope_missing', $failedTask['status']);
+        self::assertSame('sync_task_identity_missing', $failedTask['reason']);
+    }
+
+    public function testTrafficTaskSelectionIsNotShadowedByLaterOrderCompetitorOrFailedTasks(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\p0_select_latest_eligible_sync_task_candidate')
+            && !function_exists('p0_select_latest_eligible_sync_task_candidate')
+        ) {
+            $definition = $this->extractFunctionDefinition($verifier, 'p0_select_latest_eligible_sync_task_candidate');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        $selected = p0_select_latest_eligible_sync_task_candidate([
+            ['task_id' => 3034, 'data_type' => 'traffic', 'status' => 'success', 'task_target_date' => '2026-08-09'],
+            ['task_id' => 3035, 'data_type' => 'order', 'status' => 'success', 'task_target_date' => '2026-08-09'],
+            ['task_id' => 3036, 'data_type' => 'competitor', 'status' => 'success', 'task_target_date' => '2026-08-09'],
+            ['task_id' => 3037, 'data_type' => 'traffic', 'status' => 'failed', 'task_target_date' => '2026-08-09'],
+            ['task_id' => 3038, 'data_type' => 'traffic', 'status' => 'success', 'task_target_date' => '2026-08-08'],
+        ], '2026-08-09', ['traffic', 'business', 'flow', 'conversion'], ['success', 'partial_success']);
+
+        self::assertSame(3034, $selected['task_id']);
+        self::assertSame('traffic', $selected['data_type']);
+    }
+
+    public function testTrafficStorageSourceSelectionRejectsCrossScopeCandidates(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\p0_select_traffic_storage_source_candidates')
+            && !function_exists('p0_select_traffic_storage_source_candidates')
+        ) {
+            $definition = $this->extractFunctionDefinition($verifier, 'p0_select_traffic_storage_source_candidates');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+        $candidate = static fn(int $sourceId, int $tenantId, int $hotelId, string $platform, int $taskId): array => [
+            'source' => [
+                'id' => $sourceId,
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $hotelId,
+                'platform' => $platform,
+            ],
+            'latest_sync_task' => [
+                'task_id' => $taskId,
+                'status' => 'success',
+                'target_date_matches_task' => true,
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $hotelId,
+                'platform' => $platform,
+            ],
+            'target_date_readback_traffic_rows' => 1,
+        ];
+
+        $selected = p0_select_traffic_storage_source_candidates([
+            $candidate(25, 80, 80, 'ctrip', 3034),
+            $candidate(26, 81, 80, 'ctrip', 3035),
+            $candidate(27, 80, 81, 'ctrip', 3036),
+            $candidate(28, 80, 80, 'meituan', 3037),
+        ], 80, 80, 'ctrip');
+
+        self::assertSame('ready', $selected['status']);
+        self::assertSame(25, $selected['source_id']);
+        self::assertSame(3034, $selected['sync_task_id']);
+
+        $onlyWrongScope = p0_select_traffic_storage_source_candidates([
+            $candidate(26, 81, 80, 'ctrip', 3035),
+        ], 80, 80, 'ctrip');
+        self::assertSame('scope_missing', $onlyWrongScope['status']);
+        self::assertSame('sync_task_identity_missing', $onlyWrongScope['reason']);
+
+        $receiptMismatch = $candidate(25, 80, 80, 'ctrip', 3085);
+        $receiptMismatch['exact_run_readback_required'] = true;
+        $receiptMismatch['exact_run_readback_ready'] = false;
+        $receiptMismatch['exact_run_readback_reason'] = 'exact_run_readback_scope_mismatch';
+        $blocked = p0_select_traffic_storage_source_candidates(
+            [$receiptMismatch],
+            80,
+            80,
+            'ctrip'
+        );
+        self::assertSame('scope_missing', $blocked['status']);
+        self::assertSame('exact_run_readback_scope_mismatch', $blocked['reason']);
+        self::assertSame('authoritative_rows_without_exact_run_readback', $blocked['selection_basis']);
+    }
+
+    public function testExactRunReadbackMembershipRequiresEveryRowAndReceiptIdentityField(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\p0_validate_exact_run_readback_membership')
+            && !function_exists('p0_validate_exact_run_readback_membership')
+        ) {
+            $definition = $this->extractFunctionDefinition($verifier, 'p0_validate_exact_run_readback_membership');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        $expected = [
+            'tenant_id' => 80,
+            'data_source_id' => 25,
+            'sync_task_id' => 3085,
+            'system_hotel_id' => 80,
+            'platform' => 'ctrip',
+            'target_date' => '2026-08-09',
+        ];
+        $row = static fn(int $id): array => [
+            'id' => $id,
+            'tenant_id' => 80,
+            'data_source_id' => 25,
+            'sync_task_id' => 3085,
+            'system_hotel_id' => 80,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'data_date' => '2026-08-09',
+            'data_period' => 'realtime_snapshot',
+            'readback_verified' => 1,
+        ];
+        $rows = [$row(81818), $row(81819)];
+        $receipt = [
+            'sync_task_id' => 3085,
+            'data_source_id' => 25,
+            'system_hotel_id' => 80,
+            'platform' => 'ctrip',
+            'target_date' => '2026-08-09',
+            'data_period' => 'realtime_snapshot',
+            'readback_verified' => true,
+            'p0_status' => 'ready',
+            'row_ids' => [81818, 81819, 81820],
+        ];
+
+        $ready = p0_validate_exact_run_readback_membership($receipt, $rows, $expected);
+        self::assertSame('ready', $ready['status']);
+        self::assertSame([], $ready['mismatch_codes']);
+        self::assertSame([81818, 81819, 81820], $ready['run_readback']['row_ids']);
+        self::assertFalse($ready['sensitive_values_exposed']);
+
+        $wrongTaskReceipt = array_merge($receipt, [
+            'row_ids' => [81820],
+        ]);
+        $blocked = p0_validate_exact_run_readback_membership($wrongTaskReceipt, $rows, $expected);
+        self::assertSame('blocked', $blocked['status']);
+        self::assertSame('exact_run_readback_scope_mismatch', $blocked['reason']);
+        self::assertContains('authoritative_row_not_in_run_readback', $blocked['mismatch_codes']);
+
+        foreach ([
+            'sync_task_id' => [3084, 'run_readback_sync_task_mismatch'],
+            'data_source_id' => [26, 'run_readback_data_source_mismatch'],
+            'system_hotel_id' => [81, 'run_readback_hotel_mismatch'],
+            'platform' => ['meituan', 'run_readback_platform_mismatch'],
+            'target_date' => ['2026-08-08', 'run_readback_target_date_mismatch'],
+            'data_period' => ['historical_daily', 'run_readback_data_period_mismatch'],
+            'readback_verified' => [false, 'run_readback_not_verified'],
+            'p0_status' => ['blocked', 'run_readback_p0_status_not_ready'],
+        ] as $field => [$value, $code]) {
+            $candidateReceipt = array_merge($receipt, [$field => $value]);
+            $candidate = p0_validate_exact_run_readback_membership($candidateReceipt, $rows, $expected);
+            self::assertSame('blocked', $candidate['status'], $field);
+            self::assertContains($code, $candidate['mismatch_codes'], $field);
+        }
+
+        foreach ([
+            'tenant_id' => [81, 'authoritative_row_tenant_mismatch'],
+            'data_source_id' => [26, 'authoritative_row_data_source_mismatch'],
+            'sync_task_id' => [3084, 'authoritative_row_sync_task_mismatch'],
+            'system_hotel_id' => [81, 'authoritative_row_hotel_mismatch'],
+            'source' => ['meituan', 'authoritative_row_platform_mismatch'],
+            'data_date' => ['2026-08-08', 'authoritative_row_target_date_mismatch'],
+            'data_period' => ['historical_daily', 'authoritative_row_data_period_not_exact'],
+            'readback_verified' => [0, 'authoritative_row_readback_unverified'],
+        ] as $field => [$value, $code]) {
+            $candidateRows = $rows;
+            $candidateRows[0][$field] = $value;
+            $candidate = p0_validate_exact_run_readback_membership($receipt, $candidateRows, $expected);
+            self::assertSame('blocked', $candidate['status'], $field);
+            self::assertContains($code, $candidate['mismatch_codes'], $field);
+        }
+
+        self::assertGreaterThanOrEqual(
+            3,
+            substr_count($verifier, 'p0_validate_exact_run_readback_membership('),
+            'The exact receipt check must run both while selecting storage scope and after reading final authoritative rows.'
+        );
+        self::assertStringContainsString("'status' => 'blocked'", $verifier);
+        self::assertStringContainsString("'exact_run_readback_scope_mismatch'", $verifier);
+        self::assertStringContainsString('count($evidenceTaskIds) === 1', $verifier);
+        self::assertStringContainsString("\$status = 'exact_run_readback_scope_mismatch';", $verifier);
+    }
+
+    public function testLatestAuthoritativeTaskRowsSupersedeOlderReceiptsWithoutFallback(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\p0_latest_authoritative_task_rows')
+            && !function_exists('p0_latest_authoritative_task_rows')
+        ) {
+            $definition = $this->extractFunctionDefinition($verifier, 'p0_latest_authoritative_task_rows');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        $selected = p0_latest_authoritative_task_rows([
+            ['id' => 81824, 'sync_task_id' => 3060, 'data_period' => 'historical_daily'],
+            ['id' => 81880, 'sync_task_id' => 3060, 'data_period' => 'realtime_snapshot'],
+            ['id' => 82001, 'sync_task_id' => 3090, 'data_period' => 'historical_daily'],
+            ['id' => 82002, 'sync_task_id' => 3090, 'data_period' => 'historical_daily'],
+        ]);
+
+        self::assertCount(2, $selected);
+        self::assertSame([3090, 3090], array_column($selected, 'sync_task_id'));
+        self::assertSame([82001, 82002], array_column($selected, 'id'));
+        self::assertSame([], p0_latest_authoritative_task_rows([
+            ['id' => 1, 'sync_task_id' => null],
+        ]));
+        self::assertStringContainsString(
+            'p0_latest_authoritative_task_rows(',
+            $verifier
+        );
+    }
+
+    public function testExactRunReadbackMismatchRemainsAStableBlockingTrafficGateStatus(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach ([
+            'p0_array',
+            'p0_platform_traffic_gate_next_steps',
+            'p0_external_evidence_db_scope',
+            'p0_platform_traffic_gate',
+        ] as $functionName) {
+            if (!function_exists(__NAMESPACE__ . '\\' . $functionName) && !function_exists($functionName)) {
+                $definition = $this->extractFunctionDefinition($verifier, $functionName);
+                self::assertNotSame('', $definition, $functionName);
+                eval($definition);
+            }
+        }
+
+        $gate = p0_platform_traffic_gate([
+            'platform' => 'ctrip',
+            'status' => 'ready',
+            'target_date' => ['traffic_rows' => 2],
+            'traffic_field_fact_closure' => [
+                'status' => 'scope_missing',
+                'scope_block_reason' => 'exact_run_readback_scope_mismatch',
+                'run_readback_membership_status' => 'not_loaded',
+                'traffic_row_count' => 0,
+            ],
+            'profile_scope_traffic_closure' => ['status' => 'ready'],
+            'hotel_scoped_sources' => [],
+            'hotel_scoped_commands' => [],
+            'hotel_scoped_capture_bridges' => [],
+            'sensitive_values_exposed' => false,
+        ]);
+
+        self::assertSame('exact_run_readback_scope_mismatch', $gate['status']);
+        self::assertSame('exact_run_readback_scope_mismatch', $gate['run_readback_scope_block_reason']);
+        self::assertSame('not_loaded', $gate['run_readback_membership_status']);
+    }
+
+    public function testNormalizedProjectionConflictRemainsAStableBlockingTrafficGateStatus(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach ([
+            'p0_array',
+            'p0_platform_traffic_gate_next_steps',
+            'p0_external_evidence_db_scope',
+            'p0_platform_traffic_gate',
+        ] as $functionName) {
+            if (!function_exists(__NAMESPACE__ . '\\' . $functionName) && !function_exists($functionName)) {
+                $definition = $this->extractFunctionDefinition($verifier, $functionName);
+                self::assertNotSame('', $definition, $functionName);
+                eval($definition);
+            }
+        }
+
+        $gate = p0_platform_traffic_gate([
+            'platform' => 'ctrip',
+            'status' => 'ready',
+            'target_date' => ['traffic_rows' => 2],
+            'traffic_field_fact_closure' => [
+                'status' => 'ready',
+                'traffic_row_count' => 2,
+                'normalized_projection_reference_rows' => 0,
+                'unresolved_normalized_projection_rows' => 1,
+                'observed_traffic_metric_provenance_status' => 'ready',
+                'synthetic_normalization_provenance_missing_rows' => 0,
+                'required_metric_value_status' => 'ready',
+                'nonzero_required_metric_rows' => 2,
+                'run_readback_membership_status' => 'ready',
+                'readback_status' => 'ready',
+            ],
+            'profile_scope_traffic_closure' => ['status' => 'ready'],
+            'hotel_scoped_sources' => [],
+            'hotel_scoped_commands' => [],
+            'hotel_scoped_capture_bridges' => [],
+            'sensitive_values_exposed' => false,
+        ]);
+
+        self::assertSame('normalized_projection_conflict', $gate['status']);
+        self::assertNotSame('ready', $gate['status']);
+        self::assertSame('', $gate['run_readback_scope_block_reason']);
+        self::assertSame(0, $gate['normalized_projection_reference_rows']);
+        self::assertSame(1, $gate['unresolved_normalized_projection_rows']);
+        self::assertStringContainsString("\$platformName . '_normalized_projection_conflict'", $verifier);
+    }
+
+    public function testStorageSourceEvidenceExcludesCompetitorAuxiliaryForecastAndQuarantineRows(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach ([
+            'p0_required_traffic_metric_keys',
+            'p0_observed_traffic_metric_provenance',
+            'p0_authoritative_storage_evidence_rows',
+        ] as $functionName) {
+            if (!function_exists(__NAMESPACE__ . '\\' . $functionName) && !function_exists($functionName)) {
+                $definition = $this->extractFunctionDefinition($verifier, $functionName);
+                self::assertNotSame('', $definition);
+                eval($definition);
+            }
+        }
+        $observedMetricKeys = [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
+        $canonical = [
+            'data_type' => 'business',
+            'readback_verified' => 1,
+            'validation_status' => 'normal',
+            'data_period' => 'day',
+            'platform' => 'ctrip',
+            'compare_type' => 'self',
+            'dimension' => '',
+            'raw_data' => json_encode([
+                'row' => [
+                    'endpoint_id' => 'business_flow_transform',
+                    '_observed_traffic_metric_keys' => $observedMetricKeys,
+                ],
+            ], JSON_UNESCAPED_SLASHES),
+        ];
+
+        $rows = p0_authoritative_storage_evidence_rows([
+            $canonical,
+            array_merge($canonical, ['compare_type' => 'competitor']),
+            array_merge($canonical, ['dimension' => 'catalog:qunar:business_flow_transform']),
+            array_merge($canonical, ['dimension' => 'catalog:ctrip:auxiliary_endpoint']),
+            array_merge($canonical, ['data_period' => 'forecast']),
+            array_merge($canonical, ['validation_status' => 'quarantined']),
+            array_merge($canonical, ['readback_verified' => 0]),
+        ], 'ctrip');
+
+        self::assertCount(1, $rows);
+        self::assertSame($canonical, $rows[0]);
+
+        $meituanBusiness = array_merge($canonical, [
+            'platform' => 'meituan',
+            'dimension' => 'flow_conversion',
+        ]);
+        self::assertSame([], p0_authoritative_storage_evidence_rows([$meituanBusiness], 'meituan'));
+    }
+
     public function testStoredTrafficVerifierExcludesQuarantinedValidationRows(): void
     {
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
@@ -29,6 +599,44 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertStringContainsString("&& (int)\$base['zero_value_unconfirmed_rows'] === 0", $verifier);
         self::assertStringContainsString('default_data_date', $verifier);
         self::assertStringContainsString('p0_field_fact_capture_evidence_matches_row', $verifier);
+        self::assertStringContainsString('p0_observed_traffic_metric_provenance($raw, $platform)', $verifier);
+        self::assertStringContainsString('synthetic_normalization_provenance_missing', $verifier);
+        self::assertStringContainsString("raw_data.row._observed_traffic_metric_keys", $verifier);
+    }
+
+    public function testObservedTrafficMarkerRequiresSnakeCaseMembershipForEveryPlatformMetric(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach (['p0_required_traffic_metric_keys', 'p0_observed_traffic_metric_provenance'] as $functionName) {
+            if (!function_exists($functionName)) {
+                $definition = $this->extractFunctionDefinition($verifier, $functionName);
+                self::assertNotSame('', $definition, 'Missing pure verifier helper: ' . $functionName);
+                eval($definition);
+            }
+        }
+
+        $required = p0_required_traffic_metric_keys('ctrip');
+        $ready = p0_observed_traffic_metric_provenance([
+            'row' => ['_observed_traffic_metric_keys' => array_reverse($required)],
+        ], 'ctrip');
+        self::assertSame('ready', $ready['status']);
+        self::assertSame([], $ready['missing_metric_keys']);
+
+        $missing = p0_observed_traffic_metric_provenance([
+            'row' => ['_observed_traffic_metric_keys' => array_values(array_diff($required, ['flow_rate']))],
+        ], 'ctrip');
+        self::assertSame('synthetic_normalization_provenance_missing', $missing['status']);
+        self::assertSame(['flow_rate'], $missing['missing_metric_keys']);
+
+        $camelCase = p0_observed_traffic_metric_provenance([
+            'row' => ['_observed_traffic_metric_keys' => ['listExposure']],
+        ], 'ctrip');
+        self::assertSame('synthetic_normalization_provenance_missing', $camelCase['status']);
+
+        $topLevelOnly = p0_observed_traffic_metric_provenance([
+            '_observed_traffic_metric_keys' => $required,
+        ], 'ctrip');
+        self::assertSame('synthetic_normalization_provenance_missing', $topLevelOnly['status']);
     }
 
     public function testStoredValueReadinessOnlyRequiresCompleteFactsToHaveStoredValues(): void
@@ -526,6 +1134,59 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertTrue($canonical['authoritative']);
         self::assertSame('business_flow_transform', $canonical['endpoint_id']);
 
+        $matchingNestedCanonical = p0_traffic_row_scope([
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+            'raw_data' => json_encode([
+                'row' => ['endpoint_id' => 'traffic_flow_transform'],
+            ], JSON_UNESCAPED_SLASHES),
+        ], 'ctrip');
+        self::assertTrue($matchingNestedCanonical['authoritative']);
+        self::assertSame('traffic_flow_transform', $matchingNestedCanonical['endpoint_id']);
+
+        foreach (['traffic_hotel_seq', 'traffic_flow_source'] as $auxiliaryEndpoint) {
+            $nestedAuxiliary = p0_traffic_row_scope([
+                'dimension' => '',
+                'raw_data' => json_encode([
+                    'row' => ['endpoint_id' => $auxiliaryEndpoint],
+                ], JSON_UNESCAPED_SLASHES),
+            ], 'ctrip');
+            self::assertFalse($nestedAuxiliary['authoritative']);
+            self::assertSame($auxiliaryEndpoint, $nestedAuxiliary['endpoint_id']);
+        }
+
+        foreach ([
+            ['row' => ['capture' => ['endpoint_id' => 'traffic_hotel_seq']]],
+            ['source_row' => ['endpoint_id' => 'traffic_flow_source']],
+            ['source_row' => ['capture' => ['endpointId' => 'traffic_hotel_seq']]],
+        ] as $nestedAuxiliaryRaw) {
+            $nestedAuxiliary = p0_traffic_row_scope([
+                'dimension' => '',
+                'raw_data' => json_encode($nestedAuxiliaryRaw, JSON_UNESCAPED_SLASHES),
+            ], 'ctrip');
+            self::assertFalse($nestedAuxiliary['authoritative']);
+        }
+
+        foreach ([
+            [
+                'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure',
+                'raw_data' => json_encode([
+                    'row' => ['endpoint_id' => 'traffic_hotel_seq'],
+                ], JSON_UNESCAPED_SLASHES),
+            ],
+            [
+                'dimension' => '',
+                'raw_data' => json_encode([
+                    'endpoint_id' => 'traffic_flow_transform',
+                    'row' => ['endpoint_id' => 'traffic_flow_source'],
+                ], JSON_UNESCAPED_SLASHES),
+            ],
+        ] as $conflictingEndpointRow) {
+            $conflict = p0_traffic_row_scope($conflictingEndpointRow, 'ctrip');
+            self::assertFalse($conflict['authoritative']);
+            self::assertSame('__endpoint_conflict__', $conflict['endpoint_id']);
+            self::assertSame('ctrip_traffic_endpoint_conflict', $conflict['reason']);
+        }
+
         $futureSearch = p0_traffic_row_scope([
             'dimension' => 'catalog:traffic_report:traffic_search_details:future_search:2026-07-25',
         ], 'ctrip');
@@ -551,18 +1212,163 @@ final class P0FieldLoopVerifierContractTest extends TestCase
             $unclassifiedDimensioned['reason']
         );
 
-        $meituan = p0_traffic_row_scope(['dimension' => 'flow_conversion'], 'meituan');
+        $meituan = p0_traffic_row_scope([
+            'dimension' => 'flow_conversion',
+            'raw_data' => json_encode([
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
+        ], 'meituan');
         self::assertTrue($meituan['authoritative']);
+        self::assertSame('meituan_network_response_traffic_scope', $meituan['reason']);
+
+        $meituanDom = p0_traffic_row_scope([
+            'dimension' => 'flow_conversion',
+            'raw_data' => json_encode([
+                'row' => ['_capture_source' => 'dom:traffic:flow_funnel'],
+            ]),
+        ], 'meituan');
+        self::assertFalse($meituanDom['authoritative']);
+        self::assertSame('meituan_authoritative_capture_source_invalid', $meituanDom['reason']);
 
         $meituanRefreshTimestamp = p0_traffic_row_scope([
             'dimension' => 'flow_conversion',
-            'raw_data' => json_encode(['date_source' => 'response.rtDataUpdateTime']),
+            'raw_data' => json_encode([
+                'date_source' => 'response.rtDataUpdateTime',
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
         ], 'meituan');
         self::assertFalse($meituanRefreshTimestamp['authoritative']);
         self::assertSame(
             'meituan_refresh_timestamp_not_business_date_evidence',
             $meituanRefreshTimestamp['reason']
         );
+    }
+
+    public function testCtripCatalogProjectionIsReferenceOnlyAfterExactRawTupleProof(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach ([
+            'p0_required_traffic_metric_keys',
+            'p0_observed_traffic_metric_provenance',
+            'p0_required_traffic_metric_values',
+            'p0_traffic_row_endpoint_id',
+            'p0_row_raw_data',
+            'p0_ctrip_query_flow_row_proof_ready',
+            'p0_ctrip_query_flow_metric_signature',
+            'p0_reduce_ctrip_query_flow_projection_rows',
+        ] as $functionName) {
+            if (function_exists(__NAMESPACE__ . '\\' . $functionName) || function_exists($functionName)) {
+                continue;
+            }
+            $definition = $this->extractFunctionDefinition($verifier, $functionName);
+            self::assertNotSame('', $definition, 'Missing pure verifier helper: ' . $functionName);
+            eval($definition);
+        }
+
+        $metricKeys = [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
+        $row = static function (bool $observed, string $dimension, float $listExposure = 510.0, string $hashSeed = 'a') use ($metricKeys): array {
+            $sourceHash = str_repeat($hashSeed, 64);
+            return [
+                'sync_task_id' => 3085,
+                'system_hotel_id' => 80,
+                'source' => 'ctrip',
+                'platform' => 'ctrip',
+                'data_date' => '2026-08-08',
+                'data_period' => 'historical_daily',
+                'is_final' => 1,
+                'dimension' => $dimension,
+                'list_exposure' => $listExposure,
+                'detail_exposure' => 96,
+                'flow_rate' => 18.82,
+                'order_filling_num' => 0,
+                'order_submit_num' => 0,
+                'raw_data' => json_encode([
+                    'sync_task_id' => 3085,
+                    'date_source' => $dimension === '' ? 'row' : 'request.payload.startDate',
+                    'source_url_hash' => $sourceHash,
+                    'capture_evidence' => [
+                        'source_url_hash' => $sourceHash,
+                        'response_evidence_type' => 'structured_json',
+                    ],
+                    'row' => array_filter([
+                        'date' => '2026-08-08',
+                        'endpoint_id' => $dimension === '' ? 'business_flow_transform' : 'traffic_flow_transform',
+                        '_observed_traffic_metric_keys' => $observed ? $metricKeys : null,
+                    ], static fn(mixed $value): bool => $value !== null),
+                ], JSON_UNESCAPED_SLASHES),
+            ];
+        };
+
+        $canonical = $row(true, '', 510.0, 'a');
+        $matchingProjection = $row(false, 'catalog:traffic_report:traffic_flow_transform:list_exposure', 510.0, 'b');
+        $ready = p0_reduce_ctrip_query_flow_projection_rows(
+            [$canonical, $matchingProjection],
+            '2026-08-08',
+            '2026-08-09'
+        );
+        self::assertCount(1, $ready['authoritative_rows']);
+        self::assertCount(1, $ready['reference_rows']);
+        self::assertSame(0, $ready['unresolved_projection_rows']);
+
+        $markerCopiedProjection = $matchingProjection;
+        $markerCopiedRaw = json_decode(
+            (string)$markerCopiedProjection['raw_data'],
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $markerCopiedRaw['row']['_observed_traffic_metric_keys'] = $metricKeys;
+        $markerCopiedProjection['raw_data'] = json_encode(
+            $markerCopiedRaw,
+            JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        );
+        $copiedMarker = p0_reduce_ctrip_query_flow_projection_rows(
+            [$canonical, $markerCopiedProjection],
+            '2026-08-08',
+            '2026-08-09'
+        );
+        self::assertCount(1, $copiedMarker['authoritative_rows']);
+        self::assertCount(1, $copiedMarker['reference_rows']);
+
+        $copiedMarkerOnly = p0_reduce_ctrip_query_flow_projection_rows(
+            [$markerCopiedProjection],
+            '2026-08-08',
+            '2026-08-09'
+        );
+        self::assertCount(1, $copiedMarkerOnly['authoritative_rows']);
+        self::assertSame(1, $copiedMarkerOnly['unresolved_projection_rows']);
+
+        $catalogOnly = p0_reduce_ctrip_query_flow_projection_rows(
+            [$matchingProjection],
+            '2026-08-08',
+            '2026-08-09'
+        );
+        self::assertCount(1, $catalogOnly['authoritative_rows']);
+        self::assertSame(1, $catalogOnly['unresolved_projection_rows']);
+
+        $mismatch = p0_reduce_ctrip_query_flow_projection_rows(
+            [$canonical, $row(false, 'catalog:traffic_report:traffic_flow_transform:list_exposure', 509.0, 'b')],
+            '2026-08-08',
+            '2026-08-09'
+        );
+        self::assertCount(2, $mismatch['authoritative_rows']);
+        self::assertCount(0, $mismatch['reference_rows']);
+        self::assertSame(1, $mismatch['unresolved_projection_rows']);
+
+        $notFinal = $canonical;
+        $notFinal['data_period'] = 'realtime_snapshot';
+        $notFinal['is_final'] = 0;
+        self::assertFalse(p0_ctrip_query_flow_row_proof_ready(
+            $notFinal,
+            '2026-08-08',
+            '2026-08-09'
+        ));
     }
 
     public function testStoredTrafficIdentifierMatchesTheAuthoritativeProfileSourceWithoutRawOutput(): void
@@ -742,7 +1548,7 @@ final class P0FieldLoopVerifierContractTest extends TestCase
     {
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
         foreach (['p0_required_traffic_metric_keys', 'p0_required_traffic_storage_field_map'] as $functionName) {
-            if (!function_exists(__NAMESPACE__ . '\\' . $functionName)) {
+            if (!function_exists($functionName)) {
                 $definition = $this->extractFunctionDefinition($verifier, $functionName);
                 self::assertNotSame('', $definition, 'Missing pure verifier helper: ' . $functionName);
                 eval($definition);

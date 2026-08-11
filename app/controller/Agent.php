@@ -327,6 +327,25 @@ class Agent extends Base
                 if ($snapshot === [] || (string)($snapshot['record_status'] ?? 'active') !== 'active') {
                     continue;
                 }
+                if (!$this->isStoredOtaDiagnosisReadbackVerified(
+                    $context,
+                    $snapshot,
+                    $hotelId,
+                    $platform,
+                    $targetRange
+                )) {
+                    return $this->success([
+                        'status' => 'unverified',
+                        'diagnosis' => null,
+                        'reason' => 'saved_diagnosis_readback_identity_mismatch',
+                        'scope' => [
+                            'hotel_id' => $hotelId,
+                            'platform' => $platform,
+                            'start_date' => $startDate,
+                            'end_date' => $endDate,
+                        ],
+                    ], '保存的 OTA 诊断身份回读不一致');
+                }
                 $snapshot['saved_record'] = array_replace([
                     'id' => (int)$record->id,
                     'saved' => true,

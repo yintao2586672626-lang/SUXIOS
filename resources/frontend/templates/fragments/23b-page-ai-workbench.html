@@ -15,6 +15,10 @@
                                         </div>
                                     </section>
 
+                                    <home-yesterday-operating-facts
+                                        :model="homeBusinessTimeModel"
+                                        :show-header="true">
+                                    </home-yesterday-operating-facts>
                                     <section data-testid="home-temporal-axis" :class="['dual-ota-temporal-axis', dualOtaPmsSelected ? 'is-pms-mode' : 'is-ota-mode']">
                                         <div class="dual-ota-temporal-head">
                                             <div class="dual-ota-temporal-heading">

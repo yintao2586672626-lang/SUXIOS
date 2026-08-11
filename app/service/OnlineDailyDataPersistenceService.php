@@ -146,7 +146,7 @@ final class OnlineDailyDataPersistenceService
             return false;
         }
         $identityFields = [
-            'tenant_id', 'source', 'platform', 'data_type', 'data_date', 'dimension',
+            'tenant_id', 'sync_task_id', 'source', 'platform', 'data_type', 'data_date', 'dimension',
             'hotel_id', 'hotel_name', 'system_hotel_id', 'compare_type',
             'data_period', 'snapshot_bucket', 'source_trace_id', 'persistence_identity_hash',
         ];

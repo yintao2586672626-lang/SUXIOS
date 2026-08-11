@@ -75,6 +75,13 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
     };
 
     const issueStatusForRoleProfile = (profile = {}) => {
+        if (profile.key === 'controlled_partner') {
+            return {
+                issueBlocked: false,
+                issueStatusText: '可发受控伙伴账号',
+                issueStatusDetail: '受控外发：限定门店、限定分析与报告导出，必须设置有效期。',
+            };
+        }
         if (profile.key === 'normal_user' && profile.issueBlockers?.length) {
             return {
                 issueBlocked: true,
@@ -133,6 +140,31 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
                 canCollectOta: true,
                 canManageHotels: true,
                 requiresHotelAssignment: false,
+                roleId,
+                userCount: 0,
+                issueBlockers: [],
+            };
+        }
+        if (roleName === 'controlled_partner') {
+            return {
+                key: 'controlled_partner',
+                title: role?.display_name || '受控合作伙伴',
+                handoffType: '伙伴受控交付',
+                roleCode,
+                badge: '限期分析',
+                badgeClass: 'border-amber-200 bg-amber-50 text-amber-800',
+                audience: '发给已签约且需要限定分析能力的合作伙伴',
+                scope: '必须分配门店，并设置中国时区自然日有效期',
+                ota: '只查看授权门店 OTA 渠道数据，不发起采集或删除',
+                allowed: '授权门店 OTA 查看、收益/AI分析、投资测算、受控报告导出',
+                denied: '不开放 OTA 采集/删除、原始数据导出、运营执行、用户角色和系统配置',
+                boundary: '服务端按角色、门店和有效期共同授权；报告导出与原始数据导出分离。',
+                dataBoundary: '只覆盖授权门店的 OTA 渠道与已验证分析结果，不代表全酒店经营事实。',
+                sendChecklist: '确认门店、有效期、账号状态与报告导出范围；口令单独走安全渠道。',
+                canCollectOta: false,
+                canManageHotels: false,
+                requiresHotelAssignment: true,
+                requiresExpiry: true,
                 roleId,
                 userCount: 0,
                 issueBlockers: [],
@@ -225,6 +257,13 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
                 { text: profile.canManageHotels ? '可新增门店' : '需分配门店', class: profile.canManageHotels ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-amber-100 bg-amber-50 text-amber-700' },
             ];
         }
+        if (profile.key === 'controlled_partner') {
+            return [
+                { text: '伙伴受控交付', class: 'border-amber-200 bg-amber-50 text-amber-800' },
+                { text: 'OTA只读', class: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+                { text: '必须设有效期', class: 'border-blue-100 bg-blue-50 text-blue-700' },
+            ];
+        }
         if (profile.key === 'normal_user') {
             const tags = [
                 { text: '普通外发', class: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
@@ -251,6 +290,7 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
     const roleIssueActionText = (profile = {}) => {
         if (profile.issueBlocked) return '先修角色权限';
         if (profile.key === 'beta_user') return '发内测账号';
+        if (profile.key === 'controlled_partner') return '发伙伴账号';
         if (profile.key === 'normal_user') return '发普通账号';
         return '发放此角色';
     };
@@ -261,6 +301,9 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
             return profile.canCollectOta
                 ? '内测发放：授权门店 OTA 查看/采集；不含用户/角色管理'
                 : '内测发放：授权门店 OTA 只读；不含用户/角色管理';
+        }
+        if (profile.key === 'controlled_partner') {
+            return '伙伴受控交付：限定门店、有效期、分析与报告导出；不可采集/删除/管理系统';
         }
         if (profile.key === 'normal_user') {
             return profile.canCollectOta
@@ -306,6 +349,14 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
                 ? '该角色必须先分配门店，否则外部用户登录后没有可追责的数据范围。'
                 : (normalizedHotelIds.length ? `已分配 ${normalizedHotelIds.length} 个门店` : profile.scope),
         });
+        if (profile.requiresExpiry) {
+            rows.push({
+                key: 'expiry',
+                label: '授权有效期',
+                level: 'success',
+                text: '该角色保存前必须设置有效期，到期后服务端门店授权自动失效。',
+            });
+        }
         rows.push({
             key: 'ota_scope',
             label: 'OTA边界',
@@ -341,7 +392,7 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
     );
 
     const userIssueStatusFromProfile = (profile = {}, blocker = '') => {
-        if (['beta_user', 'normal_user'].includes(profile?.key)) {
+        if (['beta_user', 'normal_user', 'controlled_partner'].includes(profile?.key)) {
             if (blocker) {
                 return {
                     label: '暂不可发',

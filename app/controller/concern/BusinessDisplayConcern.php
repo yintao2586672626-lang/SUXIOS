@@ -27,6 +27,15 @@ trait BusinessDisplayConcern
         'exclusion_reasons' => [],
     ];
 
+    /**
+     * A cookie-config business request can persist a source-bound competition
+     * batch without collecting the target hotel's operating triple. Keep that
+     * exact persistence receipt separate from the legacy integer return value.
+     *
+     * @var array<string, mixed>
+     */
+    private array $lastCtripStructuredRunReadback = [];
+
     private function sendMeituanRequest(string $url, array $params, string $cookies, array $authData = []): array
     {
         if (!$this->isAllowedOtaRequestUrl($url, ['meituan.com'])) {
@@ -611,6 +620,7 @@ trait BusinessDisplayConcern
         array $persistenceContext = []
     ): int
     {
+        $this->lastCtripStructuredRunReadback = [];
         $this->lastCtripBusinessPersistenceResult = [
             'stored_count' => 0,
             'readback_verified_count' => 0,
@@ -781,6 +791,17 @@ trait BusinessDisplayConcern
     private function lastCtripBusinessPersistenceResult(): array
     {
         return $this->lastCtripBusinessPersistenceResult;
+    }
+
+    /** @return array<string, mixed> */
+    private function lastCtripStructuredRunReadback(): array
+    {
+        return $this->lastCtripStructuredRunReadback;
+    }
+
+    private function resetLastCtripStructuredRunReadback(): void
+    {
+        $this->lastCtripStructuredRunReadback = [];
     }
 
     private function isCtripManualUnverifiedPersistenceContext(array $context): bool
@@ -1052,6 +1073,14 @@ trait BusinessDisplayConcern
                     );
                 }
             }
+            $this->lastCtripStructuredRunReadback = $this->buildCtripCompetitionCirclePartialRunReadback(
+                $result,
+                $dataSourceId,
+                $syncTaskId,
+                $systemHotelId,
+                $dataDate,
+                $sourceTraceId
+            );
             return (int)($result['saved_count'] ?? 0);
         } catch (\Throwable $e) {
             if ($ownsEvidenceTask) {
@@ -1059,6 +1088,339 @@ trait BusinessDisplayConcern
             }
             throw $e;
         }
+    }
+
+    /**
+     * Build an exact persistence receipt only for rows that remain bound to the
+     * source/task/trace created by this call. This is deliberately P0-blocked:
+     * competition-circle rows are not the target hotel's revenue/night/ADR
+     * operating facts.
+     *
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    private function buildCtripCompetitionCirclePartialRunReadback(
+        array $result,
+        int $dataSourceId,
+        int $syncTaskId,
+        int $systemHotelId,
+        string $dataDate,
+        string $sourceTraceId
+    ): array {
+        $candidateRowIds = array_values(array_unique(array_filter(
+            array_map('intval', is_array($result['row_ids'] ?? null) ? $result['row_ids'] : []),
+            static fn(int $value): bool => $value > 0
+        )));
+        $processedCount = max(0, (int)($result['processed_count'] ?? 0));
+        $scopedRowIds = [];
+        $startedAt = '';
+        $finishedAt = '';
+
+        try {
+            $task = $syncTaskId > 0
+                ? Db::name('platform_data_sync_tasks')->where('id', $syncTaskId)->find()
+                : null;
+            if (is_array($task)) {
+                $startedAt = trim((string)($task['started_at'] ?? ''));
+                $finishedAt = trim((string)($task['finished_at'] ?? ''));
+            }
+
+            if ($candidateRowIds !== [] && $dataSourceId > 0 && $syncTaskId > 0 && $sourceTraceId !== '') {
+                $columns = OnlineDailyDataPersistenceService::getColumns();
+                $query = Db::name('online_daily_data')
+                    ->whereIn('id', $candidateRowIds)
+                    ->where('system_hotel_id', $systemHotelId)
+                    ->where('source', 'ctrip')
+                    ->where('data_date', $dataDate);
+                if (isset($columns['data_source_id'])) {
+                    $query->where('data_source_id', $dataSourceId);
+                } else {
+                    $query->where('id', 0);
+                }
+                if (isset($columns['sync_task_id'])) {
+                    $query->where('sync_task_id', $syncTaskId);
+                } else {
+                    $query->where('id', 0);
+                }
+                if (isset($columns['source_trace_id'])) {
+                    $query->where('source_trace_id', $sourceTraceId);
+                } else {
+                    $query->where('id', 0);
+                }
+                if (isset($columns['data_period'])) {
+                    $query->where('data_period', 'historical_daily');
+                }
+                if (isset($columns['readback_verified'])) {
+                    $query->where('readback_verified', 1);
+                } else {
+                    $query->where('id', 0);
+                }
+                $scopedRowIds = array_values(array_unique(array_filter(
+                    array_map('intval', $query->column('id')),
+                    static fn(int $value): bool => $value > 0
+                )));
+            }
+        } catch (\Throwable $exception) {
+            \think\facade\Log::warning('Ctrip partial receipt readback scope check failed', [
+                'system_hotel_id' => $systemHotelId,
+                'data_source_id' => $dataSourceId,
+                'sync_task_id' => $syncTaskId,
+                'exception_type' => get_debug_type($exception),
+            ]);
+            $scopedRowIds = [];
+        }
+
+        $bindingVerified = ($result['readback_verified'] ?? false) === true
+            && $processedCount > 0
+            && count($scopedRowIds) === $processedCount;
+        $gapCodes = [
+            'self_hotel_operating_fact_missing',
+            'core_business_metrics_missing',
+        ];
+        if (!$bindingVerified) {
+            $gapCodes[] = 'exact_run_readback_binding_incomplete';
+        }
+
+        return [
+            'system_hotel_id' => $systemHotelId,
+            'platform' => 'ctrip',
+            'target_date' => $dataDate,
+            'data_period' => 'historical_daily',
+            'data_source_id' => $dataSourceId,
+            'sync_task_id' => $syncTaskId,
+            'started_at' => $startedAt,
+            'finished_at' => $finishedAt,
+            'row_ids' => $scopedRowIds,
+            'source_trace_ids' => $scopedRowIds !== [] && $sourceTraceId !== '' ? [$sourceTraceId] : [],
+            'readback_count' => count($scopedRowIds),
+            'readback_verified' => $bindingVerified,
+            'p0_status' => 'blocked',
+            'field_fact_status' => 'blocked',
+            'verified_metric_keys' => [],
+            'required_core_metric_keys' => ['revenue', 'room_nights', 'adr'],
+            'complete_core_metric_keys' => [],
+            'missing_core_metric_keys' => ['revenue', 'room_nights', 'adr'],
+            'write_success' => (int)($result['saved_count'] ?? 0) > 0,
+            'receipt_status' => $bindingVerified ? 'partial' : 'blocked',
+            'gap_codes' => array_values(array_unique($gapCodes)),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function buildAutoFetchPlatformRunScope(
+        int $systemHotelId,
+        string $platform,
+        string $targetDate,
+        string $dataPeriod,
+        mixed $startedAt = null
+    ): array {
+        $startedAt = trim((string)$startedAt);
+        if ($startedAt === '' || strtotime($startedAt) === false) {
+            $startedAt = date('Y-m-d H:i:s');
+        } else {
+            $startedAt = date('Y-m-d H:i:s', (int)strtotime($startedAt));
+        }
+
+        return [
+            'system_hotel_id' => $systemHotelId,
+            'platform' => strtolower(trim($platform)),
+            'target_date' => trim($targetDate),
+            'data_period' => strtolower(trim($dataPeriod)),
+            'run_started_at' => $startedAt,
+            'auto_fetch_run_id' => hash('sha256', implode('|', [
+                $systemHotelId,
+                strtolower(trim($platform)),
+                trim($targetDate),
+                strtolower(trim($dataPeriod)),
+                $startedAt,
+                bin2hex(random_bytes(12)),
+            ])),
+        ];
+    }
+
+    /**
+     * Preserve the legacy module success flag as write semantics while adding
+     * an independently strict receipt. Missing evidence stays missing.
+     *
+     * @param array<string, mixed> $result
+     * @param array<string, mixed> $runScope
+     * @return array<string, mixed>
+     */
+    private function withCookieConfigAutoFetchReceipt(array $result, array $runScope): array
+    {
+        $writeSuccess = (int)($result['saved_count'] ?? 0) > 0;
+        $receipt = is_array($result['run_readback'] ?? null) ? $result['run_readback'] : [];
+        $receiptWasMissing = $receipt === [];
+        $scopeDefaults = [
+            'system_hotel_id' => (int)($runScope['system_hotel_id'] ?? 0),
+            'platform' => strtolower(trim((string)($runScope['platform'] ?? ''))),
+            'target_date' => trim((string)($runScope['target_date'] ?? '')),
+            'data_period' => strtolower(trim((string)($runScope['data_period'] ?? ''))),
+            'started_at' => trim((string)($runScope['run_started_at'] ?? '')),
+            'auto_fetch_run_id' => trim((string)($runScope['auto_fetch_run_id'] ?? '')),
+        ];
+        $receipt = array_replace($scopeDefaults, $receipt);
+        $gapCodes = $this->normalizeAutoFetchReceiptGapCodes($receipt['gap_codes'] ?? []);
+
+        if ($receiptWasMissing) {
+            $gapCodes = array_merge($gapCodes, [
+                'data_source_id_missing',
+                'sync_task_id_missing',
+                'row_ids_missing',
+                'source_trace_ids_missing',
+                'exact_run_readback_missing',
+                'self_hotel_operating_fact_missing',
+                'core_business_metrics_missing',
+            ]);
+            $receipt['readback_verified'] = false;
+            $receipt['p0_status'] = 'blocked';
+            $receipt['field_fact_status'] = 'blocked';
+            $receipt['verified_metric_keys'] = [];
+            $receipt['row_ids'] = [];
+            $receipt['source_trace_ids'] = [];
+        }
+
+        $strictReady = $writeSuccess && $this->autoFetchReceiptStrictCoreReady($receipt);
+        if (!$strictReady) {
+            $receipt['p0_status'] = 'blocked';
+            $receipt['verified_metric_keys'] = [];
+            $gapCodes[] = 'core_business_metrics_missing';
+        }
+        if (!$writeSuccess) {
+            $gapCodes[] = !empty($result['skipped']) ? 'write_skipped' : 'write_failed';
+        }
+
+        $receiptStatus = $strictReady
+            ? 'ready'
+            : ($writeSuccess
+                ? (($receipt['readback_verified'] ?? false) === true ? 'partial' : 'blocked')
+                : (!empty($result['skipped']) ? 'skipped' : 'failed'));
+        $gapCodes = array_values(array_unique($this->normalizeAutoFetchReceiptGapCodes($gapCodes)));
+        $receipt['write_success'] = $writeSuccess;
+        $receipt['receipt_status'] = $receiptStatus;
+        $receipt['gap_codes'] = $gapCodes;
+
+        $result['write_success'] = $writeSuccess;
+        $result['receipt_status'] = $receiptStatus;
+        $result['gap_codes'] = $gapCodes;
+        $result['run_readback'] = $receipt;
+        return $result;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $modules
+     * @param array<string, mixed> $browserResult
+     * @param array<string, mixed> $runScope
+     * @return array<string, mixed>
+     */
+    private function selectCurrentAutoFetchPlatformRunReadback(
+        array $modules,
+        array $browserResult,
+        array $runScope
+    ): array {
+        $candidates = [];
+        foreach ($modules as $module) {
+            if (is_array($module) && is_array($module['run_readback'] ?? null)) {
+                $candidates[] = $module['run_readback'];
+            }
+        }
+        if (is_array($browserResult['run_readback'] ?? null)) {
+            $candidates[] = $browserResult['run_readback'];
+        }
+
+        $selected = [];
+        $selectedScore = -1;
+        foreach ($candidates as $receipt) {
+            if (!$this->autoFetchReceiptMatchesCurrentRunScope($receipt, $runScope)) {
+                continue;
+            }
+            $score = $this->autoFetchReceiptStrictCoreReady($receipt)
+                ? 1000000
+                : ((($receipt['readback_verified'] ?? false) === true) ? 100000 : 10000);
+            $score += min(9999, max(0, (int)($receipt['sync_task_id'] ?? 0)));
+            if ($score > $selectedScore) {
+                $selected = $receipt;
+                $selectedScore = $score;
+            }
+        }
+        return $selected;
+    }
+
+    /** @param array<string, mixed> $receipt @param array<string, mixed> $runScope */
+    private function autoFetchReceiptMatchesCurrentRunScope(array $receipt, array $runScope): bool
+    {
+        if ((int)($receipt['system_hotel_id'] ?? 0) !== (int)($runScope['system_hotel_id'] ?? 0)
+            || strtolower(trim((string)($receipt['platform'] ?? ''))) !== strtolower(trim((string)($runScope['platform'] ?? '')))
+            || trim((string)($receipt['target_date'] ?? '')) !== trim((string)($runScope['target_date'] ?? ''))
+            || strtolower(trim((string)($receipt['data_period'] ?? ''))) !== strtolower(trim((string)($runScope['data_period'] ?? '')))
+        ) {
+            return false;
+        }
+
+        $expectedRunId = trim((string)($runScope['auto_fetch_run_id'] ?? ''));
+        $receiptRunId = trim((string)($receipt['auto_fetch_run_id'] ?? ''));
+        if ($receiptRunId !== '') {
+            return $expectedRunId !== '' && hash_equals($expectedRunId, $receiptRunId);
+        }
+
+        $expectedStartedAt = strtotime(trim((string)($runScope['run_started_at'] ?? '')));
+        $receiptStartedAt = strtotime(trim((string)($receipt['started_at'] ?? '')));
+        return $expectedStartedAt !== false
+            && $receiptStartedAt !== false
+            && $receiptStartedAt >= $expectedStartedAt;
+    }
+
+    /** @return array{write_success:bool,receipt_status:string,gap_codes:array<int,string>} */
+    private function buildAutoFetchPlatformReceiptMeta(int $savedCount, array $receipt): array
+    {
+        $writeSuccess = $savedCount > 0;
+        $strictReady = $writeSuccess && $this->autoFetchReceiptStrictCoreReady($receipt);
+        $gapCodes = $this->normalizeAutoFetchReceiptGapCodes($receipt['gap_codes'] ?? []);
+        if (!$strictReady) {
+            $gapCodes[] = $receipt === [] ? 'current_run_receipt_missing' : 'core_business_metrics_missing';
+        }
+        return [
+            'write_success' => $writeSuccess,
+            'receipt_status' => $strictReady
+                ? 'ready'
+                : ($writeSuccess
+                    ? ((($receipt['readback_verified'] ?? false) === true) ? 'partial' : 'blocked')
+                    : 'failed'),
+            'gap_codes' => array_values(array_unique($this->normalizeAutoFetchReceiptGapCodes($gapCodes))),
+        ];
+    }
+
+    /** @param array<string, mixed> $receipt */
+    private function autoFetchReceiptStrictCoreReady(array $receipt): bool
+    {
+        $metricKeys = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            is_array($receipt['verified_metric_keys'] ?? null) ? $receipt['verified_metric_keys'] : []
+        ))));
+        return ($receipt['readback_verified'] ?? false) === true
+            && strtolower(trim((string)($receipt['p0_status'] ?? ''))) === 'ready'
+            && (int)($receipt['data_source_id'] ?? 0) > 0
+            && (int)($receipt['sync_task_id'] ?? 0) > 0
+            && trim((string)($receipt['started_at'] ?? '')) !== ''
+            && array_values(array_filter(
+                is_array($receipt['row_ids'] ?? null) ? $receipt['row_ids'] : [],
+                static fn(mixed $value): bool => (int)$value > 0
+            )) !== []
+            && array_values(array_filter(
+                is_array($receipt['source_trace_ids'] ?? null) ? $receipt['source_trace_ids'] : [],
+                static fn(mixed $value): bool => trim((string)$value) !== ''
+            )) !== []
+            && count(array_intersect(['revenue', 'room_nights', 'adr'], $metricKeys)) === 3;
+    }
+
+    /** @return array<int, string> */
+    private function normalizeAutoFetchReceiptGapCodes(mixed $codes): array
+    {
+        $codes = is_array($codes) ? $codes : [$codes];
+        return array_values(array_filter(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            $codes
+        ), static fn(string $value): bool => $value !== ''));
     }
 
     private function canSaveCtripLegacyBusinessMetricItem(array $item): bool

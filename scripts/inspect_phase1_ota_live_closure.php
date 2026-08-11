@@ -3879,8 +3879,9 @@ function inspection_missing_field_source_text(array $sourceKeys): string
     return $hasFieldGap ? '字段缺口' : '数据缺口';
 }
 
-function inspection_traffic_source_readiness(array $domainReadiness): array
+function inspection_traffic_source_readiness(array $domainReadiness, array $scope = []): array
 {
+    $scopeSystemHotelId = max(0, (int)($scope['system_hotel_id'] ?? 0));
     $platforms = [];
     foreach ($domainReadiness as $row) {
         if (!is_array($row)) {
@@ -3895,6 +3896,7 @@ function inspection_traffic_source_readiness(array $domainReadiness): array
             (array)($row['target_date_data_types'] ?? $row['data_types'] ?? [])
                 ), static fn(string $value): bool => $value !== ''));
                 $platforms[$platform] = [
+                    'system_hotel_id' => $scopeSystemHotelId,
                     'target_date' => trim((string)($row['target_date'] ?? '')),
                     'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? $row['source_rows'] ?? 0)),
                     'target_date_traffic_rows' => max(0, (int)($row['traffic_rows'] ?? 0)),
@@ -4483,17 +4485,43 @@ function inspection_traffic_source_profile_login_trigger_action(string $platform
     ];
 }
 
+function inspection_traffic_source_hotel_tenant_id(int $systemHotelId): int
+{
+    if ($systemHotelId <= 0 || !table_exists('hotels')) {
+        return 0;
+    }
+    $fields = existing_columns('hotels', ['id', 'tenant_id']);
+    if (array_diff(['id', 'tenant_id'], $fields) !== []) {
+        return 0;
+    }
+    try {
+        return max(0, (int)Db::name('hotels')->where('id', $systemHotelId)->value('tenant_id'));
+    } catch (Throwable) {
+        return 0;
+    }
+}
+
 function inspection_traffic_source_readiness_for_platform(string $platform, array $context): array
 {
     $requiredMetricKeys = inspection_traffic_source_p0_required_metric_keys($platform);
     $requiredStorageFields = inspection_traffic_source_p0_required_storage_fields($platform);
     $requiredFieldFactKeys = inspection_traffic_source_p0_required_field_fact_keys();
+    $scopeSystemHotelId = max(0, (int)($context['system_hotel_id'] ?? 0));
+    $scopeTenantId = inspection_traffic_source_hotel_tenant_id($scopeSystemHotelId);
     $targetDate = trim((string)($context['target_date'] ?? ''));
     $targetDateRows = max(0, (int)($context['target_date_rows'] ?? 0));
-    $scopeProjection = (new \app\service\OtaP0ScopeProjectionService())->project($platform, $targetDate);
-    $targetDateTrafficRows = (string)($scopeProjection['status'] ?? '') === 'ready'
-        ? max(0, (int)($scopeProjection['own_traffic_row_count'] ?? 0))
-        : 0;
+    $scopeProjection = (new \app\service\OtaP0ScopeProjectionService())->project(
+        $platform,
+        $targetDate,
+        $scopeSystemHotelId > 0 ? $scopeSystemHotelId : null,
+        $scopeTenantId > 0 ? $scopeTenantId : null
+    );
+    $targetDateTrafficRows = count(inspection_traffic_source_p0_traffic_rows(
+        $platform,
+        $targetDate,
+        $scopeSystemHotelId,
+        $scopeTenantId
+    ));
     $targetDateDataTypes = array_values(array_filter(array_map(
         static fn($value): string => strtolower(trim((string)$value)),
         (array)($context['target_date_data_types'] ?? [])
@@ -4514,10 +4542,31 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
         $sourceChainScope = 'traffic_source_rows';
         $sourceChainPolicy = 'Target-date source rows include traffic/flow/conversion data types; P0 closure still requires ready verifier status.';
     }
-    $p0FieldLoopMatrix = inspection_traffic_source_p0_field_loop_matrix($requiredMetricKeys, $requiredStorageFields, $targetDateTrafficRows, $platform, $targetDate);
+    $p0FieldLoopMatrix = $scopeSystemHotelId > 0 && $scopeTenantId > 0
+        ? inspection_traffic_source_p0_field_loop_matrix(
+            $requiredMetricKeys,
+            $requiredStorageFields,
+            $targetDateTrafficRows,
+            $platform,
+            $targetDate,
+            $scopeSystemHotelId,
+            $scopeTenantId
+        )
+        : array_values(inspection_traffic_source_p0_field_loop_matrix_index(
+            $requiredMetricKeys,
+            $requiredStorageFields,
+            0,
+            'not_loaded'
+        ));
     $p0StandardFactSummary = inspection_traffic_source_p0_standard_fact_summary($requiredMetricKeys, $requiredStorageFields, $p0FieldLoopMatrix, $targetDateTrafficRows);
     $p0PlatformHotelIdentifierSource = $platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
-    $p0PlatformHotelIdentifierStatus = inspection_traffic_source_p0_platform_hotel_identifier_status($platform, $targetDate, $targetDateTrafficRows);
+    $p0PlatformHotelIdentifierStatus = inspection_traffic_source_p0_platform_hotel_identifier_status(
+        $platform,
+        $targetDate,
+        $targetDateTrafficRows,
+        $scopeSystemHotelId,
+        $scopeTenantId
+    );
     $p0TrafficFieldFactStatus = $targetDateTrafficRows > 0
         ? (string)($p0StandardFactSummary['p0_standard_fact_status'] ?? 'incomplete')
         : 'no_target_date_traffic_rows';
@@ -4638,11 +4687,16 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
     }
 
     try {
-        $rows = Db::name('platform_data_sources')
+        $rowsQuery = Db::name('platform_data_sources')
             ->field(implode(',', $fields))
-            ->where('platform', $platform)
-            ->select()
-            ->toArray();
+            ->where('platform', $platform);
+        if ($scopeSystemHotelId > 0) {
+            $rowsQuery->where('system_hotel_id', $scopeSystemHotelId);
+        }
+        if ($scopeTenantId > 0) {
+            $rowsQuery->where('tenant_id', $scopeTenantId);
+        }
+        $rows = $rowsQuery->select()->toArray();
     } catch (Throwable $e) {
         $base['status'] = 'source_read_failed';
         $base['required_next_inputs'] = inspection_traffic_source_required_next_inputs($platform, $base);
@@ -4683,16 +4737,16 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
         if ($lastSyncStatus !== '') {
             $lastSyncCounts[$lastSyncStatus] = ($lastSyncCounts[$lastSyncStatus] ?? 0) + 1;
         }
-        inspection_traffic_source_accumulate_latest_sync_task(
-            $base,
-            inspection_traffic_source_latest_sync_task_summary((int)($row['id'] ?? 0), $targetDate)
-        );
+        $latestSyncTask = inspection_traffic_source_latest_sync_task_summary((int)($row['id'] ?? 0), $targetDate);
+        inspection_traffic_source_accumulate_latest_sync_task($base, $latestSyncTask);
 
         $currentSessionVerified = inspection_traffic_source_profile_login_state_verified($row);
         $profileLoginTrigger = inspection_traffic_source_profile_login_trigger_action($platform, (int)($row['id'] ?? 0), $systemHotelId, $targetDate);
-        $profilePriority = (($config['registered_by'] ?? '') === 'p0_ota_field_loop' ? 8 : 0)
-            + ((int)($row['id'] ?? 0) > 0 ? 4 : 0)
-            + (in_array($status, ['ready', 'success'], true) ? 1 : 0);
+        $profilePriority = ($currentSessionVerified ? 32 : 0)
+            + (!empty($latestSyncTask['target_date_rows_proved']) ? 16 : 0)
+            + (in_array($status, ['ready', 'success', 'partial_success'], true) ? 8 : 0)
+            + (($config['registered_by'] ?? '') === 'p0_ota_field_loop' ? 2 : 0)
+            + ((int)($row['id'] ?? 0) > 0 ? 1 : 0);
         if ($systemHotelId > 0
             && (!isset($profileReadinessByHotel[$systemHotelId]) || $profilePriority > (int)$profilePriorityByHotel[$systemHotelId])
         ) {
@@ -4882,7 +4936,15 @@ function inspection_traffic_source_p0_standard_fact_summary(array $requiredMetri
     ];
 }
 
-function inspection_traffic_source_p0_field_loop_matrix(array $requiredMetricKeys, array $requiredStorageFields, int $targetDateTrafficRows, string $platform = '', string $targetDate = ''): array
+function inspection_traffic_source_p0_field_loop_matrix(
+    array $requiredMetricKeys,
+    array $requiredStorageFields,
+    int $targetDateTrafficRows,
+    string $platform = '',
+    string $targetDate = '',
+    int $systemHotelId = 0,
+    int $tenantId = 0
+): array
 {
     $targetDateTrafficRows = max(0, $targetDateTrafficRows);
     if ($targetDateTrafficRows <= 0) {
@@ -4895,7 +4957,7 @@ function inspection_traffic_source_p0_field_loop_matrix(array $requiredMetricKey
         return array_values($matrix);
     }
 
-    $rows = inspection_traffic_source_p0_traffic_rows($platform, $targetDate);
+    $rows = inspection_traffic_source_p0_traffic_rows($platform, $targetDate, $systemHotelId, $tenantId);
     if ($rows === []) {
         return array_values($matrix);
     }
@@ -5040,12 +5102,18 @@ function inspection_traffic_source_p0_gate_status(int $targetDateTrafficRows, st
     return 'ready';
 }
 
-function inspection_traffic_source_p0_platform_hotel_identifier_status(string $platform, string $targetDate, int $targetDateTrafficRows): string
+function inspection_traffic_source_p0_platform_hotel_identifier_status(
+    string $platform,
+    string $targetDate,
+    int $targetDateTrafficRows,
+    int $systemHotelId = 0,
+    int $tenantId = 0
+): string
 {
     if (max(0, $targetDateTrafficRows) <= 0) {
         return 'no_target_date_traffic_rows';
     }
-    $rows = inspection_traffic_source_p0_traffic_rows($platform, $targetDate);
+    $rows = inspection_traffic_source_p0_traffic_rows($platform, $targetDate, $systemHotelId, $tenantId);
     $presentRows = 0;
     $missingRows = 0;
     foreach ($rows as $row) {
@@ -5115,42 +5183,198 @@ function inspection_traffic_source_p0_field_loop_matrix_index(array $requiredMet
     return $matrix;
 }
 
-function inspection_traffic_source_p0_traffic_rows(string $platform, string $targetDate): array
+function inspection_traffic_source_p0_latest_eligible_task_id(
+    int $dataSourceId,
+    string $platform,
+    string $targetDate,
+    int $systemHotelId,
+    int $tenantId
+): int
 {
-    if (!table_exists('online_daily_data')) {
+    if ($dataSourceId <= 0
+        || $systemHotelId <= 0
+        || $tenantId <= 0
+        || !table_exists('platform_data_sync_tasks')
+    ) {
+        return 0;
+    }
+    $fields = existing_columns('platform_data_sync_tasks', [
+        'id',
+        'tenant_id',
+        'data_source_id',
+        'system_hotel_id',
+        'platform',
+        'data_type',
+        'status',
+        'stats_json',
+        'started_at',
+        'create_time',
+        'update_time',
+    ]);
+    if (array_diff(['id', 'tenant_id', 'data_source_id', 'system_hotel_id', 'platform', 'data_type', 'status', 'stats_json'], $fields) !== []) {
+        return 0;
+    }
+    try {
+        $tasks = Db::name('platform_data_sync_tasks')
+            ->field(implode(',', $fields))
+            ->where('tenant_id', $tenantId)
+            ->where('data_source_id', $dataSourceId)
+            ->where('system_hotel_id', $systemHotelId)
+            ->where('platform', $platform)
+            ->order('id', 'desc')
+            ->limit(30)
+            ->select()
+            ->toArray();
+    } catch (Throwable) {
+        return 0;
+    }
+    $allowedDataTypes = ['traffic', 'business', 'flow', 'conversion', 'all', 'mixed', 'composite'];
+    foreach ($tasks as $task) {
+        if (!is_array($task)) {
+            continue;
+        }
+        $stats = json_decode((string)($task['stats_json'] ?? ''), true);
+        $stats = is_array($stats) ? $stats : [];
+        if (inspection_traffic_source_sync_task_target_date($stats) !== $targetDate
+            || !in_array(strtolower(trim((string)($task['data_type'] ?? ''))), $allowedDataTypes, true)
+        ) {
+            continue;
+        }
+        if (!in_array(
+            inspection_traffic_source_effective_sync_task_status($task),
+            ['success', 'partial_success'],
+            true
+        )) {
+            // A newer failed/blocked exact-date attempt is authoritative. Never
+            // fall back to an older successful task for the same source/date.
+            return 0;
+        }
+        return max(0, (int)($task['id'] ?? 0));
+    }
+    return 0;
+}
+
+function inspection_traffic_source_p0_traffic_rows(
+    string $platform,
+    string $targetDate,
+    int $systemHotelId = 0,
+    int $tenantId = 0
+): array
+{
+    $platform = strtolower(trim($platform));
+    if (!in_array($platform, ['ctrip', 'meituan'], true)
+        || $systemHotelId <= 0
+        || $tenantId <= 0
+        || !table_exists('online_daily_data')
+        || !table_exists('platform_data_sources')
+    ) {
         return [];
     }
     $columns = table_columns('online_daily_data');
-    foreach (['source', 'data_date', 'data_type', 'raw_data'] as $required) {
+    foreach (['tenant_id', 'data_source_id', 'sync_task_id', 'system_hotel_id', 'source', 'data_date', 'data_type', 'readback_verified', 'raw_data'] as $required) {
         if (!isset($columns[$required])) {
             return [];
         }
     }
     $fields = array_values(array_filter([
         'id',
+        'tenant_id',
+        'data_source_id',
+        'sync_task_id',
+        'system_hotel_id',
         'source',
         'data_date',
         'data_type',
+        'readback_verified',
         'raw_data',
+        isset($columns['platform']) ? 'platform' : '',
+        isset($columns['compare_type']) ? 'compare_type' : '',
+        isset($columns['dimension']) ? 'dimension' : '',
+        isset($columns['data_period']) ? 'data_period' : '',
+        isset($columns['validation_status']) ? 'validation_status' : '',
         isset($columns['list_exposure']) ? 'list_exposure' : '',
         isset($columns['detail_exposure']) ? 'detail_exposure' : '',
         isset($columns['flow_rate']) ? 'flow_rate' : '',
         isset($columns['order_filling_num']) ? 'order_filling_num' : '',
         isset($columns['order_submit_num']) ? 'order_submit_num' : '',
         isset($columns['source_trace_id']) ? 'source_trace_id' : '',
-        isset($columns['sync_task_id']) ? 'sync_task_id' : '',
     ], static fn(string $field): bool => $field !== ''));
-    try {
-        return Db::name('online_daily_data')
-            ->field(implode(',', $fields))
-            ->where('source', $platform)
-            ->where('data_date', $targetDate)
-            ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
-            ->select()
-            ->toArray();
-    } catch (Throwable $e) {
+    $sourceFields = existing_columns('platform_data_sources', [
+        'id', 'tenant_id', 'system_hotel_id', 'platform', 'enabled', 'data_type', 'config_json',
+    ]);
+    if (array_diff(['id', 'tenant_id', 'system_hotel_id', 'platform', 'enabled'], $sourceFields) !== []) {
         return [];
     }
+    try {
+        $sources = Db::name('platform_data_sources')
+            ->field(implode(',', $sourceFields))
+            ->where('tenant_id', $tenantId)
+            ->where('system_hotel_id', $systemHotelId)
+            ->where('platform', $platform)
+            ->where('enabled', 1)
+            ->select()
+            ->toArray();
+    } catch (Throwable) {
+        return [];
+    }
+    $blockedValidationStatuses = array_map(
+        static fn($value): string => strtolower(trim((string)$value)),
+        \app\service\OnlineDataTrustStatusService::blockingValidationStatuses()
+    );
+    $candidates = [];
+    foreach ($sources as $source) {
+        if (!is_array($source)) {
+            continue;
+        }
+        $config = json_decode((string)($source['config_json'] ?? ''), true);
+        $config = is_array($config) ? $config : [];
+        if (!\app\service\OtaTrafficAttributionService::sourceCanProvideTraffic($source, $config)) {
+            continue;
+        }
+        $dataSourceId = max(0, (int)($source['id'] ?? 0));
+        $syncTaskId = inspection_traffic_source_p0_latest_eligible_task_id(
+            $dataSourceId,
+            $platform,
+            $targetDate,
+            $systemHotelId,
+            $tenantId
+        );
+        if ($syncTaskId <= 0) {
+            continue;
+        }
+        try {
+            $rows = Db::name('online_daily_data')
+                ->field(implode(',', $fields))
+                ->where('tenant_id', $tenantId)
+                ->where('data_source_id', $dataSourceId)
+                ->where('sync_task_id', $syncTaskId)
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('source', $platform)
+                ->where('data_date', $targetDate)
+                ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
+                ->where('readback_verified', 1)
+                ->select()
+                ->toArray();
+        } catch (Throwable) {
+            return [];
+        }
+        $rows = array_values(array_filter($rows, static function (array $row) use ($platform, $blockedValidationStatuses): bool {
+            if (isset($row['platform']) && strtolower(trim((string)$row['platform'])) !== $platform) {
+                return false;
+            }
+            $dataPeriod = strtolower(trim((string)($row['data_period'] ?? '')));
+            if (in_array($dataPeriod, ['next_7_days', 'next_30_days', 'forecast', 'future_forecast'], true)) {
+                return false;
+            }
+            $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
+            return ($validationStatus === '' || !in_array($validationStatus, $blockedValidationStatuses, true))
+                && \app\service\OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic($row, $platform);
+        }));
+        if ($rows !== []) {
+            $candidates[] = $rows;
+        }
+    }
+    return count($candidates) === 1 ? $candidates[0] : [];
 }
 
 function inspection_traffic_source_p0_row_ui_ready(array $row, array $raw, array $requiredMetricKeys, array $storageMap, string $rowSourceTraceId, string $rowSourceUrlHash): bool
@@ -5782,7 +6006,10 @@ function build_inspection_employee_questions(array $result): array
         }
     }
     $metricDomainGapCodes = array_values(array_keys($metricDomainGapCodes));
-    $trafficSourceReadiness = inspection_traffic_source_readiness($metricDomainReadiness);
+    $trafficSourceReadiness = inspection_traffic_source_readiness(
+        $metricDomainReadiness,
+        is_array($result['scope'] ?? null) ? $result['scope'] : []
+    );
     $revenueReadyText = implode('、', array_map('strtoupper', $revenueReadyPlatforms));
     $metricDomainComplete = $metricDomainGapCodes === [];
     $metricProblemStatus = $hasReadyMetrics && $trafficRows > 0 && $metricDomainComplete ? 'proved' : ($hasReadyMetrics ? 'warning' : 'not_proved');

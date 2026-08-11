@@ -5,6 +5,7 @@ namespace app\service;
 
 use app\service\operation\ExecutionOutcomeService;
 use app\service\operation\ExecutionFlowReadService;
+use app\service\operation\OperationEffectReviewService;
 use DateTimeImmutable;
 use DateTimeZone;
 use think\facade\Db;
@@ -1048,6 +1049,7 @@ class OperationManagementService
             'object_type',
             'platform',
             'expected_metric',
+            'metric_semantic',
             'evidence_refs',
             'source_refs',
             'data_basis',
@@ -1191,9 +1193,11 @@ class OperationManagementService
 
         $evidencePayload = null;
         if (!empty($evidence)) {
+            $evidenceType = strtolower(trim((string)($input['evidence_type'] ?? $evidence['evidence_type'] ?? 'manual')));
+            $this->assertOperatorExecutionEvidenceBoundary($evidenceType, $evidence);
             $evidencePayload = [
                 'task_id' => (int)($task['id'] ?? 0),
-                'evidence_type' => trim((string)($input['evidence_type'] ?? $evidence['evidence_type'] ?? 'manual')),
+                'evidence_type' => $evidenceType,
                 'before' => $this->arrayValue($evidence['before'] ?? []),
                 'after' => $this->arrayValue($evidence['after'] ?? []),
                 'attachment_path' => trim((string)($evidence['attachment_path'] ?? '')),
@@ -1759,9 +1763,16 @@ class OperationManagementService
         ];
     }
 
-    public function approveExecutionIntent(int $id, bool $approved, string $remark, int $userId, array $hotelIds): array
+    public function approveExecutionIntent(
+        int $id,
+        bool $approved,
+        string $remark,
+        int $userId,
+        array $hotelIds,
+        array $approvalInput = []
+    ): array
     {
-        $this->assertExecutionPayloadHasNoCredentialMaterial($remark);
+        $this->assertExecutionPayloadHasNoCredentialMaterial([$remark, $approvalInput]);
         $this->ensureExecutionTables();
         $now = date('Y-m-d H:i:s');
         $status = $approved ? 'approved' : 'rejected';
@@ -1772,7 +1783,8 @@ class OperationManagementService
             $now,
             $remark,
             $approved,
-            $hotelIds
+            $hotelIds,
+            $approvalInput
         ): void {
             $intent = $this->executionIntentRow($id, $hotelIds, true);
             if (!$intent) {
@@ -1793,18 +1805,50 @@ class OperationManagementService
                 $this->assertAiDecisionIntentReadyForApproval($this->normalizeExecutionIntentRow($intent));
             }
 
+            $targetValueJson = (string)($intent['target_value_json'] ?? '{}');
+            $evidenceJson = (string)($intent['evidence_json'] ?? '{}');
+            $expectedMetric = (string)($intent['expected_metric'] ?? '');
+            $expectedDelta = ($intent['expected_delta'] ?? null) === null
+                ? null
+                : (float)$intent['expected_delta'];
+            $approvalUpdate = [];
+            if ($approved && strtolower(trim((string)($intent['source_module'] ?? ''))) === 'ota_diagnosis_saved') {
+                $approvalContract = $this->buildSavedOtaDiagnosisApprovalTarget(
+                    $this->normalizeExecutionIntentRow($intent),
+                    $approvalInput,
+                    $userId,
+                    $now
+                );
+                $targetValueJson = json_encode(
+                    $approvalContract['target_value'],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                );
+                $evidenceJson = json_encode(
+                    $approvalContract['evidence'],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                );
+                $expectedMetric = (string)$approvalContract['expected_metric'];
+                $expectedDelta = $approvalContract['expected_delta'];
+                $approvalUpdate = [
+                    'target_value_json' => $targetValueJson,
+                    'evidence_json' => $evidenceJson,
+                    'expected_metric' => $expectedMetric,
+                    'expected_delta' => $expectedDelta,
+                ];
+            }
+
             $affected = (int)Db::name('operation_execution_intents')
                 ->where('id', $id)
                 ->where('hotel_id', (int)$intent['hotel_id'])
                 ->where('status', 'pending_approval')
                 ->whereNull('deleted_at')
-                ->update([
+                ->update(array_merge([
                 'status' => $status,
                 'approved_by' => $userId,
                 'approved_at' => $now,
                 'review_remark' => $remark,
                 'updated_at' => $now,
-            ]);
+            ], $approvalUpdate));
             if ($affected !== 1) {
                 throw new \InvalidArgumentException('execution intent state changed; refresh before review');
             }
@@ -1820,13 +1864,17 @@ class OperationManagementService
                         'intent_id' => $id,
                         'hotel_id' => (int)$intent['hotel_id'],
                         'execution_mode' => 'manual',
-                        'target_value_json' => (string)($intent['target_value_json'] ?? '{}'),
+                        'target_value_json' => $targetValueJson,
                         'current_value_json' => (string)($intent['current_value_json'] ?? '{}'),
                         'status' => 'pending_execute',
                         'created_at' => $now,
                         'updated_at' => $now,
                     ], 'operation_execution_tasks', (int)$intent['hotel_id']));
                 }
+            }
+            if ($approved && strtolower(trim((string)($intent['source_module'] ?? ''))) === 'ota_diagnosis_saved') {
+                $approvalReadback = $this->executionIntentDetail($id, $hotelIds);
+                $this->assertSavedOtaDiagnosisApprovalTargetReadback($approvalReadback);
             }
             if ((string)($intent['source_module'] ?? '') === TemporalForecastTrialService::OPERATION_SOURCE_MODULE) {
                 (new TemporalForecastTrialService())->syncApprovalDecision(
@@ -1840,7 +1888,336 @@ class OperationManagementService
             }
         });
 
-        return $this->executionIntentDetail($id, $hotelIds);
+        $detail = $this->executionIntentDetail($id, $hotelIds);
+        if ($approved && strtolower(trim((string)($detail['source_module'] ?? ''))) === 'ota_diagnosis_saved') {
+            $this->assertSavedOtaDiagnosisApprovalTargetReadback($detail);
+        }
+
+        return $detail;
+    }
+
+    /** @return array{target_value:array<string,mixed>,evidence:array<string,mixed>,expected_metric:string,expected_delta:?float} */
+    private function buildSavedOtaDiagnosisApprovalTarget(
+        array $intent,
+        array $input,
+        int $approvedBy,
+        string $approvedAt
+    ): array {
+        $expectedMetric = strtolower(trim((string)($input['expected_metric'] ?? '')));
+        $sourceMetric = strtolower(trim((string)($intent['expected_metric'] ?? '')));
+        if ($expectedMetric === '' || $sourceMetric === '' || $expectedMetric !== $sourceMetric) {
+            throw new \InvalidArgumentException('approval expected_metric must match the saved diagnosis metric');
+        }
+
+        $direction = strtolower(trim((string)($input['expected_direction'] ?? '')));
+        if (!in_array($direction, ['increase', 'decrease'], true)) {
+            throw new \InvalidArgumentException('approval expected_direction must be increase or decrease');
+        }
+        $targetType = strtolower(trim((string)($input['target_type'] ?? '')));
+        if (!in_array($targetType, ['absolute', 'delta'], true)) {
+            throw new \InvalidArgumentException('approval target_type must be absolute or delta');
+        }
+
+        $targetValue = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
+        $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
+        $baselineDate = substr(trim((string)($intent['date_end'] ?? $intent['date_start'] ?? '')), 0, 10);
+        $reviewBusinessDate = substr(trim((string)($input['review_business_date'] ?? '')), 0, 10);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $baselineDate) !== 1
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $reviewBusinessDate) !== 1
+        ) {
+            throw new \InvalidArgumentException('diagnosis and review business dates must use YYYY-MM-DD');
+        }
+        $expectedReviewBusinessDate = (new DateTimeImmutable($baselineDate))
+            ->modify('+1 day')
+            ->format('Y-m-d');
+        if ($reviewBusinessDate !== $expectedReviewBusinessDate) {
+            throw new \InvalidArgumentException(
+                'review_business_date must be exactly the next calendar business date: ' . $expectedReviewBusinessDate
+            );
+        }
+
+        $intentPlatform = $this->normalizeOtaChannel((string)($intent['platform'] ?? ''));
+        $currentValue = is_array($intent['current_value'] ?? null) ? $intent['current_value'] : [];
+        $listExposureBaseline = $sourceMetric === 'list_exposure'
+            && array_key_exists('list_exposure', $currentValue)
+            && is_numeric($currentValue['list_exposure'])
+            ? (float)$currentValue['list_exposure']
+            : null;
+        if ($sourceMetric === 'list_exposure'
+            && ($intentPlatform !== 'ctrip'
+                || $direction !== 'increase'
+                || $listExposureBaseline === null
+                || $listExposureBaseline < 0.0
+                || floor($listExposureBaseline) !== $listExposureBaseline)
+        ) {
+            throw new \InvalidArgumentException(
+                'list_exposure approval requires a Ctrip unique-user integer baseline and increase direction'
+            );
+        }
+
+        $absoluteTarget = null;
+        $expectedDelta = null;
+        if ($targetType === 'absolute') {
+            $rawTarget = $input['target_value'] ?? null;
+            if (!is_numeric($rawTarget) || (float)$rawTarget < 0) {
+                throw new \InvalidArgumentException('approval target_value must be a non-negative number');
+            }
+            $absoluteTarget = round((float)$rawTarget, 6);
+        } else {
+            $rawDelta = $input['expected_delta'] ?? null;
+            if (!is_numeric($rawDelta) || (float)$rawDelta <= 0) {
+                throw new \InvalidArgumentException('approval expected_delta must be a positive number');
+            }
+            $expectedDelta = round((float)$rawDelta, 6);
+            if ($expectedDelta <= 0.0) {
+                throw new \InvalidArgumentException('approval expected_delta must remain positive after 6-decimal normalization');
+            }
+        }
+        if ($sourceMetric === 'list_exposure') {
+            $approvedNumber = $targetType === 'absolute' ? $absoluteTarget : $expectedDelta;
+            $projectedTarget = $targetType === 'absolute'
+                ? $absoluteTarget
+                : $listExposureBaseline + $expectedDelta;
+            if ($approvedNumber === null
+                || floor($approvedNumber) !== $approvedNumber
+                || $approvedNumber <= 0.0
+                || $projectedTarget === null
+                || $projectedTarget <= $listExposureBaseline
+                || $projectedTarget > 2147483647
+            ) {
+                throw new \InvalidArgumentException(
+                    'list_exposure approval target must be a positive whole-user increase within the persisted integer range'
+                );
+            }
+        }
+
+        $workflowSchedule = is_array($targetValue['workflow_schedule'] ?? null)
+            ? $targetValue['workflow_schedule']
+            : [];
+        $dueAt = trim((string)($workflowSchedule['due_at'] ?? $targetValue['due_at'] ?? ''));
+        $existingReviewAt = trim((string)($workflowSchedule['review_at'] ?? $targetValue['review_at'] ?? ''));
+        $reviewTime = preg_match('/\s(\d{2}:\d{2}:\d{2})$/D', $existingReviewAt, $matches) === 1
+            ? $matches[1]
+            : '10:00:00';
+        $reviewAt = $reviewBusinessDate . ' ' . $reviewTime;
+        if ($dueAt !== '' && strtotime($dueAt) !== false && strtotime($reviewAt) < strtotime($dueAt)) {
+            throw new \InvalidArgumentException('review_business_date cannot be earlier than the execution due date');
+        }
+        $workflowSchedule['review_at'] = $reviewAt;
+        $targetValue['review_at'] = $reviewAt;
+        $targetValue['workflow_schedule'] = $workflowSchedule;
+
+        $metricDefinition = $this->savedOtaDiagnosisMetricDefinition($sourceMetric, $intentPlatform);
+        $metricDefinitionDigest = $this->savedOtaDiagnosisMetricDefinitionDigest(
+            $sourceMetric,
+            $metricDefinition
+        );
+        $contract = [
+            'version' => 'ota_execution_approval_target.v1',
+            'intent_id' => (int)($intent['id'] ?? 0),
+            'tenant_id' => (int)($intent['tenant_id'] ?? 0),
+            'hotel_id' => (int)($intent['hotel_id'] ?? 0),
+            'source_module' => (string)($intent['source_module'] ?? ''),
+            'source_record_id' => (int)($intent['source_record_id'] ?? 0),
+            'platform' => strtolower(trim((string)($intent['platform'] ?? ''))),
+            'baseline_business_date' => $baselineDate,
+            'review_business_date' => $reviewBusinessDate,
+            'expected_metric' => $sourceMetric,
+            'metric_definition' => $metricDefinition,
+            'metric_definition_digest' => $metricDefinitionDigest,
+            'expected_direction' => $direction,
+            'target_type' => $targetType,
+            'target_value' => $absoluteTarget === null ? null : number_format($absoluteTarget, 6, '.', ''),
+            'expected_delta' => $expectedDelta === null ? null : number_format($expectedDelta, 6, '.', ''),
+            'expected_delta_status' => 'manual_confirmed',
+            'approved_by' => $approvedBy,
+            'approved_at' => $approvedAt,
+            'diagnosis_recommendation_digest' => (string)($evidence['decision_recommendation_digest'] ?? ''),
+            'source_policy' => 'saved_diagnosis_metric_and_human_target_frozen_before_task_creation',
+        ];
+        $contract['content_digest'] = $this->savedOtaDiagnosisApprovalTargetDigest($contract);
+
+        $targetValue['expected_direction'] = $direction;
+        $targetValue['target_type'] = $targetType;
+        $targetValue['expected_delta_status'] = 'manual_confirmed';
+        $targetValue['review_business_date'] = $reviewBusinessDate;
+        $targetValue['metric_definition'] = $metricDefinition;
+        $targetValue['metric_definition_digest'] = $metricDefinitionDigest;
+        $targetValue['approval_target_digest'] = $contract['content_digest'];
+        unset($targetValue['expected_target'], $targetValue['expected_delta'], $targetValue['target'], $targetValue['value']);
+        if ($targetType === 'absolute') {
+            $targetValue['expected_target'] = $absoluteTarget;
+        } else {
+            $targetValue['expected_delta'] = $expectedDelta;
+        }
+
+        $evidence['expected_direction'] = $direction;
+        $evidence['target_type'] = $targetType;
+        $evidence['expected_delta_status'] = 'manual_confirmed';
+        $evidence['target_value'] = $absoluteTarget;
+        $evidence['expected_delta'] = $expectedDelta;
+        $evidence['review_business_date'] = $reviewBusinessDate;
+        $evidence['metric_definition'] = $metricDefinition;
+        $evidence['metric_definition_digest'] = $metricDefinitionDigest;
+        $evidence['workflow_schedule'] = $workflowSchedule;
+        $evidence['approval_target'] = $contract;
+        $evidence['approval_target_digest'] = $contract['content_digest'];
+
+        return [
+            'target_value' => $targetValue,
+            'evidence' => $evidence,
+            'expected_metric' => $sourceMetric,
+            'expected_delta' => $expectedDelta,
+        ];
+    }
+
+    private function assertSavedOtaDiagnosisApprovalTargetReadback(array $intent): void
+    {
+        $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
+        $targetValue = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
+        $contract = is_array($evidence['approval_target'] ?? null) ? $evidence['approval_target'] : [];
+        $metricKey = strtolower(trim((string)($intent['expected_metric'] ?? '')));
+        $metricDefinition = is_array($targetValue['metric_definition'] ?? null)
+            ? $targetValue['metric_definition']
+            : [];
+        $metricDefinitionDigest = $metricDefinition === [] || $metricKey === ''
+            ? ''
+            : $this->savedOtaDiagnosisMetricDefinitionDigest($metricKey, $metricDefinition);
+        $targetType = strtolower(trim((string)($contract['target_type'] ?? '')));
+        $contractExpectedDelta = $contract['expected_delta'] ?? null;
+        $intentExpectedDelta = $intent['expected_delta'] ?? null;
+        $contractTargetValue = $contract['target_value'] ?? null;
+        $persistedTargetValue = $targetValue['expected_target'] ?? null;
+        $tasks = is_array($intent['tasks'] ?? null) ? $intent['tasks'] : [];
+        $taskTargetValue = count($tasks) === 1 && is_array($tasks[0]['target_value'] ?? null)
+            ? $tasks[0]['target_value']
+            : [];
+        $digest = strtolower(trim((string)($contract['content_digest'] ?? '')));
+        if ($digest === ''
+            || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1
+            || !hash_equals($digest, $this->savedOtaDiagnosisApprovalTargetDigest($contract))
+            || !hash_equals($digest, strtolower(trim((string)($evidence['approval_target_digest'] ?? ''))))
+            || !hash_equals($digest, strtolower(trim((string)($targetValue['approval_target_digest'] ?? ''))))
+            || $metricDefinitionDigest === ''
+            || !hash_equals($metricDefinitionDigest, strtolower(trim((string)($contract['metric_definition_digest'] ?? ''))))
+            || !hash_equals($metricDefinitionDigest, strtolower(trim((string)($targetValue['metric_definition_digest'] ?? ''))))
+            || !hash_equals($metricDefinitionDigest, strtolower(trim((string)($evidence['metric_definition_digest'] ?? ''))))
+            || $metricDefinition !== ($evidence['metric_definition'] ?? null)
+            || $metricDefinition !== ($contract['metric_definition'] ?? null)
+            || (string)($contract['expected_metric'] ?? '') !== (string)($intent['expected_metric'] ?? '')
+            || (int)($contract['approved_by'] ?? 0) !== (int)($intent['approved_by'] ?? 0)
+            || (string)($contract['approved_at'] ?? '') !== (string)($intent['approved_at'] ?? '')
+            || (int)($contract['tenant_id'] ?? 0) !== (int)($intent['tenant_id'] ?? 0)
+            || (int)($contract['hotel_id'] ?? 0) !== (int)($intent['hotel_id'] ?? 0)
+            || ($targetType === 'delta'
+                && (!is_numeric($contractExpectedDelta)
+                    || !is_numeric($intentExpectedDelta)
+                    || abs((float)$contractExpectedDelta - (float)$intentExpectedDelta) > 0.0000001))
+            || ($targetType === 'absolute'
+                && (!is_numeric($contractTargetValue)
+                    || !is_numeric($persistedTargetValue)
+                    || abs((float)$contractTargetValue - (float)$persistedTargetValue) > 0.0000001))
+            || count($tasks) !== 1
+            || !hash_equals($digest, strtolower(trim((string)($taskTargetValue['approval_target_digest'] ?? ''))))
+            || $taskTargetValue !== $targetValue
+        ) {
+            throw new \RuntimeException('execution approval target save readback verification failed');
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function savedOtaDiagnosisMetricDefinition(string $metricKey, string $platform = ''): array
+    {
+        $metricKey = strtolower(trim($metricKey));
+        $platform = $this->normalizeOtaChannel($platform);
+        if ($metricKey === 'list_exposure') {
+            if ($platform !== 'ctrip') {
+                throw new \InvalidArgumentException(
+                    'list_exposure same-criterion effect readback is supported only for Ctrip unique-user semantics'
+                );
+            }
+            return [
+                'version' => 'ota_execution_metric_definition.v3',
+                'platform' => 'ctrip',
+                'source_module' => 'ctrip_data_center_flow_transform',
+                'source_endpoint_family' => 'ctrip_query_flow_transform_new_v1',
+                'source_endpoint_ids' => ['business_flow_transform', 'traffic_flow_transform'],
+                'metric_key' => 'list_exposure',
+                'semantic_key' => 'ctrip_datacenter_list_exposure_uv',
+                'unit' => 'unique_users',
+                'value_type' => 'non_negative_integer',
+                'source_table' => 'online_daily_data',
+                'source_field' => 'list_exposure',
+                'source_identity' => ['system_hotel_id', 'platform', 'business_date'],
+                'source_policy' => 'trusted_persisted_source_rows_with_metric_scoped_field_fact_readback',
+                'field_fact_required' => true,
+                'calculation' => 'canonical_daily_snapshot_value',
+                'comparison_policy' => 'same_hotel_same_platform_same_semantic_key_baseline_vs_approved_next_calendar_business_date',
+                'blocked_aliases' => ['generic_impression_count', 'advertising_impressions'],
+            ];
+        }
+        $calculation = match ($metricKey) {
+            'revenue', 'avg_revenue', 'amount', 'income' => 'trusted_daily_revenue',
+            'orders', 'avg_orders', 'order_count', 'book_order_num' => 'trusted_daily_order_count',
+            'room_nights', 'avg_room_nights' => 'trusted_daily_room_nights',
+            'adr', 'avg_adr' => 'trusted_daily_revenue_divided_by_room_nights',
+            'occ', 'occupancy', 'avg_occ' => 'trusted_daily_sold_room_nights_divided_by_sellable_room_nights',
+            'detail_rate', 'view_rate', 'flow_rate' => 'trusted_daily_detail_or_flow_rate',
+            'conversion', 'conversion_rate', 'order_rate' => 'trusted_daily_order_conversion_rate',
+            'avg_psi_score' => 'trusted_daily_average_psi_score_with_positive_sample_count',
+            default => throw new \InvalidArgumentException(
+                'saved OTA diagnosis metric is not supported by same-criterion effect readback: ' . $metricKey
+            ),
+        };
+
+        return [
+            'version' => 'ota_execution_metric_definition.v1',
+            'metric_key' => $metricKey,
+            'source_table' => 'online_daily_data',
+            'source_identity' => ['system_hotel_id', 'platform', 'business_date'],
+            'source_policy' => 'trusted_persisted_source_rows_with_strict_readback',
+            'calculation' => $calculation,
+            'comparison_policy' => 'same_hotel_same_platform_same_metric_baseline_vs_approved_review_business_date',
+        ];
+    }
+
+    /** @param array<string,mixed> $definition */
+    private function savedOtaDiagnosisMetricDefinitionDigest(string $metricKey, array $definition): string
+    {
+        return hash('sha256', json_encode(
+            $this->canonicalizeExecutionApprovalTarget([
+                'metric_key' => strtolower(trim($metricKey)),
+                'definition' => $definition,
+            ]),
+            JSON_UNESCAPED_UNICODE
+                | JSON_UNESCAPED_SLASHES
+                | JSON_PRESERVE_ZERO_FRACTION
+                | JSON_THROW_ON_ERROR
+        ));
+    }
+
+    private function savedOtaDiagnosisApprovalTargetDigest(array $contract): string
+    {
+        unset($contract['content_digest']);
+        return hash('sha256', json_encode(
+            $this->canonicalizeExecutionApprovalTarget($contract),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        ));
+    }
+
+    private function canonicalizeExecutionApprovalTarget(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map(fn(mixed $item): mixed => $this->canonicalizeExecutionApprovalTarget($item), $value);
+        }
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalizeExecutionApprovalTarget($item);
+        }
+        return $value;
     }
 
     /** @param array<string, mixed> $intent */
@@ -1904,7 +2281,7 @@ class OperationManagementService
         }
 
         if ($sourceModule === 'ota_diagnosis_saved') {
-            if (!$this->hasVerifiedOtaDiagnosisProvenance($intent)) {
+            if (!$this->hasVerifiedOtaDiagnosisProvenance($intent, true)) {
                 throw new \InvalidArgumentException('saved OTA diagnosis provenance is no longer valid');
             }
             return;
@@ -2253,6 +2630,17 @@ class OperationManagementService
         }
     }
 
+    /** @param array<string,mixed> $task @param array<string,mixed> $intent */
+    private function assertExecutionTaskAllowsOperatorMutation(array $task, array $intent): void
+    {
+        if (strtolower(trim((string)($intent['source_module'] ?? ''))) === 'canonical_ota_investigation'
+            || strtolower(trim((string)($task['execution_mode'] ?? ''))) === 'analysis_only'
+            || strtolower(trim((string)($intent['status'] ?? ''))) === 'system_authorized_analysis'
+        ) {
+            throw new \InvalidArgumentException('system-authorized analysis task is immutable');
+        }
+    }
+
     /** @param array<string,mixed> $intent */
     private function assertExecutionTaskAssignee(array $intent, int $operatorId): void
     {
@@ -2277,11 +2665,13 @@ class OperationManagementService
             throw new \RuntimeException('execution intent not found');
         }
         $this->assertExecutionTaskIntentIdentity($task, $intent);
+        $this->assertExecutionTaskAllowsOperatorMutation($task, $intent);
         $evidence = $this->arrayValue($input['evidence'] ?? $input);
         if (empty($evidence)) {
             throw new \InvalidArgumentException('execution evidence is required');
         }
         $evidenceType = strtolower(trim((string)($input['evidence_type'] ?? $evidence['evidence_type'] ?? 'manual')));
+        $this->assertOperatorExecutionEvidenceBoundary($evidenceType, $evidence);
         $taskStatus = strtolower(trim((string)($task['status'] ?? '')));
         $isRevenueNodeCheck = $evidenceType === 'revenue_node_check';
         if (!$this->executionEvidenceCanBeAddedAtStatus($evidenceType, $taskStatus)) {
@@ -2344,6 +2734,38 @@ class OperationManagementService
             'fingerprint' => $fingerprint,
         ];
         return $detail;
+    }
+
+    /** @param array<string,mixed> $evidence */
+    private function assertOperatorExecutionEvidenceBoundary(string $evidenceType, array $evidence): void
+    {
+        if (in_array($evidenceType, [
+            'manual_finance',
+            'manual_roi_evidence',
+            'operator_attested_platform_readback',
+            'source_verified_metric_readback',
+        ], true)) {
+            throw new \InvalidArgumentException(
+                'effect evidence must be saved by the effect-review workflow, not as execution evidence'
+            );
+        }
+
+        $effectMetricKeys = [
+            'revenue', 'avg_revenue', 'amount', 'income', 'cost', 'roi',
+            'orders', 'avg_orders', 'order_count', 'book_order_num',
+            'room_nights', 'quantity', 'adr', 'occupancy', 'occ',
+            'conversion', 'conversion_rate', 'order_rate', 'detail_rate', 'flow_rate', 'list_exposure',
+        ];
+        foreach (['before', 'after'] as $side) {
+            $metrics = $this->arrayValue($evidence[$side] ?? []);
+            foreach ($effectMetricKeys as $key) {
+                if (array_key_exists($key, $metrics)) {
+                    throw new \InvalidArgumentException(
+                        'business outcome metrics must be saved separately from execution evidence'
+                    );
+                }
+            }
+        }
     }
 
     /** @param array<string, mixed> $payload @return array<string, mixed> */
@@ -2507,6 +2929,7 @@ class OperationManagementService
             throw new \RuntimeException('execution intent not found');
         }
         $this->assertExecutionTaskIntentIdentity($task, $intentRow);
+        $this->assertExecutionTaskAllowsOperatorMutation($task, $intentRow);
         if (($task['status'] ?? '') !== 'executed') {
             throw new \InvalidArgumentException('execution task must be executed before review');
         }
@@ -2571,6 +2994,11 @@ class OperationManagementService
             === TemporalInsightService::OPERATION_SOURCE_MODULE;
         $isSavedOtaDiagnosis = strtolower(trim((string)($normalizedIntent['source_module'] ?? '')))
             === 'ota_diagnosis_saved';
+        if ($isSavedOtaDiagnosis && $reviewReadbackEvidence !== null) {
+            throw new \InvalidArgumentException(
+                'saved OTA diagnosis effect review does not accept client-submitted effect evidence; use system source readback'
+            );
+        }
         if (in_array($manualResultStatus, ['success', 'near_success'], true)
             || $isOperationOptimizer
             || $isTemporalForecast
@@ -2599,6 +3027,15 @@ class OperationManagementService
             array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows)
         );
         $hasSourceVerifiedReviewEvidence = ($reviewEvidenceTruth['source_verified'] ?? false) === true;
+        $hasOperatorExecutionEvidence = ($reviewEvidenceTruth['operator_attested'] ?? false) === true;
+        if ($isSavedOtaDiagnosis
+            && in_array($manualResultStatus, ['success', 'near_success', 'failed'], true)
+            && !$hasOperatorExecutionEvidence
+        ) {
+            throw new \InvalidArgumentException(
+                'operator execution evidence must be saved separately before terminal effect review'
+            );
+        }
         if ($isOperationOptimizer
             && in_array($manualResultStatus, ['success', 'near_success', 'failed'], true)
             && !$hasSourceVerifiedReviewEvidence
@@ -2624,6 +3061,7 @@ class OperationManagementService
             );
         }
         $actionTrackId = (int)($task['action_track_id'] ?? 0);
+        $reviewedAt = date('Y-m-d H:i:s');
 
         Db::transaction(function () use (
             $taskId,
@@ -2635,7 +3073,13 @@ class OperationManagementService
             $expectedResultSummary,
             $reviewReadbackEvidence,
             $hasSourceVerifiedReviewEvidence,
-            $reviewOutcomeTruth
+            $reviewOutcomeTruth,
+            $isSavedOtaDiagnosis,
+            $normalizedIntent,
+            $normalizedTask,
+            $evidenceRows,
+            $reviewerId,
+            $reviewedAt
         ): void {
             $summary = 'waiting for action tracking data';
             $resultStatus = 'observing';
@@ -2676,14 +3120,104 @@ class OperationManagementService
                 ->update([
                     'result_status' => $resultStatus,
                     'result_summary' => $summary,
-                    'updated_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => $reviewedAt,
                 ]);
             if ($affected !== 1) {
                 throw new \InvalidArgumentException('execution task state changed; refresh before review');
             }
+
+            if ($isSavedOtaDiagnosis && in_array($resultStatus, ['success', 'near_success', 'failed'], true)) {
+                $this->createSavedOtaDiagnosisEffectReview(
+                    $normalizedIntent,
+                    $normalizedTask,
+                    $evidenceRows,
+                    $resultStatus,
+                    $summary,
+                    $reviewerId,
+                    $reviewedAt
+                );
+            }
         });
 
         return $this->executionTaskDetail($taskId, $hotelIds);
+    }
+
+    /**
+     * Persist the observed effect separately from action/execution evidence.
+     * The effect service re-verifies every identity, date, metric, target and
+     * source-readback assertion before it appends the immutable review row.
+     *
+     * @param array<string,mixed> $intent
+     * @param array<string,mixed> $task
+     * @param array<int,array<string,mixed>> $evidenceRows
+     */
+    private function createSavedOtaDiagnosisEffectReview(
+        array $intent,
+        array $task,
+        array $evidenceRows,
+        string $resultStatus,
+        string $resultSummary,
+        int $reviewerId,
+        string $reviewedAt
+    ): void {
+        if ($reviewerId <= 0) {
+            throw new \InvalidArgumentException('authenticated human reviewer is required for effect review');
+        }
+        if (!$this->tableExists(OperationEffectReviewService::TABLE)) {
+            throw new \RuntimeException('operation_effect_reviews table does not exist, run database migration first');
+        }
+
+        $sourceEvidenceId = 0;
+        $sourceContext = [];
+        foreach ($evidenceRows as $row) {
+            if (!is_array($row)
+                || strtolower(trim((string)($row['evidence_type'] ?? ''))) !== 'source_verified_metric_readback'
+            ) {
+                continue;
+            }
+            $candidateId = (int)($row['id'] ?? 0);
+            $candidateContext = $this->decodeJson((string)($row['platform_response_json'] ?? ''));
+            if ($candidateId > 0 && $candidateContext !== []) {
+                $sourceEvidenceId = $candidateId;
+                $sourceContext = $candidateContext;
+                break;
+            }
+        }
+        if ($sourceEvidenceId <= 0) {
+            throw new \InvalidArgumentException('source-verified metric readback evidence is required for effect review');
+        }
+
+        $tenantId = (int)($task['tenant_id'] ?? $intent['tenant_id'] ?? 0);
+        $hotelId = (int)($task['hotel_id'] ?? $intent['hotel_id'] ?? 0);
+        $intentId = (int)($intent['id'] ?? 0);
+        $taskId = (int)($task['id'] ?? 0);
+        $platform = strtolower(trim((string)($intent['platform'] ?? '')));
+        $metricKey = strtolower(trim((string)($intent['expected_metric'] ?? '')));
+        $baselineDate = substr(trim((string)($intent['date_end'] ?? $intent['date_start'] ?? '')), 0, 10);
+        $reviewDate = substr(trim((string)($sourceContext['review_date'] ?? '')), 0, 10);
+
+        (new OperationEffectReviewService($this->executionOutcomeService))->create(
+            $tenantId,
+            $hotelId,
+            $intentId,
+            $taskId,
+            [
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'intent_id' => $intentId,
+                'task_id' => $taskId,
+                'platform' => $platform,
+                'metric_key' => $metricKey,
+                'baseline_business_date' => $baselineDate,
+                'review_business_date' => $reviewDate,
+                'source_readback_evidence_id' => $sourceEvidenceId,
+                'result_status' => $resultStatus,
+                'result_summary' => $resultSummary,
+                'reviewed_at' => $reviewedAt,
+                'causality_claimed' => false,
+            ],
+            $reviewerId
+        );
     }
 
     /**
@@ -3111,6 +3645,16 @@ class OperationManagementService
         return null;
     }
 
+    /** @param array<string, mixed> $row */
+    private function executionReadbackRowPlatformIdentity(array $row): string
+    {
+        if (array_key_exists('platform', $row)) {
+            return $this->normalizeOtaChannel((string)$row['platform']);
+        }
+
+        return $this->normalizeOtaChannel((string)($row['source'] ?? ''));
+    }
+
     /**
      * Traffic rows are cumulative snapshots, not additive facts. Keep one row
      * per hotel/channel/date: a final historical row wins; otherwise use the
@@ -3122,7 +3666,9 @@ class OperationManagementService
      */
     private function canonicalExecutionReadbackRows(array $rows, string $metric): array
     {
-        if (!in_array(strtolower(trim($metric)), [
+        $metric = strtolower(trim($metric));
+        if (!in_array($metric, [
+            'list_exposure',
             'detail_rate',
             'view_rate',
             'flow_rate',
@@ -3139,16 +3685,33 @@ class OperationManagementService
             if ($dataType !== '' && !in_array($dataType, ['traffic', 'flow', 'traffic_flow', 'traffic_overview'], true)) {
                 continue;
             }
-            $endpointId = $this->onlineEndpointIdFromDimension((string)($row['dimension'] ?? ''));
+            $endpointId = $this->onlineEndpointIdFromRow($row);
             if ($endpointId !== '' && !in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)) {
                 continue;
+            }
+            if ($metric === 'list_exposure') {
+                $channel = $this->executionReadbackRowPlatformIdentity($row);
+                $fieldFact = $this->onlineMetricFieldFact($row, 'list_exposure');
+                if ($channel !== 'ctrip'
+                    || !in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)
+                    || !$this->metricScopedFieldFactsReady($row, ['list_exposure'])
+                    || (string)($fieldFact['source_key'] ?? '') !== 'listExposure'
+                    || trim((string)($fieldFact['source_path'] ?? '')) === ''
+                    || !$this->onlineRowHasNumericMetric($row, ['list_exposure'])
+                ) {
+                    continue;
+                }
+                $value = $row['list_exposure'] ?? null;
+                if (!is_numeric($value) || (float)$value < 0.0 || floor((float)$value) !== (float)$value) {
+                    continue;
+                }
             }
             if (!$this->hasOnlineFlowEvidence($row)) {
                 continue;
             }
 
             $hotelId = (int)($row['system_hotel_id'] ?? 0);
-            $channel = $this->normalizeOtaChannel((string)($row['source'] ?? $row['platform'] ?? ''));
+            $channel = $this->executionReadbackRowPlatformIdentity($row);
             $date = substr(trim((string)($row['data_date'] ?? '')), 0, 10);
             if ($hotelId <= 0 || $channel === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) !== 1) {
                 continue;
@@ -3718,7 +4281,7 @@ class OperationManagementService
     }
 
     /** @param array<string, mixed> $intent */
-    private function hasVerifiedOtaDiagnosisProvenance(array $intent): bool
+    private function hasVerifiedOtaDiagnosisProvenance(array $intent, bool $requireLatest = false): bool
     {
         $recordId = (int)($intent['source_record_id'] ?? 0);
         $hotelId = (int)($intent['hotel_id'] ?? 0);
@@ -3727,12 +4290,15 @@ class OperationManagementService
             return false;
         }
         try {
-            $row = Db::name('agent_logs')
+            $query = Db::name('agent_logs')
                 ->where('id', $recordId)
                 ->where('hotel_id', $hotelId)
                 ->where('action', 'ota_diagnosis')
-                ->where('agent_type', 2)
-                ->find();
+                ->where('agent_type', 2);
+            if ($requireLatest) {
+                $query->lock(true);
+            }
+            $row = $query->find();
         } catch (Throwable) {
             return false;
         }
@@ -3742,10 +4308,7 @@ class OperationManagementService
         $contextValue = $row['context_data'] ?? [];
         $context = is_array($contextValue) ? $contextValue : $this->decodeJson((string)$contextValue);
         $snapshot = is_array($context['diagnosis_result'] ?? null) ? $context['diagnosis_result'] : [];
-        if (($context['record_status'] ?? '') === 'superseded'
-            || ($snapshot['record_status'] ?? '') === 'superseded'
-            || ($snapshot['decision_status'] ?? $snapshot['decision_closure']['status'] ?? '') !== 'action_required'
-        ) {
+        if (!$this->isVerifiedActiveSavedOtaDiagnosisSnapshot($row, $context, $snapshot)) {
             return false;
         }
         $snapshotHotelId = (int)($snapshot['hotel']['id'] ?? $hotelId);
@@ -3772,22 +4335,232 @@ class OperationManagementService
         sort($actionRefs, SORT_STRING);
         $actionItemId = trim((string)($evidence['action_item_id'] ?? ''));
         $idempotencyKey = trim((string)($evidence['action_idempotency_key'] ?? ''));
+        $storedRecommendationDigest = strtolower(trim((string)($evidence['decision_recommendation_digest'] ?? '')));
+        $embeddedRecommendation = is_array($evidence['decision_recommendation'] ?? null)
+            ? $evidence['decision_recommendation']
+            : [];
         $decisionQuality = is_array($action['decision_quality'] ?? null)
             ? $action['decision_quality']
             : [];
-
-        return ($action['execution_ready'] ?? false) === true
+        $targetMetric = strtolower(trim((string)($targetValue['target_metric'] ?? '')));
+        $expectedMetric = strtolower(trim((string)($intent['expected_metric'] ?? '')));
+        $actionMetric = strtolower(trim((string)($action['expected_metric'] ?? '')));
+        $actionType = trim((string)($intent['action_type'] ?? ''));
+        $snapshotMetrics = is_array($snapshot['metrics'] ?? null) ? $snapshot['metrics'] : [];
+        $currentValue = is_array($intent['current_value'] ?? null) ? $intent['current_value'] : [];
+        $metricValuesMatch = $expectedMetric !== ''
+            && array_key_exists($expectedMetric, $snapshotMetrics)
+            && array_key_exists($expectedMetric, $currentValue)
+            && is_numeric($snapshotMetrics[$expectedMetric])
+            && is_numeric($currentValue[$expectedMetric])
+            && abs((float)$snapshotMetrics[$expectedMetric] - (float)$currentValue[$expectedMetric]) <= 0.0000001;
+        $provenanceValid = ($action['execution_ready'] ?? false) === true
             && ($action['can_request_execution_intent'] ?? false) === true
             && ($action['can_create_execution_intent'] ?? false) === true
             && ($decisionQuality['contract_version'] ?? '') === AiDecisionQualityService::CONTRACT_VERSION
             && ($decisionQuality['execution_ready'] ?? false) === true
+            && preg_match('/^[a-f0-9]{64}$/D', $storedRecommendationDigest) === 1
+            && $embeddedRecommendation !== []
+            && hash_equals($storedRecommendationDigest, $this->decisionRecommendationDigest($embeddedRecommendation))
+            && hash_equals($storedRecommendationDigest, $this->decisionRecommendationDigest($action))
             && (int)($action['execution_intent_id'] ?? 0) === $intentId
             && $idempotencyKey !== ''
             && hash_equals($idempotencyKey, trim((string)($action['execution_idempotency_key'] ?? '')))
             && ($actionItemId === '' || hash_equals($actionItemId, trim((string)($action['id'] ?? ''))))
             && trim((string)($targetValue['action_text'] ?? '')) === trim((string)($action['action'] ?? ''))
+            && $targetMetric === $expectedMetric
+            && $actionMetric === $expectedMetric
+            && $actionType !== ''
+            && hash_equals($actionType, trim((string)($action['action_type'] ?? '')))
+            && $metricValuesMatch
             && $intentRefs !== []
             && $intentRefs === $actionRefs;
+        if (!$provenanceValid) {
+            return false;
+        }
+
+        if ($expectedMetric === 'list_exposure') {
+            $semantic = $this->ctripListExposureSemanticBinding();
+            $targetSemantic = is_array($targetValue['metric_semantic'] ?? null)
+                ? $targetValue['metric_semantic']
+                : [];
+            $evidenceSemantic = is_array($evidence['metric_semantic'] ?? null)
+                ? $evidence['metric_semantic']
+                : [];
+            $actionSemantic = is_array($action['metric_semantic'] ?? null)
+                ? $action['metric_semantic']
+                : [];
+            $baseline = (float)$currentValue['list_exposure'];
+            if ($this->normalizeOtaChannel((string)($intent['platform'] ?? '')) !== 'ctrip'
+                || floor($baseline) !== $baseline
+                || $baseline < 0.0
+                || $semantic !== $targetSemantic
+                || $semantic !== $evidenceSemantic
+                || $semantic !== $actionSemantic
+                || !$this->savedOtaDiagnosisListExposureEvidenceReady($intentRefs, $snapshot['evidence_sources'] ?? [])
+                || !$this->savedOtaDiagnosisListExposureEvidenceReady($intentRefs, $evidence['evidence_sources'] ?? [])
+            ) {
+                return false;
+            }
+        }
+
+        return !$requireLatest || !$this->hasNewerVerifiedOtaDiagnosisForSameScope(
+            $recordId,
+            $hotelId,
+            $context,
+            $snapshot
+        );
+    }
+
+    /** @param array<string,mixed> $row @param array<string,mixed> $context @param array<string,mixed> $snapshot */
+    private function isVerifiedActiveSavedOtaDiagnosisSnapshot(
+        array $row,
+        array $context,
+        array $snapshot,
+        bool $requireActionRequired = true
+    ): bool
+    {
+        $saved = is_array($snapshot['saved_record'] ?? null) ? $snapshot['saved_record'] : [];
+        $contextDigest = strtolower(trim((string)($context['readback_identity_digest'] ?? '')));
+        $savedDigest = strtolower(trim((string)($saved['readback_identity_digest'] ?? '')));
+        return ($context['record_status'] ?? '') === 'active'
+            && ($snapshot['record_status'] ?? '') === 'active'
+            && (!$requireActionRequired
+                || ($snapshot['decision_status'] ?? $snapshot['decision_closure']['status'] ?? '') === 'action_required')
+            && ($saved['saved'] ?? false) === true
+            && ($saved['readback_verified'] ?? false) === true
+            && (int)($saved['id'] ?? 0) === (int)($row['id'] ?? 0)
+            && preg_match('/^[a-f0-9]{64}$/D', $contextDigest) === 1
+            && hash_equals($contextDigest, $savedDigest);
+    }
+
+    /** @return array<string,mixed> */
+    private function ctripListExposureSemanticBinding(): array
+    {
+        return [
+            'contract_version' => 'ota_metric_semantic_binding.v2',
+            'platform' => 'ctrip',
+            'source_module' => 'ctrip_data_center_flow_transform',
+            'source_endpoint_family' => 'ctrip_query_flow_transform_new_v1',
+            'source_endpoint_ids' => ['business_flow_transform', 'traffic_flow_transform'],
+            'metric_key' => 'list_exposure',
+            'semantic_key' => 'ctrip_datacenter_list_exposure_uv',
+            'unit' => 'unique_users',
+            'value_type' => 'non_negative_integer',
+            'source_table' => 'online_daily_data',
+            'source_field' => 'list_exposure',
+            'field_fact_required' => true,
+            'blocked_aliases' => ['generic_impression_count', 'advertising_impressions'],
+        ];
+    }
+
+    /** @param array<int,string> $refs */
+    private function savedOtaDiagnosisListExposureEvidenceReady(array $refs, mixed $sources): bool
+    {
+        $semantic = $this->ctripListExposureSemanticBinding();
+        $allowedEndpointIds = is_array($semantic['source_endpoint_ids'] ?? null)
+            ? $semantic['source_endpoint_ids']
+            : [];
+        if (!is_array($sources)) {
+            return false;
+        }
+        foreach ($sources as $source) {
+            if (!is_array($source)
+                || !in_array((string)($source['ref'] ?? ''), $refs, true)
+                || strtolower(trim((string)($source['table'] ?? ''))) !== 'online_daily_data'
+                || $this->normalizeOtaChannel((string)($source['platform'] ?? '')) !== 'ctrip'
+            ) {
+                continue;
+            }
+            $metrics = is_array($source['metrics'] ?? null) ? $source['metrics'] : [];
+            $factStatuses = is_array($source['metric_fact_statuses'] ?? null)
+                ? $source['metric_fact_statuses']
+                : [];
+            $status = is_array($factStatuses['list_exposure'] ?? null)
+                ? $factStatuses['list_exposure']
+                : [];
+            $value = $metrics['list_exposure'] ?? null;
+            if ((string)($status['status'] ?? '') === 'ready'
+                && (array)($status['missing_requested_metric_keys'] ?? ['list_exposure']) === []
+                && in_array((string)($source['source_endpoint_id'] ?? ''), $allowedEndpointIds, true)
+                && in_array((string)($status['source_endpoint_id'] ?? ''), $allowedEndpointIds, true)
+                && (string)($status['source_key'] ?? '') === 'listExposure'
+                && trim((string)($status['source_path'] ?? '')) !== ''
+                && is_numeric($value)
+                && (float)$value >= 0.0
+                && floor((float)$value) === (float)$value
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string,mixed> $context @param array<string,mixed> $snapshot */
+    private function hasNewerVerifiedOtaDiagnosisForSameScope(
+        int $recordId,
+        int $hotelId,
+        array $context,
+        array $snapshot
+    ): bool {
+        $platform = $this->normalizeOtaChannel((string)($snapshot['platform'] ?? $context['platform'] ?? ''));
+        $scope = $this->savedOtaDiagnosisScopeRange($context, $snapshot);
+        if ($platform === '' || $scope['start_date'] === '' || $scope['end_date'] === '') {
+            return true;
+        }
+        try {
+            $rows = Db::name('agent_logs')
+                ->where('hotel_id', $hotelId)
+                ->where('agent_type', 2)
+                ->where('action', 'ota_diagnosis')
+                ->where('id', '>', $recordId)
+                ->order('id', 'asc')
+                ->lock(true)
+                ->select()
+                ->toArray();
+        } catch (Throwable) {
+            return true;
+        }
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $candidateContext = is_array($row['context_data'] ?? null)
+                ? $row['context_data']
+                : $this->decodeJson((string)($row['context_data'] ?? ''));
+            $candidateSnapshot = is_array($candidateContext['diagnosis_result'] ?? null)
+                ? $candidateContext['diagnosis_result']
+                : [];
+            if (!$this->isVerifiedActiveSavedOtaDiagnosisSnapshot(
+                $row,
+                $candidateContext,
+                $candidateSnapshot,
+                false
+            )) {
+                continue;
+            }
+            if ($this->normalizeOtaChannel((string)($candidateSnapshot['platform'] ?? $candidateContext['platform'] ?? '')) === $platform
+                && $this->savedOtaDiagnosisScopeRange($candidateContext, $candidateSnapshot) === $scope
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string,mixed> $context @param array<string,mixed> $snapshot @return array{start_date:string,end_date:string} */
+    private function savedOtaDiagnosisScopeRange(array $context, array $snapshot): array
+    {
+        $range = is_array($snapshot['requested_date_range'] ?? null)
+            ? $snapshot['requested_date_range']
+            : (is_array($context['requested_date_range'] ?? null)
+                ? $context['requested_date_range']
+                : (is_array($snapshot['date_range'] ?? null)
+                    ? $snapshot['date_range']
+                    : (array)($context['date_range'] ?? [])));
+        $start = substr(trim((string)($range['start_date'] ?? $range['start'] ?? '')), 0, 10);
+        $end = substr(trim((string)($range['end_date'] ?? $range['end'] ?? $start)), 0, 10);
+        return ['start_date' => $start, 'end_date' => $end];
     }
 
     /**
@@ -3800,7 +4573,7 @@ class OperationManagementService
             if (!$this->isTrustedSelfOtaFactRow($row)) {
                 return false;
             }
-            $channel = $this->normalizeOtaChannel((string)($row['source'] ?? $row['platform'] ?? ''));
+            $channel = $this->executionReadbackRowPlatformIdentity($row);
             if ($platform === 'ota') {
                 if (!in_array($channel, ['ctrip', 'meituan'], true)) {
                     return false;
@@ -3822,7 +4595,7 @@ class OperationManagementService
     {
         $channels = [];
         foreach ($rows as $row) {
-            $channel = $this->normalizeOtaChannel((string)($row['source'] ?? $row['platform'] ?? ''));
+            $channel = $this->executionReadbackRowPlatformIdentity($row);
             if ($channel !== '') {
                 $channels[$channel] = true;
             }
@@ -3844,6 +4617,7 @@ class OperationManagementService
             'room_nights', 'avg_room_nights' => $summary['room_nights'] ?? null,
             'adr', 'avg_adr' => $summary['adr'] ?? null,
             'occ', 'occupancy', 'avg_occ' => $summary['occ'] ?? null,
+            'list_exposure' => $ota['exposure'] ?? null,
             'detail_rate', 'view_rate', 'flow_rate' => $ota['view_rate'] ?? $ota['flow_rate'] ?? null,
             'conversion', 'conversion_rate', 'order_rate' => $ota['order_rate'] ?? null,
             'avg_psi_score' => (int)($quality['psi_sample_count'] ?? 0) > 0
@@ -4895,9 +5669,105 @@ class OperationManagementService
             ->toArray();
         $intent = $this->normalizeExecutionIntentRow($intentRow);
         $task['evidence'] = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
+        $effectEvidenceTypes = [
+            'source_verified_metric_readback',
+            'ota_source_readback',
+            'business_metric_readback',
+            'operator_attested_platform_readback',
+            'manual_finance',
+            'manual_roi_evidence',
+        ];
+        $task['execution_evidence'] = array_values(array_filter(
+            $task['evidence'],
+            static fn(array $evidence): bool => !in_array(
+                strtolower(trim((string)($evidence['evidence_type'] ?? ''))),
+                $effectEvidenceTypes,
+                true
+            )
+        ));
+        $task['effect_source_evidence'] = array_values(array_filter(
+            $task['evidence'],
+            static fn(array $evidence): bool => in_array(
+                strtolower(trim((string)($evidence['evidence_type'] ?? ''))),
+                $effectEvidenceTypes,
+                true
+            )
+        ));
+        $effectReviews = [];
+        if ($this->tableExists(OperationEffectReviewService::TABLE)) {
+            $effectReviewResult = (new OperationEffectReviewService($this->executionOutcomeService))->listForTask(
+                (int)($task['tenant_id'] ?? $intent['tenant_id'] ?? 0),
+                (int)($task['hotel_id'] ?? 0),
+                (int)($task['intent_id'] ?? 0),
+                (int)($task['id'] ?? 0)
+            );
+            $effectReviews = is_array($effectReviewResult['list'] ?? null)
+                ? $effectReviewResult['list']
+                : [];
+        }
+        $task['effect_reviews'] = $effectReviews;
+        $verifiedEffectReviews = array_values(array_filter(
+            $effectReviews,
+            static fn(array $review): bool => ($review['readback_verified'] ?? false) === true
+                && ($review['approval_contract_verified'] ?? false) === true
+                && ($review['active_eligible'] ?? false) === true
+                && ($review['outcome']['source_verified'] ?? false) === true
+                && ($review['outcome']['outcome_verified'] ?? false) === true
+                && ($review['causality_claimed'] ?? true) === false
+        ));
+        $approvalContractDrifted = count(array_filter(
+            $effectReviews,
+            static fn(array $review): bool => ($review['approval_contract_verified'] ?? false) !== true
+        )) > 0;
+        $activeEffectReview = null;
+        foreach ($verifiedEffectReviews as $review) {
+            if ((string)($review['result_status'] ?? '') === (string)($task['result_status'] ?? '')
+                && (string)($review['result_summary'] ?? '') === (string)($task['result_summary'] ?? '')
+            ) {
+                $activeEffectReview = $review;
+                break;
+            }
+        }
+        $task['active_effect_review'] = $activeEffectReview;
+        $task['effect_review_summary'] = [
+            'count' => count($effectReviews),
+            'verified_count' => count($verifiedEffectReviews),
+            'approval_contract_verified_count' => count(array_filter(
+                $effectReviews,
+                static fn(array $review): bool => ($review['approval_contract_verified'] ?? false) === true
+            )),
+            'latest_id' => (int)($effectReviews[0]['id'] ?? 0),
+            'active_id' => (int)($activeEffectReview['id'] ?? 0),
+            'active_content_digest' => (string)($activeEffectReview['content_digest'] ?? ''),
+            'current_result_bound' => $activeEffectReview !== null,
+            'persistence_status' => $activeEffectReview !== null
+                ? 'readback_verified'
+                : ($approvalContractDrifted
+                    ? 'approval_target_drifted'
+                    : ($effectReviews === [] ? 'missing' : 'current_result_mismatch')),
+            'execution_effect_storage_separated' => true,
+            'causality_claimed' => false,
+        ];
         $task['evidence_summary'] = $this->buildSafeExecutionEvidenceSummary($task['evidence'], $task, $intent);
         $task['evidence_truth'] = $this->buildExecutionEvidenceTruth($intent, $task, $task['evidence']);
-        $task['outcome_truth'] = $this->buildExecutionOutcomeTruth($intent, $task, $task['evidence']);
+        $legacyOutcomeTruth = $this->buildExecutionOutcomeTruth($intent, $task, $task['evidence']);
+        $isSavedOtaDiagnosis = strtolower(trim((string)($intent['source_module'] ?? ''))) === 'ota_diagnosis_saved';
+        $isTerminalReview = in_array((string)($task['result_status'] ?? ''), ['success', 'near_success', 'failed'], true);
+        $task['outcome_truth'] = $isSavedOtaDiagnosis && $isTerminalReview
+            ? (is_array($activeEffectReview['outcome'] ?? null)
+                ? $activeEffectReview['outcome']
+                : [
+                    'status' => 'unverified',
+                    'source_verified' => false,
+                    'outcome_verified' => false,
+                    'positive_outcome_verified' => false,
+                    'metric_key' => (string)($intent['expected_metric'] ?? ''),
+                    'failure_reason' => $approvalContractDrifted
+                        ? 'approval_target_contract_drifted'
+                        : 'current_separate_effect_review_missing',
+                    'causality_claimed' => false,
+                ])
+            : $legacyOutcomeTruth;
         $task['truth_context'] = $this->buildExecutionTruthContext(
             $intent,
             $task,
@@ -4923,6 +5793,23 @@ class OperationManagementService
             $task['outcome_truth'],
             (string)($task['result_status'] ?? 'observing')
         );
+        if ($isSavedOtaDiagnosis
+            && $activeEffectReview === null
+        ) {
+            $reasonCodes = is_array($task['sop_candidate']['reason_codes'] ?? null)
+                ? $task['sop_candidate']['reason_codes']
+                : [];
+            $reasonCodes[] = $approvalContractDrifted
+                ? 'approval_target_contract_drifted'
+                : 'separate_effect_review_readback_missing';
+            $task['sop_candidate']['candidate_id'] = null;
+            $task['sop_candidate']['status'] = 'not_ready';
+            $task['sop_candidate']['approval_status'] = 'not_available';
+            $task['sop_candidate']['reason_codes'] = array_values(array_unique($reasonCodes));
+            $task['sop_candidate']['boundaries']['next_stage'] = $approvalContractDrifted
+                ? 'reapprove_target_and_repeat_effect_review'
+                : 'complete_separate_effect_review';
+        }
 
         return $task;
     }

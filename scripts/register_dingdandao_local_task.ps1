@@ -26,6 +26,9 @@ param(
     [ValidateSet('operating_indicators', 'full_diagnostic')]
     [string]$CollectionMode = 'operating_indicators',
 
+    [ValidateRange(-7, 0)]
+    [int]$TargetDateOffsetDays = 0,
+
     [ValidateRange(0, 59)]
     [int]$Minute = 5,
 
@@ -55,13 +58,16 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$modeLabel = if ($CollectionMode -eq 'full_diagnostic') {
+$modeLabel = if ($TargetDateOffsetDays -lt 0) {
+    "Historical D$([Math]::Abs($TargetDateOffsetDays))"
+} elseif ($CollectionMode -eq 'full_diagnostic') {
     'Diagnostic'
 } else {
     'Core'
 }
 $taskName = "Dingdandao H$HotelId $modeLabel"
 $taskPath = '\SUXIOS\'
+$normalizedHours = @($Hours)
 
 function Resolve-ExecutablePath {
     param([Parameter(Mandatory = $true)][string]$Candidate)
@@ -96,14 +102,18 @@ function Write-Plan {
     Write-Output ($Plan | ConvertTo-Json -Depth 8)
 }
 
-if ($Hours.Count -eq 0 -and $EndHour -lt $StartHour) {
+if ($normalizedHours.Count -eq 0 -and $EndHour -lt $StartHour) {
     throw 'EndHour must be greater than or equal to StartHour.'
 }
-$scheduleHours = if ($Hours.Count -gt 0) {
-    @($Hours | Sort-Object -Unique)
+if ($TargetDateOffsetDays -lt 0 -and $CollectionMode -ne 'operating_indicators') {
+    throw 'Historical collection requires operating_indicators mode.'
+}
+$scheduleHours = if ($normalizedHours.Count -gt 0) {
+    @($normalizedHours | Sort-Object -Unique)
 } else {
     @($StartHour..$EndHour)
 }
+$scheduleHours = @($scheduleHours)
 
 $resolvedRoot = $null
 if (Test-Path -LiteralPath $ProjectRoot -PathType Container) {
@@ -115,7 +125,7 @@ $resolvedNode = Resolve-ExecutablePath -Candidate $NodePath
 $scheduledRunner = Join-Path $effectiveRoot 'scripts\run_dingdandao_local_scheduled.ps1'
 $sandboxBinder = Join-Path $effectiveRoot 'scripts\bind_local_browser_sandbox.mjs'
 $powershellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$actionArguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -ProjectRoot "{1}" -PhpPath "{2}" -HotelId {3} -OwnerUserId {4} -SandboxId "{5}" -CdpUrl "{6}" -CollectionMode "{7}"{8}' -f `
+$actionArguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -ProjectRoot "{1}" -PhpPath "{2}" -HotelId {3} -OwnerUserId {4} -SandboxId "{5}" -CdpUrl "{6}" -CollectionMode "{7}" -TargetDateOffsetDays {8}{9}' -f `
     $scheduledRunner, `
     $effectiveRoot, `
     $resolvedPhp, `
@@ -124,6 +134,7 @@ $actionArguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPol
     $SandboxId, `
     $CdpUrl, `
     $CollectionMode, `
+    $TargetDateOffsetDays, `
     $(if ($Push) { ' -Push' } else { '' })
 
 $checks = @()
@@ -218,7 +229,7 @@ $plan = [ordered]@{
         path = $taskPath
         exists = $null -ne $existingTask
         state = if ($null -ne $existingTask) { [string]$existingTask.State } else { 'absent' }
-        schedule = if ($Hours.Count -gt 0) {
+        schedule = if ($normalizedHours.Count -gt 0) {
             "daily at $($scheduleHours -join ','):$('{0:d2}' -f $Minute) host-local time"
         } else {
             "hourly $StartHour-$EndHour at :$('{0:d2}' -f $Minute) host-local time"
@@ -232,6 +243,12 @@ $plan = [ordered]@{
         arguments = $actionArguments
         working_directory = $effectiveRoot
         collection_mode = $CollectionMode
+        target_date_offset_days = $TargetDateOffsetDays
+        target_date_role = if ($TargetDateOffsetDays -lt 0) {
+            'historical_business_date'
+        } else {
+            'capture_date'
+        }
         push_requested = [bool]$Push
     }
     safety = [ordered]@{
@@ -240,7 +257,11 @@ $plan = [ordered]@{
         browser_host_auto_start = 'headless'
         credentials_in_arguments = $false
         explicit_sandbox_required = $true
-        local_receipt = "runtime/dingdandao_local_scheduler/hotel_$HotelId/user_$OwnerUserId/$CollectionMode/latest.json"
+        local_receipt = if ($TargetDateOffsetDays -lt 0) {
+            "runtime/dingdandao_local_scheduler/hotel_$HotelId/user_$OwnerUserId/$CollectionMode/historical_offset_$([Math]::Abs($TargetDateOffsetDays))/latest.json"
+        } else {
+            "runtime/dingdandao_local_scheduler/hotel_$HotelId/user_$OwnerUserId/$CollectionMode/latest.json"
+        }
         enable_requires_switch = '-Enable'
     }
     preflight = $checks
@@ -308,7 +329,7 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
         Trigger = $triggers
         Principal = $principal
         Settings = $settings
-        Description = 'SUXIOS Dingdandao local shared-browser sandbox collection. Explicit hotel and sandbox scope; writes a sanitized receipt and never starts during registration.'
+        Description = 'SUXIOS Dingdandao local shared-browser sandbox collection. Explicit hotel, target-date role, and sandbox scope; writes a sanitized receipt and never starts during registration.'
     }
     if ($null -ne $existingTask) {
         $parameters['Force'] = $true

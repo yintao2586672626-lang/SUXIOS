@@ -100,6 +100,8 @@ final class Tc200ImportAtomicityL8Test extends TestCase
             'tenant_id' => self::TENANT_ID,
             'system_hotel_id' => self::SYSTEM_HOTEL_ID,
             'data_source_id' => 701,
+            'sync_task_id' => 700,
+            'ingestion_method' => 'browser_profile',
             'source' => 'custom',
             'platform' => 'custom',
             'hotel_id' => 'TC200-HOTEL-200',
@@ -132,6 +134,71 @@ final class Tc200ImportAtomicityL8Test extends TestCase
             (int)Db::name('online_daily_data')->where('data_type', 'traffic')->value('list_exposure')
         );
 
+        $nextTask = array_replace($summary, [
+            'sync_task_id' => 701,
+            'list_exposure' => 30,
+            'source_trace_id' => 'summary-attempt-3',
+        ]);
+        $nextTaskReceipt = $service->save([$nextTask], $columns);
+        self::assertSame(1, $nextTaskReceipt['inserted_count']);
+        self::assertSame(0, $nextTaskReceipt['updated_count']);
+        self::assertTrue($nextTaskReceipt['readback_verified']);
+        $storedTraffic = Db::name('online_daily_data')
+            ->where('data_type', 'traffic')
+            ->order('sync_task_id', 'asc')
+            ->select()
+            ->toArray();
+        self::assertCount(2, $storedTraffic);
+        self::assertSame([700, 701], array_map('intval', array_column($storedTraffic, 'sync_task_id')));
+        self::assertSame([20, 30], array_map('intval', array_column($storedTraffic, 'list_exposure')));
+        self::assertCount(2, array_unique(array_column($storedTraffic, 'persistence_identity_hash')));
+
+        $legacyIdentity = [];
+        foreach ([
+            'tenant_id', 'system_hotel_id', 'data_source_id', 'source', 'platform',
+            'hotel_id', 'data_type', 'data_date', 'data_period', 'snapshot_bucket',
+            'dimension', 'compare_type',
+        ] as $field) {
+            $legacyIdentity[$field] = array_key_exists($field, $summary) && $summary[$field] !== null
+                ? (string)$summary[$field]
+                : '';
+        }
+        $legacyIdentity['identity_kind'] = 'summary';
+        $legacyIdentity['event_identity_hash'] = '';
+        $legacyHash = hash('sha256', json_encode(
+            $legacyIdentity,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        ));
+        foreach (['manual', 'import_json', 'import_csv', 'import_excel'] as $manualMethod) {
+            $manualTraffic = array_replace($summary, ['ingestion_method' => $manualMethod]);
+            self::assertSame($legacyHash, $service->identityHash($manualTraffic));
+            self::assertSame(
+                $service->identityHash($manualTraffic),
+                $service->identityHash(array_replace($manualTraffic, ['sync_task_id' => 999]))
+            );
+        }
+
+        $advertising = array_replace($summary, [
+            'sync_task_id' => 800,
+            'data_type' => 'advertising',
+            'dimension' => 'campaign-summary',
+            'amount' => 10,
+            'list_exposure' => null,
+            'source_trace_id' => 'advertising-attempt-1',
+        ]);
+        self::assertSame(1, $service->save([$advertising], $columns)['inserted_count']);
+        $advertisingRetry = array_replace($advertising, [
+            'sync_task_id' => 801,
+            'amount' => 12,
+            'source_trace_id' => 'advertising-attempt-2',
+        ]);
+        $advertisingReceipt = $service->save([$advertisingRetry], $columns);
+        self::assertSame(0, $advertisingReceipt['inserted_count']);
+        self::assertSame(1, $advertisingReceipt['updated_count']);
+        self::assertSame(1, Db::name('online_daily_data')->where('data_type', 'advertising')->count());
+        self::assertSame(801, (int)Db::name('online_daily_data')->where('data_type', 'advertising')->value('sync_task_id'));
+        self::assertSame(12.0, (float)Db::name('online_daily_data')->where('data_type', 'advertising')->value('amount'));
+
         $orders = [];
         foreach (['order-hash-a', 'order-hash-b'] as $index => $orderHash) {
             $orders[] = array_merge($summary, [
@@ -158,6 +225,11 @@ final class Tc200ImportAtomicityL8Test extends TestCase
             ->toArray();
         self::assertCount(2, $storedOrders);
         self::assertCount(2, array_unique(array_column($storedOrders, 'persistence_identity_hash')));
+        $eventRetry = array_replace($orders[0], [
+            'sync_task_id' => 999,
+            'source_trace_id' => 'order-attempt-retry',
+        ]);
+        self::assertSame($service->identityHash($orders[0]), $service->identityHash($eventRetry));
     }
 
     public function testNormalizedPersistenceRollsBackPrimaryRowWhenCtripProjectionFails(): void

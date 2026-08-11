@@ -123,6 +123,19 @@ test('OTA diagnosis exposes the persisted trust route without hiding unused laye
   assert.match(agentPage, /stage\.status === 'fallback'/);
   assert.match(agentPage, /证据受阻/);
   assert.match(agentPage, /待人工确认/);
+  assert.match(agentPage, /class="suxi-agent-center"/);
+  assert.match(agentPage, /sx-agent-diagnosis-card__header/);
+  assert.match(agentPage, /sx-agent-tab--active/);
+  assert.match(agentPage, /sx-agent-range-button/);
+  assert.match(appStyle, /\.suxi-agent-center \.btn-primary/);
+  assert.match(appStyle, /linear-gradient\(135deg, #ead8ad 0%, #b9975b 58%, #8b6c36 100%\)/);
+  assert.match(appStyle, /transition: transform 180ms ease/);
+  assert.match(appStyle, /\.suxi-agent-center \.sx-agent-route/);
+  assert.match(appStyle, /@media \(max-width: 640px\)/);
+  assert.match(appMain, /request\(`\/agent\/ota-diagnosis\?\$\{query\.toString\(\)\}`\)/);
+  assert.match(appMain, /readback\?\.data\?\.status !== 'ready'/);
+  assert.match(appMain, /saved_record\?\.readback_verified !== true/);
+  assert.match(appMain, /saved_diagnosis_readback_identity_mismatch/);
 });
 
 test('OTA collection result panels use explicit lifecycle states', async () => {

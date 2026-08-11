@@ -151,6 +151,34 @@ final class CtripCompetitiveOperationsServiceTest extends TestCase
         self::assertSame('usable_evidence_only', $result['data_coverage']['decision_gate']);
     }
 
+    public function testExplicitQunarRowsNeverEnterCtripCompetitionCoverage(): void
+    {
+        $ctripBusiness = $this->businessRow(1, '2026-08-08', '1001', 'test hotel', 'self', 510, 10, 8, 1);
+        $ctripBusiness['source'] = 'ctrip';
+        $ctripBusiness['platform'] = 'Ctrip';
+        $qunarBusiness = $this->businessRow(2, '2026-08-08', '1001', 'test hotel', 'self', 134, 20, 16, 2);
+        $qunarBusiness['source'] = 'ctrip';
+        $qunarBusiness['platform'] = 'Qunar';
+        $ctripTraffic = $this->trafficRow(3, '2026-08-08', '1001', 'self', 510, 96, 18, 0);
+        $ctripTraffic['source'] = 'ctrip';
+        $ctripTraffic['platform'] = 'Ctrip';
+        $qunarTraffic = $this->trafficRow(4, '2026-08-08', '1001', 'self', 134, 30, 22, 0);
+        $qunarTraffic['source'] = 'ctrip';
+        $qunarTraffic['platform'] = 'Qunar';
+
+        $result = (new CtripCompetitiveOperationsService())->analyzeRows(
+            [$ctripBusiness, $qunarBusiness],
+            [$ctripTraffic, $qunarTraffic],
+            [],
+            '1001'
+        );
+
+        self::assertSame(1, $result['data_coverage']['business_row_count']);
+        self::assertSame(1, $result['data_coverage']['traffic_row_count']);
+        self::assertSame(510.0, $result['business_comparison']['self']['amount']);
+        self::assertSame(510.0, $result['traffic_funnel_comparison']['self']['list_exposure']);
+    }
+
     /** @return array<string,mixed> */
     private function businessRow(
         int $id,

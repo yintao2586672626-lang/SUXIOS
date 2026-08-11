@@ -42,6 +42,13 @@ trait CtripAutoFetchExecutionConcern
         }
         $fetchConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
         $mode = $this->resolvePlatformAutoFetchMode($fetchConfig, $options, 'ctrip');
+        $dataPeriod = strtolower(trim((string)($options['data_period'] ?? 'historical_daily'))) ?: 'historical_daily';
+        $runScope = $this->buildAutoFetchPlatformRunScope(
+            $hotelId,
+            'ctrip',
+            $dataDate,
+            $dataPeriod
+        );
         $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
         $browserProfileSources = $this->listCollectableCtripBrowserProfileDataSources($hotelId);
         $runProfileBrowser = $this->shouldRunCtripProfileBrowser($mode, $browserProfileSources);
@@ -61,6 +68,9 @@ trait CtripAutoFetchExecutionConcern
                 'success' => false,
                 'message' => $message,
                 'saved_count' => 0,
+                'write_success' => false,
+                'receipt_status' => 'failed',
+                'gap_codes' => ['configuration_missing'],
                 'auto_fetch_mode' => $mode,
                 'mode_label' => $this->autoFetchModeLabel($mode),
                 'modules' => [
@@ -83,7 +93,7 @@ trait CtripAutoFetchExecutionConcern
                 if (($task['platform'] ?? '') !== 'ctrip') {
                     continue;
                 }
-                $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate);
+                $taskResult = $this->executeAutoFetchTask($task, $hotelId, $dataDate, $runScope);
                 $savedCount += (int)($taskResult['saved_count'] ?? 0);
                 $modules[] = $taskResult;
                 if (empty($taskResult['success']) && empty($taskResult['skipped'])) {
@@ -135,8 +145,9 @@ trait CtripAutoFetchExecutionConcern
             }
         }
 
-        $runReadback = is_array($browserResult['run_readback'] ?? null) ? $browserResult['run_readback'] : [];
+        $runReadback = $this->selectCurrentAutoFetchPlatformRunReadback($modules, $browserResult, $runScope);
         $coreReadbackVerified = $this->autoFetchRunReadbackCoreVerified($runReadback);
+        $receiptMeta = $this->buildAutoFetchPlatformReceiptMeta($savedCount, $runReadback);
         if ($savedCount > 0) {
             \think\facade\Log::info("携程自动获取已写入", [
                 'hotel_id' => $hotelId,
@@ -148,21 +159,53 @@ trait CtripAutoFetchExecutionConcern
             $message = $coreReadbackVerified
                 ? "完成 {$savedCount} 次写入并验证本次任务核心指标回执"
                 : "已发生 {$savedCount} 次写入，但本次任务、入库行、来源追踪与收入/间夜/ADR 回执未完整绑定";
-            return ['platform' => 'ctrip', 'success' => $this->autoFetchPlatformRunSucceeded($savedCount, $runReadback), 'message' => $message, 'saved_count' => $savedCount, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'run_readback' => $runReadback, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
+            return [
+                'platform' => 'ctrip',
+                'success' => $this->autoFetchPlatformRunSucceeded($savedCount, $runReadback),
+                'message' => $message,
+                'saved_count' => $savedCount,
+                'write_success' => $receiptMeta['write_success'],
+                'receipt_status' => $receiptMeta['receipt_status'],
+                'gap_codes' => $receiptMeta['gap_codes'],
+                'data_period' => $dataPeriod,
+                'auto_fetch_mode' => $mode,
+                'mode_label' => $this->autoFetchModeLabel($mode),
+                'modules' => $modules,
+                'run_readback' => $runReadback,
+                'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : [],
+            ];
         }
 
         $message = empty($errors)
             ? '未获取到有效数据'
             : '未获取到有效数据：' . implode('；', array_slice($errors, 0, 3));
-        return ['platform' => 'ctrip', 'success' => false, 'message' => $message, 'saved_count' => 0, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'run_readback' => $runReadback, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
+        return [
+            'platform' => 'ctrip',
+            'success' => false,
+            'message' => $message,
+            'saved_count' => 0,
+            'write_success' => false,
+            'receipt_status' => $receiptMeta['receipt_status'],
+            'gap_codes' => $receiptMeta['gap_codes'],
+            'data_period' => $dataPeriod,
+            'auto_fetch_mode' => $mode,
+            'mode_label' => $this->autoFetchModeLabel($mode),
+            'modules' => $modules,
+            'run_readback' => $runReadback,
+            'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : [],
+        ];
     }
 
-    private function executeAutoFetchTask(array $task, int $hotelId, string $dataDate): array
+    private function executeAutoFetchTask(array $task, int $hotelId, string $dataDate, array $runScope = []): array
     {
         $body = is_array($task['body'] ?? null) ? $task['body'] : [];
         $module = (string)($task['module'] ?? '');
         $label = (string)($task['label'] ?? $module);
         $strategy = (string)($task['strategy'] ?? 'cookie_config');
+
+        if (($task['platform'] ?? '') === 'ctrip' && method_exists($this, 'resetLastCtripStructuredRunReadback')) {
+            $this->resetLastCtripStructuredRunReadback();
+        }
 
         try {
             $result = match (($task['platform'] ?? '') . ':' . $module) {
@@ -187,7 +230,10 @@ trait CtripAutoFetchExecutionConcern
                 'meituan:traffic' => $this->executeMeituanTrafficAutoFetchTask($label, $body, $hotelId),
                 default => ['module' => $label, 'saved_count' => 0, 'success' => false, 'skipped' => true, 'message' => 'unsupported task'],
             };
-            return $this->withAutoFetchResultMeta($result, $strategy, $label);
+            $result = $this->withAutoFetchResultMeta($result, $strategy, $label);
+            return $strategy === 'cookie_config' && method_exists($this, 'withCookieConfigAutoFetchReceipt')
+                ? $this->withCookieConfigAutoFetchReceipt($result, $runScope)
+                : $result;
         } catch (\Throwable $e) {
             try {
                 \think\facade\Log::warning('OTA auto-fetch task failed', [
@@ -198,7 +244,10 @@ trait CtripAutoFetchExecutionConcern
             } catch (\Throwable) {
                 // Logging failure must not replace the explicit credential execution failure.
             }
-            return $this->withAutoFetchResultMeta(['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'credential_execution_failed'], $strategy, $label);
+            $result = $this->withAutoFetchResultMeta(['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'credential_execution_failed'], $strategy, $label);
+            return $strategy === 'cookie_config' && method_exists($this, 'withCookieConfigAutoFetchReceipt')
+                ? $this->withCookieConfigAutoFetchReceipt($result, $runScope)
+                : $result;
         }
     }
 
@@ -274,13 +323,20 @@ trait CtripAutoFetchExecutionConcern
                 $persistenceContext['self_hotel_ids'] = [$expectedPlatformHotelId];
             }
             $savedCount = $this->parseAndSaveData($responseData, $startDate, $endDate, $hotelId, $persistenceContext);
-            return [
+            $taskResult = [
                 'module' => $label,
                 'saved_count' => $savedCount,
                 'success' => $savedCount > 0,
                 'message' => $savedCount > 0 ? 'ok' : 'no_rows',
                 'credential_source' => 'vault',
             ];
+            $runReadback = method_exists($this, 'lastCtripStructuredRunReadback')
+                ? $this->lastCtripStructuredRunReadback()
+                : [];
+            if ($savedCount > 0 && !empty($runReadback['write_success'])) {
+                $taskResult['run_readback'] = $runReadback;
+            }
+            return $taskResult;
         });
     }
 
@@ -401,7 +457,7 @@ trait CtripAutoFetchExecutionConcern
                 : ($standardRows > 0 ? 'captured rows but not saved' : 'no standard diagnosis rows');
             $readiness = $this->buildCtripCookieApiReadiness($payload, $capturedCounts, $saveResult, $autoSave);
 
-            return [
+            $taskResult = [
                 'module' => $label,
                 'saved_count' => $savedCount,
                 'success' => $success,
@@ -422,6 +478,13 @@ trait CtripAutoFetchExecutionConcern
                 'cookie_source' => 'credential_vault',
                 'error_count' => count($payloadErrors),
             ];
+            $runReadback = method_exists($this, 'lastCtripStructuredRunReadback')
+                ? $this->lastCtripStructuredRunReadback()
+                : [];
+            if ($savedCount > 0 && !empty($runReadback['write_success'])) {
+                $taskResult['run_readback'] = $runReadback;
+            }
+            return $taskResult;
         } catch (\InvalidArgumentException $e) {
             return [
                 'module' => $label,
@@ -1169,10 +1232,17 @@ trait CtripAutoFetchExecutionConcern
             $platform = $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? ''));
             $source = $this->sourceForCtripProfileTrafficPlatform((string)($row['source'] ?? ''), $platform);
             $rawData = $row['raw_data'] ?? $row;
+            $observedTrafficMetricKeys = $this->ctripCatalogObservedTrafficMetricKeys(
+                $row,
+                is_array($rawData) ? $rawData : []
+            );
             $rawDataForTrace = is_array($rawData) ? $rawData : [];
             if (is_array($rawData)) {
                 $rawData['capture_section'] = $captureSection;
                 $rawData['endpoint_id'] = (string)($row['endpoint_id'] ?? ($rawData['endpoint_id'] ?? ''));
+                if ($observedTrafficMetricKeys !== []) {
+                    $rawData['_observed_traffic_metric_keys'] = $observedTrafficMetricKeys;
+                }
                 $sourceUrl = trim((string)($row['source_url'] ?? ($rawData['source_url'] ?? '')));
                 if ($sourceUrl !== '') {
                     $rawData['source_url'] = $this->sanitizeCtripStandardRowSourceUrl($sourceUrl);
@@ -1236,6 +1306,9 @@ trait CtripAutoFetchExecutionConcern
             if ($dataSourceId !== null && $dataSourceId > 0) {
                 $standardRow['data_source_id'] = $dataSourceId;
             }
+            if ($observedTrafficMetricKeys !== []) {
+                $standardRow['_observed_traffic_metric_keys'] = $observedTrafficMetricKeys;
+            }
             $rows[] = $standardRow;
         }
 
@@ -1288,6 +1361,44 @@ trait CtripAutoFetchExecutionConcern
             }
         }
         return $row;
+    }
+
+    /** @return array<int, string> */
+    private function ctripCatalogObservedTrafficMetricKeys(array $row, array $rawData): array
+    {
+        $endpointId = strtolower(trim((string)($row['endpoint_id'] ?? ($rawData['endpoint_id'] ?? ''))));
+        if (!in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)
+            || strtolower(trim((string)($rawData['source'] ?? ''))) !== 'ctrip_catalog_facts'
+            || !is_array($rawData['field_facts'] ?? null)
+        ) {
+            return [];
+        }
+
+        $required = [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
+        $captured = [];
+        foreach ($rawData['field_facts'] as $fact) {
+            if (!is_array($fact)
+                || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured'
+                || ($fact['stored_value_present'] ?? false) !== true
+            ) {
+                continue;
+            }
+            $storageField = trim((string)($fact['storage_field'] ?? ''));
+            if (str_starts_with($storageField, 'online_daily_data.')) {
+                $storageField = substr($storageField, strlen('online_daily_data.'));
+            }
+            if (in_array($storageField, $required, true)) {
+                $captured[$storageField] = true;
+            }
+        }
+
+        return array_diff($required, array_keys($captured)) === [] ? $required : [];
     }
 
     private function ctripStandardRowFloatMetric(array $row, string $field): ?float
