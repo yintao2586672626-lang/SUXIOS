@@ -53,6 +53,14 @@ function runPowerShell(source, { env = {}, expectSuccess = true } = {}) {
   return result;
 }
 
+function normalizePowerShellOutput(result) {
+  return `${result.stdout || ''}\n${result.stderr || ''}`
+    .replace(/_x([0-9a-f]{4})_/gi, (_match, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function parsePowerShellJson(source, options) {
   const result = runPowerShell(source, options);
   return JSON.parse(result.stdout.trim());
@@ -354,7 +362,7 @@ test('verified finish provenance rejects missing scheduler correlation', () => {
         `-CodeManifest $manifest -EffectiveConfigSha256 $hash -TaskContractSha256 $hash ` +
         `-ChildReceiptPresent $false -ChildReceiptCount 0 -ChildExitCode 0 -CodeStableDuringRun $true -ProvenanceStatus verified
     `, { expectSuccess: false });
-    assert.match(`${result.stdout}\n${result.stderr}`, /requires correlated scheduling and stable code/i);
+    assert.match(normalizePowerShellOutput(result), /requires correlated scheduling and stable code/i);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
@@ -369,7 +377,7 @@ test('credential-shaped task arguments are rejected without echoing their value'
     env: { SUXIOS_PROVENANCE_TEST_SECRET: secret },
     expectSuccess: false,
   });
-  const output = `${result.stdout}\n${result.stderr}`;
+  const output = normalizePowerShellOutput(result);
   assert.ok(!output.includes(secret));
   assert.match(output, /credential-shaped arguments/i);
 });

@@ -1509,12 +1509,22 @@ final class HotelCollectionRunReceiptService
             $rowIds,
             $expectedOwnerUserId
         ): bool {
-            [$run, $children] = $this->loadExactRun(
-                $dispatcherRunId,
-                $hotelId,
-                $businessDate,
-                true
-            );
+            try {
+                [$run, $children] = $this->loadExactRun(
+                    $dispatcherRunId,
+                    $hotelId,
+                    $businessDate,
+                    true
+                );
+            } catch (RuntimeException $exception) {
+                if (in_array($exception->getMessage(), [
+                    'hotel_collection_run_receipt_missing',
+                    'hotel_collection_run_source_cardinality_invalid',
+                ], true)) {
+                    return false;
+                }
+                throw $exception;
+            }
             $child = is_array($children[$platform] ?? null) ? $children[$platform] : [];
             $ingestionMethod = (string)($child['ingestion_method'] ?? '');
             $taskContractReady = $ingestionMethod === 'local_collector'

@@ -421,7 +421,15 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             $root . '/app/service/PlatformNormalizedRowPersistenceService.php'
         );
         self::assertStringContainsString(
-            '$result = $this->syncBrowserProfileSource(',
+            '$cloudProfileLeases instanceof CloudOtaProfileLeaseService',
+            $scheduled
+        );
+        self::assertStringContainsString(
+            'fn(string $cdpUrl): array => $this->syncBrowserProfileSource(',
+            $scheduled
+        );
+        self::assertStringContainsString(
+            ': $this->syncBrowserProfileSource(',
             $scheduled
         );
         self::assertStringContainsString(

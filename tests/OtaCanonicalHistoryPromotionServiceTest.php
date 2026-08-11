@@ -73,6 +73,8 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
         Db::name('platform_data_sync_tasks')->delete(true);
         Db::name('platform_data_sources')->delete(true);
         Db::name('ota_profile_bindings')->delete(true);
+        Db::name('hotel_collection_plan_run_sources')->delete(true);
+        Db::name('hotel_collection_plan_runs')->delete(true);
         Db::name('hotels')->delete(true);
     }
 
@@ -304,6 +306,7 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
         $fact = $method->invoke($service, 80, 80, '2026-08-08', $task);
         self::assertSame('ready', $fact['historical_core_contract_status']);
         self::assertSame([], $fact['missing_core_metric_keys']);
+        self::assertFalse($fact['producer_evidence_verified']);
 
         $orderRaw = json_decode((string)Db::name('online_daily_data')
             ->where('id', 6891)
@@ -1636,6 +1639,25 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
                         ELSE 'partial'
                     END
                 ) STORED
+            )
+        SQL);
+        Db::execute(<<<'SQL'
+            CREATE TABLE hotel_collection_plan_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dispatcher_run_id TEXT NOT NULL UNIQUE,
+                system_hotel_id INTEGER NOT NULL,
+                business_date TEXT NOT NULL,
+                collection_anchor_hash TEXT NULL,
+                receipt_json TEXT NOT NULL
+            )
+        SQL);
+        Db::execute(<<<'SQL'
+            CREATE TABLE hotel_collection_plan_run_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                platform TEXT NOT NULL,
+                receipt_json TEXT NOT NULL,
+                UNIQUE (run_id, platform)
             )
         SQL);
     }

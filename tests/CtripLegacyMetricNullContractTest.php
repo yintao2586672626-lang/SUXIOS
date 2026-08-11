@@ -36,7 +36,9 @@ final class CtripLegacyMetricNullContractTest extends TestCase
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
 
         self::assertStringContainsString('scheduled_browser_profile_source_required', $source);
-        self::assertStringContainsString('Scheduled collection is Profile-only.', $source);
+        self::assertStringContainsString('Ordinary scheduled collection is Profile-only.', $source);
+        self::assertStringContainsString('private function scheduledIngestionMethods(', $source);
+        self::assertStringContainsString("\$profileOnly = ['browser_profile'];", $source);
         self::assertStringNotContainsString('private function sendHttpRequest(', $source);
         self::assertStringNotContainsString('private function parseAndSaveData(', $source);
         self::assertStringNotContainsString('legacyBusinessObservedMetrics(', $source);

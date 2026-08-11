@@ -32,7 +32,7 @@ test('automation center keeps configuration, monitoring and execution pages focu
   assert.match(monitorPage, /今日数据与推送监控/);
   assert.match(targetPage, /每天目标、事实与剩余经营压力/);
   assert.doesNotMatch(targetPage, /运营自动化中心 · 第 3 步/);
-  assert.match(monitorPage, /每店只显示一个主 PMS/);
+  assert.match(monitorPage, /逐店核验携程、美团和主 PMS/);
   assert.match(monitorPage, /:aria-pressed="automationMonitorStatusFilter === card\.filter/);
   assert.doesNotMatch(monitorPage, /data-testid="automation-monitor-filters"/);
   for (const label of [
@@ -115,8 +115,8 @@ test('task execution page is explicitly hotel-scoped and labels manual task fiel
 });
 
 test('automation monitor includes permitted hotels and keeps missing WeCom setup visible', () => {
-  assert.match(monitorPage, /自动计划持续核验全部有权限的营业门店/);
-  assert.match(monitorPage, /缺失配置与企业微信回执仍保留为明确阻断/);
+  assert.match(monitorPage, /逐店核验携程、美团和主 PMS/);
+  assert.match(monitorPage, /缺失绑定、数据或企业微信回执始终明确阻断/);
   assert.doesNotMatch(monitorPage, /未绑定机器人门店不进入监控名单/);
   assert.match(monitorPage, /<button[\s\S]*v-for="card in automationMonitorSummaryCards"/);
   assert.match(monitorPage, /@click="automationMonitorStatusFilter = card\.filter"/);
