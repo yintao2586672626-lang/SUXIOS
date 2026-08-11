@@ -244,6 +244,11 @@ final class HotelCollectionPlanService
                 'status' => 'missing',
                 'tenant_id' => $tenantId,
                 'system_hotel_id' => $hotelId,
+                'latest_run_receipt' => $this->latestRunReceipt(
+                    $tenantId,
+                    $hotelId,
+                    $businessDate
+                ),
                 'readback_verified' => false,
                 'execution_authorized' => false,
                 'failure_reasons' => [$this->issue(
@@ -272,7 +277,69 @@ final class HotelCollectionPlanService
                 ];
             }
         }
+        $result['latest_run_receipt'] = $this->latestRunReceipt(
+            $tenantId,
+            $hotelId,
+            $businessDate
+        );
         return $result;
+    }
+
+    /** @return array<string,mixed> */
+    private function latestRunReceipt(int $tenantId, int $hotelId, string $businessDate): array
+    {
+        if ($tenantId <= 0 || $hotelId <= 0 || $businessDate === '') {
+            return [
+                'status' => 'missing',
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $hotelId,
+                'business_date' => $businessDate !== '' ? $businessDate : null,
+                'failure_code' => 'hotel_collection_run_business_date_missing',
+                'readback_verified' => false,
+                'automatic_device_substitution' => false,
+                'sensitive_values_exposed' => false,
+            ];
+        }
+
+        try {
+            $run = Db::name(HotelCollectionRunReceiptService::RUN_TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('business_date', $businessDate)
+                ->order('id', 'desc')
+                ->field('dispatcher_run_id')
+                ->find();
+            if (!is_array($run)) {
+                return [
+                    'status' => 'missing',
+                    'tenant_id' => $tenantId,
+                    'system_hotel_id' => $hotelId,
+                    'business_date' => $businessDate,
+                    'failure_code' => 'hotel_collection_run_receipt_missing',
+                    'readback_verified' => false,
+                    'automatic_device_substitution' => false,
+                    'sensitive_values_exposed' => false,
+                ];
+            }
+
+            return (new HotelCollectionRunReceiptService())->readGroup(
+                (string)($run['dispatcher_run_id'] ?? ''),
+                $tenantId,
+                $hotelId,
+                $businessDate
+            );
+        } catch (\Throwable) {
+            return [
+                'status' => 'unavailable',
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+                'failure_code' => 'hotel_collection_run_receipt_store_unavailable',
+                'readback_verified' => false,
+                'automatic_device_substitution' => false,
+                'sensitive_values_exposed' => false,
+            ];
+        }
     }
 
     /**

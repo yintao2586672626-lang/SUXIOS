@@ -43,7 +43,148 @@ if ($command === 'online-data:auto-fetch') {
         (string)getenv('FAKE_OTA_MARKER'),
         json_encode($argv, JSON_UNESCAPED_SLASHES)
     );
-    echo 'SUXIOS_AUTO_FETCH_RECEIPT={"status":"failed","sensitive_values_exposed":false}' . PHP_EOL;
+    $options = [];
+    foreach ($argv as $argument) {
+        if (!is_string($argument) || !str_starts_with($argument, '--') || !str_contains($argument, '=')) {
+            continue;
+        }
+        [$name, $value] = explode('=', substr($argument, 2), 2);
+        $options[$name] = $value;
+    }
+    $dispatcherRunId = strtolower((string)($options['dispatcher-run-id'] ?? ''));
+    $receiptDispatcherRunId = strtolower((string)(
+        getenv('FAKE_RECEIPT_DISPATCHER_RUN_ID') ?: $dispatcherRunId
+    ));
+    $hotelId = (int)($options['hotel-id'] ?? 0);
+    $targetDate = (string)($options['target-date'] ?? '');
+    $sourceIds = array_values(array_filter(array_map(
+        'intval',
+        explode(',', (string)($options['source-ids'] ?? ''))
+    )));
+    sort($sourceIds, SORT_NUMERIC);
+    $platforms = array_values(array_filter(array_map(
+        static fn(string $value): string => strtolower(trim($value)),
+        explode(',', (string)($options['platforms'] ?? ''))
+    )));
+    sort($platforms, SORT_STRING);
+    $lifecycleStatus = strtolower((string)(getenv('FAKE_OTA_LIFECYCLE_STATUS') ?: 'failed'));
+    $successEvidenceGap = trim((string)(getenv('FAKE_OTA_SUCCESS_EVIDENCE_GAP') ?: ''));
+    $collectionSuccessEvidenceGap = trim((string)(
+        getenv('FAKE_COLLECTION_RUN_SUCCESS_EVIDENCE_GAP') ?: ''
+    ));
+    $omitAutoReceipt = (string)getenv('FAKE_OTA_OMIT_AUTO_RECEIPT') === '1';
+    $taskMix = strtolower(trim((string)(getenv('FAKE_OTA_TASK_MIX') ?: 'all_local')));
+    $sourceReceipts = [];
+    $sourceTasks = [];
+    foreach ($platforms as $index => $platform) {
+        $sourceReceipts[] = [
+            'platform' => $platform,
+            'data_source_id' => $sourceIds[$index] ?? 0,
+        ];
+        $browserProfileTask = in_array(
+            $taskMix,
+            ['mixed', 'mixed_browser_with_local_id'],
+            true
+        ) && $index === 0;
+        $sourceTask = [
+            'platform' => $platform,
+            'data_source_id' => $sourceIds[$index] ?? 0,
+            'sync_task_id' => 1001 + $index,
+            'readback_verified' => true,
+            'ingestion_method' => $browserProfileTask ? 'browser_profile' : 'local_collector',
+            'trigger_type' => $browserProfileTask
+                ? 'daily_profile_reuse'
+                : 'local_collector_upload',
+        ];
+        if (!$browserProfileTask || $taskMix === 'mixed_browser_with_local_id') {
+            $sourceTask['local_collector_task_id'] = 3271 + $index;
+        }
+        $sourceTasks[] = $sourceTask;
+    }
+    $anchorHash = str_repeat('a', 64);
+    $trustReceiptDigest = str_repeat('b', 64);
+    if ($lifecycleStatus !== 'missing') {
+        $collectionSourceReceipts = [];
+        foreach ($sourceTasks as $sourceTask) {
+            $collectionSourceReceipts[] = [
+                'platform' => $sourceTask['platform'],
+                'data_source_id' => $sourceTask['data_source_id'],
+                'ingestion_method' => $sourceTask['ingestion_method'],
+                'platform_sync_task_id' => $sourceTask['sync_task_id'],
+                'local_collector_task_id' => $sourceTask['local_collector_task_id'] ?? null,
+                'status' => 'success',
+                'saved_row_count' => 2,
+                'readback_row_count' => 2,
+                'readback_verified' => true,
+                'finished_at' => '2026-08-10 08:31:00',
+            ];
+        }
+        $collectionRunReceipt = [
+            'dispatcher_run_id' => $receiptDispatcherRunId,
+            'system_hotel_id' => $hotelId,
+            'business_date' => $targetDate,
+            'status' => $lifecycleStatus,
+            'source_receipts' => $lifecycleStatus === 'succeeded'
+                ? $collectionSourceReceipts
+                : $sourceReceipts,
+            'collection_anchor_hash' => $lifecycleStatus === 'succeeded' ? $anchorHash : null,
+            'trust_receipt_digest' => $lifecycleStatus === 'succeeded' ? $trustReceiptDigest : null,
+            'sensitive_values_exposed' => false,
+        ];
+        if ($lifecycleStatus === 'succeeded') {
+            $collectionRunReceipt += [
+                'ledger_structure_verified' => true,
+                'readback_verified' => true,
+                'finished_at' => '2026-08-10 08:31:00',
+            ];
+            if ($collectionSuccessEvidenceGap !== '') {
+                unset($collectionRunReceipt[$collectionSuccessEvidenceGap]);
+            }
+        }
+        echo 'SUXIOS_COLLECTION_RUN_RECEIPT=' . json_encode(
+            $collectionRunReceipt,
+            JSON_UNESCAPED_SLASHES
+        ) . PHP_EOL;
+        if (!$omitAutoReceipt && in_array(
+            $lifecycleStatus,
+            ['succeeded', 'partial', 'failed', 'blocked', 'skipped', 'deferred'],
+            true
+        )) {
+            $autoStatus = match ($lifecycleStatus) {
+                'succeeded' => 'success',
+                'partial' => 'partial_success',
+                default => $lifecycleStatus,
+            };
+            $autoReceipt = [
+                'status' => $autoStatus,
+                'sensitive_values_exposed' => false,
+                'dispatcher_run_id' => $receiptDispatcherRunId,
+                'hotel_id' => $hotelId,
+                'target_date' => $targetDate,
+                'source_ids' => $sourceIds,
+                'required_platforms' => $platforms,
+            ];
+            if ($lifecycleStatus === 'succeeded') {
+                $autoReceipt += [
+                    'collection_complete' => true,
+                    'authority_scope_complete' => true,
+                    'dual_ota_p0_complete' => true,
+                    'canonical_history_complete' => true,
+                    'collection_run_readback_verified' => true,
+                    'collection_anchor_hash' => $anchorHash,
+                    'trust_receipt_digest' => $trustReceiptDigest,
+                    'source_tasks' => $sourceTasks,
+                ];
+                if ($successEvidenceGap !== '') {
+                    unset($autoReceipt[$successEvidenceGap]);
+                }
+            }
+            echo 'SUXIOS_AUTO_FETCH_RECEIPT=' . json_encode(
+                $autoReceipt,
+                JSON_UNESCAPED_SLASHES
+            ) . PHP_EOL;
+        }
+    }
     exit((int)(getenv('FAKE_OTA_EXIT') ?: 0));
 }
 exit(64);
@@ -72,11 +213,16 @@ exit 0
       FAKE_OTA_MARKER: otaMarker,
       FAKE_INITIAL_DB_EXIT: String(initialDatabaseExitCode),
       FAKE_OTA_EXIT: '0',
+      FAKE_OTA_LIFECYCLE_STATUS: 'failed',
     },
   };
 }
 
-function runIsolatedPreflight(fixture, phpPath, { preflightOnly = true } = {}) {
+function runIsolatedPreflight(fixture, phpPath, {
+  preflightOnly = true,
+  sourceIds = '25,68',
+  platforms = 'ctrip,meituan',
+} = {}) {
   const powershell = path.join(
     process.env.SystemRoot || 'C:\\Windows',
     'System32',
@@ -84,6 +230,7 @@ function runIsolatedPreflight(fixture, phpPath, { preflightOnly = true } = {}) {
     'v1.0',
     'powershell.exe',
   );
+  const logsBefore = new Set(readdirSync(fixture.runtimeDirectory));
   const args = [
     '-NoProfile',
     '-NonInteractive',
@@ -100,9 +247,9 @@ function runIsolatedPreflight(fixture, phpPath, { preflightOnly = true } = {}) {
     '-HotelId',
     '80',
     '-SourceIds',
-    '25,68',
+    sourceIds,
     '-Platforms',
-    'ctrip,meituan',
+    platforms,
   ];
   if (preflightOnly) args.push('-PreflightOnly');
   const result = spawnSync(powershell, args, {
@@ -113,12 +260,29 @@ function runIsolatedPreflight(fixture, phpPath, { preflightOnly = true } = {}) {
     windowsHide: true,
   });
   const logs = readdirSync(fixture.runtimeDirectory)
-    .filter(name => /^ota_dispatcher_\d{8}_\d{6}_[a-f0-9]{32}\.log$/.test(name));
+    .filter(name => /^ota_dispatcher_\d{8}_\d{6}_[a-f0-9]{32}\.log$/.test(name))
+    .filter(name => !logsBefore.has(name));
   assert.equal(logs.length, 1, result.stderr || result.stdout);
+  const logPath = path.join(fixture.runtimeDirectory, logs[0]);
   return {
     ...result,
-    log: readFileSync(path.join(fixture.runtimeDirectory, logs[0]), 'utf8'),
+    logPath,
+    log: readFileSync(logPath, 'utf8'),
   };
+}
+
+function dispatcherIds(result) {
+  const executionId = result.log.match(/dispatcher_execution_id=([a-f0-9-]{36});schema_version=1/)?.[1];
+  const collectionRunId = result.log.match(/dispatcher_run_id=([a-f0-9-]{36});schema_version=1/)?.[1];
+  assert.match(executionId || '', /^[a-f0-9-]{36}$/);
+  assert.match(collectionRunId || '', /^[a-f0-9-]{36}$/);
+  return { executionId, collectionRunId };
+}
+
+function collectionStateFiles(fixture) {
+  return readdirSync(fixture.runtimeDirectory)
+    .filter(name => /^ota_collection_run_[a-f0-9]{64}\.json$/.test(name))
+    .map(name => path.join(fixture.runtimeDirectory, name));
 }
 
 function localPhpPath() {
@@ -186,9 +350,107 @@ test('task arguments are fixed and credential-shaped values are rejected', () =>
   assert.match(runner, /--dispatcher-run-id=\$\(\$dispatcherRunGuid\.ToString\('D'\)\.ToLowerInvariant\(\)\)/);
   assert.match(runner, /dispatcher_target_date=\$dailyTargetDate;timezone=Asia\/Shanghai/);
   assert.match(runner, /--hotel-id=\$HotelId/);
-  assert.match(runner, /--source-ids=\$SourceIds/);
-  assert.match(runner, /--platforms=\$Platforms/);
+  assert.match(runner, /--source-ids=\$effectiveSourceIds/);
+  assert.match(runner, /--platforms=\$effectivePlatforms/);
   assert.match(runner, /Scoped OTA dispatcher requires HotelId, SourceIds, and Platforms together/);
+});
+
+test('runner separates per-process execution identity from exact collection identity', () => {
+  const runner = readFileSync(path.join(repoRoot, 'scripts', 'run_ota_dispatcher.ps1'), 'utf8');
+  assert.match(runner, /\$executionGuid = \[guid\]::NewGuid\(\)/);
+  assert.match(runner, /\$runId = \(Get-Date -Format 'yyyyMMdd_HHmmss'\) \+ '_' \+ \$executionGuid\.ToString\('N'\)/);
+  assert.match(runner, /dispatcher_execution_id=\$\(\$executionGuid\.ToString\('D'\)/);
+  assert.match(runner, /--dispatcher-run-id=\$\(\$dispatcherRunGuid\.ToString\('D'\)/);
+  assert.match(runner, /-RunId \$dispatcherRunGuid/);
+  assert.doesNotMatch(runner, /--dispatcher-run-id=\$\(\$executionGuid/);
+});
+
+test('collection state reuses only explicit active statuses and rotates every declared terminal status', () => {
+  const runner = readFileSync(path.join(repoRoot, 'scripts', 'run_ota_dispatcher.ps1'), 'utf8');
+  assert.match(runner, /\$collectionActiveStatuses = @\('in_progress', 'started', 'collected'\)/);
+  assert.match(
+    runner,
+    /\$collectionTerminalStatuses = @\([\s\S]*?'succeeded'[\s\S]*?'partial'[\s\S]*?'failed'[\s\S]*?'blocked'[\s\S]*?'skipped'[\s\S]*?'deferred'[\s\S]*?\)/,
+  );
+  assert.match(runner, /if \(\$priorCollectionStatus -in \$collectionActiveStatuses\)/);
+  assert.match(runner, /\$collectionStateDecision = 'reused_active'/);
+  assert.match(runner, /\$collectionStateDecision = 'rotated_terminal'/);
+  assert.match(runner, /\$collectionStateDecision = 'rotated_invalid_state'/);
+});
+
+test('collection scope key is exact, sorted, integrity-checked, and carries an available plan fingerprint', () => {
+  const runner = readFileSync(path.join(repoRoot, 'scripts', 'run_ota_dispatcher.ps1'), 'utf8');
+  const scopeStart = runner.indexOf('function Get-DispatcherCollectionScope');
+  const stateWriterStart = runner.indexOf('function Write-TrustedDispatcherCollectionState');
+  const outputResolverStart = runner.indexOf('function Resolve-DispatcherCollectionOutputStatus');
+  const scopeAndState = runner.slice(scopeStart, outputResolverStart);
+  assert(scopeStart >= 0 && stateWriterStart > scopeStart && outputResolverStart > stateWriterStart);
+  assert.match(scopeAndState, /Sort-Object -Unique/);
+  assert.match(scopeAndState, /hotel_id=\$SystemHotelId/);
+  assert.match(scopeAndState, /business_date=\$BusinessDate/);
+  assert.match(scopeAndState, /source_ids=\$sourceIdsText/);
+  assert.match(scopeAndState, /platforms=\$platformsText/);
+  assert.match(scopeAndState, /SUXIOS_OTA_COLLECTION_PLAN_FINGERPRINT/);
+  assert.match(scopeAndState, /plan_fingerprint=\$planFingerprint/);
+  assert.match(scopeAndState, /integrity_sha256/);
+  assert.doesNotMatch(scopeAndState, /cookie|password|authorization|profile_key|session/i);
+});
+
+test('runner accepts lifecycle success only with a zero exit and the complete exact AUTO receipt', () => {
+  const runner = readFileSync(path.join(repoRoot, 'scripts', 'run_ota_dispatcher.ps1'), 'utf8');
+  const verifierStart = runner.indexOf('function Test-DispatcherAutoFetchSuccessReceipt');
+  const resolverStart = runner.indexOf('function Resolve-DispatcherCollectionOutputStatus');
+  const verifier = runner.slice(verifierStart, resolverStart);
+  assert(verifierStart >= 0 && resolverStart > verifierStart);
+  assert.match(verifier, /\$ChildExitCode -ne 0/);
+  for (const field of [
+    'collection_complete',
+    'authority_scope_complete',
+    'dual_ota_p0_complete',
+    'canonical_history_complete',
+    'collection_run_readback_verified',
+    'collection_anchor_hash',
+    'trust_receipt_digest',
+    'ingestion_method',
+    'trigger_type',
+    'local_collector_task_id',
+    'sync_task_id',
+    'readback_verified',
+  ]) {
+    assert.match(verifier, new RegExp(field));
+  }
+  assert.match(verifier, /\$sourceTasks\.Count -ne 2/);
+  assert.match(verifier, /\^\[a-f0-9\]\{64\}\$/);
+  assert.match(verifier, /local_collector_upload/);
+  assert.match(verifier, /daily_profile_reuse/);
+  assert.match(runner, /-ChildExitCode \$childExitCode/);
+});
+
+test('strict collection-run ledger can prove success only when no AUTO success receipt exists', () => {
+  const runner = readFileSync(path.join(repoRoot, 'scripts', 'run_ota_dispatcher.ps1'), 'utf8');
+  const verifierStart = runner.indexOf('function Test-DispatcherCollectionRunSuccessReceipt');
+  const resolverStart = runner.indexOf('function Resolve-DispatcherCollectionOutputStatus');
+  const verifier = runner.slice(verifierStart, resolverStart);
+  assert(verifierStart >= 0 && resolverStart > verifierStart);
+  for (const field of [
+    'ledger_structure_verified',
+    'readback_verified',
+    'collection_anchor_hash',
+    'trust_receipt_digest',
+    'source_receipts',
+    'platform_sync_task_id',
+    'local_collector_task_id',
+    'ingestion_method',
+    'saved_row_count',
+    'readback_row_count',
+    'finished_at',
+  ]) {
+    assert.match(verifier, new RegExp(field));
+  }
+  assert.match(verifier, /\$sourceReceipts\.Count -ne 2/);
+  assert.match(verifier, /\$ChildExitCode -ne 0/);
+  assert.match(runner, /if \(\$autoFetchSuccessReceiptSeen\)/);
+  assert.match(runner, /\$collectionRunSuccessReceiptSeen -and \$collectionRunSuccessReceiptsValid/);
 });
 
 test('replacing a fixed task cannot silently remove an existing source or platform', () => {
@@ -318,11 +580,353 @@ test('real dispatcher child preserves a non-zero exit code and its safe machine 
     assert.ok(dispatcherArgument, childArguments);
     const dispatcherRunId = String(dispatcherArgument).split('=', 2)[1];
     assert.match(result.log, new RegExp(`dispatcher_run_id=${dispatcherRunId};schema_version=1`));
-    assert.match(result.log, /SUXIOS_AUTO_FETCH_RECEIPT=\{"status":"failed","sensitive_values_exposed":false\}/);
+    assert.match(result.log, /SUXIOS_AUTO_FETCH_RECEIPT=\{"status":"failed","sensitive_values_exposed":false,/);
     assert.match(result.log, /dispatcher_terminal_status=finished;exit_code=1/);
     assert.doesNotMatch(result.log, /dispatcher_terminal_status=finished;exit_code=0/);
     assert.match(result.log, /SUXIOS_OTA_DAILY_ACCEPTANCE=\{"schema_version":"suxios_ota_daily_natural_acceptance\.v1","status":"blocked"/);
     assert.match(result.log, /dispatcher_daily_acceptance_readback_verified=true;receipt_count=1/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('active collection UUID is reused, execution UUID rotates, and terminal collection rotates next run', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(0);
+  writeFileSync(fixture.statePath, 'ready', 'utf8');
+  fixture.environment.FAKE_OTA_EXIT = '1';
+  fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'in_progress';
+  try {
+    const first = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(first.status, 1, `${first.stderr || first.stdout}\n${first.log}`);
+    const firstIds = dispatcherIds(first);
+    assert.notEqual(firstIds.executionId, firstIds.collectionRunId);
+    assert.match(first.log, /decision=new;prior_status=none/);
+    let statePaths = collectionStateFiles(fixture);
+    assert.equal(statePaths.length, 1);
+    let state = JSON.parse(readFileSync(statePaths[0], 'utf8'));
+    assert.equal(state.status, 'in_progress');
+    assert.equal(state.collection_run_id, firstIds.collectionRunId);
+    assert.deepEqual(state.source_ids, [25, 68]);
+    assert.deepEqual(state.platforms, ['ctrip', 'meituan']);
+
+    fixture.environment.FAKE_OTA_EXIT = '0';
+    fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'succeeded';
+    const second = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(second.status, 0, `${second.stderr || second.stdout}\n${second.log}`);
+    const secondIds = dispatcherIds(second);
+    assert.equal(secondIds.collectionRunId, firstIds.collectionRunId);
+    assert.notEqual(secondIds.executionId, firstIds.executionId);
+    assert.notEqual(secondIds.executionId, secondIds.collectionRunId);
+    assert.match(second.log, /decision=reused_active;prior_status=in_progress/);
+    state = JSON.parse(readFileSync(statePaths[0], 'utf8'));
+    assert.equal(state.status, 'succeeded');
+    assert.equal(state.collection_run_id, firstIds.collectionRunId);
+
+    fixture.environment.FAKE_OTA_EXIT = '1';
+    fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'failed';
+    const third = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(third.status, 1, `${third.stderr || third.stdout}\n${third.log}`);
+    const thirdIds = dispatcherIds(third);
+    assert.notEqual(thirdIds.collectionRunId, firstIds.collectionRunId);
+    assert.notEqual(thirdIds.executionId, secondIds.executionId);
+    assert.match(third.log, /decision=rotated_terminal;prior_status=succeeded/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('sorted equivalent scope reuses but changed source scope and damaged state rotate fail-closed', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(0);
+  writeFileSync(fixture.statePath, 'ready', 'utf8');
+  fixture.environment.FAKE_OTA_EXIT = '1';
+  fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'started';
+  try {
+    const first = runIsolatedPreflight(fixture, phpPath, {
+      preflightOnly: false,
+      sourceIds: '68,25',
+      platforms: 'meituan,ctrip',
+    });
+    const firstIds = dispatcherIds(first);
+    const second = runIsolatedPreflight(fixture, phpPath, {
+      preflightOnly: false,
+      sourceIds: '25,68',
+      platforms: 'ctrip,meituan',
+    });
+    const secondIds = dispatcherIds(second);
+    assert.equal(secondIds.collectionRunId, firstIds.collectionRunId);
+    assert.match(second.log, /decision=reused_active;prior_status=started/);
+    assert.match(second.log, /dispatcher_scope=hotel:80;platforms:ctrip,meituan;source_count:2/);
+
+    const changedScope = runIsolatedPreflight(fixture, phpPath, {
+      preflightOnly: false,
+      sourceIds: '25,69',
+      platforms: 'ctrip,meituan',
+    });
+    const changedScopeIds = dispatcherIds(changedScope);
+    assert.notEqual(changedScopeIds.collectionRunId, firstIds.collectionRunId);
+    assert.match(changedScope.log, /decision=new;prior_status=none/);
+
+    const exactStatePath = collectionStateFiles(fixture).find(statePath => {
+      const state = JSON.parse(readFileSync(statePath, 'utf8'));
+      return state.collection_run_id === firstIds.collectionRunId;
+    });
+    assert.ok(exactStatePath);
+    const damagedState = JSON.parse(readFileSync(exactStatePath, 'utf8'));
+    damagedState.business_date = '2026-01-01';
+    writeFileSync(exactStatePath, JSON.stringify(damagedState), 'utf8');
+
+    const afterDamage = runIsolatedPreflight(fixture, phpPath, {
+      preflightOnly: false,
+      sourceIds: '25,68',
+      platforms: 'ctrip,meituan',
+    });
+    const afterDamageIds = dispatcherIds(afterDamage);
+    assert.notEqual(afterDamageIds.collectionRunId, firstIds.collectionRunId);
+    assert.match(afterDamage.log, /decision=rotated_invalid_state;prior_status=none/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('available plan fingerprint participates in collection scope and forces rotation on change', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(0);
+  writeFileSync(fixture.statePath, 'ready', 'utf8');
+  fixture.environment.FAKE_OTA_EXIT = '1';
+  fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'in_progress';
+  fixture.environment.SUXIOS_OTA_COLLECTION_PLAN_FINGERPRINT = 'a'.repeat(64);
+  try {
+    const first = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    const firstIds = dispatcherIds(first);
+    const firstState = JSON.parse(readFileSync(collectionStateFiles(fixture)[0], 'utf8'));
+    assert.equal(firstState.plan_fingerprint, 'a'.repeat(64));
+
+    fixture.environment.SUXIOS_OTA_COLLECTION_PLAN_FINGERPRINT = 'b'.repeat(64);
+    const second = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    const secondIds = dispatcherIds(second);
+    assert.notEqual(secondIds.collectionRunId, firstIds.collectionRunId);
+    assert.match(second.log, /decision=new;prior_status=none/);
+    assert.equal(collectionStateFiles(fixture).length, 2);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('mismatched child dispatcher receipt is never adopted as active collection state', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(0);
+  writeFileSync(fixture.statePath, 'ready', 'utf8');
+  fixture.environment.FAKE_OTA_EXIT = '1';
+  fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'in_progress';
+  fixture.environment.FAKE_RECEIPT_DISPATCHER_RUN_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  try {
+    const mismatched = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.notEqual(mismatched.status, 0, mismatched.log);
+    const mismatchedIds = dispatcherIds(mismatched);
+    const statePath = collectionStateFiles(fixture)[0];
+    const failedClosedState = JSON.parse(readFileSync(statePath, 'utf8'));
+    assert.equal(failedClosedState.collection_run_id, mismatchedIds.collectionRunId);
+    assert.equal(failedClosedState.status, 'started');
+    assert.equal(failedClosedState.status_source, 'runner_child_start');
+    assert.match(
+      mismatched.log,
+      /dispatcher_collection_state=preserved;status=started;reason=child_output_untrusted/,
+    );
+
+    delete fixture.environment.FAKE_RECEIPT_DISPATCHER_RUN_ID;
+    const next = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    const nextIds = dispatcherIds(next);
+    assert.equal(nextIds.collectionRunId, mismatchedIds.collectionRunId);
+    assert.match(next.log, /decision=reused_active;prior_status=started/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('missing child receipt keeps started UUID recoverable and forces a non-zero runner exit', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(0);
+  writeFileSync(fixture.statePath, 'ready', 'utf8');
+  fixture.environment.FAKE_OTA_EXIT = '0';
+  fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'missing';
+  try {
+    const missing = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(missing.status, 125, missing.log);
+    const missingIds = dispatcherIds(missing);
+    const statePath = collectionStateFiles(fixture)[0];
+    const preservedState = JSON.parse(readFileSync(statePath, 'utf8'));
+    assert.equal(preservedState.collection_run_id, missingIds.collectionRunId);
+    assert.equal(preservedState.status, 'started');
+    assert.equal(preservedState.status_source, 'runner_child_start');
+    assert.match(
+      missing.log,
+      /dispatcher_collection_state=preserved;status=started;reason=child_output_untrusted/,
+    );
+    assert.match(missing.log, /dispatcher_terminal_status=finished;exit_code=125/);
+
+    fixture.environment.FAKE_OTA_EXIT = '1';
+    fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'in_progress';
+    const recovered = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    const recoveredIds = dispatcherIds(recovered);
+    assert.equal(recoveredIds.collectionRunId, missingIds.collectionRunId);
+    assert.match(recovered.log, /decision=reused_active;prior_status=started/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('successful child missing one required evidence field preserves started UUID and exits 125', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(0);
+  writeFileSync(fixture.statePath, 'ready', 'utf8');
+  fixture.environment.FAKE_OTA_EXIT = '0';
+  fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'succeeded';
+  fixture.environment.FAKE_OTA_SUCCESS_EVIDENCE_GAP = 'trust_receipt_digest';
+  try {
+    const rejected = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(rejected.status, 125, rejected.log);
+    const rejectedIds = dispatcherIds(rejected);
+    const statePath = collectionStateFiles(fixture)[0];
+    const preservedState = JSON.parse(readFileSync(statePath, 'utf8'));
+    assert.equal(preservedState.collection_run_id, rejectedIds.collectionRunId);
+    assert.equal(preservedState.status, 'started');
+    assert.equal(preservedState.status_source, 'runner_child_start');
+    assert.match(
+      rejected.log,
+      /dispatcher_collection_state=preserved;status=started;reason=child_output_untrusted/,
+    );
+    assert.match(rejected.log, /dispatcher_terminal_status=finished;exit_code=125/);
+
+    delete fixture.environment.FAKE_OTA_SUCCESS_EVIDENCE_GAP;
+    const recovered = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(recovered.status, 0, `${recovered.stderr || recovered.stdout}\n${recovered.log}`);
+    const recoveredIds = dispatcherIds(recovered);
+    assert.equal(recoveredIds.collectionRunId, rejectedIds.collectionRunId);
+    const succeededState = JSON.parse(readFileSync(statePath, 'utf8'));
+    assert.equal(succeededState.status, 'succeeded');
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('one browser-profile source and one local-collector source can complete the same exact run', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(0);
+  writeFileSync(fixture.statePath, 'ready', 'utf8');
+  fixture.environment.FAKE_OTA_EXIT = '0';
+  fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'succeeded';
+  fixture.environment.FAKE_OTA_TASK_MIX = 'mixed';
+  try {
+    const completed = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(completed.status, 0, `${completed.stderr || completed.stdout}\n${completed.log}`);
+    const completedIds = dispatcherIds(completed);
+    const statePath = collectionStateFiles(fixture)[0];
+    const state = JSON.parse(readFileSync(statePath, 'utf8'));
+    assert.equal(state.collection_run_id, completedIds.collectionRunId);
+    assert.equal(state.status, 'succeeded');
+    assert.match(
+      completed.log,
+      /dispatcher_collection_state=stored;status=succeeded;source=child_structured_terminal_receipt/,
+    );
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('browser-profile source carrying a local collector task id is rejected and remains recoverable', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(0);
+  writeFileSync(fixture.statePath, 'ready', 'utf8');
+  fixture.environment.FAKE_OTA_EXIT = '0';
+  fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'succeeded';
+  fixture.environment.FAKE_OTA_TASK_MIX = 'mixed_browser_with_local_id';
+  try {
+    const rejected = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(rejected.status, 125, rejected.log);
+    const rejectedIds = dispatcherIds(rejected);
+    const statePath = collectionStateFiles(fixture)[0];
+    let state = JSON.parse(readFileSync(statePath, 'utf8'));
+    assert.equal(state.collection_run_id, rejectedIds.collectionRunId);
+    assert.equal(state.status, 'started');
+    assert.match(
+      rejected.log,
+      /dispatcher_collection_state=preserved;status=started;reason=child_output_untrusted/,
+    );
+
+    fixture.environment.FAKE_OTA_TASK_MIX = 'mixed';
+    const recovered = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(recovered.status, 0, `${recovered.stderr || recovered.stdout}\n${recovered.log}`);
+    const recoveredIds = dispatcherIds(recovered);
+    assert.equal(recoveredIds.collectionRunId, rejectedIds.collectionRunId);
+    state = JSON.parse(readFileSync(statePath, 'utf8'));
+    assert.equal(state.status, 'succeeded');
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('strict collection-run-only success recovers the same UUID after a fake ledger success is rejected', {
+  skip: process.platform !== 'win32',
+}, (t) => {
+  const phpPath = localPhpPath();
+  if (!phpPath) return t.skip('local PHP runtime is unavailable');
+  const fixture = isolatedPreflightFixture(0);
+  writeFileSync(fixture.statePath, 'ready', 'utf8');
+  fixture.environment.FAKE_OTA_EXIT = '0';
+  fixture.environment.FAKE_OTA_LIFECYCLE_STATUS = 'succeeded';
+  fixture.environment.FAKE_OTA_OMIT_AUTO_RECEIPT = '1';
+  fixture.environment.FAKE_COLLECTION_RUN_SUCCESS_EVIDENCE_GAP = 'ledger_structure_verified';
+  try {
+    const rejected = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(rejected.status, 125, rejected.log);
+    const rejectedIds = dispatcherIds(rejected);
+    const statePath = collectionStateFiles(fixture)[0];
+    let state = JSON.parse(readFileSync(statePath, 'utf8'));
+    assert.equal(state.collection_run_id, rejectedIds.collectionRunId);
+    assert.equal(state.status, 'started');
+    assert.match(
+      rejected.log,
+      /dispatcher_collection_state=preserved;status=started;reason=child_output_untrusted/,
+    );
+
+    delete fixture.environment.FAKE_COLLECTION_RUN_SUCCESS_EVIDENCE_GAP;
+    const recovered = runIsolatedPreflight(fixture, phpPath, { preflightOnly: false });
+    assert.equal(recovered.status, 0, `${recovered.stderr || recovered.stdout}\n${recovered.log}`);
+    const recoveredIds = dispatcherIds(recovered);
+    assert.equal(recoveredIds.collectionRunId, rejectedIds.collectionRunId);
+    state = JSON.parse(readFileSync(statePath, 'utf8'));
+    assert.equal(state.status, 'succeeded');
+    assert.match(
+      recovered.log,
+      /dispatcher_collection_state=stored;status=succeeded;source=child_structured_terminal_receipt/,
+    );
+    assert.doesNotMatch(recovered.log, /SUXIOS_AUTO_FETCH_RECEIPT=/);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }

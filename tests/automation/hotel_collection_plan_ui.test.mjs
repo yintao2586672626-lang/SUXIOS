@@ -36,6 +36,20 @@ test('binding read pins the selected hotel, date and persisted source ids', () =
   assert.match(hotelController, /\$designatedSourceIds\s*\n\s*\)/);
 });
 
+test('late contract responses cannot overwrite the current hotel and business date', () => {
+  const start = appMain.indexOf('const loadAutomationMonitorContract');
+  const end = appMain.indexOf('const saveAutomationMonitorPlan', start);
+  const loader = appMain.slice(start, end);
+  assert.ok(start > 0 && end > start);
+  assert.match(loader, /const requestSeq = \+\+automationMonitorContractRequestSeq/);
+  assert.match(loader, /requestSeq === automationMonitorContractRequestSeq/);
+  assert.match(loader, /String\(automationMonitorContractHotelId\.value \|\| ''\)\.trim\(\) === String\(hotelId\)/);
+  assert.match(loader, /String\(automationMonitorDate\.value \|\| ''\)\.trim\(\) === businessDate/);
+  const finalScopeGuardAt = loader.lastIndexOf('if (!scopeIsCurrent())');
+  const commitAt = loader.indexOf('automationMonitorContract.value = { binding, plan }');
+  assert.ok(finalScopeGuardAt > 0 && commitAt > finalScopeGuardAt);
+});
+
 test('plan save requires exact sources and signed readback before reporting success', () => {
   assert.match(contractComponent, /'data-testid': 'automation-plan-ctrip-source'/);
   assert.match(contractComponent, /'data-testid': 'automation-plan-meituan-source'/);
@@ -45,6 +59,16 @@ test('plan save requires exact sources and signed readback before reporting succ
   assert.match(appMain, /sources:\s*\{\s*ctrip: \{ data_source_id: ctripSourceId \},\s*meituan: \{ data_source_id: meituanSourceId \},\s*pms: \{ provider: pmsProvider \}/);
   assert.match(appMain, /res\.data\?\.readback_verified !== true \|\| res\.data\?\.save_verified !== true/);
   assert.match(appMain, /activate && !automationMonitorContractCanActivate\.value/);
+});
+
+test('plan read exposes one exact hotel-date run receipt on the existing operator surface', () => {
+  assert.match(contractComponent, /'data-testid': 'automation-collection-run-receipt'/);
+  assert.match(contractComponent, /`automation-run-\$\{platform\}`/);
+  assert.match(contractComponent, /plan\.latest_run_receipt/);
+  assert.match(contractComponent, /run\.dispatcher_run_id/);
+  assert.match(contractComponent, /run\.collection_anchor_hash/);
+  assert.match(contractComponent, /run\.pms_receipt/);
+  assert.match(contractComponent, /run\.page_acceptance/);
 });
 
 test('operator login recovery is original-device only and never represented as a cookie pool', () => {
@@ -78,6 +102,7 @@ test('lazy collection contract component renders the exact hotel plan without a 
   let openedHotelId = '';
   const ctx = {
     automationMonitorContractHotelId: '80',
+    automationMonitorDate: '2026-08-09',
     automationMonitorContractHotelOptions: [{ id: 80, name: '敦煌漠蓝新' }],
     automationMonitorContractLoading: false,
     automationMonitorContractSaving: false,
@@ -104,6 +129,20 @@ test('lazy collection contract component renders the exact hotel plan without a 
         ctrip: { data_source_id: 25 },
         meituan: { data_source_id: 68 },
         pms: { provider: 'dingdandao_pms' },
+      },
+      latest_run_receipt: {
+        status: 'succeeded',
+        system_hotel_id: 80,
+        business_date: '2026-08-09',
+        dispatcher_run_id: '11111111-1111-4111-8111-111111111111',
+        collection_anchor_hash: 'a'.repeat(64),
+        failure_code: '',
+        pms_receipt: { status: 'verified', capture_id: '9', readback_verified: true },
+        page_acceptance: { status: 'verified', receipt_id: 12 },
+        source_receipts: [
+          { platform: 'ctrip', data_source_id: 25, status: 'success', saved_row_count: 1, readback_row_count: 1 },
+          { platform: 'meituan', data_source_id: 68, status: 'success', saved_row_count: 1, readback_row_count: 1 },
+        ],
       },
     },
     automationMonitorPlanForm: {
@@ -140,6 +179,24 @@ test('lazy collection contract component renders the exact hotel plan without a 
   assert.ok(testIds.includes('automation-plan-save-draft'));
   assert.ok(testIds.includes('automation-plan-activate'));
   assert.ok(testIds.includes('automation-contract-open-device-onboarding'));
+  assert.ok(testIds.includes('automation-collection-run-receipt'));
+  assert.ok(testIds.includes('automation-run-ctrip'));
+  assert.ok(testIds.includes('automation-run-meituan'));
   onboardingButton.props.onClick();
   assert.equal(openedHotelId, '80');
+
+  ctx.automationMonitorDate = '2026-08-10';
+  const staleScopeTree = component.setup({ ctx })();
+  const staleScopeTestIds = [];
+  const visitStaleScope = node => {
+    if (!node || typeof node !== 'object') return;
+    if (node.props?.['data-testid']) staleScopeTestIds.push(node.props['data-testid']);
+    const children = Array.isArray(node.children) ? node.children : [node.children];
+    children.forEach(visitStaleScope);
+  };
+  visitStaleScope(staleScopeTree);
+  assert.ok(staleScopeTestIds.includes('automation-collection-run-receipt'));
+  assert.ok(staleScopeTestIds.includes('automation-collection-run-empty'));
+  assert.ok(!staleScopeTestIds.includes('automation-run-ctrip'));
+  assert.ok(!staleScopeTestIds.includes('automation-run-meituan'));
 });

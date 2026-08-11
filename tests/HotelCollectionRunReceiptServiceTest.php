@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace tests;
 
+use app\service\DualOtaPageVerificationService;
 use app\service\HotelCollectionRunReceiptService;
 use app\service\OtaCollectionAnchorService;
 use PHPUnit\Framework\TestCase;
@@ -55,8 +56,10 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
     protected function setUp(): void
     {
         foreach ([
+            'operation_logs',
             'hotel_collection_plan_run_sources',
             'hotel_collection_plan_runs',
+            'dingdandao_operating_target_captures',
             'ota_local_collector_tasks',
             'ota_local_collector_account_hotels',
             'ota_local_collector_accounts',
@@ -119,6 +122,223 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
         }
     }
 
+    public function testPublicReadbackSeparatesLedgerStructureFromActiveAndTerminalState(): void
+    {
+        $service = new HotelCollectionRunReceiptService();
+        $startedRunId = '11111111-1111-4111-8111-111111111112';
+        $started = $service->begin($this->gate($startedRunId, true));
+
+        self::assertSame('started', $started['status']);
+        self::assertTrue($started['ledger_structure_verified']);
+        self::assertFalse($started['readback_verified']);
+
+        $runningResult = $this->platformResult(
+            $startedRunId,
+            'ctrip',
+            self::CTRIP_SOURCE_ID,
+            590,
+            [],
+            false,
+            false,
+            0,
+            0
+        );
+        $runningResult['status'] = 'running';
+        $inProgress = $service->recordPlatformResults(
+            $startedRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            [$runningResult]
+        );
+        self::assertSame('in_progress', $inProgress['status']);
+        self::assertTrue($inProgress['ledger_structure_verified']);
+        self::assertFalse($inProgress['readback_verified']);
+
+        $blockedRunId = '11111111-1111-4111-8111-111111111113';
+        $blocked = $service->begin($this->gate($blockedRunId, false));
+        self::assertSame('blocked', $blocked['status']);
+        self::assertTrue($blocked['ledger_structure_verified']);
+        self::assertTrue($blocked['readback_verified']);
+
+        $blockedParent = $this->parent($blockedRunId);
+        Db::name('hotel_collection_plan_run_sources')
+            ->where('run_id', (int)$blockedParent['id'])
+            ->where('platform', 'ctrip')
+            ->update(['finished_at' => null]);
+        $inconsistent = $service->readExact(
+            $blockedRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertTrue($inconsistent['ledger_structure_verified']);
+        self::assertFalse($inconsistent['readback_verified']);
+    }
+
+    public function testExactNoCollectionAndIncompleteTerminalReceiptsRemainReadable(): void
+    {
+        $service = new HotelCollectionRunReceiptService();
+        $noCollectionRunId = '11111111-1111-4111-8111-111111111114';
+        $service->begin($this->gate($noCollectionRunId, true));
+        $noCollection = $service->markNoCollectionOutcome(
+            $noCollectionRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            'retry_cooldown'
+        );
+        self::assertTrue($noCollection['ledger_structure_verified']);
+        self::assertTrue($noCollection['readback_verified']);
+
+        $partialRunId = '11111111-1111-4111-8111-111111111115';
+        $prepared = $this->prepareDualSuccess($partialRunId, 14900, 24900);
+        $partial = $prepared['service']->finalizeCollection(
+            $partialRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            $prepared['receipt'],
+            false
+        );
+        self::assertSame('partial', $partial['status']);
+        self::assertTrue($partial['ledger_structure_verified']);
+        self::assertTrue($partial['readback_verified']);
+
+        Db::name('hotel_collection_plan_runs')
+            ->where('id', (int)$partial['id'])
+            ->update(['finished_at' => null]);
+        $nonTerminal = $prepared['service']->readExact(
+            $partialRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertTrue($nonTerminal['ledger_structure_verified']);
+        self::assertFalse($nonTerminal['readback_verified']);
+    }
+
+    public function testSucceededReadbackFailsClosedWhenCountsOrTrustEvidenceDrift(): void
+    {
+        $dispatcherRunId = '11111111-1111-4111-8111-111111111116';
+        $prepared = $this->finalizeDualSuccess($dispatcherRunId, 14920, 24920);
+        $verified = $prepared['service']->readExact(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertTrue($verified['ledger_structure_verified']);
+        self::assertTrue($verified['readback_verified']);
+        $verifiedSources = array_column($verified['source_receipts'], null, 'platform');
+        $ctripSource = $verifiedSources['ctrip'];
+
+        Db::name('hotel_collection_plan_run_sources')
+            ->where('run_id', (int)$verified['id'])
+            ->where('platform', 'ctrip')
+            ->update(['saved_row_count' => 0]);
+        $badCounts = $prepared['service']->readExact(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertTrue($badCounts['ledger_structure_verified']);
+        self::assertFalse($badCounts['readback_verified']);
+
+        Db::name('hotel_collection_plan_run_sources')
+            ->where('run_id', (int)$verified['id'])
+            ->where('platform', 'ctrip')
+            ->update(['saved_row_count' => (int)$ctripSource['saved_row_count']]);
+        Db::name('hotel_collection_plan_run_sources')
+            ->where('run_id', (int)$verified['id'])
+            ->where('platform', 'ctrip')
+            ->update([
+                'platform_sync_task_id' => (int)$ctripSource['platform_sync_task_id'] + 1,
+            ]);
+        $badTask = $prepared['service']->readExact(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertTrue($badTask['ledger_structure_verified']);
+        self::assertFalse($badTask['readback_verified']);
+
+        Db::name('hotel_collection_plan_run_sources')
+            ->where('run_id', (int)$verified['id'])
+            ->where('platform', 'ctrip')
+            ->update([
+                'platform_sync_task_id' => (int)$ctripSource['platform_sync_task_id'],
+            ]);
+        Db::name('hotel_collection_plan_runs')
+            ->where('id', (int)$verified['id'])
+            ->update(['trust_receipt_digest' => str_repeat('f', 64)]);
+        $badTrust = $prepared['service']->readExact(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertTrue($badTrust['ledger_structure_verified']);
+        self::assertFalse($badTrust['readback_verified']);
+    }
+
+    public function testPageAndPmsPublicReadbackHideInconsistentSidecarEvidence(): void
+    {
+        $dispatcherRunId = '11111111-1111-4111-8111-111111111117';
+        $prepared = $this->prepareDualSuccess(
+            $dispatcherRunId,
+            14940,
+            24940,
+            'dingdandao_pms'
+        );
+        $prepared['service']->finalizeCollection(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            $prepared['receipt'],
+            true
+        );
+        $contract = $this->pageContract($prepared);
+        $confirmed = $this->insertPageEvidence($contract);
+        $prepared['service']->recordPageAcceptance(
+            self::TENANT_ID,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            $confirmed,
+            $contract
+        );
+        $this->seedPmsCapture(8091);
+        $verified = $prepared['service']->recordPmsCapture(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            'dingdandao_pms',
+            8091
+        );
+        self::assertTrue($verified['page_acceptance']['readback_verified']);
+        self::assertTrue($verified['pms_receipt']['readback_verified']);
+
+        Db::name('hotel_collection_plan_run_sources')
+            ->where('run_id', (int)$verified['id'])
+            ->where('platform', 'ctrip')
+            ->update(['page_acceptance_log_id' => (int)$confirmed['receipt_id'] + 1]);
+        Db::name('hotel_collection_plan_runs')
+            ->where('id', (int)$verified['id'])
+            ->update(['pms_provider' => 'foreign_pms']);
+
+        $inconsistent = $prepared['service']->readExact(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertSame('conflict', $inconsistent['page_acceptance']['status']);
+        self::assertFalse($inconsistent['page_acceptance']['readback_verified']);
+        self::assertNull($inconsistent['page_acceptance']['receipt_id']);
+        self::assertNull($inconsistent['page_acceptance']['contract_hash']);
+        foreach ($inconsistent['source_receipts'] as $sourceReceipt) {
+            self::assertSame('conflict', $sourceReceipt['page_acceptance_status']);
+            self::assertNull($sourceReceipt['page_acceptance_log_id']);
+        }
+        self::assertSame('conflict', $inconsistent['pms_receipt']['status']);
+        self::assertFalse($inconsistent['pms_receipt']['readback_verified']);
+        self::assertNull($inconsistent['pms_receipt']['provider']);
+        self::assertNull($inconsistent['pms_receipt']['capture_id']);
+        self::assertTrue($inconsistent['readback_verified']);
+    }
+
     public function testBeginIsIdempotentForSameScopeAndRejectsHotelDateOrSourceDrift(): void
     {
         $dispatcherRunId = '22222222-2222-4222-8222-222222222222';
@@ -168,6 +388,418 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
 
         self::assertSame(1, Db::name('hotel_collection_plan_runs')->count());
         self::assertSame(2, Db::name('hotel_collection_plan_run_sources')->count());
+    }
+
+    public function testChangedPlanScopeSealsTheActiveRunWithoutBorrowingOrDeletingProducerEvidence(): void
+    {
+        $dispatcherRunId = '22333333-3333-4333-8333-333333333333';
+        $service = new HotelCollectionRunReceiptService();
+        $service->begin($this->gate($dispatcherRunId, true));
+        $running = $this->platformResult(
+            $dispatcherRunId,
+            'ctrip',
+            self::CTRIP_SOURCE_ID,
+            591,
+            [],
+            false,
+            false,
+            0,
+            0
+        );
+        $running['status'] = 'running';
+        $service->recordPlatformResults(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            [$running]
+        );
+        $parentBefore = $this->parent($dispatcherRunId);
+        $childrenBefore = array_column(
+            $this->children((int)$parentBefore['id']),
+            null,
+            'platform'
+        );
+
+        $changedGate = $this->gate($dispatcherRunId, true);
+        $changedGate['plan_version'] = 2;
+        $changedGate['plan_hash'] = str_repeat('c', 64);
+        $changedGate['scope_hash'] = hash('sha256', 'changed-plan-scope');
+        $this->assertRuntimeFailure(
+            'hotel_collection_run_receipt_scope_mismatch',
+            static fn() => $service->begin($changedGate)
+        );
+
+        $blocked = $service->blockScopeChangedDuringActiveRun(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertSame('blocked', $blocked['status']);
+        self::assertSame('plan_gate', $blocked['failure_stage']);
+        self::assertSame('plan_scope_changed_during_active_run', $blocked['failure_code']);
+        self::assertNull($blocked['collection_anchor_hash']);
+        self::assertNull($blocked['trust_receipt_digest']);
+        self::assertNotSame('', (string)$blocked['finished_at']);
+        self::assertTrue($blocked['ledger_structure_verified']);
+        self::assertFalse($blocked['readback_verified']);
+
+        $parentAfter = $this->parent($dispatcherRunId);
+        $childrenAfter = array_column(
+            $this->children((int)$parentAfter['id']),
+            null,
+            'platform'
+        );
+        foreach (['ctrip', 'meituan'] as $platform) {
+            self::assertSame('blocked', (string)$childrenAfter[$platform]['status']);
+            self::assertSame('plan_gate', (string)$childrenAfter[$platform]['failure_stage']);
+            self::assertSame(
+                'plan_scope_changed_during_active_run',
+                (string)$childrenAfter[$platform]['failure_code']
+            );
+            foreach ([
+                'data_source_id',
+                'ingestion_method',
+                'platform_sync_task_id',
+                'local_collector_task_id',
+                'saved_row_count',
+                'readback_row_count',
+                'readback_verified',
+                'evidence_digest',
+            ] as $field) {
+                self::assertSame(
+                    $childrenBefore[$platform][$field],
+                    $childrenAfter[$platform][$field],
+                    $platform . ':' . $field
+                );
+            }
+        }
+
+        $replayed = $service->blockScopeChangedDuringActiveRun(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertSame($blocked, $replayed);
+        self::assertSame($parentAfter, $this->parent($dispatcherRunId));
+        self::assertSame(
+            array_values($childrenAfter),
+            $this->children((int)$parentAfter['id'])
+        );
+    }
+
+    public function testVerifiedPmsCaptureIsIdempotentAndCannotChangeOtaTrustState(): void
+    {
+        $dispatcherRunId = '2d000000-0000-4000-8000-000000000001';
+        $prepared = $this->prepareDualSuccess(
+            $dispatcherRunId,
+            15000,
+            25000,
+            'dingdandao_pms'
+        );
+        $service = $prepared['service'];
+        $service->finalizeCollection(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            $prepared['receipt'],
+            true
+        );
+        $this->seedPmsCapture(8101);
+        $this->seedPmsCapture(8102);
+        $before = $this->parent($dispatcherRunId);
+        $childrenBefore = $this->children((int)$before['id']);
+
+        $receipt = $service->recordPmsCapture(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            'dingdandao_pms',
+            8101
+        );
+        $after = $this->parent($dispatcherRunId);
+
+        self::assertSame('dingdandao_pms', $receipt['pms_receipt']['provider']);
+        self::assertSame('verified', $receipt['pms_receipt']['status']);
+        self::assertSame('8101', $receipt['pms_receipt']['capture_id']);
+        self::assertTrue($receipt['pms_receipt']['readback_verified']);
+        self::assertSame('succeeded', (string)$after['status']);
+        self::assertSame((string)$before['collection_anchor_hash'], (string)$after['collection_anchor_hash']);
+        self::assertSame((string)$before['trust_receipt_digest'], (string)$after['trust_receipt_digest']);
+        self::assertSame($childrenBefore, $this->children((int)$before['id']));
+
+        $beforeWithoutPms = $before;
+        $afterWithoutPms = $after;
+        foreach (['pms_status', 'pms_provider', 'pms_capture_id', 'pms_readback_verified'] as $field) {
+            unset($beforeWithoutPms[$field], $afterWithoutPms[$field]);
+        }
+        self::assertSame($beforeWithoutPms, $afterWithoutPms);
+
+        $replayed = $service->recordPmsCapture(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            'dingdandao_pms',
+            8101
+        );
+        self::assertSame($receipt, $replayed);
+        self::assertSame($after, $this->parent($dispatcherRunId));
+        self::assertSame($childrenBefore, $this->children((int)$before['id']));
+
+        $this->assertRuntimeFailure(
+            'hotel_collection_run_pms_capture_conflict',
+            static fn() => $service->recordPmsCapture(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                'dingdandao_pms',
+                8102
+            )
+        );
+        self::assertSame($after, $this->parent($dispatcherRunId));
+        self::assertSame($childrenBefore, $this->children((int)$before['id']));
+    }
+
+    public function testPmsCaptureRejectsProviderScopeAndReadbackDriftWithoutMutation(): void
+    {
+        $dispatcherRunId = '2e000000-0000-4000-8000-000000000001';
+        $service = new HotelCollectionRunReceiptService();
+        $gate = $this->gate($dispatcherRunId, true);
+        $gate['sources']['pms'] = ['provider' => 'dingdandao_pms'];
+        $service->begin($gate);
+        $before = $this->parent($dispatcherRunId);
+        $childrenBefore = $this->children((int)$before['id']);
+        $this->seedPmsCapture(8201, 81);
+        $this->seedPmsCapture(8202, self::HOTEL_ID, '2026-08-08');
+        $this->seedPmsCapture(8203, self::HOTEL_ID, self::BUSINESS_DATE, 'pending');
+        $this->seedPmsCapture(8204);
+
+        foreach ([8201, 8202] as $captureId) {
+            $this->assertRuntimeFailure(
+                'hotel_collection_run_pms_capture_scope_mismatch',
+                static fn() => $service->recordPmsCapture(
+                    $dispatcherRunId,
+                    self::HOTEL_ID,
+                    self::BUSINESS_DATE,
+                    'dingdandao_pms',
+                    $captureId
+                )
+            );
+        }
+        $this->assertRuntimeFailure(
+            'hotel_collection_run_pms_capture_not_verified',
+            static fn() => $service->recordPmsCapture(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                'dingdandao_pms',
+                8203
+            )
+        );
+        $this->assertRuntimeFailure(
+            'hotel_collection_run_pms_provider_unsupported',
+            static fn() => $service->recordPmsCapture(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                'dingdandao',
+                8204
+            )
+        );
+        self::assertSame($before, $this->parent($dispatcherRunId));
+        self::assertSame($childrenBefore, $this->children((int)$before['id']));
+
+        $providerMismatchRunId = '2e000000-0000-4000-8000-000000000002';
+        $service->begin($this->gate($providerMismatchRunId, true));
+        $providerMismatchBefore = $this->parent($providerMismatchRunId);
+        $this->assertRuntimeFailure(
+            'hotel_collection_run_pms_provider_mismatch',
+            static fn() => $service->recordPmsCapture(
+                $providerMismatchRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                'dingdandao_pms',
+                8204
+            )
+        );
+        self::assertSame($providerMismatchBefore, $this->parent($providerMismatchRunId));
+    }
+
+    public function testNoCollectionOutcomesCloseParentAndBothSourcesWithoutBorrowingAnAnchor(): void
+    {
+        $cases = [
+            'verified_cache_reused' => [
+                'dispatcher_run_id' => '2a000000-0000-4000-8000-000000000001',
+                'status' => 'skipped',
+                'failure_stage' => 'scheduler_cache',
+            ],
+            'retry_cooldown' => [
+                'dispatcher_run_id' => '2a000000-0000-4000-8000-000000000002',
+                'status' => 'deferred',
+                'failure_stage' => 'scheduler_retry',
+            ],
+            'retry_exhausted' => [
+                'dispatcher_run_id' => '2a000000-0000-4000-8000-000000000003',
+                'status' => 'blocked',
+                'failure_stage' => 'scheduler_retry',
+            ],
+            'profile_locked' => [
+                'dispatcher_run_id' => '2a000000-0000-4000-8000-000000000004',
+                'status' => 'deferred',
+                'failure_stage' => 'scheduler_lock',
+            ],
+        ];
+        $service = new HotelCollectionRunReceiptService();
+
+        foreach ($cases as $outcomeCode => $case) {
+            $dispatcherRunId = (string)$case['dispatcher_run_id'];
+            $service->begin($this->gate($dispatcherRunId, true));
+
+            $first = $service->markNoCollectionOutcome(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                $outcomeCode
+            );
+            $parent = $this->parent($dispatcherRunId);
+            $children = $this->children((int)$parent['id']);
+
+            self::assertSame((string)$case['status'], (string)$parent['status'], $outcomeCode);
+            self::assertSame(
+                (string)$case['failure_stage'],
+                (string)$parent['failure_stage'],
+                $outcomeCode
+            );
+            self::assertSame($outcomeCode, (string)$parent['failure_code'], $outcomeCode);
+            self::assertNotSame('', trim((string)$parent['finished_at']), $outcomeCode);
+            self::assertNull($parent['collection_anchor_contract_version'], $outcomeCode);
+            self::assertNull($parent['collection_anchor_hash'], $outcomeCode);
+            self::assertNull($parent['trust_receipt_digest'], $outcomeCode);
+            $parentReceipt = json_decode((string)$parent['receipt_json'], true, 512, JSON_THROW_ON_ERROR);
+            self::assertTrue($parentReceipt['no_collection_outcome'], $outcomeCode);
+            self::assertFalse($parentReceipt['collection_verified'], $outcomeCode);
+            self::assertSame($outcomeCode, $parentReceipt['outcome_code'], $outcomeCode);
+
+            self::assertSame((string)$case['status'], $first['status'], $outcomeCode);
+            self::assertSame($outcomeCode, $first['failure_code'], $outcomeCode);
+            self::assertNull($first['collection_anchor_contract_version'], $outcomeCode);
+            self::assertNull($first['collection_anchor_hash'], $outcomeCode);
+            self::assertNull($first['trust_receipt_digest'], $outcomeCode);
+            self::assertSame((string)$parent['finished_at'], $first['finished_at'], $outcomeCode);
+            self::assertCount(2, $children, $outcomeCode);
+            foreach ($children as $child) {
+                self::assertSame((string)$case['status'], (string)$child['status'], $outcomeCode);
+                self::assertSame(
+                    (string)$case['failure_stage'],
+                    (string)$child['failure_stage'],
+                    $outcomeCode
+                );
+                self::assertSame($outcomeCode, (string)$child['failure_code'], $outcomeCode);
+                self::assertSame((string)$parent['finished_at'], (string)$child['finished_at'], $outcomeCode);
+                self::assertNull($child['platform_sync_task_id'], $outcomeCode);
+                self::assertNull($child['local_collector_task_id'], $outcomeCode);
+                self::assertSame(0, (int)$child['saved_row_count'], $outcomeCode);
+                self::assertSame(0, (int)$child['readback_row_count'], $outcomeCode);
+                self::assertSame(0, (int)$child['readback_verified'], $outcomeCode);
+                self::assertNull($child['evidence_digest'], $outcomeCode);
+                $sourceReceipt = json_decode(
+                    (string)$child['receipt_json'],
+                    true,
+                    512,
+                    JSON_THROW_ON_ERROR
+                );
+                self::assertTrue($sourceReceipt['no_collection_outcome'], $outcomeCode);
+                self::assertSame($outcomeCode, $sourceReceipt['outcome_code'], $outcomeCode);
+            }
+
+            $beforeReplay = [
+                'parent' => $parent,
+                'children' => $children,
+            ];
+            $replayed = $service->markNoCollectionOutcome(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                $outcomeCode
+            );
+            self::assertSame((string)$case['status'], $replayed['status'], $outcomeCode);
+            self::assertSame($outcomeCode, $replayed['failure_code'], $outcomeCode);
+            self::assertSame($beforeReplay, [
+                'parent' => $this->parent($dispatcherRunId),
+                'children' => $this->children((int)$parent['id']),
+            ], $outcomeCode . ' replay must not mutate terminal evidence');
+        }
+    }
+
+    public function testNoCollectionOutcomeCannotChangeReasonForTheSameDispatcher(): void
+    {
+        $dispatcherRunId = '2b000000-0000-4000-8000-000000000001';
+        $service = new HotelCollectionRunReceiptService();
+        $service->begin($this->gate($dispatcherRunId, true));
+        $service->markNoCollectionOutcome(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            'retry_cooldown'
+        );
+        $parentBefore = $this->parent($dispatcherRunId);
+        $childrenBefore = $this->children((int)$parentBefore['id']);
+
+        $this->assertRuntimeFailure(
+            'hotel_collection_run_no_collection_outcome_conflict',
+            static fn() => $service->markNoCollectionOutcome(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                'profile_locked'
+            )
+        );
+
+        self::assertSame($parentBefore, $this->parent($dispatcherRunId));
+        self::assertSame($childrenBefore, $this->children((int)$parentBefore['id']));
+    }
+
+    public function testNoCollectionOutcomeCannotOverwritePersistedTaskAndRowEvidence(): void
+    {
+        $dispatcherRunId = '2c000000-0000-4000-8000-000000000001';
+        $service = new HotelCollectionRunReceiptService();
+        $service->begin($this->gate($dispatcherRunId, true));
+        $ctrip = $this->platformResult(
+            $dispatcherRunId,
+            'ctrip',
+            self::CTRIP_SOURCE_ID,
+            16001,
+            [26001],
+            true,
+            true,
+            1,
+            1
+        );
+        $this->seedResultEvidence($ctrip);
+        $service->recordPlatformResults(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            [$ctrip]
+        );
+        $parentBefore = $this->parent($dispatcherRunId);
+        $childrenBefore = $this->children((int)$parentBefore['id']);
+        $ctripBefore = array_column($childrenBefore, null, 'platform')['ctrip'];
+        self::assertSame(16001, (int)$ctripBefore['platform_sync_task_id']);
+        self::assertSame(1, (int)$ctripBefore['readback_verified']);
+        self::assertNotSame('', trim((string)$ctripBefore['evidence_digest']));
+
+        $this->assertRuntimeFailure(
+            'hotel_collection_run_no_collection_outcome_conflict',
+            static fn() => $service->markNoCollectionOutcome(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                'verified_cache_reused'
+            )
+        );
+
+        self::assertSame($parentBefore, $this->parent($dispatcherRunId));
+        self::assertSame($childrenBefore, $this->children((int)$parentBefore['id']));
     }
 
     public function testOneSuccessfulAndOneFailedSourceCannotCreateSuccessAnchor(): void
@@ -293,6 +925,36 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
         self::assertSame($receipt['collection_anchor_hash'], $readback['collection_anchor_hash']);
         self::assertTrue($readback['readback_verified']);
         self::assertCount(2, $readback['source_receipts']);
+        self::assertTrue($service->sourceEvidenceCurrent(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            'ctrip',
+            self::CTRIP_SOURCE_ID,
+            601,
+            0,
+            [1101, 1102]
+        ));
+        self::assertTrue($service->sourceEvidenceCurrent(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            'meituan',
+            self::MEITUAN_SOURCE_ID,
+            602,
+            0,
+            [1201]
+        ));
+        self::assertFalse($service->sourceEvidenceCurrent(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            'ctrip',
+            self::CTRIP_SOURCE_ID,
+            601,
+            0,
+            [1101]
+        ));
     }
 
     public function testReadbackFalseOrZeroRowsCanNeverCreateAnchor(): void
@@ -704,6 +1366,289 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
         self::assertSame($trustDigest, (string)$after['trust_receipt_digest']);
     }
 
+    public function testRecordPageAcceptanceIsExactIdempotentAndPreservesCollectionTruth(): void
+    {
+        $dispatcherRunId = '94000000-0000-4000-8000-000000000001';
+        $prepared = $this->finalizeDualSuccess($dispatcherRunId, 15000, 25000);
+        $beforeParent = $this->parent($dispatcherRunId);
+        $beforeChildren = array_column(
+            $this->children((int)$beforeParent['id']),
+            null,
+            'platform'
+        );
+        $contract = $this->pageContract($prepared);
+        $confirmed = $this->insertPageEvidence($contract);
+
+        $first = $prepared['service']->recordPageAcceptance(
+            self::TENANT_ID,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            $confirmed,
+            $contract
+        );
+        $second = $prepared['service']->recordPageAcceptance(
+            self::TENANT_ID,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            $confirmed,
+            $contract
+        );
+
+        self::assertSame('verified', $first['page_acceptance']['status']);
+        self::assertSame($confirmed['receipt_id'], $first['page_acceptance']['receipt_id']);
+        self::assertSame($confirmed['contract_hash'], $first['page_acceptance']['contract_hash']);
+        self::assertSame($first['page_acceptance'], $second['page_acceptance']);
+        $afterParent = $this->parent($dispatcherRunId);
+        self::assertSame((string)$beforeParent['status'], (string)$afterParent['status']);
+        self::assertSame(
+            (string)$beforeParent['collection_anchor_contract_version'],
+            (string)$afterParent['collection_anchor_contract_version']
+        );
+        self::assertSame(
+            (string)$beforeParent['collection_anchor_hash'],
+            (string)$afterParent['collection_anchor_hash']
+        );
+        self::assertSame(
+            (string)$beforeParent['trust_receipt_digest'],
+            (string)$afterParent['trust_receipt_digest']
+        );
+        self::assertSame('verified', (string)$afterParent['page_status']);
+        self::assertSame($confirmed['receipt_id'], (int)$afterParent['page_receipt_id']);
+        self::assertSame($confirmed['contract_hash'], (string)$afterParent['page_contract_hash']);
+
+        $afterChildren = array_column(
+            $this->children((int)$afterParent['id']),
+            null,
+            'platform'
+        );
+        foreach (['ctrip', 'meituan'] as $platform) {
+            self::assertSame('verified', (string)$afterChildren[$platform]['page_acceptance_status']);
+            self::assertSame(
+                $confirmed['receipt_id'],
+                (int)$afterChildren[$platform]['page_acceptance_log_id']
+            );
+            foreach ([
+                'data_source_id',
+                'platform_sync_task_id',
+                'status',
+                'saved_row_count',
+                'readback_row_count',
+                'readback_verified',
+                'evidence_digest',
+            ] as $field) {
+                self::assertSame(
+                    (string)$beforeChildren[$platform][$field],
+                    (string)$afterChildren[$platform][$field],
+                    $platform . ':' . $field
+                );
+            }
+        }
+
+        $conflictingContract = $contract;
+        $conflictingContract['hotel_name'] = 'Hotel 80 renamed after confirmation';
+        $conflictingReceipt = $this->insertPageEvidence($conflictingContract);
+        $this->assertRuntimeFailure(
+            'hotel_collection_page_acceptance_conflict',
+            static fn() => $prepared['service']->recordPageAcceptance(
+                self::TENANT_ID,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                $conflictingReceipt,
+                $conflictingContract
+            )
+        );
+        $afterConflict = $this->parent($dispatcherRunId);
+        self::assertSame($confirmed['receipt_id'], (int)$afterConflict['page_receipt_id']);
+        self::assertSame($confirmed['contract_hash'], (string)$afterConflict['page_contract_hash']);
+        self::assertSame(
+            (string)$beforeParent['collection_anchor_hash'],
+            (string)$afterConflict['collection_anchor_hash']
+        );
+    }
+
+    public function testRecordPageAcceptanceRejectsAFormallyShapedButUntrustedSucceededRun(): void
+    {
+        $dispatcherRunId = '94000000-0000-4000-8000-000000000007';
+        $prepared = $this->finalizeDualSuccess($dispatcherRunId, 15500, 25500);
+        $parent = $this->parent($dispatcherRunId);
+        Db::name('hotel_collection_plan_runs')
+            ->where('id', (int)$parent['id'])
+            ->update(['trust_receipt_digest' => hash('sha256', 'drifted-valid-shape')]);
+
+        $untrusted = $prepared['service']->readExact(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertSame('succeeded', $untrusted['status']);
+        self::assertTrue($untrusted['ledger_structure_verified']);
+        self::assertFalse($untrusted['readback_verified']);
+
+        $contract = $this->pageContract($prepared);
+        $confirmed = $this->insertPageEvidence($contract);
+        $this->assertRuntimeFailure(
+            'hotel_collection_page_run_not_found',
+            static fn() => $prepared['service']->recordPageAcceptance(
+                self::TENANT_ID,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                $confirmed,
+                $contract
+            )
+        );
+
+        $after = $this->parent($dispatcherRunId);
+        self::assertSame('not_evaluated', (string)$after['page_status']);
+        self::assertNull($after['page_receipt_id']);
+        self::assertNull($after['page_contract_hash']);
+        foreach ($this->children((int)$after['id']) as $child) {
+            self::assertSame('not_evaluated', (string)$child['page_acceptance_status']);
+            self::assertNull($child['page_acceptance_log_id']);
+        }
+    }
+
+    public function testRecordPageAcceptanceRejectsCrossHotelWrongTaskAndForgedEvidence(): void
+    {
+        $crossDispatcher = '94000000-0000-4000-8000-000000000002';
+        $cross = $this->finalizeDualSuccess($crossDispatcher, 15100, 25100);
+        $crossParent = $this->parent($crossDispatcher);
+        $crossContract = $this->pageContract($cross);
+        $crossReceipt = $this->insertPageEvidence($crossContract, [], 81);
+        $this->assertRuntimeFailure(
+            'hotel_collection_page_evidence_invalid',
+            static fn() => $cross['service']->recordPageAcceptance(
+                self::TENANT_ID,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                $crossReceipt,
+                $crossContract
+            )
+        );
+        $crossAfter = $this->parent($crossDispatcher);
+        self::assertSame('not_evaluated', (string)$crossAfter['page_status']);
+        self::assertSame(
+            (string)$crossParent['collection_anchor_hash'],
+            (string)$crossAfter['collection_anchor_hash']
+        );
+
+        $taskDispatcher = '94000000-0000-4000-8000-000000000003';
+        $wrongTask = $this->finalizeDualSuccess($taskDispatcher, 15200, 25200);
+        $taskParent = $this->parent($taskDispatcher);
+        $wrongTaskContract = $this->pageContract($wrongTask);
+        $wrongTaskContract['platforms'][0]['sync_task_id'] += 9000;
+        $wrongTaskReceipt = $this->insertPageEvidence($wrongTaskContract);
+        $this->assertRuntimeFailure(
+            'hotel_collection_page_run_not_found',
+            static fn() => $wrongTask['service']->recordPageAcceptance(
+                self::TENANT_ID,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                $wrongTaskReceipt,
+                $wrongTaskContract
+            )
+        );
+        $taskAfter = $this->parent($taskDispatcher);
+        self::assertSame('not_evaluated', (string)$taskAfter['page_status']);
+        self::assertSame(
+            (string)$taskParent['collection_anchor_hash'],
+            (string)$taskAfter['collection_anchor_hash']
+        );
+
+        $fakeDispatcher = '94000000-0000-4000-8000-000000000004';
+        $fake = $this->finalizeDualSuccess($fakeDispatcher, 15300, 25300);
+        $fakeParent = $this->parent($fakeDispatcher);
+        $fakeContract = $this->pageContract($fake);
+        $wrongActionReceipt = $this->insertPageEvidence(
+            $fakeContract,
+            [],
+            null,
+            DualOtaPageVerificationService::MODULE,
+            'unrelated_page_confirmation'
+        );
+        $this->assertRuntimeFailure(
+            'hotel_collection_page_evidence_invalid',
+            static fn() => $fake['service']->recordPageAcceptance(
+                self::TENANT_ID,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                $wrongActionReceipt,
+                $fakeContract
+            )
+        );
+        $tamperedReceipt = $this->insertPageEvidence($fakeContract, ['outcome' => 'failed']);
+        $this->assertRuntimeFailure(
+            'hotel_collection_page_evidence_invalid',
+            static fn() => $fake['service']->recordPageAcceptance(
+                self::TENANT_ID,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                $tamperedReceipt,
+                $fakeContract
+            )
+        );
+        $fakeAfter = $this->parent($fakeDispatcher);
+        self::assertSame('not_evaluated', (string)$fakeAfter['page_status']);
+        self::assertNull($fakeAfter['page_receipt_id']);
+        self::assertSame(
+            (string)$fakeParent['collection_anchor_hash'],
+            (string)$fakeAfter['collection_anchor_hash']
+        );
+    }
+
+    public function testRecordPageAcceptanceIgnoresCopiedLedgerRowsWithoutIndependentProducerEvidence(): void
+    {
+        $dispatcherRunId = '94000000-0000-4000-8000-000000000005';
+        $prepared = $this->finalizeDualSuccess($dispatcherRunId, 15400, 25400);
+        $original = $this->parent($dispatcherRunId);
+        $originalChildren = $this->children((int)$original['id']);
+
+        $duplicate = $original;
+        unset($duplicate['id']);
+        $duplicate['dispatcher_run_id'] = '94000000-0000-4000-8000-000000000006';
+        $duplicateRunId = (int)Db::name('hotel_collection_plan_runs')->insertGetId($duplicate);
+        self::assertGreaterThan(0, $duplicateRunId);
+        foreach ($originalChildren as $child) {
+            unset($child['id']);
+            $child['run_id'] = $duplicateRunId;
+            Db::name('hotel_collection_plan_run_sources')->insert($child);
+        }
+
+        $contract = $this->pageContract($prepared);
+        $confirmed = $this->insertPageEvidence($contract);
+        $attached = $prepared['service']->recordPageAcceptance(
+            self::TENANT_ID,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            $confirmed,
+            $contract
+        );
+        self::assertSame($dispatcherRunId, $attached['dispatcher_run_id']);
+        self::assertSame('verified', $attached['page_acceptance']['status']);
+        self::assertTrue($attached['page_acceptance']['readback_verified']);
+
+        $runs = Db::name('hotel_collection_plan_runs')
+            ->whereIn('id', [(int)$original['id'], $duplicateRunId])
+            ->order('id', 'asc')
+            ->select()
+            ->toArray();
+        self::assertCount(2, $runs);
+        $runsById = array_column($runs, null, 'id');
+        $writtenOriginal = $runsById[(int)$original['id']];
+        $writtenDuplicate = $runsById[$duplicateRunId];
+        self::assertSame('verified', (string)$writtenOriginal['page_status']);
+        self::assertSame($confirmed['receipt_id'], (int)$writtenOriginal['page_receipt_id']);
+        self::assertSame('not_evaluated', (string)$writtenDuplicate['page_status']);
+        self::assertNull($writtenDuplicate['page_receipt_id']);
+        foreach ($this->children((int)$original['id']) as $child) {
+            self::assertSame('verified', (string)$child['page_acceptance_status']);
+            self::assertSame($confirmed['receipt_id'], (int)$child['page_acceptance_log_id']);
+        }
+        foreach ($this->children($duplicateRunId) as $child) {
+            self::assertSame('not_evaluated', (string)$child['page_acceptance_status']);
+            self::assertNull($child['page_acceptance_log_id']);
+        }
+    }
+
     /** @return array<string,mixed> */
     private function gate(
         string $dispatcherRunId,
@@ -873,10 +1818,15 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
     private function prepareDualSuccess(
         string $dispatcherRunId,
         int $taskBase,
-        int $rowBase
+        int $rowBase,
+        string $pmsProvider = ''
     ): array {
         $service = new HotelCollectionRunReceiptService();
-        $service->begin($this->gate($dispatcherRunId, true));
+        $gate = $this->gate($dispatcherRunId, true);
+        if ($pmsProvider !== '') {
+            $gate['sources']['pms'] = ['provider' => $pmsProvider];
+        }
+        $service->begin($gate);
         $ctrip = $this->platformResult(
             $dispatcherRunId,
             'ctrip',
@@ -918,6 +1868,146 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
                 [],
                 true
             ),
+        ];
+    }
+
+    /**
+     * @return array{
+     *   service:HotelCollectionRunReceiptService,
+     *   ctrip:array<string,mixed>,
+     *   meituan:array<string,mixed>,
+     *   receipt:array<string,mixed>
+     * }
+     */
+    private function finalizeDualSuccess(
+        string $dispatcherRunId,
+        int $taskBase,
+        int $rowBase
+    ): array {
+        $prepared = $this->prepareDualSuccess($dispatcherRunId, $taskBase, $rowBase);
+        $prepared['service']->finalizeCollection(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            $prepared['receipt'],
+            true
+        );
+        return $prepared;
+    }
+
+    /**
+     * @param array{
+     *   service:HotelCollectionRunReceiptService,
+     *   ctrip:array<string,mixed>,
+     *   meituan:array<string,mixed>,
+     *   receipt:array<string,mixed>
+     * } $prepared
+     * @return array<string,mixed>
+     */
+    private function pageContract(array $prepared): array
+    {
+        $platforms = [];
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $result = $prepared[$platform];
+            $platforms[] = [
+                'platform' => $platform,
+                'acceptance_status' => 'verified',
+                'system_hotel_id' => self::HOTEL_ID,
+                'platform_hotel_id' => $platform . '-hotel-80',
+                'platform_hotel_status' => 'bound',
+                'target_date' => self::BUSINESS_DATE,
+                'observed_target_date' => self::BUSINESS_DATE,
+                'target_date_status' => 'exact',
+                'captured_at' => '2026-08-10T08:00:00+08:00',
+                'source_method' => 'verified_test_fixture',
+                'capture_strategy' => [
+                    'selected' => 'structured_response',
+                    'status' => 'verified',
+                    'response_evidence_type' => 'json',
+                ],
+                'data_source_id' => (int)$result['data_source_id'],
+                'sync_task_id' => (int)$result['platform_sync_task_id'],
+                'sync_task_status' => 'success',
+                'data_period' => 'historical_daily',
+                'counts' => [
+                    'saved' => (int)$result['saved_count'],
+                    'readback' => (int)$result['readback_count'],
+                    'saved_readback_match' => true,
+                    'target_saved' => (int)$result['saved_count'],
+                    'target_readback' => (int)$result['readback_count'],
+                    'target_saved_readback_match' => true,
+                ],
+                'critical_fields' => [
+                    'complete' => ['data_source_id', 'sync_task_id'],
+                    'missing' => [],
+                    'status' => 'complete',
+                ],
+                'claim_allowed' => true,
+                'reason_codes' => [],
+            ];
+        }
+        return [
+            'contract_version' => DualOtaPageVerificationService::CONTRACT_VERSION,
+            'tenant_id' => self::TENANT_ID,
+            'hotel_id' => self::HOTEL_ID,
+            'hotel_name' => 'Hotel 80',
+            'target_date' => self::BUSINESS_DATE,
+            'day_acceptance_status' => 'verified',
+            'platforms' => $platforms,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $contract
+     * @param array<string,mixed> $extraOverrides
+     * @return array<string,mixed>
+     */
+    private function insertPageEvidence(
+        array $contract,
+        array $extraOverrides = [],
+        ?int $logHotelId = null,
+        string $module = DualOtaPageVerificationService::MODULE,
+        string $action = DualOtaPageVerificationService::ACTION
+    ): array {
+        $contractHash = DualOtaPageVerificationService::contractHash($contract);
+        $extra = array_replace([
+            'contract_version' => DualOtaPageVerificationService::CONTRACT_VERSION,
+            'contract_hash' => $contractHash,
+            'tenant_id' => self::TENANT_ID,
+            'hotel_id' => self::HOTEL_ID,
+            'target_date' => self::BUSINESS_DATE,
+            'surface' => 'online_data.dual_ota_continuous_trust',
+            'contract' => $contract,
+            'outcome' => 'success',
+        ], $extraOverrides);
+        $receiptId = (int)Db::name('operation_logs')->insertGetId([
+            'tenant_id' => self::TENANT_ID,
+            'user_id' => 7,
+            'hotel_id' => $logHotelId ?? self::HOTEL_ID,
+            'module' => $module,
+            'action' => $action,
+            'description' => 'dual_ota_page:v1:'
+                . self::BUSINESS_DATE
+                . ':'
+                . $contractHash,
+            'extra_data' => json_encode(
+                $extra,
+                JSON_UNESCAPED_UNICODE
+                    | JSON_UNESCAPED_SLASHES
+                    | JSON_PRESERVE_ZERO_FRACTION
+                    | JSON_THROW_ON_ERROR
+            ),
+            'create_time' => '2026-08-10 08:30:00',
+        ]);
+        self::assertGreaterThan(0, $receiptId);
+        return [
+            'status' => 'verified',
+            'reason' => 'page_confirmation_verified',
+            'contract_version' => DualOtaPageVerificationService::CONTRACT_VERSION,
+            'contract_hash' => $contractHash,
+            'target_date' => self::BUSINESS_DATE,
+            'receipt_id' => $receiptId,
+            'readback_verified' => true,
         ];
     }
 
@@ -1075,6 +2165,26 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
                 'profile_key_hash' => $profileHash,
                 'collector_device_id_hash' => hash('sha256', $devicePublicId),
             ], JSON_THROW_ON_ERROR),
+        ]);
+    }
+
+    private function seedPmsCapture(
+        int $captureId,
+        int $hotelId = self::HOTEL_ID,
+        string $businessDate = self::BUSINESS_DATE,
+        string $readbackStatus = 'readback_verified'
+    ): void {
+        Db::name('dingdandao_operating_target_captures')->insert([
+            'id' => $captureId,
+            'tenant_id' => self::TENANT_ID,
+            'hotel_id' => $hotelId,
+            'provider' => 'dingdandao_pms',
+            'business_date' => $businessDate,
+            'identity_status' => 'matched',
+            'capture_status' => 'verified',
+            'quality_status' => 'verified',
+            'reconciliation_status' => 'matched',
+            'readback_status' => $readbackStatus,
         ]);
     }
 
@@ -1241,6 +2351,29 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
             status TEXT NOT NULL,
             request_json TEXT NOT NULL,
             result_summary_json TEXT NOT NULL
+        )');
+        Db::execute('CREATE TABLE dingdandao_operating_target_captures (
+            id INTEGER PRIMARY KEY,
+            tenant_id INTEGER NOT NULL,
+            hotel_id INTEGER NOT NULL,
+            provider TEXT NOT NULL,
+            business_date TEXT NOT NULL,
+            identity_status TEXT NOT NULL,
+            capture_status TEXT NOT NULL,
+            quality_status TEXT NOT NULL,
+            reconciliation_status TEXT NOT NULL,
+            readback_status TEXT NOT NULL
+        )');
+        Db::execute('CREATE TABLE operation_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            user_id INTEGER NULL,
+            hotel_id INTEGER NOT NULL,
+            module TEXT NOT NULL,
+            action TEXT NOT NULL,
+            description TEXT NOT NULL,
+            extra_data TEXT NOT NULL,
+            create_time TEXT NOT NULL
         )');
         Db::execute('CREATE TABLE hotel_collection_plan_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

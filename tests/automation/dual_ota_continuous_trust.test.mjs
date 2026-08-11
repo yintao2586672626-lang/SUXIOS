@@ -133,6 +133,14 @@ test('page verification requires an explicit user click and exact persisted read
   assert.match(controller, /confirmDualOtaPageVerification\(\)/);
   assert.match(controller, /checkHotelActionPermission\(\(int\)\$hotelId, 'can_view_online_data'\)/);
   assert.match(controller, /DualOtaPageVerificationService\(\)/);
+  assert.match(controller, /HotelCollectionRunReceiptService\(\)/);
+  assert.match(controller, /->recordPageAcceptance\(/);
+  assert.match(controller, /'collection_run_attachment' => \$collectionRunAttachment/);
+  assert.match(controller, /'collection_run_receipt' => \$collectionRunReceipt/);
+  assert.match(controller, /hotel_collection_page_run_attachment_failed/);
+  assert.match(controller, /\$collectionRunReceipt\['ledger_structure_verified'\]/);
+  assert.match(controller, /\$collectionRunReceipt\['readback_verified'\]/);
+  assert.match(controller, /\$collectionRunReceipt\['page_acceptance'\]\['readback_verified'\]/);
   assert.match(controller, /force-read|force-read it|cache\(\$this->collectionReliabilityCacheKey/);
 
   assert.match(pageVerificationService, /suxios\.dual_ota_page_verification\.v1/);
@@ -171,6 +179,19 @@ test('page verification requires an explicit user click and exact persisted read
   assert.match(confirm, /freshReadback\?\.ok === true/);
   assert.match(confirm, /freshContractHash === contractHash/);
   assert.match(confirm, /freshReceiptId === savedReceiptId/);
+  assert.match(confirm, /collectionRunAttachment\.status \|\| ''/);
+  assert.match(confirm, /collectionRunAttachment\.readback_verified === true/);
+  assert.match(confirm, /collectionRunReceipt\.ledger_structure_verified === true/);
+  assert.match(confirm, /collectionRunReceipt\.readback_verified === true/);
+  assert.match(confirm, /Number\(collectionRunReceipt\.system_hotel_id \|\| 0\) === hotelId/);
+  assert.match(confirm, /String\(collectionRunReceipt\.business_date \|\| ''\)\.trim\(\) === targetDate/);
+  assert.match(confirm, /String\(runPageAcceptance\.status \|\| ''\)[\s\S]*=== 'verified'/);
+  assert.match(confirm, /runPageAcceptance\.readback_verified === true/);
+  assert.match(confirm, /页面回执已保存并回读，但未附着本次运行记录/);
+  assert.match(confirm, /showToast\(partialMessage, 'warning'\)/);
+  const attachmentGateAt = confirm.indexOf('if (!collectionRunAttached)');
+  const successToastAt = confirm.indexOf("showToast('当前双 OTA 页面已核对，精确回读通过', 'success')");
+  assert.ok(attachmentGateAt > 0 && successToastAt > attachmentGateAt);
   assert.doesNotMatch(confirm, /dualOtaPageVerificationStatus\.value/);
 });
 

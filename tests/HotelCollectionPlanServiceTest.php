@@ -46,6 +46,8 @@ final class HotelCollectionPlanServiceTest extends TestCase
 
     protected function setUp(): void
     {
+        Db::name('hotel_collection_plan_run_sources')->delete(true);
+        Db::name('hotel_collection_plan_runs')->delete(true);
         Db::name('hotel_collection_plans')->delete(true);
     }
 
@@ -114,6 +116,57 @@ final class HotelCollectionPlanServiceTest extends TestCase
         self::assertStringNotContainsString('profile_path', strtolower($json));
         self::assertStringNotContainsString('device_id', strtolower($json));
         self::assertStringNotContainsString('account_id', strtolower($json));
+    }
+
+    public function testPlanReadReturnsOnlyLatestExactHotelDateRunReceipt(): void
+    {
+        $service = $this->service($this->bindingReceipt());
+        $service->save($this->hotel(80), 7, $this->input(25, 68, true));
+
+        $this->seedRunReceipt(
+            '11111111-1111-4111-8111-111111111111',
+            80,
+            '2026-08-09',
+            25,
+            68,
+            'failed'
+        );
+        $expectedRunId = '22222222-2222-4222-8222-222222222222';
+        $this->seedRunReceipt($expectedRunId, 80, '2026-08-09', 25, 68, 'succeeded');
+        $this->seedRunReceipt(
+            '33333333-3333-4333-8333-333333333333',
+            81,
+            '2026-08-09',
+            125,
+            168,
+            'succeeded'
+        );
+        $this->seedRunReceipt(
+            '44444444-4444-4444-8444-444444444444',
+            80,
+            '2026-08-08',
+            25,
+            68,
+            'succeeded'
+        );
+
+        $readback = $service->read($this->hotel(80), 7, '2026-08-09');
+        $run = $readback['latest_run_receipt'];
+
+        self::assertSame($expectedRunId, $run['dispatcher_run_id']);
+        self::assertSame(80, $run['system_hotel_id']);
+        self::assertSame('2026-08-09', $run['business_date']);
+        self::assertSame('succeeded', $run['status']);
+        self::assertTrue($run['ledger_structure_verified']);
+        // This fixture writes only the public ledger rows; it deliberately has
+        // no producer/raw/daily evidence. The latest exact run is still shown,
+        // but a claimed `succeeded` row must not become trusted by shape alone.
+        self::assertFalse($run['readback_verified']);
+        self::assertSame([25, 68], array_column($run['source_receipts'], 'data_source_id'));
+        self::assertSame('verified', $run['pms_receipt']['status']);
+        self::assertSame('verified', $run['page_acceptance']['status']);
+        self::assertFalse($run['automatic_device_substitution']);
+        self::assertFalse($run['sensitive_values_exposed']);
     }
 
     public function testExecutionGateRejectsSourcePlatformAndModeSubstitution(): void
@@ -517,6 +570,74 @@ final class HotelCollectionPlanServiceTest extends TestCase
         ];
     }
 
+    private function seedRunReceipt(
+        string $dispatcherRunId,
+        int $hotelId,
+        string $businessDate,
+        int $ctripSourceId,
+        int $meituanSourceId,
+        string $status
+    ): void {
+        $runId = (int)Db::name('hotel_collection_plan_runs')->insertGetId([
+            'dispatcher_run_id' => $dispatcherRunId,
+            'tenant_id' => 8,
+            'system_hotel_id' => $hotelId,
+            'business_date' => $businessDate,
+            'run_mode' => 'daily',
+            'plan_id' => 1,
+            'plan_version' => 1,
+            'scope_hash' => hash('sha256', $dispatcherRunId),
+            'status' => $status,
+            'failure_stage' => $status === 'succeeded' ? '' : 'collection',
+            'failure_code' => $status === 'succeeded' ? '' : 'collection_failed',
+            'collection_anchor_contract_version' => $status === 'succeeded'
+                ? 'suxios.ota_collection_anchor.v1'
+                : null,
+            'collection_anchor_hash' => $status === 'succeeded'
+                ? hash('sha256', 'anchor-' . $dispatcherRunId)
+                : null,
+            'trust_receipt_digest' => $status === 'succeeded'
+                ? hash('sha256', 'trust-' . $dispatcherRunId)
+                : null,
+            'page_status' => $status === 'succeeded' ? 'verified' : 'not_evaluated',
+            'page_receipt_id' => $status === 'succeeded' ? 91 : null,
+            'page_contract_hash' => $status === 'succeeded'
+                ? hash('sha256', 'page-' . $dispatcherRunId)
+                : null,
+            'pms_provider' => 'dingdandao_pms',
+            'pms_status' => $status === 'succeeded' ? 'verified' : 'not_run',
+            'pms_capture_id' => $status === 'succeeded' ? '81' : null,
+            'pms_readback_verified' => $status === 'succeeded' ? 1 : null,
+            'started_at' => '2026-08-10 08:00:00',
+            'finished_at' => '2026-08-10 08:05:00',
+        ]);
+        foreach ([
+            'ctrip' => $ctripSourceId,
+            'meituan' => $meituanSourceId,
+        ] as $platform => $sourceId) {
+            Db::name('hotel_collection_plan_run_sources')->insert([
+                'run_id' => $runId,
+                'platform' => $platform,
+                'data_source_id' => $sourceId,
+                'ingestion_method' => 'local_collector',
+                'platform_sync_task_id' => $status === 'succeeded' ? $sourceId + 1000 : null,
+                'local_collector_task_id' => $status === 'succeeded' ? $sourceId + 2000 : null,
+                'status' => $status === 'succeeded' ? 'success' : 'failed',
+                'failure_stage' => $status === 'succeeded' ? '' : 'collection',
+                'failure_code' => $status === 'succeeded' ? '' : 'collection_failed',
+                'saved_row_count' => $status === 'succeeded' ? 1 : 0,
+                'readback_row_count' => $status === 'succeeded' ? 1 : 0,
+                'readback_verified' => $status === 'succeeded' ? 1 : 0,
+                'page_acceptance_status' => $status === 'succeeded'
+                    ? 'verified'
+                    : 'not_evaluated',
+                'page_acceptance_log_id' => $status === 'succeeded' ? 91 : null,
+                'started_at' => '2026-08-10 08:00:00',
+                'finished_at' => '2026-08-10 08:05:00',
+            ]);
+        }
+    }
+
     /** @return array<string,mixed> */
     private function otaBinding(
         string $platform,
@@ -574,6 +695,51 @@ final class HotelCollectionPlanServiceTest extends TestCase
             update_time TEXT NOT NULL,
             UNIQUE (tenant_id, system_hotel_id, plan_version),
             UNIQUE (tenant_id, system_hotel_id, active_slot)
+        )');
+        Db::execute('CREATE TABLE hotel_collection_plan_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dispatcher_run_id TEXT NOT NULL,
+            tenant_id INTEGER NOT NULL,
+            system_hotel_id INTEGER NOT NULL,
+            business_date TEXT NOT NULL,
+            run_mode TEXT NOT NULL,
+            plan_id INTEGER NULL,
+            plan_version INTEGER NOT NULL,
+            scope_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            failure_stage TEXT NULL,
+            failure_code TEXT NULL,
+            collection_anchor_contract_version TEXT NULL,
+            collection_anchor_hash TEXT NULL,
+            trust_receipt_digest TEXT NULL,
+            page_status TEXT NOT NULL,
+            page_receipt_id INTEGER NULL,
+            page_contract_hash TEXT NULL,
+            pms_provider TEXT NULL,
+            pms_status TEXT NOT NULL,
+            pms_capture_id TEXT NULL,
+            pms_readback_verified INTEGER NULL,
+            started_at TEXT NULL,
+            finished_at TEXT NULL
+        )');
+        Db::execute('CREATE TABLE hotel_collection_plan_run_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            platform TEXT NOT NULL,
+            data_source_id INTEGER NULL,
+            ingestion_method TEXT NOT NULL,
+            platform_sync_task_id INTEGER NULL,
+            local_collector_task_id INTEGER NULL,
+            status TEXT NOT NULL,
+            failure_stage TEXT NULL,
+            failure_code TEXT NULL,
+            saved_row_count INTEGER NOT NULL,
+            readback_row_count INTEGER NOT NULL,
+            readback_verified INTEGER NOT NULL,
+            page_acceptance_status TEXT NOT NULL,
+            page_acceptance_log_id INTEGER NULL,
+            started_at TEXT NULL,
+            finished_at TEXT NULL
         )');
     }
 }

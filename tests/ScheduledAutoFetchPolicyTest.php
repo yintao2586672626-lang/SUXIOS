@@ -375,6 +375,268 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
             $decorated['source_tasks'],
             $decorated['collection_anchor_hash']
         ));
+
+        $ready = $this->policy->attachAuthorityVerifier(
+            $receipt,
+            $this->mockAuthorityVerifier($receipt)
+        );
+        self::assertTrue($this->policy->dailyTrustReceiptReady($ready, '2026-07-16', 58));
+
+        $readyWithDifferentFailureSidecar = $ready;
+        $readyWithDifferentFailureSidecar['failed_source_tasks'] = [[
+            'data_source_id' => 68,
+            'sync_task_id' => null,
+            'local_collector_task_id' => 9876,
+            'platform' => 'meituan',
+            'failure_reason' => 'device_offline',
+            'readback_verified' => false,
+        ]];
+
+        self::assertSame(
+            $ready['collection_anchor_hash'],
+            $readyWithDifferentFailureSidecar['collection_anchor_hash']
+        );
+        self::assertTrue($this->policy->dailyTrustReceiptReady(
+            $readyWithDifferentFailureSidecar,
+            '2026-07-16',
+            58
+        ));
+    }
+
+    public function testLocalCollectorSuccessKeepsProducerAndSyncTaskIdentityDistinct(): void
+    {
+        $result = [
+            'success' => true,
+            'saved_count' => 2,
+            'required_platforms' => ['ctrip', 'meituan'],
+            'platform_results' => [
+                $this->localCollectorPlatformResult('ctrip', 25, 3271, 1001, 155, true),
+                $this->localCollectorPlatformResult('meituan', 68, 3272, 1002, 155, true),
+            ],
+        ];
+
+        $receipt = $this->policy->buildDailyTrustReceipt(
+            58,
+            '2026-07-16',
+            [25, 68],
+            $this->policy->classifyOutcome($result),
+            $result,
+            'historical_daily'
+        );
+
+        self::assertSame([3271, 3272], array_column($receipt['source_tasks'], 'local_collector_task_id'));
+        self::assertSame([1001, 1002], array_column($receipt['source_tasks'], 'sync_task_id'));
+        self::assertSame([155, 155], array_column($receipt['source_tasks'], 'execution_owner_user_id'));
+        self::assertSame(
+            ['local_collector_upload', 'local_collector_upload'],
+            array_column($receipt['source_tasks'], 'trigger_type')
+        );
+        self::assertSame(
+            ['local_collector', 'local_collector'],
+            array_column($receipt['source_tasks'], 'ingestion_method')
+        );
+        self::assertSame(
+            [true, true],
+            array_column($receipt['source_tasks'], 'readback_verified')
+        );
+        foreach ($receipt['source_tasks'] as $sourceTask) {
+            self::assertNotSame($sourceTask['local_collector_task_id'], $sourceTask['sync_task_id']);
+        }
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $receipt['collection_anchor_hash']);
+        self::assertTrue(OtaCollectionAnchorService::matches(
+            $receipt['source_tasks'],
+            $receipt['collection_anchor_hash']
+        ));
+
+        $ready = $this->policy->attachAuthorityVerifier(
+            $receipt,
+            $this->mockAuthorityVerifier($receipt)
+        );
+        self::assertTrue($this->policy->dailyTrustReceiptReady($ready, '2026-07-16', 58));
+    }
+
+    public function testLocalCollectorFailureWithoutSyncIsFailureSidecarOnly(): void
+    {
+        $result = [
+            'success' => false,
+            'saved_count' => 0,
+            'required_platforms' => ['ctrip', 'meituan'],
+            'platform_results' => [
+                $this->localCollectorPlatformResult(
+                    'ctrip',
+                    25,
+                    3271,
+                    null,
+                    155,
+                    false,
+                    'credential_execution_failed'
+                ),
+                $this->localCollectorPlatformResult(
+                    'meituan',
+                    68,
+                    3272,
+                    null,
+                    155,
+                    false,
+                    'device_offline'
+                ),
+            ],
+        ];
+
+        $receipt = $this->policy->buildDailyTrustReceipt(
+            58,
+            '2026-07-16',
+            [25, 68],
+            $this->policy->classifyOutcome($result),
+            $result,
+            'historical_daily'
+        );
+
+        self::assertSame([], $receipt['source_tasks']);
+        self::assertSame([null, null], array_column($receipt['failed_source_tasks'], 'sync_task_id'));
+        self::assertSame([3271, 3272], array_column(
+            $receipt['failed_source_tasks'],
+            'local_collector_task_id'
+        ));
+        self::assertSame([155, 155], array_column(
+            $receipt['failed_source_tasks'],
+            'execution_owner_user_id'
+        ));
+        self::assertSame(
+            ['credential_execution_failed', 'device_offline'],
+            array_column($receipt['failed_source_tasks'], 'failure_reason')
+        );
+        self::assertSame(
+            ['local_collector', 'local_collector'],
+            array_column($receipt['failed_source_tasks'], 'ingestion_method')
+        );
+        self::assertSame('', $receipt['collection_anchor_hash']);
+        self::assertFalse($receipt['collection_complete']);
+
+        $notReady = $this->policy->attachAuthorityVerifier(
+            $receipt,
+            $this->mockAuthorityVerifier($receipt)
+        );
+        self::assertFalse($this->policy->dailyTrustReceiptReady($notReady, '2026-07-16', 58));
+    }
+
+    public function testLocalCollectorTaskIdCannotImpersonateMissingSyncTask(): void
+    {
+        $result = [
+            'success' => true,
+            'saved_count' => 2,
+            'required_platforms' => ['ctrip', 'meituan'],
+            'platform_results' => [
+                $this->localCollectorPlatformResult('ctrip', 25, 3271, null, 155, true),
+                $this->localCollectorPlatformResult('meituan', 68, 3272, null, 155, true),
+            ],
+        ];
+        foreach ($result['platform_results'] as &$platformResult) {
+            $platformResult['run_readback'] = [
+                'readback_verified' => true,
+                'data_source_id' => $platformResult['data_source_id'],
+                'system_hotel_id' => 58,
+                'target_date' => '2026-07-16',
+                'platform' => $platformResult['platform'],
+                'p0_status' => 'ready',
+                'row_ids' => [$platformResult['local_collector_task_id'] + 1000],
+                'dispatcher_run_id' => $platformResult['dispatcher_run_id'],
+                'trigger_type' => 'local_collector_upload',
+                'started_at' => '2026-07-16 08:30:10',
+            ];
+        }
+        unset($platformResult);
+
+        $receipt = $this->policy->buildDailyTrustReceipt(
+            58,
+            '2026-07-16',
+            [25, 68],
+            $this->policy->classifyOutcome($result),
+            $result,
+            'historical_daily'
+        );
+
+        self::assertSame([], $receipt['source_tasks']);
+        self::assertSame([], $receipt['failed_source_tasks']);
+        self::assertSame('', $receipt['collection_anchor_hash']);
+
+        $notReady = $this->policy->attachAuthorityVerifier(
+            $receipt,
+            $this->mockAuthorityVerifier($receipt)
+        );
+        self::assertFalse($this->policy->dailyTrustReceiptReady($notReady, '2026-07-16', 58));
+    }
+
+    public function testBrowserProfileRequiresDailyProfileTriggerAndNoLocalCollectorTask(): void
+    {
+        $result = [
+            'success' => true,
+            'saved_count' => 2,
+            'required_platforms' => ['ctrip', 'meituan'],
+            'platform_results' => [
+                $this->verifiedPlatformResult('ctrip', 25, 1001, true),
+                $this->verifiedPlatformResult('meituan', 68, 1002, true),
+            ],
+        ];
+        foreach ($result['platform_results'] as &$platformResult) {
+            $platformResult['ingestion_method'] = 'browser_profile';
+            $platformResult['run_readback']['trigger_type'] = 'daily_profile_reuse';
+        }
+        unset($platformResult);
+
+        $validReceipt = $this->policy->buildDailyTrustReceipt(
+            58,
+            '2026-07-16',
+            [25, 68],
+            $this->policy->classifyOutcome($result),
+            $result,
+            'historical_daily'
+        );
+        $validReady = $this->policy->attachAuthorityVerifier(
+            $validReceipt,
+            $this->mockAuthorityVerifier($validReceipt)
+        );
+        self::assertSame(
+            [true, true],
+            array_column($validReceipt['source_tasks'], 'readback_verified')
+        );
+        self::assertTrue($this->policy->dailyTrustReceiptReady($validReady, '2026-07-16', 58));
+
+        $withLocalTask = $result;
+        $withLocalTask['platform_results'][0]['local_collector_task_id'] = 3271;
+        $withLocalTaskReceipt = $this->policy->buildDailyTrustReceipt(
+            58,
+            '2026-07-16',
+            [25, 68],
+            $this->policy->classifyOutcome($withLocalTask),
+            $withLocalTask,
+            'historical_daily'
+        );
+        self::assertSame(['meituan'], array_column($withLocalTaskReceipt['source_tasks'], 'platform'));
+        self::assertSame('', $withLocalTaskReceipt['collection_anchor_hash']);
+        $withLocalTaskReady = $this->policy->attachAuthorityVerifier(
+            $withLocalTaskReceipt,
+            $this->mockAuthorityVerifier($withLocalTaskReceipt)
+        );
+        self::assertFalse($this->policy->dailyTrustReceiptReady($withLocalTaskReady, '2026-07-16', 58));
+
+        $withWrongTrigger = $result;
+        $withWrongTrigger['platform_results'][0]['run_readback']['trigger_type'] = 'local_collector_upload';
+        $withWrongTriggerReceipt = $this->policy->buildDailyTrustReceipt(
+            58,
+            '2026-07-16',
+            [25, 68],
+            $this->policy->classifyOutcome($withWrongTrigger),
+            $withWrongTrigger,
+            'historical_daily'
+        );
+        self::assertSame(['meituan'], array_column($withWrongTriggerReceipt['source_tasks'], 'platform'));
+        self::assertSame('', $withWrongTriggerReceipt['collection_anchor_hash']);
+        $withWrongTriggerReady = $this->policy->attachAuthorityVerifier(
+            $withWrongTriggerReceipt,
+            $this->mockAuthorityVerifier($withWrongTriggerReceipt)
+        );
+        self::assertFalse($this->policy->dailyTrustReceiptReady($withWrongTriggerReady, '2026-07-16', 58));
     }
 
     public function testAuthorityVerifierMustMatchHotelDatePlatformsAndPersistedTrust(): void
@@ -900,6 +1162,59 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
                 'row_ids' => [$syncTaskId + 1000],
             ],
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function localCollectorPlatformResult(
+        string $platform,
+        int $sourceId,
+        int $localTaskId,
+        ?int $syncTaskId,
+        int $executionOwnerUserId,
+        bool $success,
+        string $failureReason = ''
+    ): array {
+        $dispatcherRunId = '12345678-1234-4234-8234-123456789abc';
+        $result = [
+            'platform' => $platform,
+            'system_hotel_id' => 58,
+            'data_source_id' => $sourceId,
+            'target_date' => '2026-07-16',
+            // This generic producer task ID must never be accepted as a sync-task ID.
+            'task_id' => $localTaskId,
+            'local_collector_task_id' => $localTaskId,
+            'execution_owner_user_id' => $executionOwnerUserId,
+            'ingestion_method' => 'local_collector',
+            'success' => $success,
+            'status' => $success ? 'success' : 'failed',
+            'source_task_status' => $success ? 'success' : 'failed',
+            'saved_count' => $success ? 1 : 0,
+            'readback_count' => $success ? 1 : 0,
+            'readback_verified' => $success,
+            'historical_core_contract_status' => $success ? 'ready' : 'blocked',
+            'failure_reason' => $failureReason,
+            'message' => $failureReason,
+            'dispatcher_run_id' => $dispatcherRunId,
+            'run_readback' => [],
+        ];
+        if ($syncTaskId !== null) {
+            $result['platform_sync_task_id'] = $syncTaskId;
+            $result['run_readback'] = [
+                'readback_verified' => true,
+                'data_source_id' => $sourceId,
+                'sync_task_id' => $syncTaskId,
+                'system_hotel_id' => 58,
+                'target_date' => '2026-07-16',
+                'platform' => $platform,
+                'p0_status' => 'ready',
+                'row_ids' => [$syncTaskId + 1000],
+                'dispatcher_run_id' => $dispatcherRunId,
+                'trigger_type' => 'local_collector_upload',
+                'started_at' => '2026-07-16 08:30:10',
+            ];
+        }
+
+        return $result;
     }
 
     /** @param array<string, mixed> $outcome @param array<string, mixed> $result */

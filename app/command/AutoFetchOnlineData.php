@@ -8,6 +8,7 @@ use app\service\PlatformDataSyncService;
 use app\service\CloudOtaCollectionScopeService;
 use app\service\HotelCollectionPlanService;
 use app\service\HotelCollectionRunReceiptService;
+use app\service\DingdandaoOperatingTargetCaptureService;
 use app\service\CtripCollectorWorkflowService;
 use app\service\CanonicalOtaDailyOperationFinalizer;
 use app\service\OtaFailureNotificationService;
@@ -29,6 +30,8 @@ class AutoFetchOnlineData extends Command
 {
     private const PROFILE_LOCK_STALE_SECONDS = 300;
     private const NATURAL_HISTORICAL_CAPTURE_TIMEOUT_SECONDS = 600;
+    private const LOCAL_PLAN_COMPLETION_TIMEOUT_SECONDS = 300;
+    private const LOCAL_PLAN_POLL_INTERVAL_MICROSECONDS = 1_000_000;
     private const CLOUD_SINGLE_USER_LOCAL_HOTEL_IDS = [80];
 
     /** @var array<string, mixed> */
@@ -180,8 +183,10 @@ class AutoFetchOnlineData extends Command
                 $dailyOnly ? 'daily' : 'realtime'
             );
             $this->scheduledPlanGate = $planGate;
+            $runReceipt = null;
+            $runReceiptService = new HotelCollectionRunReceiptService();
             try {
-                $runReceipt = (new HotelCollectionRunReceiptService())->begin($planGate);
+                $runReceipt = $runReceiptService->begin($planGate);
                 $output->writeln(
                     'SUXIOS_COLLECTION_RUN_RECEIPT='
                     . json_encode(
@@ -190,23 +195,69 @@ class AutoFetchOnlineData extends Command
                     )
                 );
             } catch (\Throwable $error) {
-                $planGate['status'] = 'blocked';
-                $planGate['collection_allowed'] = false;
-                $planGate['failure_reasons'] = [
-                    ...(array)($planGate['failure_reasons'] ?? []),
-                    [
-                        'code' => 'hotel_collection_run_receipt_write_failed',
-                        'platform' => '',
-                        'message' => 'The durable per-hotel run receipt could not be written and read back.',
-                    ],
-                ];
-                $this->scheduledPlanGate = $planGate;
-                Log::error('Hotel collection run receipt begin failed', [
-                    'hotel_id' => (int)$hotelId,
-                    'business_date' => (string)$targetDate,
-                    'dispatcher_run_id' => $this->dispatcherRunId,
-                    'exception_type' => get_debug_type($error),
-                ]);
+                try {
+                    $committedRunReceipt = $runReceiptService->readExact(
+                        $this->dispatcherRunId,
+                        (int)$hotelId,
+                        (string)$targetDate
+                    );
+                } catch (\Throwable) {
+                    $committedRunReceipt = null;
+                }
+                if (is_array($committedRunReceipt)
+                    && $this->durableSucceededRunReceiptReady(
+                        $committedRunReceipt,
+                        (int)$hotelId,
+                        (string)$targetDate,
+                        $sourceIds,
+                        $platforms
+                    )
+                ) {
+                    $runReceipt = $committedRunReceipt;
+                    $output->writeln(
+                        'SUXIOS_COLLECTION_RUN_RECEIPT='
+                        . json_encode(
+                            $runReceipt,
+                            JSON_UNESCAPED_UNICODE
+                                | JSON_UNESCAPED_SLASHES
+                                | JSON_THROW_ON_ERROR
+                        )
+                    );
+                } else {
+                    $scopeChangedBlocked = in_array(trim($error->getMessage()), [
+                        'hotel_collection_run_receipt_scope_mismatch',
+                        'hotel_collection_run_receipt_source_scope_mismatch',
+                    ], true) && $this->blockChangedScheduledCollectionScope(
+                        $output,
+                        (int)$hotelId,
+                        (string)$targetDate
+                    );
+                    $planGate['status'] = 'blocked';
+                    $planGate['collection_allowed'] = false;
+                    $planGate['failure_reasons'] = [
+                        ...(array)($planGate['failure_reasons'] ?? []),
+                        [
+                            'code' => $scopeChangedBlocked
+                                ? 'plan_scope_changed_during_active_run'
+                                : 'hotel_collection_run_receipt_write_failed',
+                            'platform' => '',
+                            'message' => $scopeChangedBlocked
+                                ? 'The active run was sealed because its signed plan scope changed.'
+                                : 'The durable per-hotel run receipt could not be written and read back.',
+                        ],
+                    ];
+                    $this->scheduledPlanGate = $planGate;
+                    try {
+                        Log::error('Hotel collection run receipt begin failed', [
+                            'hotel_id' => (int)$hotelId,
+                            'business_date' => (string)$targetDate,
+                            'dispatcher_run_id' => $this->dispatcherRunId,
+                            'exception_type' => get_debug_type($error),
+                        ]);
+                    } catch (\Throwable) {
+                        // A logging backend failure must not bypass the blocked gate.
+                    }
+                }
             }
             $output->writeln(
                 'SUXIOS_COLLECTION_PLAN_GATE='
@@ -215,6 +266,21 @@ class AutoFetchOnlineData extends Command
                     JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
                 )
             );
+            if (is_array($runReceipt)
+                && $this->durableSucceededRunReceiptReady(
+                    $runReceipt,
+                    (int)$hotelId,
+                    (string)$targetDate,
+                    $sourceIds,
+                    $platforms
+                )
+            ) {
+                $output->writeln(
+                    'Hotel collection already has an exact durable succeeded run receipt; '
+                    . 'no producer task was restarted.'
+                );
+                return 0;
+            }
             if (($planGate['collection_allowed'] ?? false) !== true) {
                 return 78;
             }
@@ -562,6 +628,18 @@ class AutoFetchOnlineData extends Command
                             : null
                     ) && ((string)($run['period'] ?? '') !== 'historical_daily'
                         || (($executedReceipt['canonical_history_complete'] ?? false) === true
+                            && ($this->dispatcherRunId === ''
+                                || $this->cachedReceiptProducerLedgerStillTrusted(
+                                    $executedReceipt,
+                                    $hotelId,
+                                    (string)$run['data_date'],
+                                    ($run['cache_scope_sources_fixed'] ?? false) === true
+                                        ? (array)($run['cache_scope_source_ids'] ?? [])
+                                        : $sourceIds,
+                                    ($run['cache_scope_platforms_fixed'] ?? false) === true
+                                        ? (array)($run['cache_scope_platforms'] ?? [])
+                                        : (array)($run['target_platforms'] ?? ['ctrip', 'meituan'])
+                                ))
                             && $this->cachedHistoricalDailyReceiptRowsStillCurrent(
                                 $executedReceipt,
                                 $tenantId
@@ -588,7 +666,20 @@ class AutoFetchOnlineData extends Command
                             );
                         }
                         $output->writeln("Hotel {$hotelName} {$run['label']} already executed with requested-scope P0 proof, skipped.");
-                        $this->writeMachineReceipt($output, $executedReceipt);
+                        if (!$this->markScheduledNoCollectionOutcome(
+                            $output,
+                            $hotelId,
+                            (string)$run['data_date'],
+                            'verified_cache_reused'
+                        )) {
+                            $hasIncompleteDueRun = true;
+                        }
+                        $this->writeReusedCacheReceipt(
+                            $output,
+                            $executedReceipt,
+                            $hotelId,
+                            (string)$run['data_date']
+                        );
                         continue;
                     }
                     Cache::delete($run['executed_key']);
@@ -602,6 +693,12 @@ class AutoFetchOnlineData extends Command
                         ? 'retry exhausted'
                         : 'retry cooldown';
                     $output->writeln("Hotel {$hotelName} {$run['label']} {$reason}, skipped.");
+                    $this->markScheduledNoCollectionOutcome(
+                        $output,
+                        $hotelId,
+                        (string)$run['data_date'],
+                        $reason === 'retry exhausted' ? 'retry_exhausted' : 'retry_cooldown'
+                    );
                     if ((string)($run['period'] ?? '') === 'historical_daily') {
                         $lastReceipt = is_array($retryState['last_receipt'] ?? null)
                             ? $retryState['last_receipt']
@@ -666,6 +763,12 @@ class AutoFetchOnlineData extends Command
                         'data_period' => $run['period'],
                         'slot_id' => $run['slot_id'],
                     ]);
+                    $this->markScheduledNoCollectionOutcome(
+                        $output,
+                        $hotelId,
+                        (string)$run['data_date'],
+                        'profile_locked'
+                    );
                     $hasIncompleteDueRun = true;
                     continue;
                 }
@@ -724,25 +827,42 @@ class AutoFetchOnlineData extends Command
                             (string)$run['data_date'],
                             $result['platform_results']
                         )) {
-                            $result['success'] = false;
                             $result['message'] = trim(
                                 (string)($result['message'] ?? '')
                                 . '; hotel_collection_run_receipt_write_failed',
                                 '; '
                             );
-                            $result['failed_platforms'] = ['ctrip', 'meituan'];
-                            $result['successful_platforms'] = [];
-                            foreach ($result['platform_results'] as &$platformResult) {
-                                if (!is_array($platformResult)
-                                    || !in_array((string)($platformResult['platform'] ?? ''), ['ctrip', 'meituan'], true)
-                                ) {
-                                    continue;
-                                }
-                                $platformResult['success'] = false;
-                                $platformResult['status'] = 'failed';
-                                $platformResult['failure_reason'] = 'hotel_collection_run_receipt_write_failed';
-                            }
-                            unset($platformResult);
+                            $this->updateStatus(
+                                $hotelId,
+                                false,
+                                (string)$result['message'],
+                                (string)$run['data_date'],
+                                [
+                                    'status' => 'in_progress',
+                                    'saved_count' => 0,
+                                    'data_period' => $run['period'],
+                                    'slot_id' => $run['slot_id'],
+                                    'platform_results' => $result['platform_results'],
+                                    'failed_platforms' => [],
+                                    'in_progress_platforms' => (new ScheduledAutoFetchPolicy())
+                                        ->normalizePlatforms($run['target_platforms'] ?? [])
+                                        ?: ['ctrip', 'meituan'],
+                                    'successful_platforms' => [],
+                                    'failure_reason' => 'hotel_collection_run_receipt_write_failed',
+                                    'dispatcher_run_id' => $this->dispatcherRunId,
+                                ]
+                            );
+                            $output->writeln(
+                                "Hotel {$hotelName} {$run['label']} in_progress: "
+                                . 'hotel_collection_run_receipt_write_failed'
+                            );
+                            // The producer task may already be queued, running, or terminal.
+                            // Keep the same dispatcher active so the next scheduler trigger
+                            // can re-read that exact task and retry the durable receipt. A
+                            // terminal machine receipt here would rotate the dispatcher and
+                            // orphan the original account/device-bound task.
+                            $hasIncompleteDueRun = true;
+                            continue;
                         }
                     }
 
@@ -820,19 +940,67 @@ class AutoFetchOnlineData extends Command
                             ? (array)($run['cache_scope_platforms'] ?? [])
                             : null
                     ) && ($receipt['canonical_history_complete'] ?? false) === true;
-                    if ($this->dispatcherRunId !== ''
-                        && !$this->finalizeScheduledCollectionReceipt(
+                    if ($this->dispatcherRunId !== '') {
+                        $finalizedRunReceipt = $this->finalizeScheduledCollectionReceipt(
                             $hotelId,
                             (string)$run['data_date'],
                             $receipt,
                             $trustedReady
-                        )
-                    ) {
-                        $trustedReady = false;
-                        $result['message'] = trim(
-                            (string)($result['message'] ?? '')
-                            . '; hotel_collection_run_final_receipt_write_failed',
-                            '; '
+                        );
+                        if (!is_array($finalizedRunReceipt)) {
+                            $result['message'] = trim(
+                                (string)($result['message'] ?? '')
+                                . '; hotel_collection_run_final_receipt_write_failed',
+                                '; '
+                            );
+                            $this->updateStatus(
+                                $hotelId,
+                                false,
+                                (string)$result['message'],
+                                (string)$run['data_date'],
+                                [
+                                    'status' => 'in_progress',
+                                    'saved_count' => (int)($outcome['saved_count'] ?? 0),
+                                    'data_period' => $run['period'],
+                                    'slot_id' => $run['slot_id'],
+                                    'platform_results' => is_array($result['platform_results'] ?? null)
+                                        ? $result['platform_results']
+                                        : [],
+                                    'failed_platforms' => [],
+                                    'in_progress_platforms' => (array)($outcome['required_platforms'] ?? []),
+                                    'successful_platforms' => [],
+                                    'failure_reason' => 'hotel_collection_run_final_receipt_write_failed',
+                                    'dispatcher_run_id' => $this->dispatcherRunId,
+                                ]
+                            );
+                            $output->writeln(
+                                "Hotel {$hotelName} {$run['label']} in_progress: "
+                                . 'hotel_collection_run_final_receipt_write_failed'
+                            );
+                            // Do not publish a terminal AUTO receipt. The exact producer
+                            // tasks and rows are already bound to this dispatcher; keeping
+                            // it active lets the next trigger re-read them and retry only
+                            // the durable finalization step.
+                            $hasIncompleteDueRun = true;
+                            continue;
+                        }
+                        $receipt['collection_run_status'] = (string)(
+                            $finalizedRunReceipt['status'] ?? ''
+                        );
+                        $receipt['collection_run_readback_verified'] =
+                            ($finalizedRunReceipt['readback_verified'] ?? false) === true;
+                        $receipt['collection_run_failure_code'] = trim((string)(
+                            $finalizedRunReceipt['failure_code'] ?? ''
+                        )) ?: null;
+                        $receipt['trust_receipt_digest'] = trim((string)(
+                            $finalizedRunReceipt['trust_receipt_digest'] ?? ''
+                        )) ?: null;
+                    }
+                    if ($this->dispatcherRunId !== '') {
+                        $receipt['pms_run_attachment'] = $this->attachExactScheduledPmsCapture(
+                            $tenantId,
+                            $hotelId,
+                            (string)$run['data_date']
                         );
                     }
                     if (!$trustedReady && $outcome['complete']) {
@@ -847,6 +1015,7 @@ class AutoFetchOnlineData extends Command
                             (string)($result['message'] ?? '') . '; requested_scope_authority_or_history_incomplete',
                             '; '
                         );
+                        $receipt = $this->downgradeUntrustedMachineReceipt($receipt);
                     }
                     $retryDetails = $outcome['complete']
                         ? [
@@ -1014,6 +1183,15 @@ class AutoFetchOnlineData extends Command
         return $stats === [] || $this->normalizeDispatcherRunId(
             (string)($stats['dispatcher_run_id'] ?? '')
         ) === $readbackRunId;
+    }
+
+    /** @param array<string,mixed> $readback */
+    private function currentDispatcherOwnsRunReadback(array $readback): bool
+    {
+        return $this->dispatcherRunId === ''
+            || $this->normalizeDispatcherRunId(
+                (string)($readback['dispatcher_run_id'] ?? '')
+            ) === $this->dispatcherRunId;
     }
 
     /** @return array<int, string> */
@@ -1822,7 +2000,8 @@ class AutoFetchOnlineData extends Command
             $ingestionMethod = strtolower(trim((string)($source['ingestion_method'] ?? '')));
             if ($ingestionMethod === 'local_collector') {
                 try {
-                    $localResult = (new OtaLocalCollectorService())->schedulePlanCollection([
+                    $localCollector = new OtaLocalCollectorService();
+                    $localScope = [
                         'tenant_id' => (int)($this->scheduledPlanGate['tenant_id'] ?? 0),
                         'system_hotel_id' => $hotelId,
                         'platform' => $platform,
@@ -1832,7 +2011,13 @@ class AutoFetchOnlineData extends Command
                         'execution_owner_user_id' => (int)(
                             $this->scheduledPlanGate['execution_owner_user_id'] ?? 0
                         ),
-                    ]);
+                    ];
+                    $localResult = $localCollector->schedulePlanCollection($localScope);
+                    $localResult = $this->awaitScheduledLocalCollection(
+                        $localCollector,
+                        $localScope,
+                        $localResult
+                    );
                     $localStatus = strtolower(trim((string)($localResult['status'] ?? 'failed')));
                     $activeLocalStatus = in_array($localStatus, [
                         'queued',
@@ -1852,6 +2037,7 @@ class AutoFetchOnlineData extends Command
                     $localResult['target_date'] = $dataDate;
                     $localResult['dispatcher_run_id'] = $this->dispatcherRunId;
                     $localResult['data_source_id'] = (int)($source['id'] ?? 0);
+                    $localResult['ingestion_method'] = 'local_collector';
                     $localResult['collection_quality'] = [
                         'status' => ($localResult['success'] ?? false) === true
                             ? 'verified'
@@ -1883,6 +2069,7 @@ class AutoFetchOnlineData extends Command
                         'platform' => $platform,
                         'system_hotel_id' => $hotelId,
                         'data_source_id' => (int)($source['id'] ?? 0),
+                        'ingestion_method' => 'local_collector',
                         'target_date' => $dataDate,
                         'dispatcher_run_id' => $this->dispatcherRunId,
                         'success' => false,
@@ -1928,9 +2115,18 @@ class AutoFetchOnlineData extends Command
                     $evidenceByPlatform[$platform] = ($evidenceByPlatform[$platform] ?? 0) + $reusedCount;
                     $platformResults[] = [
                         'platform' => $platform,
+                        'system_hotel_id' => $hotelId,
                         'data_source_id' => (int)$source['id'],
+                        'ingestion_method' => 'browser_profile',
+                        'target_date' => $dataDate,
+                        'dispatcher_run_id' => $this->dispatcherRunId,
                         'success' => true,
-                        'saved_count' => 0,
+                        'status' => 'success',
+                        'source_task_status' => 'success',
+                        'task_id' => max(0, (int)($reusedRunReadback['sync_task_id'] ?? 0)),
+                        'saved_count' => $reusedCount,
+                        'readback_count' => $reusedCount,
+                        'readback_verified' => true,
                         'reused_verified_count' => $reusedCount,
                         'run_readback' => $reusedRunReadback,
                         'historical_core_contract_status' => 'ready',
@@ -2099,6 +2295,7 @@ class AutoFetchOnlineData extends Command
                     'platform' => $platform,
                     'system_hotel_id' => $hotelId,
                     'data_source_id' => (int)$source['id'],
+                    'ingestion_method' => $ingestionMethod,
                     'target_date' => $dataDate,
                     'success' => $platformReadbackVerified,
                     'task_id' => $operationalReceipt['task_id'],
@@ -2572,8 +2769,10 @@ class AutoFetchOnlineData extends Command
             $sourceId = (int)($task['data_source_id'] ?? 0);
             $taskId = (int)($task['sync_task_id'] ?? 0);
             $platform = strtolower(trim((string)($task['platform'] ?? '')));
+            $ingestionMethod = strtolower(trim((string)($task['ingestion_method'] ?? '')));
             if ($sourceId <= 0 || $taskId <= 0
                 || !in_array($platform, ['ctrip', 'meituan'], true)
+                || !in_array($ingestionMethod, ['browser_profile', 'local_collector'], true)
                 || array_key_exists($taskId, $taskReadbacks)
                 || array_key_exists($sourceId, $rowsBySource)
             ) {
@@ -2584,7 +2783,8 @@ class AutoFetchOnlineData extends Command
                 (int)($receipt['hotel_id'] ?? 0),
                 $sourceId,
                 $taskId,
-                $platform
+                $platform,
+                $ingestionMethod
             );
             if ($taskReadback === []) {
                 return false;
@@ -2614,14 +2814,20 @@ class AutoFetchOnlineData extends Command
         int $hotelId,
         int $sourceId,
         int $taskId,
-        string $platform
+        string $platform,
+        string $ingestionMethod
     ): array {
+        $expectedTrigger = $ingestionMethod === 'local_collector'
+            ? 'local_collector_upload'
+            : 'daily_profile_reuse';
         try {
             $task = Db::name('platform_data_sync_tasks')
                 ->where('id', $taskId)
                 ->where('tenant_id', $tenantId)
                 ->where('system_hotel_id', $hotelId)
                 ->where('data_source_id', $sourceId)
+                ->where('ingestion_method', $ingestionMethod)
+                ->where('trigger_type', $expectedTrigger)
                 ->whereIn('status', ['success', 'partial_success'])
                 ->find();
         } catch (\Throwable) {
@@ -2635,11 +2841,19 @@ class AutoFetchOnlineData extends Command
         $stats = json_decode((string)($task['stats_json'] ?? ''), true);
         $stats = is_array($stats) ? $stats : [];
         $readback = is_array($stats['run_readback'] ?? null) ? $stats['run_readback'] : [];
-        if ($this->dispatcherRunId !== ''
-            && (strtolower(trim((string)($task['trigger_type'] ?? ''))) !== 'daily_profile_reuse'
-                || !$this->reusableNaturalDispatcherReadback($readback, $stats))
-        ) {
-            return [];
+        if ($this->dispatcherRunId !== '') {
+            $readbackRunId = $this->normalizeDispatcherRunId(
+                (string)($readback['dispatcher_run_id'] ?? '')
+            );
+            if ($readbackRunId === ''
+                || strtolower(trim((string)($readback['trigger_type'] ?? '')))
+                    !== $expectedTrigger
+                || $this->normalizeDispatcherRunId(
+                    (string)($stats['dispatcher_run_id'] ?? '')
+                ) !== $readbackRunId
+            ) {
+                return [];
+            }
         }
         return $readback;
     }
@@ -2712,12 +2926,24 @@ class AutoFetchOnlineData extends Command
                 $taskDispatcherRunId = $this->normalizeDispatcherRunId(
                     (string)($task['dispatcher_run_id'] ?? '')
                 );
+                $ingestionMethod = strtolower(trim((string)(
+                    $task['ingestion_method'] ?? ''
+                )));
+                $localCollectorTaskId = (int)($task['local_collector_task_id'] ?? 0);
+                $expectedTrigger = $ingestionMethod === 'local_collector'
+                    ? 'local_collector_upload'
+                    : 'daily_profile_reuse';
+                $methodScopeReady = $ingestionMethod === 'local_collector'
+                    ? $localCollectorTaskId > 0
+                    : ($ingestionMethod === 'browser_profile' && $localCollectorTaskId === 0);
                 if ($taskDispatcherRunId === ''
                     || $taskDispatcherRunId !== $this->normalizeDispatcherRunId(
                         (string)($readback['dispatcher_run_id'] ?? '')
                     )
-                    || strtolower(trim((string)($task['trigger_type'] ?? ''))) !== 'daily_profile_reuse'
-                    || !$this->reusableNaturalDispatcherReadback($readback)
+                    || !$methodScopeReady
+                    || strtolower(trim((string)($task['trigger_type'] ?? ''))) !== $expectedTrigger
+                    || strtolower(trim((string)($readback['trigger_type'] ?? ''))) !== $expectedTrigger
+                    || ($task['readback_verified'] ?? false) !== true
                 ) {
                     return false;
                 }
@@ -2830,6 +3056,7 @@ class AutoFetchOnlineData extends Command
                 : [];
             if ($this->runReadbackCoreVerified($readback)
                 && $this->reusableNaturalDispatcherReadback($readback, is_array($stats) ? $stats : [])
+                && $this->currentDispatcherOwnsRunReadback($readback)
                 && ($this->dispatcherRunId === ''
                     || strtolower(trim((string)($task['trigger_type'] ?? ''))) === 'daily_profile_reuse')
                 && (int)($readback['sync_task_id'] ?? 0) === (int)($task['id'] ?? 0)
@@ -3256,6 +3483,19 @@ class AutoFetchOnlineData extends Command
         return $receipt;
     }
 
+    /** @param array<string,mixed> $receipt @return array<string,mixed> */
+    private function downgradeUntrustedMachineReceipt(array $receipt): array
+    {
+        $receipt['status'] = 'partial_success';
+        $receipt['collection_complete'] = false;
+        $receipt['authority_scope_complete'] = false;
+        $receipt['dual_ota_p0_complete'] = false;
+        $receipt['collection_run_readback_verified'] = false;
+        $receipt['collection_run_failure_code'] =
+            'requested_scope_authority_or_history_incomplete';
+        return $receipt;
+    }
+
     /**
      * Runs only local draft/action persistence against an already-promoted
      * OTA row. Its receipt is intentionally independent of collection trust
@@ -3422,6 +3662,331 @@ class AutoFetchOnlineData extends Command
         return $parsed instanceof \DateTimeImmutable && $parsed->format('Y-m-d') === $date;
     }
 
+    /**
+     * Accept a durable succeeded ledger only when its public readback is the
+     * exact two-source collection scope expected by this invocation. This is
+     * deliberately independent from the AUTO receipt so a committed terminal
+     * run can close a runner whose previous process lost its final output.
+     *
+     * @param array<string,mixed> $receipt
+     * @param array<int,int> $expectedSourceIds
+     * @param array<int,string> $expectedPlatforms
+     */
+    private function durableSucceededRunReceiptReady(
+        array $receipt,
+        int $expectedHotelId,
+        string $expectedDate,
+        array $expectedSourceIds,
+        array $expectedPlatforms
+    ): bool {
+        return $this->exactDurableSucceededRunReceiptReady(
+            $receipt,
+            $this->dispatcherRunId,
+            $expectedHotelId,
+            $expectedDate,
+            $expectedSourceIds,
+            $expectedPlatforms
+        );
+    }
+
+    /**
+     * @param array<string,mixed> $receipt
+     * @param array<int,int> $expectedSourceIds
+     * @param array<int,string> $expectedPlatforms
+     */
+    private function exactDurableSucceededRunReceiptReady(
+        array $receipt,
+        string $expectedDispatcherRunId,
+        int $expectedHotelId,
+        string $expectedDate,
+        array $expectedSourceIds,
+        array $expectedPlatforms
+    ): bool {
+        $expectedDate = substr(trim($expectedDate), 0, 10);
+        $expectedDispatcherRunId = $this->normalizeDispatcherRunId(
+            $expectedDispatcherRunId
+        );
+        $expectedSourceIds = array_values(array_unique(array_filter(
+            array_map('intval', $expectedSourceIds),
+            static fn(int $sourceId): bool => $sourceId > 0
+        )));
+        sort($expectedSourceIds, SORT_NUMERIC);
+        $expectedPlatforms = array_values(array_unique(array_map(
+            static fn(mixed $platform): string => strtolower(trim((string)$platform)),
+            $expectedPlatforms
+        )));
+        sort($expectedPlatforms, SORT_STRING);
+        $dispatcherRunId = $this->normalizeDispatcherRunId(
+            (string)($receipt['dispatcher_run_id'] ?? '')
+        );
+        if ($expectedHotelId <= 0
+            || !$this->validDataDate($expectedDate)
+            || count($expectedSourceIds) !== 2
+            || $expectedPlatforms !== ['ctrip', 'meituan']
+            || $dispatcherRunId === ''
+            || $expectedDispatcherRunId === ''
+            || $dispatcherRunId !== $expectedDispatcherRunId
+            || (int)($receipt['system_hotel_id'] ?? 0) !== $expectedHotelId
+            || substr(trim((string)($receipt['business_date'] ?? '')), 0, 10) !== $expectedDate
+            || strtolower(trim((string)($receipt['status'] ?? ''))) !== 'succeeded'
+            || ($receipt['ledger_structure_verified'] ?? false) !== true
+            || ($receipt['readback_verified'] ?? false) !== true
+            || preg_match('/^[a-f0-9]{64}$/D', strtolower(trim((string)(
+                $receipt['collection_anchor_hash'] ?? ''
+            )))) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', strtolower(trim((string)(
+                $receipt['trust_receipt_digest'] ?? ''
+            )))) !== 1
+            || trim((string)($receipt['finished_at'] ?? '')) === ''
+        ) {
+            return false;
+        }
+        $sources = is_array($receipt['source_receipts'] ?? null)
+            ? $receipt['source_receipts']
+            : [];
+        if (count($sources) !== 2) {
+            return false;
+        }
+        $actualSourceIds = [];
+        $actualPlatforms = [];
+        $seenSyncTaskIds = [];
+        $seenLocalTaskIds = [];
+        foreach ($sources as $source) {
+            if (!is_array($source)) {
+                return false;
+            }
+            $sourceId = (int)($source['data_source_id'] ?? 0);
+            $platform = strtolower(trim((string)($source['platform'] ?? '')));
+            $method = strtolower(trim((string)($source['ingestion_method'] ?? '')));
+            $syncTaskId = (int)($source['platform_sync_task_id'] ?? 0);
+            $localTaskId = (int)($source['local_collector_task_id'] ?? 0);
+            $savedCount = (int)($source['saved_row_count'] ?? 0);
+            $readbackCount = (int)($source['readback_row_count'] ?? 0);
+            if ($sourceId <= 0
+                || !in_array($sourceId, $expectedSourceIds, true)
+                || !in_array($platform, $expectedPlatforms, true)
+                || isset($actualSourceIds[$sourceId])
+                || isset($actualPlatforms[$platform])
+                || strtolower(trim((string)($source['status'] ?? ''))) !== 'success'
+                || ($source['readback_verified'] ?? false) !== true
+                || $savedCount <= 0
+                || $readbackCount !== $savedCount
+                || $syncTaskId <= 0
+                || isset($seenSyncTaskIds[$syncTaskId])
+                || trim((string)($source['finished_at'] ?? '')) === ''
+                || ($method === 'local_collector'
+                    ? ($localTaskId <= 0 || isset($seenLocalTaskIds[$localTaskId]))
+                    : ($method !== 'browser_profile' || $localTaskId > 0))
+            ) {
+                return false;
+            }
+            $actualSourceIds[$sourceId] = true;
+            $actualPlatforms[$platform] = true;
+            $seenSyncTaskIds[$syncTaskId] = true;
+            if ($localTaskId > 0) {
+                $seenLocalTaskIds[$localTaskId] = true;
+            }
+        }
+        $actualSourceIds = array_map('intval', array_keys($actualSourceIds));
+        sort($actualSourceIds, SORT_NUMERIC);
+        $actualPlatforms = array_keys($actualPlatforms);
+        sort($actualPlatforms, SORT_STRING);
+        return $actualSourceIds === $expectedSourceIds
+            && $actualPlatforms === $expectedPlatforms;
+    }
+
+    /**
+     * A cached success may suppress this run only when its producer still has
+     * a fully verified durable ledger. The current run remains an anchorless
+     * `verified_cache_reused` outcome; producer evidence is never relabeled as
+     * evidence created by the current dispatcher.
+     *
+     * @param array<string,mixed> $cachedReceipt
+     * @param array<int,int> $expectedSourceIds
+     * @param array<int,string> $expectedPlatforms
+     */
+    private function cachedReceiptProducerLedgerStillTrusted(
+        array $cachedReceipt,
+        int $expectedHotelId,
+        string $expectedDate,
+        array $expectedSourceIds,
+        array $expectedPlatforms
+    ): bool {
+        $producerDispatcherRunId = $this->normalizeDispatcherRunId(
+            (string)($cachedReceipt['dispatcher_run_id'] ?? '')
+        );
+        if ($producerDispatcherRunId === '') {
+            return false;
+        }
+        try {
+            $producerLedger = (new HotelCollectionRunReceiptService())->readExact(
+                $producerDispatcherRunId,
+                $expectedHotelId,
+                $expectedDate
+            );
+        } catch (\Throwable) {
+            return false;
+        }
+        return $this->cachedReceiptMatchesTrustedProducerLedger(
+            $cachedReceipt,
+            $producerLedger,
+            $expectedHotelId,
+            $expectedDate,
+            $expectedSourceIds,
+            $expectedPlatforms
+        );
+    }
+
+    /**
+     * @param array<string,mixed> $cachedReceipt
+     * @param array<string,mixed> $producerLedger
+     * @param array<int,int> $expectedSourceIds
+     * @param array<int,string> $expectedPlatforms
+     */
+    private function cachedReceiptMatchesTrustedProducerLedger(
+        array $cachedReceipt,
+        array $producerLedger,
+        int $expectedHotelId,
+        string $expectedDate,
+        array $expectedSourceIds,
+        array $expectedPlatforms
+    ): bool {
+        $producerDispatcherRunId = $this->normalizeDispatcherRunId(
+            (string)($cachedReceipt['dispatcher_run_id'] ?? '')
+        );
+        if (!$this->exactDurableSucceededRunReceiptReady(
+            $producerLedger,
+            $producerDispatcherRunId,
+            $expectedHotelId,
+            $expectedDate,
+            $expectedSourceIds,
+            $expectedPlatforms
+        )
+            || ($cachedReceipt['collection_run_readback_verified'] ?? false) !== true
+            || strtolower(trim((string)($cachedReceipt['collection_run_status'] ?? '')))
+                !== 'succeeded'
+        ) {
+            return false;
+        }
+        $cachedAnchor = strtolower(trim((string)(
+            $cachedReceipt['collection_anchor_hash'] ?? ''
+        )));
+        $cachedTrustDigest = strtolower(trim((string)(
+            $cachedReceipt['trust_receipt_digest'] ?? ''
+        )));
+        if (preg_match('/^[a-f0-9]{64}$/D', $cachedAnchor) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $cachedTrustDigest) !== 1
+            || !hash_equals(
+                strtolower(trim((string)($producerLedger['collection_anchor_hash'] ?? ''))),
+                $cachedAnchor
+            )
+            || !hash_equals(
+                strtolower(trim((string)($producerLedger['trust_receipt_digest'] ?? ''))),
+                $cachedTrustDigest
+            )
+        ) {
+            return false;
+        }
+
+        $gate = $this->scheduledPlanGate;
+        $gateScopeHash = strtolower(trim((string)($gate['scope_hash'] ?? '')));
+        $ledgerScopeHash = strtolower(trim((string)($producerLedger['scope_hash'] ?? '')));
+        if (($gate['collection_allowed'] ?? false) !== true
+            || (int)($gate['system_hotel_id'] ?? 0) !== $expectedHotelId
+            || substr(trim((string)($gate['business_date'] ?? '')), 0, 10)
+                !== substr(trim($expectedDate), 0, 10)
+            || strtolower(trim((string)($gate['run_mode'] ?? ''))) !== 'daily'
+            || (int)($gate['plan_id'] ?? 0) !== (int)($producerLedger['plan_id'] ?? 0)
+            || (int)($gate['plan_version'] ?? 0)
+                !== (int)($producerLedger['plan_version'] ?? 0)
+            || preg_match('/^[a-f0-9]{64}$/D', $gateScopeHash) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $ledgerScopeHash) !== 1
+            || !hash_equals($gateScopeHash, $ledgerScopeHash)
+        ) {
+            return false;
+        }
+
+        $gateSources = is_array($gate['sources'] ?? null) ? $gate['sources'] : [];
+        $ledgerSources = is_array($producerLedger['source_receipts'] ?? null)
+            ? $producerLedger['source_receipts']
+            : [];
+        $cachedTasks = is_array($cachedReceipt['source_tasks'] ?? null)
+            ? $cachedReceipt['source_tasks']
+            : [];
+        if (count($ledgerSources) !== 2 || count($cachedTasks) !== 2) {
+            return false;
+        }
+        $ledgerByPlatform = [];
+        foreach ($ledgerSources as $source) {
+            if (!is_array($source)) {
+                return false;
+            }
+            $platform = strtolower(trim((string)($source['platform'] ?? '')));
+            if (!in_array($platform, ['ctrip', 'meituan'], true)
+                || isset($ledgerByPlatform[$platform])
+            ) {
+                return false;
+            }
+            $ledgerByPlatform[$platform] = $source;
+        }
+        $taskByPlatform = [];
+        foreach ($cachedTasks as $task) {
+            if (!is_array($task)) {
+                return false;
+            }
+            $platform = strtolower(trim((string)($task['platform'] ?? '')));
+            if (!in_array($platform, ['ctrip', 'meituan'], true)
+                || isset($taskByPlatform[$platform])
+            ) {
+                return false;
+            }
+            $taskByPlatform[$platform] = $task;
+        }
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $gateSource = is_array($gateSources[$platform] ?? null)
+                ? $gateSources[$platform]
+                : [];
+            $ledgerSource = $ledgerByPlatform[$platform] ?? [];
+            $task = $taskByPlatform[$platform] ?? [];
+            $sourceId = (int)($ledgerSource['data_source_id'] ?? 0);
+            $method = strtolower(trim((string)($ledgerSource['ingestion_method'] ?? '')));
+            $syncTaskId = (int)($ledgerSource['platform_sync_task_id'] ?? 0);
+            $localTaskId = (int)($ledgerSource['local_collector_task_id'] ?? 0);
+            $rowIds = array_values(array_unique(array_filter(array_map(
+                'intval',
+                is_array($task['row_ids'] ?? null) ? $task['row_ids'] : []
+            ), static fn(int $rowId): bool => $rowId > 0)));
+            $expectedTrigger = $method === 'local_collector'
+                ? 'local_collector_upload'
+                : 'daily_profile_reuse';
+            if ($sourceId <= 0
+                || !in_array($method, ['browser_profile', 'local_collector'], true)
+                || (int)($gateSource['data_source_id'] ?? 0) !== $sourceId
+                || strtolower(trim((string)($gateSource['ingestion_method'] ?? ''))) !== $method
+                || (int)($task['data_source_id'] ?? 0) !== $sourceId
+                || (int)($task['sync_task_id'] ?? 0) !== $syncTaskId
+                || (int)($task['local_collector_task_id'] ?? 0) !== $localTaskId
+                || strtolower(trim((string)($task['ingestion_method'] ?? ''))) !== $method
+                || strtolower(trim((string)($task['trigger_type'] ?? ''))) !== $expectedTrigger
+                || $this->normalizeDispatcherRunId(
+                    (string)($task['dispatcher_run_id'] ?? '')
+                ) !== $producerDispatcherRunId
+                || strtolower(trim((string)($task['collection_status'] ?? ''))) !== 'success'
+                || strtolower(trim((string)($task['p0_status'] ?? ''))) !== 'ready'
+                || strtolower(trim((string)(
+                    $task['historical_core_contract_status'] ?? ''
+                ))) !== 'ready'
+                || ($task['readback_verified'] ?? false) !== true
+                || $rowIds === []
+                || count($rowIds) !== (int)($ledgerSource['saved_row_count'] ?? 0)
+                || count($rowIds) !== (int)($ledgerSource['readback_row_count'] ?? 0)
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** @param array<string, mixed> $receipt */
     private function machineReceiptDailyTrustReady(
         array $receipt,
@@ -3449,6 +4014,55 @@ class AutoFetchOnlineData extends Command
         $json = json_encode($receipt, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if (is_string($json)) {
             $output->writeln('SUXIOS_AUTO_FETCH_RECEIPT=' . $json);
+        }
+    }
+
+    /** @param array<string,mixed> $producerReceipt */
+    private function writeReusedCacheReceipt(
+        Output $output,
+        array $producerReceipt,
+        int $hotelId,
+        string $targetDate
+    ): void {
+        $producerRunId = strtolower(trim((string)(
+            $producerReceipt['dispatcher_run_id'] ?? ''
+        )));
+        if (preg_match(
+            '/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/D',
+            $producerRunId
+        ) !== 1) {
+            $producerRunId = '';
+        }
+        $producerAnchorHash = strtolower(trim((string)(
+            $producerReceipt['collection_anchor_hash'] ?? ''
+        )));
+        if (preg_match('/^[a-f0-9]{64}$/D', $producerAnchorHash) !== 1) {
+            $producerAnchorHash = '';
+        }
+        try {
+            $output->writeln('SUXIOS_REUSED_CACHE_RECEIPT=' . json_encode([
+                'schema_version' => 1,
+                'receipt_type' => 'suxios_reused_verified_cache',
+                'current_dispatcher_run_id' => $this->dispatcherRunId,
+                'producer_dispatcher_run_id' => $producerRunId !== '' ? $producerRunId : null,
+                'hotel_id' => $hotelId,
+                'target_date' => substr(trim($targetDate), 0, 10),
+                'status' => 'skipped',
+                'reason' => 'verified_cache_reused',
+                'producer_collection_anchor_hash' => $producerAnchorHash !== ''
+                    ? $producerAnchorHash
+                    : null,
+                'current_collection_anchor_hash' => null,
+                'current_source_tasks' => [],
+                'sensitive_values_exposed' => false,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+        } catch (\Throwable $error) {
+            Log::warning('Reused cache receipt serialization failed', [
+                'hotel_id' => $hotelId,
+                'target_date' => $targetDate,
+                'dispatcher_run_id' => $this->dispatcherRunId,
+                'exception_type' => get_debug_type($error),
+            ]);
         }
     }
 
@@ -3788,6 +4402,9 @@ class AutoFetchOnlineData extends Command
         $sources = is_array($this->scheduledPlanGate['sources'] ?? null)
             ? $this->scheduledPlanGate['sources']
             : [];
+        $executionOwnerUserId = max(0, (int)(
+            $this->scheduledPlanGate['execution_owner_user_id'] ?? 0
+        ));
         $indexed = [];
         $other = [];
         foreach ($platformResults as $platformResult) {
@@ -3821,6 +4438,13 @@ class AutoFetchOnlineData extends Command
             $result['system_hotel_id'] = $hotelId;
             $result['target_date'] = $businessDate;
             $result['dispatcher_run_id'] = $this->dispatcherRunId;
+            $result['execution_owner_user_id'] = $executionOwnerUserId;
+            $sourceIngestionMethod = strtolower(trim((string)(
+                $sourcePlan['ingestion_method'] ?? ''
+            )));
+            if (in_array($sourceIngestionMethod, ['browser_profile', 'local_collector'], true)) {
+                $result['ingestion_method'] = $sourceIngestionMethod;
+            }
             if ((int)($result['data_source_id'] ?? 0) <= 0 && $sourceId > 0) {
                 $result['data_source_id'] = $sourceId;
             }
@@ -3830,6 +4454,56 @@ class AutoFetchOnlineData extends Command
             ...array_values(array_intersect_key($indexed, array_flip($requiredPlatforms))),
             ...$other,
         ];
+    }
+
+    /**
+     * A local collector task is asynchronous, while one dispatcher UUID is one
+     * immutable producer attempt. Poll only that exact task until it reaches a
+     * terminal result; a later dispatcher must never adopt its task or rows.
+     *
+     * @param array<string,mixed> $scope
+     * @param array<string,mixed> $initialResult
+     * @return array<string,mixed>
+     */
+    private function awaitScheduledLocalCollection(
+        OtaLocalCollectorService $collector,
+        array $scope,
+        array $initialResult,
+        int $timeoutSeconds = self::LOCAL_PLAN_COMPLETION_TIMEOUT_SECONDS
+    ): array {
+        $result = $initialResult;
+        $timeoutSeconds = max(0, min(self::LOCAL_PLAN_COMPLETION_TIMEOUT_SECONDS, $timeoutSeconds));
+        $deadline = hrtime(true) + ($timeoutSeconds * 1_000_000_000);
+        while (in_array(
+            strtolower(trim((string)($result['status'] ?? ''))),
+            ['queued', 'in_progress'],
+            true
+        )) {
+            if ($timeoutSeconds === 0 || hrtime(true) >= $deadline) {
+                $sourceTaskStatus = strtolower(trim((string)($result['status'] ?? 'in_progress')));
+                return [
+                    ...$result,
+                    'success' => false,
+                    'status' => 'in_progress',
+                    'source_task_status' => $sourceTaskStatus,
+                    'readback_verified' => false,
+                    'failure_reason' => 'local_collector_plan_completion_timeout',
+                    'message' => 'local_collector_plan_completion_timeout',
+                    'automatic_device_substitution' => false,
+                    'sensitive_values_exposed' => false,
+                ];
+            }
+            $remainingMicroseconds = (int)max(
+                1,
+                min(
+                    self::LOCAL_PLAN_POLL_INTERVAL_MICROSECONDS,
+                    intdiv(max(0, $deadline - hrtime(true)), 1_000)
+                )
+            );
+            usleep($remainingMicroseconds);
+            $result = $collector->schedulePlanCollection($scope);
+        }
+        return $result;
     }
 
     /** @param array<int,array<string,mixed>> $platformResults */
@@ -3845,7 +4519,13 @@ class AutoFetchOnlineData extends Command
                 $businessDate,
                 $platformResults
             );
-            return ($receipt['readback_verified'] ?? false) === true;
+            // recordPlatformResults may legitimately leave the aggregate run
+            // active while an operator-owned local task is still queued or
+            // waiting for login. At this stage we need the exact two-slot DB
+            // readback, not a terminal-completion claim.
+            return ($receipt['ledger_structure_verified']
+                ?? $receipt['readback_verified']
+                ?? false) === true;
         } catch (\Throwable $error) {
             Log::error('Hotel collection run result receipt write failed', [
                 'hotel_id' => $hotelId,
@@ -3857,13 +4537,16 @@ class AutoFetchOnlineData extends Command
         }
     }
 
-    /** @param array<string,mixed> $receipt */
+    /**
+     * @param array<string,mixed> $receipt
+     * @return array<string,mixed>|false
+     */
     private function finalizeScheduledCollectionReceipt(
         int $hotelId,
         string $businessDate,
         array $receipt,
         bool $trustedReady
-    ): bool {
+    ): array|false {
         try {
             $runReceipt = (new HotelCollectionRunReceiptService())->finalizeCollection(
                 $this->dispatcherRunId,
@@ -3880,14 +4563,22 @@ class AutoFetchOnlineData extends Command
                 $runReceipt['collection_anchor_hash'] ?? ''
             )));
             if (!$trustedReady) {
-                return $status !== 'succeeded' && $anchorHash === '';
+                return $status !== 'succeeded' && $anchorHash === ''
+                    ? $runReceipt
+                    : false;
             }
             return $status === 'succeeded'
                 && preg_match('/^[a-f0-9]{64}$/D', $anchorHash) === 1
                 && hash_equals(
                     strtolower(trim((string)($receipt['collection_anchor_hash'] ?? ''))),
                     $anchorHash
-                );
+                )
+                && preg_match(
+                    '/^[a-f0-9]{64}$/D',
+                    strtolower(trim((string)($runReceipt['trust_receipt_digest'] ?? '')))
+                ) === 1
+                    ? $runReceipt
+                    : false;
         } catch (\Throwable $error) {
             Log::error('Hotel collection run final receipt write failed', [
                 'hotel_id' => $hotelId,
@@ -3895,6 +4586,192 @@ class AutoFetchOnlineData extends Command
                 'dispatcher_run_id' => $this->dispatcherRunId,
                 'exception_type' => get_debug_type($error),
             ]);
+            return false;
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function attachExactScheduledPmsCapture(
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        $missing = [
+            'status' => 'not_attached',
+            'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
+            'capture_id' => null,
+            'readback_verified' => false,
+            'failure_code' => 'dingdandao_capture_missing',
+            'sensitive_values_exposed' => false,
+        ];
+        try {
+            $capture = (new DingdandaoOperatingTargetCaptureService())->latest(
+                $tenantId,
+                $hotelId,
+                $businessDate
+            );
+            $captureId = max(0, (int)($capture['id'] ?? 0));
+            if ($captureId <= 0) {
+                $captureGaps = is_array($capture['gaps'] ?? null) ? $capture['gaps'] : [];
+                $firstGap = is_array($captureGaps[0] ?? null) ? $captureGaps[0] : [];
+                $failureCode = trim((string)(
+                    $capture['failure_code']
+                    ?? $capture['reason']
+                    ?? $firstGap['code']
+                    ?? 'dingdandao_capture_missing'
+                ));
+                if (preg_match('/^[a-z0-9_]{1,120}$/D', $failureCode) === 1) {
+                    $missing['failure_code'] = $failureCode;
+                }
+                return $missing;
+            }
+            $runReceipt = (new HotelCollectionRunReceiptService())->recordPmsCapture(
+                $this->dispatcherRunId,
+                $hotelId,
+                $businessDate,
+                DingdandaoOperatingTargetCaptureService::PROVIDER,
+                $captureId
+            );
+            return [
+                'status' => 'attached',
+                'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
+                'capture_id' => $captureId,
+                'readback_verified' => (
+                    $runReceipt['pms_receipt']['status'] ?? ''
+                ) === 'verified'
+                    && ($runReceipt['pms_receipt']['readback_verified'] ?? false) === true,
+                'failure_code' => '',
+                'sensitive_values_exposed' => false,
+            ];
+        } catch (\Throwable $error) {
+            Log::warning('Hotel collection run PMS receipt was not attached', [
+                'hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+                'dispatcher_run_id' => $this->dispatcherRunId,
+                'exception_type' => get_debug_type($error),
+            ]);
+            $failureCode = trim($error->getMessage());
+            $missing['failure_code'] = preg_match(
+                '/^(?:hotel_collection_run_pms|dingdandao_)[a-z0-9_]+$/D',
+                $failureCode
+            ) === 1
+                ? $failureCode
+                : 'hotel_collection_run_pms_attachment_failed';
+            return $missing;
+        }
+    }
+
+    private function markScheduledNoCollectionOutcome(
+        Output $output,
+        int $hotelId,
+        string $businessDate,
+        string $outcomeCode
+    ): bool {
+        if ($this->dispatcherRunId === '') {
+            return true;
+        }
+        try {
+            $runReceipt = (new HotelCollectionRunReceiptService())->markNoCollectionOutcome(
+                $this->dispatcherRunId,
+                $hotelId,
+                $businessDate,
+                $outcomeCode
+            );
+            $output->writeln(
+                'SUXIOS_COLLECTION_RUN_RECEIPT='
+                . json_encode(
+                    $runReceipt,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                )
+            );
+            $sourceReceipts = is_array($runReceipt['source_receipts'] ?? null)
+                ? $runReceipt['source_receipts']
+                : [];
+            $exactAnchorlessReadback = ($runReceipt['readback_verified'] ?? false) === true
+                && count($sourceReceipts) === 2
+                && trim((string)($runReceipt['collection_anchor_hash'] ?? '')) === ''
+                && trim((string)($runReceipt['trust_receipt_digest'] ?? '')) === ''
+                && trim((string)($runReceipt['finished_at'] ?? '')) !== '';
+            foreach ($sourceReceipts as $sourceReceipt) {
+                if (!is_array($sourceReceipt)
+                    || (string)($sourceReceipt['failure_code'] ?? '') !== $outcomeCode
+                    || (int)($sourceReceipt['platform_sync_task_id'] ?? 0) > 0
+                    || (int)($sourceReceipt['local_collector_task_id'] ?? 0) > 0
+                    || ($sourceReceipt['readback_verified'] ?? false) === true
+                ) {
+                    $exactAnchorlessReadback = false;
+                    break;
+                }
+            }
+            return $exactAnchorlessReadback;
+        } catch (\Throwable $error) {
+            Log::error('Hotel collection no-collection outcome receipt write failed', [
+                'hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+                'dispatcher_run_id' => $this->dispatcherRunId,
+                'outcome_code' => $outcomeCode,
+                'exception_type' => get_debug_type($error),
+            ]);
+            return false;
+        }
+    }
+
+    private function blockChangedScheduledCollectionScope(
+        Output $output,
+        int $hotelId,
+        string $businessDate
+    ): bool {
+        if ($this->dispatcherRunId === '') {
+            return false;
+        }
+        try {
+            $runReceipt = (new HotelCollectionRunReceiptService())
+                ->blockScopeChangedDuringActiveRun(
+                    $this->dispatcherRunId,
+                    $hotelId,
+                    $businessDate
+                );
+            $output->writeln(
+                'SUXIOS_COLLECTION_RUN_RECEIPT='
+                . json_encode(
+                    $runReceipt,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                )
+            );
+            $sourceReceipts = is_array($runReceipt['source_receipts'] ?? null)
+                ? $runReceipt['source_receipts']
+                : [];
+            $exactBlockedReadback = (string)($runReceipt['status'] ?? '') === 'blocked'
+                && (string)($runReceipt['failure_stage'] ?? '') === 'plan_gate'
+                && (string)($runReceipt['failure_code'] ?? '')
+                    === 'plan_scope_changed_during_active_run'
+                && trim((string)($runReceipt['collection_anchor_hash'] ?? '')) === ''
+                && trim((string)($runReceipt['trust_receipt_digest'] ?? '')) === ''
+                && trim((string)($runReceipt['finished_at'] ?? '')) !== ''
+                && count($sourceReceipts) === 2;
+            foreach ($sourceReceipts as $sourceReceipt) {
+                if (!is_array($sourceReceipt)
+                    || (string)($sourceReceipt['status'] ?? '') !== 'blocked'
+                    || (string)($sourceReceipt['failure_stage'] ?? '') !== 'plan_gate'
+                    || (string)($sourceReceipt['failure_code'] ?? '')
+                        !== 'plan_scope_changed_during_active_run'
+                ) {
+                    $exactBlockedReadback = false;
+                    break;
+                }
+            }
+            return $exactBlockedReadback;
+        } catch (\Throwable $error) {
+            try {
+                Log::error('Hotel collection changed-scope run could not be sealed', [
+                    'hotel_id' => $hotelId,
+                    'business_date' => $businessDate,
+                    'dispatcher_run_id' => $this->dispatcherRunId,
+                    'exception_type' => get_debug_type($error),
+                ]);
+            } catch (\Throwable) {
+                // Logging must not turn an unsealed scope into a terminal receipt.
+            }
             return false;
         }
     }

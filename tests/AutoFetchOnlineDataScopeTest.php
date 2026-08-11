@@ -634,6 +634,27 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertStringContainsString('? 1', $source);
         self::assertStringContainsString('target_date_core_already_verified_no_capture', $source);
         self::assertStringContainsString("'reused_verified_count' => \$reusedVerifiedCount", $source);
+        $reusedAt = strpos($source, '&& $reusedRunReadback !== []');
+        $reusedEndAt = strpos($source, 'continue;', (int)$reusedAt);
+        self::assertIsInt($reusedAt);
+        self::assertIsInt($reusedEndAt);
+        $reusedBranch = substr(
+            $source,
+            (int)$reusedAt,
+            (int)$reusedEndAt - (int)$reusedAt
+        );
+        foreach ([
+            "'system_hotel_id' => \$hotelId",
+            "'ingestion_method' => 'browser_profile'",
+            "'target_date' => \$dataDate",
+            "'dispatcher_run_id' => \$this->dispatcherRunId",
+            "'source_task_status' => 'success'",
+            "'saved_count' => \$reusedCount",
+            "'readback_count' => \$reusedCount",
+            "'readback_verified' => true",
+        ] as $requiredProducerField) {
+            self::assertStringContainsString($requiredProducerField, $reusedBranch);
+        }
         self::assertStringNotContainsString('ota_local_collector_accounts', $source);
     }
 
@@ -1131,16 +1152,20 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
                     'data_source_id' => 25,
                     'sync_task_id' => 901,
                     'platform' => 'ctrip',
+                    'ingestion_method' => 'browser_profile',
                     'collection_status' => 'success',
                     'p0_status' => 'ready',
+                    'readback_verified' => true,
                     'row_ids' => [91001, 91002],
                 ],
                 [
                     'data_source_id' => 68,
                     'sync_task_id' => 902,
                     'platform' => 'meituan',
+                    'ingestion_method' => 'browser_profile',
                     'collection_status' => 'success',
                     'p0_status' => 'ready',
+                    'readback_verified' => true,
                     'row_ids' => [92001, 92002],
                 ],
             ],
@@ -1284,6 +1309,24 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             $receipt,
             80,
             $taskReadbacks,
+            $rowsBySource
+        ));
+
+        $localReceipt = $receipt;
+        $localReadbacks = $taskReadbacks;
+        foreach ($localReceipt['source_tasks'] as $index => &$sourceTask) {
+            $sourceTask['ingestion_method'] = 'local_collector';
+            $sourceTask['local_collector_task_id'] = 7001 + $index;
+            $sourceTask['trigger_type'] = 'local_collector_upload';
+            $taskId = (int)$sourceTask['sync_task_id'];
+            $localReadbacks[$taskId]['trigger_type'] = 'local_collector_upload';
+        }
+        unset($sourceTask);
+        self::assertTrue($matches->invoke(
+            $command,
+            $localReceipt,
+            80,
+            $localReadbacks,
             $rowsBySource
         ));
 
@@ -1722,7 +1765,7 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         );
         $beginAt = strpos(
             $source,
-            '(new HotelCollectionRunReceiptService())->begin($planGate)'
+            '$runReceiptService->begin($planGate)'
         );
         $gateOutputAt = strpos($source, "'SUXIOS_COLLECTION_PLAN_GATE='");
         $blockedReturnAt = strpos($source, 'return 78;', (int)$gateOutputAt);
@@ -1759,6 +1802,754 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             'hotel_collection_run_final_receipt_write_failed',
             $source
         );
+    }
+
+    public function testChangedPlanScopeSealsTheOldDispatcherBeforeTheRunnerCanRotateIt(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+        $beginAt = strpos($source, '$runReceiptService->begin($planGate)');
+        $scopeMismatchAt = strpos(
+            $source,
+            "'hotel_collection_run_receipt_scope_mismatch'",
+            (int)$beginAt
+        );
+        $committedReadAt = strpos(
+            $source,
+            '$committedRunReceipt = $runReceiptService->readExact(',
+            (int)$beginAt
+        );
+        $committedVerifyAt = strpos(
+            $source,
+            '$this->durableSucceededRunReceiptReady(',
+            (int)$committedReadAt
+        );
+        $blockAt = strpos(
+            $source,
+            '$this->blockChangedScheduledCollectionScope(',
+            (int)$scopeMismatchAt
+        );
+        $gateOutputAt = strpos($source, "'SUXIOS_COLLECTION_PLAN_GATE='", (int)$blockAt);
+        $blockedReturnAt = strpos($source, 'return 78;', (int)$gateOutputAt);
+        foreach ([
+            $beginAt,
+            $scopeMismatchAt,
+            $committedReadAt,
+            $committedVerifyAt,
+            $blockAt,
+            $gateOutputAt,
+            $blockedReturnAt,
+        ] as $position) {
+            self::assertIsInt($position);
+        }
+        self::assertTrue(
+            $beginAt < $committedReadAt
+            && $committedReadAt < $committedVerifyAt
+            && $committedVerifyAt < $scopeMismatchAt
+            && $scopeMismatchAt < $blockAt
+            && $blockAt < $gateOutputAt
+            && $gateOutputAt < $blockedReturnAt
+        );
+
+        $helperAt = strpos($source, 'private function blockChangedScheduledCollectionScope(');
+        $helperEndAt = strpos($source, 'private function updateStatus(', (int)$helperAt);
+        self::assertIsInt($helperAt);
+        self::assertIsInt($helperEndAt);
+        $helper = substr($source, (int)$helperAt, (int)$helperEndAt - (int)$helperAt);
+        self::assertStringContainsString('->blockScopeChangedDuringActiveRun(', $helper);
+        self::assertStringContainsString('SUXIOS_COLLECTION_RUN_RECEIPT=', $helper);
+        self::assertStringContainsString("'plan_scope_changed_during_active_run'", $helper);
+        self::assertStringContainsString("'status'] ?? '') === 'blocked'", $helper);
+        self::assertStringContainsString("'collection_anchor_hash'", $helper);
+        self::assertStringContainsString("'trust_receipt_digest'", $helper);
+        self::assertStringNotContainsString('SUXIOS_AUTO_FETCH_RECEIPT=', $helper);
+    }
+
+    public function testRunReceiptWriteFailureKeepsTheSameDispatcherActiveWithoutTerminalizingProducerTasks(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+        $recordAt = strpos($source, 'if (!$this->recordScheduledPlatformResults(');
+        $classifyAt = strpos(
+            $source,
+            '$outcome = $this->classifyScheduledRunOutcome(',
+            (int)$recordAt
+        );
+        self::assertIsInt($recordAt);
+        self::assertIsInt($classifyAt);
+        $failureBranch = substr(
+            $source,
+            (int)$recordAt,
+            (int)$classifyAt - (int)$recordAt
+        );
+
+        self::assertStringContainsString("'status' => 'in_progress'", $failureBranch);
+        self::assertStringContainsString(
+            "'failure_reason' => 'hotel_collection_run_receipt_write_failed'",
+            $failureBranch
+        );
+        self::assertStringContainsString('$hasIncompleteDueRun = true;', $failureBranch);
+        self::assertStringContainsString('continue;', $failureBranch);
+        self::assertStringNotContainsString("\$platformResult['status'] = 'failed'", $failureBranch);
+        self::assertStringNotContainsString("\$platformResult['success'] = false", $failureBranch);
+        self::assertStringNotContainsString('$this->writeMachineReceipt(', $failureBranch);
+        self::assertStringNotContainsString('$this->finalizeScheduledCollectionReceipt(', $failureBranch);
+
+        $recordHelperAt = strpos($source, 'private function recordScheduledPlatformResults(');
+        $finalizeHelperAt = strpos($source, 'private function finalizeScheduledCollectionReceipt(', (int)$recordHelperAt);
+        self::assertIsInt($recordHelperAt);
+        self::assertIsInt($finalizeHelperAt);
+        $recordHelper = substr(
+            $source,
+            (int)$recordHelperAt,
+            (int)$finalizeHelperAt - (int)$recordHelperAt
+        );
+        self::assertStringContainsString("\$receipt['ledger_structure_verified']", $recordHelper);
+    }
+
+    public function testRunFinalizationWriteFailureKeepsTheSameDispatcherActiveWithoutPublishingAutoReceipt(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+        $finalizeAt = strpos(
+            $source,
+            '$finalizedRunReceipt = $this->finalizeScheduledCollectionReceipt('
+        );
+        $evidenceProjectionAt = strpos(
+            $source,
+            "\$receipt['collection_run_status']",
+            (int)$finalizeAt
+        );
+        $pmsAttachAt = strpos($source, '$receipt[\'pms_run_attachment\']', (int)$finalizeAt);
+        self::assertIsInt($finalizeAt);
+        self::assertIsInt($evidenceProjectionAt);
+        self::assertIsInt($pmsAttachAt);
+        $failureBranch = substr(
+            $source,
+            (int)$finalizeAt,
+            (int)$evidenceProjectionAt - (int)$finalizeAt
+        );
+
+        self::assertStringContainsString("'status' => 'in_progress'", $failureBranch);
+        self::assertStringContainsString(
+            "'failure_reason' => 'hotel_collection_run_final_receipt_write_failed'",
+            $failureBranch
+        );
+        self::assertStringContainsString('$hasIncompleteDueRun = true;', $failureBranch);
+        self::assertStringContainsString('continue;', $failureBranch);
+        self::assertStringNotContainsString('$this->writeMachineReceipt(', $failureBranch);
+        self::assertStringNotContainsString('$this->downgradeUntrustedMachineReceipt(', $failureBranch);
+
+        $evidenceProjection = substr(
+            $source,
+            (int)$evidenceProjectionAt,
+            (int)$pmsAttachAt - (int)$evidenceProjectionAt
+        );
+        self::assertStringContainsString(
+            "\$receipt['collection_run_readback_verified']",
+            $evidenceProjection
+        );
+        self::assertStringContainsString(
+            "\$finalizedRunReceipt['readback_verified']",
+            $evidenceProjection
+        );
+        self::assertStringContainsString("\$receipt['trust_receipt_digest']", $evidenceProjection);
+        self::assertStringContainsString(
+            "\$finalizedRunReceipt['trust_receipt_digest']",
+            $evidenceProjection
+        );
+        $writeAt = strpos($source, '$this->writeMachineReceipt($output, $receipt);', (int)$pmsAttachAt);
+        self::assertIsInt($writeAt);
+        self::assertTrue($evidenceProjectionAt < $pmsAttachAt && $pmsAttachAt < $writeAt);
+    }
+
+    public function testExactTargetDatePmsCaptureIsAttachedOnlyAsRunSidecar(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+
+        self::assertStringContainsString(
+            'use app\\service\\DingdandaoOperatingTargetCaptureService;',
+            $source
+        );
+        $finalizeAt = strpos($source, '$this->finalizeScheduledCollectionReceipt(');
+        $attachAt = strpos($source, '$this->attachExactScheduledPmsCapture(', (int)$finalizeAt);
+        $downgradeAt = strpos($source, 'if (!$trustedReady && $outcome[\'complete\'])', (int)$attachAt);
+        self::assertIsInt($finalizeAt);
+        self::assertIsInt($attachAt);
+        self::assertIsInt($downgradeAt);
+        self::assertTrue($finalizeAt < $attachAt && $attachAt < $downgradeAt);
+
+        $helperAt = strpos($source, 'private function attachExactScheduledPmsCapture(');
+        $helperEndAt = strpos($source, 'private function markScheduledNoCollectionOutcome(', (int)$helperAt);
+        self::assertIsInt($helperAt);
+        self::assertIsInt($helperEndAt);
+        $helper = substr($source, (int)$helperAt, (int)$helperEndAt - (int)$helperAt);
+        self::assertStringContainsString(
+            '(new DingdandaoOperatingTargetCaptureService())->latest(',
+            $helper
+        );
+        self::assertStringContainsString('$tenantId,', $helper);
+        self::assertStringContainsString('$hotelId,', $helper);
+        self::assertStringContainsString('$businessDate', $helper);
+        self::assertStringContainsString('->recordPmsCapture(', $helper);
+        self::assertStringContainsString('$this->dispatcherRunId,', $helper);
+        self::assertStringContainsString(
+            'DingdandaoOperatingTargetCaptureService::PROVIDER',
+            $helper
+        );
+        self::assertStringContainsString("'sensitive_values_exposed' => false", $helper);
+        self::assertStringNotContainsString('collection_anchor_hash', $helper);
+        self::assertStringNotContainsString('trust_receipt_digest', $helper);
+    }
+
+    public function testUntrustedRunDowngradeCannotEmitATerminalSuccessReceipt(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'downgradeUntrustedMachineReceipt');
+        $anchorHash = hash('sha256', 'exact-source-anchor');
+        $sourceTasks = [[
+            'platform' => 'ctrip',
+            'data_source_id' => 25,
+            'sync_task_id' => 91,
+        ]];
+        $receipt = $method->invoke($command, [
+            'status' => 'success',
+            'collection_complete' => true,
+            'authority_scope_complete' => true,
+            'dual_ota_p0_complete' => true,
+            'collection_anchor_hash' => $anchorHash,
+            'source_tasks' => $sourceTasks,
+            'canonical_history_complete' => true,
+        ]);
+
+        self::assertSame('partial_success', $receipt['status']);
+        self::assertFalse($receipt['collection_complete']);
+        self::assertFalse($receipt['authority_scope_complete']);
+        self::assertFalse($receipt['dual_ota_p0_complete']);
+        self::assertFalse($receipt['collection_run_readback_verified']);
+        self::assertSame(
+            'requested_scope_authority_or_history_incomplete',
+            $receipt['collection_run_failure_code']
+        );
+        self::assertSame($anchorHash, $receipt['collection_anchor_hash']);
+        self::assertSame($sourceTasks, $receipt['source_tasks']);
+        self::assertTrue($receipt['canonical_history_complete']);
+
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+        $downgradeAt = strpos($source, '$receipt = $this->downgradeUntrustedMachineReceipt(');
+        $writeAt = strpos($source, '$this->writeMachineReceipt($output, $receipt);', (int)$downgradeAt);
+        self::assertIsInt($downgradeAt);
+        self::assertIsInt($writeAt);
+        self::assertTrue($downgradeAt < $writeAt);
+    }
+
+    public function testEveryPreCollectionEarlyContinueWritesAnAnchorlessTerminalRunReceipt(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+
+        $cacheBranchAt = strpos($source, '$executedReceipt = Cache::get($run[\'executed_key\']);');
+        $cacheCallAt = strpos($source, '$this->markScheduledNoCollectionOutcome(', (int)$cacheBranchAt);
+        $cacheOutcomeAt = strpos($source, "'verified_cache_reused'", (int)$cacheCallAt);
+        $cacheContinueAt = strpos($source, 'continue;', (int)$cacheOutcomeAt);
+
+        $retryBranchAt = strpos(
+            $source,
+            'if (!$forceRerun && !$this->isScheduleRetryDue(',
+            (int)$cacheContinueAt
+        );
+        $retryCallAt = strpos($source, '$this->markScheduledNoCollectionOutcome(', (int)$retryBranchAt);
+        $retryExhaustedAt = strpos($source, "'retry_exhausted'", (int)$retryCallAt);
+        $retryCooldownAt = strpos($source, "'retry_cooldown'", (int)$retryExhaustedAt);
+        $retryContinueAt = strpos($source, 'continue;', (int)$retryCooldownAt);
+
+        $lockBranchAt = strpos($source, 'if ($existingLock) {', (int)$retryContinueAt);
+        $lockCallAt = strpos($source, '$this->markScheduledNoCollectionOutcome(', (int)$lockBranchAt);
+        $lockOutcomeAt = strpos($source, "'profile_locked'", (int)$lockCallAt);
+        $lockContinueAt = strpos($source, 'continue;', (int)$lockOutcomeAt);
+
+        foreach ([
+            $cacheBranchAt,
+            $cacheCallAt,
+            $cacheOutcomeAt,
+            $cacheContinueAt,
+            $retryBranchAt,
+            $retryCallAt,
+            $retryExhaustedAt,
+            $retryCooldownAt,
+            $retryContinueAt,
+            $lockBranchAt,
+            $lockCallAt,
+            $lockOutcomeAt,
+            $lockContinueAt,
+        ] as $position) {
+            self::assertIsInt($position);
+        }
+        self::assertTrue(
+            $cacheBranchAt < $cacheCallAt
+            && $cacheCallAt < $cacheOutcomeAt
+            && $cacheOutcomeAt < $cacheContinueAt
+        );
+        self::assertTrue(
+            $retryBranchAt < $retryCallAt
+            && $retryCallAt < $retryExhaustedAt
+            && $retryExhaustedAt < $retryCooldownAt
+            && $retryCooldownAt < $retryContinueAt
+        );
+        self::assertTrue(
+            $lockBranchAt < $lockCallAt
+            && $lockCallAt < $lockOutcomeAt
+            && $lockOutcomeAt < $lockContinueAt
+        );
+
+        $helperAt = strpos($source, 'private function markScheduledNoCollectionOutcome(');
+        $delegateAt = strpos(
+            $source,
+            '(new HotelCollectionRunReceiptService())->markNoCollectionOutcome(',
+            (int)$helperAt
+        );
+        $helperEndAt = strpos($source, 'private function updateStatus(', (int)$delegateAt);
+        self::assertIsInt($helperAt);
+        self::assertIsInt($delegateAt);
+        self::assertIsInt($helperEndAt);
+        self::assertTrue($helperAt < $delegateAt && $delegateAt < $helperEndAt);
+        $helper = substr($source, (int)$helperAt, (int)$helperEndAt - (int)$helperAt);
+        self::assertStringContainsString("'collection_anchor_hash'", $helper);
+        self::assertStringContainsString("'trust_receipt_digest'", $helper);
+        self::assertStringContainsString("'finished_at'", $helper);
+        self::assertStringContainsString("'platform_sync_task_id'", $helper);
+        self::assertStringContainsString("'local_collector_task_id'", $helper);
+        self::assertStringContainsString("'readback_verified'", $helper);
+    }
+
+    public function testLocalCollectorWaitsForTheSameDispatcherTaskBeforeClassifyingTheRun(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+        $localBranchAt = strpos($source, "if (\$ingestionMethod === 'local_collector')");
+        $scheduleAt = strpos(
+            $source,
+            '$localCollector->schedulePlanCollection($localScope)',
+            (int)$localBranchAt
+        );
+        $awaitAt = strpos($source, '$this->awaitScheduledLocalCollection(', (int)$scheduleAt);
+        $classifyAt = strpos($source, '$localStatus = strtolower(', (int)$awaitAt);
+        foreach ([$localBranchAt, $scheduleAt, $awaitAt, $classifyAt] as $position) {
+            self::assertIsInt($position);
+        }
+        self::assertTrue(
+            $localBranchAt < $scheduleAt && $scheduleAt < $awaitAt && $awaitAt < $classifyAt
+        );
+
+        $helperAt = strpos($source, 'private function awaitScheduledLocalCollection(');
+        $helperEndAt = strpos($source, 'private function recordScheduledPlatformResults(', (int)$helperAt);
+        self::assertIsInt($helperAt);
+        self::assertIsInt($helperEndAt);
+        $helper = substr($source, (int)$helperAt, (int)$helperEndAt - (int)$helperAt);
+        self::assertStringContainsString("['queued', 'in_progress']", $helper);
+        self::assertStringContainsString('$collector->schedulePlanCollection($scope)', $helper);
+        self::assertStringContainsString("'local_collector_plan_completion_timeout'", $helper);
+        self::assertStringContainsString("'status' => 'in_progress'", $helper);
+        self::assertStringContainsString("'automatic_device_substitution' => false", $helper);
+        self::assertStringContainsString('LOCAL_PLAN_COMPLETION_TIMEOUT_SECONDS', $helper);
+    }
+
+    public function testVerifiedCacheIsDiagnosticOnlyForTheCurrentDispatcherRun(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+        $cacheBranchAt = strpos($source, '$executedReceipt = Cache::get($run[\'executed_key\']);');
+        $cacheContinueAt = strpos($source, 'continue;', (int)$cacheBranchAt);
+        self::assertIsInt($cacheBranchAt);
+        self::assertIsInt($cacheContinueAt);
+        $cacheBranch = substr(
+            $source,
+            (int)$cacheBranchAt,
+            (int)$cacheContinueAt - (int)$cacheBranchAt
+        );
+        self::assertStringContainsString('$this->writeReusedCacheReceipt(', $cacheBranch);
+        self::assertStringNotContainsString('$this->writeMachineReceipt(', $cacheBranch);
+
+        $helperAt = strpos($source, 'private function writeReusedCacheReceipt(');
+        $helperEndAt = strpos($source, 'private function writeGapReport(', (int)$helperAt);
+        self::assertIsInt($helperAt);
+        self::assertIsInt($helperEndAt);
+        $helper = substr($source, (int)$helperAt, (int)$helperEndAt - (int)$helperAt);
+        self::assertStringContainsString('SUXIOS_REUSED_CACHE_RECEIPT=', $helper);
+        self::assertStringContainsString("'current_dispatcher_run_id'", $helper);
+        self::assertStringContainsString("'producer_dispatcher_run_id'", $helper);
+        self::assertStringContainsString("'current_collection_anchor_hash' => null", $helper);
+        self::assertStringContainsString("'current_source_tasks' => []", $helper);
+        self::assertStringNotContainsString('SUXIOS_AUTO_FETCH_RECEIPT=', $helper);
+    }
+
+    public function testDurableSucceededRunCanRecoverLostTerminalOutputOnlyForExactScope(): void
+    {
+        $dispatcherRunId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        $command = new AutoFetchOnlineData();
+        (new \ReflectionProperty($command, 'dispatcherRunId'))->setValue(
+            $command,
+            $dispatcherRunId
+        );
+        $method = new \ReflectionMethod($command, 'durableSucceededRunReceiptReady');
+        $receipt = [
+            'dispatcher_run_id' => $dispatcherRunId,
+            'system_hotel_id' => 80,
+            'business_date' => '2026-08-09',
+            'status' => 'succeeded',
+            'ledger_structure_verified' => true,
+            'readback_verified' => true,
+            'collection_anchor_hash' => hash('sha256', 'collection-anchor'),
+            'trust_receipt_digest' => hash('sha256', 'trust-receipt'),
+            'finished_at' => '2026-08-10 09:00:00',
+            'source_receipts' => [
+                [
+                    'platform' => 'ctrip',
+                    'data_source_id' => 25,
+                    'ingestion_method' => 'local_collector',
+                    'platform_sync_task_id' => 91,
+                    'local_collector_task_id' => 501,
+                    'status' => 'success',
+                    'saved_row_count' => 2,
+                    'readback_row_count' => 2,
+                    'readback_verified' => true,
+                    'finished_at' => '2026-08-10 08:59:00',
+                ],
+                [
+                    'platform' => 'meituan',
+                    'data_source_id' => 68,
+                    'ingestion_method' => 'browser_profile',
+                    'platform_sync_task_id' => 92,
+                    'local_collector_task_id' => null,
+                    'status' => 'success',
+                    'saved_row_count' => 1,
+                    'readback_row_count' => 1,
+                    'readback_verified' => true,
+                    'finished_at' => '2026-08-10 08:59:30',
+                ],
+            ],
+        ];
+
+        self::assertTrue($method->invoke(
+            $command,
+            $receipt,
+            80,
+            '2026-08-09',
+            [68, 25],
+            ['meituan', 'ctrip']
+        ));
+        $foreign = $receipt;
+        $foreign['dispatcher_run_id'] = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        self::assertFalse($method->invoke(
+            $command,
+            $foreign,
+            80,
+            '2026-08-09',
+            [25, 68],
+            ['ctrip', 'meituan']
+        ));
+
+        foreach ([
+            'hotel' => static function (array $value): array {
+                $value['system_hotel_id'] = 81;
+                return $value;
+            },
+            'date' => static function (array $value): array {
+                $value['business_date'] = '2026-08-08';
+                return $value;
+            },
+            'trust' => static function (array $value): array {
+                $value['trust_receipt_digest'] = null;
+                return $value;
+            },
+            'browser_local_task' => static function (array $value): array {
+                $value['source_receipts'][1]['local_collector_task_id'] = 502;
+                return $value;
+            },
+            'duplicate_sync_task' => static function (array $value): array {
+                $value['source_receipts'][1]['platform_sync_task_id'] = 91;
+                return $value;
+            },
+            'source_readback' => static function (array $value): array {
+                $value['source_receipts'][0]['readback_verified'] = false;
+                return $value;
+            },
+        ] as $label => $mutate) {
+            self::assertFalse($method->invoke(
+                $command,
+                $mutate($receipt),
+                80,
+                '2026-08-09',
+                [25, 68],
+                ['ctrip', 'meituan']
+            ), $label);
+        }
+    }
+
+    public function testCurrentProducerReadbackCannotComeFromAnOlderDispatcher(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $currentRunId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        (new \ReflectionProperty($command, 'dispatcherRunId'))->setValue(
+            $command,
+            $currentRunId
+        );
+        $method = new \ReflectionMethod($command, 'currentDispatcherOwnsRunReadback');
+
+        self::assertTrue($method->invoke($command, [
+            'dispatcher_run_id' => $currentRunId,
+        ]));
+        self::assertFalse($method->invoke($command, [
+            'dispatcher_run_id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        ]));
+
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+        $producerAt = strpos($source, 'private function existingVerifiedProfileRunReadback(');
+        $producerEndAt = strpos(
+            $source,
+            'private function profileRunReadbackRowsStillCurrent(',
+            (int)$producerAt
+        );
+        self::assertIsInt($producerAt);
+        self::assertIsInt($producerEndAt);
+        $producer = substr($source, (int)$producerAt, (int)$producerEndAt - (int)$producerAt);
+        self::assertStringContainsString(
+            '$this->currentDispatcherOwnsRunReadback($readback)',
+            $producer
+        );
+    }
+
+    public function testVerifiedCacheRequiresTheCurrentPlanAndItsTrustedProducerLedger(): void
+    {
+        $producerRunId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        $scopeHash = hash('sha256', 'hotel-80-plan-v3');
+        $anchorHash = hash('sha256', 'producer-anchor');
+        $trustDigest = hash('sha256', 'producer-trust');
+        $producerLedger = [
+            'dispatcher_run_id' => $producerRunId,
+            'system_hotel_id' => 80,
+            'business_date' => '2026-08-09',
+            'run_mode' => 'daily',
+            'plan_id' => 91,
+            'plan_version' => 3,
+            'scope_hash' => $scopeHash,
+            'status' => 'succeeded',
+            'ledger_structure_verified' => true,
+            'readback_verified' => true,
+            'collection_anchor_hash' => $anchorHash,
+            'trust_receipt_digest' => $trustDigest,
+            'finished_at' => '2026-08-10 09:00:00',
+            'source_receipts' => [
+                [
+                    'platform' => 'ctrip',
+                    'data_source_id' => 25,
+                    'ingestion_method' => 'local_collector',
+                    'platform_sync_task_id' => 91,
+                    'local_collector_task_id' => 501,
+                    'status' => 'success',
+                    'saved_row_count' => 2,
+                    'readback_row_count' => 2,
+                    'readback_verified' => true,
+                    'finished_at' => '2026-08-10 08:59:00',
+                ],
+                [
+                    'platform' => 'meituan',
+                    'data_source_id' => 68,
+                    'ingestion_method' => 'browser_profile',
+                    'platform_sync_task_id' => 92,
+                    'local_collector_task_id' => null,
+                    'status' => 'success',
+                    'saved_row_count' => 1,
+                    'readback_row_count' => 1,
+                    'readback_verified' => true,
+                    'finished_at' => '2026-08-10 08:59:30',
+                ],
+            ],
+        ];
+        $cachedReceipt = [
+            'dispatcher_run_id' => $producerRunId,
+            'collection_run_status' => 'succeeded',
+            'collection_run_readback_verified' => true,
+            'collection_anchor_hash' => $anchorHash,
+            'trust_receipt_digest' => $trustDigest,
+            'source_tasks' => [
+                [
+                    'platform' => 'ctrip',
+                    'data_source_id' => 25,
+                    'sync_task_id' => 91,
+                    'local_collector_task_id' => 501,
+                    'ingestion_method' => 'local_collector',
+                    'trigger_type' => 'local_collector_upload',
+                    'dispatcher_run_id' => $producerRunId,
+                    'collection_status' => 'success',
+                    'p0_status' => 'ready',
+                    'historical_core_contract_status' => 'ready',
+                    'readback_verified' => true,
+                    'row_ids' => [101, 102],
+                ],
+                [
+                    'platform' => 'meituan',
+                    'data_source_id' => 68,
+                    'sync_task_id' => 92,
+                    'ingestion_method' => 'browser_profile',
+                    'trigger_type' => 'daily_profile_reuse',
+                    'dispatcher_run_id' => $producerRunId,
+                    'collection_status' => 'success',
+                    'p0_status' => 'ready',
+                    'historical_core_contract_status' => 'ready',
+                    'readback_verified' => true,
+                    'row_ids' => [201],
+                ],
+            ],
+        ];
+        $gate = [
+            'collection_allowed' => true,
+            'system_hotel_id' => 80,
+            'business_date' => '2026-08-09',
+            'run_mode' => 'daily',
+            'plan_id' => 91,
+            'plan_version' => 3,
+            'scope_hash' => $scopeHash,
+            'sources' => [
+                'ctrip' => [
+                    'data_source_id' => 25,
+                    'ingestion_method' => 'local_collector',
+                ],
+                'meituan' => [
+                    'data_source_id' => 68,
+                    'ingestion_method' => 'browser_profile',
+                ],
+            ],
+        ];
+        $command = new AutoFetchOnlineData();
+        $gateProperty = new \ReflectionProperty($command, 'scheduledPlanGate');
+        $gateProperty->setValue($command, $gate);
+        $method = new \ReflectionMethod($command, 'cachedReceiptMatchesTrustedProducerLedger');
+
+        self::assertTrue($method->invoke(
+            $command,
+            $cachedReceipt,
+            $producerLedger,
+            80,
+            '2026-08-09',
+            [25, 68],
+            ['ctrip', 'meituan']
+        ));
+
+        $planDrift = $gate;
+        $planDrift['plan_version'] = 4;
+        $gateProperty->setValue($command, $planDrift);
+        self::assertFalse($method->invoke(
+            $command,
+            $cachedReceipt,
+            $producerLedger,
+            80,
+            '2026-08-09',
+            [25, 68],
+            ['ctrip', 'meituan']
+        ));
+
+        $methodDrift = $gate;
+        $methodDrift['sources']['ctrip']['ingestion_method'] = 'browser_profile';
+        $gateProperty->setValue($command, $methodDrift);
+        self::assertFalse($method->invoke(
+            $command,
+            $cachedReceipt,
+            $producerLedger,
+            80,
+            '2026-08-09',
+            [25, 68],
+            ['ctrip', 'meituan']
+        ));
+
+        $gateProperty->setValue($command, $gate);
+        $trustDrift = $producerLedger;
+        $trustDrift['trust_receipt_digest'] = hash('sha256', 'drifted-ledger-trust');
+        self::assertFalse($method->invoke(
+            $command,
+            $cachedReceipt,
+            $trustDrift,
+            80,
+            '2026-08-09',
+            [25, 68],
+            ['ctrip', 'meituan']
+        ));
+        $unverifiedTask = $cachedReceipt;
+        $unverifiedTask['source_tasks'][0]['readback_verified'] = false;
+        self::assertFalse($method->invoke(
+            $command,
+            $unverifiedTask,
+            $producerLedger,
+            80,
+            '2026-08-09',
+            [25, 68],
+            ['ctrip', 'meituan']
+        ));
+
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+        $cacheBranchAt = strpos($source, '$executedReceipt = Cache::get($run[\'executed_key\']);');
+        $cacheContinueAt = strpos($source, 'continue;', (int)$cacheBranchAt);
+        $cacheBranch = substr(
+            $source,
+            (int)$cacheBranchAt,
+            (int)$cacheContinueAt - (int)$cacheBranchAt
+        );
+        self::assertStringContainsString(
+            '$this->cachedReceiptProducerLedgerStillTrusted(',
+            $cacheBranch
+        );
+        $wrapperAt = strpos($source, 'private function cachedReceiptProducerLedgerStillTrusted(');
+        $wrapperEndAt = strpos(
+            $source,
+            'private function cachedReceiptMatchesTrustedProducerLedger(',
+            (int)$wrapperAt
+        );
+        $wrapper = substr($source, (int)$wrapperAt, (int)$wrapperEndAt - (int)$wrapperAt);
+        self::assertStringContainsString('->readExact(', $wrapper);
+        self::assertStringContainsString('catch (\\Throwable)', $wrapper);
+        self::assertStringContainsString('return false;', $wrapper);
+    }
+
+    public function testDurableTerminalReconciliationRunsBeforeProducerScheduling(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+        $gateOutputAt = strpos($source, "'SUXIOS_COLLECTION_PLAN_GATE='");
+        $durableAt = strpos(
+            $source,
+            '$this->durableSucceededRunReceiptReady(',
+            (int)$gateOutputAt
+        );
+        $blockedReturnAt = strpos($source, 'return 78;', (int)$durableAt);
+        $scheduleAt = strpos($source, '$this->executeSegmentedSchedules(', (int)$blockedReturnAt);
+        foreach ([$gateOutputAt, $durableAt, $blockedReturnAt, $scheduleAt] as $position) {
+            self::assertIsInt($position);
+        }
+        self::assertTrue(
+            $gateOutputAt < $durableAt
+            && $durableAt < $blockedReturnAt
+            && $blockedReturnAt < $scheduleAt
+        );
+        $branch = substr($source, (int)$durableAt, (int)$scheduleAt - (int)$durableAt);
+        self::assertStringContainsString('no producer task was restarted', $branch);
+        self::assertStringContainsString('return 0;', $branch);
+        self::assertStringNotContainsString('latestTrustedSucceededForCurrentScope', $source);
+        self::assertStringNotContainsString('$priorSucceeded', $source);
     }
 }
 

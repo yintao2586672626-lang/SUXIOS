@@ -770,6 +770,9 @@ final class CanonicalOtaDailyNaturalAcceptanceService
             $platform = strtolower(trim((string)($value['platform'] ?? '')));
             $sourceId = (int)($value['data_source_id'] ?? 0);
             $taskId = (int)($value['sync_task_id'] ?? 0);
+            $ingestionMethod = strtolower(trim((string)($value['ingestion_method'] ?? '')));
+            $localCollectorTaskId = max(0, (int)($value['local_collector_task_id'] ?? 0));
+            $executionOwnerUserId = max(0, (int)($value['execution_owner_user_id'] ?? 0));
             $targetDate = substr(trim((string)($value['target_date'] ?? '')), 0, 10);
             $failureRunId = strtolower(trim((string)($value['dispatcher_run_id'] ?? '')));
             $status = strtolower(trim((string)($value['status'] ?? '')));
@@ -777,11 +780,17 @@ final class CanonicalOtaDailyNaturalAcceptanceService
             $historicalCoreStatus = strtolower(trim((string)(
                 $value['historical_core_contract_status'] ?? ''
             )));
+            $producerIdentityReady = $ingestionMethod === 'local_collector'
+                ? $localCollectorTaskId > 0
+                : ($ingestionMethod === 'browser_profile'
+                    && $localCollectorTaskId === 0
+                    && $taskId > 0);
             if (!in_array($platform, $scope['platforms'], true)
                 || isset($trustedTasks[$platform])
                 || $sourceId <= 0
                 || !in_array($sourceId, $scope['source_ids'], true)
-                || $taskId <= 0
+                || !$producerIdentityReady
+                || $executionOwnerUserId <= 0
                 || $targetDate !== $scope['target_date']
                 || !$this->uuid($failureRunId)
                 || !hash_equals($dispatcherRunId, $failureRunId)
@@ -791,6 +800,11 @@ final class CanonicalOtaDailyNaturalAcceptanceService
                     'capture_failed',
                     'permission_denied',
                     'cancelled',
+                    'device_offline',
+                    'waiting_user_login',
+                    'verification_required',
+                    'queued',
+                    'in_progress',
                 ], true)
                 || preg_match('/^[a-z][a-z0-9_]{0,79}$/D', $reason) !== 1
                 || ($value['readback_verified'] ?? true) !== false
@@ -803,7 +817,12 @@ final class CanonicalOtaDailyNaturalAcceptanceService
             $seenSources[$sourceId] = true;
             $failures[$platform] = [
                 'data_source_id' => $sourceId,
-                'sync_task_id' => $taskId,
+                'sync_task_id' => $taskId > 0 ? $taskId : null,
+                'ingestion_method' => $ingestionMethod,
+                'local_collector_task_id' => $localCollectorTaskId > 0
+                    ? $localCollectorTaskId
+                    : null,
+                'execution_owner_user_id' => $executionOwnerUserId,
                 'platform' => $platform,
                 'target_date' => $targetDate,
                 'status' => $status,
@@ -987,6 +1006,18 @@ final class CanonicalOtaDailyNaturalAcceptanceService
         $sourceId = (int)($task['data_source_id'] ?? 0);
         $taskId = (int)($task['sync_task_id'] ?? 0);
         $dispatcherRunId = strtolower(trim((string)($task['dispatcher_run_id'] ?? '')));
+        $ingestionMethod = strtolower(trim((string)($task['ingestion_method'] ?? '')));
+        $localCollectorTaskId = max(0, (int)($task['local_collector_task_id'] ?? 0));
+        $factIngestionMethod = strtolower(trim((string)($fact['ingestion_method'] ?? '')));
+        $factLocalCollectorTaskId = max(0, (int)($fact['local_collector_task_id'] ?? 0));
+        $executionOwnerUserId = max(0, (int)($task['execution_owner_user_id'] ?? 0));
+        $factExecutionOwnerUserId = max(0, (int)($fact['execution_owner_user_id'] ?? 0));
+        $expectedTrigger = $ingestionMethod === 'local_collector'
+            ? 'local_collector_upload'
+            : 'daily_profile_reuse';
+        $producerMethodReady = $ingestionMethod === 'local_collector'
+            ? $localCollectorTaskId > 0
+            : ($ingestionMethod === 'browser_profile' && $localCollectorTaskId === 0);
         $rowIds = $this->positiveIds($task['row_ids'] ?? []);
         $factRowIds = $this->positiveIds($fact['row_ids'] ?? []);
         $requiredCoreKeys = in_array($platform, self::ALLOWED_PLATFORMS, true)
@@ -1016,8 +1047,14 @@ final class CanonicalOtaDailyNaturalAcceptanceService
             || (string)($fact['target_date'] ?? '') !== $scope['target_date']
             || strtolower(trim((string)($fact['data_period'] ?? ''))) !== self::DATA_PERIOD
             || strtolower(trim((string)($fact['task_status'] ?? ''))) !== 'success'
-            || strtolower(trim((string)($task['trigger_type'] ?? ''))) !== 'daily_profile_reuse'
-            || strtolower(trim((string)($fact['trigger_type'] ?? ''))) !== 'daily_profile_reuse'
+            || !$producerMethodReady
+            || $factIngestionMethod !== $ingestionMethod
+            || $factLocalCollectorTaskId !== $localCollectorTaskId
+            || $executionOwnerUserId <= 0
+            || $factExecutionOwnerUserId !== $executionOwnerUserId
+            || ($fact['producer_evidence_verified'] ?? false) !== true
+            || strtolower(trim((string)($task['trigger_type'] ?? ''))) !== $expectedTrigger
+            || strtolower(trim((string)($fact['trigger_type'] ?? ''))) !== $expectedTrigger
             || !$this->uuid($dispatcherRunId)
             || strtolower(trim((string)($fact['dispatcher_run_id'] ?? ''))) !== $dispatcherRunId
             || strtolower(trim((string)($fact['stats_dispatcher_run_id'] ?? ''))) !== $dispatcherRunId
@@ -1042,7 +1079,12 @@ final class CanonicalOtaDailyNaturalAcceptanceService
             'data_source_id' => $sourceId,
             'sync_task_id' => $taskId,
             'dispatcher_run_id' => $dispatcherRunId,
-            'trigger_type' => 'daily_profile_reuse',
+            'ingestion_method' => $ingestionMethod,
+            'local_collector_task_id' => $localCollectorTaskId > 0
+                ? $localCollectorTaskId
+                : null,
+            'execution_owner_user_id' => $executionOwnerUserId,
+            'trigger_type' => $expectedTrigger,
             'task_started_at' => $this->safeDateTime($fact['task_started_at'] ?? ''),
             'row_ids' => $rowIds,
             'saved_count' => max(0, (int)($fact['saved_count'] ?? 0)),
@@ -1473,6 +1515,14 @@ final class CanonicalOtaDailyNaturalAcceptanceService
                     === strtolower(trim((string)($task['platform'] ?? '')))
                 && strtolower(trim((string)($candidate['dispatcher_run_id'] ?? '')))
                     === strtolower(trim((string)($task['dispatcher_run_id'] ?? '')))
+                && strtolower(trim((string)($candidate['ingestion_method'] ?? '')))
+                    === strtolower(trim((string)($task['ingestion_method'] ?? '')))
+                && (int)($candidate['local_collector_task_id'] ?? 0)
+                    === (int)($task['local_collector_task_id'] ?? 0)
+                && (int)($candidate['execution_owner_user_id'] ?? 0)
+                    === (int)($task['execution_owner_user_id'] ?? 0)
+                && strtolower(trim((string)($candidate['trigger_type'] ?? '')))
+                    === strtolower(trim((string)($task['trigger_type'] ?? '')))
                 && $this->positiveIds($candidate['row_ids'] ?? [])
                     === $this->positiveIds($task['row_ids'] ?? [])
             ) {
@@ -1502,6 +1552,8 @@ final class CanonicalOtaDailyNaturalAcceptanceService
         $sourceId = (int)($task['data_source_id'] ?? 0);
         $taskId = (int)($task['sync_task_id'] ?? 0);
         $platform = strtolower(trim((string)($task['platform'] ?? '')));
+        $localCollectorTaskId = max(0, (int)($task['local_collector_task_id'] ?? 0));
+        $executionOwnerUserId = max(0, (int)($task['execution_owner_user_id'] ?? 0));
         $rowIds = $this->positiveIds($task['row_ids'] ?? []);
         $taskRow = Db::name('platform_data_sync_tasks')
             ->where('id', $taskId)
@@ -1566,6 +1618,18 @@ final class CanonicalOtaDailyNaturalAcceptanceService
             && $missingCoreMetricKeys === []
                 ? 'ready'
                 : 'blocked';
+        $ingestionMethod = strtolower(trim((string)($taskRow['ingestion_method'] ?? '')));
+        $producerEvidenceVerified = (new HotelCollectionRunReceiptService())->sourceEvidenceCurrent(
+            (string)($task['dispatcher_run_id'] ?? ''),
+            $hotelId,
+            $date,
+            $platform,
+            $sourceId,
+            $taskId,
+            $localCollectorTaskId,
+            $rowIds,
+            $executionOwnerUserId
+        );
 
         return [
             'tenant_id' => $tenantId,
@@ -1576,6 +1640,12 @@ final class CanonicalOtaDailyNaturalAcceptanceService
             'target_date' => $date,
             'data_period' => self::DATA_PERIOD,
             'task_status' => strtolower(trim((string)($taskRow['status'] ?? ''))),
+            'ingestion_method' => $ingestionMethod,
+            'local_collector_task_id' => $localCollectorTaskId > 0
+                ? $localCollectorTaskId
+                : null,
+            'execution_owner_user_id' => $executionOwnerUserId,
+            'producer_evidence_verified' => $producerEvidenceVerified,
             'trigger_type' => strtolower(trim((string)($taskRow['trigger_type'] ?? ''))),
             'dispatcher_run_id' => $readbackDispatcherRunId,
             'stats_dispatcher_run_id' => $statsDispatcherRunId,
@@ -2348,7 +2418,8 @@ final class CanonicalOtaDailyNaturalAcceptanceService
         return hash(
             'sha256',
             self::SCHEMA_VERSION
-                . '|dual_ota|natural_task_exact_core|exact_four|shanghai_d_minus_one_freshness|'
+                . '|dual_ota|natural_task_exact_core|exact_producer_method_local_task_owner|'
+                . 'exact_four|shanghai_d_minus_one_freshness|'
                 . OtaCollectionAnchorService::CONTRACT_VERSION . '|'
                 . self::REQUIRED_STABLE_DAYS
         );

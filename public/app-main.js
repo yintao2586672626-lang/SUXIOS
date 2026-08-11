@@ -14066,6 +14066,35 @@
                         return;
                     }
 
+                    const savedReceiptId = Number(res.data?.receipt?.receipt_id || 0);
+                    const collectionRunAttachment = res.data?.collection_run_attachment
+                        && typeof res.data.collection_run_attachment === 'object'
+                        ? res.data.collection_run_attachment
+                        : {};
+                    const collectionRunReceipt = res.data?.collection_run_receipt
+                        && typeof res.data.collection_run_receipt === 'object'
+                        ? res.data.collection_run_receipt
+                        : {};
+                    const runPageAcceptance = collectionRunReceipt.page_acceptance
+                        && typeof collectionRunReceipt.page_acceptance === 'object'
+                        ? collectionRunReceipt.page_acceptance
+                        : {};
+                    const collectionRunAttached = String(
+                        collectionRunAttachment.status || ''
+                    ).trim().toLowerCase() === 'attached'
+                        && collectionRunAttachment.readback_verified === true
+                        && collectionRunReceipt.ledger_structure_verified === true
+                        && collectionRunReceipt.readback_verified === true
+                        && Number(collectionRunReceipt.system_hotel_id || 0) === hotelId
+                        && String(collectionRunReceipt.business_date || '').trim() === targetDate
+                        && String(runPageAcceptance.status || '').trim().toLowerCase() === 'verified'
+                        && runPageAcceptance.readback_verified === true
+                        && Number(runPageAcceptance.receipt_id || 0) === savedReceiptId
+                        && String(runPageAcceptance.contract_hash || '').trim().toLowerCase() === contractHash
+                        && String(collectionRunReceipt.dispatcher_run_id || '').trim() !== ''
+                        && String(collectionRunAttachment.dispatcher_run_id || '').trim()
+                            === String(collectionRunReceipt.dispatcher_run_id || '').trim();
+
                     const freshReadback = await loadCollectionReliability('light', {
                         hotelId,
                         targetDate,
@@ -14075,7 +14104,6 @@
                     const freshDays = Array.isArray(freshTrust?.days) ? freshTrust.days : [];
                     const freshDay = freshDays.find(day => String(day?.date || '').trim() === targetDate);
                     const freshVerification = freshDay?.page_verification;
-                    const savedReceiptId = Number(res.data?.receipt?.receipt_id || 0);
                     const freshReceiptId = Number(freshVerification?.receipt_id || 0);
                     const freshContractHash = String(freshVerification?.contract_hash || '').trim().toLowerCase();
                     const exactFreshReadback = freshReadback?.ok === true
@@ -14088,6 +14116,15 @@
                         && freshReceiptId === savedReceiptId;
                     if (!exactFreshReadback) {
                         dualOtaPageVerificationError.value = '页面核对已写入，但强制回读未命中当前合同，请刷新后重新核对。';
+                        return;
+                    }
+                    if (!collectionRunAttached) {
+                        const attachmentFailureCode = String(
+                            collectionRunAttachment.failure_code || 'hotel_collection_page_run_attachment_unverified'
+                        ).trim();
+                        const partialMessage = `页面回执已保存并回读，但未附着本次运行记录（${attachmentFailureCode}）。`;
+                        dualOtaPageVerificationError.value = partialMessage;
+                        showToast(partialMessage, 'warning');
                         return;
                     }
                     showToast('当前双 OTA 页面已核对，精确回读通过', 'success');
@@ -24031,6 +24068,7 @@
             });
             const automationCollectionContractBody = shallowRef(null);
             let automationCollectionContractLoadPromise = null;
+            let automationMonitorContractRequestSeq = 0;
             const ensureAutomationCollectionContractReady = async () => {
                 if (automationCollectionContractBody.value) {
                     return automationCollectionContractBody.value;
@@ -27564,6 +27602,7 @@
                 };
             };
             const loadAutomationMonitorContract = async (options = {}) => {
+                const requestSeq = ++automationMonitorContractRequestSeq;
                 const normalizedOptions = options && typeof options === 'object' && !('target' in options)
                     ? options
                     : {};
@@ -27574,7 +27613,17 @@
                 );
                 const silent = normalizedOptions.silent === true;
                 const businessDate = String(automationMonitorDate.value || '').trim();
+                const scopeIsCurrent = () => requestSeq === automationMonitorContractRequestSeq
+                    && String(automationMonitorContractHotelId.value || '').trim() === String(hotelId)
+                    && String(automationMonitorDate.value || '').trim() === businessDate;
+                const staleScopeResult = () => {
+                    if (requestSeq === automationMonitorContractRequestSeq) {
+                        automationMonitorContractLoading.value = false;
+                    }
+                    return { ok: false, reason: 'scope_changed' };
+                };
                 if (hotelId <= 0 || !businessDate) {
+                    automationMonitorContractLoading.value = false;
                     automationMonitorContract.value = { binding: null, plan: null };
                     automationMonitorContractError.value = hotelId <= 0
                         ? '请选择需要核验绑定的酒店。'
@@ -27582,7 +27631,7 @@
                     return;
                 }
                 automationMonitorContractHotelId.value = String(hotelId);
-                if (!silent) automationMonitorContractLoading.value = true;
+                automationMonitorContractLoading.value = !silent;
                 automationMonitorContractError.value = '';
                 const errors = [];
                 let plan = null;
@@ -27598,6 +27647,9 @@
                     plan = planRes.data && typeof planRes.data === 'object' ? planRes.data : null;
                 } catch (error) {
                     errors.push(operationErrorMessage(error, '酒店采集计划读取失败'));
+                }
+                if (!scopeIsCurrent()) {
+                    return staleScopeResult();
                 }
                 try {
                     const bindingParams = new URLSearchParams({ business_date: businessDate });
@@ -27617,10 +27669,14 @@
                 } catch (error) {
                     errors.push(operationErrorMessage(error, '酒店采集绑定读取失败'));
                 }
+                if (!scopeIsCurrent()) {
+                    return staleScopeResult();
+                }
                 automationMonitorContract.value = { binding, plan };
                 syncAutomationMonitorPlanForm(binding || {}, plan || {});
                 automationMonitorContractError.value = errors.join('；');
                 if (!silent) automationMonitorContractLoading.value = false;
+                return { ok: errors.length === 0, hotelId, businessDate };
             };
             const saveAutomationMonitorPlan = async ({ activate = false } = {}) => {
                 const hotelId = Number(automationMonitorContractHotelId.value || 0);

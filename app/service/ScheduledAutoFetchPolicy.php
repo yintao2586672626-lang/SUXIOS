@@ -328,7 +328,25 @@ final class ScheduledAutoFetchPolicy
             }
             $readback = is_array($platformResult['run_readback'] ?? null) ? $platformResult['run_readback'] : [];
             $dataSourceId = (int)($readback['data_source_id'] ?? $platformResult['data_source_id'] ?? 0);
-            $syncTaskId = (int)($readback['sync_task_id'] ?? $platformResult['task_id'] ?? 0);
+            $ingestionMethod = strtolower(trim((string)($platformResult['ingestion_method'] ?? '')));
+            if (!in_array($ingestionMethod, ['browser_profile', 'local_collector'], true)) {
+                $ingestionMethod = '';
+            }
+            $localCollectorTaskId = max(0, (int)(
+                $platformResult['local_collector_task_id']
+                ?? $platformResult['collector_task_id']
+                ?? 0
+            ));
+            $executionOwnerUserId = max(0, (int)(
+                $platformResult['execution_owner_user_id'] ?? 0
+            ));
+            $syncTaskId = (int)(
+                $readback['sync_task_id']
+                ?? $platformResult['platform_sync_task_id']
+                ?? ($ingestionMethod === 'local_collector'
+                    ? 0
+                    : ($platformResult['task_id'] ?? 0))
+            );
             $receiptHotelId = (int)($readback['system_hotel_id'] ?? 0);
             $receiptDate = substr(trim((string)($readback['target_date'] ?? '')), 0, 10);
             $platform = strtolower(trim((string)($readback['platform'] ?? $platformResult['platform'] ?? '')));
@@ -357,7 +375,7 @@ final class ScheduledAutoFetchPolicy
             $platformResultHotelId = max(0, (int)($platformResult['system_hotel_id'] ?? 0));
             $platformResultDate = substr(trim((string)($platformResult['target_date'] ?? '')), 0, 10);
             $platformResultStatus = $safeOperationalCode(
-                $platformResult['status'] ?? $platformResult['source_task_status'] ?? ''
+                $platformResult['source_task_status'] ?? $platformResult['status'] ?? ''
             );
             $failureReason = $safeOperationalCode($platformResult['failure_reason'] ?? '');
             if ($failureReason === '') {
@@ -375,7 +393,8 @@ final class ScheduledAutoFetchPolicy
                 ))
             );
             $failedScopeMatches = $dataSourceId > 0
-                && $syncTaskId > 0
+                && ($syncTaskId > 0
+                    || ($ingestionMethod === 'local_collector' && $localCollectorTaskId > 0))
                 && in_array($platform, self::REQUIRED_DAILY_PLATFORMS, true)
                 && ($sourceIds === [] || in_array($dataSourceId, $sourceIds, true))
                 && $platformResultHotelId === $hotelId
@@ -383,7 +402,7 @@ final class ScheduledAutoFetchPolicy
             if (empty($platformResult['success']) && $failedScopeMatches) {
                 $failedTask = [
                     'data_source_id' => $dataSourceId,
-                    'sync_task_id' => $syncTaskId,
+                    'sync_task_id' => $syncTaskId > 0 ? $syncTaskId : null,
                     'platform' => $platform,
                     'target_date' => $targetDate,
                     'status' => $platformResultStatus !== '' ? $platformResultStatus : 'failed',
@@ -392,6 +411,15 @@ final class ScheduledAutoFetchPolicy
                     'readback_verified' => $platformReadbackVerified,
                     'historical_core_contract_status' => $historicalCoreStatus,
                 ];
+                if ($ingestionMethod !== '') {
+                    $failedTask['ingestion_method'] = $ingestionMethod;
+                }
+                if ($localCollectorTaskId > 0) {
+                    $failedTask['local_collector_task_id'] = $localCollectorTaskId;
+                }
+                if ($executionOwnerUserId > 0) {
+                    $failedTask['execution_owner_user_id'] = $executionOwnerUserId;
+                }
                 if ($dispatcherRunId !== '') {
                     $failedTask['dispatcher_run_id'] = $dispatcherRunId;
                 }
@@ -406,6 +434,11 @@ final class ScheduledAutoFetchPolicy
             // stale while the verifier is checking the same persisted rows, so
             // do not discard a valid anchor merely because that preliminary
             // diagnosis is still `partial` or `blocked`.
+            $producerIdentityReady = $ingestionMethod === 'local_collector'
+                ? ($localCollectorTaskId > 0 && $triggerType === 'local_collector_upload')
+                : ($ingestionMethod === 'browser_profile'
+                    ? ($localCollectorTaskId === 0 && $triggerType === 'daily_profile_reuse')
+                    : true);
             if (($readback['readback_verified'] ?? false) !== true
                 || $dataSourceId <= 0
                 || $syncTaskId <= 0
@@ -413,6 +446,7 @@ final class ScheduledAutoFetchPolicy
                 || $receiptDate !== $targetDate
                 || !in_array($platform, self::REQUIRED_DAILY_PLATFORMS, true)
                 || $rowIds === []
+                || !$producerIdentityReady
             ) {
                 continue;
             }
@@ -424,7 +458,17 @@ final class ScheduledAutoFetchPolicy
                 'p0_status' => $p0Status !== '' ? $p0Status : 'not_ready',
                 'historical_core_contract_status' => $historicalCoreStatus,
                 'row_ids' => $rowIds,
+                'readback_verified' => true,
             ];
+            if ($ingestionMethod !== '') {
+                $sourceTask['ingestion_method'] = $ingestionMethod;
+            }
+            if ($localCollectorTaskId > 0) {
+                $sourceTask['local_collector_task_id'] = $localCollectorTaskId;
+            }
+            if ($executionOwnerUserId > 0) {
+                $sourceTask['execution_owner_user_id'] = $executionOwnerUserId;
+            }
             if ($dispatcherRunId !== '') {
                 $sourceTask['dispatcher_run_id'] = $dispatcherRunId;
             }

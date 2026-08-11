@@ -2798,6 +2798,124 @@ final class OtaLocalCollectorServiceTest extends TestCase
             ->count());
     }
 
+    public function testScheduledLoginFailureRecoversOnlyThroughTheOriginalProbeAndDispatcher(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->planCollectionFixture($service);
+        $scope = $fixture['scope'];
+
+        $scheduled = $service->schedulePlanCollection($scope);
+        $failedCollectionId = (int)$scheduled['local_collector_task_id'];
+        $leasedCollection = $service->nextTask(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token']
+        );
+        self::assertSame($failedCollectionId, (int)$leasedCollection['task']['id']);
+
+        $failed = $service->submitTaskResult(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token'],
+            $failedCollectionId,
+            [
+                'lease_token' => $leasedCollection['task']['lease_token'],
+                'success' => false,
+                'error_code' => 'login_required',
+                'error_summary' => 'session expired on the original device',
+            ]
+        );
+        $probeId = (int)($failed['recovery_task_id'] ?? 0);
+        self::assertSame('login_required', $failed['status']);
+        self::assertSame('queued', $failed['recovery_status']);
+        self::assertGreaterThan(0, $probeId);
+
+        $probe = Db::name('ota_local_collector_tasks')->where('id', $probeId)->find();
+        self::assertIsArray($probe);
+        self::assertSame('session_probe', $probe['task_type']);
+        self::assertSame((int)$fixture['account']['id'], (int)$probe['account_id']);
+        self::assertSame((int)$fixture['device']['id'], (int)$probe['device_id']);
+        $probeRequest = json_decode((string)$probe['request_json'], true, 64, JSON_THROW_ON_ERROR);
+        self::assertSame($scope['dispatcher_run_id'], $probeRequest['dispatcher_run_id']);
+        self::assertSame($failedCollectionId, (int)$probeRequest['recovery_of_task_id']);
+        self::assertSame(
+            $failedCollectionId,
+            (int)$probeRequest['resume_collections'][0]['request']['recovery_of_task_id']
+        );
+
+        $leasedProbe = $service->nextTask(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token']
+        );
+        self::assertSame($probeId, (int)$leasedProbe['task']['id']);
+        $verified = $service->submitTaskResult(
+            (string)$fixture['pair']['device_public_id'],
+            (string)$fixture['pair']['device_token'],
+            $probeId,
+            [
+                'lease_token' => $leasedProbe['task']['lease_token'],
+                'success' => true,
+                'session_status' => 'current_session_verified',
+            ]
+        );
+        self::assertSame('queued', $verified['summary']['resume_status']);
+        self::assertCount(1, $verified['summary']['resumed_collection_task_ids']);
+        $recoveredCollectionId = (int)$verified['summary']['resumed_collection_task_ids'][0];
+        self::assertNotSame($failedCollectionId, $recoveredCollectionId);
+
+        $recovered = Db::name('ota_local_collector_tasks')
+            ->where('id', $recoveredCollectionId)
+            ->find();
+        self::assertIsArray($recovered);
+        self::assertSame((int)$fixture['account']['id'], (int)$recovered['account_id']);
+        self::assertSame((int)$fixture['device']['id'], (int)$recovered['device_id']);
+        $recoveredRequest = json_decode(
+            (string)$recovered['request_json'],
+            true,
+            64,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertSame($scope['dispatcher_run_id'], $recoveredRequest['dispatcher_run_id']);
+        self::assertSame($failedCollectionId, (int)$recoveredRequest['recovery_of_task_id']);
+        self::assertSame('session_recovery', $recoveredRequest['retry_trigger']);
+
+        $repolled = $service->schedulePlanCollection($scope);
+        self::assertSame($recoveredCollectionId, (int)$repolled['local_collector_task_id']);
+        self::assertSame(3, Db::name('ota_local_collector_tasks')
+            ->where('account_id', (int)$fixture['account']['id'])
+            ->count());
+        self::assertSame(0, Db::name('ota_local_collector_tasks')
+            ->where('account_id', (int)$fixture['decoy_account']['id'])
+            ->count());
+    }
+
+    public function testScheduledSessionProbeCannotBeAdoptedByAnotherDispatcher(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->planCollectionFixture($service, false, true);
+        $runA = $fixture['scope'];
+        $probeA = $service->schedulePlanCollection($runA);
+
+        $runB = $runA;
+        $runB['dispatcher_run_id'] = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+        try {
+            $service->schedulePlanCollection($runB);
+            self::fail('A foreign dispatcher must not adopt an active session probe.');
+        } catch (\RuntimeException $error) {
+            self::assertSame(
+                'local_collector_plan_dispatcher_task_in_progress',
+                $error->getMessage()
+            );
+        }
+
+        self::assertSame(1, Db::name('ota_local_collector_tasks')->count());
+        self::assertSame(
+            (int)$probeA['local_collector_task_id'],
+            (int)Db::name('ota_local_collector_tasks')->value('id')
+        );
+        self::assertSame(0, Db::name('ota_local_collector_tasks')
+            ->where('account_id', (int)$fixture['decoy_account']['id'])
+            ->count());
+    }
+
     public function testScheduledCollectionSuccessReturnsExactDispatcherReadbackAndBothTaskIds(): void
     {
         $syncTaskId = 9901;
@@ -2941,6 +3059,16 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame($summary['local_collector_task_id'], $storedSummary['local_collector_task_id']);
         self::assertSame($summary['sync_task_id'], $storedSummary['sync_task_id']);
         self::assertSame($summary['run_readback'], $storedSummary['run_readback']);
+
+        $polled = $service->schedulePlanCollection($fixture['scope']);
+        self::assertSame('success', $polled['status']);
+        self::assertTrue($polled['success']);
+        self::assertSame($fixture['scope']['dispatcher_run_id'], $polled['dispatcher_run_id']);
+        self::assertSame($localTaskId, (int)$polled['local_collector_task_id']);
+        self::assertSame($syncTaskId, (int)$polled['platform_sync_task_id']);
+        self::assertSame([8101, 8102], $polled['run_readback']['row_ids']);
+        self::assertTrue($polled['readback_verified']);
+        self::assertSame(1, Db::name('ota_local_collector_tasks')->count());
     }
 
     private function actor(): object
@@ -3180,7 +3308,8 @@ final class OtaLocalCollectorServiceTest extends TestCase
             started_at TEXT, finished_at TEXT, create_time TEXT, update_time TEXT
         )');
         Db::execute('CREATE TABLE platform_data_sources (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, user_id INTEGER,
+            system_hotel_id INTEGER NOT NULL,
             platform TEXT NOT NULL, data_type TEXT NOT NULL, ingestion_method TEXT NOT NULL, status TEXT NOT NULL,
             enabled INTEGER NOT NULL, config_json TEXT, last_sync_time TEXT, last_sync_status TEXT, last_error TEXT
         )');

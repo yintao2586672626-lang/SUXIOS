@@ -7,6 +7,7 @@ use app\model\OperationLog;
 use app\model\SystemConfig;
 use app\service\DualOtaContinuousTrustService;
 use app\service\DualOtaPageVerificationService;
+use app\service\HotelCollectionRunReceiptService;
 use app\service\OtaFailureNotificationService;
 use app\service\OtaOperatingScope;
 use think\Response;
@@ -2464,6 +2465,51 @@ trait CollectionReliabilityConcern
                 (int)($this->currentUser->id ?? 0),
                 $requestData
             );
+            $collectionRunReceipt = null;
+            $collectionRunAttachment = [
+                'status' => 'not_attached',
+                'failure_code' => 'hotel_collection_page_run_not_found',
+                'readback_verified' => false,
+                'sensitive_values_exposed' => false,
+            ];
+            try {
+                $canonicalContract = DualOtaPageVerificationService::canonicalContract(
+                    $trust,
+                    $tenantId,
+                    (int)$hotelId,
+                    $targetDate
+                );
+                $collectionRunReceipt = (new HotelCollectionRunReceiptService())
+                    ->recordPageAcceptance(
+                        $tenantId,
+                        (int)$hotelId,
+                        $targetDate,
+                        $receipt,
+                        $canonicalContract
+                    );
+                $collectionRunAttachmentVerified =
+                    ($collectionRunReceipt['ledger_structure_verified'] ?? false) === true
+                    && ($collectionRunReceipt['readback_verified'] ?? false) === true
+                    && ($collectionRunReceipt['page_acceptance']['readback_verified'] ?? false) === true
+                    && ($collectionRunReceipt['page_acceptance']['status'] ?? '') === 'verified';
+                $collectionRunAttachment = [
+                    'status' => $collectionRunAttachmentVerified ? 'attached' : 'not_attached',
+                    'dispatcher_run_id' => (string)(
+                        $collectionRunReceipt['dispatcher_run_id'] ?? ''
+                    ),
+                    'failure_code' => $collectionRunAttachmentVerified
+                        ? null
+                        : 'hotel_collection_page_run_attachment_unverified',
+                    'readback_verified' => $collectionRunAttachmentVerified,
+                    'sensitive_values_exposed' => false,
+                ];
+            } catch (\RuntimeException $ledgerError) {
+                $failureCode = trim($ledgerError->getMessage());
+                if (preg_match('/^hotel_collection_(?:page|run)_[a-z0-9_]+$/D', $failureCode) !== 1) {
+                    $failureCode = 'hotel_collection_page_run_attachment_failed';
+                }
+                $collectionRunAttachment['failure_code'] = $failureCode;
+            }
 
             // The page always requests a 30-day light projection. Remove the
             // exact cached scope and still require the client to force-read it.
@@ -2483,6 +2529,8 @@ trait CollectionReliabilityConcern
 
             return $this->success([
                 'receipt' => $receipt,
+                'collection_run_attachment' => $collectionRunAttachment,
+                'collection_run_receipt' => $collectionRunReceipt,
                 'dual_ota_continuous_trust' => $readbackTrust,
             ], 'The current dual-OTA page receipt was confirmed and read back exactly.');
         } catch (\InvalidArgumentException $e) {

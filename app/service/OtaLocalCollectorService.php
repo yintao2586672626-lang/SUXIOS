@@ -2166,6 +2166,27 @@ final class OtaLocalCollectorService
                 '失败任务账号回写后精确回读失败。'
             );
         });
+        $recoveryProbe = null;
+        if (!$retryable
+            && in_array($taskStatus, ['login_required', 'verification_required'], true)
+            && in_array((string)($task['task_type'] ?? ''), ['collect', 'backfill'], true)
+        ) {
+            try {
+                $recoveryProbe = $this->scheduleSessionRecoveryProbe(
+                    $task,
+                    $account,
+                    $device
+                );
+            } catch (Throwable $error) {
+                $recoveryProbe = [
+                    'status' => 'recovery_probe_not_queued',
+                    'failure_reason' => $this->safeIdentifier(
+                        strtolower($error->getMessage()),
+                        120
+                    ) ?: 'recovery_probe_not_queued',
+                ];
+            }
+        }
         $this->touchDevice($device);
         if (!$retryable) {
             $this->notifyTerminalFailure($task, $account, $errorCode, $errorSummary);
@@ -2177,7 +2198,7 @@ final class OtaLocalCollectorService
             $nextRetryAt ?: ''
         );
 
-        return [
+        $result = [
             'status' => $taskStatus,
             'task_id' => (int)$task['id'],
             'attempt' => $attempt,
@@ -2187,6 +2208,94 @@ final class OtaLocalCollectorService
             'next_retry_at' => $nextRetryAt,
             'recovery' => $recovery,
         ];
+        if (is_array($recoveryProbe)) {
+            $result['recovery_task_id'] = max(0, (int)($recoveryProbe['id'] ?? 0)) ?: null;
+            $result['recovery_status'] = (string)(
+                $recoveryProbe['status'] ?? 'recovery_probe_not_queued'
+            );
+            if (isset($recoveryProbe['failure_reason'])) {
+                $result['recovery_failure_reason'] = (string)$recoveryProbe['failure_reason'];
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * A scheduled collection that lost login may only recover through a probe
+     * on the same account and device. The probe carries the immutable original
+     * dispatcher and an exact recovery edge to the failed collection task.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function scheduleSessionRecoveryProbe(
+        array $task,
+        array $account,
+        array $device
+    ): ?array {
+        $request = $this->decodeJson($task['request_json'] ?? null);
+        $dispatcherRunId = $this->normalizeDispatcherRunId((string)(
+            $request['dispatcher_run_id'] ?? ''
+        ));
+        if ($dispatcherRunId === '') {
+            return null;
+        }
+        $user = User::find((int)($task['user_id'] ?? 0));
+        if (!$user
+            || (int)($user->status ?? 0) !== 1
+            || (int)($user->tenant_id ?? 0) !== (int)($task['tenant_id'] ?? 0)
+        ) {
+            throw new RuntimeException('recovery_user_scope_invalid', 403);
+        }
+        $actor = $this->actorContext($user);
+        $hotelId = (int)($task['system_hotel_id'] ?? 0);
+        $this->assertHotelPermission($actor, $hotelId);
+        $mapping = $this->mappingForAccountHotel(
+            (int)$task['tenant_id'],
+            (int)$task['account_id'],
+            $hotelId,
+            (string)$task['platform']
+        );
+        $request['recovery_of_task_id'] = (int)$task['id'];
+        $request['recovery_trigger'] = 'session_probe';
+        $resume = [
+            'task_type' => in_array((string)$task['task_type'], ['collect', 'backfill'], true)
+                ? (string)$task['task_type']
+                : 'collect',
+            'account_id' => (int)$task['account_id'],
+            'device_id' => (int)$task['device_id'],
+            'system_hotel_id' => $hotelId,
+            'data_date' => (string)$task['data_date'],
+            'data_type' => (string)$task['data_type'],
+            'priority' => max(1, (int)($task['priority'] ?? 75)),
+            'request' => $request,
+        ];
+        $probe = $this->enqueueTask(
+            $actor,
+            $account,
+            $mapping,
+            'session_probe',
+            null,
+            'session',
+            [
+                'dispatcher_run_id' => $dispatcherRunId,
+                'trigger_type' => 'scheduler',
+                'sections' => [],
+                'reason' => 'scheduled_collection_session_recovery',
+                'requested_at' => date('Y-m-d H:i:s'),
+                'recovery_of_task_id' => (int)$task['id'],
+                'resume_collections' => [$resume],
+            ],
+            false,
+            95,
+            false
+        );
+        $this->appendResumeCollection($probe, $resume);
+        if ((int)($probe['device_id'] ?? 0) !== (int)($device['id'] ?? 0)
+            || (int)($probe['account_id'] ?? 0) !== (int)($account['id'] ?? 0)
+        ) {
+            throw new RuntimeException('recovery_probe_identity_mismatch', 409);
+        }
+        return $probe;
     }
 
     /** @return array<string, mixed> */
@@ -2589,9 +2698,12 @@ final class OtaLocalCollectorService
     ): array {
         $sessionTask = in_array($taskType, ['login', 'session_probe'], true);
         $collectionTask = in_array($taskType, ['collect', 'backfill'], true);
-        $scheduledDispatcherRunId = $collectionTask
+        $scheduledDispatcherRunId = ($collectionTask || $sessionTask)
             ? $this->normalizeDispatcherRunId((string)($request['dispatcher_run_id'] ?? ''))
             : '';
+        $recoveryOfTaskId = $collectionTask
+            ? $this->strictPositiveInt($request['recovery_of_task_id'] ?? null)
+            : 0;
         $taskFamily = $sessionTask ? 'session' : ($collectionTask ? 'collection' : $taskType);
         $scopeKey = implode('|', [
             (int)$account['id'],
@@ -2666,15 +2778,42 @@ final class OtaLocalCollectorService
             $newCollectionAttempt = $collectionTask
                 && $manualRequest
                 && in_array($latestStatus, self::MANUAL_RETRYABLE_TASK_STATUSES, true);
-            $newScheduledAttempt = $collectionTask
+            if ($collectionTask
+                && $recoveryOfTaskId === 0
+                && $scheduledDispatcherRunId !== ''
+                && $latestDispatcherRunId === $scheduledDispatcherRunId
+                && in_array($latestStatus, ['login_required', 'verification_required'], true)
+                && (string)($account['session_status'] ?? '') === 'current_session_verified'
+            ) {
+                $recoveryOfTaskId = (int)$latest['id'];
+                $request['recovery_of_task_id'] = $recoveryOfTaskId;
+                $request['recovery_trigger'] = 'verified_original_session';
+            }
+            $newRecoveryAttempt = $collectionTask
+                && $recoveryOfTaskId > 0
+                && (int)$latest['id'] === $recoveryOfTaskId
+                && $latestDispatcherRunId === $scheduledDispatcherRunId
+                && in_array($latestStatus, ['login_required', 'verification_required'], true)
+                && (string)($account['session_status'] ?? '') === 'current_session_verified';
+            if ($recoveryOfTaskId > 0 && !$newRecoveryAttempt) {
+                throw new RuntimeException('local_collector_recovery_scope_invalid', 409);
+            }
+            $newScheduledAttempt = ($collectionTask || $sessionTask)
                 && $scheduledDispatcherRunId !== ''
                 && $latestDispatcherRunId !== $scheduledDispatcherRunId;
-            if (!$newSessionAttempt && !$newCollectionAttempt && !$newScheduledAttempt) {
+            if (!$newSessionAttempt
+                && !$newCollectionAttempt
+                && !$newRecoveryAttempt
+                && !$newScheduledAttempt
+            ) {
                 $latest['_created'] = false;
                 return $latest;
             }
 
-            if (!$newScheduledAttempt) {
+            if ($newRecoveryAttempt) {
+                $request['retry_trigger'] = 'session_recovery';
+                $request['recovery_of_task_id'] = $recoveryOfTaskId;
+            } elseif (!$newScheduledAttempt) {
                 $manualRetryOfTaskId = (int)$latest['id'];
                 $request['retry_trigger'] = 'manual';
                 $request['retry_of_task_id'] = $manualRetryOfTaskId;
@@ -2691,6 +2830,7 @@ final class OtaLocalCollectorService
                     ? '|dispatcher|' . $scheduledDispatcherRunId
                     : '')
                 . ($manualRetryOfTaskId > 0 ? '|manual_retry|' . $manualRetryOfTaskId : '')
+                . ($recoveryOfTaskId > 0 ? '|session_recovery|' . $recoveryOfTaskId : '')
                 . ($randomizeKey ? '|' . bin2hex(random_bytes(8)) : '')
         );
         $now = date('Y-m-d H:i:s');
@@ -3827,7 +3967,7 @@ final class OtaLocalCollectorService
             ...$base,
             'status' => $deviceStatus === 'device_offline' && $active
                 ? 'device_offline'
-                : ($active ? 'in_progress' : 'failed'),
+                : ($active ? ($taskStatus === 'queued' ? 'queued' : 'in_progress') : 'failed'),
             'reused_active_task' => $active,
             'failure_reason' => $deviceStatus === 'device_offline' && $active
                 ? 'device_offline'

@@ -182,6 +182,143 @@
         ]);
     };
 
+    const runStatusText = (status) => ({
+        success: '\u6210\u529f',
+        succeeded: '\u6210\u529f',
+        partial: '\u90e8\u5206\u5b8c\u6210',
+        failed: '\u5931\u8d25',
+        blocked: '\u5df2\u963b\u65ad',
+        skipped: '\u5df2\u8df3\u8fc7',
+        deferred: '\u5f85\u6062\u590d',
+        in_progress: '\u8fd0\u884c\u4e2d',
+        started: '\u5df2\u542f\u52a8',
+        collected: '\u5df2\u91c7\u96c6',
+        authorized: '\u5df2\u6388\u6743',
+        declared: '\u5df2\u58f0\u660e',
+        queued: '\u6392\u961f\u4e2d',
+        leased: '\u5df2\u9886\u53d6',
+        running: '\u8fd0\u884c\u4e2d',
+        retry_wait: '\u5f85\u91cd\u8bd5',
+        waiting_user_login: '\u5f85\u539f\u8bbe\u5907\u767b\u5f55',
+        verification_required: '\u5f85\u539f\u8bbe\u5907\u9a8c\u8bc1',
+        missing: '\u65e0\u8fd0\u884c\u8bb0\u5f55',
+        unavailable: '\u8bb0\u5f55\u4e0d\u53ef\u7528',
+    }[String(status || '').toLowerCase()] || '\u72b6\u6001\u672a\u77e5');
+    const runStatusClass = (status) => ({
+        success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        succeeded: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        partial: 'border-amber-200 bg-amber-50 text-amber-700',
+        failed: 'border-red-200 bg-red-50 text-red-700',
+        blocked: 'border-red-200 bg-red-50 text-red-700',
+        skipped: 'border-slate-200 bg-slate-50 text-slate-600',
+        deferred: 'border-amber-200 bg-amber-50 text-amber-700',
+        in_progress: 'border-blue-200 bg-blue-50 text-blue-700',
+        started: 'border-blue-200 bg-blue-50 text-blue-700',
+        collected: 'border-blue-200 bg-blue-50 text-blue-700',
+        authorized: 'border-blue-200 bg-blue-50 text-blue-700',
+        declared: 'border-blue-200 bg-blue-50 text-blue-700',
+        queued: 'border-blue-200 bg-blue-50 text-blue-700',
+        leased: 'border-blue-200 bg-blue-50 text-blue-700',
+        running: 'border-blue-200 bg-blue-50 text-blue-700',
+        retry_wait: 'border-amber-200 bg-amber-50 text-amber-700',
+        waiting_user_login: 'border-amber-200 bg-amber-50 text-amber-700',
+        verification_required: 'border-amber-200 bg-amber-50 text-amber-700',
+        missing: 'border-slate-200 bg-slate-50 text-slate-600',
+        unavailable: 'border-red-200 bg-red-50 text-red-700',
+    }[String(status || '').toLowerCase()] || 'border-slate-200 bg-slate-50 text-slate-600');
+    const runPill = (status) => h('span', {
+        class: `rounded-full border px-2 py-0.5 text-[11px] font-medium ${runStatusClass(status)}`,
+    }, runStatusText(status));
+    const evidenceStatusText = (status) => ({
+        verified: '\u5df2\u9a8c\u8bc1',
+        not_run: '\u672a\u91c7\u96c6',
+        not_evaluated: '\u672a\u9a8c\u6536',
+        missing: '\u7f3a\u5931',
+        unverified: '\u672a\u9a8c\u8bc1',
+    }[String(status || '').toLowerCase()] || String(status || '\u672a\u53d6\u5f97'));
+    const runSourceCard = (run, platform) => {
+        const source = (Array.isArray(run.source_receipts) ? run.source_receipts : [])
+            .find(item => String(item?.platform || '').toLowerCase() === platform) || {};
+        const platformLabel = platform === 'ctrip' ? '\u643a\u7a0b' : '\u7f8e\u56e2';
+        return h('article', {
+            class: 'rounded-xl border border-slate-200 bg-slate-50/70 p-3',
+            'data-testid': `automation-run-${platform}`,
+        }, [
+            h('div', { class: 'flex items-center justify-between gap-2' }, [
+                h('h5', { class: 'text-sm font-semibold text-slate-800' }, platformLabel),
+                runPill(source.status || 'missing'),
+            ]),
+            h('dl', { class: 'mt-3 space-y-1.5 text-xs' }, [
+                detail('\u6570\u636e\u6e90', source.data_source_id ? `#${source.data_source_id}` : '\u672a\u7ed1\u5b9a', { mono: true, fallback: '\u672a\u7ed1\u5b9a' }),
+                detail('\u91c7\u96c6\u65b9\u5f0f', source.ingestion_method, { mono: true, fallback: '\u672a\u53d6\u5f97' }),
+                detail('\u540c\u6b65\u4efb\u52a1', source.platform_sync_task_id ? `#${source.platform_sync_task_id}` : '\u672a\u751f\u6210', { mono: true, fallback: '\u672a\u751f\u6210' }),
+                detail('\u672c\u673a\u4efb\u52a1', source.local_collector_task_id ? `#${source.local_collector_task_id}` : '\u4e0d\u9002\u7528', { mono: true, fallback: '\u4e0d\u9002\u7528' }),
+                detail('\u4fdd\u5b58 / \u56de\u8bfb', `${Number(source.saved_row_count || 0)} / ${Number(source.readback_row_count || 0)}`, { mono: true }),
+                detail('\u5931\u8d25\u539f\u56e0', source.failure_code, { mono: true, fallback: '\u65e0' }),
+            ]),
+        ]);
+    };
+    const runPanel = (ctx, plan) => {
+        const run = plan.latest_run_receipt && typeof plan.latest_run_receipt === 'object'
+            ? plan.latest_run_receipt
+            : { status: 'missing' };
+        const selectedHotelId = String(ctx.automationMonitorContractHotelId || '').trim();
+        const selectedBusinessDate = String(ctx.automationMonitorDate || '').trim();
+        const runHotelId = String(run.system_hotel_id || '').trim();
+        const runBusinessDate = String(run.business_date || '').trim();
+        const runScopeMatches = selectedHotelId !== ''
+            && selectedBusinessDate !== ''
+            && runHotelId === selectedHotelId
+            && runBusinessDate === selectedBusinessDate;
+        const anchor = String(run.collection_anchor_hash || '').trim();
+        const pms = run.pms_receipt && typeof run.pms_receipt === 'object' ? run.pms_receipt : {};
+        const page = run.page_acceptance && typeof run.page_acceptance === 'object'
+            ? run.page_acceptance
+            : {};
+        const status = runScopeMatches
+            ? String(run.status || 'missing').toLowerCase()
+            : 'missing';
+        const hasExactRun = runScopeMatches
+            && String(run.dispatcher_run_id || '').trim() !== '';
+        return h('section', {
+            class: 'rounded-xl border border-slate-200 bg-white p-4',
+            'data-testid': 'automation-collection-run-receipt',
+        }, [
+            h('div', { class: 'flex flex-wrap items-start justify-between gap-3' }, [
+                h('div', {}, [
+                    h('h4', { class: 'text-sm font-semibold text-slate-900' }, '\u6700\u8fd1\u4e00\u6b21\u95e8\u5e97\u8fd0\u884c\u8bb0\u5f55'),
+                    h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' },
+                        '\u4ec5\u663e\u793a\u5f53\u524d\u7cfb\u7edf\u9152\u5e97\u548c\u5f53\u524d\u4e1a\u52a1\u65e5\u7684\u4fdd\u5b58\u3001\u56de\u8bfb\u3001\u9875\u9762\u9a8c\u6536\u4e0e PMS \u4fa7\u8bc1\u3002'),
+                ]),
+                runPill(status),
+            ]),
+            hasExactRun ? h('div', { class: 'mt-4 space-y-3' }, [
+                h('dl', { class: 'grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4' }, [
+                    detail('\u4e1a\u52a1\u65e5', run.business_date, { mono: true, fallback: '\u672a\u53d6\u5f97' }),
+                    detail('\u8fd0\u884c ID', run.dispatcher_run_id, { mono: true, fallback: '\u672a\u53d6\u5f97' }),
+                    detail('\u8bc1\u636e\u951a\u70b9', anchor ? `${anchor.slice(0, 12)}\u2026` : '\u672a\u751f\u6210', { mono: true }),
+                    detail('\u5931\u8d25\u539f\u56e0', run.failure_code, { mono: true, fallback: '\u65e0' }),
+                    detail('\u53f0\u8d26\u56de\u8bfb', run.readback_verified === true ? '\u901a\u8fc7' : '\u672a\u901a\u8fc7'),
+                    detail('PMS', `${evidenceStatusText(pms.status || 'not_run')}${pms.capture_id ? ` #${pms.capture_id}` : ''}`),
+                    detail('\u9875\u9762\u9a8c\u6536', `${evidenceStatusText(page.status || 'not_evaluated')}${page.receipt_id ? ` #${page.receipt_id}` : ''}`),
+                    detail('\u5f00\u59cb\u65f6\u95f4', run.started_at, { mono: true, fallback: '\u672a\u53d6\u5f97' }),
+                    detail('\u7ed3\u675f\u65f6\u95f4', run.finished_at, { mono: true, fallback: '\u5c1a\u672a\u7ed3\u675f' }),
+                ]),
+                h('div', { class: 'grid gap-3 md:grid-cols-2' }, [
+                    runSourceCard(run, 'ctrip'),
+                    runSourceCard(run, 'meituan'),
+                ]),
+            ]) : h('p', {
+                class: `mt-3 rounded-lg border px-3 py-2 text-xs leading-5 ${runStatusClass(status)}`,
+                'data-testid': 'automation-collection-run-empty',
+            }, !runScopeMatches && (runHotelId !== '' || runBusinessDate !== '')
+                ? '\u8fd0\u884c\u8bb0\u5f55\u4e0e\u5f53\u524d\u9009\u62e9\u7684\u9152\u5e97\u6216\u4e1a\u52a1\u65e5\u4e0d\u4e00\u81f4\uff0c\u5df2\u9690\u85cf\u65e7\u95e8\u5e97\u8fd0\u884c\u8be6\u60c5\u3002'
+                : run.failure_code === 'hotel_collection_run_receipt_store_unavailable'
+                ? '\u8fd0\u884c\u8bb0\u5f55\u8868\u5c1a\u672a\u5c31\u7eea\uff0c\u672c\u9875\u4e0d\u4f1a\u628a\u65e0\u6cd5\u56de\u8bfb\u8bef\u62a5\u4e3a\u6210\u529f\u3002'
+                : '\u5f53\u524d\u95e8\u5e97\u548c\u4e1a\u52a1\u65e5\u5c1a\u65e0\u8fd0\u884c\u8bb0\u5f55\u3002'),
+        ]);
+    };
+
     const reasonPanel = (ctx, binding) => {
         const reasons = Array.isArray(ctx.automationMonitorContractReasons)
             ? ctx.automationMonitorContractReasons
@@ -270,6 +407,7 @@
                             planForm(ctx, plan),
                             reasonPanel(ctx, binding),
                         ]),
+                        runPanel(ctx, plan),
                     ]);
                 }
 

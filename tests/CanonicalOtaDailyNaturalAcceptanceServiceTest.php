@@ -54,9 +54,160 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
         self::assertSame(0, $result['operations']['trusted_external_operation_count']);
         self::assertTrue($result['operations']['analysis_only']);
         self::assertFalse($result['external_action_triggered']);
+        foreach ($result['collection']['source_tasks'] as $sourceTask) {
+            self::assertSame('browser_profile', $sourceTask['ingestion_method']);
+            self::assertNull($sourceTask['local_collector_task_id']);
+            self::assertSame(7, $sourceTask['execution_owner_user_id']);
+            self::assertSame('daily_profile_reuse', $sourceTask['trigger_type']);
+        }
         self::assertSame(1, $result['stability']['consecutive_verified_natural_days']);
         self::assertFalse($result['stability']['stable']);
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $result['content_digest']);
+    }
+
+    public function testLocalCollectorTaskWithIndependentProducerEvidenceCanBeNaturallyAccepted(): void
+    {
+        $runId = '21111111-1111-4111-8111-111111111111';
+        $fixture = $this->writeRun(
+            '2026-08-09',
+            $runId,
+            0,
+            true,
+            [],
+            null,
+            0,
+            [],
+            ['source_tasks' => [[
+                'ingestion_method' => 'local_collector',
+                'local_collector_task_id' => 7001,
+                'trigger_type' => 'local_collector_upload',
+            ]]]
+        );
+
+        $result = $this->service()->inspect(
+            80,
+            '2026-08-09',
+            [25, 68],
+            ['ctrip', 'meituan'],
+            $fixture['path'],
+            $this->directory
+        );
+
+        self::assertSame('verified', $result['status']);
+        self::assertSame('verified', $result['collection']['status']);
+        self::assertSame(
+            'local_collector',
+            $result['collection']['source_tasks']['ctrip']['ingestion_method']
+        );
+        self::assertSame(
+            7001,
+            $result['collection']['source_tasks']['ctrip']['local_collector_task_id']
+        );
+        self::assertSame(
+            'local_collector_upload',
+            $result['collection']['source_tasks']['ctrip']['trigger_type']
+        );
+        self::assertSame(
+            7,
+            $result['collection']['source_tasks']['ctrip']['execution_owner_user_id']
+        );
+        self::assertSame(
+            'browser_profile',
+            $result['collection']['source_tasks']['meituan']['ingestion_method']
+        );
+        self::assertNull(
+            $result['collection']['source_tasks']['meituan']['local_collector_task_id']
+        );
+    }
+
+    public function testLocalCollectorProducerContractMismatchBlocksNaturalAcceptance(): void
+    {
+        $cases = [
+            'method' => [
+                'run_id' => '22111111-1111-4111-8111-111111111111',
+                'mutate' => static fn(array $fact): array => array_replace(
+                    $fact,
+                    ['ingestion_method' => 'browser_profile']
+                ),
+            ],
+            'trigger' => [
+                'run_id' => '23111111-1111-4111-8111-111111111111',
+                'mutate' => static fn(array $fact): array => array_replace(
+                    $fact,
+                    ['trigger_type' => 'daily_profile_reuse']
+                ),
+            ],
+            'local_task_id' => [
+                'run_id' => '24111111-1111-4111-8111-111111111111',
+                'mutate' => static fn(array $fact): array => array_replace(
+                    $fact,
+                    ['local_collector_task_id' => 7999]
+                ),
+            ],
+            'producer_evidence' => [
+                'run_id' => '25111111-1111-4111-8111-111111111111',
+                'mutate' => static fn(array $fact): array => array_replace(
+                    $fact,
+                    ['producer_evidence_verified' => false]
+                ),
+            ],
+            'execution_owner' => [
+                'run_id' => '26111111-1111-4111-8111-111111111111',
+                'mutate' => static fn(array $fact): array => array_replace(
+                    $fact,
+                    ['execution_owner_user_id' => 8]
+                ),
+            ],
+        ];
+
+        foreach ($cases as $case => $fixtureCase) {
+            $fixture = $this->writeRun(
+                '2026-08-09',
+                $fixtureCase['run_id'],
+                0,
+                true,
+                [],
+                null,
+                0,
+                [],
+                ['source_tasks' => [[
+                    'ingestion_method' => 'local_collector',
+                    'local_collector_task_id' => 7001,
+                    'trigger_type' => 'local_collector_upload',
+                ]]]
+            );
+            $mutate = $fixtureCase['mutate'];
+            $service = $this->service(
+                taskFactMutator: static function (
+                    array $fact,
+                    array $task,
+                    string $date
+                ) use ($mutate): array {
+                    if (($task['ingestion_method'] ?? '') !== 'local_collector') {
+                        return $fact;
+                    }
+                    return $mutate($fact);
+                }
+            );
+
+            $result = $service->inspect(
+                80,
+                '2026-08-09',
+                [25, 68],
+                ['ctrip', 'meituan'],
+                $fixture['path'],
+                $this->directory
+            );
+
+            self::assertSame('blocked', $result['status'], $case);
+            self::assertSame('blocked', $result['collection']['status'], $case);
+            self::assertContains(
+                'ctrip_source_task_scope_or_readback_invalid',
+                $result['reason_codes'],
+                $case
+            );
+            self::assertArrayNotHasKey('ctrip', $result['collection']['source_tasks'], $case);
+        }
     }
 
     public function testLatestStoredStatusPublishesOnlyDigestVerifiedHotelScopedReceipt(): void
@@ -1258,6 +1409,9 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
                 'failed_source_tasks' => [[
                     'data_source_id' => 25,
                     'sync_task_id' => 3271,
+                    'ingestion_method' => 'browser_profile',
+                    'local_collector_task_id' => null,
+                    'execution_owner_user_id' => 7,
                     'platform' => 'ctrip',
                     'target_date' => '2026-08-09',
                     'status' => 'failed',
@@ -1291,6 +1445,74 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
         );
         self::assertFalse($result['collection']['failed_source_tasks'][0]['readback_verified']);
         self::assertFalse($result['collection']['failed_source_tasks'][0]['sensitive_values_exposed']);
+    }
+
+    public function testLocalCollectorPreSyncFailureKeepsLocalTaskReasonOutsideTrustedAnchor(): void
+    {
+        $runId = '27111111-1111-4111-8111-111111111111';
+        $fixture = $this->writeRun(
+            '2026-08-09',
+            $runId,
+            0,
+            true,
+            [],
+            null,
+            0,
+            [],
+            [
+                'collection_complete' => false,
+                'exportable_snapshot_complete' => false,
+                'authority_scope_complete' => false,
+                'collection_anchor_hash' => '',
+                'source_tasks' => [
+                    ['data_source_id' => 0, 'sync_task_id' => 0],
+                    ['data_source_id' => 0, 'sync_task_id' => 0],
+                ],
+                'failed_source_tasks' => [[
+                    'data_source_id' => 25,
+                    'sync_task_id' => null,
+                    'ingestion_method' => 'local_collector',
+                    'local_collector_task_id' => 7001,
+                    'execution_owner_user_id' => 7,
+                    'platform' => 'ctrip',
+                    'target_date' => '2026-08-09',
+                    'status' => 'waiting_user_login',
+                    'failure_reason' => 'waiting_user_login',
+                    'readback_count' => 0,
+                    'readback_verified' => false,
+                    'historical_core_contract_status' => 'blocked',
+                    'dispatcher_run_id' => $runId,
+                ]],
+                'authority_verifier' => [
+                    'authority_ready' => false,
+                    'collection_anchor_hash' => '',
+                ],
+            ]
+        );
+
+        $result = $this->service()->inspect(
+            80,
+            '2026-08-09',
+            [25, 68],
+            ['ctrip', 'meituan'],
+            $fixture['path'],
+            $this->directory
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('blocked', $result['collection']['status']);
+        self::assertSame('', $result['collection']['collection_anchor_hash']);
+        self::assertSame(0, $result['collection']['source_task_count']);
+        self::assertSame([], $result['collection']['source_tasks']);
+        self::assertSame(1, $result['collection']['failed_source_task_count']);
+        $failure = $result['collection']['failed_source_tasks'][0];
+        self::assertNull($failure['sync_task_id']);
+        self::assertSame('local_collector', $failure['ingestion_method']);
+        self::assertSame(7001, $failure['local_collector_task_id']);
+        self::assertSame(7, $failure['execution_owner_user_id']);
+        self::assertSame('waiting_user_login', $failure['failure_reason']);
+        self::assertContains('ctrip_waiting_user_login', $result['reason_codes']);
+        self::assertContains('ctrip_source_task_missing', $result['reason_codes']);
     }
 
     public function testTaskStatsAndRunReadbackMustCarryTheSameDispatcherRunId(): void
@@ -1518,6 +1740,7 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
      * @param array<int,string> $extraFactRowDates
      * @param array<int,string> $continuousPlatforms
      * @param array<int,string> $incompleteCoreTaskDates
+     * @param null|callable(array<string,mixed>,array<string,mixed>,string):array<string,mixed> $taskFactMutator
      */
     private function service(
         array $staleTaskDates = [],
@@ -1525,7 +1748,8 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
         array $extraFactRowDates = [],
         array $continuousPlatforms = ['ctrip', 'meituan'],
         array $incompleteCoreTaskDates = [],
-        string $now = '2026-08-10 10:40:00'
+        string $now = '2026-08-10 10:40:00',
+        ?callable $taskFactMutator = null
     ): CanonicalOtaDailyNaturalAcceptanceService
     {
         return new CanonicalOtaDailyNaturalAcceptanceService(
@@ -1581,7 +1805,8 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
                 $staleTaskDates,
                 $mismatchedStatsDates,
                 $extraFactRowDates,
-                $incompleteCoreTaskDates
+                $incompleteCoreTaskDates,
+                $taskFactMutator
             ): array {
                 $rowIds = array_values(array_map('intval', $task['row_ids'] ?? []));
                 $factRowIds = $rowIds;
@@ -1605,7 +1830,11 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
                     $requiredCoreMetricKeys,
                     $completeCoreMetricKeys
                 ));
-                return [
+                $ingestionMethod = strtolower(trim((string)(
+                    $task['ingestion_method'] ?? 'browser_profile'
+                )));
+                $localCollectorTaskId = max(0, (int)($task['local_collector_task_id'] ?? 0));
+                $fact = [
                     'tenant_id' => $tenantId,
                     'hotel_id' => $hotelId,
                     'data_source_id' => (int)$task['data_source_id'],
@@ -1614,7 +1843,13 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
                     'target_date' => $date,
                     'data_period' => 'historical_daily',
                     'task_status' => 'success',
-                    'trigger_type' => 'daily_profile_reuse',
+                    'ingestion_method' => $ingestionMethod,
+                    'local_collector_task_id' => $localCollectorTaskId > 0
+                        ? $localCollectorTaskId
+                        : null,
+                    'execution_owner_user_id' => (int)($task['execution_owner_user_id'] ?? 7),
+                    'producer_evidence_verified' => true,
+                    'trigger_type' => (string)($task['trigger_type'] ?? 'daily_profile_reuse'),
                     'dispatcher_run_id' => $runId,
                     'stats_dispatcher_run_id' => $statsRunId,
                     'run_readback_dispatcher_run_id' => $runId,
@@ -1629,6 +1864,9 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
                     'complete_core_metric_keys' => $completeCoreMetricKeys,
                     'missing_core_metric_keys' => $missingCoreMetricKeys,
                 ];
+                return $taskFactMutator !== null
+                    ? $taskFactMutator($fact, $task, $date)
+                    : $fact;
             },
             static fn(): \DateTimeImmutable => new \DateTimeImmutable(
                 $now,
@@ -1792,6 +2030,9 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
             'p0_status' => 'ready',
             'historical_core_contract_status' => 'ready',
             'dispatcher_run_id' => $runId,
+            'ingestion_method' => 'browser_profile',
+            'local_collector_task_id' => null,
+            'execution_owner_user_id' => 7,
             'trigger_type' => 'daily_profile_reuse',
             'started_at' => $date . ' 08:30:10',
             'row_ids' => $rowIds,

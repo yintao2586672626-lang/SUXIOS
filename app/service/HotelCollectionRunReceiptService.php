@@ -35,6 +35,30 @@ final class HotelCollectionRunReceiptService
         'in_progress',
     ];
 
+    /** @var array<string,array{parent_status:string,source_status:string,failure_stage:string}> */
+    private const NO_COLLECTION_OUTCOMES = [
+        'verified_cache_reused' => [
+            'parent_status' => 'skipped',
+            'source_status' => 'skipped',
+            'failure_stage' => 'scheduler_cache',
+        ],
+        'retry_cooldown' => [
+            'parent_status' => 'deferred',
+            'source_status' => 'deferred',
+            'failure_stage' => 'scheduler_retry',
+        ],
+        'retry_exhausted' => [
+            'parent_status' => 'blocked',
+            'source_status' => 'blocked',
+            'failure_stage' => 'scheduler_retry',
+        ],
+        'profile_locked' => [
+            'parent_status' => 'deferred',
+            'source_status' => 'deferred',
+            'failure_stage' => 'scheduler_lock',
+        ],
+    ];
+
     /**
      * Persist a parent plus both OTA source slots before an application gate
      * can return. The same dispatcher UUID is idempotent only for the exact
@@ -236,6 +260,463 @@ final class HotelCollectionRunReceiptService
     }
 
     /**
+     * Attach one independently verified Dingdandao PMS capture to the exact
+     * parent run. OTA children and aggregate collection/trust state are not
+     * part of this sidecar write.
+     *
+     * @return array<string,mixed>
+     */
+    public function recordPmsCapture(
+        string $dispatcherRunId,
+        int $hotelId,
+        string $businessDate,
+        string $provider,
+        int $captureId
+    ): array {
+        $this->assertTablesReady();
+        $dispatcherRunId = $this->uuid($dispatcherRunId);
+        $businessDate = $this->date($businessDate);
+        $provider = $this->code($provider);
+        if ($dispatcherRunId === '' || $hotelId <= 0 || $businessDate === '' || $captureId <= 0) {
+            throw new RuntimeException('hotel_collection_run_pms_capture_scope_invalid');
+        }
+        if ($provider !== DingdandaoOperatingTargetCaptureService::PROVIDER) {
+            throw new RuntimeException('hotel_collection_run_pms_provider_unsupported');
+        }
+
+        $context = Db::transaction(function () use (
+            $dispatcherRunId,
+            $hotelId,
+            $businessDate,
+            $provider,
+            $captureId
+        ): array {
+            $run = Db::name(self::RUN_TABLE)
+                ->where('dispatcher_run_id', $dispatcherRunId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('business_date', $businessDate)
+                ->lock(true)
+                ->find();
+            if (!is_array($run)) {
+                throw new RuntimeException('hotel_collection_run_receipt_missing');
+            }
+            if ((string)($run['pms_provider'] ?? '') !== $provider) {
+                throw new RuntimeException('hotel_collection_run_pms_provider_mismatch');
+            }
+
+            $capture = Db::name('dingdandao_operating_target_captures')
+                ->where('id', $captureId)
+                ->lock(true)
+                ->find();
+            if (!is_array($capture)) {
+                throw new RuntimeException('hotel_collection_run_pms_capture_missing');
+            }
+            if ((int)($capture['tenant_id'] ?? 0) !== (int)($run['tenant_id'] ?? 0)
+                || (int)($capture['hotel_id'] ?? 0) !== $hotelId
+                || $this->date((string)($capture['business_date'] ?? '')) !== $businessDate
+                || (string)($capture['provider'] ?? '') !== $provider
+            ) {
+                throw new RuntimeException('hotel_collection_run_pms_capture_scope_mismatch');
+            }
+            if ((string)($capture['identity_status'] ?? '') !== 'matched'
+                || (string)($capture['capture_status'] ?? '') !== 'verified'
+                || (string)($capture['quality_status'] ?? '') !== 'verified'
+                || (string)($capture['reconciliation_status'] ?? '') !== 'matched'
+                || (string)($capture['readback_status'] ?? '') !== 'readback_verified'
+            ) {
+                throw new RuntimeException('hotel_collection_run_pms_capture_not_verified');
+            }
+
+            $storedCaptureId = trim((string)($run['pms_capture_id'] ?? ''));
+            $sameEvidence = (string)($run['pms_status'] ?? '') === 'verified'
+                && $storedCaptureId === (string)$captureId
+                && (int)($run['pms_readback_verified'] ?? 0) === 1;
+            if ($sameEvidence) {
+                return [
+                    'tenant_id' => (int)$run['tenant_id'],
+                    'dispatcher_run_id' => $dispatcherRunId,
+                    'business_date' => $businessDate,
+                ];
+            }
+            if ((string)($run['pms_status'] ?? 'not_run') !== 'not_run'
+                || $storedCaptureId !== ''
+                || ($run['pms_readback_verified'] ?? null) !== null
+            ) {
+                throw new RuntimeException('hotel_collection_run_pms_capture_conflict');
+            }
+
+            $updated = Db::name(self::RUN_TABLE)
+                ->where('id', (int)$run['id'])
+                ->where('pms_status', 'not_run')
+                ->where('pms_provider', $provider)
+                ->whereNull('pms_capture_id')
+                ->whereNull('pms_readback_verified')
+                ->update([
+                    'pms_status' => 'verified',
+                    'pms_provider' => $provider,
+                    'pms_capture_id' => (string)$captureId,
+                    'pms_readback_verified' => 1,
+                ]);
+            if ((int)$updated !== 1) {
+                throw new RuntimeException('hotel_collection_run_pms_capture_conflict');
+            }
+
+            $written = Db::name(self::RUN_TABLE)
+                ->where('id', (int)$run['id'])
+                ->lock(true)
+                ->find();
+            if (!is_array($written)
+                || (string)($written['pms_status'] ?? '') !== 'verified'
+                || (string)($written['pms_provider'] ?? '') !== $provider
+                || trim((string)($written['pms_capture_id'] ?? '')) !== (string)$captureId
+                || (int)($written['pms_readback_verified'] ?? 0) !== 1
+            ) {
+                throw new RuntimeException('hotel_collection_run_pms_capture_readback_mismatch');
+            }
+            return [
+                'tenant_id' => (int)$run['tenant_id'],
+                'dispatcher_run_id' => $dispatcherRunId,
+                'business_date' => $businessDate,
+            ];
+        });
+
+        return $this->readGroup(
+            (string)$context['dispatcher_run_id'],
+            (int)$context['tenant_id'],
+            $hotelId,
+            (string)$context['business_date']
+        );
+    }
+
+    /**
+     * Close one scheduler attempt that deliberately did not start collection.
+     * The current dispatcher never inherits an older run's anchor or task IDs.
+     * A recoverable condition is retried as a new dispatcher attempt, keeping
+     * this run immutable and its reason independently auditable.
+     *
+     * @return array<string,mixed>
+     */
+    public function markNoCollectionOutcome(
+        string $dispatcherRunId,
+        int $hotelId,
+        string $businessDate,
+        string $outcomeCode
+    ): array {
+        $this->assertTablesReady();
+        $dispatcherRunId = $this->uuid($dispatcherRunId);
+        $businessDate = $this->date($businessDate);
+        $outcomeCode = $this->code($outcomeCode);
+        $outcome = self::NO_COLLECTION_OUTCOMES[$outcomeCode] ?? null;
+        if ($dispatcherRunId === '' || $hotelId <= 0 || $businessDate === ''
+            || !is_array($outcome)
+        ) {
+            throw new RuntimeException('hotel_collection_run_no_collection_scope_invalid');
+        }
+
+        $context = Db::transaction(function () use (
+            $dispatcherRunId,
+            $hotelId,
+            $businessDate,
+            $outcomeCode,
+            $outcome
+        ): array {
+            [$run, $children] = $this->loadExactRun(
+                $dispatcherRunId,
+                $hotelId,
+                $businessDate,
+                true
+            );
+            $parentStatus = (string)$outcome['parent_status'];
+            $sourceStatus = (string)$outcome['source_status'];
+            $failureStage = (string)$outcome['failure_stage'];
+            $currentStatus = (string)($run['status'] ?? '');
+
+            $sameOutcome = $currentStatus === $parentStatus
+                && (string)($run['failure_stage'] ?? '') === $failureStage
+                && (string)($run['failure_code'] ?? '') === $outcomeCode;
+            if ($sameOutcome) {
+                foreach ($children as $child) {
+                    if ((string)($child['status'] ?? '') !== $sourceStatus
+                        || (string)($child['failure_stage'] ?? '') !== $failureStage
+                        || (string)($child['failure_code'] ?? '') !== $outcomeCode
+                        || $this->sourceReceiptHasCollectionEvidence($child)
+                    ) {
+                        throw new RuntimeException('hotel_collection_run_no_collection_readback_mismatch');
+                    }
+                }
+                return [
+                    'tenant_id' => (int)$run['tenant_id'],
+                    'dispatcher_run_id' => $dispatcherRunId,
+                    'business_date' => $businessDate,
+                ];
+            }
+            if ($currentStatus !== 'started'
+                || trim((string)($run['collection_anchor_hash'] ?? '')) !== ''
+                || trim((string)($run['trust_receipt_digest'] ?? '')) !== ''
+            ) {
+                throw new RuntimeException('hotel_collection_run_no_collection_outcome_conflict');
+            }
+            foreach ($children as $child) {
+                if ((string)($child['status'] ?? '') !== 'declared'
+                    || $this->sourceReceiptHasCollectionEvidence($child)
+                ) {
+                    throw new RuntimeException('hotel_collection_run_no_collection_after_collection');
+                }
+            }
+
+            $now = date('Y-m-d H:i:s');
+            foreach ($children as $platform => $child) {
+                $updated = Db::name(self::SOURCE_TABLE)
+                    ->where('id', (int)$child['id'])
+                    ->where('run_id', (int)$run['id'])
+                    ->where('platform', $platform)
+                    ->where('status', 'declared')
+                    ->update([
+                        'status' => $sourceStatus,
+                        'platform_sync_task_id' => null,
+                        'local_collector_task_id' => null,
+                        'saved_row_count' => 0,
+                        'readback_row_count' => 0,
+                        'readback_verified' => 0,
+                        'evidence_digest' => null,
+                        'failure_stage' => $failureStage,
+                        'failure_code' => $outcomeCode,
+                        'receipt_json' => $this->json([
+                            'schema_version' => self::SCHEMA_VERSION,
+                            'dispatcher_run_id' => $dispatcherRunId,
+                            'platform' => $platform,
+                            'no_collection_outcome' => true,
+                            'outcome_code' => $outcomeCode,
+                            'automatic_device_substitution' => false,
+                            'sensitive_values_exposed' => false,
+                        ]),
+                        'finished_at' => $now,
+                        'update_time' => $now,
+                    ]);
+                if ((int)$updated !== 1) {
+                    throw new RuntimeException('hotel_collection_run_no_collection_source_write_failed');
+                }
+            }
+
+            $updated = Db::name(self::RUN_TABLE)
+                ->where('id', (int)$run['id'])
+                ->where('status', 'started')
+                ->update([
+                    'status' => $parentStatus,
+                    'failure_stage' => $failureStage,
+                    'failure_code' => $outcomeCode,
+                    'collection_anchor_contract_version' => null,
+                    'collection_anchor_hash' => null,
+                    'trust_receipt_digest' => null,
+                    'receipt_json' => $this->json([
+                        'schema_version' => self::SCHEMA_VERSION,
+                        'scope_hash' => (string)$run['scope_hash'],
+                        'collection_verified' => false,
+                        'no_collection_outcome' => true,
+                        'outcome_code' => $outcomeCode,
+                        'resume_scope' => 'same_account_same_device_same_hotel_same_platform',
+                        'automatic_device_substitution' => false,
+                        'sensitive_values_exposed' => false,
+                    ]),
+                    'finished_at' => $now,
+                    'update_time' => $now,
+                ]);
+            if ((int)$updated !== 1) {
+                throw new RuntimeException('hotel_collection_run_no_collection_parent_write_failed');
+            }
+
+            [$written, $writtenChildren] = $this->loadExactRun(
+                $dispatcherRunId,
+                $hotelId,
+                $businessDate,
+                true
+            );
+            if ((string)($written['status'] ?? '') !== $parentStatus
+                || (string)($written['failure_code'] ?? '') !== $outcomeCode
+                || trim((string)($written['collection_anchor_hash'] ?? '')) !== ''
+                || trim((string)($written['trust_receipt_digest'] ?? '')) !== ''
+            ) {
+                throw new RuntimeException('hotel_collection_run_no_collection_readback_mismatch');
+            }
+            foreach ($writtenChildren as $child) {
+                if ((string)($child['status'] ?? '') !== $sourceStatus
+                    || (string)($child['failure_code'] ?? '') !== $outcomeCode
+                    || $this->sourceReceiptHasCollectionEvidence($child)
+                ) {
+                    throw new RuntimeException('hotel_collection_run_no_collection_readback_mismatch');
+                }
+            }
+            return [
+                'tenant_id' => (int)$run['tenant_id'],
+                'dispatcher_run_id' => $dispatcherRunId,
+                'business_date' => $businessDate,
+            ];
+        });
+
+        return $this->readGroup(
+            (string)$context['dispatcher_run_id'],
+            (int)$context['tenant_id'],
+            $hotelId,
+            (string)$context['business_date']
+        );
+    }
+
+    /**
+     * Seal an active dispatcher when its signed plan scope has changed.
+     *
+     * Producer task IDs and row evidence are deliberately preserved for audit,
+     * but the run becomes blocked and anchorless. A later dispatcher must start
+     * from the new plan and can never inherit the old account/device task.
+     *
+     * @return array<string,mixed>
+     */
+    public function blockScopeChangedDuringActiveRun(
+        string $dispatcherRunId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        $this->assertTablesReady();
+        $dispatcherRunId = $this->uuid($dispatcherRunId);
+        $businessDate = $this->date($businessDate);
+        $failureCode = 'plan_scope_changed_during_active_run';
+        if ($dispatcherRunId === '' || $hotelId <= 0 || $businessDate === '') {
+            throw new RuntimeException('hotel_collection_run_scope_change_scope_invalid');
+        }
+
+        $context = Db::transaction(function () use (
+            $dispatcherRunId,
+            $hotelId,
+            $businessDate,
+            $failureCode
+        ): array {
+            [$run, $children] = $this->loadExactRun(
+                $dispatcherRunId,
+                $hotelId,
+                $businessDate,
+                true
+            );
+            $currentStatus = (string)($run['status'] ?? '');
+            $sameOutcome = $currentStatus === 'blocked'
+                && (string)($run['failure_stage'] ?? '') === 'plan_gate'
+                && (string)($run['failure_code'] ?? '') === $failureCode;
+            if ($sameOutcome) {
+                foreach ($children as $child) {
+                    if ((string)($child['status'] ?? '') !== 'blocked'
+                        || (string)($child['failure_stage'] ?? '') !== 'plan_gate'
+                        || (string)($child['failure_code'] ?? '') !== $failureCode
+                    ) {
+                        throw new RuntimeException('hotel_collection_run_scope_change_readback_mismatch');
+                    }
+                }
+                return [
+                    'tenant_id' => (int)$run['tenant_id'],
+                    'dispatcher_run_id' => $dispatcherRunId,
+                    'business_date' => $businessDate,
+                ];
+            }
+            if (!in_array($currentStatus, ['started', 'in_progress', 'collected'], true)
+                || trim((string)($run['collection_anchor_hash'] ?? '')) !== ''
+                || trim((string)($run['trust_receipt_digest'] ?? '')) !== ''
+            ) {
+                throw new RuntimeException('hotel_collection_run_scope_change_terminal_conflict');
+            }
+
+            $now = date('Y-m-d H:i:s');
+            foreach ($children as $platform => $child) {
+                $updated = Db::name(self::SOURCE_TABLE)
+                    ->where('id', (int)$child['id'])
+                    ->where('run_id', (int)$run['id'])
+                    ->where('platform', $platform)
+                    ->where('status', (string)$child['status'])
+                    ->update([
+                        'status' => 'blocked',
+                        'failure_stage' => 'plan_gate',
+                        'failure_code' => $failureCode,
+                        'receipt_json' => $this->json([
+                            'schema_version' => self::SCHEMA_VERSION,
+                            'dispatcher_run_id' => $dispatcherRunId,
+                            'platform' => $platform,
+                            'plan_scope_changed' => true,
+                            'failure_code' => $failureCode,
+                            'producer_evidence_preserved' => $this->sourceReceiptHasCollectionEvidence($child),
+                            'automatic_device_substitution' => false,
+                            'sensitive_values_exposed' => false,
+                        ]),
+                        'finished_at' => $now,
+                        'update_time' => $now,
+                    ]);
+                if ((int)$updated !== 1) {
+                    throw new RuntimeException('hotel_collection_run_scope_change_source_write_failed');
+                }
+            }
+
+            $updated = Db::name(self::RUN_TABLE)
+                ->where('id', (int)$run['id'])
+                ->where('status', $currentStatus)
+                ->whereNull('collection_anchor_hash')
+                ->whereNull('trust_receipt_digest')
+                ->update([
+                    'status' => 'blocked',
+                    'failure_stage' => 'plan_gate',
+                    'failure_code' => $failureCode,
+                    'collection_anchor_contract_version' => null,
+                    'collection_anchor_hash' => null,
+                    'trust_receipt_digest' => null,
+                    'receipt_json' => $this->json([
+                        'schema_version' => self::SCHEMA_VERSION,
+                        'scope_hash' => (string)($run['scope_hash'] ?? ''),
+                        'collection_verified' => false,
+                        'plan_scope_changed' => true,
+                        'failure_codes' => [$failureCode],
+                        'resume_scope' => 'same_account_same_device_same_hotel_same_platform',
+                        'automatic_device_substitution' => false,
+                        'sensitive_values_exposed' => false,
+                    ]),
+                    'finished_at' => $now,
+                    'update_time' => $now,
+                ]);
+            if ((int)$updated !== 1) {
+                throw new RuntimeException('hotel_collection_run_scope_change_parent_write_failed');
+            }
+
+            [$written, $writtenChildren] = $this->loadExactRun(
+                $dispatcherRunId,
+                $hotelId,
+                $businessDate,
+                true
+            );
+            if ((string)($written['status'] ?? '') !== 'blocked'
+                || (string)($written['failure_stage'] ?? '') !== 'plan_gate'
+                || (string)($written['failure_code'] ?? '') !== $failureCode
+                || trim((string)($written['collection_anchor_hash'] ?? '')) !== ''
+                || trim((string)($written['trust_receipt_digest'] ?? '')) !== ''
+            ) {
+                throw new RuntimeException('hotel_collection_run_scope_change_readback_mismatch');
+            }
+            foreach ($writtenChildren as $child) {
+                if ((string)($child['status'] ?? '') !== 'blocked'
+                    || (string)($child['failure_stage'] ?? '') !== 'plan_gate'
+                    || (string)($child['failure_code'] ?? '') !== $failureCode
+                ) {
+                    throw new RuntimeException('hotel_collection_run_scope_change_readback_mismatch');
+                }
+            }
+            return [
+                'tenant_id' => (int)$run['tenant_id'],
+                'dispatcher_run_id' => $dispatcherRunId,
+                'business_date' => $businessDate,
+            ];
+        });
+
+        return $this->readGroup(
+            (string)$context['dispatcher_run_id'],
+            (int)$context['tenant_id'],
+            $hotelId,
+            (string)$context['business_date']
+        );
+    }
+
+    /**
      * Link exact task/save/readback results to the two declared OTA sources.
      * This stage never writes a collection anchor.
      *
@@ -266,7 +747,11 @@ final class HotelCollectionRunReceiptService
                 $businessDate,
                 true
             );
-            if (in_array((string)($run['status'] ?? ''), ['blocked', 'succeeded'], true)) {
+            if (in_array(
+                (string)($run['status'] ?? ''),
+                ['blocked', 'succeeded', 'skipped', 'deferred'],
+                true
+            )) {
                 throw new RuntimeException('hotel_collection_run_not_collectable');
             }
             $runId = (int)$run['id'];
@@ -507,6 +992,13 @@ final class HotelCollectionRunReceiptService
             ) {
                 throw new RuntimeException('hotel_collection_run_final_receipt_scope_mismatch');
             }
+            if (in_array(
+                (string)($run['status'] ?? ''),
+                ['blocked', 'skipped', 'deferred'],
+                true
+            )) {
+                throw new RuntimeException('hotel_collection_run_not_collectable');
+            }
 
             $sourceTasks = is_array($receipt['source_tasks'] ?? null)
                 ? array_values($receipt['source_tasks'])
@@ -683,6 +1175,378 @@ final class HotelCollectionRunReceiptService
         );
     }
 
+    /**
+     * Attach one exact, independently persisted page confirmation to the only
+     * succeeded collection run whose two source/task anchors match the page.
+     * Page evidence is supplementary: this method never changes collection
+     * status, anchor or trust digest.
+     *
+     * @param array<string,mixed> $confirmedReceipt
+     * @param array<string,mixed> $canonicalContract
+     * @return array<string,mixed>
+     */
+    public function recordPageAcceptance(
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        array $confirmedReceipt,
+        array $canonicalContract
+    ): array {
+        $this->assertTablesReady();
+        $businessDate = $this->date($businessDate);
+        $receiptId = max(0, (int)($confirmedReceipt['receipt_id'] ?? 0));
+        $receiptHash = $this->digest((string)($confirmedReceipt['contract_hash'] ?? ''));
+        if ($tenantId <= 0 || $hotelId <= 0 || $businessDate === ''
+            || $receiptId <= 0 || $receiptHash === ''
+            || (string)($confirmedReceipt['status'] ?? '') !== 'verified'
+            || ($confirmedReceipt['readback_verified'] ?? false) !== true
+            || (string)($confirmedReceipt['contract_version'] ?? '')
+                !== DualOtaPageVerificationService::CONTRACT_VERSION
+            || (string)($confirmedReceipt['target_date'] ?? '') !== $businessDate
+        ) {
+            throw new RuntimeException('hotel_collection_page_acceptance_scope_invalid');
+        }
+
+        $anchors = $this->pageContractAnchors(
+            $canonicalContract,
+            $tenantId,
+            $hotelId,
+            $businessDate
+        );
+        try {
+            $contractHash = DualOtaPageVerificationService::contractHash($canonicalContract);
+        } catch (\Throwable) {
+            throw new RuntimeException('hotel_collection_page_contract_invalid');
+        }
+        if (!hash_equals($contractHash, $receiptHash)) {
+            throw new RuntimeException('hotel_collection_page_contract_mismatch');
+        }
+        $logColumns = $this->tableColumns('operation_logs');
+        if (array_diff([
+            'id',
+            'tenant_id',
+            'hotel_id',
+            'module',
+            'action',
+            'description',
+            'extra_data',
+        ], array_keys($logColumns)) !== []) {
+            throw new RuntimeException('hotel_collection_page_evidence_schema_missing');
+        }
+
+        $context = Db::transaction(function () use (
+            $tenantId,
+            $hotelId,
+            $businessDate,
+            $receiptId,
+            $contractHash,
+            $canonicalContract,
+            $anchors
+        ): array {
+            $log = Db::name('operation_logs')
+                ->where('id', $receiptId)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('module', DualOtaPageVerificationService::MODULE)
+                ->where('action', DualOtaPageVerificationService::ACTION)
+                ->lock(true)
+                ->find();
+            if (!$this->pageEvidenceMatches(
+                is_array($log) ? $log : [],
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                $contractHash,
+                $canonicalContract
+            )) {
+                throw new RuntimeException('hotel_collection_page_evidence_invalid');
+            }
+
+            $runs = Db::name(self::RUN_TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('business_date', $businessDate)
+                ->where('status', 'succeeded')
+                ->order('id', 'asc')
+                ->lock(true)
+                ->select()
+                ->toArray();
+            $matches = [];
+            foreach ($runs as $run) {
+                if (!is_array($run)
+                    || $this->digest((string)($run['collection_anchor_hash'] ?? '')) === ''
+                    || $this->digest((string)($run['trust_receipt_digest'] ?? '')) === ''
+                ) {
+                    continue;
+                }
+                $children = Db::name(self::SOURCE_TABLE)
+                    ->where('run_id', (int)$run['id'])
+                    ->order('platform', 'asc')
+                    ->lock(true)
+                    ->select()
+                    ->toArray();
+                $childrenByPlatform = [];
+                foreach ($children as $child) {
+                    if (!is_array($child)) {
+                        continue;
+                    }
+                    $platform = $this->code((string)($child['platform'] ?? ''));
+                    if (in_array($platform, self::PLATFORMS, true)
+                        && !isset($childrenByPlatform[$platform])
+                    ) {
+                        $childrenByPlatform[$platform] = $child;
+                    }
+                }
+                ksort($childrenByPlatform, SORT_STRING);
+                if (count($children) !== 2
+                    || array_keys($childrenByPlatform) !== self::PLATFORMS
+                ) {
+                    continue;
+                }
+                $exact = true;
+                foreach (self::PLATFORMS as $platform) {
+                    $child = $childrenByPlatform[$platform];
+                    $anchor = $anchors[$platform];
+                    if ((string)($child['status'] ?? '') !== 'success'
+                        || (int)($child['readback_verified'] ?? 0) !== 1
+                        || (int)($child['saved_row_count'] ?? 0) <= 0
+                        || (int)($child['readback_row_count'] ?? 0) <= 0
+                        || (int)($child['data_source_id'] ?? 0) !== $anchor['data_source_id']
+                        || (int)($child['platform_sync_task_id'] ?? 0) !== $anchor['sync_task_id']
+                    ) {
+                        $exact = false;
+                        break;
+                    }
+                }
+                if ($exact && $this->succeededLedgerVerified(
+                    $run,
+                    array_values($childrenByPlatform)
+                )) {
+                    $matches[] = ['run' => $run, 'children' => $childrenByPlatform];
+                }
+            }
+            if ($matches === []) {
+                throw new RuntimeException('hotel_collection_page_run_not_found');
+            }
+            if (count($matches) !== 1) {
+                throw new RuntimeException('hotel_collection_page_run_ambiguous');
+            }
+
+            $run = $matches[0]['run'];
+            $children = $matches[0]['children'];
+            $parentSame = (string)($run['page_status'] ?? '') === 'verified'
+                && (int)($run['page_receipt_id'] ?? 0) === $receiptId
+                && hash_equals(
+                    $contractHash,
+                    $this->digest((string)($run['page_contract_hash'] ?? ''))
+                );
+            $childrenSame = true;
+            foreach ($children as $child) {
+                if ((string)($child['page_acceptance_status'] ?? '') !== 'verified'
+                    || (int)($child['page_acceptance_log_id'] ?? 0) !== $receiptId
+                ) {
+                    $childrenSame = false;
+                    break;
+                }
+            }
+            if ($parentSame && $childrenSame) {
+                return [
+                    'dispatcher_run_id' => (string)$run['dispatcher_run_id'],
+                    'tenant_id' => $tenantId,
+                    'business_date' => $businessDate,
+                ];
+            }
+
+            $parentEmpty = (string)($run['page_status'] ?? '') === 'not_evaluated'
+                && (int)($run['page_receipt_id'] ?? 0) === 0
+                && trim((string)($run['page_contract_hash'] ?? '')) === '';
+            $childrenEmpty = true;
+            foreach ($children as $child) {
+                if ((string)($child['page_acceptance_status'] ?? '') !== 'not_evaluated'
+                    || (int)($child['page_acceptance_log_id'] ?? 0) !== 0
+                ) {
+                    $childrenEmpty = false;
+                    break;
+                }
+            }
+            if (!$parentEmpty || !$childrenEmpty) {
+                throw new RuntimeException('hotel_collection_page_acceptance_conflict');
+            }
+
+            $immutable = [
+                'status' => (string)$run['status'],
+                'collection_anchor_contract_version' => (string)(
+                    $run['collection_anchor_contract_version'] ?? ''
+                ),
+                'collection_anchor_hash' => (string)($run['collection_anchor_hash'] ?? ''),
+                'trust_receipt_digest' => (string)($run['trust_receipt_digest'] ?? ''),
+            ];
+            $now = date('Y-m-d H:i:s');
+            foreach ($children as $platform => $child) {
+                $updated = Db::name(self::SOURCE_TABLE)
+                    ->where('id', (int)$child['id'])
+                    ->where('run_id', (int)$run['id'])
+                    ->where('platform', $platform)
+                    ->where('status', 'success')
+                    ->where('readback_verified', 1)
+                    ->where('page_acceptance_status', 'not_evaluated')
+                    ->whereNull('page_acceptance_log_id')
+                    ->update([
+                        'page_acceptance_status' => 'verified',
+                        'page_acceptance_log_id' => $receiptId,
+                        'update_time' => $now,
+                    ]);
+                if ((int)$updated !== 1) {
+                    throw new RuntimeException('hotel_collection_page_source_write_failed');
+                }
+            }
+            $updated = Db::name(self::RUN_TABLE)
+                ->where('id', (int)$run['id'])
+                ->where('status', 'succeeded')
+                ->where('page_status', 'not_evaluated')
+                ->whereNull('page_receipt_id')
+                ->whereNull('page_contract_hash')
+                ->update([
+                    'page_status' => 'verified',
+                    'page_receipt_id' => $receiptId,
+                    'page_contract_hash' => $contractHash,
+                    'update_time' => $now,
+                ]);
+            if ((int)$updated !== 1) {
+                throw new RuntimeException('hotel_collection_page_parent_write_failed');
+            }
+
+            $written = Db::name(self::RUN_TABLE)
+                ->where('id', (int)$run['id'])
+                ->lock(true)
+                ->find();
+            $writtenChildren = Db::name(self::SOURCE_TABLE)
+                ->where('run_id', (int)$run['id'])
+                ->order('platform', 'asc')
+                ->lock(true)
+                ->select()
+                ->toArray();
+            if (!is_array($written)
+                || (string)($written['page_status'] ?? '') !== 'verified'
+                || (int)($written['page_receipt_id'] ?? 0) !== $receiptId
+                || !hash_equals(
+                    $contractHash,
+                    $this->digest((string)($written['page_contract_hash'] ?? ''))
+                )
+            ) {
+                throw new RuntimeException('hotel_collection_page_acceptance_readback_mismatch');
+            }
+            foreach ($immutable as $field => $value) {
+                if ((string)($written[$field] ?? '') !== $value) {
+                    throw new RuntimeException('hotel_collection_page_collection_state_changed');
+                }
+            }
+            if (count($writtenChildren) !== 2) {
+                throw new RuntimeException('hotel_collection_page_acceptance_readback_mismatch');
+            }
+            foreach ($writtenChildren as $child) {
+                if ((string)($child['status'] ?? '') !== 'success'
+                    || (int)($child['readback_verified'] ?? 0) !== 1
+                    || (string)($child['page_acceptance_status'] ?? '') !== 'verified'
+                    || (int)($child['page_acceptance_log_id'] ?? 0) !== $receiptId
+                ) {
+                    throw new RuntimeException('hotel_collection_page_acceptance_readback_mismatch');
+                }
+            }
+            return [
+                'dispatcher_run_id' => (string)$run['dispatcher_run_id'],
+                'tenant_id' => $tenantId,
+                'business_date' => $businessDate,
+            ];
+        });
+
+        return $this->readGroup(
+            (string)$context['dispatcher_run_id'],
+            (int)$context['tenant_id'],
+            $hotelId,
+            (string)$context['business_date']
+        );
+    }
+
+    /**
+     * Revalidate one exact producer chain for downstream read-only acceptance.
+     * This exposes no device/profile material; it only returns a boolean after
+     * re-reading the source, producer task, raw capture and persisted row set.
+     *
+     * @param array<int,mixed> $rowIds
+     */
+    public function sourceEvidenceCurrent(
+        string $dispatcherRunId,
+        int $hotelId,
+        string $businessDate,
+        string $platform,
+        int $sourceId,
+        int $syncTaskId,
+        int $localCollectorTaskId,
+        array $rowIds,
+        int $expectedOwnerUserId = 0
+    ): bool {
+        $this->assertTablesReady();
+        $dispatcherRunId = $this->uuid($dispatcherRunId);
+        $businessDate = $this->date($businessDate);
+        $platform = $this->code($platform);
+        $rowIds = $this->positiveIds($rowIds);
+        if ($dispatcherRunId === '' || $hotelId <= 0 || $businessDate === ''
+            || !in_array($platform, self::PLATFORMS, true)
+            || $sourceId <= 0 || $syncTaskId <= 0 || $rowIds === []
+        ) {
+            return false;
+        }
+
+        return Db::transaction(function () use (
+            $dispatcherRunId,
+            $hotelId,
+            $businessDate,
+            $platform,
+            $sourceId,
+            $syncTaskId,
+            $localCollectorTaskId,
+            $rowIds,
+            $expectedOwnerUserId
+        ): bool {
+            [$run, $children] = $this->loadExactRun(
+                $dispatcherRunId,
+                $hotelId,
+                $businessDate,
+                true
+            );
+            $child = is_array($children[$platform] ?? null) ? $children[$platform] : [];
+            $ingestionMethod = (string)($child['ingestion_method'] ?? '');
+            $taskContractReady = $ingestionMethod === 'local_collector'
+                ? $localCollectorTaskId > 0
+                : ($ingestionMethod === 'browser_profile' && $localCollectorTaskId === 0);
+            if (!in_array((string)($run['status'] ?? ''), ['collected', 'succeeded'], true)
+                || ($expectedOwnerUserId > 0
+                    && (int)($run['execution_owner_user_id'] ?? 0) !== $expectedOwnerUserId)
+                || $child === []
+                || (string)($child['status'] ?? '') !== 'success'
+                || (int)($child['readback_verified'] ?? 0) !== 1
+                || (int)($child['data_source_id'] ?? 0) !== $sourceId
+                || (int)($child['platform_sync_task_id'] ?? 0) !== $syncTaskId
+                || (int)($child['local_collector_task_id'] ?? 0) !== $localCollectorTaskId
+                || !$taskContractReady
+                || !hash_equals(
+                    (string)($child['evidence_digest'] ?? ''),
+                    $this->sourceEvidenceDigest($platform, $sourceId, $syncTaskId, $rowIds)
+                )
+            ) {
+                return false;
+            }
+            return $this->persistedSourceEvidenceMatches(
+                $run,
+                $child,
+                $syncTaskId,
+                $localCollectorTaskId,
+                $rowIds
+            );
+        });
+    }
+
     /** @return array<string,mixed> */
     public function readGroup(
         string $dispatcherRunId,
@@ -707,6 +1571,7 @@ final class HotelCollectionRunReceiptService
                 'business_date' => $businessDate,
                 'status' => 'missing',
                 'source_receipts' => [],
+                'ledger_structure_verified' => false,
                 'readback_verified' => false,
                 'automatic_device_substitution' => false,
                 'sensitive_values_exposed' => false,
@@ -722,6 +1587,14 @@ final class HotelCollectionRunReceiptService
             $children
         )));
         sort($platforms, SORT_STRING);
+        $ledgerStructureVerified = count($children) === 2
+            && $platforms === self::PLATFORMS;
+        $pageAcceptance = $this->publicPageAcceptance(
+            $run,
+            $children,
+            $ledgerStructureVerified
+        );
+        $pmsReceipt = $this->publicPmsReceipt($run);
         return [
             'schema_version' => self::SCHEMA_VERSION,
             'id' => (int)$run['id'],
@@ -741,23 +1614,18 @@ final class HotelCollectionRunReceiptService
             )) ?: null,
             'collection_anchor_hash' => trim((string)($run['collection_anchor_hash'] ?? '')) ?: null,
             'trust_receipt_digest' => trim((string)($run['trust_receipt_digest'] ?? '')) ?: null,
-            'page_acceptance' => [
-                'status' => (string)($run['page_status'] ?? 'not_evaluated'),
-                'receipt_id' => (int)($run['page_receipt_id'] ?? 0) ?: null,
-                'contract_hash' => trim((string)($run['page_contract_hash'] ?? '')) ?: null,
-            ],
-            'pms_receipt' => [
-                'provider' => trim((string)($run['pms_provider'] ?? '')) ?: null,
-                'status' => (string)($run['pms_status'] ?? 'not_run'),
-                'capture_id' => trim((string)($run['pms_capture_id'] ?? '')) ?: null,
-                'readback_verified' => (int)($run['pms_readback_verified'] ?? 0) === 1,
-            ],
+            'page_acceptance' => $pageAcceptance,
+            'pms_receipt' => $pmsReceipt,
             'source_receipts' => array_map(
-                fn(array $row): array => $this->publicSourceRow($row),
+                fn(array $row): array => $this->publicSourceRow($row, $pageAcceptance),
                 $children
             ),
-            'readback_verified' => count($children) === 2
-                && $platforms === self::PLATFORMS,
+            'ledger_structure_verified' => $ledgerStructureVerified,
+            'readback_verified' => $this->ledgerReadbackVerified(
+                $run,
+                $children,
+                $ledgerStructureVerified
+            ),
             'automatic_device_substitution' => false,
             'sensitive_values_exposed' => false,
             'started_at' => (string)($run['started_at'] ?? ''),
@@ -909,9 +1777,15 @@ final class HotelCollectionRunReceiptService
             : 'failed';
     }
 
-    /** @param array<string,mixed> $row @return array<string,mixed> */
-    private function publicSourceRow(array $row): array
+    /**
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $pageAcceptance
+     * @return array<string,mixed>
+     */
+    private function publicSourceRow(array $row, array $pageAcceptance): array
     {
+        $pageVerified = ($pageAcceptance['readback_verified'] ?? false) === true;
+        $pageStatus = (string)($pageAcceptance['status'] ?? 'not_evaluated');
         return [
             'id' => (int)($row['id'] ?? 0),
             'platform' => (string)($row['platform'] ?? ''),
@@ -925,15 +1799,572 @@ final class HotelCollectionRunReceiptService
             'saved_row_count' => max(0, (int)($row['saved_row_count'] ?? 0)),
             'readback_row_count' => max(0, (int)($row['readback_row_count'] ?? 0)),
             'readback_verified' => (int)($row['readback_verified'] ?? 0) === 1,
-            'page_acceptance_status' => (string)(
-                $row['page_acceptance_status'] ?? 'not_evaluated'
-            ),
-            'page_acceptance_log_id' => (int)($row['page_acceptance_log_id'] ?? 0) ?: null,
+            'page_acceptance_status' => $pageVerified
+                ? 'verified'
+                : ($pageStatus === 'not_evaluated' ? 'not_evaluated' : $pageStatus),
+            'page_acceptance_log_id' => $pageVerified
+                ? (int)($pageAcceptance['receipt_id'] ?? 0) ?: null
+                : null,
             'started_at' => (string)($row['started_at'] ?? ''),
             'finished_at' => trim((string)($row['finished_at'] ?? '')) ?: null,
             'automatic_device_substitution' => false,
             'sensitive_values_exposed' => false,
         ];
+    }
+
+    /**
+     * `ledger_structure_verified` only proves the expected two durable slots
+     * exist. `readback_verified` additionally proves a coherent non-active
+     * parent/child outcome; it is never inferred from cardinality alone.
+     *
+     * @param array<string,mixed> $run
+     * @param array<int,array<string,mixed>> $children
+     */
+    private function ledgerReadbackVerified(
+        array $run,
+        array $children,
+        bool $ledgerStructureVerified
+    ): bool {
+        if (!$ledgerStructureVerified) {
+            return false;
+        }
+        $status = (string)($run['status'] ?? '');
+        if (in_array($status, ['started', 'in_progress', 'collected'], true)) {
+            return false;
+        }
+        if ($status === 'succeeded') {
+            return $this->succeededLedgerVerified($run, $children);
+        }
+
+        $failureCode = $this->code((string)($run['failure_code'] ?? ''));
+        if (isset(self::NO_COLLECTION_OUTCOMES[$failureCode])) {
+            return $this->noCollectionLedgerVerified($run, $children, $failureCode);
+        }
+        if ($status === 'blocked' && (string)($run['failure_stage'] ?? '') === 'plan_gate') {
+            return $this->planGateLedgerVerified($run, $children);
+        }
+        if (in_array($status, ['partial', 'failed'], true)) {
+            return $this->incompleteTerminalLedgerVerified($run, $children, $status);
+        }
+        return false;
+    }
+
+    /** @param array<string,mixed> $run @param array<int,array<string,mixed>> $children */
+    private function succeededLedgerVerified(array $run, array $children): bool
+    {
+        $contractVersion = (string)($run['collection_anchor_contract_version'] ?? '');
+        $anchorHash = $this->digest((string)($run['collection_anchor_hash'] ?? ''));
+        $trustDigest = $this->digest((string)($run['trust_receipt_digest'] ?? ''));
+        $scopeHash = $this->digest((string)($run['scope_hash'] ?? ''));
+        $receipt = $this->decodeJson((string)($run['receipt_json'] ?? ''));
+        if ($contractVersion !== OtaCollectionAnchorService::CONTRACT_VERSION
+            || $anchorHash === ''
+            || $trustDigest === ''
+            || $scopeHash === ''
+            || trim((string)($run['finished_at'] ?? '')) === ''
+            || trim((string)($run['failure_stage'] ?? '')) !== ''
+            || trim((string)($run['failure_code'] ?? '')) !== ''
+            || ($receipt['collection_verified'] ?? null) !== true
+            || $this->digest((string)($receipt['scope_hash'] ?? '')) !== $scopeHash
+        ) {
+            return false;
+        }
+
+        $sourceIds = [];
+        foreach ($children as $child) {
+            if (!$this->successfulSourceReceiptVerified($run, $child)) {
+                return false;
+            }
+            $sourceIds[] = (int)$child['data_source_id'];
+        }
+        $sourceIds = $this->positiveIds($sourceIds);
+        if (count($sourceIds) !== 2) {
+            return false;
+        }
+        $expectedTrustDigest = hash('sha256', $this->json([
+            'dispatcher_run_id' => (string)($run['dispatcher_run_id'] ?? ''),
+            'system_hotel_id' => (int)($run['system_hotel_id'] ?? 0),
+            'business_date' => (string)($run['business_date'] ?? ''),
+            'collection_anchor_contract_version' => $contractVersion,
+            'collection_anchor_hash' => $anchorHash,
+            'source_ids' => $sourceIds,
+        ]));
+        return hash_equals($expectedTrustDigest, $trustDigest);
+    }
+
+    /** @param array<string,mixed> $run @param array<string,mixed> $row */
+    private function successfulSourceReceiptVerified(array $run, array $row): bool
+    {
+        $method = (string)($row['ingestion_method'] ?? '');
+        $localTaskId = (int)($row['local_collector_task_id'] ?? 0);
+        $taskScopeVerified = $method === 'local_collector'
+            ? $localTaskId > 0
+            : ($method === 'browser_profile' && $localTaskId === 0);
+        $savedCount = (int)($row['saved_row_count'] ?? 0);
+        $readbackCount = (int)($row['readback_row_count'] ?? 0);
+        return (string)($row['status'] ?? '') === 'success'
+            && (int)($row['data_source_id'] ?? 0) > 0
+            && (int)($row['platform_sync_task_id'] ?? 0) > 0
+            && $taskScopeVerified
+            && $savedCount > 0
+            && $readbackCount > 0
+            && $savedCount === $readbackCount
+            && (int)($row['readback_verified'] ?? 0) === 1
+            && $this->digest((string)($row['evidence_digest'] ?? '')) !== ''
+            && trim((string)($row['failure_stage'] ?? '')) === ''
+            && trim((string)($row['failure_code'] ?? '')) === ''
+            && trim((string)($row['finished_at'] ?? '')) !== ''
+            && $this->persistedPublicSourceReceiptVerified($run, $row);
+    }
+
+    /**
+     * @param array<string,mixed> $run
+     * @param array<int,array<string,mixed>> $children
+     */
+    private function noCollectionLedgerVerified(
+        array $run,
+        array $children,
+        string $failureCode
+    ): bool {
+        $outcome = self::NO_COLLECTION_OUTCOMES[$failureCode] ?? null;
+        if (!is_array($outcome)
+            || (string)($run['status'] ?? '') !== (string)$outcome['parent_status']
+            || (string)($run['failure_stage'] ?? '') !== (string)$outcome['failure_stage']
+            || trim((string)($run['finished_at'] ?? '')) === ''
+            || !$this->parentHasNoAnchor($run)
+        ) {
+            return false;
+        }
+        $receipt = $this->decodeJson((string)($run['receipt_json'] ?? ''));
+        if (($receipt['no_collection_outcome'] ?? null) !== true
+            || ($receipt['collection_verified'] ?? null) !== false
+            || (string)($receipt['outcome_code'] ?? '') !== $failureCode
+            || $this->digest((string)($receipt['scope_hash'] ?? ''))
+                !== $this->digest((string)($run['scope_hash'] ?? ''))
+        ) {
+            return false;
+        }
+        foreach ($children as $child) {
+            $childReceipt = $this->decodeJson((string)($child['receipt_json'] ?? ''));
+            if ((string)($child['status'] ?? '') !== (string)$outcome['source_status']
+                || (string)($child['failure_stage'] ?? '') !== (string)$outcome['failure_stage']
+                || (string)($child['failure_code'] ?? '') !== $failureCode
+                || trim((string)($child['finished_at'] ?? '')) === ''
+                || $this->sourceReceiptHasCollectionEvidence($child)
+                || ($childReceipt['no_collection_outcome'] ?? null) !== true
+                || (string)($childReceipt['outcome_code'] ?? '') !== $failureCode
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** @param array<string,mixed> $run @param array<int,array<string,mixed>> $children */
+    private function planGateLedgerVerified(array $run, array $children): bool
+    {
+        $failureCode = $this->code((string)($run['failure_code'] ?? ''));
+        $receipt = $this->decodeJson((string)($run['receipt_json'] ?? ''));
+        $failureCodes = is_array($receipt['failure_codes'] ?? null)
+            ? array_map('strval', $receipt['failure_codes'])
+            : [];
+        if ($failureCode === ''
+            || !in_array($failureCode, $failureCodes, true)
+            || trim((string)($run['finished_at'] ?? '')) === ''
+            || !$this->parentHasNoAnchor($run)
+            || $this->digest((string)($receipt['scope_hash'] ?? ''))
+                !== $this->digest((string)($run['scope_hash'] ?? ''))
+        ) {
+            return false;
+        }
+        foreach ($children as $child) {
+            $childCode = $this->code((string)($child['failure_code'] ?? ''));
+            if ((string)($child['status'] ?? '') !== 'blocked'
+                || (string)($child['failure_stage'] ?? '') !== 'plan_gate'
+                || $childCode === ''
+                || !in_array($childCode, $failureCodes, true)
+                || trim((string)($child['finished_at'] ?? '')) === ''
+                || $this->sourceReceiptHasCollectionEvidence($child)
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param array<string,mixed> $run
+     * @param array<int,array<string,mixed>> $children
+     */
+    private function incompleteTerminalLedgerVerified(
+        array $run,
+        array $children,
+        string $status
+    ): bool {
+        $receipt = $this->decodeJson((string)($run['receipt_json'] ?? ''));
+        if (trim((string)($run['finished_at'] ?? '')) === ''
+            || trim((string)($run['failure_stage'] ?? '')) === ''
+            || trim((string)($run['failure_code'] ?? '')) === ''
+            || !$this->parentHasNoAnchor($run)
+            || ($receipt['collection_verified'] ?? null) !== false
+            || (string)($receipt['failure_code'] ?? '') !== (string)$run['failure_code']
+            || $this->terminalIncompleteStatus($children) !== $status
+        ) {
+            return false;
+        }
+        foreach ($children as $child) {
+            $childStatus = (string)($child['status'] ?? '');
+            if (!in_array($childStatus, ['success', 'partial', 'failed'], true)
+                || trim((string)($child['finished_at'] ?? '')) === ''
+            ) {
+                return false;
+            }
+            if ($childStatus === 'success') {
+                if (!$this->successfulSourceReceiptVerified($run, $child)) {
+                    return false;
+                }
+                continue;
+            }
+            if (trim((string)($child['failure_stage'] ?? '')) === ''
+                || trim((string)($child['failure_code'] ?? '')) === ''
+            ) {
+                return false;
+            }
+            if ((int)($child['readback_verified'] ?? 0) === 1
+                && !$this->nonSuccessSourceEvidenceVerified($run, $child)
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** @param array<string,mixed> $run @param array<string,mixed> $row */
+    private function nonSuccessSourceEvidenceVerified(array $run, array $row): bool
+    {
+        $method = (string)($row['ingestion_method'] ?? '');
+        $localTaskId = (int)($row['local_collector_task_id'] ?? 0);
+        $taskScopeVerified = $method === 'local_collector'
+            ? $localTaskId > 0
+            : ($method === 'browser_profile' && $localTaskId === 0);
+        $savedCount = (int)($row['saved_row_count'] ?? 0);
+        $readbackCount = (int)($row['readback_row_count'] ?? 0);
+        return (int)($row['data_source_id'] ?? 0) > 0
+            && (int)($row['platform_sync_task_id'] ?? 0) > 0
+            && $taskScopeVerified
+            && $savedCount > 0
+            && $readbackCount > 0
+            && $savedCount === $readbackCount
+            && $this->digest((string)($row['evidence_digest'] ?? '')) !== ''
+            && $this->persistedPublicSourceReceiptVerified($run, $row);
+    }
+
+    /**
+     * Re-derive the exact row set from durable business data before exposing a
+     * source receipt as read back. Positive-looking IDs and digests alone are
+     * not proof that the producer chain still belongs to this hotel/date/run.
+     *
+     * @param array<string,mixed> $run
+     * @param array<string,mixed> $row
+     */
+    private function persistedPublicSourceReceiptVerified(array $run, array $row): bool
+    {
+        $tenantId = (int)($run['tenant_id'] ?? 0);
+        $hotelId = (int)($run['system_hotel_id'] ?? 0);
+        $businessDate = $this->date((string)($run['business_date'] ?? ''));
+        $dispatcherRunId = $this->uuid((string)($run['dispatcher_run_id'] ?? ''));
+        $platform = $this->code((string)($row['platform'] ?? ''));
+        $sourceId = (int)($row['data_source_id'] ?? 0);
+        $syncTaskId = (int)($row['platform_sync_task_id'] ?? 0);
+        $localTaskId = (int)($row['local_collector_task_id'] ?? 0);
+        $savedCount = (int)($row['saved_row_count'] ?? 0);
+        $readbackCount = (int)($row['readback_row_count'] ?? 0);
+        $receipt = $this->decodeJson((string)($row['receipt_json'] ?? ''));
+        if ($tenantId <= 0 || $hotelId <= 0 || $businessDate === ''
+            || $dispatcherRunId === '' || !in_array($platform, self::PLATFORMS, true)
+            || $sourceId <= 0 || $syncTaskId <= 0
+            || $savedCount <= 0 || $savedCount !== $readbackCount
+            || $this->uuid((string)($receipt['dispatcher_run_id'] ?? '')) !== $dispatcherRunId
+            || ($receipt['readback_verified'] ?? null) !== true
+            || (int)($receipt['row_count'] ?? 0) !== $readbackCount
+        ) {
+            return false;
+        }
+        $expectedRowIdsHash = $this->digest((string)($receipt['row_ids_hash'] ?? ''));
+        if ($expectedRowIdsHash === '') {
+            return false;
+        }
+
+        $dailyColumns = $this->tableColumns('online_daily_data');
+        if (array_diff([
+            'id',
+            'tenant_id',
+            'data_source_id',
+            'sync_task_id',
+            'system_hotel_id',
+            'data_date',
+            'data_period',
+            'readback_verified',
+        ], array_keys($dailyColumns)) !== []
+            || (!isset($dailyColumns['platform']) && !isset($dailyColumns['source']))
+        ) {
+            return false;
+        }
+        $query = Db::name('online_daily_data')
+            ->where('tenant_id', $tenantId)
+            ->where('data_source_id', $sourceId)
+            ->where('sync_task_id', $syncTaskId)
+            ->where('system_hotel_id', $hotelId)
+            ->where('data_date', $businessDate)
+            ->where('data_period', 'historical_daily')
+            ->where('readback_verified', 1);
+        if (isset($dailyColumns['platform'])) {
+            $query->where('platform', $platform);
+        } else {
+            $query->where('source', $platform);
+        }
+        $rowIds = $this->positiveIds(array_map(
+            static fn(array $item): int => (int)($item['id'] ?? 0),
+            $query->field('id')->select()->toArray()
+        ));
+        if (count($rowIds) !== $readbackCount
+            || !hash_equals($expectedRowIdsHash, hash('sha256', implode(',', $rowIds)))
+            || !hash_equals(
+                (string)$row['evidence_digest'],
+                $this->sourceEvidenceDigest($platform, $sourceId, $syncTaskId, $rowIds)
+            )
+        ) {
+            return false;
+        }
+        return $this->persistedSourceEvidenceMatches(
+            $run,
+            $row,
+            $syncTaskId,
+            $localTaskId,
+            $rowIds
+        );
+    }
+
+    /** @param array<string,mixed> $run */
+    private function parentHasNoAnchor(array $run): bool
+    {
+        return trim((string)($run['collection_anchor_contract_version'] ?? '')) === ''
+            && trim((string)($run['collection_anchor_hash'] ?? '')) === ''
+            && trim((string)($run['trust_receipt_digest'] ?? '')) === '';
+    }
+
+    /**
+     * @param array<string,mixed> $run
+     * @param array<int,array<string,mixed>> $children
+     * @return array<string,mixed>
+     */
+    private function publicPageAcceptance(
+        array $run,
+        array $children,
+        bool $ledgerStructureVerified
+    ): array {
+        $status = (string)($run['page_status'] ?? 'not_evaluated');
+        $receiptId = (int)($run['page_receipt_id'] ?? 0);
+        $contractHash = $this->digest((string)($run['page_contract_hash'] ?? ''));
+        $childrenVerified = $ledgerStructureVerified;
+        $childrenEmpty = $ledgerStructureVerified;
+        foreach ($children as $child) {
+            $childStatus = (string)($child['page_acceptance_status'] ?? 'not_evaluated');
+            $childReceiptId = (int)($child['page_acceptance_log_id'] ?? 0);
+            $childrenVerified = $childrenVerified
+                && $childStatus === 'verified'
+                && $childReceiptId === $receiptId;
+            $childrenEmpty = $childrenEmpty
+                && $childStatus === 'not_evaluated'
+                && $childReceiptId === 0;
+        }
+        if ($status === 'verified'
+            && $receiptId > 0
+            && $contractHash !== ''
+            && $childrenVerified
+        ) {
+            return [
+                'status' => 'verified',
+                'receipt_id' => $receiptId,
+                'contract_hash' => $contractHash,
+                'readback_verified' => true,
+            ];
+        }
+        if ($status === 'not_evaluated'
+            && $receiptId === 0
+            && trim((string)($run['page_contract_hash'] ?? '')) === ''
+            && $childrenEmpty
+        ) {
+            return [
+                'status' => 'not_evaluated',
+                'receipt_id' => null,
+                'contract_hash' => null,
+                'readback_verified' => false,
+            ];
+        }
+        return [
+            'status' => 'conflict',
+            'receipt_id' => null,
+            'contract_hash' => null,
+            'readback_verified' => false,
+            'reason_code' => 'page_acceptance_evidence_inconsistent',
+        ];
+    }
+
+    /** @param array<string,mixed> $run @return array<string,mixed> */
+    private function publicPmsReceipt(array $run): array
+    {
+        $provider = $this->code((string)($run['pms_provider'] ?? ''));
+        $status = (string)($run['pms_status'] ?? 'not_run');
+        $captureId = trim((string)($run['pms_capture_id'] ?? ''));
+        $rawReadbackVerified = (int)($run['pms_readback_verified'] ?? 0) === 1;
+        if ($provider === 'dingdandao_pms'
+            && $status === 'verified'
+            && $captureId !== ''
+            && $rawReadbackVerified
+        ) {
+            return [
+                'provider' => 'dingdandao_pms',
+                'status' => 'verified',
+                'capture_id' => $captureId,
+                'readback_verified' => true,
+            ];
+        }
+        if (($provider === '' || $provider === 'dingdandao_pms')
+            && $status === 'not_run'
+            && $captureId === ''
+            && !$rawReadbackVerified
+        ) {
+            return [
+                'provider' => $provider === 'dingdandao_pms' ? $provider : null,
+                'status' => 'not_run',
+                'capture_id' => null,
+                'readback_verified' => false,
+            ];
+        }
+        $claimsVerifiedEvidence = $status === 'verified'
+            || $captureId !== ''
+            || $rawReadbackVerified;
+        return [
+            'provider' => null,
+            'status' => $claimsVerifiedEvidence ? 'conflict' : 'unverified',
+            'capture_id' => null,
+            'readback_verified' => false,
+            'reason_code' => 'pms_receipt_evidence_inconsistent',
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $contract
+     * @return array<string,array{data_source_id:int,sync_task_id:int}>
+     */
+    private function pageContractAnchors(
+        array $contract,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        if (($contract['contract_version'] ?? null)
+                !== DualOtaPageVerificationService::CONTRACT_VERSION
+            || ($contract['tenant_id'] ?? null) !== $tenantId
+            || ($contract['hotel_id'] ?? null) !== $hotelId
+            || ($contract['target_date'] ?? null) !== $businessDate
+        ) {
+            throw new RuntimeException('hotel_collection_page_contract_scope_invalid');
+        }
+
+        $platformRows = $contract['platforms'] ?? null;
+        if (!is_array($platformRows) || count($platformRows) !== 2) {
+            throw new RuntimeException('hotel_collection_page_contract_anchor_invalid');
+        }
+        $anchors = [];
+        foreach ($platformRows as $platformRow) {
+            if (!is_array($platformRow)) {
+                throw new RuntimeException('hotel_collection_page_contract_anchor_invalid');
+            }
+            $platform = $this->code((string)($platformRow['platform'] ?? ''));
+            $sourceId = $platformRow['data_source_id'] ?? null;
+            $syncTaskId = $platformRow['sync_task_id'] ?? null;
+            if (!in_array($platform, self::PLATFORMS, true)
+                || isset($anchors[$platform])
+                || !is_int($sourceId)
+                || !is_int($syncTaskId)
+                || $sourceId <= 0
+                || $syncTaskId <= 0
+            ) {
+                throw new RuntimeException('hotel_collection_page_contract_anchor_invalid');
+            }
+            $anchors[$platform] = [
+                'data_source_id' => $sourceId,
+                'sync_task_id' => $syncTaskId,
+            ];
+        }
+        ksort($anchors, SORT_STRING);
+        if (array_keys($anchors) !== self::PLATFORMS) {
+            throw new RuntimeException('hotel_collection_page_contract_anchor_invalid');
+        }
+        return $anchors;
+    }
+
+    /**
+     * @param array<string,mixed> $log
+     * @param array<string,mixed> $canonicalContract
+     */
+    private function pageEvidenceMatches(
+        array $log,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        string $contractHash,
+        array $canonicalContract
+    ): bool {
+        if ((int)($log['id'] ?? 0) <= 0
+            || (int)($log['tenant_id'] ?? 0) !== $tenantId
+            || (int)($log['hotel_id'] ?? 0) !== $hotelId
+            || (string)($log['module'] ?? '') !== DualOtaPageVerificationService::MODULE
+            || (string)($log['action'] ?? '') !== DualOtaPageVerificationService::ACTION
+            || (string)($log['description'] ?? '')
+                !== 'dual_ota_page:v1:' . $businessDate . ':' . $contractHash
+        ) {
+            return false;
+        }
+
+        $extra = $this->decodeJson((string)($log['extra_data'] ?? ''));
+        $storedContract = $extra['contract'] ?? null;
+        $storedHash = $this->digest((string)($extra['contract_hash'] ?? ''));
+        if (($extra['contract_version'] ?? null)
+                !== DualOtaPageVerificationService::CONTRACT_VERSION
+            || ($extra['tenant_id'] ?? null) !== $tenantId
+            || ($extra['hotel_id'] ?? null) !== $hotelId
+            || ($extra['target_date'] ?? null) !== $businessDate
+            || ($extra['surface'] ?? null) !== 'online_data.dual_ota_continuous_trust'
+            || ($extra['outcome'] ?? null) !== 'success'
+            || !is_array($storedContract)
+            || $storedContract !== $canonicalContract
+            || $storedHash === ''
+            || !hash_equals($contractHash, $storedHash)
+        ) {
+            return false;
+        }
+        try {
+            return hash_equals(
+                $contractHash,
+                DualOtaPageVerificationService::contractHash($storedContract)
+            );
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @param array<string,mixed> $row */
+    private function sourceReceiptHasCollectionEvidence(array $row): bool
+    {
+        return (int)($row['platform_sync_task_id'] ?? 0) > 0
+            || (int)($row['local_collector_task_id'] ?? 0) > 0
+            || (int)($row['saved_row_count'] ?? 0) > 0
+            || (int)($row['readback_row_count'] ?? 0) > 0
+            || (int)($row['readback_verified'] ?? 0) === 1
+            || trim((string)($row['evidence_digest'] ?? '')) !== '';
     }
 
     /** @param mixed $values @return array<int,array{code:string,platform:string}> */
