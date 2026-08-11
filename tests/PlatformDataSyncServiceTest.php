@@ -3310,6 +3310,65 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testCtripBrowserProfileAdapterUsesProtectedCdpWithoutLocalProfileDirectory(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot();
+        $capturedArgs = [];
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedArgs): array {
+                $capturedArgs = $args;
+                $outputPath = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                    }
+                }
+                file_put_contents($outputPath, json_encode([
+                    'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'capture_gate' => ['status' => 'pass'],
+                    'platform_identity_validation' => [
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'validated_identifier' => '24588',
+                    ],
+                    'catalog_facts' => [[
+                        'metric_key' => 'hotel_id',
+                        'source_key' => 'masterHotelId',
+                        'value' => '24588',
+                    ]],
+                    'standard_rows' => [[
+                        'hotel_id' => '24588',
+                        'hotel_name' => 'Ctrip Demo Hotel',
+                        'data_date' => '2026-07-29',
+                        'data_type' => 'traffic',
+                        'list_exposure' => 120,
+                        'source_trace_id' => 'ctrip-cloud-profile-cdp',
+                    ]],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'data_date' => '2026-07-29',
+                'cdp_url' => 'http://127.0.0.1:9223',
+                'ctrip_section_concurrency' => 4,
+            ]);
+
+            self::assertSame(
+                'success',
+                $result['status'],
+                json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            );
+            self::assertContains('--cdp-url=http://127.0.0.1:9223', $capturedArgs);
+            self::assertContains('--section-concurrency=1', $capturedArgs);
+            self::assertDirectoryDoesNotExist($root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_hotel_001');
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testCtripBrowserProfileAdapterReturnsWaitingConfigWhenLoginExpired(): void
     {
         $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
@@ -4339,6 +4398,55 @@ final class PlatformDataSyncServiceTest extends TestCase
 
             self::assertSame('waiting_config', $result['status']);
             self::assertStringContainsString('storage/meituan_profile_store_001', $result['message']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterUsesProtectedCdpWithoutLocalProfileDirectory(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot();
+        $capturedArgs = [];
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedArgs): array {
+                $capturedArgs = $args;
+                $outputPath = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                    }
+                }
+                file_put_contents($outputPath, json_encode([
+                    'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'capture_gate' => ['status' => 'pass'],
+                    'platform_identity_validation' => [
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'validated_identifier' => '68471',
+                    ],
+                    'traffic' => [[
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'data_date' => '2026-07-29',
+                        'date_source' => 'row',
+                        'list_exposure' => 120,
+                        'source_trace_id' => 'meituan-cloud-profile-cdp',
+                    ]],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'traffic',
+                'data_date' => '2026-07-29',
+                'cdp_url' => 'http://127.0.0.1:9223',
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertContains('--cdp-url=http://127.0.0.1:9223', $capturedArgs);
+            self::assertDirectoryDoesNotExist($root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_store_001');
         } finally {
             $this->removeDirectory($root);
         }

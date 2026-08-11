@@ -58,6 +58,7 @@ import {
   evaluateCtripPlatformIdentity,
   extractCtripRequestPlatformIdentifiers,
 } from './lib/ctrip_platform_identity.mjs';
+import { parseCtripResponseBody } from './lib/ctrip_response_body.mjs';
 import {
   createOtaReadFallbackState,
   observeOtaReadFallbackRequest,
@@ -149,9 +150,12 @@ const parallelSectionsEnabled = !authOnly
   && !booleanArg(args.sequential_sections);
 const parallelFallbackEnabled = !booleanArg(args.disableParallelFallback);
 const includeResponseDataInOutput = booleanArg(args.includeResponseData || args.include_response_data || args.rawResponses || args.raw_responses);
+const connectedCloudProfile = Boolean(String(args.cdpUrl || args.cdp_url || '').trim());
 const captureStartedAtMs = Date.now();
 
-await mkdir(storageDir, { recursive: true });
+if (!connectedCloudProfile) {
+  await mkdir(storageDir, { recursive: true });
+}
 await mkdir(reportDir, { recursive: true });
 await mkdir(assetDir, { recursive: true });
 await mkdir(dirname(outputPath), { recursive: true });
@@ -272,7 +276,9 @@ const sessionProbeResponseDiagnostics = {
 };
 
 const browser = await launchOtaPersistentContext(storageDir, args);
-await grantCtripBrowserPermissions(browser);
+if (!connectedCloudProfile) {
+  await grantCtripBrowserPermissions(browser);
+}
 payload.cookie_injection = sessionProbeOnly
   ? { attempted: false, injected_count: 0, domains: [], reason: 'session_probe_only' }
   : await injectBrowserCookies(browser, args, 'ctrip');
@@ -368,7 +374,8 @@ try {
 
   console.log(JSON.stringify({
     output: outputPath,
-    profile_dir: storageDir,
+    profile_dir: connectedCloudProfile ? null : storageDir,
+    cloud_profile_cdp: connectedCloudProfile,
     auth_status: payload.auth_status,
     session_probe: payload.session_probe,
     counts: summarize(payload),
@@ -1347,9 +1354,40 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     }
 
     let body = null;
+    let parsedResponse = null;
     try {
       const text = await response.text();
-      body = parseResponseBody(text, contentType);
+      parsedResponse = parseCtripResponseBody(text, contentType);
+      if (!parsedResponse.ok) {
+        const failedSection = urlSection
+          || approvedMappingMatches[0]?.candidate_section
+          || activeSection
+          || 'unknown';
+        const responseEvidence = buildOtaCaptureEvidence('ctrip', {
+          url,
+          section: failedSection,
+          captureSource: `xhr:${requestType || 'unknown'}`,
+        });
+        target.responses.push({
+          url_hash: responseEvidence.source_url_hash || '',
+          source_trace_id: responseEvidence.source_trace_id || '',
+          section: failedSection,
+          section_label: sectionLabel(failedSection),
+          endpoint_id: endpoint?.id || '',
+          endpoint_label: endpoint?.label || '',
+          status: response.status(),
+          request_type: requestType,
+          row_count: 0,
+          parse_status: parsedResponse.evidence.status,
+          parse_reason: parsedResponse.evidence.reason,
+          response_body_format: parsedResponse.evidence.format,
+          response_body_sha256: parsedResponse.evidence.body_sha256 || '',
+          response_text_length: parsedResponse.evidence.text_length,
+          response_content_type: parsedResponse.evidence.content_type,
+        });
+        return;
+      }
+      body = parsedResponse.body;
     } catch (error) {
       const responseEvidence = buildOtaCaptureEvidence('ctrip', { url, section: urlSection || 'unknown', captureSource: `xhr:${requestType || 'unknown'}` });
       target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section: urlSection || 'unknown', endpoint_id: endpoint?.id || '', status: response.status(), request_type: requestType, error: error.message });
@@ -1533,6 +1571,9 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       keyword_hit: Boolean(urlSection),
       row_count: rows.length,
       request_date: requestDateEvidence.date || '',
+      parse_status: parsedResponse.evidence.status,
+      parse_reason: parsedResponse.evidence.reason,
+      response_body_format: parsedResponse.evidence.format,
       request_date_source: requestDateEvidence.date_source || '',
       platform,
       catalog_fact_count: catalogFacts.length,
@@ -1672,18 +1713,6 @@ function inferSection(value, url) {
     return 'traffic';
   }
   return '';
-}
-
-function parseResponseBody(text, contentType) {
-  const trimmed = String(text || '').trim();
-  if (contentType.includes('json') || trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      return { _raw_text: trimmed.slice(0, 2000) };
-    }
-  }
-  return { _raw_text: trimmed.slice(0, 2000) };
 }
 
 function annotateCtripStandardRowDateSource(row, requestDateEvidence = {}) {

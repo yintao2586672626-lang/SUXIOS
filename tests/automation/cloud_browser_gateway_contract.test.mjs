@@ -11,6 +11,7 @@ import {
   decodeMasterKey,
   decryptArchive,
   encryptArchive,
+  isCloudProfileReadOnlyRequestAllowed,
   isDingdandaoReadOnlyRequestAllowed,
 } from '../../deploy/remote-browser/cloud_browser_gateway.mjs';
 
@@ -84,6 +85,59 @@ test('Dingdandao read-only policy permits only safe methods and the fixed main d
     method: 'GET',
     resourceType: 'Script',
   }), false);
+});
+
+test('OTA Profile policy allows reads only inside the selected platform scope', () => {
+  assert.equal(isCloudProfileReadOnlyRequestAllowed({
+    platform: 'ctrip',
+    url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate',
+    method: 'POST',
+    resourceType: 'XHR',
+  }), true);
+  assert.equal(isCloudProfileReadOnlyRequestAllowed({
+    platform: 'ctrip',
+    url: 'https://ebooking.ctrip.com/api/rate/update',
+    method: 'POST',
+    resourceType: 'XHR',
+  }), false);
+  assert.equal(isCloudProfileReadOnlyRequestAllowed({
+    platform: 'ctrip',
+    url: 'https://ebooking.ctrip.com/api/report/query',
+    method: 'POST',
+    resourceType: 'XHR',
+  }), false);
+  assert.equal(isCloudProfileReadOnlyRequestAllowed({
+    platform: 'meituan',
+    url: 'https://eb.meituan.com/datacenter/home/traffic',
+    method: 'POST',
+    resourceType: 'Fetch',
+  }), true);
+  assert.equal(isCloudProfileReadOnlyRequestAllowed({
+    platform: 'meituan',
+    url: 'https://eb.meituan.com/datacenter/home/traffic/save',
+    method: 'POST',
+    resourceType: 'Fetch',
+  }), false);
+  assert.equal(isCloudProfileReadOnlyRequestAllowed({
+    platform: 'ctrip',
+    url: 'https://me.meituan.com/datacenter/home/traffic',
+    method: 'POST',
+    resourceType: 'XHR',
+  }), false);
+  assert.equal(isCloudProfileReadOnlyRequestAllowed({
+    platform: 'meituan',
+    url: 'https://eb.meituan.com/data-center',
+    method: 'GET',
+    resourceType: 'Document',
+  }), true);
+  for (const method of ['PUT', 'PATCH', 'DELETE']) {
+    assert.equal(isCloudProfileReadOnlyRequestAllowed({
+      platform: 'meituan',
+      url: 'https://eb.meituan.com/api/report/query',
+      method,
+      resourceType: 'XHR',
+    }), false);
+  }
 });
 
 test('protected Dingdandao collection window validates scope, stays read-only, and seals on close', async () => {
@@ -247,6 +301,110 @@ test('protected Dingdandao collection window validates scope, stays read-only, a
   }
 });
 
+test('protected Ctrip collection uses the OTA scope and gateway-owned CDP session', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-ctrip-window-'));
+  let server;
+  const calls = [];
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    const token = 't'.repeat(48);
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, token);
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN: join(root, 'receipts', 'chain.jsonl'),
+    }, {
+      bridge: async (action, payload) => {
+        calls.push(['bridge', action, payload.platform]);
+        assert.equal(action, 'validate_ota_collection');
+        return {
+          validated: true,
+          collection_kind: 'ota_target_date',
+          access_mode: 'read_only',
+          platform: payload.platform,
+          target_date: payload.target_date,
+          tenant_id: payload.tenant_id,
+          hotel_id: payload.hotel_id,
+          owner_user_id: payload.owner_user_id,
+          source_scope: 'target_date_only',
+          profile: {
+            profile_id: payload.profile_id,
+            platform: payload.platform,
+          },
+        };
+      },
+      startBrowser: async () => ({ exitCode: null }),
+      stopBrowser: async () => calls.push(['stop']),
+      installReadOnlyPolicy: async (_config, _browser, platform) => {
+        calls.push(['guard', platform]);
+        return { close: () => calls.push(['guard_close']) };
+      },
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const body = {
+      profile_id: 'cbp_abcdefghijklmnop',
+      platform: 'ctrip',
+      tenant_id: 1,
+      hotel_id: 5,
+      owner_user_id: 1,
+      target_date: '2026-07-27',
+      collection_kind: 'ota_target_date',
+      access_mode: 'read_only',
+    };
+    const openedResponse = await fetch(`${base}/v1/collection/open`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    assert.equal(openedResponse.status, 201);
+    const opened = await openedResponse.json();
+    assert.equal(opened.status, 'collection_open');
+    assert.equal(opened.collection_kind, 'ota_target_date');
+    assert.equal(opened.profile_restored, true);
+    assert.equal(opened.read_only_enforced, true);
+    assert.equal(opened.session_owner, 'gateway_collection');
+    assert.deepEqual(calls.slice(0, 2), [
+      ['bridge', 'validate_ota_collection', 'ctrip'],
+      ['guard', 'ctrip'],
+    ]);
+
+    const closedResponse = await fetch(`${base}/v1/collection/close`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        collection_session_id: opened.collection_session_id,
+        profile_id: body.profile_id,
+        platform: body.platform,
+        outcome: 'completed',
+      }),
+    });
+    assert.equal(closedResponse.status, 200);
+    const closed = await closedResponse.json();
+    assert.equal(closed.profile_sealed, true);
+    assert.equal(closed.sensitive_values_exposed, false);
+  } finally {
+    if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('encrypted Profile archive uses authenticated encryption and profile-scoped AAD', async () => {
   const root = await mkdtemp(join(tmpdir(), 'suxios-cloud-browser-'));
   try {
@@ -284,6 +442,9 @@ test('Profile vault persists only ciphertext and restores plaintext into runtime
     const profileId = 'cbp_abcdefghijklmnop';
     const runtimeProfile = await vault.restore(profileId);
     await writeFile(join(runtimeProfile, 'Preferences'), '{"fixture":true}');
+    for (const name of ['SingletonCookie', 'SingletonLock', 'SingletonSocket', 'DevToolsActivePort']) {
+      await writeFile(join(runtimeProfile, name), 'stale-runtime-marker');
+    }
     const encryptedPath = await vault.seal(profileId);
     await assert.rejects(access(runtimeProfile));
     assert.equal(encryptedPath.endsWith('.tar.gz.enc'), true);
@@ -291,6 +452,9 @@ test('Profile vault persists only ciphertext and restores plaintext into runtime
 
     const restoredProfile = await vault.restore(profileId);
     assert.equal(await readFile(join(restoredProfile, 'Preferences'), 'utf8'), '{"fixture":true}');
+    for (const name of ['SingletonCookie', 'SingletonLock', 'SingletonSocket', 'DevToolsActivePort']) {
+      await assert.rejects(access(join(restoredProfile, name)));
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -270,8 +270,8 @@ test('Meituan traffic card response maps to P0 traffic fields', () => {
   assert.equal(rows[0].detailExposure, 40);
   assert.equal(rows[0].flowRate, 12.5);
   assert.equal(rows[0].orderSubmitNum, 5);
-  assert.equal(rows[0].orderFillingNum, 5);
-  assert.equal(rows[0]._order_filling_source_policy, 'meituan_metric_cards_no_separate_order_filling_step_pay_order_count_used');
+  assert.equal(rows[0].orderFillingNum, undefined);
+  assert.equal(rows[0]._order_filling_source_policy, undefined);
   assert.equal(rows[0]._source_path, 'data.data.cards');
   assert.equal(rows[0]._meituan_card_metric_sources.list_exposure.card_id, 'EXPOSE_PV_CNT');
   assert.deepEqual(rows[0]._observed_traffic_metric_keys, [
@@ -303,7 +303,7 @@ test('Meituan traffic card response maps title aliases and non-value fields', ()
   assert.equal(rows[0].detailExposure, 80);
   assert.equal(rows[0].flowRate, 6.25);
   assert.equal(rows[0].orderSubmitNum, 5);
-  assert.equal(rows[0].orderFillingNum, 5);
+  assert.equal(rows[0].orderFillingNum, undefined);
   assert.equal(rows[0]._meituan_card_metric_sources.list_exposure.source_path, 'data.cards.0.valueText');
   assert.equal(rows[0]._meituan_card_metric_sources.detail_exposure.source_path, 'data.cards.1.displayValue');
   assert.equal(rows[0]._meituan_card_metric_sources.flow_rate.source_path, 'data.cards.2.dataValue');
@@ -347,7 +347,7 @@ test('Meituan non-metric cards are ignored instead of becoming empty traffic row
   assert.deepEqual(rows, []);
 });
 
-test('Meituan traffic importability requires every P0 field group', () => {
+test('Meituan traffic importability requires exposure, detail visits and paid orders', () => {
   assert.equal(isImportableMeituanTrafficRow({
     listExposure: 100,
     detailExposure: 50,
@@ -358,8 +358,6 @@ test('Meituan traffic importability requires every P0 field group', () => {
   assert.equal(isImportableMeituanTrafficRow({
     listExposure: 100,
     detailExposure: 50,
-    flowRate: 20,
-    orderFillingNum: 10,
     orderSubmitNum: 3,
   }), true);
 });
@@ -602,6 +600,38 @@ test('Meituan myHotel observed marker cannot be forged by normalized aliases', (
 
   assert.equal(rows.length, 1);
   assert.deepEqual(rows[0]._observed_traffic_metric_keys, ['list_exposure']);
+});
+
+test('Meituan dateRange=1 becomes historical yesterday evidence only for Shanghai yesterday', () => {
+  const response = {
+    data: {
+      myHotel: {
+        exposureUV: 66,
+        intentionUV: 9,
+        payOrderCnt: 0,
+        intentionPerExposure: '13.64%',
+        payOrderPerIntention: '0.00%',
+      },
+    },
+  };
+  const verified = normalizeMeituanFlowAnalysisRows(response, {
+    dateRange: '1',
+    defaultDataDate: '2026-07-27',
+    capturedAt: '2026-07-27T17:48:00.000Z',
+  });
+  const mismatch = normalizeMeituanFlowAnalysisRows(response, {
+    dateRange: '1',
+    defaultDataDate: '2026-07-26',
+    capturedAt: '2026-07-27T17:48:00.000Z',
+  });
+
+  assert.equal(verified.length, 1);
+  assert.equal(verified[0].dataDate, '2026-07-27');
+  assert.equal(verified[0].dateRange, '1');
+  assert.equal(verified[0].date_source, 'request.query.dateRange=1');
+  assert.equal(verified[0].data_period, 'historical_daily');
+  assert.equal(mismatch[0].date_source, 'capture_context.default_data_date');
+  assert.equal(mismatch[0].data_period, undefined);
 });
 
 test('Meituan order flow response expands verified summary and hotel detail rows', () => {

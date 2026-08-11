@@ -32,6 +32,7 @@ const TICKET_PATTERN = /^[A-Za-z0-9_-]{32,96}$/;
 const LOGIN_PLATFORM_PATTERN = /^(ctrip|meituan|dingdandao|meituan_cloud_pms)$/;
 const OTA_RECEIPT_PLATFORM_PATTERN = /^(ctrip|meituan)$/;
 const PMS_PLATFORM_PATTERN = /^(dingdandao|meituan_cloud_pms)$/;
+const COLLECTION_PLATFORM_PATTERN = /^(ctrip|meituan|dingdandao|meituan_cloud_pms)$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DINGDANDAO_SOURCE_URL =
   'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
@@ -40,6 +41,43 @@ const MEITUAN_CLOUD_PMS_READ_ONLY_POST_PATHS = new Set([
   '/hotelpms/api/v1/report/home/workbench/businessOverview',
   '/hotelpms/api/v1/report/home/workbench/room',
 ]);
+const OTA_READ_ONLY_POST_HOSTS = {
+  ctrip: new Set(['ebooking.ctrip.com']),
+  meituan: new Set(['eb.meituan.com', 'me.meituan.com']),
+};
+// Keep these observed read endpoints aligned with scripts/lib/ota_read_fallback.mjs.
+// A same-origin POST is not inherently read-only, so unknown POST paths fail closed.
+const OTA_READ_ONLY_POST_PATH_TOKENS = {
+  ctrip: [
+    'queryhomepagerealtimedata',
+    'getdayreportrealtimedate',
+    'fetchmarketoverviewv2',
+    'getdayreportflowcompete',
+    'getdayreportserverquantity',
+    'fetchvisitortitlev2',
+    'fetchcapacityoverview',
+    'queryflowtrans',
+    'getcompetehotelreport',
+    'getlastweekreport',
+    'queryordertrend',
+    'queryhotelminprice',
+    'queryscanflowdetails',
+    'fetchorderoverview',
+    'queryflowsource',
+    'querycityhotkeywords',
+    'querysearchflowdetails',
+    'getcommentsscore',
+    'gethoteladvice',
+    'gethotelpsi',
+  ],
+  meituan: [
+    '/ebooking/home/businessdata',
+    '/datacenter/home/traffic',
+    '/datacenter/home/peertrends',
+  ],
+};
+const WRITE_LIKE_OTA_PATH =
+  /(?:^|[\/_.-])(?:save|update|delete|remove|reply|submit|send|create|modify|edit|cancel|confirm|publish|upload|write)(?:[\/_.-]|$)/i;
 const SENSITIVE_KEY_PATTERN =
   /(cookie|password|authorization(?!_status)|(^|_)(token|secret|headers?|raw|html|har)(_|$)|profile[_-]?path|localstorage|sessionstorage)/i;
 
@@ -141,6 +179,20 @@ export async function decryptArchive(sourcePath, destinationPath, key, profileId
   }
 }
 
+const CHROMIUM_TRANSIENT_PROFILE_FILES = [
+  'SingletonCookie',
+  'SingletonLock',
+  'SingletonSocket',
+  'DevToolsActivePort',
+];
+
+export async function removeChromiumTransientProfileState(profilePath) {
+  const normalizedProfilePath = resolve(profilePath);
+  for (const name of CHROMIUM_TRANSIENT_PROFILE_FILES) {
+    await rm(join(normalizedProfilePath, name), { recursive: true, force: true });
+  }
+}
+
 async function runProcess(command, args, options = {}) {
   return await new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
@@ -212,6 +264,7 @@ export class EncryptedProfileVault {
     } finally {
       await rm(archivePath, { force: true });
     }
+    await removeChromiumTransientProfileState(runtimePath);
     return runtimePath;
   }
 
@@ -400,20 +453,27 @@ function positiveInteger(value, reason) {
 }
 
 function validateCollectionOpenRequest(body) {
-  return {
+  const collection = {
     profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
-    platform: assertOpaque(body.platform, PMS_PLATFORM_PATTERN, 'platform_invalid'),
+    platform: assertOpaque(body.platform, COLLECTION_PLATFORM_PATTERN, 'platform_invalid'),
     tenantId: positiveInteger(body.tenant_id, 'tenant_id_invalid'),
     hotelId: positiveInteger(body.hotel_id, 'hotel_id_invalid'),
     ownerUserId: positiveInteger(body.owner_user_id, 'owner_user_id_invalid'),
     targetDate: assertOpaque(body.target_date, DATE_PATTERN, 'target_date_invalid'),
     collectionKind: assertOpaque(
       body.collection_kind,
-      /^operating_target_today$/,
+      /^(operating_target_today|ota_target_date)$/,
       'collection_kind_invalid',
     ),
     accessMode: assertOpaque(body.access_mode, /^read_only$/, 'access_mode_invalid'),
   };
+  const expectedKind = OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform)
+    ? 'ota_target_date'
+    : 'operating_target_today';
+  if (collection.collectionKind !== expectedKind) {
+    throw new Error('collection_kind_platform_mismatch');
+  }
+  return collection;
 }
 
 function validateCollectionCloseRequest(body) {
@@ -424,7 +484,7 @@ function validateCollectionCloseRequest(body) {
       'collection_session_id_invalid',
     ),
     profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
-    platform: assertOpaque(body.platform, PMS_PLATFORM_PATTERN, 'platform_invalid'),
+    platform: assertOpaque(body.platform, COLLECTION_PLATFORM_PATTERN, 'platform_invalid'),
     outcome: assertOpaque(
       body.outcome,
       /^(completed|cancelled|session_expired|policy_blocked)$/,
@@ -566,6 +626,48 @@ export function isPmsReadOnlyRequestAllowed({ url, method, resourceType }, platf
   return parsed.origin === source.origin && parsed.pathname === source.pathname;
 }
 
+export function isCloudProfileReadOnlyRequestAllowed({
+  platform,
+  url,
+  method,
+  resourceType,
+}) {
+  const normalizedPlatform = String(platform || '').toLowerCase();
+  if (PMS_PLATFORM_PATTERN.test(normalizedPlatform)) {
+    return isPmsReadOnlyRequestAllowed({ url, method, resourceType }, normalizedPlatform);
+  }
+  if (!OTA_RECEIPT_PLATFORM_PATTERN.test(normalizedPlatform)) return false;
+
+  let parsed;
+  try {
+    parsed = new URL(String(url || ''));
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:') return false;
+
+  const normalizedMethod = String(method || '').toUpperCase();
+  const normalizedResourceType = String(resourceType || '');
+  const approvedHost = normalizedPlatform === 'ctrip'
+    ? ['ctrip.com', 'ctripbiz.com', 'ctripbiz.cn']
+      .some((suffix) => parsed.hostname === suffix || parsed.hostname.endsWith(`.${suffix}`))
+    : ['meituan.com', 'dianping.com']
+      .some((suffix) => parsed.hostname === suffix || parsed.hostname.endsWith(`.${suffix}`));
+
+  if (['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod)) {
+    return normalizedResourceType !== 'Document' || approvedHost;
+  }
+  if (normalizedMethod !== 'POST' || !['XHR', 'Fetch'].includes(normalizedResourceType)) {
+    return false;
+  }
+
+  const normalizedPath = parsed.pathname.toLowerCase();
+  if (WRITE_LIKE_OTA_PATH.test(normalizedPath)) return false;
+  return OTA_READ_ONLY_POST_HOSTS[normalizedPlatform].has(parsed.hostname.toLowerCase())
+    && OTA_READ_ONLY_POST_PATH_TOKENS[normalizedPlatform]
+      .some((token) => normalizedPath.includes(token));
+}
+
 async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') {
   if (typeof WebSocket !== 'function') {
     throw new Error('read_only_policy_websocket_unavailable');
@@ -617,11 +719,12 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     }
     if (message.method !== 'Fetch.requestPaused') return;
     const paused = message.params || {};
-    const allowed = isPmsReadOnlyRequestAllowed({
+    const allowed = isCloudProfileReadOnlyRequestAllowed({
+      platform,
       url: paused.request?.url,
       method: paused.request?.method,
       resourceType: paused.resourceType,
-    }, platform);
+    });
     const command = allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest';
     const params = allowed
       ? { requestId: paused.requestId }
@@ -647,6 +750,11 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     await send('Browser.setDownloadBehavior', { behavior: 'deny' });
     const navigation = await send('Page.navigate', { url: platformStartUrl(platform) });
     if (navigation.errorText) throw new Error('read_only_navigation_failed');
+    await send('Runtime.enable');
+    await send('Runtime.evaluate', {
+      expression: "window.name='suxios_profile_lease_guarded'",
+      returnByValue: true,
+    });
   } catch (error) {
     closed = true;
     socket.close();
@@ -826,9 +934,11 @@ export async function createGateway(env = process.env, dependencies = {}) {
         if (sessions.size > 0) {
           throw new GatewayError('gateway_collection_capacity_busy', 409);
         }
-        const validationAction = collection.platform === 'dingdandao'
-          ? 'validate_dingdandao_collection'
-          : 'validate_pms_collection';
+        const validationAction = OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform)
+          ? 'validate_ota_collection'
+          : (collection.platform === 'dingdandao'
+            ? 'validate_dingdandao_collection'
+            : 'validate_pms_collection');
         const validated = await bridgeCall(validationAction, {
           profile_id: collection.profileId,
           platform: collection.platform,
@@ -917,6 +1027,10 @@ export async function createGateway(env = process.env, dependencies = {}) {
           ),
           access_mode: 'read_only',
           read_only_enforced: true,
+          profile_restored: true,
+          session_owner: 'gateway_collection',
+          external_browser_required: false,
+          user_browser_closed: false,
           expires_at: session.expiresAt,
           browser_started: true,
         });
@@ -966,6 +1080,8 @@ export async function createGateway(env = process.env, dependencies = {}) {
           collection_session_id: collection.collectionSessionId,
           browser_started: false,
           profile_sealed: true,
+          user_browser_closed: false,
+          sensitive_values_exposed: false,
           data_status: 'unverified',
           receipt_id: receipt.receipt_id,
           receipt_hash: receipt.receipt_hash,

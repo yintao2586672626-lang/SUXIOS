@@ -1,13 +1,24 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { formatDateInTimeZone } from '../../scripts/lib/shared_helpers.mjs';
+import {
+  formatDateInTimeZone,
+  formatDateOffsetInTimeZone,
+} from '../../scripts/lib/shared_helpers.mjs';
 
 test('business date helper uses the configured local calendar day', () => {
   const instant = new Date('2026-07-12T16:30:00Z');
 
   assert.equal(formatDateInTimeZone(instant, 'Asia/Shanghai'), '2026-07-13');
   assert.equal(formatDateInTimeZone(instant, 'America/Los_Angeles'), '2026-07-12');
+  assert.equal(formatDateOffsetInTimeZone(instant, -1, 'Asia/Shanghai'), '2026-07-12');
+});
+
+test('business date offset stays on Shanghai yesterday during the UTC early-hours window', () => {
+  const instant = new Date('2026-07-27T17:48:00Z');
+
+  assert.equal(formatDateInTimeZone(instant, 'Asia/Shanghai'), '2026-07-28');
+  assert.equal(formatDateOffsetInTimeZone(instant, -1, 'Asia/Shanghai'), '2026-07-27');
 });
 
 test('Ctrip external-input report defaults to the Shanghai business date', () => {

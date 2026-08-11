@@ -640,6 +640,63 @@ test('Ctrip capture audit scopes endpoint and field expectations to a lightweigh
   assert.deepEqual(audit.capture_gap_report.p3_evidence_sections, {});
 });
 
+test('Ctrip browser traffic normalization preserves missing fields instead of writing zero', () => {
+  const script = readFileSync('scripts/ctrip_browser_capture.mjs', 'utf8');
+  const block = script.slice(
+    script.indexOf('function normalizeTrafficRow'),
+    script.indexOf('function normalizeCommentList'),
+  );
+
+  assert.match(block, /normalizeObservedCtripTrafficMetrics\(row\)/);
+  assert.match(block, /observedCtripTrafficMetricKeys\(observedMetrics\)/);
+  assert.match(block, /\.\.\.observedMetrics/);
+  assert.doesNotMatch(block, /const derivedFlowRate/);
+  assert.doesNotMatch(block, /listExposure[\s\S]{0,220}\), 0\)/);
+});
+
+test('Ctrip audit does not count an unparsed 200 response as endpoint coverage', () => {
+  const audit = buildCtripCaptureAudit([{
+    path: 'unparsed-flow-transform.json',
+    payload: {
+      requested_sections: ['traffic_report'],
+      responses: [{
+        section: 'traffic_report',
+        endpoint_id: 'traffic_flow_transform',
+        status: 200,
+        parse_status: 'parse_failed',
+        parse_reason: 'unrecognized_text',
+        row_count: 0,
+      }],
+      catalog_facts: [],
+      standard_rows: [],
+      pages: [{
+        name: 'traffic_report',
+        url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true',
+      }],
+    },
+  }], {
+    generatedAt: '2026-07-28T00:00:00.000Z',
+  });
+
+  assert.equal(audit.summary.response_count, 1);
+  assert.equal(audit.summary.parsed_response_count, 0);
+  assert.equal(audit.summary.parse_failed_response_count, 1);
+  assert.equal(audit.captured_endpoint_ids.includes('traffic_flow_transform'), false);
+  assert.equal(
+    audit.endpoint_coverage.sections.traffic_report.missing_endpoint_ids.includes('traffic_flow_transform'),
+    true,
+  );
+});
+
+test('Ctrip browser capture records parse evidence and never stores raw failed response text', () => {
+  const script = readFileSync('scripts/ctrip_browser_capture.mjs', 'utf8');
+
+  assert.match(script, /parseCtripResponseBody/);
+  assert.match(script, /parse_status:\s*parsedResponse\.evidence\.status/);
+  assert.match(script, /parse_reason:\s*parsedResponse\.evidence\.reason/);
+  assert.doesNotMatch(script, /return \{ _raw_text: trimmed\.slice/);
+});
+
 test('Ctrip browser capture supports a login-only profile preparation mode', () => {
   const script = readFileSync('scripts/ctrip_browser_capture.mjs', 'utf8');
 

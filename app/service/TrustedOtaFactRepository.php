@@ -200,9 +200,13 @@ class TrustedOtaFactRepository
         [$trustedRows, $supersededRows] = $this->selectCanonicalRows($trustedRows);
         [$trustedRows, $suppressedMixedTypeRows] = $this->preferSummaryFactsPerSourceDate($trustedRows);
         [$trustedRows, $supersededSnapshotRows] = $this->selectLatestSummarySnapshotRows($trustedRows);
+        $platformHotelIds = $this->platformHotelIdsBySource($trustedRows, $systemHotelId);
         $rows = [];
         foreach ($trustedRows as $row) {
             $raw = $this->decodeRaw($row['raw_data'] ?? null);
+            $dataSourceId = isset($row['data_source_id']) && is_numeric($row['data_source_id'])
+                ? (int)$row['data_source_id']
+                : 0;
             $rows[] = [
                 'row_id' => isset($row['id']) && is_numeric($row['id'])
                     ? (int)$row['id']
@@ -227,10 +231,9 @@ class TrustedOtaFactRepository
                     true
                 ),
                 'source_trace_id' => trim((string)($row['source_trace_id'] ?? '')),
-                'data_source_id' => isset($row['data_source_id'])
-                    && is_numeric($row['data_source_id'])
-                    ? (int)$row['data_source_id']
-                    : null,
+                'data_source_id' => $dataSourceId > 0 ? $dataSourceId : null,
+                'platform_hotel_id' => $platformHotelIds[$dataSourceId] ?? null,
+                'collected_at' => $this->collectedAt($row),
                 'sync_task_id' => isset($row['sync_task_id'])
                     && is_numeric($row['sync_task_id'])
                     ? (int)$row['sync_task_id']
@@ -1076,6 +1079,73 @@ class TrustedOtaFactRepository
     }
 
     /** @return array<string, mixed> */
+    /** @param array<string, mixed> $row */
+    private function collectedAt(array $row): ?string
+    {
+        foreach (['snapshot_time', 'update_time', 'updated_at', 'create_time', 'created_at'] as $field) {
+            $value = trim((string)($row[$field] ?? ''));
+            if ($value !== '' && strtotime($value) !== false) {
+                return date('Y-m-d H:i:s', (int)strtotime($value));
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve the platform hotel identifier only from the exact enabled Ctrip
+     * browser-profile source that produced each fact. Profile identifiers are
+     * deliberately not accepted as hotel identity.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, string>
+     */
+    private function platformHotelIdsBySource(array $rows, int $systemHotelId): array
+    {
+        $sourceIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): int => (int)($row['data_source_id'] ?? 0),
+            $rows
+        ), static fn(int $id): bool => $id > 0)));
+        sort($sourceIds, SORT_NUMERIC);
+        if ($sourceIds === []) {
+            return [];
+        }
+
+        try {
+            $placeholders = implode(',', array_fill(0, count($sourceIds), '?'));
+            $sources = Db::query(
+                'SELECT id, system_hotel_id, platform, ingestion_method, enabled, config_json '
+                . 'FROM platform_data_sources WHERE id IN (' . $placeholders . ') '
+                . 'AND system_hotel_id = ? AND platform = ? AND ingestion_method = ? AND enabled = ?',
+                [...$sourceIds, $systemHotelId, 'ctrip', 'browser_profile', 1]
+            );
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $resolved = [];
+        foreach ($sources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $sourceId = (int)($source['id'] ?? 0);
+            $config = $this->decodeRaw($source['config_json'] ?? null);
+            foreach ([
+                'platform_hotel_id', 'platformHotelId', 'hotel_id', 'hotelId',
+                'ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId',
+                'master_hotel_id', 'masterHotelId', 'external_hotel_id',
+            ] as $key) {
+                $identifier = $this->scalarText($config[$key] ?? null);
+                if ($identifier !== '') {
+                    $resolved[$sourceId] = $identifier;
+                    break;
+                }
+            }
+        }
+
+        return $resolved;
+    }
+
     private function decodeRaw(mixed $raw): array
     {
         if (is_array($raw)) {
@@ -1256,6 +1326,7 @@ class TrustedOtaFactRepository
             'validation_policy' => 'explicit_trusted_status_allowlist_and_no_blocking_flags',
             'trace_policy' => 'row_raw_and_captured_field_fact_trace_must_match',
             'binding_policy' => 'raw_hotel_binding_evidence_required',
+            'platform_hotel_identity_policy' => 'platform_data_source_config_exact_required',
             'metric_fact_policy' => 'each_non_null_pricing_metric_requires_captured_field_fact',
             'period_policy' => 'historical_final_else_latest_realtime_per_business_grain',
             'metric_scope' => 'ota_channel',

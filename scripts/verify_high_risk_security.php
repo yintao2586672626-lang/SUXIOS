@@ -523,8 +523,75 @@ assert_true(str_contains($otaConfigConcernSource, 'withPayloadForExecution('), '
 foreach (['ctrip_config_list', 'meituan_config_list', 'online_data_cookies_', 'data_config_'] as $legacySecretStore) {
     assert_true(!str_contains($commandSource, $legacySecretStore), 'scheduled OTA execution must not parse legacy secret store ' . $legacySecretStore);
 }
-assert_true(str_contains($commandSource, 'Scheduled collection is Profile-only.'), 'scheduled OTA execution must remain Profile-only');
-assert_true(str_contains($commandSource, "where('ingestion_method', 'browser_profile')"), 'scheduled OTA execution must select browser Profile sources only');
+assert_true(str_contains($commandSource, 'Ordinary scheduled collection is Profile-only.'), 'ordinary scheduled OTA execution must remain Profile-only');
+assert_true(
+    str_contains($commandSource, '$scheduledIngestionMethods = $this->scheduledIngestionMethods(')
+        && str_contains($commandSource, "->whereIn('ingestion_method', \$scheduledIngestionMethods)"),
+    'scheduled OTA execution must select sources through the fail-closed ingestion-method gate'
+);
+$scheduledCommand = new \app\command\AutoFetchOnlineData();
+$scheduledDispatcherRunId = '12345678-1234-4234-8234-123456789abc';
+set_private_property($scheduledCommand, 'dispatcherRunId', $scheduledDispatcherRunId);
+assert_same(
+    ['browser_profile'],
+    call_private($scheduledCommand, 'scheduledIngestionMethods', [
+        80,
+        '2026-08-09',
+        [25, 68],
+        ['ctrip', 'meituan'],
+    ]),
+    'local collector selection must remain blocked without an exact durable plan gate'
+);
+set_private_property($scheduledCommand, 'scheduledPlanGate', [
+    'status' => 'ready',
+    'collection_allowed' => true,
+    'dispatcher_run_id' => $scheduledDispatcherRunId,
+    'system_hotel_id' => 80,
+    'business_date' => '2026-08-09',
+    'run_mode' => 'daily',
+    'plan_readback_verified' => true,
+    'binding_digest_matches' => true,
+    'execution_owner_bound' => true,
+    'expected_source_ids' => [25, 68],
+    'actual_source_ids' => [25, 68],
+    'expected_platforms' => ['ctrip', 'meituan'],
+    'actual_platforms' => ['ctrip', 'meituan'],
+]);
+assert_same(
+    ['browser_profile', 'local_collector'],
+    call_private($scheduledCommand, 'scheduledIngestionMethods', [
+        80,
+        '2026-08-09',
+        [68, 25],
+        ['meituan', 'ctrip'],
+    ]),
+    'exact durable dispatcher plan may select only browser Profile and bound local collector sources'
+);
+set_private_property($scheduledCommand, 'scheduledPlanGate', [
+    'status' => 'ready',
+    'collection_allowed' => true,
+    'dispatcher_run_id' => $scheduledDispatcherRunId,
+    'system_hotel_id' => 81,
+    'business_date' => '2026-08-09',
+    'run_mode' => 'daily',
+    'plan_readback_verified' => true,
+    'binding_digest_matches' => true,
+    'execution_owner_bound' => true,
+    'expected_source_ids' => [25, 68],
+    'actual_source_ids' => [25, 68],
+    'expected_platforms' => ['ctrip', 'meituan'],
+    'actual_platforms' => ['ctrip', 'meituan'],
+]);
+assert_same(
+    ['browser_profile'],
+    call_private($scheduledCommand, 'scheduledIngestionMethods', [
+        80,
+        '2026-08-09',
+        [25, 68],
+        ['ctrip', 'meituan'],
+    ]),
+    'local collector selection must fail closed when the hotel scope drifts'
+);
 assert_true(!str_contains($commandSource, 'withPayloadForExecution('), 'scheduled OTA execution must not decrypt reusable Cookie/API credentials');
 
 $migrationRunSource = extract_method_source($otaMigrationServiceSource, 'run');

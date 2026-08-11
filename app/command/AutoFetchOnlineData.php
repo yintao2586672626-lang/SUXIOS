@@ -9,6 +9,7 @@ use app\service\CloudOtaCollectionScopeService;
 use app\service\HotelCollectionPlanService;
 use app\service\HotelCollectionRunReceiptService;
 use app\service\DingdandaoOperatingTargetCaptureService;
+use app\service\CloudOtaProfileLeaseService;
 use app\service\CtripCollectorWorkflowService;
 use app\service\CanonicalOtaDailyOperationFinalizer;
 use app\service\OtaFailureNotificationService;
@@ -1834,8 +1835,10 @@ class AutoFetchOnlineData extends Command
             ];
         }
 
-        // Scheduled collection is Profile-only. Reusable Cookie/API credentials
-        // remain an explicit manual recovery path and are never a cron fallback.
+        // Ordinary scheduled collection is Profile-only. A natural dispatcher
+        // may also use an explicitly planned, device-bound local collector.
+        // Reusable Cookie/API credentials remain a manual recovery path and are
+        // never a scheduled fallback.
         return [
             'success' => false,
             'message' => 'scheduled_browser_profile_source_required',
@@ -1847,6 +1850,66 @@ class AutoFetchOnlineData extends Command
             'missing_source_ids' => [],
             'required_platforms' => $targetPlatforms,
         ];
+    }
+
+    /**
+     * Keep local-collector execution behind the exact durable plan gate. A
+     * dispatcher UUID and caller-supplied source ids are not sufficient proof
+     * on their own; every persisted scope dimension must still match.
+     *
+     * @param array<int,mixed> $sourceIds
+     * @param array<int,mixed> $targetPlatforms
+     * @return array<int,string>
+     */
+    private function scheduledIngestionMethods(
+        int $hotelId,
+        string $dataDate,
+        array $sourceIds,
+        array $targetPlatforms
+    ): array {
+        $profileOnly = ['browser_profile'];
+        $normalizeIds = static function (array $values): array {
+            $ids = array_values(array_unique(array_filter(
+                array_map('intval', $values),
+                static fn(int $id): bool => $id > 0
+            )));
+            sort($ids, SORT_NUMERIC);
+            return $ids;
+        };
+        $sourceIds = $normalizeIds($sourceIds);
+        $targetPlatforms = (new ScheduledAutoFetchPolicy())->normalizePlatforms($targetPlatforms);
+        $gate = $this->scheduledPlanGate;
+        $gateDispatcherRunId = $this->normalizeDispatcherRunId(
+            (string)($gate['dispatcher_run_id'] ?? '')
+        );
+
+        if ($this->dispatcherRunId === ''
+            || $this->normalizeDispatcherRunId($this->dispatcherRunId) !== $this->dispatcherRunId
+            || $gateDispatcherRunId !== $this->dispatcherRunId
+            || $hotelId <= 0
+            || (int)($gate['system_hotel_id'] ?? 0) !== $hotelId
+            || $dataDate === ''
+            || (string)($gate['business_date'] ?? '') !== $dataDate
+            || strtolower(trim((string)($gate['run_mode'] ?? ''))) !== 'daily'
+            || strtolower(trim((string)($gate['status'] ?? ''))) !== 'ready'
+            || ($gate['collection_allowed'] ?? false) !== true
+            || ($gate['plan_readback_verified'] ?? false) !== true
+            || ($gate['binding_digest_matches'] ?? false) !== true
+            || ($gate['execution_owner_bound'] ?? false) !== true
+            || $sourceIds === []
+            || $normalizeIds((array)($gate['expected_source_ids'] ?? [])) !== $sourceIds
+            || $normalizeIds((array)($gate['actual_source_ids'] ?? [])) !== $sourceIds
+            || (new ScheduledAutoFetchPolicy())->normalizePlatforms(
+                (array)($gate['expected_platforms'] ?? [])
+            ) !== $targetPlatforms
+            || (new ScheduledAutoFetchPolicy())->normalizePlatforms(
+                (array)($gate['actual_platforms'] ?? [])
+            ) !== $targetPlatforms
+        ) {
+            return $profileOnly;
+        }
+
+        return ['browser_profile', 'local_collector'];
     }
 
     private function syncBrowserProfileSources(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3, array $targetPlatforms = [], array $sourceIds = [], bool $forceRerun = false): array
@@ -1862,9 +1925,12 @@ class AutoFetchOnlineData extends Command
         $missingSourceIds = [];
         try {
             $sourceIds = array_values(array_unique(array_filter(array_map('intval', $sourceIds), static fn(int $id): bool => $id > 0)));
-            $scheduledIngestionMethods = $this->dispatcherRunId !== '' && $sourceIds !== []
-                ? ['browser_profile', 'local_collector']
-                : ['browser_profile'];
+            $scheduledIngestionMethods = $this->scheduledIngestionMethods(
+                $hotelId,
+                $dataDate,
+                $sourceIds,
+                $targetPlatforms
+            );
             $sourceQuery = Db::name('platform_data_sources')
                 ->where('enabled', 1)
                 ->whereIn('status', ['ready', 'success', 'partial_success', 'failed', 'waiting_config'])
@@ -1995,6 +2061,9 @@ class AutoFetchOnlineData extends Command
             $messages[] = 'SOURCE#' . $missingSourceId . ': scheduled_profile_source_scope_missing';
         }
         $timing = [];
+        $cloudProfileLeases = $this->cloudCollectorScope === []
+            ? null
+            : new CloudOtaProfileLeaseService();
         foreach ($sources as $source) {
             $platform = strtolower((string)($source['platform'] ?? 'source'));
             $ingestionMethod = strtolower(trim((string)($source['ingestion_method'] ?? '')));
@@ -2200,12 +2269,26 @@ class AutoFetchOnlineData extends Command
                         ),
                     ]);
                 }
-                $result = $this->syncBrowserProfileSource(
-                    $systemUser,
-                    (int)$source['id'],
-                    $syncOptions
-                );
+                $result = $cloudProfileLeases instanceof CloudOtaProfileLeaseService
+                    ? $cloudProfileLeases->withReadOnlyLease(
+                        $source,
+                        $dataDate,
+                        fn(string $cdpUrl): array => $this->syncBrowserProfileSource(
+                            $systemUser,
+                            (int)$source['id'],
+                            array_replace($syncOptions, [
+                                'cdp_url' => $cdpUrl,
+                                'ctrip_section_concurrency' => 1,
+                            ])
+                        )
+                    )
+                    : $this->syncBrowserProfileSource(
+                        $systemUser,
+                        (int)$source['id'],
+                        $syncOptions
+                    );
             } catch (\Throwable $e) {
+                $failureReasonCodes = $this->safeExceptionReasonCodes($e);
                 $failedCount++;
                 $failedPlatforms[$platform] = true;
                 $platformResults[] = [
@@ -2217,6 +2300,7 @@ class AutoFetchOnlineData extends Command
                     'run_readback' => [],
                     'ordered_collection' => $orderedPlan,
                     'message' => 'ordered_profile_capture_failed',
+                    'failure_reason_codes' => $failureReasonCodes,
                 ];
                 Log::warning('Ordered browser Profile source failed', [
                     'hotel_id' => $hotelId,
@@ -4988,6 +5072,25 @@ class AutoFetchOnlineData extends Command
         }
         $timestamp = strtotime($startedAt);
         return $timestamp === false || (time() - $timestamp) > self::PROFILE_LOCK_STALE_SECONDS;
+    }
+
+    /** @return array<int,string> */
+    private function safeExceptionReasonCodes(\Throwable $error): array
+    {
+        $codes = [];
+        for ($current = $error, $depth = 0;
+            $current instanceof \Throwable && $depth < 8;
+            $current = $current->getPrevious(), $depth++
+        ) {
+            $message = strtolower(trim($current->getMessage()));
+            if ($message !== ''
+                && preg_match('/^[a-z][a-z0-9_:-]{2,127}$/D', $message) === 1
+            ) {
+                $codes[$message] = true;
+            }
+        }
+
+        return array_keys($codes) ?: ['ordered_profile_capture_failed'];
     }
 
     /** @return array<int, string> */
