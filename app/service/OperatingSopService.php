@@ -74,6 +74,16 @@ final class OperatingSopService
         sort($businessDates, SORT_STRING);
         $applicableDataTypes = $this->normalizedScopeList($input['applicable_data_types'] ?? []);
         $metricDefinitions = $this->textList($input['metric_definitions'] ?? [], '指标定义', false);
+        $applicabilityProfile = OperatingNetworkService::normalizeProfileDimensions(
+            $input['applicability_profile'] ?? []
+        );
+        $actionParameters = $this->textList($input['action_parameters'] ?? [], '动作参数', false);
+        $successConditions = $this->textList($input['success_conditions'] ?? [], '成功条件', false);
+        $failureSamples = $this->textList($input['failure_samples'] ?? [], '失败样本', false);
+        $evidenceValidUntil = $this->optionalDate(
+            (string)($input['evidence_valid_until'] ?? ''),
+            'SOP证据有效期'
+        );
         $scope = [
             'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,
@@ -83,6 +93,12 @@ final class OperatingSopService
             'evidence_date_end' => $businessDates === [] ? null : $businessDates[array_key_last($businessDates)],
             'applicable_data_types' => $applicableDataTypes,
             'metric_definitions' => $metricDefinitions,
+            'applicability_contract_version' => OperatingNetworkService::CONTRACT_VERSION,
+            'applicability_profile' => $applicabilityProfile,
+            'action_parameters' => $actionParameters,
+            'success_conditions' => $successConditions,
+            'failure_samples' => $failureSamples,
+            'evidence_valid_until' => $evidenceValidUntil,
             'replication_scope' => 'same_tenant_draft_only',
         ];
         $sopKey = $this->sopKey($tenantId, $hotelId, $title, $scope);
@@ -248,7 +264,8 @@ final class OperatingSopService
         int $tenantId,
         array $accessibleHotelIds,
         int $targetHotelId,
-        int $createdBy
+        int $createdBy,
+        array $input = []
     ): array {
         $this->assertTablesReady();
         $accessibleHotelIds = $this->ids($accessibleHotelIds);
@@ -270,25 +287,35 @@ final class OperatingSopService
         $this->assertHotelIdentity($tenantId, $targetHotelId);
 
         $scope = is_array($source['scope'] ?? null) ? $source['scope'] : [];
-        $targetFactScope = $this->targetFactScope($tenantId, $targetHotelId, $scope);
+        $targetFactScope = $this->targetFactScope($tenantId, $targetHotelId, $scope, $input);
         $targetFactRefs = $targetFactScope['refs'];
         $scopeReady = $targetFactScope['scope_ready'];
         $hasTargetFacts = $targetFactRefs !== [];
+        $applicabilityAssessment = (new OperatingNetworkService())->assessApplicability(
+            $source,
+            $tenantId,
+            $targetHotelId,
+            $accessibleHotelIds
+        );
         if (!$scopeReady) {
             $status = 'blocked_source_scope_incomplete';
             $targetValidationStatus = 'blocked_scope_comparability_unconfirmed';
-            $dataGaps = $targetFactScope['data_gaps'];
+            $dataGaps = array_merge($targetFactScope['data_gaps'], $applicabilityAssessment['data_gaps']);
         } elseif (!$hasTargetFacts) {
             $status = 'blocked_missing_target_facts';
             $targetValidationStatus = 'blocked_missing_target_facts';
             $dataGaps = [[
                 'code' => 'target_hotel_comparable_fact_missing',
                 'message' => '目标酒店缺少同平台、同证据日期范围和同数据类型的严格回读事实，复制草稿不能进入验证。',
-            ]];
+            ], ...$applicabilityAssessment['data_gaps']];
+        } elseif (($applicabilityAssessment['confidence'] ?? '') === 'blocked') {
+            $status = 'blocked_applicability_evidence_incomplete';
+            $targetValidationStatus = 'blocked_applicability_evidence_incomplete';
+            $dataGaps = $applicabilityAssessment['data_gaps'];
         } else {
             $status = 'draft_pending_target_validation';
             $targetValidationStatus = 'facts_available_review_required';
-            $dataGaps = [];
+            $dataGaps = $applicabilityAssessment['data_gaps'];
         }
         $draft = [
             'contract_version' => self::CONTRACT_VERSION,
@@ -307,9 +334,19 @@ final class OperatingSopService
             'source_evidence_policy' => 'reference_only_not_reused_as_target_fact',
             'target_fact_refs' => $targetFactRefs,
             'target_fact_comparison_contract' => $targetFactScope['comparison_contract'],
+            'experience_applicability' => [
+                'profile' => $scope['applicability_profile'] ?? [],
+                'action_parameters' => $scope['action_parameters'] ?? [],
+                'success_conditions' => $scope['success_conditions'] ?? [],
+                'failure_samples' => $scope['failure_samples'] ?? [],
+                'stop_conditions' => $source['stop_conditions'],
+                'evidence_valid_until' => $scope['evidence_valid_until'] ?? null,
+            ],
+            'applicability_assessment' => $applicabilityAssessment,
             'boundaries' => [
                 'status_is_draft' => true,
                 'target_verified' => false,
+                'human_target_validation_required' => true,
                 'automatic_execution' => false,
                 'ota_write' => false,
                 'external_message' => false,
@@ -621,12 +658,19 @@ final class OperatingSopService
     }
 
     /** @return array{scope_ready:bool,refs:list<string>,comparison_contract:array<string,mixed>,data_gaps:list<array<string,string>>} */
-    private function targetFactScope(int $tenantId, int $hotelId, array $scope): array
+    private function targetFactScope(int $tenantId, int $hotelId, array $scope, array $input = []): array
     {
         $platform = strtolower(trim((string)($scope['platform'] ?? '')));
         $sourceScope = strtolower(trim((string)($scope['source_scope'] ?? '')));
-        $dateStart = trim((string)($scope['evidence_date_start'] ?? ''));
-        $dateEnd = trim((string)($scope['evidence_date_end'] ?? ''));
+        $requestedDateStart = trim((string)($input['target_date_start'] ?? ''));
+        $requestedDateEnd = trim((string)($input['target_date_end'] ?? ''));
+        $hasRequestedDates = $requestedDateStart !== '' || $requestedDateEnd !== '';
+        $dateStart = $hasRequestedDates
+            ? $requestedDateStart
+            : trim((string)($scope['evidence_date_start'] ?? ''));
+        $dateEnd = $hasRequestedDates
+            ? $requestedDateEnd
+            : trim((string)($scope['evidence_date_end'] ?? ''));
         $dataTypes = $this->normalizedScopeList($scope['applicable_data_types'] ?? []);
         $comparisonContract = [
             'tenant_id' => $tenantId,
@@ -635,6 +679,7 @@ final class OperatingSopService
             'source_scope' => $sourceScope,
             'date_start' => $dateStart,
             'date_end' => $dateEnd,
+            'date_scope_source' => $hasRequestedDates ? 'target_request' : 'source_evidence_fallback',
             'data_types' => $dataTypes,
             'metric_definitions' => is_array($scope['metric_definitions'] ?? null)
                 ? array_values($scope['metric_definitions'])
@@ -808,6 +853,18 @@ final class OperatingSopService
             $value
         );
         return array_values(array_unique(array_filter($items, static fn(string $item): bool => $item !== '')));
+    }
+
+    private function optionalDate(string $value, string $label): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) !== 1) {
+            throw new InvalidArgumentException($label . '格式必须是 YYYY-MM-DD');
+        }
+        return $value;
     }
 
     private function assertHotelIdentity(int $tenantId, int $hotelId): void

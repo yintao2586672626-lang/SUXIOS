@@ -7,6 +7,10 @@ import vm from 'node:vm';
 const systemStaticSource = fs.readFileSync('public/system-static.js', 'utf8');
 const appMainSource = fs.readFileSync('public/app-main.js', 'utf8');
 const serviceSource = fs.readFileSync('app/service/ManualNotificationService.php', 'utf8');
+const conditionRuleSource = fs.readFileSync(
+  'app/service/ManualNotificationConditionRuleService.php',
+  'utf8',
+);
 const fragmentSource = fs.readFileSync(
   'resources/frontend/templates/fragments/15ab-page-manual-notifications.html',
   'utf8',
@@ -189,6 +193,46 @@ test('notification schedule panel cache key matches its exact source bytes', () 
   );
 });
 
+test('business-condition rules are configurable and advance only after success', () => {
+  for (const marker of [
+    'manual-notification-condition-type',
+    'manual-notification-condition-threshold',
+    'manual-notification-condition-step',
+    'manual-notification-condition-state',
+  ]) {
+    assert.match(schedulePanelSource, new RegExp(marker));
+  }
+  for (const copy of [
+    '入住率跨档提醒',
+    '满房时提醒',
+    '首次成功送达才记为已提醒',
+    '20/25/30',
+  ]) {
+    assert.match(
+      `${serviceSource}\n${schedulePanelSource}\n${conditionRuleSource}`,
+      new RegExp(copy),
+    );
+  }
+  for (const fieldName of [
+    'condition_type',
+    'condition_threshold',
+    'condition_step',
+    'condition_state',
+  ]) {
+    assert.match(appMainSource, new RegExp(fieldName));
+  }
+  assert.match(conditionRuleSource, /commitSuccessfulDelivery/);
+  assert.match(conditionRuleSource, /where\('status', 'sent'\)/);
+  assert.match(conditionRuleSource, /manual_notification_condition_level_already_sent/);
+  assert.match(conditionRuleSource, /manual_notification_condition_full_house_already_sent/);
+  assert.match(conditionRuleSource, /'requires_pms_facts' => true/);
+  assert.match(schedulePanelSource, /hasPmsConditionFacts/);
+  assert.match(
+    appMainSource,
+    /field === 'content_sections'[\s\S]*manualNotificationForm\.value\.condition_type = 'always'/,
+  );
+});
+
 test('operating daily keeps custom compatibility while common templates choose a source', () => {
   assert.match(fragmentSource, /manual-notification-content-template-mode/);
   assert.match(fragmentSource, /manual-notification-content-mode-\$\{mode\.key\}/);
@@ -210,7 +254,7 @@ test('operating daily keeps custom compatibility while common templates choose a
   );
 });
 
-test('operating daily plans allow only manual test or one daily fixed time', () => {
+test('operating daily keeps fixed-time default and exposes hotel-80 strict three-source interval', () => {
   assert.match(
     serviceSource,
     /OPERATING_DAILY_TRIGGER_TYPES\s*=\s*\[\s*'manual_test',\s*'daily_fixed_time'/,
@@ -239,6 +283,24 @@ test('operating daily plans allow only manual test or one daily fixed time', () 
     appMainSource,
     /经营日报不支持循环发送，请选择每日固定时间/,
   );
+  assert.match(serviceSource, /isStrictThreeSourceIntervalPlan/);
+  assert.match(
+    appMainSource,
+    /manualNotificationCanConfigureStrictThreeSourceInterval/,
+  );
+  assert.match(
+    appMainSource,
+    /Number\(manualNotificationForm\.value\.hotel_id \|\| 0\) === 80/,
+  );
+  assert.match(
+    appMainSource,
+    /trigger_type: 'interval_minutes',[\s\S]{0,220}interval_minutes: 30/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /strictThreeSourceIntervalAvailable[\s\S]*每 30 分钟（三源严格计划）/,
+  );
+  assert.match(schedulePanelSource, /严格计划配置待修正/);
 });
 
 test('PMS operating data page owns unified PMS deltas without duplicating source configuration', () => {

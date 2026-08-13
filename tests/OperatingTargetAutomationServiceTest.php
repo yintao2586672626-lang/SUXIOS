@@ -169,6 +169,7 @@ final class OperatingTargetAutomationServiceTest extends TestCase
         $record = $targets->current(9, 80, '2026-07-28')['record'];
         $provenance = new OperatingTargetExecutionProvenanceService();
         $intentId = (int)Db::name('operation_execution_intents')->insertGetId([
+            'tenant_id' => 9,
             'source_module' => 'operating_target',
             'source_record_id' => (int)$record['id'],
             'hotel_id' => 80,
@@ -246,7 +247,7 @@ final class OperatingTargetAutomationServiceTest extends TestCase
         );
         Db::execute(
             'CREATE TABLE operation_execution_intents ('
-            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, source_module TEXT, source_record_id INTEGER, '
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, source_module TEXT, source_record_id INTEGER, '
             . 'hotel_id INTEGER, platform TEXT, object_type TEXT, action_type TEXT, date_start TEXT, date_end TEXT, '
             . 'current_value_json TEXT NULL, target_value_json TEXT NULL, evidence_json TEXT NULL, '
             . 'expected_metric TEXT, expected_delta REAL, risk_level TEXT, status TEXT, blocked_reason TEXT, '
@@ -255,7 +256,7 @@ final class OperatingTargetAutomationServiceTest extends TestCase
         );
         Db::execute(
             'CREATE TABLE operation_execution_tasks ('
-            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, intent_id INTEGER, hotel_id INTEGER, execution_mode TEXT, '
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, intent_id INTEGER, hotel_id INTEGER, execution_mode TEXT, '
             . 'operator_id INTEGER DEFAULT 0, target_value_json TEXT NULL, current_value_json TEXT NULL, '
             . 'blocked_reason TEXT DEFAULT \'\', action_track_id INTEGER DEFAULT 0, result_status TEXT DEFAULT \'observing\', '
             . 'result_summary TEXT DEFAULT \'\', status TEXT, executed_at TEXT NULL, created_at TEXT, updated_at TEXT, '
@@ -263,7 +264,7 @@ final class OperatingTargetAutomationServiceTest extends TestCase
         );
         Db::execute(
             'CREATE TABLE operation_execution_evidence ('
-            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, evidence_type TEXT, before_json TEXT NULL, '
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, task_id INTEGER, evidence_type TEXT, before_json TEXT NULL, '
             . 'after_json TEXT NULL, attachment_path TEXT, platform_response_json TEXT NULL, remark TEXT, '
             . 'created_by INTEGER, created_at TEXT, updated_at TEXT, deleted_at TEXT NULL)'
         );

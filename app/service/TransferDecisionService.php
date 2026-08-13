@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use DateTimeImmutable;
+use DateTimeInterface;
+use DateTimeZone;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
@@ -14,17 +17,26 @@ class TransferDecisionService
         'normal', 'available', 'verified', 'valid', 'ok', 'success', 'complete', 'completed',
     ];
     private const SUPPORTED_OTA_PLATFORMS = ['ctrip', 'meituan', 'qunar'];
+    private const TRANSFER_RECORD_SCOPE_MISSING = 'Transfer record does not exist or is outside current tenant scope';
+    private const TRANSFER_RECORD_MIGRATION_REQUIRED = 'transfer_records_migration_required';
 
     private LlmClient $client;
     private AiDecisionQualityService $decisionQualityService;
+    private SourceBackedExecutionBridgeProjectionService $executionBridgeProjection;
     private bool $tableEnsured = false;
     /** @var array<string,array<string,int|string>> */
     private array $sourceReadStatus = [];
 
-    public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
+    public function __construct(
+        ?LlmClient $client = null,
+        ?AiDecisionQualityService $decisionQualityService = null,
+        ?SourceBackedExecutionBridgeProjectionService $executionBridgeProjection = null
+    )
     {
         $this->client = $client ?: new LlmClient();
         $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
+        $this->executionBridgeProjection = $executionBridgeProjection
+            ?? new SourceBackedExecutionBridgeProjectionService();
     }
 
     public function calculateAssetPricing(array $input): array
@@ -470,15 +482,25 @@ class TransferDecisionService
             'missing_evidence' => [],
         ];
 
+        $projectionContext = $this->executionBridgeProjection->projectionContext('transfer_decision', $rows);
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
+            [$input, $result, $snapshot] = $this->executionBridgeProjection->trackingForResponses(
+                'transfer_decision',
+                [
+                    ['source' => $row, 'payload' => $this->decodeJson($row['input_json'] ?? '')],
+                    ['source' => $row, 'payload' => $this->decodeJson($row['result_json'] ?? '')],
+                    ['source' => $row, 'payload' => $this->decodeJson($row['snapshot_json'] ?? '')],
+                ],
+                $projectionContext
+            );
             $readiness = $this->buildDecisionReadiness(
                 (string)($row['record_type'] ?? ''),
-                $this->decodeJson($row['input_json'] ?? ''),
-                $this->decodeJson($row['result_json'] ?? ''),
-                $this->decodeJson($row['snapshot_json'] ?? ''),
+                $input,
+                $result,
+                $snapshot,
                 (int)($row['hotel_id'] ?? 0)
             );
             $summary['record_count']++;
@@ -501,6 +523,45 @@ class TransferDecisionService
         return $summary;
     }
 
+    private function normalizeTransferBusinessDate(mixed $date): string
+    {
+        if (!is_string($date)) {
+            throw new InvalidArgumentException('transfer business date must use Y-m-d');
+        }
+        $timezone = new DateTimeZone('Asia/Shanghai');
+        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date, $timezone);
+        $errors = DateTimeImmutable::getLastErrors();
+        if (
+            $parsed === false
+            || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+            || $parsed->format('Y-m-d') !== $date
+        ) {
+            throw new InvalidArgumentException('transfer business date must use a valid Y-m-d calendar date');
+        }
+        return $date;
+    }
+
+    private function transferBusinessToday(?DateTimeInterface $now = null): string
+    {
+        $timestamp = $now?->getTimestamp() ?? time();
+        return (new DateTimeImmutable('@' . $timestamp))
+            ->setTimezone(new DateTimeZone('Asia/Shanghai'))
+            ->format('Y-m-d');
+    }
+
+    /** @return array{start:string,end:string} */
+    private function transferBusinessWindow(string $endDate, int $days): array
+    {
+        $end = $this->normalizeTransferBusinessDate($endDate);
+        if ($days <= 0) {
+            throw new InvalidArgumentException('transfer business window days must be positive');
+        }
+        $start = (new DateTimeImmutable($end, new DateTimeZone('Asia/Shanghai')))
+            ->modify('-' . ($days - 1) . ' days')
+            ->format('Y-m-d');
+        return ['start' => $start, 'end' => $end];
+    }
+
     public function buildSourcePayload(array $hotelIds, ?int $hotelId, string $date): array
     {
         $this->ensureTable();
@@ -508,14 +569,25 @@ class TransferDecisionService
 
         $targetHotelId = $hotelId ?: ($hotelIds[0] ?? 0);
         $scopeHotelIds = $targetHotelId > 0 ? [$targetHotelId] : $hotelIds;
-        $sourceDate = date('Y-m-d', strtotime($date) ?: time());
-        $currentStart = date('Y-m-d', strtotime($sourceDate . ' -29 days'));
-        $annualStart = date('Y-m-d', strtotime($sourceDate . ' -364 days'));
+        $sourceDate = $this->normalizeTransferBusinessDate($date);
+        $currentWindow = $this->transferBusinessWindow($sourceDate, 30);
+        $annualWindow = $this->transferBusinessWindow($sourceDate, 365);
+        $currentStart = $currentWindow['start'];
+        $annualStart = $annualWindow['start'];
 
-        $currentDaily = $this->dailyReportRows($scopeHotelIds, $currentStart, $sourceDate);
-        $currentOnline = $this->onlineRows($scopeHotelIds, $currentStart, $sourceDate);
-        $annualDaily = $this->dailyReportRows($scopeHotelIds, $annualStart, $sourceDate);
-        $annualOnline = $this->onlineRows($scopeHotelIds, $annualStart, $sourceDate);
+        return Db::transaction(function () use (
+            $targetHotelId,
+            $scopeHotelIds,
+            $sourceDate,
+            $currentStart,
+            $annualStart
+        ): array {
+        $hotel = $this->lockedHotelIdentity($targetHotelId);
+        $tenantId = (int)$hotel['tenant_id'];
+        $currentDaily = $this->dailyReportRows($scopeHotelIds, $currentStart, $sourceDate, $tenantId);
+        $currentOnline = $this->onlineRows($scopeHotelIds, $currentStart, $sourceDate, $tenantId);
+        $annualDaily = $this->dailyReportRows($scopeHotelIds, $annualStart, $sourceDate, $tenantId);
+        $annualOnline = $this->onlineRows($scopeHotelIds, $annualStart, $sourceDate, $tenantId);
         $current = $this->aggregateTransferMetrics($currentDaily, $currentOnline, [
             'target_hotel_id' => $targetHotelId,
             'start_date' => $currentStart,
@@ -527,7 +599,6 @@ class TransferDecisionService
             'end_date' => $sourceDate,
         ]);
         $annualBenchmark = $this->annualThirtyDayBenchmark($annual);
-        $hotel = $this->hotelRow($targetHotelId);
         $hotelName = (string)($hotel['name'] ?? $current['hotel_name'] ?? '');
         $hasDailyReports = count($currentDaily) > 0;
         $hasOnlineRows = (int)($current['truth_context']['included_verified_count'] ?? 0) > 0;
@@ -546,11 +617,6 @@ class TransferDecisionService
         if ((int)($current['truth_context']['excluded_untrusted_count'] ?? 0) > 0) {
             $dataGaps[] = 'ota_channel_untrusted_rows_excluded';
         }
-        foreach ($this->sourceReadStatus as $table => $status) {
-            if (($status['table_status'] ?? '') === 'missing') {
-                $dataGaps[] = 'source_table_missing:' . $table;
-            }
-        }
         $dataStatus = $hasDailyReports
             ? '已读取本地经营日报；来源、口径与真实性仍需核验。'
             : ($hasOnlineRows
@@ -559,6 +625,11 @@ class TransferDecisionService
 
         $snapshot = [
             'hotel_id' => $targetHotelId,
+            'tenant_id' => $tenantId,
+            'source_identity' => [
+                'hotel_id' => $targetHotelId,
+                'tenant_id' => $tenantId,
+            ],
             'hotel_name' => $hotelName,
             'location' => (string)($hotel['address'] ?? ''),
             'source_date' => $sourceDate,
@@ -590,6 +661,8 @@ class TransferDecisionService
 
         return [
             'hotel_id' => $targetHotelId,
+            'tenant_id' => $tenantId,
+            'source_identity' => $snapshot['source_identity'],
             'hotel_name' => $hotelName,
             'source_date' => $sourceDate,
             'truth_context' => $snapshot['truth_context'],
@@ -633,6 +706,7 @@ class TransferDecisionService
             ],
             'data_notice' => $snapshot['data_status'],
         ];
+        });
     }
 
     public function saveRecord(string $recordType, array $input, array $result, array $snapshot, int $hotelId, int $userId): int
@@ -640,55 +714,77 @@ class TransferDecisionService
         if ($hotelId <= 0) {
             throw new RuntimeException('Hotel scope is missing');
         }
-        $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
-        if ($tenantId <= 0) {
-            throw new RuntimeException('Hotel tenant scope is missing');
-        }
-
         $this->ensureTable();
 
-        $summary = $this->recordSummary($recordType, $input, $result, $snapshot);
-        $now = date('Y-m-d H:i:s');
+        return (int)Db::transaction(function () use (
+            $recordType,
+            $input,
+            $result,
+            $snapshot,
+            $hotelId,
+            $userId
+        ): int {
+            $hotel = $this->lockedHotelIdentity($hotelId, false);
+            $tenantId = (int)$hotel['tenant_id'];
+            $this->assertTransferSnapshotBinding($input, $snapshot, $hotelId, $tenantId);
 
-        return (int)Db::name('transfer_records')->insertGetId([
-            'record_type' => $recordType,
-            'tenant_id' => $tenantId,
-            'hotel_id' => $hotelId,
-            'hotel_name' => $summary['hotel_name'],
-            'source_date' => $summary['source_date'],
-            'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE),
-            'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
-            'snapshot_json' => json_encode($snapshot, JSON_UNESCAPED_UNICODE),
-            'decision' => $summary['decision'],
-            'risk_level' => $summary['risk_level'],
-            'created_by' => $userId,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
+            $summary = $this->recordSummary($recordType, $input, $result, $snapshot);
+            $now = date('Y-m-d H:i:s');
+
+            return (int)Db::name('transfer_records')->insertGetId([
+                'record_type' => $recordType,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'hotel_name' => $summary['hotel_name'],
+                'source_date' => $summary['source_date'],
+                'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE),
+                'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
+                'snapshot_json' => json_encode($snapshot, JSON_UNESCAPED_UNICODE),
+                'decision' => $summary['decision'],
+                'risk_level' => $summary['risk_level'],
+                'created_by' => $userId,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        });
     }
 
     public function records(array $hotelIds, int $userId, bool $isSuperAdmin): array
     {
-        $this->ensureTable();
+        try {
+            $this->ensureTable();
+            $hotelIds = $this->normalizeTransferHotelIds($hotelIds);
+            if ($hotelIds === []) {
+                return [];
+            }
 
-        $query = Db::name('transfer_records')
-            ->whereNull('deleted_at')
-            ->whereIn('hotel_id', $hotelIds);
+            $query = $this->currentTenantTransferRecordQuery($hotelIds);
+            $rows = $query->order('transfer_record.id', 'desc')->limit(80)->select()->toArray();
+        } catch (Throwable $exception) {
+            throw $this->transferRecordMigrationRequired($exception);
+        }
 
-        $rows = $query->order('id', 'desc')->limit(80)->select()->toArray();
-        return array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows));
+        $projectionContext = $this->executionBridgeProjection->projectionContext('transfer_decision', $rows);
+        return array_values(array_map(
+            fn(array $row): array => $this->formatRecord($row, false, $projectionContext),
+            $rows
+        ));
     }
 
     public function detail(int $id, array $hotelIds, int $userId, bool $isSuperAdmin): array
     {
-        $this->ensureTable();
+        try {
+            $this->ensureTable();
+            $hotelIds = $this->normalizeTransferHotelIds($hotelIds);
 
-        $query = Db::name('transfer_records')->where('id', $id)->whereNull('deleted_at');
-        $query->whereIn('hotel_id', $hotelIds);
-
-        $row = $query->find();
+            $row = $hotelIds === []
+                ? null
+                : $this->currentTenantTransferRecordQuery($hotelIds, $id)->find();
+        } catch (Throwable $exception) {
+            throw $this->transferRecordMigrationRequired($exception);
+        }
         if (!$row) {
-            throw new RuntimeException('转让记录不存在或无权访问');
+            throw new RuntimeException(self::TRANSFER_RECORD_SCOPE_MISSING);
         }
 
         return $this->formatRecord($row, true);
@@ -696,22 +792,41 @@ class TransferDecisionService
 
     public function archive(int $id, array $hotelIds, int $userId, bool $isSuperAdmin): bool
     {
-        $this->ensureTable();
+        try {
+            $this->ensureTable();
+            return Db::transaction(function () use ($id, $hotelIds): bool {
+                $hotelIds = $this->normalizeTransferHotelIds($hotelIds);
+                $currentRecord = $hotelIds === []
+                    ? null
+                    : $this->currentTenantTransferRecordQuery($hotelIds, $id)->lock(true)->find();
+                if (!$currentRecord) {
+                    throw new RuntimeException(self::TRANSFER_RECORD_SCOPE_MISSING);
+                }
 
-        $now = date('Y-m-d H:i:s');
-        $affected = Db::name('transfer_records')
-            ->where('id', $id)
-            ->whereNull('deleted_at')
-            ->whereIn('hotel_id', $hotelIds)
-            ->update([
-                'deleted_at' => $now,
-                'updated_at' => $now,
-            ]);
-        if ((int)$affected <= 0) {
-            throw new RuntimeException('转让记录不存在或无权访问');
+                $now = date('Y-m-d H:i:s');
+                $affected = Db::name('transfer_records')
+                    ->where('id', $id)
+                    ->where('tenant_id', (int)$currentRecord['tenant_id'])
+                    ->where('hotel_id', (int)$currentRecord['hotel_id'])
+                    ->whereNull('deleted_at')
+                    ->update([
+                        'deleted_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                if ((int)$affected <= 0) {
+                    throw new RuntimeException(self::TRANSFER_RECORD_SCOPE_MISSING);
+                }
+
+                return true;
+            });
+        } catch (Throwable $exception) {
+            if ($exception instanceof RuntimeException
+                && $exception->getMessage() === self::TRANSFER_RECORD_SCOPE_MISSING
+            ) {
+                throw $exception;
+            }
+            throw $this->transferRecordMigrationRequired($exception);
         }
-
-        return true;
     }
 
     public function buildExecutionIntentInput(array $record, array $overrides = []): array
@@ -728,9 +843,12 @@ class TransferDecisionService
         $readiness = is_array($record['decision_readiness'] ?? null)
             ? $record['decision_readiness']
             : $this->buildDecisionReadiness($recordType, $input, $result, $snapshot, $hotelId);
-        $date = date('Y-m-d');
-        $dateStart = trim((string)($overrides['date_start'] ?? '')) ?: $date;
-        $dateEnd = trim((string)($overrides['date_end'] ?? '')) ?: $dateStart;
+        $dateStart = array_key_exists('date_start', $overrides)
+            ? $this->normalizeTransferBusinessDate($overrides['date_start'])
+            : $this->transferBusinessToday();
+        $dateEnd = array_key_exists('date_end', $overrides)
+            ? $this->normalizeTransferBusinessDate($overrides['date_end'])
+            : $dateStart;
         $projectName = trim((string)($record['hotel_name'] ?? $snapshot['hotel_name'] ?? $input['hotel_name'] ?? ''));
         if ($projectName === '') {
             $projectName = 'transfer_record_' . (int)($record['id'] ?? 0);
@@ -761,6 +879,17 @@ class TransferDecisionService
             ],
             'evidence' => [
                 'record_type' => $recordType,
+                'source_snapshot_digest' => SourceBackedExecutionIntentIdentityService::snapshotDigest('transfer_decision', [
+                    'id' => (int)($record['id'] ?? 0),
+                    'hotel_id' => $hotelId,
+                    'record_type' => $recordType,
+                    'input' => $input,
+                    'result' => $result,
+                    'snapshot' => $snapshot,
+                    'decision' => (string)($record['decision'] ?? ''),
+                    'risk_level' => (string)($record['risk_level'] ?? ''),
+                    'source_date' => (string)($record['source_date'] ?? ''),
+                ]),
                 'readiness_stage' => (string)($readiness['stage'] ?? ''),
                 'readiness_score' => (int)($readiness['score'] ?? 0),
                 'source_scope' => (string)($readiness['source_scope'] ?? ''),
@@ -776,6 +905,32 @@ class TransferDecisionService
         ];
     }
 
+    /** @return array<string,mixed> raw, locked transfer_records row */
+    public function lockExecutionTrackingSource(int $id, array $hotelIds, int $expectedHotelId): array
+    {
+        $this->ensureTable();
+
+        return Db::transaction(function () use ($id, $hotelIds, $expectedHotelId): array {
+            $hotelIds = $this->normalizeTransferHotelIds($hotelIds);
+            if ($expectedHotelId <= 0 || !in_array($expectedHotelId, $hotelIds, true)) {
+                throw new RuntimeException(self::TRANSFER_RECORD_SCOPE_MISSING);
+            }
+
+            // Stable order for all bridge writers: lock current hotel identity, then source row.
+            $hotel = $this->lockedHotelIdentity($expectedHotelId, false);
+            $row = $this->currentTenantTransferRecordQuery([$expectedHotelId], $id)->lock(true)->find();
+            if (!is_array($row)
+                || (int)($row['id'] ?? 0) !== $id
+                || (int)($row['hotel_id'] ?? 0) !== $expectedHotelId
+                || (int)($row['tenant_id'] ?? 0) !== (int)$hotel['tenant_id']
+            ) {
+                throw new RuntimeException(self::TRANSFER_RECORD_SCOPE_MISSING);
+            }
+
+            return $row;
+        });
+    }
+
     public function attachExecutionTracking(int $id, array $hotelIds, int $userId, bool $isSuperAdmin, array $tracking): array
     {
         $this->ensureTable();
@@ -784,50 +939,72 @@ class TransferDecisionService
             throw new InvalidArgumentException('execution_intent_id is required');
         }
 
-        $query = Db::name('transfer_records')->where('id', $id)->whereNull('deleted_at')->whereIn('hotel_id', $hotelIds);
-        $row = $query->find();
-        if (!$row) {
-            throw new RuntimeException('转让记录不存在或无权访问');
+        $trackingHotelId = (int)($tracking['hotel_id'] ?? 0);
+        if ($trackingHotelId <= 0) {
+            throw new InvalidArgumentException('hotel_id is required for execution tracking');
         }
 
-        $result = $this->decodeJson($row['result_json'] ?? '');
-        $now = date('Y-m-d H:i:s');
-        $trackingPayload = [
-            'type' => 'operation_execution_intent',
-            'execution_intent_id' => $intentId,
-            'hotel_id' => (int)($tracking['hotel_id'] ?? $row['hotel_id'] ?? 0),
-            'status' => trim((string)($tracking['status'] ?? '')),
-            'source_module' => 'transfer_decision',
-            'linked_at' => $now,
-        ];
+        return Db::transaction(function () use (
+            $id,
+            $hotelIds,
+            $intentId,
+            $tracking,
+            $trackingHotelId
+        ): array {
+            // The source row lock serializes JSON-array appends and prevents lost updates.
+            $row = $this->lockExecutionTrackingSource($id, $hotelIds, $trackingHotelId);
+            $result = $this->decodeJson($row['result_json'] ?? '');
+            $now = date('Y-m-d H:i:s');
+            $trackingPayload = [
+                'type' => 'operation_execution_intent',
+                'execution_intent_id' => $intentId,
+                'hotel_id' => $trackingHotelId,
+                'status' => trim((string)($tracking['status'] ?? '')),
+                'source_module' => 'transfer_decision',
+                'linked_at' => $now,
+            ];
 
-        $existing = $result['execution_tracking'] ?? [];
-        if (!is_array($existing)) {
-            $existing = [];
-        }
-        if ($existing !== [] && array_keys($existing) !== range(0, count($existing) - 1)) {
-            $existing = [$existing];
-        }
-        $existing[] = $trackingPayload;
+            $existing = $result['execution_tracking'] ?? [];
+            if (!is_array($existing)) {
+                $existing = [];
+            }
+            if ($existing !== [] && array_keys($existing) !== range(0, count($existing) - 1)) {
+                $existing = [$existing];
+            }
+            foreach ($existing as $linked) {
+                if (is_array($linked) && (int)($linked['execution_intent_id'] ?? 0) === $intentId) {
+                    return $this->formatRecord($row, true);
+                }
+            }
+            $existing[] = $trackingPayload;
 
-        $result['execution_tracking'] = $existing;
-        $result['operation_execution_intent_id'] = $intentId;
-        $result['post_decision_tracking'] = [
-            'status' => 'linked',
-            'latest_execution_intent_id' => $intentId,
-            'latest_status' => $trackingPayload['status'],
-            'hotel_id' => $trackingPayload['hotel_id'],
-            'linked_at' => $now,
-        ];
+            $result['execution_tracking'] = $existing;
+            $result['operation_execution_intent_id'] = $intentId;
+            $result['post_decision_tracking'] = [
+                'status' => 'linked',
+                'latest_execution_intent_id' => $intentId,
+                'latest_status' => $trackingPayload['status'],
+                'hotel_id' => $trackingPayload['hotel_id'],
+                'linked_at' => $now,
+            ];
 
-        Db::name('transfer_records')->where('id', $id)->update([
-            'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
-            'updated_at' => $now,
-        ]);
+            $affected = Db::name('transfer_records')
+                ->where('id', $id)
+                ->where('tenant_id', (int)$row['tenant_id'])
+                ->where('hotel_id', $trackingHotelId)
+                ->whereNull('deleted_at')
+                ->update([
+                    'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
+                    'updated_at' => $now,
+                ]);
+            if ((int)$affected <= 0) {
+                throw new RuntimeException(self::TRANSFER_RECORD_SCOPE_MISSING);
+            }
 
-        $row['result_json'] = $result;
-        $row['updated_at'] = $now;
-        return $this->formatRecord($row, true);
+            $row['result_json'] = $result;
+            $row['updated_at'] = $now;
+            return $this->formatRecord($row, true);
+        });
     }
 
     public function ensureTable(): void
@@ -836,12 +1013,164 @@ class TransferDecisionService
             return;
         }
 
-        DatabaseSchemaRequirement::assertTableColumns('transfer_records', [
+        $this->assertTransferTableColumns('transfer_records', [
             'id', 'record_type', 'tenant_id', 'hotel_id', 'hotel_name', 'source_date',
             'input_json', 'result_json', 'snapshot_json', 'decision', 'risk_level',
             'created_by', 'created_at', 'updated_at', 'deleted_at',
         ]);
+        $this->assertTransferTableColumns('hotels', ['id', 'tenant_id']);
         $this->tableEnsured = true;
+    }
+
+    /** @return list<int> */
+    private function normalizeTransferHotelIds(array $hotelIds): array
+    {
+        return array_values(array_unique(array_filter(
+            array_map('intval', $hotelIds),
+            static fn(int $hotelId): bool => $hotelId > 0
+        )));
+    }
+
+    private function currentTenantTransferRecordQuery(array $hotelIds, ?int $recordId = null): mixed
+    {
+        $query = Db::name('transfer_records')
+            ->alias('transfer_record')
+            ->join(
+                'hotels transfer_hotel',
+                'transfer_hotel.id = transfer_record.hotel_id AND transfer_hotel.tenant_id = transfer_record.tenant_id'
+            )
+            ->whereNull('transfer_record.deleted_at')
+            ->whereIn('transfer_record.hotel_id', $hotelIds)
+            ->field('transfer_record.*');
+        if ($recordId !== null) {
+            $query->where('transfer_record.id', $recordId);
+        }
+        return $query;
+    }
+
+    /** @return array<string,mixed> */
+    private function lockedHotelIdentity(int $hotelId, bool $markSourceRead = true): array
+    {
+        if ($hotelId <= 0) {
+            throw new RuntimeException('Hotel scope is missing');
+        }
+        $this->assertTransferTableColumns('hotels', ['id', 'tenant_id']);
+
+        try {
+            $hotel = Db::name('hotels')->where('id', $hotelId)->lock(true)->find();
+        } catch (Throwable $exception) {
+            throw new RuntimeException('transfer_source_read_failed:hotels', 503, $exception);
+        }
+        if (!is_array($hotel) || (int)($hotel['id'] ?? 0) !== $hotelId) {
+            throw new RuntimeException('Hotel scope is missing');
+        }
+        if ((int)($hotel['tenant_id'] ?? 0) <= 0) {
+            throw new RuntimeException('Hotel tenant scope is missing');
+        }
+        if ($markSourceRead) {
+            $this->markSourceReadSuccess('hotels', 1);
+        }
+        return $hotel;
+    }
+
+    private function assertTransferSnapshotBinding(
+        array $input,
+        array $snapshot,
+        int $hotelId,
+        int $tenantId
+    ): void {
+        foreach ([
+            ['payload' => $input, 'path' => ['hotel_id']],
+            ['payload' => $input, 'path' => ['pricing', 'hotel_id']],
+            ['payload' => $input, 'path' => ['timing', 'hotel_id']],
+            ['payload' => $input, 'path' => ['metrics', 'hotel_id']],
+            ['payload' => $input, 'path' => ['pricing_input', 'hotel_id']],
+            ['payload' => $input, 'path' => ['timing_input', 'hotel_id']],
+            ['payload' => $snapshot, 'path' => ['hotel_id']],
+            ['payload' => $snapshot, 'path' => ['source_identity', 'hotel_id']],
+            ['payload' => $snapshot, 'path' => ['hotel_identity', 'hotel_id']],
+            ['payload' => $snapshot, 'path' => ['truth_context', 'scope', 'target_hotel_id']],
+        ] as $binding) {
+            $value = $this->transferScopeIdAtPath($binding['payload'], $binding['path']);
+            if ($value !== null && $value !== $hotelId) {
+                throw new InvalidArgumentException('transfer hotel scope mismatch');
+            }
+        }
+
+        foreach ([
+            ['tenant_id'],
+            ['source_identity', 'tenant_id'],
+            ['hotel_identity', 'tenant_id'],
+        ] as $path) {
+            $value = $this->transferScopeIdAtPath($snapshot, $path);
+            if ($value !== null && $value !== $tenantId) {
+                throw new InvalidArgumentException('transfer tenant scope mismatch');
+            }
+        }
+
+        foreach (['source_identity', 'hotel_identity'] as $identityKey) {
+            if (array_key_exists($identityKey, $snapshot) && !is_array($snapshot[$identityKey])) {
+                throw new InvalidArgumentException('transfer snapshot identity scope mismatch');
+            }
+        }
+    }
+
+    /** @param list<string> $path */
+    private function transferScopeIdAtPath(array $payload, array $path): ?int
+    {
+        $cursor = $payload;
+        foreach ($path as $index => $segment) {
+            if (!array_key_exists($segment, $cursor)) {
+                return null;
+            }
+            $value = $cursor[$segment];
+            if ($index < count($path) - 1) {
+                if (!is_array($value)) {
+                    throw new InvalidArgumentException('transfer snapshot identity scope mismatch');
+                }
+                $cursor = $value;
+                continue;
+            }
+
+            if (is_int($value) && $value > 0) {
+                return $value;
+            }
+            if (is_string($value) && ctype_digit($value) && (int)$value > 0) {
+                return (int)$value;
+            }
+            throw new InvalidArgumentException('transfer snapshot identity scope mismatch');
+        }
+        return null;
+    }
+
+    private function transferRecordMigrationRequired(Throwable $exception): RuntimeException
+    {
+        return new RuntimeException(self::TRANSFER_RECORD_MIGRATION_REQUIRED, 503, $exception);
+    }
+
+    /** @param list<string> $requiredColumns */
+    private function assertTransferTableColumns(string $table, array $requiredColumns): void
+    {
+        try {
+            // Force a live schema read. Long-running workers must not authorize
+            // tenant-scoped queries with ThinkORM's cached pre-migration shape.
+            $schema = Db::connect()->getSchemaInfo($table, true);
+            $actualColumns = array_map('strval', (array)($schema['fields'] ?? []));
+        } catch (Throwable $exception) {
+            throw new RuntimeException(sprintf(
+                'Database schema upgrade required: table "%s" is unavailable; run php think db:migrate.',
+                $table
+            ), 0, $exception);
+        }
+
+        $missing = array_values(array_diff($requiredColumns, $actualColumns));
+        if ($missing !== []) {
+            throw new RuntimeException(sprintf(
+                'Database schema upgrade required: table "%s" is missing columns [%s]; run php think db:migrate.',
+                $table,
+                implode(', ', $missing)
+            ));
+        }
     }
 
     private function readinessPricingResult(string $recordType, array $input, array $result): array
@@ -995,17 +1324,8 @@ class TransferDecisionService
 
     private function hasPostDecisionTracking(array $input, array $result): bool
     {
-        foreach ([$input, $result] as $payload) {
-            foreach (['operation_execution_intent_id', 'execution_intent_id', 'tracking_record_id', 'post_decision_tracking_id'] as $key) {
-                if ((int)($payload[$key] ?? 0) > 0) {
-                    return true;
-                }
-            }
-            if ($this->nullableBool($payload['post_decision_tracking'] ?? null) === true) {
-                return true;
-            }
-        }
-        return false;
+        return SourceBackedExecutionBridgeProjectionService::hasProjectedTracking($input)
+            || SourceBackedExecutionBridgeProjectionService::hasProjectedTracking($result);
     }
 
     private function decisionReadinessStage(
@@ -1584,16 +1904,26 @@ class TransferDecisionService
         return $summary;
     }
 
-    private function formatRecord(array $row, bool $withDetail): array
+    /** @param array<string,mixed>|null $projectionContext */
+    private function formatRecord(array $row, bool $withDetail, ?array $projectionContext = null): array
     {
         $input = $this->decodeJson($row['input_json'] ?? '');
         $result = $this->decodeJson($row['result_json'] ?? '');
+        $snapshot = $this->decodeJson($row['snapshot_json'] ?? '');
+        [$input, $result, $snapshot] = $this->executionBridgeProjection->trackingForResponses(
+            'transfer_decision',
+            [
+                ['source' => $row, 'payload' => $input],
+                ['source' => $row, 'payload' => $result],
+                ['source' => $row, 'payload' => $snapshot],
+            ],
+            $projectionContext
+        );
         if (is_array($result['ai_evaluation'] ?? null)) {
             $result['ai_evaluation'] = $this->normalizePricingAiEvaluation($result['ai_evaluation'], [
                 'decision_quality_context' => $this->transferDecisionQualityContext($input, $result),
             ]);
         }
-        $snapshot = $this->decodeJson($row['snapshot_json'] ?? '');
         $record = [
             'id' => (int)$row['id'],
             'record_type' => (string)($row['record_type'] ?? ''),
@@ -1668,18 +1998,32 @@ class TransferDecisionService
         return 'medium';
     }
 
-    private function dailyReportRows(array $hotelIds, string $startDate, string $endDate): array
+    private function dailyReportRows(
+        array $hotelIds,
+        string $startDate,
+        string $endDate,
+        ?int $expectedTenantId = null
+    ): array
     {
-        if (!$this->tableExists('daily_reports') || empty($hotelIds)) {
+        if (empty($hotelIds)) {
             return [];
         }
+        $this->assertTransferTableColumns('daily_reports', [
+            'tenant_id', 'hotel_id', 'report_date',
+        ]);
+        $this->assertTransferTableColumns('hotels', ['id', 'tenant_id']);
 
         try {
-            $rows = Db::name('daily_reports')
-                ->whereIn('hotel_id', $hotelIds)
-                ->whereBetween('report_date', [$startDate, $endDate])
-                ->select()
-                ->toArray();
+            $query = Db::name('daily_reports')
+                ->alias('transfer_daily')
+                ->join('hotels transfer_daily_hotel', 'transfer_daily_hotel.id = transfer_daily.hotel_id')
+                ->whereColumn('transfer_daily_hotel.tenant_id', 'transfer_daily.tenant_id')
+                ->whereIn('transfer_daily.hotel_id', $hotelIds)
+                ->whereBetween('transfer_daily.report_date', [$startDate, $endDate]);
+            if ($expectedTenantId !== null) {
+                $query->where('transfer_daily.tenant_id', $expectedTenantId);
+            }
+            $rows = $query->field('transfer_daily.*')->select()->toArray();
             $this->markSourceReadSuccess('daily_reports', count($rows));
             return $rows;
         } catch (Throwable $e) {
@@ -1687,37 +2031,36 @@ class TransferDecisionService
         }
     }
 
-    private function onlineRows(array $hotelIds, string $startDate, string $endDate): array
+    private function onlineRows(
+        array $hotelIds,
+        string $startDate,
+        string $endDate,
+        ?int $expectedTenantId = null
+    ): array
     {
-        if (!$this->tableExists('online_daily_data') || empty($hotelIds)) {
+        if (empty($hotelIds)) {
             return [];
         }
+        $this->assertTransferTableColumns('online_daily_data', [
+            'tenant_id', 'system_hotel_id', 'data_date',
+        ]);
+        $this->assertTransferTableColumns('hotels', ['id', 'tenant_id']);
 
         try {
-            $rows = Db::name('online_daily_data')
-                ->whereBetween('data_date', [$startDate, $endDate])
-                ->whereIn('system_hotel_id', array_map('intval', $hotelIds))
-                ->select()
-                ->toArray();
+            $query = Db::name('online_daily_data')
+                ->alias('transfer_online')
+                ->join('hotels transfer_online_hotel', 'transfer_online_hotel.id = transfer_online.system_hotel_id')
+                ->whereColumn('transfer_online_hotel.tenant_id', 'transfer_online.tenant_id')
+                ->whereBetween('transfer_online.data_date', [$startDate, $endDate])
+                ->whereIn('transfer_online.system_hotel_id', array_map('intval', $hotelIds));
+            if ($expectedTenantId !== null) {
+                $query->where('transfer_online.tenant_id', $expectedTenantId);
+            }
+            $rows = $query->field('transfer_online.*')->select()->toArray();
             $this->markSourceReadSuccess('online_daily_data', count($rows));
             return $rows;
         } catch (Throwable $e) {
             throw new RuntimeException('transfer_source_read_failed:online_daily_data', 503, $e);
-        }
-    }
-
-    private function hotelRow(int $hotelId): array
-    {
-        if ($hotelId <= 0 || !$this->tableExists('hotels')) {
-            return [];
-        }
-
-        try {
-            $row = Db::name('hotels')->where('id', $hotelId)->find();
-            $this->markSourceReadSuccess('hotels', is_array($row) ? 1 : 0);
-            return is_array($row) ? $row : [];
-        } catch (Throwable $e) {
-            throw new RuntimeException('transfer_source_read_failed:hotels', 503, $e);
         }
     }
 
@@ -2076,27 +2419,6 @@ class TransferDecisionService
 
         $decoded = json_decode((string)$value, true);
         return is_array($decoded) ? $decoded : [];
-    }
-
-    private function tableExists(string $table): bool
-    {
-        try {
-            $exists = !empty(Db::query("SHOW TABLES LIKE '{$table}'"));
-            $status = $this->sourceReadStatus[$table] ?? [
-                'query_count' => 0,
-                'row_count' => 0,
-            ];
-            $status['table_status'] = $exists ? 'available' : 'missing';
-            if (!$exists) {
-                $status['read_status'] = 'not_attempted';
-            } elseif ((int)($status['query_count'] ?? 0) === 0) {
-                $status['read_status'] = 'pending';
-            }
-            $this->sourceReadStatus[$table] = $status;
-            return $exists;
-        } catch (Throwable $e) {
-            throw new RuntimeException('transfer_source_schema_check_failed:' . $table, 503, $e);
-        }
     }
 
     private function markSourceReadSuccess(string $table, int $rowCount): void

@@ -275,6 +275,84 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
         self::assertFalse($badTrust['readback_verified']);
     }
 
+    public function testMismatchedSavedReadbackAndRowCountsCannotCreateAnchorAndRemainRecoverable(): void
+    {
+        $cases = [
+            ['2f000000-0000-4000-8000-000000000001', 0, 1, 18100, 28100],
+            ['2f000000-0000-4000-8000-000000000002', 2, 1, 18200, 28200],
+            ['2f000000-0000-4000-8000-000000000003', 1, 2, 18300, 28300],
+        ];
+
+        foreach ($cases as [$dispatcherRunId, $savedCount, $readbackCount, $taskBase, $rowBase]) {
+            $service = new HotelCollectionRunReceiptService();
+            $service->begin($this->gate($dispatcherRunId, true));
+            $ctrip = $this->platformResult(
+                $dispatcherRunId,
+                'ctrip',
+                self::CTRIP_SOURCE_ID,
+                $taskBase + 1,
+                [$rowBase + 1],
+                true,
+                true,
+                $savedCount,
+                $readbackCount
+            );
+            $meituan = $this->platformResult(
+                $dispatcherRunId,
+                'meituan',
+                self::MEITUAN_SOURCE_ID,
+                $taskBase + 2,
+                [$rowBase + 2],
+                true,
+                true,
+                1,
+                1
+            );
+            $this->seedResultEvidence($ctrip);
+            $this->seedResultEvidence($meituan);
+
+            $recorded = $service->recordPlatformResults(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                [$ctrip, $meituan]
+            );
+            $recordedSources = array_column($recorded['source_receipts'], null, 'platform');
+            self::assertSame('partial', $recordedSources['ctrip']['status']);
+            self::assertFalse($recordedSources['ctrip']['readback_verified']);
+
+            $incomplete = $service->finalizeCollection(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                $this->exactReceipt($dispatcherRunId, [$ctrip, $meituan], [], true),
+                true
+            );
+            self::assertNotSame('succeeded', $incomplete['status']);
+            self::assertNull($incomplete['collection_anchor_hash']);
+            self::assertNull($incomplete['trust_receipt_digest']);
+
+            $correctedCtrip = $ctrip;
+            $correctedCtrip['saved_count'] = 1;
+            $correctedCtrip['readback_count'] = 1;
+            $service->recordPlatformResults(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                [$correctedCtrip]
+            );
+            $recovered = $service->finalizeCollection(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                $this->exactReceipt($dispatcherRunId, [$correctedCtrip, $meituan], [], true),
+                true
+            );
+            self::assertSame('succeeded', $recovered['status']);
+            self::assertTrue($recovered['readback_verified']);
+        }
+    }
+
     public function testPageAndPmsPublicReadbackHideInconsistentSidecarEvidence(): void
     {
         $dispatcherRunId = '11111111-1111-4111-8111-111111111117';
@@ -557,6 +635,59 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
         );
         self::assertSame($after, $this->parent($dispatcherRunId));
         self::assertSame($childrenBefore, $this->children((int)$before['id']));
+    }
+
+    public function testPmsPublicReceiptRevalidatesThePersistedCaptureScopeAndQuality(): void
+    {
+        $dispatcherRunId = '2f000000-0000-4000-8000-000000000004';
+        $prepared = $this->prepareDualSuccess(
+            $dispatcherRunId,
+            18400,
+            28400,
+            'dingdandao_pms'
+        );
+        $service = $prepared['service'];
+        $service->finalizeCollection(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            $prepared['receipt'],
+            true
+        );
+        $this->seedPmsCapture(8301);
+        $service->recordPmsCapture(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            'dingdandao_pms',
+            8301
+        );
+
+        Db::name('dingdandao_operating_target_captures')
+            ->where('id', 8301)
+            ->update([
+                'tenant_id' => 999,
+                'hotel_id' => 81,
+                'business_date' => '2026-08-08',
+                'identity_status' => 'mismatched',
+                'capture_status' => 'readback_failed',
+                'quality_status' => 'collection_failed',
+                'reconciliation_status' => 'mismatched',
+                'readback_status' => 'readback_failed',
+            ]);
+
+        $readback = $service->readExact(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertSame('conflict', $readback['pms_receipt']['status']);
+        self::assertFalse($readback['pms_receipt']['readback_verified']);
+        self::assertNull($readback['pms_receipt']['provider']);
+        self::assertNull($readback['pms_receipt']['capture_id']);
+        self::assertSame('pms_capture_evidence_drifted', $readback['pms_receipt']['reason_code']);
+        self::assertSame('succeeded', $readback['status']);
+        self::assertTrue($readback['readback_verified']);
     }
 
     public function testPmsCaptureRejectsProviderScopeAndReadbackDriftWithoutMutation(): void
@@ -1986,7 +2117,7 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
             'hotel_id' => $logHotelId ?? self::HOTEL_ID,
             'module' => $module,
             'action' => $action,
-            'description' => 'dual_ota_page:v1:'
+            'description' => DualOtaPageVerificationService::DESCRIPTION_PREFIX
                 . self::BUSINESS_DATE
                 . ':'
                 . $contractHash,

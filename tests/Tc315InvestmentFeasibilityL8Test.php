@@ -348,12 +348,20 @@ final class Tc315InvestmentFeasibilityL8Test extends TestCase
             ],
         ];
 
-        return (new BusinessClosureOverviewService())->buildOverviewFromSignals(
+        $overview = (new BusinessClosureOverviewService())->buildOverviewFromSignals(
             $signals,
             ['total' => 2, 'roi_ready' => $evidenceReady ? 1 : 0],
             $dataGaps,
             $p0Gate
         );
+        $overview['operating_loop'] = [
+            'authoritative_state' => $evidenceReady && $upstreamSuccess ? 'completed' : 'not_started',
+            'readback_verified' => $evidenceReady && $upstreamSuccess,
+            'kernel_id' => $evidenceReady && $upstreamSuccess ? 315 : null,
+            'revision' => $evidenceReady && $upstreamSuccess ? 8 : 0,
+        ];
+
+        return $overview;
     }
 
     /** @return array<string, array<string, mixed>> */

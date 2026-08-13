@@ -146,8 +146,7 @@ class Opening extends Base
             }
 
             $hotelIds = $this->hotelScope();
-            $overview = $this->service->overview($id, $hotelIds, $this->currentUserId(), $this->isSuperAdmin());
-            $project = is_array($overview['project'] ?? null) ? $overview['project'] : [];
+            $project = $this->service->requireProject($id, $hotelIds, $this->currentUserId(), $this->isSuperAdmin());
             $hotelId = (int)($project['hotel_id'] ?? 0);
             if ($hotelId <= 0) {
                 return $this->error('opening project must bind a hotel before execution tracking', 422);
@@ -155,18 +154,21 @@ class Opening extends Base
             if (!in_array($hotelId, array_values(array_map('intval', $hotelIds)), true)) {
                 return $this->error('hotel_id is not permitted', 403);
             }
-            if ((int)($project['execution_intent_id'] ?? 0) > 0) {
-                return $this->error('opening project already linked to execution intent', 409);
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'operation.execute',
+                'operation.execute permission is required for this hotel'
+            )) !== null) {
+                return $denied;
             }
-
             $userId = $this->currentUserId();
-            $result = Db::transaction(function () use ($project, $overview, $hotelIds, $hotelId, $userId): array {
+            $result = Db::transaction(function () use ($project, $id, $hotelIds, $hotelId, $userId): array {
                 $operationService = new OperationManagementService();
-                $input = $this->service->buildExecutionIntentInput($project, $overview, [
+                $input = $this->service->currentExecutionIntentInput($id, $hotelIds, $userId, $this->isSuperAdmin(), [
                     'date_start' => (string)$this->request->param('date_start', ''),
                     'date_end' => (string)$this->request->param('date_end', ''),
                 ]);
-                $intent = $operationService->createExecutionIntent($hotelIds, $hotelId, $input, $userId);
+                $intent = $operationService->createExecutionIntent($hotelIds, $hotelId, $input, $userId, false, null, true);
 
                 return [
                     'execution_intent' => $intent,

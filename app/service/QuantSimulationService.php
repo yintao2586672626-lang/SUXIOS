@@ -18,11 +18,14 @@ class QuantSimulationService
         $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
     }
 
-    public function calculateAndSave(array $payload, int $userId): array
+    public function calculateAndSave(array $payload, int $userId, array $permittedHotelIds = []): array
     {
         $this->ensureTable();
 
         $input = $this->normalizeInput($payload['input'] ?? $payload);
+        $hotelId = $this->resolvePersistedHotelId($payload, $userId, $permittedHotelIds);
+        $input['hotel_id'] = $hotelId;
+        $input['system_hotel_id'] = $hotelId;
         $projectName = trim((string)($payload['project_name'] ?? $payload['projectName'] ?? '量化模拟项目'));
         if ($projectName === '') {
             $projectName = '量化模拟项目';
@@ -582,6 +585,73 @@ class QuantSimulationService
         ];
     }
 
+    /**
+     * The hotel is part of the persisted simulation source identity. It may be
+     * selected by the caller only when that selection is already in the
+     * authenticated actor's permitted scope; it is never supplied later by an
+     * execution-intent request.
+     *
+     * @param array<string, mixed> $payload
+     * @param array<int, int|string> $permittedHotelIds
+     */
+    private function resolvePersistedHotelId(array $payload, int $userId, array $permittedHotelIds): int
+    {
+        $rawInput = is_array($payload['input'] ?? null) ? $payload['input'] : $payload;
+        $candidates = array_values(array_unique(array_filter([
+            (int)($rawInput['hotel_id'] ?? 0),
+            (int)($rawInput['system_hotel_id'] ?? 0),
+            (int)($payload['hotel_id'] ?? 0),
+            (int)($payload['system_hotel_id'] ?? 0),
+        ], static fn(int $hotelId): bool => $hotelId > 0)));
+
+        $userRow = $userId > 0
+            ? Db::name('users')->where('id', $userId)->field('tenant_id,hotel_id')->find()
+            : null;
+        $userTenantId = is_array($userRow) ? (int)($userRow['tenant_id'] ?? 0) : 0;
+        $primaryHotelId = is_array($userRow) ? (int)($userRow['hotel_id'] ?? 0) : 0;
+        $permittedHotelIds = array_values(array_unique(array_filter(
+            array_map('intval', $permittedHotelIds),
+            static fn(int $hotelId): bool => $hotelId > 0
+        )));
+        if ($candidates === []) {
+            if (count($permittedHotelIds) === 1) {
+                $candidates = [$permittedHotelIds[0]];
+            } elseif ($permittedHotelIds === [] && $primaryHotelId > 0) {
+                $candidates = [$primaryHotelId];
+            }
+        }
+        if ($candidates === []) {
+            throw new \InvalidArgumentException('hotel_id is required for a scoped quant simulation');
+        }
+        if (count($candidates) !== 1) {
+            throw new \InvalidArgumentException('quant simulation source hotel scope conflict');
+        }
+
+        $hotelId = $candidates[0];
+        if ($permittedHotelIds !== [] && !in_array($hotelId, $permittedHotelIds, true)) {
+            throw new \InvalidArgumentException('hotel_id is not permitted for quant simulation');
+        }
+        if ($permittedHotelIds === [] && $primaryHotelId > 0 && $primaryHotelId !== $hotelId) {
+            throw new \InvalidArgumentException('hotel_id is not permitted for quant simulation');
+        }
+        if ($userTenantId <= 0) {
+            throw new \InvalidArgumentException('quant simulation tenant scope cannot be resolved');
+        }
+
+        try {
+            $hotelTenantId = (int)(Db::name('hotels')->where('id', $hotelId)->value('tenant_id') ?? 0);
+            if ($hotelTenantId <= 0 || $hotelTenantId !== $userTenantId) {
+                throw new \InvalidArgumentException('quant simulation hotel tenant scope mismatch');
+            }
+        } catch (\InvalidArgumentException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new \InvalidArgumentException('quant simulation hotel scope cannot be verified', 0, $e);
+        }
+
+        return $hotelId;
+    }
+
     private function normalizeInput(array $raw): array
     {
         $this->requireNumericAlias($raw, ['roomCount', 'room_count'], 'roomCount', false);
@@ -838,7 +908,7 @@ class QuantSimulationService
             $result['modelAnalysis'] ?? $result['model_analysis'] ?? [],
             ['decision_quality_context' => $this->quantDecisionQualityContext($input, $result, $scenarios, $riskHints)]
         );
-        $truthContext = $this->quantRecordTruthContext($row);
+        $truthContext = $this->quantRecordTruthContext($row, $input);
         $metricTruth = $this->quantMetricTruth($result, $truthContext);
         $resultNumber = static function (string $key) use ($result): ?float {
             if (!array_key_exists($key, $result) || !is_numeric($result[$key])) {
@@ -849,6 +919,7 @@ class QuantSimulationService
         };
         $record = [
             'id' => (int)$row['id'],
+            '_execution_source_tenant_id' => (int)($row['tenant_id'] ?? 0),
             'project_name' => (string)($row['project_name'] ?? ''),
             'monthly_net_cashflow' => $resultNumber('monthlyNetCashflow'),
             'payback_months' => $row['payback_months'] === null ? null : (float)$row['payback_months'],
@@ -897,9 +968,10 @@ class QuantSimulationService
     }
 
     /** @return array<string, mixed> */
-    private function quantRecordTruthContext(array $row): array
+    private function quantRecordTruthContext(array $row, array $input): array
     {
         $recordId = (int)($row['id'] ?? 0);
+        $hotelId = (int)($input['hotel_id'] ?? $input['system_hotel_id'] ?? 0);
         $createdAt = trim((string)($row['created_at'] ?? ''));
         $date = preg_match('/^\d{4}-\d{2}-\d{2}/', $createdAt) === 1
             ? substr($createdAt, 0, 10)
@@ -910,8 +982,8 @@ class QuantSimulationService
             'status_label' => '未验证',
             'metric_scope' => 'investment_scenario',
             'scope_label' => '投资情景测算，不是OTA数据，也不是全酒店经营实绩',
-            'hotels' => [],
-            'hotel_id' => null,
+            'hotels' => $hotelId > 0 ? [['system_hotel_id' => $hotelId]] : [],
+            'hotel_id' => $hotelId > 0 ? $hotelId : null,
             'platforms' => ['not_applicable'],
             'date_range' => ['start' => $date, 'end' => $date],
             'source_methods' => ['user_input', 'deterministic_formula'],
@@ -931,7 +1003,7 @@ class QuantSimulationService
                 'stored_count' => $recordId > 0 ? 1 : 0,
                 'readback_verified_count' => $recordId > 0 ? 1 : 0,
             ],
-            'failure_reason' => '输入为人工录入且未提供可核验经营或财务来源；记录未绑定目标门店，不能作为真实经营或OTA数据。',
+            'failure_reason' => '输入为人工录入且未提供可核验经营或财务来源；即使已绑定目标门店，也不能作为真实经营或OTA数据。',
             'data_gaps' => [
                 'target_hotel_missing',
                 'user_input_source_unverified',

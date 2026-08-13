@@ -77,14 +77,19 @@ final class OperatingMemoryService
             return $this->missingMigrationResult();
         }
 
-        $query = Db::name(self::TABLE)
-            ->whereIn('hotel_id', $hotelIds)
-            ->whereNull('deleted_at');
+        $hotelIds = $this->currentTenantHotelIds($callerTenantId, $hotelIds, $hotelId);
+
+        $query = Db::name(self::TABLE)->alias('memory')
+            ->join('hotels hotel', 'hotel.id = memory.hotel_id AND hotel.tenant_id = memory.tenant_id')
+            ->field('memory.*')
+            ->whereIn('memory.hotel_id', $hotelIds)
+            ->whereNull('memory.deleted_at');
         if ($callerTenantId > 0) {
-            $query->where('tenant_id', $callerTenantId);
+            $query->where('memory.tenant_id', $callerTenantId)
+                ->where('hotel.tenant_id', $callerTenantId);
         }
         if ($hotelId !== null) {
-            $query->where('hotel_id', $hotelId);
+            $query->where('memory.hotel_id', $hotelId);
         }
 
         foreach ([
@@ -99,12 +104,13 @@ final class OperatingMemoryService
             if (!in_array($value, $allowed, true)) {
                 throw new InvalidArgumentException('经营记忆筛选条件无效：' . $field);
             }
-            $query->where($field, $value);
+            $query->where('memory.' . $field, $value);
         }
 
+        $matchedTotal = (int)(clone $query)->count('memory.id');
         $rows = $query
-            ->order('occurred_at', 'desc')
-            ->order('id', 'desc')
+            ->order('memory.occurred_at', 'desc')
+            ->order('memory.id', 'desc')
             ->limit(100)
             ->select()
             ->toArray();
@@ -113,6 +119,9 @@ final class OperatingMemoryService
             'data_status' => 'ok',
             'list' => array_map([$this, 'normalizeRow'], $rows),
             'count' => count($rows),
+            'matched_total' => $matchedTotal,
+            'returned_count' => count($rows),
+            'truncated' => $matchedTotal > count($rows),
             'supported_layers' => self::MEMORY_LAYERS,
             'supported_usage_levels' => self::USAGE_LEVELS,
             'data_gaps' => [],
@@ -143,6 +152,7 @@ final class OperatingMemoryService
             $missing['supported_event_kinds'] = self::GROWTH_EVENT_KINDS;
             return $missing;
         }
+        $hotelIds = $this->currentTenantHotelIds($callerTenantId, $hotelIds, $hotelId);
 
         $dateStart = $this->optionalDate($filters['date_start'] ?? null, '开始日期');
         $dateEnd = $this->optionalDate($filters['date_end'] ?? null, '结束日期');
@@ -158,43 +168,40 @@ final class OperatingMemoryService
             throw new InvalidArgumentException('经营成长档案筛选条件无效：event_kind');
         }
 
-        $query = Db::name(self::TABLE)
-            ->where('hotel_id', $hotelId)
-            ->whereNull('deleted_at');
+        $query = Db::name(self::TABLE)->alias('memory')
+            ->join('hotels hotel', 'hotel.id = memory.hotel_id AND hotel.tenant_id = memory.tenant_id')
+            ->field('memory.*')
+            ->where('memory.hotel_id', $hotelId)
+            ->whereNull('memory.deleted_at');
         if ($callerTenantId > 0) {
-            $query->where('tenant_id', $callerTenantId);
+            $query->where('memory.tenant_id', $callerTenantId)
+                ->where('hotel.tenant_id', $callerTenantId);
         }
         if ($dateStart !== null) {
-            $query->where('business_date', '>=', $dateStart);
+            $query->where('memory.business_date', '>=', $dateStart);
         }
         if ($dateEnd !== null) {
-            $query->where('business_date', '<=', $dateEnd);
+            $query->where('memory.business_date', '<=', $dateEnd);
         }
         if ($layer !== '') {
-            $query->where('memory_layer', $layer);
+            $query->where('memory.memory_layer', $layer);
         }
         $includeVersions = filter_var($filters['include_versions'] ?? false, FILTER_VALIDATE_BOOL);
         if (!$includeVersions) {
-            $query->where('lifecycle_status', 'active');
+            $query->where('memory.lifecycle_status', 'active');
+        }
+        if ($eventKind !== '') {
+            $this->applyGrowthEventKindFilter($query, $eventKind);
         }
 
+        $matchedTotal = (int)(clone $query)->count('memory.id');
         $rows = $query
-            ->order('occurred_at', 'desc')
-            ->order('id', 'desc')
-            ->limit(500)
+            ->order('memory.occurred_at', 'desc')
+            ->order('memory.id', 'desc')
+            ->limit(100)
             ->select()
             ->toArray();
-        $timeline = [];
-        foreach ($rows as $row) {
-            $normalized = $this->normalizeGrowthRow($row);
-            if ($eventKind !== '' && (string)$normalized['event_kind'] !== $eventKind) {
-                continue;
-            }
-            $timeline[] = $normalized;
-            if (count($timeline) >= 100) {
-                break;
-            }
-        }
+        $timeline = array_map([$this, 'normalizeGrowthRow'], $rows);
 
         $reviewed = 0;
         $observing = 0;
@@ -217,6 +224,9 @@ final class OperatingMemoryService
             'date_end' => $dateEnd,
             'list' => $timeline,
             'count' => count($timeline),
+            'matched_total' => $matchedTotal,
+            'returned_count' => count($timeline),
+            'truncated' => $matchedTotal > count($timeline),
             'overview' => [
                 'archive_count' => count($timeline),
                 'completed_review_count' => $reviewed,
@@ -499,12 +509,19 @@ final class OperatingMemoryService
         if ($hotelIds === []) {
             throw new RuntimeException('operating memory not found');
         }
-        $query = Db::name(self::TABLE)
-            ->where('id', $id)
-            ->whereIn('hotel_id', $hotelIds)
-            ->whereNull('deleted_at');
+        $hotelIds = $this->currentTenantHotelIds($callerTenantId, $hotelIds);
+        if ($hotelIds === []) {
+            throw new RuntimeException('operating memory not found in the current tenant scope');
+        }
+        $query = Db::name(self::TABLE)->alias('memory')
+            ->join('hotels hotel', 'hotel.id = memory.hotel_id AND hotel.tenant_id = memory.tenant_id')
+            ->field('memory.*')
+            ->where('memory.id', $id)
+            ->whereIn('memory.hotel_id', $hotelIds)
+            ->whereNull('memory.deleted_at');
         if ($callerTenantId > 0) {
-            $query->where('tenant_id', $callerTenantId);
+            $query->where('memory.tenant_id', $callerTenantId)
+                ->where('hotel.tenant_id', $callerTenantId);
         }
         $row = $query->find();
         if (!is_array($row)) {
@@ -544,28 +561,15 @@ final class OperatingMemoryService
         $intent = $this->operationService->readExecutionIntent($intentId, $hotelIds);
         $this->assertExecutionIdentity($task, $intent, $hotelIds, $callerTenantId);
 
-        if (strtolower(trim((string)($intent['source_module'] ?? ''))) === 'canonical_ota_investigation'
-            || strtolower(trim((string)($task['execution_mode'] ?? ''))) === 'analysis_only'
-            || strtolower(trim((string)($intent['status'] ?? ''))) === 'system_authorized_analysis'
-        ) {
-            throw new InvalidArgumentException('system-authorized analysis task cannot become an operating memory');
-        }
-
-        if (strtolower(trim((string)($task['status'] ?? ''))) !== 'executed') {
-            throw new InvalidArgumentException('只有已执行并完成复盘的任务才能沉淀经营记忆');
-        }
-        $reviewStatus = strtolower(trim((string)($task['result_status'] ?? '')));
-        $reviewSummary = trim((string)($task['result_summary'] ?? ''));
-        if (!in_array($reviewStatus, ['observing', 'success', 'near_success', 'failed'], true)
-            || $reviewSummary === ''
-        ) {
-            throw new InvalidArgumentException('请先保存复盘结论，再沉淀经营记忆');
-        }
+        $this->assertExecutionReviewReady($task, $intent);
 
         $record = $this->buildExecutionReviewRecord($task, $intent, $recordedBy);
-        $write = $this->convergeIdempotentWrite($record, function () use ($record): array {
-            return Db::transaction(function () use ($record): array {
-                $writeRecord = $record;
+        $write = $this->convergeIdempotentWrite($record, function () use ($record, $taskId, $hotelIds): array {
+            return $this->operationService->withExecutionTaskMutationAuthorization(
+                $taskId,
+                $hotelIds,
+                function (array $authorization) use ($record, $hotelIds): array {
+                $writeRecord = $this->authorizedExecutionReviewRecord($authorization, $record, $hotelIds);
                 $sameContent = Db::name(self::TABLE)
                     ->where('tenant_id', (int)$writeRecord['tenant_id'])
                     ->where('hotel_id', (int)$writeRecord['hotel_id'])
@@ -607,7 +611,24 @@ final class OperatingMemoryService
                 }
 
                 return ['id' => $id, 'created' => true];
-            });
+                }
+            );
+        }, function (array $existing) use ($record, $taskId, $hotelIds): array {
+            return $this->operationService->withExecutionTaskMutationAuthorization(
+                $taskId,
+                $hotelIds,
+                function (array $authorization) use ($existing, $record, $hotelIds): array {
+                    $lockedRecord = $this->authorizedExecutionReviewRecord($authorization, $record, $hotelIds);
+                    foreach (['tenant_id', 'hotel_id', 'memory_key', 'content_digest'] as $field) {
+                        if ((string)($existing[$field] ?? '') !== (string)$lockedRecord[$field]) {
+                            throw new RuntimeException(
+                                'idempotent operating memory no longer matches the current execution task'
+                            );
+                        }
+                    }
+                    return ['id' => (int)$existing['id'], 'created' => false];
+                }
+            );
         });
         $memoryId = (int)$write['id'];
         $created = (bool)$write['created'];
@@ -808,6 +829,50 @@ final class OperatingMemoryService
         }
     }
 
+    /** @param array<string, mixed> $task @param array<string, mixed> $intent */
+    private function assertExecutionReviewReady(array $task, array $intent): void
+    {
+        if (strtolower(trim((string)($intent['source_module'] ?? ''))) === 'canonical_ota_investigation'
+            || strtolower(trim((string)($task['execution_mode'] ?? ''))) === 'analysis_only'
+            || strtolower(trim((string)($intent['status'] ?? ''))) === 'system_authorized_analysis'
+        ) {
+            throw new InvalidArgumentException('system-authorized analysis task cannot become an operating memory');
+        }
+        if (strtolower(trim((string)($task['status'] ?? ''))) !== 'executed') {
+            throw new InvalidArgumentException('只有已执行并完成复盘的任务才能沉淀经营记忆');
+        }
+        $reviewStatus = strtolower(trim((string)($task['result_status'] ?? '')));
+        if (!in_array($reviewStatus, ['observing', 'success', 'near_success', 'failed'], true)
+            || trim((string)($task['result_summary'] ?? '')) === ''
+        ) {
+            throw new InvalidArgumentException('请先保存复盘结论，再沉淀经营记忆');
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $authorization
+     * @param array<string, mixed> $expected
+     * @param list<int> $hotelIds
+     * @return array<string, mixed>
+     */
+    private function authorizedExecutionReviewRecord(
+        array $authorization,
+        array $expected,
+        array $hotelIds
+    ): array {
+        $task = is_array($authorization['task'] ?? null) ? $authorization['task'] : [];
+        $intent = is_array($authorization['intent'] ?? null) ? $authorization['intent'] : [];
+        $this->assertExecutionIdentity($task, $intent, $hotelIds, (int)$expected['tenant_id']);
+        $this->assertExecutionReviewReady($task, $intent);
+        $record = $this->buildExecutionReviewRecord($task, $intent, (int)$expected['recorded_by']);
+        foreach (['tenant_id', 'hotel_id', 'memory_key', 'content_digest'] as $field) {
+            if ((string)$record[$field] !== (string)$expected[$field]) {
+                throw new InvalidArgumentException('execution task changed; refresh before saving operating memory');
+            }
+        }
+        return $record;
+    }
+
     /** @return array<string, mixed> */
     private function normalizeRow(array $row): array
     {
@@ -852,6 +917,29 @@ final class OperatingMemoryService
     }
 
     /**
+     * Apply the normalized event-kind semantics in SQL so pagination is over
+     * matches, not over an unrelated pre-filtered window.
+     */
+    private function applyGrowthEventKindFilter(object $query, string $eventKind): void
+    {
+        $driver = strtolower((string)Db::connect()->getConfig('type'));
+        $jsonEvent = $driver === 'sqlite'
+            ? "LOWER(TRIM(COALESCE(CASE WHEN json_valid(memory.context_json) "
+                . "THEN json_extract(memory.context_json, '$.event_kind') ELSE '' END, '')))"
+            : "LOWER(TRIM(COALESCE(CASE WHEN JSON_VALID(memory.context_json) "
+                . "THEN JSON_UNQUOTE(JSON_EXTRACT(memory.context_json, '$.event_kind')) ELSE '' END, '')))";
+        $validKinds = "'fact','analysis','judgement','decision','execution','review','milestone','manual_background'";
+        $fallback = "CASE memory.memory_layer "
+            . "WHEN 'fact' THEN 'fact' WHEN 'analysis' THEN 'analysis' WHEN 'sop' THEN 'analysis' "
+            . "WHEN 'judgement' THEN 'judgement' WHEN 'decision' THEN 'decision' "
+            . "WHEN 'execution_review' THEN 'review' WHEN 'milestone' THEN 'milestone' ELSE 'analysis' END";
+        $normalized = "CASE WHEN {$jsonEvent} IN ({$validKinds}) THEN {$jsonEvent} ELSE {$fallback} END";
+        $query->whereRaw("{$normalized} = :growth_event_kind", [
+            'growth_event_kind' => $eventKind,
+        ]);
+    }
+
+    /**
      * @param list<int> $hotelIds
      * @param array<string, mixed> $record
      * @param array<string, mixed> $expected
@@ -867,11 +955,36 @@ final class OperatingMemoryService
         if (!$this->tableExists()) {
             throw new RuntimeException('经营记忆功能尚未启用：请先执行数据库迁移');
         }
-        $write = $this->convergeIdempotentWrite(
-            $record,
-            function () use ($record, $supersedePreviousVersion): array {
-                return Db::transaction(function () use ($record, $supersedePreviousVersion): array {
+        $hotelIds = $this->normalizeHotelIds($hotelIds);
+        $result = null;
+        for ($attempt = 1; $attempt <= self::IDEMPOTENCY_WRITE_ATTEMPTS; $attempt++) {
+            try {
+                $result = Db::transaction(function () use (
+                    $record,
+                    $callerTenantId,
+                    $hotelIds,
+                    $expected,
+                    $supersedePreviousVersion
+                ): array {
                     $writeRecord = $record;
+                    $this->lockGrowthHotelScope($writeRecord, $callerTenantId, $hotelIds);
+
+                    $sourceRecordId = (int)($writeRecord['source_record_id'] ?? 0);
+                    if ((string)($writeRecord['source_record_type'] ?? '') === 'hotel_operating_memory'
+                        && $sourceRecordId > 0
+                    ) {
+                        $parent = Db::name(self::TABLE)
+                            ->where('id', $sourceRecordId)
+                            ->where('tenant_id', (int)$writeRecord['tenant_id'])
+                            ->where('hotel_id', (int)$writeRecord['hotel_id'])
+                            ->whereNull('deleted_at')
+                            ->lock(true)
+                            ->find();
+                        if (!is_array($parent)) {
+                            throw new RuntimeException('growth archive parent is unavailable in the current tenant scope');
+                        }
+                    }
+
                     $duplicate = Db::name(self::TABLE)
                         ->where('tenant_id', (int)$writeRecord['tenant_id'])
                         ->where('hotel_id', (int)$writeRecord['hotel_id'])
@@ -880,8 +993,16 @@ final class OperatingMemoryService
                         ->lock(true)
                         ->find();
                     if (is_array($duplicate)) {
-                        return ['id' => (int)$duplicate['id'], 'created' => false];
+                        if (!hash_equals(
+                            (string)$writeRecord['content_digest'],
+                            (string)($duplicate['content_digest'] ?? '')
+                        )) {
+                            throw new RuntimeException('growth archive idempotency key conflicts with different content');
+                        }
+                        $memory = $this->assertGrowthReadback($duplicate, $writeRecord, $expected);
+                        return ['memory' => $memory, 'created' => false];
                     }
+
                     $previous = null;
                     if ($supersedePreviousVersion) {
                         $previous = Db::name(self::TABLE)
@@ -899,47 +1020,57 @@ final class OperatingMemoryService
                             $writeRecord['previous_memory_id'] = (int)$previous['id'];
                         }
                     }
-                    $id = (int)Db::name(self::TABLE)->insertGetId($writeRecord);
-                    if ($id <= 0) {
+
+                    $memoryId = (int)Db::name(self::TABLE)->insertGetId($writeRecord);
+                    if ($memoryId <= 0) {
                         throw new RuntimeException('经营成长档案保存失败：未取得记录ID');
                     }
                     if (is_array($previous)) {
-                        Db::name(self::TABLE)
+                        $updated = Db::name(self::TABLE)
                             ->where('id', (int)$previous['id'])
                             ->where('tenant_id', (int)$writeRecord['tenant_id'])
                             ->where('hotel_id', (int)$writeRecord['hotel_id'])
+                            ->where('lifecycle_status', 'active')
                             ->update([
                                 'lifecycle_status' => 'superseded',
                                 'updated_at' => date('Y-m-d H:i:s'),
                             ]);
+                        if ($updated !== 1) {
+                            throw new RuntimeException('growth archive supersede did not update the locked version');
+                        }
                     }
-                    return ['id' => $id, 'created' => true];
-                });
-            }
-        );
-        $memoryId = (int)$write['id'];
-        $created = (bool)$write['created'];
 
-        $memory = $this->normalizeGrowthRow($this->read($memoryId, $callerTenantId, $hotelIds));
-        foreach ($expected as $field => $value) {
-            $actual = $field === 'event_kind'
-                ? ($memory['event_kind'] ?? null)
-                : ($memory[$field] ?? null);
-            if ((string)$actual !== (string)$value) {
-                throw new RuntimeException('经营成长档案已写入但严格回读校验失败：' . $field);
+                    $readback = Db::name(self::TABLE)
+                        ->where('id', $memoryId)
+                        ->where('tenant_id', (int)$writeRecord['tenant_id'])
+                        ->where('hotel_id', (int)$writeRecord['hotel_id'])
+                        ->where('memory_key', (string)$writeRecord['memory_key'])
+                        ->where('content_digest', (string)$writeRecord['content_digest'])
+                        ->whereNull('deleted_at')
+                        ->find();
+                    if (!is_array($readback)) {
+                        throw new RuntimeException('经营成长档案已写入但严格回读校验失败');
+                    }
+                    $memory = $this->assertGrowthReadback($readback, $writeRecord, $expected);
+                    return ['memory' => $memory, 'created' => true];
+                });
+                break;
+            } catch (\Throwable $exception) {
+                if ($this->idempotencyConflictKind($exception) === null
+                    || $attempt >= self::IDEMPOTENCY_WRITE_ATTEMPTS
+                ) {
+                    throw $exception;
+                }
+                usleep(self::IDEMPOTENCY_RETRY_DELAY_MICROSECONDS * $attempt);
             }
         }
-        if ((int)($memory['id'] ?? 0) !== $memoryId
-            || (int)($memory['tenant_id'] ?? 0) !== (int)$record['tenant_id']
-            || (int)($memory['hotel_id'] ?? 0) !== (int)$record['hotel_id']
-            || (string)($memory['content_digest'] ?? '') !== (string)$record['content_digest']
-        ) {
-            throw new RuntimeException('经营成长档案已写入但严格回读校验失败');
+        if (!is_array($result) || !is_array($result['memory'] ?? null)) {
+            throw new RuntimeException('经营成长档案保存失败：并发写入未收敛');
         }
 
         return [
-            'memory' => $memory,
-            'created' => $created,
+            'memory' => $result['memory'],
+            'created' => (bool)$result['created'],
             'persistence_status' => 'readback_verified',
             'write_boundaries' => [
                 'ota_write' => false,
@@ -948,20 +1079,70 @@ final class OperatingMemoryService
         ];
     }
 
+    /** @param array<string,mixed> $record @param list<int> $hotelIds */
+    private function lockGrowthHotelScope(array $record, int $callerTenantId, array $hotelIds): void
+    {
+        $hotelId = (int)($record['hotel_id'] ?? 0);
+        $tenantId = (int)($record['tenant_id'] ?? 0);
+        if ($hotelId <= 0 || $tenantId <= 0 || !in_array($hotelId, $hotelIds, true)) {
+            throw new RuntimeException('growth archive write is outside the permitted hotel scope');
+        }
+        $hotel = Db::name('hotels')->where('id', $hotelId)->lock(true)->find();
+        if (!is_array($hotel)
+            || (int)($hotel['tenant_id'] ?? 0) !== $tenantId
+            || ($callerTenantId > 0 && $callerTenantId !== $tenantId)
+        ) {
+            throw new RuntimeException('growth archive hotel is unavailable in the current tenant scope');
+        }
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $record
+     * @param array<string,mixed> $expected
+     * @return array<string,mixed>
+     */
+    private function assertGrowthReadback(array $row, array $record, array $expected): array
+    {
+        $memory = $this->normalizeGrowthRow($row);
+        foreach ($expected as $field => $value) {
+            $actual = $field === 'event_kind' ? ($memory['event_kind'] ?? null) : ($memory[$field] ?? null);
+            if ((string)$actual !== (string)$value) {
+                throw new RuntimeException('经营成长档案已写入但严格回读校验失败：' . $field);
+            }
+        }
+        if ((int)($memory['id'] ?? 0) <= 0
+            || (int)($memory['tenant_id'] ?? 0) !== (int)$record['tenant_id']
+            || (int)($memory['hotel_id'] ?? 0) !== (int)$record['hotel_id']
+            || (string)($memory['memory_key'] ?? '') !== (string)$record['memory_key']
+            || (string)($memory['content_digest'] ?? '') !== (string)$record['content_digest']
+        ) {
+            throw new RuntimeException('经营成长档案已写入但严格回读校验失败');
+        }
+        return $memory;
+    }
+
     /**
      * Converge only known idempotency races. Every recovery read happens after
      * Db::transaction has rolled back, and is scoped to the exact unique key.
      *
      * @param array<string, mixed> $record
      * @param callable():array{id:int,created:bool} $transactionWrite
+     * @param null|callable(array<string,mixed>):array{id:int,created:bool} $authorizeExisting
      * @return array{id:int,created:bool}
      */
-    private function convergeIdempotentWrite(array $record, callable $transactionWrite): array
+    private function convergeIdempotentWrite(
+        array $record,
+        callable $transactionWrite,
+        ?callable $authorizeExisting = null
+    ): array
     {
         for ($attempt = 1; $attempt <= self::IDEMPOTENCY_WRITE_ATTEMPTS; $attempt++) {
             $existing = $this->findIdempotentRecord($record);
             if (is_array($existing)) {
-                return ['id' => (int)$existing['id'], 'created' => false];
+                return $authorizeExisting !== null
+                    ? $authorizeExisting($existing)
+                    : ['id' => (int)$existing['id'], 'created' => false];
             }
 
             try {
@@ -978,7 +1159,9 @@ final class OperatingMemoryService
 
                 $winner = $this->awaitIdempotentRecord($record);
                 if (is_array($winner)) {
-                    return ['id' => (int)$winner['id'], 'created' => false];
+                    return $authorizeExisting !== null
+                        ? $authorizeExisting($winner)
+                        : ['id' => (int)$winner['id'], 'created' => false];
                 }
                 if ($attempt >= self::IDEMPOTENCY_WRITE_ATTEMPTS) {
                     throw $exception;
@@ -1239,6 +1422,9 @@ final class OperatingMemoryService
             'data_status' => 'migration_required',
             'list' => [],
             'count' => 0,
+            'matched_total' => 0,
+            'returned_count' => 0,
+            'truncated' => false,
             'supported_layers' => self::MEMORY_LAYERS,
             'supported_usage_levels' => self::USAGE_LEVELS,
             'data_gaps' => [[
@@ -1256,6 +1442,27 @@ final class OperatingMemoryService
             array_map('intval', $hotelIds),
             static fn(int $id): bool => $id > 0
         )));
+    }
+
+    /** @param list<int> $hotelIds @return list<int> */
+    private function currentTenantHotelIds(
+        int $callerTenantId,
+        array $hotelIds,
+        ?int $requiredHotelId = null
+    ): array {
+        try {
+            $query = Db::name('hotels')->whereIn('id', $hotelIds);
+            if ($callerTenantId > 0) {
+                $query->where('tenant_id', $callerTenantId);
+            }
+            $currentHotelIds = $this->normalizeHotelIds($query->column('id'));
+        } catch (\Throwable) {
+            throw new RuntimeException('current hotel tenant scope is unavailable');
+        }
+        if ($requiredHotelId !== null && !in_array($requiredHotelId, $currentHotelIds, true)) {
+            throw new RuntimeException('operating memory not found in the current tenant scope');
+        }
+        return $currentHotelIds;
     }
 
     private function qualityStatus(array $truthContext): string

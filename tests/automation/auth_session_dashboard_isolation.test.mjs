@@ -275,7 +275,7 @@ test('no-hotel accounts see a concise Chinese Ctrip and Meituan preview with a h
   assert.deepEqual(unverifiedScope, []);
   assert.deepEqual(nonEmptyScope, []);
   assert.deepEqual(visibleWithArrayPermissions[0].children.map(item => item.name), ['概览', '携程采集']);
-  assert.match(source, /sourcePath: 'online-data',[\s\S]*sourceTab: 'data-health',[\s\S]*name: '昨日经营闭环'/);
+  assert.match(source, /sourcePath: 'online-data',[\s\S]*sourceTab: 'data-health',[\s\S]*name: '数据质量与回读'/);
   assert.match(onlineDataTemplate, /v-else-if="coreOperationsHasVerifiedNoHotel" data-testid="core-operations-no-hotel-onboarding"/);
   assert.match(onlineDataTemplate, /携程、美团数据已开放/);
   assert.match(onlineDataTemplate, /<b>携程：<\/b>/);
@@ -484,6 +484,7 @@ test('a delayed active-only hotel response cannot overwrite the newer management
     ),
     readRequestCache: () => false,
     writeRequestCache: (cache, key) => cache.set(key, true),
+    loadHotelAutomationLifecycles: async () => ({}),
     request,
     dedupeHotels: items => items,
     showToast: () => {},
@@ -539,6 +540,7 @@ test('a current hotel load promotes an in-flight prewarm without losing the snap
     currentHotelListScope: () => 'all-active',
     readRequestCache: () => false,
     writeRequestCache: () => {},
+    loadHotelAutomationLifecycles: async () => ({}),
     request: (_url, options) => {
       requestPolicies.push(options.requestPolicy);
       return network.promise;

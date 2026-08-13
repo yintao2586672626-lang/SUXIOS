@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\HotelScopeService;
+use app\service\OperatingNetworkService;
+use app\service\OperatingQuestionAiAnswerService;
+use app\service\OperatingQuestionExecutionBridgeService;
 use app\service\OperatingQuestionService;
 use app\service\OperatingSopService;
 use InvalidArgumentException;
@@ -15,14 +18,22 @@ use Throwable;
 final class OperatingIntelligence extends Base
 {
     private OperatingQuestionService $questionService;
+    private OperatingQuestionExecutionBridgeService $questionExecutionBridge;
     private OperatingSopService $sopService;
+    private OperatingNetworkService $networkService;
     private HotelScopeService $hotelScope;
 
     public function __construct(\think\App $app)
     {
         parent::__construct($app);
-        $this->questionService = new OperatingQuestionService();
+        $aiAnswerService = new OperatingQuestionAiAnswerService();
+        $this->questionService = new OperatingQuestionService(
+            null,
+            static fn(array $payload): array => $aiAnswerService->generate($payload)
+        );
+        $this->questionExecutionBridge = new OperatingQuestionExecutionBridgeService($this->questionService);
         $this->sopService = new OperatingSopService();
+        $this->networkService = new OperatingNetworkService();
         $this->hotelScope = new HotelScopeService();
     }
 
@@ -38,7 +49,8 @@ final class OperatingIntelligence extends Base
                 (string)($input['platform'] ?? ''),
                 (string)($input['date_start'] ?? ''),
                 (string)($input['date_end'] ?? ''),
-                (int)($this->currentUser->id ?? 0)
+                (int)($this->currentUser->id ?? 0),
+                (string)($input['model_key'] ?? 'deepseek_v4_default')
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '经营问题保存失败'), $this->status($e));
@@ -75,6 +87,21 @@ final class OperatingIntelligence extends Base
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '经营问题回读失败'), $this->status($e));
+        }
+    }
+
+    public function createQuestionExecutionIntent(int $id, int $actionIndex): Response
+    {
+        try {
+            return $this->success($this->questionExecutionBridge->createIntent(
+                $id,
+                $actionIndex,
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.execute'),
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '经营问答行动草案提交失败'), $this->status($e));
         }
     }
 
@@ -155,7 +182,8 @@ final class OperatingIntelligence extends Base
                 (int)$source['tenant_id'],
                 $hotelIds,
                 (int)($input['target_hotel_id'] ?? 0),
-                (int)($this->currentUser->id ?? 0)
+                (int)($this->currentUser->id ?? 0),
+                $input
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '跨店复制草稿保存失败'), $this->status($e));
@@ -172,6 +200,107 @@ final class OperatingIntelligence extends Base
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '跨店复制草稿回读失败'), $this->status($e));
+        }
+    }
+
+    public function operatingNetwork(): Response
+    {
+        try {
+            $hotelIds = $this->accessibleHotels('operation.view');
+            $hotelId = (int)$this->request->param('hotel_id', 0);
+            if ($hotelId <= 0 || !in_array($hotelId, $hotelIds, true)) {
+                throw new RuntimeException('请选择可访问的单个酒店');
+            }
+            return $this->success($this->networkService->overview(
+                $this->tenantForHotel($hotelId),
+                $hotelId,
+                $hotelIds
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '经营复制网络读取失败'), $this->status($e));
+        }
+    }
+
+    public function previewOperatingProfile(): Response
+    {
+        try {
+            $hotelIds = $this->accessibleHotels('operation.view');
+            $hotelId = (int)$this->request->param('hotel_id', 0);
+            if ($hotelId <= 0 || !in_array($hotelId, $hotelIds, true)) {
+                throw new RuntimeException('请选择可访问的单个酒店');
+            }
+            return $this->success($this->networkService->previewProfileDraft(
+                $this->tenantForHotel($hotelId),
+                $hotelId,
+                $hotelIds
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '经营画像待核验草稿预览生成失败'), $this->status($e));
+        }
+    }
+
+    public function saveOperatingProfile(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelId, $tenantId] = $this->resolveHotel((int)($input['hotel_id'] ?? 0), 'operation.execute');
+            return $this->success($this->networkService->saveProfile(
+                $tenantId,
+                $hotelId,
+                $input,
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '酒店经营画像保存失败'), $this->status($e));
+        }
+    }
+
+    public function reviewReplication(int $id): Response
+    {
+        try {
+            $hotelIds = $this->accessibleHotels('operation.execute');
+            $replication = $this->sopService->readReplication($id, 0, $hotelIds);
+            return $this->success($this->networkService->recordReplicationReview(
+                $id,
+                (int)$replication['tenant_id'],
+                $hotelIds,
+                $this->requestData(),
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '复制复盘保存失败'), $this->status($e));
+        }
+    }
+
+    public function createReplicationExecutionIntent(int $id): Response
+    {
+        try {
+            $hotelIds = $this->accessibleHotels('operation.execute');
+            $replication = $this->sopService->readReplication($id, 0, $hotelIds);
+            return $this->success($this->networkService->createReplicationExecutionIntent(
+                $id,
+                (int)$replication['tenant_id'],
+                $hotelIds,
+                $this->requestData(),
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '复制验证待审批任务创建失败'), $this->status($e));
+        }
+    }
+
+    public function replicationReviews(int $id): Response
+    {
+        try {
+            $hotelIds = $this->accessibleHotels('operation.view');
+            $replication = $this->sopService->readReplication($id, 0, $hotelIds);
+            return $this->success($this->networkService->listReplicationReviews(
+                $id,
+                (int)$replication['tenant_id'],
+                $hotelIds
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '复制复盘读取失败'), $this->status($e));
         }
     }
 

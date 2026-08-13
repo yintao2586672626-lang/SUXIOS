@@ -10,9 +10,9 @@ use think\facade\Db;
 
 /**
  * Persists one hotel-scoped operating question and the exact saved evidence
- * used to answer it. The MVP is deliberately deterministic: it reads local
- * persisted facts, memories, Agent diagnoses, knowledge and execution reviews;
- * it does not call an external model, write OTA data, or send a message.
+ * used to answer it. A deterministic evidence answer is always built first;
+ * an optional grounded AI generator may explain that same packet without
+ * changing scope or gaining any write capability.
  */
 final class OperatingQuestionService
 {
@@ -25,10 +25,44 @@ final class OperatingQuestionService
     /** @var list<string> */
     private const ALL_OTA_REQUIRED_PLATFORMS = ['ctrip', 'meituan'];
 
+    /** @var list<string> */
+    private const FACT_METRIC_FIELDS = [
+        'amount',
+        'quantity',
+        'book_order_num',
+        'comment_score',
+        'qunar_comment_score',
+        'data_value',
+        'list_exposure',
+        'detail_exposure',
+        'flow_rate',
+        'order_filling_num',
+        'order_submit_num',
+    ];
+
+    /** @var array<string,string> */
+    private const FACT_METRIC_UNITS = [
+        'amount' => 'currency_amount_currency_unspecified',
+        'quantity' => 'count',
+        'book_order_num' => 'order_count',
+        'comment_score' => 'score',
+        'qunar_comment_score' => 'score',
+        'data_value' => 'source_defined_value',
+        'list_exposure' => 'exposure_count',
+        'detail_exposure' => 'exposure_count',
+        'flow_rate' => 'source_defined_rate',
+        'order_filling_num' => 'order_count',
+        'order_submit_num' => 'order_count',
+    ];
+
     /**
      * @param null|Closure(int,int,string,string,string,string):array<string,mixed> $evidenceLoader
+     * @param null|Closure(array<string,mixed>):array<string,mixed> $answerGenerator
      */
-    public function __construct(private readonly ?Closure $evidenceLoader = null)
+    public function __construct(
+        private readonly ?Closure $evidenceLoader = null,
+        private readonly ?Closure $answerGenerator = null
+    )
     {
     }
 
@@ -40,7 +74,8 @@ final class OperatingQuestionService
         string $platform,
         string $dateStart,
         string $dateEnd,
-        int $createdBy
+        int $createdBy,
+        string $modelKey = 'deepseek_v4_default'
     ): array {
         $this->assertTableReady();
         $this->assertHotelIdentity($tenantId, $hotelId);
@@ -51,13 +86,14 @@ final class OperatingQuestionService
         $platform = $this->normalizePlatform($platform);
         $dateStart = $this->date($dateStart, '开始日期');
         $dateEnd = $this->date($dateEnd, '结束日期');
+        $modelKey = $this->modelKey($modelKey);
         if ($dateEnd < $dateStart) {
             throw new InvalidArgumentException('结束日期不能早于开始日期');
         }
 
         $evidence = $this->evidenceLoader !== null
             ? ($this->evidenceLoader)($tenantId, $hotelId, $platform, $dateStart, $dateEnd, $question)
-            : $this->loadEvidence($tenantId, $hotelId, $platform, $dateStart, $dateEnd, $question);
+            : $this->loadEvidence($tenantId, $hotelId, $platform, $dateStart, $dateEnd, $question, $createdBy);
         $evidence = $this->normalizeEvidence($evidence);
         $facts = array_values(array_filter($evidence['facts'], static function (array $fact) use ($platform): bool {
             $factPlatform = strtolower(trim((string)($fact['platform'] ?? '')));
@@ -90,7 +126,7 @@ final class OperatingQuestionService
         $requiredDates = $this->dateRange($dateStart, $dateEnd);
         $factCount = $platform === 'all_ota'
             ? array_sum(array_intersect_key($factPlatformCounts, array_fill_keys(self::ALL_OTA_REQUIRED_PLATFORMS, true)))
-            : max(count($facts), (int)($evidence['fact_count'] ?? 0));
+            : (count($facts) > 0 ? max(count($facts), (int)($evidence['fact_count'] ?? 0)) : 0);
         $missingFactPlatforms = $platform === 'all_ota'
             ? array_values(array_filter(self::ALL_OTA_REQUIRED_PLATFORMS, static function (string $requiredPlatform) use (
                 $factPlatformCounts,
@@ -100,6 +136,9 @@ final class OperatingQuestionService
                 $dates = $factPlatformDates[$requiredPlatform] ?? [];
                 return (int)($factPlatformCounts[$requiredPlatform] ?? 0) <= 0 || $dates !== $requiredDates;
             }))
+            : [];
+        $missingFactDates = $platform !== 'all_ota'
+            ? array_values(array_diff($requiredDates, $factPlatformDates[$platform] ?? []))
             : [];
 
         $answerStatus = 'blocked_by_missing_facts';
@@ -117,6 +156,16 @@ final class OperatingQuestionService
                     'missing_platforms' => self::ALL_OTA_REQUIRED_PLATFORMS,
                 ];
             }
+        } elseif ($platform !== 'all_ota' && $missingFactDates !== []) {
+            $answerSummary = sprintf(
+                '已读取部分%s严格回读事实，但请求日期范围并未逐日覆盖，不能代表完整日期范围生成经营结论。',
+                $this->platformLabel($platform)
+            );
+            $dataGaps[] = [
+                'code' => 'platform_date_fact_coverage_missing',
+                'message' => '单渠道日期范围问题必须在请求范围内逐日具备严格回读事实。',
+                'missing_dates' => $missingFactDates,
+            ];
         } elseif ($platform === 'all_ota' && $missingFactPlatforms !== []) {
             $answerSummary = sprintf(
                 '已读取部分 OTA 严格回读事实，但缺少%s同酒店、同日期范围的事实，不能形成全渠道经营结论。',
@@ -166,9 +215,33 @@ final class OperatingQuestionService
 
         $factRefs = $this->refs($facts);
         $memoryRefs = $this->refs($evidence['memories']);
-        $knowledgeRefs = $this->refs($evidence['knowledge']);
+        $knowledgeResources = array_slice($evidence['knowledge'], 0, 5);
+        $knowledgeRefs = $this->refs($knowledgeResources);
+        $knowledgeUnitRefs = array_values(array_unique(array_filter(array_map(
+            static fn(array $item): string => trim((string)($item['unit_ref'] ?? '')),
+            $knowledgeResources
+        ), static fn(string $ref): bool => preg_match('/^knowledge_units#[1-9][0-9]*$/D', $ref) === 1)));
+        $knowledgeRetrieval = is_array($evidence['knowledge_retrieval'] ?? null)
+            ? $evidence['knowledge_retrieval']
+            : [
+                'status' => $knowledgeResources === [] ? 'no_match' : 'matched',
+                'method' => 'provided_evidence',
+                'matched_count' => count($knowledgeResources),
+                'returned_count' => count($knowledgeResources),
+                'excluded_count' => 0,
+                'reason' => '',
+            ];
         $executionRefs = $this->refs($evidence['executions']);
         $diagnosisRefs = $this->refs($diagnoses);
+        $recoveryPlan = $this->buildRecoveryPlan(
+            $answerStatus,
+            $hotelId,
+            $platform,
+            $dateStart,
+            $dateEnd,
+            $requiredDates,
+            $factPlatformDates
+        );
         $answer = [
             'contract_version' => self::CONTRACT_VERSION,
             'mode' => 'deterministic_saved_evidence',
@@ -189,19 +262,86 @@ final class OperatingQuestionService
                 'fact_platform_dates' => $factPlatformDates,
                 'operating_memories' => count($memoryRefs),
                 'saved_agent_diagnoses' => count($diagnosisRefs),
-                'knowledge_units' => count($knowledgeRefs),
+                'knowledge_units' => count($knowledgeUnitRefs),
+                'knowledge_chunks' => count($knowledgeRefs),
                 'execution_reviews' => count($executionRefs),
             ],
-            'fact_samples' => array_slice($facts, 0, 12),
+            // The AI layer independently proves substantive per-day/platform
+            // coverage from this exact packet. Keep enough rows for the normal
+            // bounded range instead of silently validating against rows the
+            // model never receives.
+            'fact_samples' => array_slice($facts, 0, 40),
             'diagnosis_refs' => $diagnosisRefs,
+            'knowledge_retrieval' => $knowledgeRetrieval,
+            'knowledge_resources' => $knowledgeResources,
+            'action_drafts' => [],
             'data_gaps' => $dataGaps,
+            'recovery_plan' => $recoveryPlan,
             'boundaries' => [
                 'external_llm_called' => false,
+                'llm_attempted' => false,
                 'ota_write' => false,
                 'external_message' => false,
                 'automatic_execution' => false,
             ],
         ];
+        // Only the already accepted platform facts and current exact diagnoses
+        // may enter the model context; rejected rows remain excluded even when
+        // a custom evidence loader supplied them.
+        $evidence['facts'] = $facts;
+        $evidence['diagnoses'] = $diagnoses;
+        $evidence['knowledge'] = $knowledgeResources;
+        $evidence['knowledge_retrieval'] = $knowledgeRetrieval;
+        $deterministicDigest = $this->digest([
+            'question' => $question,
+            'answer' => $answer,
+            'fact_refs' => $factRefs,
+            'memory_refs' => $memoryRefs,
+            'knowledge_refs' => $knowledgeRefs,
+            'execution_refs' => $executionRefs,
+        ]);
+        $requestKey = 'operating-question:v3:' . substr($this->digest([
+            $tenantId,
+            $hotelId,
+            $platform,
+            $dateStart,
+            $dateEnd,
+            $question,
+            $modelKey,
+            OperatingQuestionAiAnswerService::PROMPT_VERSION,
+            OperatingQuestionAiAnswerService::ACTION_DRAFT_CONTRACT_VERSION,
+            $deterministicDigest,
+        ]), 0, 48);
+        $existing = Db::name(self::TABLE)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('request_key', $requestKey)
+            ->whereNull('deleted_at')
+            ->find();
+        if (is_array($existing)) {
+            $questionRow = $this->read((int)$existing['id'], $tenantId, [$hotelId]);
+            return [
+                'question' => $questionRow,
+                'created' => false,
+                'persistence_status' => 'readback_verified',
+                'write_boundaries' => $this->writeBoundaries($questionRow),
+            ];
+        }
+
+        $answer = $this->applyAiAnswer(
+            $answer,
+            $evidence,
+            $question,
+            $tenantId,
+            $hotelId,
+            $platform,
+            $dateStart,
+            $dateEnd,
+            $createdBy,
+            $modelKey
+        );
+        $answerStatus = (string)$answer['status'];
+        $answerSummary = (string)$answer['summary'];
         $digest = $this->digest([
             'question' => $question,
             'answer' => $answer,
@@ -210,23 +350,20 @@ final class OperatingQuestionService
             'knowledge_refs' => $knowledgeRefs,
             'execution_refs' => $executionRefs,
         ]);
-        $requestKey = 'operating-question:' . substr($this->digest([
-            $tenantId, $hotelId, $platform, $dateStart, $dateEnd, $question, $digest,
-        ]), 0, 48);
-
-        $existing = Db::name(self::TABLE)
-            ->where('tenant_id', $tenantId)
-            ->where('hotel_id', $hotelId)
-            ->where('request_key', $requestKey)
-            ->whereNull('deleted_at')
-            ->find();
+        if ((string)($answer['ai_runtime']['status'] ?? '') === 'model_unavailable') {
+            // Preserve the failed attempt for audit, but never let a transient
+            // provider failure occupy the permanent successful idempotency key.
+            $requestKey = 'operating-question:attempt:' . substr($this->digest([
+                $requestKey,
+                $digest,
+                microtime(true),
+                bin2hex(random_bytes(8)),
+            ]), 0, 48);
+        }
         $created = false;
-        if (is_array($existing)) {
-            $id = (int)$existing['id'];
-        } else {
-            $now = date('Y-m-d H:i:s');
-            try {
-                $id = (int)Db::name(self::TABLE)->insertGetId([
+        $now = date('Y-m-d H:i:s');
+        try {
+            $id = (int)Db::name(self::TABLE)->insertGetId([
                     'tenant_id' => $tenantId,
                     'hotel_id' => $hotelId,
                     'request_key' => $requestKey,
@@ -247,32 +384,32 @@ final class OperatingQuestionService
                     'created_at' => $now,
                     'updated_at' => $now,
                     'deleted_at' => null,
-                ]);
-                if ($id <= 0) {
-                    throw new RuntimeException('经营问题保存失败：未取得记录ID');
-                }
-                $created = true;
-            } catch (\Throwable $e) {
-                // A double click or retry may race with the same unique request.
-                // Recover by reading that exact scoped row; unrelated failures
-                // still surface unchanged.
-                $concurrent = Db::name(self::TABLE)
-                    ->where('tenant_id', $tenantId)
-                    ->where('hotel_id', $hotelId)
-                    ->where('request_key', $requestKey)
-                    ->whereNull('deleted_at')
-                    ->find();
-                if (!is_array($concurrent)) {
-                    throw $e;
-                }
-                $id = (int)$concurrent['id'];
+            ]);
+            if ($id <= 0) {
+                throw new RuntimeException('经营问题保存失败：未取得记录ID');
             }
+            $created = true;
+        } catch (\Throwable $e) {
+            // A double click or retry may race with the same stable request.
+            // The first exact saved/read-back answer wins; a later model sample
+            // is never allowed to create a duplicate or overwrite it.
+            $concurrent = Db::name(self::TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('request_key', $requestKey)
+                ->whereNull('deleted_at')
+                ->find();
+            if (!is_array($concurrent)) {
+                throw $e;
+            }
+            $id = (int)$concurrent['id'];
         }
 
         $questionRow = $this->read($id, $tenantId, [$hotelId]);
         if ((int)$questionRow['hotel_id'] !== $hotelId
-            || (string)$questionRow['content_digest'] !== $digest
             || (string)$questionRow['question_text'] !== $question
+            || (string)($questionRow['request_key'] ?? '') !== $requestKey
+            || ($created && (string)$questionRow['content_digest'] !== $digest)
         ) {
             throw new RuntimeException('经营问题已写入但严格回读校验失败');
         }
@@ -281,7 +418,7 @@ final class OperatingQuestionService
             'question' => $questionRow,
             'created' => $created,
             'persistence_status' => 'readback_verified',
-            'write_boundaries' => $answer['boundaries'],
+            'write_boundaries' => $this->writeBoundaries($questionRow),
         ];
     }
 
@@ -350,8 +487,15 @@ final class OperatingQuestionService
         string $platform,
         string $dateStart,
         string $dateEnd,
-        string $question
+        string $question,
+        int $createdBy
     ): array {
+        $knowledge = (new OperatingQuestionKnowledgeRetrievalService())->retrieve(
+            $hotelId,
+            max(0, $createdBy),
+            $platform,
+            $question
+        );
         return [
             'facts' => $this->loadFacts($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_count' => $this->factCount($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
@@ -359,20 +503,82 @@ final class OperatingQuestionService
             'fact_platform_dates' => $this->factPlatformDates($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'memories' => $this->loadMemories($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'diagnoses' => $this->loadDiagnoses($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
-            'knowledge' => $this->loadKnowledge($hotelId, $question),
+            'knowledge' => is_array($knowledge['items'] ?? null) ? $knowledge['items'] : [],
+            'knowledge_retrieval' => array_diff_key($knowledge, ['items' => true]),
             'executions' => $this->loadExecutions($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
         ];
     }
 
-    /** @return list<array<string,mixed>> */
-    private function loadFacts(int $tenantId, int $hotelId, string $platform, string $dateStart, string $dateEnd): array
+    /**
+     * Re-read the exact fact rows behind an action before it enters approval.
+     * The normal fact query reapplies tenant, hotel, platform, business-date,
+     * history, validation and readback gates; invalid or out-of-scope refs are
+     * therefore returned as missing rather than trusted from the saved answer.
+     *
+     * @param list<string> $refs
+     * @return list<array<string,mixed>>
+     */
+    public function readCurrentVerifiedFactsForRefs(
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $dateStart,
+        string $dateEnd,
+        array $refs
+    ): array {
+        $this->assertHotelIdentity($tenantId, $hotelId);
+        $platform = $this->normalizePlatform($platform);
+        $dateStart = $this->date($dateStart, '开始日期');
+        $dateEnd = $this->date($dateEnd, '结束日期');
+        if ($dateEnd < $dateStart) {
+            return [];
+        }
+        $ids = [];
+        foreach (array_values(array_unique(array_map('strval', $refs))) as $ref) {
+            if (preg_match('/^online_daily_data#([1-9][0-9]*)$/D', trim($ref), $matches) !== 1) {
+                return [];
+            }
+            $ids[] = (int)$matches[1];
+        }
+        $ids = array_values(array_unique(array_filter($ids, static fn(int $id): bool => $id > 0)));
+        if ($ids === [] || count($ids) > 40) {
+            return [];
+        }
+        return $this->loadFacts($tenantId, $hotelId, $platform, $dateStart, $dateEnd, $ids);
+    }
+
+    /** @param list<int> $factIds @return list<array<string,mixed>> */
+    private function loadFacts(
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $dateStart,
+        string $dateEnd,
+        array $factIds = []
+    ): array
     {
         if (!$this->tableExists('online_daily_data')) {
             return [];
         }
         $query = $this->factQuery($tenantId, $hotelId, $platform, $dateStart, $dateEnd);
+        if ($factIds !== []) {
+            $query->whereIn('id', $factIds);
+        }
+        $fields = [
+            'id', 'data_date', 'platform', 'source', 'data_type', 'dimension',
+            'validation_status', 'history_status', 'readback_verified', 'readback_verified_at',
+            'ingestion_method', 'source_trace_id',
+        ];
+        foreach (self::FACT_METRIC_FIELDS as $metricField) {
+            if ($this->columnExists('online_daily_data', $metricField)) {
+                $fields[] = $metricField;
+            }
+        }
+        if ($this->columnExists('online_daily_data', 'raw_data')) {
+            $fields[] = 'raw_data';
+        }
         $rows = $query
-            ->field('id,data_date,platform,source,data_type,dimension,validation_status,history_status,readback_verified,readback_verified_at,ingestion_method,source_trace_id')
+            ->field(implode(',', $fields))
             ->order('data_date', 'desc')
             ->order('id', 'desc')
             ->limit(40)
@@ -382,6 +588,31 @@ final class OperatingQuestionService
             $rowPlatform = strtolower(trim((string)($row['platform'] ?? '')));
             if ($rowPlatform === '') {
                 $rowPlatform = strtolower(trim((string)($row['source'] ?? '')));
+            }
+            $metricValues = [];
+            $metricUnits = [];
+            $observedMetricFields = self::observedMetricFields($row['raw_data'] ?? null);
+            foreach (self::FACT_METRIC_FIELDS as $metricField) {
+                $value = $row[$metricField] ?? null;
+                if ($value === null || $value === '' || !is_numeric($value)) {
+                    continue;
+                }
+                // Production metric columns historically default to zero. A
+                // zero is usable only when field_facts proves that exact
+                // storage field came from the source payload. For older rows
+                // without field_facts, only non-zero stored values are kept.
+                if ($observedMetricFields !== null) {
+                    if (!isset($observedMetricFields[$metricField])) {
+                        continue;
+                    }
+                } elseif ((float)$value === 0.0) {
+                    continue;
+                }
+                $metricValues[$metricField] = in_array($metricField, [
+                    'quantity', 'book_order_num', 'list_exposure', 'detail_exposure',
+                    'order_filling_num', 'order_submit_num',
+                ], true) ? (int)$value : (float)$value;
+                $metricUnits[$metricField] = self::FACT_METRIC_UNITS[$metricField] ?? 'source_defined_value';
             }
             return [
                 'ref' => 'online_daily_data#' . (int)$row['id'],
@@ -395,8 +626,54 @@ final class OperatingQuestionService
                 'readback_verified_at' => $row['readback_verified_at'] ?? null,
                 'ingestion_method' => (string)($row['ingestion_method'] ?? ''),
                 'source_trace_id' => (string)($row['source_trace_id'] ?? ''),
+                'metric_values' => $metricValues,
+                'metric_units' => $metricUnits,
             ];
         }, $rows);
+    }
+
+    /**
+     * Return null when no field-fact contract exists; otherwise return the
+     * exact online_daily_data metric columns proven as captured and persisted.
+     *
+     * @return array<string,true>|null
+     */
+    private static function observedMetricFields(mixed $rawData): ?array
+    {
+        if (is_string($rawData)) {
+            $decoded = json_decode($rawData, true);
+        } elseif (is_array($rawData)) {
+            $decoded = $rawData;
+        } else {
+            $decoded = null;
+        }
+        if (!is_array($decoded) || !array_key_exists('field_facts', $decoded) || !is_array($decoded['field_facts'])) {
+            return null;
+        }
+
+        $allowed = array_fill_keys(self::FACT_METRIC_FIELDS, true);
+        $observed = [];
+        foreach ($decoded['field_facts'] as $fact) {
+            if (!is_array($fact) || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured') {
+                continue;
+            }
+            $storedValuePresent = $fact['stored_value_present'] ?? null;
+            if ($storedValuePresent !== true) {
+                continue;
+            }
+            $sourcePath = trim((string)($fact['source_path'] ?? ''));
+            $storageField = strtolower(trim((string)($fact['storage_field'] ?? $fact['storage_target'] ?? '')));
+            if ($sourcePath === '' || $storageField === '') {
+                continue;
+            }
+            if (str_starts_with($storageField, 'online_daily_data.')) {
+                $storageField = substr($storageField, strlen('online_daily_data.'));
+            }
+            if (isset($allowed[$storageField])) {
+                $observed[$storageField] = true;
+            }
+        }
+        return $observed;
     }
 
     private function factCount(int $tenantId, int $hotelId, string $platform, string $dateStart, string $dateEnd): int
@@ -484,9 +761,16 @@ final class OperatingQuestionService
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
             ->whereBetween('business_date', [$dateStart, $dateEnd])
+            ->where('quality_status', 'verified')
+            ->whereIn('usage_level', ['reference', 'decision_support'])
             ->where('lifecycle_status', 'active')
             ->whereNull('deleted_at');
-        if ($platform !== 'all_ota') {
+        if ($this->columnExists(OperatingMemoryService::TABLE, 'source_scope')) {
+            $query->where('source_scope', 'ota_channel');
+        }
+        if ($platform === 'all_ota') {
+            $query->whereIn('platform', self::ALL_OTA_REQUIRED_PLATFORMS);
+        } else {
             $query->where('platform', $platform);
         }
         $rows = $query->field('id,memory_layer,title,summary,quality_status,usage_level,business_date,platform')
@@ -567,42 +851,6 @@ final class OperatingQuestionService
     }
 
     /** @return list<array<string,mixed>> */
-    private function loadKnowledge(int $hotelId, string $question): array
-    {
-        if (!$this->tableExists('knowledge_units')) {
-            return [];
-        }
-        $sources = ['revenue_operations_decision_support', 'ota_operation_sop_reference', 'ota_daily_operations_ledger_reference'];
-        $query = Db::name('knowledge_units')->where('status', 'done')->whereIn('source', $sources);
-        if ($this->columnExists('knowledge_units', 'hotel_id')) {
-            $query->whereIn('hotel_id', [0, $hotelId]);
-        }
-        if ($this->columnExists('knowledge_units', 'lifecycle_status')) {
-            $query->where('lifecycle_status', 'active');
-        }
-        $rows = $query->field('unit_id,hotel_id,name,source,status,description')
-            ->order('unit_id', 'desc')->limit(12)->select()->toArray();
-        $terms = $this->questionTerms($question);
-        if ($terms !== []) {
-            $rows = array_values(array_filter($rows, static function (array $row) use ($terms): bool {
-                $text = mb_strtolower((string)($row['name'] ?? '') . ' ' . (string)($row['description'] ?? ''));
-                foreach ($terms as $term) {
-                    if (str_contains($text, $term)) {
-                        return true;
-                    }
-                }
-                return false;
-            }));
-        }
-        return array_map(static fn(array $row): array => [
-            'ref' => 'knowledge_units#' . (int)$row['unit_id'],
-            'name' => (string)$row['name'],
-            'source' => (string)$row['source'],
-            'authority' => (int)($row['hotel_id'] ?? 0) === 0 ? 'system_reference' : 'hotel_scoped',
-        ], array_slice($rows, 0, 6));
-    }
-
-    /** @return list<array<string,mixed>> */
     private function loadExecutions(int $tenantId, int $hotelId, string $platform, string $dateStart, string $dateEnd): array
     {
         if (!$this->tableExists('operation_execution_tasks') || !$this->tableExists('operation_execution_intents')) {
@@ -622,7 +870,9 @@ final class OperatingQuestionService
             ])
             ->whereNull('t.deleted_at')
             ->whereNull('i.deleted_at');
-        if ($platform !== 'all_ota') {
+        if ($platform === 'all_ota') {
+            $query->whereIn('i.platform', self::ALL_OTA_REQUIRED_PLATFORMS);
+        } else {
             $query->where('i.platform', $platform);
         }
         $rows = $query->field('t.id,t.result_status,t.result_summary,t.executed_at,i.platform,i.action_type,i.expected_metric')
@@ -645,10 +895,201 @@ final class OperatingQuestionService
             $value = is_array($evidence[$key] ?? null) ? $evidence[$key] : [];
             $evidence[$key] = array_values(array_filter($value, 'is_array'));
         }
+        $evidence['knowledge_retrieval'] = is_array($evidence['knowledge_retrieval'] ?? null)
+            ? $evidence['knowledge_retrieval']
+            : [];
         $evidence['fact_count'] = max(0, (int)($evidence['fact_count'] ?? count($evidence['facts'])));
         $evidence['fact_platform_counts'] = $this->factPlatformCountsFromEvidence($evidence);
         $evidence['fact_platform_dates'] = $this->factPlatformDatesFromEvidence($evidence);
         return $evidence;
+    }
+
+    /** @param array<string,mixed> $questionRow @return array<string,mixed> */
+    private function writeBoundaries(array $questionRow): array
+    {
+        $answer = is_array($questionRow['answer'] ?? null) ? $questionRow['answer'] : [];
+        $boundaries = is_array($answer['boundaries'] ?? null) ? $answer['boundaries'] : [];
+        return [
+            'external_llm_called' => is_bool($boundaries['external_llm_called'] ?? null)
+                ? $boundaries['external_llm_called']
+                : null,
+            'external_llm_call_status' => mb_substr(trim((string)($boundaries['external_llm_call_status'] ?? 'not_attempted')), 0, 80),
+            'llm_attempted' => ($boundaries['llm_attempted'] ?? false) === true,
+            'llm_client_invoked' => ($boundaries['llm_client_invoked'] ?? false) === true,
+            'ota_write' => ($boundaries['ota_write'] ?? false) === true,
+            'external_message' => ($boundaries['external_message'] ?? false) === true,
+            'automatic_execution' => ($boundaries['automatic_execution'] ?? false) === true,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $answer
+     * @param array<string,mixed> $evidence
+     * @return array<string,mixed>
+     */
+    private function applyAiAnswer(
+        array $answer,
+        array $evidence,
+        string $question,
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $dateStart,
+        string $dateEnd,
+        int $createdBy,
+        string $modelKey
+    ): array {
+        $answer['ai_runtime'] = [
+            'status' => $this->answerGenerator === null ? 'not_enabled' : 'not_called',
+            'model_key' => $modelKey,
+            'prompt_version' => '',
+            'model_attempted' => false,
+            'llm_client_invoked' => false,
+            'external_llm_called' => false,
+            'external_llm_call_status' => 'not_attempted',
+            'provider' => '',
+            'model' => '',
+            'finish_reason' => '',
+            'fallback_used' => false,
+            'cache_hit' => false,
+            'degraded' => false,
+            'reason' => '',
+            'message' => $this->answerGenerator === null
+                ? '当前使用严格回读的证据摘要。'
+                : '尚未调用AI模型。',
+        ];
+        $answer['boundaries']['llm_client_invoked'] = false;
+        $answer['boundaries']['external_llm_call_status'] = 'not_attempted';
+        if ($this->answerGenerator === null) {
+            return $answer;
+        }
+        if ((string)($answer['status'] ?? '') === 'blocked_by_missing_facts'
+            || (int)($answer['evidence_counts']['facts'] ?? 0) <= 0
+        ) {
+            $answer['ai_runtime']['status'] = 'not_called_missing_facts';
+            $answer['ai_runtime']['message'] = '缺少同范围严格回读事实，未调用AI模型。';
+            return $answer;
+        }
+
+        try {
+            $result = ($this->answerGenerator)([
+                'question' => $question,
+                'scope' => [
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'platform' => $platform,
+                    'date_start' => $dateStart,
+                    'date_end' => $dateEnd,
+                    'source_scope' => 'ota_channel',
+                ],
+                'answer' => $answer,
+                'evidence' => $evidence,
+                'model_key' => $modelKey,
+                'user_id' => max(0, $createdBy),
+            ]);
+        } catch (\Throwable) {
+            $result = [
+                'ok' => false,
+                'status' => 'model_unavailable',
+                'message' => 'AI模型暂不可用，已保留严格回读的证据摘要。',
+                'model_key' => $modelKey,
+                'model_attempted' => true,
+                'llm_client_invoked' => true,
+                'external_llm_called' => null,
+                'external_llm_call_status' => 'unknown_after_client_attempt',
+                'provider' => '',
+                'model' => '',
+                'finish_reason' => '',
+                'fallback_used' => false,
+                'cache_hit' => false,
+                'degraded' => false,
+            ];
+        }
+
+        $externalLlmCalled = is_bool($result['external_llm_called'] ?? null)
+            ? $result['external_llm_called']
+            : null;
+        $answer['ai_runtime'] = [
+            'status' => (string)($result['status'] ?? (($result['ok'] ?? false) === true ? 'ready' : 'model_unavailable')),
+            'model_key' => (string)($result['model_key'] ?? $modelKey),
+            'prompt_version' => (string)($result['prompt_version'] ?? ''),
+            'model_attempted' => ($result['model_attempted'] ?? false) === true,
+            'llm_client_invoked' => ($result['llm_client_invoked'] ?? false) === true,
+            'external_llm_called' => $externalLlmCalled,
+            'external_llm_call_status' => mb_substr(trim((string)($result['external_llm_call_status'] ?? (
+                $externalLlmCalled === true ? 'confirmed_success' : 'unknown_after_client_attempt'
+            ))), 0, 80),
+            'provider' => mb_substr(trim((string)($result['provider'] ?? '')), 0, 50),
+            'model' => mb_substr(trim((string)($result['model'] ?? '')), 0, 150),
+            'finish_reason' => mb_substr(trim((string)($result['finish_reason'] ?? '')), 0, 50),
+            'fallback_used' => ($result['fallback_used'] ?? false) === true,
+            'cache_hit' => ($result['cache_hit'] ?? false) === true,
+            'degraded' => ($result['degraded'] ?? false) === true,
+            'reason' => mb_substr(trim((string)($result['reason'] ?? '')), 0, 120),
+            'message' => mb_substr(trim((string)($result['message'] ?? '')), 0, 300),
+        ];
+        $answer['boundaries']['llm_attempted'] = $answer['ai_runtime']['model_attempted'];
+        $answer['boundaries']['llm_client_invoked'] = $answer['ai_runtime']['llm_client_invoked'];
+        $answer['boundaries']['external_llm_called'] = $answer['ai_runtime']['external_llm_called'];
+        $answer['boundaries']['external_llm_call_status'] = $answer['ai_runtime']['external_llm_call_status'];
+
+        $summary = mb_substr(trim((string)($result['summary'] ?? '')), 0, 1500);
+        if (($result['ok'] ?? false) !== true || $summary === '') {
+            if ($answer['ai_runtime']['message'] === '') {
+                $answer['ai_runtime']['message'] = 'AI模型未生成可核验回答，已保留严格回读的证据摘要。';
+            }
+            return $answer;
+        }
+
+        $answer['mode'] = 'grounded_ai_saved_evidence';
+        $answer['status'] = 'answered_by_grounded_ai';
+        $answer['summary'] = $summary;
+        $answer['key_points'] = $this->textList($result['key_points'] ?? [], 5, 320);
+        $answer['missing_information'] = $this->textList($result['missing_information'] ?? [], 5, 320);
+        $answer['follow_up_questions'] = $this->textList($result['follow_up_questions'] ?? [], 3, 180);
+        $answer['confidence'] = in_array((string)($result['confidence'] ?? ''), ['low', 'medium', 'high'], true)
+            ? (string)$result['confidence']
+            : 'low';
+        $answer['used_evidence_refs'] = $this->textList($result['used_evidence_refs'] ?? [], 20, 180);
+        $runtime = $answer['ai_runtime'];
+        $actionRuntimeReady = in_array($answer['confidence'], ['medium', 'high'], true)
+            && (string)($runtime['status'] ?? '') === 'ready'
+            && strtolower(trim((string)($runtime['provider'] ?? ''))) === 'deepseek'
+            && (string)($runtime['prompt_version'] ?? '') === OperatingQuestionAiAnswerService::PROMPT_VERSION
+            && strtolower(trim((string)($runtime['finish_reason'] ?? ''))) === 'stop'
+            && ($runtime['external_llm_called'] ?? false) === true
+            && (string)($runtime['external_llm_call_status'] ?? '') === 'confirmed_success'
+            && ($runtime['fallback_used'] ?? false) !== true
+            && ($runtime['cache_hit'] ?? false) !== true
+            && ($runtime['degraded'] ?? false) !== true;
+        $answer['action_drafts'] = $actionRuntimeReady
+            ? array_values(array_slice(array_filter(
+                is_array($result['action_drafts'] ?? null) ? $result['action_drafts'] : [],
+                'is_array'
+            ), 0, 1))
+            : [];
+        return $answer;
+    }
+
+    /** @return list<string> */
+    private function textList(mixed $value, int $limit, int $length): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        return array_values(array_slice(array_unique(array_filter(array_map(
+            static fn(mixed $item): string => mb_substr(trim((string)$item), 0, $length),
+            $value
+        ))), 0, $limit));
+    }
+
+    private function modelKey(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '' || preg_match('/^[a-zA-Z0-9_.:-]{1,100}$/', $value) !== 1) {
+            return 'deepseek_v4_default';
+        }
+        return $value;
     }
 
     /** @param array<string,mixed> $evidence @return array<string,int> */
@@ -734,6 +1175,121 @@ final class OperatingQuestionService
             $cursor = $cursor->modify('+1 day');
         }
         return $dates;
+    }
+
+    /**
+     * Build a deterministic, read-only route out of a missing-facts answer.
+     * The model never chooses these actions and none of them starts collection
+     * or writes OTA data. Each action remains bound to the saved question scope.
+     *
+     * @param list<string> $requiredDates
+     * @param array<string,list<string>> $factPlatformDates
+     * @return array<string,mixed>
+     */
+    private function buildRecoveryPlan(
+        string $answerStatus,
+        int $hotelId,
+        string $platform,
+        string $dateStart,
+        string $dateEnd,
+        array $requiredDates,
+        array $factPlatformDates
+    ): array {
+        $scope = [
+            'hotel_id' => $hotelId,
+            'platform' => $platform,
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+        ];
+        if ($answerStatus !== 'blocked_by_missing_facts') {
+            return [
+                'contract_version' => 'operating_question_recovery.v1',
+                'status' => 'not_required',
+                'scope' => $scope,
+                'missing_items' => [],
+                'actions' => [],
+                'boundaries' => $this->recoveryBoundaries(),
+            ];
+        }
+
+        $requiredPlatforms = $platform === 'all_ota'
+            ? self::ALL_OTA_REQUIRED_PLATFORMS
+            : [$platform];
+        $missingItems = [];
+        foreach ($requiredPlatforms as $requiredPlatform) {
+            $coveredDates = array_values(array_unique(array_map(
+                'strval',
+                is_array($factPlatformDates[$requiredPlatform] ?? null)
+                    ? $factPlatformDates[$requiredPlatform]
+                    : []
+            )));
+            foreach ($requiredDates as $requiredDate) {
+                if (in_array($requiredDate, $coveredDates, true)) {
+                    continue;
+                }
+                $missingItems[] = [
+                    'platform' => $requiredPlatform,
+                    'date' => $requiredDate,
+                    'required_gate' => 'history_success+validation_verified+readback_verified',
+                ];
+            }
+        }
+
+        $actions = [];
+        $firstMissingDateByPlatform = [];
+        foreach ($missingItems as $item) {
+            $itemPlatform = (string)$item['platform'];
+            $firstMissingDateByPlatform[$itemPlatform] ??= (string)$item['date'];
+        }
+        foreach ($firstMissingDateByPlatform as $missingPlatform => $missingDate) {
+            if (!in_array($missingPlatform, self::ALL_OTA_REQUIRED_PLATFORMS, true)) {
+                continue;
+            }
+            $label = $this->platformLabel($missingPlatform);
+            $actions[] = [
+                'key' => 'open_data_health',
+                'label' => '查看' . $label . '数据健康',
+                'read_only' => true,
+                'platform' => $missingPlatform,
+                'date' => $missingDate,
+                'target_page' => 'online-data',
+                'target_tab' => 'data-health',
+            ];
+            $actions[] = [
+                'key' => 'open_platform_collection_status',
+                'label' => '查看' . $label . '采集状态',
+                'read_only' => true,
+                'platform' => $missingPlatform,
+                'date' => $missingDate,
+                'target_page' => $missingPlatform === 'ctrip' ? 'ctrip-ebooking' : 'meituan-ebooking',
+                'target_tab' => $missingPlatform === 'ctrip' ? 'data-health' : 'meituan-ranking',
+            ];
+        }
+        $actions[] = [
+            'key' => 'recheck',
+            'label' => '重新核验证据',
+            'read_only' => true,
+        ];
+
+        return [
+            'contract_version' => 'operating_question_recovery.v1',
+            'status' => 'waiting_for_verified_fact',
+            'scope' => $scope,
+            'missing_items' => $missingItems,
+            'actions' => $actions,
+            'boundaries' => $this->recoveryBoundaries(),
+        ];
+    }
+
+    /** @return array<string,bool> */
+    private function recoveryBoundaries(): array
+    {
+        return [
+            'model_generated_actions' => false,
+            'automatic_collection' => false,
+            'ota_write' => false,
+            'automatic_execution' => false,
+        ];
     }
 
     /** @param array<string,mixed> $diagnosis */
@@ -860,19 +1416,6 @@ final class OperatingQuestionService
             }
         }
         return array_keys($refs);
-    }
-
-    /** @return list<string> */
-    private function questionTerms(string $question): array
-    {
-        $question = mb_strtolower($question);
-        $terms = [];
-        foreach (['收益', '流量', '转化', '订单', '价格', '排名', '点评', '携程', '美团', '运营', '诊断'] as $term) {
-            if (str_contains($question, $term)) {
-                $terms[] = $term;
-            }
-        }
-        return $terms;
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */

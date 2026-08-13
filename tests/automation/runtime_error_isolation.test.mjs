@@ -23,7 +23,7 @@ test('page runtime errors recover to a safe page instead of replacing the whole 
   assert.ok(handler.indexOf('if (recovered) return;') < handler.indexOf('scheduleSuxiStartupError(error);'));
   assert.doesNotMatch(handler, /renderSuxiStartupError\(error\);/);
   const recoveryStart = html.indexOf('const scheduleSuxiStartupError = (error) => {');
-  const recoveryEnd = html.indexOf('const operatingQuestionPanel = {', recoveryStart);
+  const recoveryEnd = html.indexOf('const operatingIntelligenceComponents =', recoveryStart);
   const recovery = html.slice(recoveryStart, recoveryEnd);
   const unmountCatchStart = recovery.indexOf('} catch (unmountError) {');
   const unmountCatchEnd = recovery.indexOf('}', unmountCatchStart);

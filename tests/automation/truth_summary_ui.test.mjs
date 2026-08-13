@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readAppMainContractSource } from './helpers/frontend_source.mjs';
 
-const appMain = readFileSync('public/app-main.js', 'utf8');
+const appMain = readAppMainContractSource();
 const revenueAiStatic = readFileSync('public/revenue-ai-static.js', 'utf8');
 const fragments = [
   '08-shared-transfer-context.html',

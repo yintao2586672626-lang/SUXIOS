@@ -135,6 +135,23 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
     );
   }
 
+  const appMain = fs.readFileSync(path.join(publicRoot, 'app-main.js'), 'utf8');
+  const requiredDataHealthFunctions = new Set([
+    ...appMain.matchAll(/requireDataHealthStatic\('([^']+)'\)/g),
+    ...appMain.matchAll(/requirePlatformBatchHealthStatic\('([^']+)'\)/g),
+  ].map((match) => match[1]));
+  assert.equal(
+    artifactSandbox.window.SUXI_DATA_HEALTH_STATIC?.contractVersion,
+    '20260811-full-render-v1',
+  );
+  for (const key of requiredDataHealthFunctions) {
+    assert.equal(
+      typeof artifactSandbox.window.SUXI_DATA_HEALTH_STATIC?.[key],
+      'function',
+      `SUXI_DATA_HEALTH_STATIC must provide app-main helper ${key}`,
+    );
+  }
+
   const systemStatic = artifactSandbox.window.SUXI_SYSTEM_STATIC;
   const deferredCall = systemStatic.requireDeferredStaticFunction(
     'SUXI_DEFERRED_EXAMPLE',

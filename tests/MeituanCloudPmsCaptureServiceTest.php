@@ -91,6 +91,10 @@ final class MeituanCloudPmsCaptureServiceTest extends TestCase
         self::assertSame('matched', $capture['date_status']);
         self::assertSame('matched', $capture['reconciliation_status']);
         self::assertSame('readback_verified', $capture['readback_status']);
+        self::assertSame(
+            'API:/hotelpms/api/v1/property/hotel/getHotelInfo#data.hotelName+data.hotelId',
+            $capture['field_trace']['provider_hotel_identity'] ?? null
+        );
         self::assertSame(2, $capture['room_type_count']);
         self::assertSame(0, $capture['availability_difference']);
         self::assertSame('verified', $prefill['status']);
@@ -264,7 +268,7 @@ final class MeituanCloudPmsCaptureServiceTest extends TestCase
             'business_date' => '2026-07-28',
             'provider_hotel_id' => 'mt-hotel-80',
             'provider_hotel_name' => '敦煌漠蓝新',
-            'identity_evidence_type' => 'authenticated_profile_hotel_identity',
+            'identity_evidence_type' => 'verified_api_hotel_identity',
             'date_evidence_type' => 'trusted_realtime_workbench_capture',
             'summary' => $summary,
             'room_types' => [
@@ -282,7 +286,10 @@ final class MeituanCloudPmsCaptureServiceTest extends TestCase
             'field_trace' => array_fill_keys(
                 array_keys($summary),
                 'API:reviewed-same-origin-field'
-            ),
+            ) + [
+                'provider_hotel_identity' =>
+                    'API:/hotelpms/api/v1/property/hotel/getHotelInfo#data.hotelName+data.hotelId',
+            ],
             'validation_warnings' => [],
         ];
     }

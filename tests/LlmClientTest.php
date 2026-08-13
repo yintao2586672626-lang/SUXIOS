@@ -35,6 +35,24 @@ final class LlmClientTest extends TestCase
         self::assertSame('deepseek_chat', $issue['model_key']);
     }
 
+    public function testLegacyDeepSeekProviderModelNamesMapToCurrentV4Models(): void
+    {
+        $client = new LlmClient();
+
+        self::assertSame(
+            'deepseek-v4-flash',
+            $this->invokeNonPublic($client, 'resolvedProviderModelName', ['deepseek', 'deepseek-chat'])
+        );
+        self::assertSame(
+            'deepseek-v4-pro',
+            $this->invokeNonPublic($client, 'resolvedProviderModelName', ['deepseek', 'deepseek-reasoner'])
+        );
+        self::assertSame(
+            'mimo-v2.5-pro',
+            $this->invokeNonPublic($client, 'resolvedProviderModelName', ['xiaomi_mimo', 'mimo-v2.5-pro'])
+        );
+    }
+
     public function testChatEndpointUrlSupportsProviderSpecificPathsAndQueryStrings(): void
     {
         $guard = new OutboundUrlGuard(static fn(string $host): array => ['8.8.8.8']);
@@ -157,14 +175,14 @@ final class LlmClientTest extends TestCase
         self::assertArrayNotHasKey('x-governance', $payload['response_format']['json_schema']['schema']);
     }
 
-    public function testNonOpenAiPayloadDoesNotSendNativeJsonSchemaResponseFormat(): void
+    public function testDeepSeekPayloadUsesJsonObjectDisablesThinkingAndCarriesAnonymousUser(): void
     {
         $client = new LlmClient();
 
         $payload = $this->invokeNonPublic($client, 'chatPayload', [
             [
                 'provider' => 'deepseek',
-                'model' => 'deepseek-chat',
+                'model' => 'deepseek-v4-flash',
             ],
             'Return JSON only.',
             [
@@ -173,10 +191,87 @@ final class LlmClientTest extends TestCase
                     'type' => 'object',
                     'properties' => ['summary' => ['type' => 'string']],
                 ],
+                'max_tokens' => 2048,
+                'deepseek_thinking' => 'disabled',
+                'user_id' => 'tenant_hotel_hash_123',
             ],
         ]);
 
-        self::assertArrayNotHasKey('response_format', $payload);
+        self::assertSame(['type' => 'json_object'], $payload['response_format']);
+        self::assertSame(['type' => 'disabled'], $payload['thinking']);
+        self::assertSame('tenant_hotel_hash_123', $payload['user_id']);
+        self::assertSame(2048, $payload['max_tokens']);
+    }
+
+    public function testDirectStructuredEnvelopeReturnsActualDeepSeekMetadataAndValidatesSchema(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('deepseek_chat', 'deepseek');
+        $primary['model'] = 'deepseek-v4-flash';
+        $client = new ScriptedLlmClient($primary, [
+            ScriptedLlmClient::modelConfig('backup_model', 'openai'),
+        ], [
+            'deepseek_chat' => [ScriptedLlmClient::success(json_encode([
+                'summary' => 'ok',
+                'confidence' => 'medium',
+            ], JSON_UNESCAPED_UNICODE))],
+        ]);
+
+        $envelope = $client->createJsonResponseEnvelope([[
+            'role' => 'user',
+            'content' => 'Return JSON.',
+        ]], [
+            'type' => 'object',
+            'required' => ['summary', 'confidence'],
+            'properties' => [
+                'summary' => ['type' => 'string'],
+                'confidence' => ['type' => 'string', 'enum' => ['low', 'medium', 'high']],
+            ],
+            'x-governance' => [
+                'module' => 'operating_question',
+                'hotel_id' => 20,
+                'user_id' => 7,
+            ],
+        ], 'deepseek_v4_default');
+
+        self::assertSame('ok', $envelope['data']['summary']);
+        self::assertSame('deepseek', $envelope['meta']['provider']);
+        self::assertSame('deepseek_chat', $envelope['meta']['model_key']);
+        self::assertSame('deepseek-v4-flash', $envelope['meta']['model']);
+        self::assertSame('stop', $envelope['meta']['finish_reason']);
+        self::assertFalse($envelope['meta']['fallback_used']);
+        self::assertCount(1, $client->calls);
+        self::assertSame(['type' => 'json_object'], $client->calls[0]['payload']['response_format']);
+        self::assertSame(['type' => 'disabled'], $client->calls[0]['payload']['thinking']);
+        self::assertMatchesRegularExpression('/^[A-Za-z0-9_-]{1,128}$/', $client->calls[0]['payload']['user_id']);
+    }
+
+    public function testDirectStructuredEnvelopeRejectsMissingRequiredFieldAndTruncatedFinish(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('deepseek_chat', 'deepseek');
+        $missing = new ScriptedLlmClient($primary, [], [
+            'deepseek_chat' => [ScriptedLlmClient::success('{"summary":"missing confidence"}')],
+        ]);
+        $schema = [
+            'type' => 'object',
+            'required' => ['summary', 'confidence'],
+            'properties' => [
+                'summary' => ['type' => 'string'],
+                'confidence' => ['type' => 'string', 'enum' => ['low', 'medium', 'high']],
+            ],
+        ];
+
+        try {
+            $missing->createJsonResponseEnvelope([], $schema, 'deepseek_chat');
+            self::fail('missing required field must be rejected');
+        } catch (\RuntimeException) {
+            self::assertCount(1, $missing->calls);
+        }
+
+        $truncated = new ScriptedLlmClient($primary, [], [
+            'deepseek_chat' => [ScriptedLlmClient::success('{"summary":"x","confidence":"medium"}', 'length')],
+        ]);
+        $this->expectException(\RuntimeException::class);
+        $truncated->createJsonResponseEnvelope([], $schema, 'deepseek_chat');
     }
 
     public function testNormalizeKnowledgeSourcesAcceptsStringLists(): void
@@ -625,11 +720,14 @@ final class ScriptedLlmClient extends LlmClient
     }
 
     /** @return array<string, mixed> */
-    public static function success(string $content): array
+    public static function success(string $content, string $finishReason = 'stop'): array
     {
         return [
             'response' => json_encode([
-                'choices' => [['message' => ['content' => $content]]],
+                'choices' => [[
+                    'message' => ['content' => $content],
+                    'finish_reason' => $finishReason,
+                ]],
             ], JSON_UNESCAPED_UNICODE),
             'http_status' => 200,
             'curl_errno' => 0,
@@ -673,6 +771,7 @@ final class ScriptedLlmClient extends LlmClient
         $this->calls[] = [
             'model_key' => $modelKey,
             'request_id' => (string)($options['request_id'] ?? ''),
+            'payload' => json_decode($payloadJson, true),
         ];
         $response = array_shift($this->scripts[$modelKey]);
         return is_array($response) ? $response : self::transportFailure(CURLE_COULDNT_CONNECT);

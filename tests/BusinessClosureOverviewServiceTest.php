@@ -8,6 +8,15 @@ use PHPUnit\Framework\TestCase;
 
 final class BusinessClosureOverviewServiceTest extends TestCase
 {
+    public function testAuthorityOverviewNeverSilentlyDefaultsToYesterday(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/service/BusinessClosureOverviewService.php');
+
+        self::assertStringNotContainsString("strtotime('-1 day')", $source);
+        self::assertStringContainsString('$businessDate = trim($businessDate);', $source);
+        self::assertStringContainsString('operating_loop_business_date_required', $source);
+    }
+
     public function testRecordOnlyModuleIsNotTreatedAsClosedLoop(): void
     {
         $service = new BusinessClosureOverviewService();
@@ -60,6 +69,28 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         self::assertSame(1, $overview['summary']['blocked_count']);
     }
 
+    public function testOnlyVerifiedCompletedKernelCanDeclareOverviewClosed(): void
+    {
+        $overview = (new BusinessClosureOverviewService())->buildOverviewFromSignals(
+            [['key' => 'operation_execution', 'record_count' => 1, 'linked_execution_count' => 1]],
+            [],
+            [],
+            [],
+            [
+                'kernel_id' => 'cycle-9',
+                'revision' => 8,
+                'authoritative_state' => 'completed',
+                'readback_verified' => true,
+                'source_policy' => 'hotel_operating_cycle_kernel_only',
+            ]
+        );
+
+        self::assertTrue($overview['summary']['closed_loop']);
+        self::assertSame('closed', $overview['summary']['status']);
+        self::assertSame(1, $overview['summary']['closed_loop_count']);
+        self::assertSame('cycle-9', $overview['summary']['kernel_id']);
+    }
+
     public function testRoiReadyIsTheOnlyClosedLoopStatus(): void
     {
         $service = new BusinessClosureOverviewService();
@@ -90,7 +121,11 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         self::assertSame('reviewed_no_roi', $reviewed['status']);
         self::assertFalse($reviewed['closed_loop']);
         self::assertSame('roi_ready', $closed['status']);
-        self::assertTrue($closed['closed_loop']);
+        self::assertSame('ROI证据就绪', $closed['status_label']);
+        self::assertNotSame('已闭环', $closed['status_label']);
+        self::assertTrue($closed['component_closed_loop']);
+        self::assertFalse($closed['closed_loop']);
+        self::assertSame('diagnostic_only', $closed['authority_status']);
     }
 
     public function testOverviewSeparatesProcessClosureFromRoiReadiness(): void
@@ -137,7 +172,9 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         self::assertSame('closed', $overview['summary']['process_status']);
         self::assertSame(1, $overview['summary']['roi_ready_module_count']);
         self::assertSame('not_closed', $overview['summary']['roi_status']);
-        self::assertSame(1, $overview['summary']['closed_loop_count']);
+        self::assertSame(0, $overview['summary']['closed_loop_count']);
+        self::assertSame(1, $overview['summary']['component_closed_loop_count']);
+        self::assertSame('unverified', $overview['summary']['status']);
     }
 
     public function testP0DownstreamGateBlocksDownstreamClosureClaims(): void
@@ -177,7 +214,8 @@ final class BusinessClosureOverviewServiceTest extends TestCase
 
         $modules = array_column($overview['modules'], null, 'key');
         self::assertSame('blocked_by_p0_ota_gate', $overview['p0_downstream_gate']['status']);
-        self::assertSame('blocked_by_p0_ota_gate', $overview['summary']['status']);
+        self::assertSame('unverified', $overview['summary']['status']);
+        self::assertSame('blocked_by_p0_ota_gate', $overview['summary']['component_status']);
         self::assertSame(0, $overview['summary']['closed_loop_count']);
         self::assertSame(3, $overview['summary']['blocked_count']);
         self::assertSame('blocked_by_p0_ota_gate', $modules['revenue_pricing']['status']);
@@ -222,9 +260,10 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         ], ['total' => 1, 'roi_ready' => 1]);
 
         self::assertSame(3, $overview['summary']['module_count']);
-        self::assertSame(1, $overview['summary']['closed_loop_count']);
-        self::assertSame(2, $overview['summary']['not_closed_count']);
-        self::assertSame('not_closed', $overview['summary']['status']);
+        self::assertSame(0, $overview['summary']['closed_loop_count']);
+        self::assertSame(1, $overview['summary']['not_closed_count']);
+        self::assertSame(1, $overview['summary']['component_closed_loop_count']);
+        self::assertSame('unverified', $overview['summary']['status']);
         self::assertSame('ai_daily_report', $overview['weak_modules'][0]['key']);
         self::assertSame('revenue_pricing', $overview['weak_modules'][1]['key']);
     }
@@ -319,7 +358,8 @@ final class BusinessClosureOverviewServiceTest extends TestCase
             'revenue_pricing',
             'operation_execution',
         ], array_column($overview['modules'], 'key'));
-        self::assertSame(2, $overview['summary']['closed_loop_count']);
+        self::assertSame(0, $overview['summary']['closed_loop_count']);
+        self::assertSame(2, $overview['summary']['component_closed_loop_count']);
         self::assertSame('revenue_pricing', $overview['weak_modules'][0]['key']);
     }
 

@@ -75,9 +75,13 @@ class RevenueAi extends Base
             }
 
             $payload = Db::transaction(function () use ($suggestion, $userId, $remark, $action, $id, $hotelId, $message, $approvedPrice): array {
-                $this->recordPriceSuggestionManualReview($suggestion, $action, $userId, $remark, $approvedPrice);
-
-                $fresh = PriceSuggestion::find($id) ?: $suggestion;
+                $fresh = $this->recordPriceSuggestionManualReview(
+                    $suggestion,
+                    $action,
+                    $userId,
+                    $remark,
+                    $approvedPrice
+                );
                 $payload = $this->priceSuggestionReviewPayload($fresh->toArray(), $action);
                 $logAction = match ($action) {
                     'approve_with_changes' => 'revenue_ai_price_approve_with_changes',
@@ -647,14 +651,16 @@ class RevenueAi extends Base
         int $userId,
         string $remark,
         ?float $approvedPrice = null
-    ): void
+    ): PriceSuggestion
     {
         $state = $this->buildManualReviewState($suggestion->toArray(), $action, $userId, $remark, $approvedPrice);
-        $suggestion->status = $this->manualReviewStatusAfter($action);
-        $suggestion->applied_by = $userId;
-        $suggestion->remark = $remark;
-        $suggestion->factors = $state['factors'];
-        $suggestion->save();
+
+        return $suggestion->reviewPending(
+            $this->manualReviewStatusAfter($action),
+            $userId,
+            $remark,
+            $state['factors']
+        );
     }
 
     /**

@@ -35,10 +35,10 @@
                                             <div class="sx-agent-diagnosis-card__header px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                                 <div>
                                                     <h3 class="font-semibold text-gray-900">OTA诊断</h3>
-                                                    <p class="text-sm text-gray-500 mt-1">按酒店、平台和日期范围生成经营诊断。</p>
+                                                    <p class="text-sm text-gray-500 mt-1">按范围生成诊断；携程含五维雷达。</p>
                                                 </div>
                                                 <button @click="generateOtaDiagnosis" :disabled="otaDiagnosisLoading" class="btn-primary inline-flex items-center justify-center w-full sm:w-auto disabled:opacity-50">
-                                                    <i :class="otaDiagnosisLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-stethoscope mr-2'"></i>{{ otaDiagnosisLoading ? '生成中...' : '生成OTA诊断' }}
+                                                    <i :class="otaDiagnosisLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-stethoscope mr-2'"></i>{{ otaDiagnosisLoading ? '生成中...' : '生成OTA/雷达诊断' }}
                                                 </button>
                                             </div>
                                             <div class="p-5 space-y-4">
@@ -197,6 +197,7 @@
                                                         </div>
                                                     </div>
                                                 </div>
+                                                <div v-html="otaDiagnosisOperatingRadarHtml"></div>
                                                 <div v-if="otaDiagnosisResult &amp;&amp; !otaDiagnosisEmpty" class="space-y-4">
                                                     <div class="rounded-xl border border-blue-100 bg-blue-50 p-4">
                                                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
@@ -406,7 +407,7 @@
                                             <i class="fas fa-cog mr-2"></i>配置
                                         </button>
                                         <button @click="revenueAgentTab = 'suggestions'; loadPriceSuggestionWorkbench()" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='suggestions' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
-                                            <i class="fas fa-lightbulb mr-2"></i>定价建议
+                                            <i class="fas fa-calendar-alt mr-2"></i>远期定价台账
                                         </button>
                                         <button @click="revenueAgentTab = 'analysis'; loadRevenueAnalysisBundle()" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='analysis' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-chart-bar mr-2"></i>收益分析
@@ -456,14 +457,27 @@
                                     </div>
 
                                     <div v-if="revenueAgentTab === 'suggestions'">
+                                        <div class="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                                            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                                <div>
+                                                    <h3 class="font-semibold text-amber-950">远期定价台账</h3>
+                                                    <p class="mt-1 text-sm text-amber-800">按日 × 房型保存回读；缺信号不补值。</p>
+                                                </div>
+                                                <span class="shrink-0 rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-800">人工审核 · 不自动写 OTA</span>
+                                            </div>
+                                        </div>
                                         <div class="flex flex-wrap gap-3 mb-5 items-end">
                                             <div>
-                                                <label class="block text-sm font-medium text-gray-600 mb-1.5">日期</label>
+                                                <label class="block text-sm font-medium text-gray-600 mb-1.5">开始入住日</label>
                                                 <input type="date" v-model="priceSuggestionFilter.date" class="input-field" @change="handlePriceSuggestionDateChange">
                                             </div>
                                             <div>
+                                                <label class="block text-sm font-medium text-gray-600 mb-1.5">结束入住日</label>
+                                                <input type="date" v-model="priceSuggestionFilter.end_date" class="input-field" @change="handlePriceSuggestionDateChange">
+                                            </div>
+                                            <div>
                                                 <label class="block text-sm font-medium text-gray-600 mb-1.5">状态</label>
-                                                <select v-model="priceSuggestionFilter.status" class="input-field" @change="loadPriceSuggestions">
+                                                <select v-model="priceSuggestionFilter.status" class="input-field" @change="priceSuggestionPagination.page = 1; loadPriceSuggestions()">
                                                     <option value="0">全部</option>
                                                     <option value="1">待审批</option>
                                                     <option value="2">已批准</option>
@@ -471,18 +485,18 @@
                                                     <option value="4">已应用</option>
                                                 </select>
                                             </div>
-                                            <button @click="loadPriceSuggestions" class="btn-primary">
+                                            <button @click="priceSuggestionPagination.page = 1; loadPriceSuggestions()" class="btn-primary">
                                                 <i class="fas fa-search mr-2"></i>查询
                                             </button>
                                             <button @click="generatePriceSuggestions" :disabled="priceSuggestionGenerating" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
-                                                <i :class="priceSuggestionGenerating ? 'fas fa-spinner fa-spin' : 'fas fa-magic'" class="mr-2"></i>{{ priceSuggestionGenerating ? '生成中' : '生成建议' }}
+                                                <i :class="priceSuggestionGenerating ? 'fas fa-spinner fa-spin' : 'fas fa-magic'" class="mr-2"></i>{{ priceSuggestionGenerating ? '逐日生成中' : '生成范围建议' }}
                                             </button>
                                         </div>
                                         <div v-if="agentPricingGenerationPreflightSummary.visible" data-testid="agent-pricing-generation-preflight-summary" :class="['mb-5 rounded-lg border p-4 text-sm', agentPricingGenerationPreflightSummary.className]">
                                             <div class="flex flex-wrap items-start justify-between gap-3">
                                                 <div>
                                                     <div class="font-semibold">{{ agentPricingGenerationPreflightSummary.title || '携程调价建议生成预检' }}</div>
-                                                    <div class="mt-1 text-xs opacity-80">携程 OTA · 只读预检 · 自动写 OTA：{{ agentPricingGenerationPreflightSummary.autoWriteOta ? '是' : '否' }} · 人工审核后才可进入运营</div>
+                                                    <div class="mt-1 text-xs opacity-80">携程 OTA · 预检 · 自动写 OTA：{{ agentPricingGenerationPreflightSummary.autoWriteOta ? '是' : '否' }}</div>
                                                 </div>
                                                 <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', agentPricingGenerationPreflightSummary.className]">
                                                     {{ agentPricingGenerationPreflightSummary.statusLabel || '预检状态' }}
@@ -515,42 +529,7 @@
                                                 <div v-if="agentPricingGenerationPreflightSummary.reasonText" class="opacity-80">{{ agentPricingGenerationPreflightSummary.reasonText }}</div>
                                                 <div v-if="agentPricingGenerationPreflightSummary.nextAction" class="mt-1 font-medium">{{ agentPricingGenerationPreflightSummary.nextAction }}</div>
                                             </div>
-                                            <div v-if="agentPricingGenerationPreflightSummary.candidateSkipReasons?.length || agentPricingGenerationPreflightSummary.candidateDataGaps?.length" data-testid="agent-pricing-generation-preflight-gaps" class="mt-3 border-t border-current/15 pt-3 text-xs">
-                                                <div class="font-semibold">候选缺口</div>
-                                                <div v-if="agentPricingGenerationPreflightSummary.candidateSkipReasons?.length" class="mt-2 flex flex-wrap gap-1.5">
-                                                    <span class="opacity-70">跳过原因</span>
-                                                    <span v-for="reason in agentPricingGenerationPreflightSummary.candidateSkipReasons" :key="`preflight-skip-${reason}`" class="rounded bg-white/60 px-1.5 py-0.5">{{ reason }}</span>
-                                                    <span v-if="agentPricingGenerationPreflightSummary.hiddenCandidateSkipReasonCount &gt; 0" class="rounded bg-white/60 px-1.5 py-0.5">+{{ agentPricingGenerationPreflightSummary.hiddenCandidateSkipReasonCount }}</span>
-                                                </div>
-                                                <div v-if="agentPricingGenerationPreflightSummary.candidateDataGaps?.length" class="mt-2 flex flex-wrap gap-1.5">
-                                                    <span class="opacity-70">缺失信号</span>
-                                                    <span v-for="gap in agentPricingGenerationPreflightSummary.candidateDataGaps" :key="`preflight-gap-${gap}`" class="rounded bg-white/60 px-1.5 py-0.5">{{ gap }}</span>
-                                                    <span v-if="agentPricingGenerationPreflightSummary.hiddenCandidateDataGapCount &gt; 0" class="rounded bg-white/60 px-1.5 py-0.5">+{{ agentPricingGenerationPreflightSummary.hiddenCandidateDataGapCount }}</span>
-                                                </div>
-                                            </div>
-                                            <div v-if="agentPricingGenerationPreflightSummary.hotelChecks?.length" data-testid="agent-pricing-generation-hotel-checks" class="mt-3 border-t border-current/15 pt-3 text-xs">
-                                                <div class="font-semibold">酒店级检查</div>
-                                                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                                                    <div v-for="item in agentPricingGenerationPreflightSummary.hotelChecks" :key="item.key" class="rounded border border-current/10 bg-white/50 p-2">
-                                                        <div class="flex flex-wrap items-center justify-between gap-2">
-                                                            <span class="font-medium">酒店 {{ item.hotelId || '-' }}</span>
-                                                            <span>候选 {{ item.createCandidateCount || 0 }} / 跳过 {{ item.skippedCandidateCount || 0 }}</span>
-                                                        </div>
-                                                        <div class="mt-1 opacity-80">OTA行 {{ item.targetDateRows || 0 }} · 房型 {{ item.roomTypeCount || 0 }} · 需求 {{ item.demandForecasts || 0 }} · 竞对 {{ item.competitorAnalysisRecent || 0 }}</div>
-                                                        <div v-if="item.skipReasons?.length" class="mt-1 flex flex-wrap gap-1">
-                                                            <span v-for="reason in item.skipReasons" :key="`${item.key}-${reason}`" class="rounded bg-white/70 px-1.5 py-0.5">{{ reason }}</span>
-                                                            <span v-if="item.hiddenSkipReasonCount &gt; 0" class="rounded bg-white/70 px-1.5 py-0.5">+{{ item.hiddenSkipReasonCount }}</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div v-if="agentPricingGenerationPreflightSummary.hiddenHotelCheckCount &gt; 0" class="mt-1 opacity-80">另有 {{ agentPricingGenerationPreflightSummary.hiddenHotelCheckCount }} 个酒店检查未展示</div>
-                                            </div>
-                                            <div v-if="agentPricingGenerationPreflightSummary.requiredInputs?.length" class="mt-3 flex flex-wrap gap-2">
-                                                <span v-for="item in agentPricingGenerationPreflightSummary.requiredInputs" :key="item.code" class="inline-flex rounded border border-current/20 bg-white/50 px-2 py-0.5 text-xs" :title="item.nextAction || item.source">
-                                                    {{ item.code }}：{{ item.nextAction || item.source }}
-                                                </span>
-                                                <span v-if="agentPricingGenerationPreflightSummary.hiddenRequiredInputCount &gt; 0" class="inline-flex rounded border border-current/20 bg-white/50 px-2 py-0.5 text-xs">另有 {{ agentPricingGenerationPreflightSummary.hiddenRequiredInputCount }} 项前置输入</span>
-                                            </div>
+                                            <div v-if="agentPricingGenerationPreflightSummary.candidateSkipReasons?.length || agentPricingGenerationPreflightSummary.candidateDataGaps?.length || agentPricingGenerationPreflightSummary.requiredInputs?.length || agentPricingGenerationPreflightSummary.hotelChecks?.length"><span data-testid="agent-pricing-generation-preflight-gaps">缺口</span> · 输入 {{ agentPricingGenerationPreflightSummary.requiredInputs.length }} · <span data-testid="agent-pricing-generation-hotel-checks">酒店 {{ agentPricingGenerationPreflightSummary.hotelChecks.length }}</span></div>
                                         </div>
                                         <div data-testid="agent-room-type-pricing-guard" class="mb-5 rounded-lg border border-slate-200 bg-white p-4">
                                             <div class="flex flex-wrap items-start justify-between gap-3">
@@ -676,7 +655,7 @@
                                         <div v-if="priceSuggestionGenerateResult" data-testid="agent-price-suggestion-generate-result" :class="['mb-5 rounded-lg border p-3 text-sm', priceSuggestionGenerateResult.className]">
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <span class="font-semibold">{{ priceSuggestionGenerateResult.statusLabel }}</span>
-                                                <span class="text-xs">携程 OTA · 生成 {{ priceSuggestionGenerateResult.createdCount || 0 }} 条 · 跳过 {{ priceSuggestionGenerateResult.skippedCount || 0 }} 条</span>
+                                                <span class="text-xs">携程 OTA · 生成 {{ priceSuggestionGenerateResult.createdCount || 0 }} 条 · 回读 {{ priceSuggestionGenerateResult.readbackVerifiedCount || 0 }} 条 · 跳过 {{ priceSuggestionGenerateResult.skippedCount || 0 }} 条</span>
                                                 <span class="text-xs">自动写 OTA：{{ priceSuggestionGenerateResult.autoWriteOta ? '是' : '否' }}</span>
                                             </div>
                                             <div class="mt-1">{{ priceSuggestionGenerateResult.message }}</div>
@@ -690,11 +669,12 @@
                                                 <div class="text-xs font-semibold">未生成房型原因</div>
                                                 <div v-for="item in priceSuggestionGenerateResult.skippedItems" :key="item.key" class="rounded border border-current/15 bg-white/50 p-2 text-xs">
                                                     <div class="flex flex-wrap items-center gap-2">
+                                                        <span v-if="item.targetDate" class="rounded border border-current/15 bg-white px-1.5 py-0.5">入住 {{ item.targetDate }}</span>
                                                         <span class="font-medium">{{ item.roomTypeName }}</span>
                                                         <span class="rounded border border-current/15 px-1.5 py-0.5">原因：{{ item.reason }}</span>
-                                                        <span class="rounded border border-current/15 px-1.5 py-0.5">主信号 {{ item.primarySignalCount }}</span>
+                                                        <span class="rounded border border-current/15 px-1.5 py-0.5">主信号 {{ item.primarySignalCount === null ? '—' : item.primarySignalCount }}</span>
                                                         <span v-if="item.riskLevel" class="rounded border border-current/15 px-1.5 py-0.5">风险 {{ item.riskLevel }}</span>
-                                                        <span class="rounded border border-current/15 px-1.5 py-0.5">变化 {{ item.priceChangeRate }}%</span>
+                                                        <span class="rounded border border-current/15 px-1.5 py-0.5">变化 {{ item.priceChangeRate === null ? '—' : item.priceChangeRate + '%' }}</span>
                                                     </div>
                                                     <div v-if="item.dataGaps?.length" class="mt-1 flex flex-wrap gap-1">
                                                         <span v-for="gap in item.dataGaps" :key="`${item.key}-${gap}`" class="rounded bg-white/70 px-1.5 py-0.5">{{ gap }}</span>
@@ -712,6 +692,7 @@
                                             <table class="w-full text-sm">
                                                 <thead>
                                                     <tr>
+                                                        <th class="px-4 py-3 text-left">目标入住日</th>
                                                         <th class="px-4 py-3 text-left">房型</th>
                                                         <th class="px-4 py-3 text-left">当前价格</th>
                                                         <th class="px-4 py-3 text-left">建议价格</th>
@@ -723,6 +704,12 @@
                                                 </thead>
                                                 <tbody>
                                                     <tr v-for="item in priceSuggestions" :key="item.id">
+                                                        <td class="px-4 py-3 whitespace-nowrap">
+                                                            <div class="font-medium text-gray-800">{{ item.target_stay_date || item.suggestion_date || '-' }}</div>
+                                                            <span v-if="item.persistence?.readback_verified" class="mt-1 inline-flex rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">精确身份已回读</span>
+                                                            <span v-else-if="item.persistence?.loaded_from_storage" class="mt-1 inline-flex rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">已载入，身份字段不完整</span>
+                                                            <span v-else class="mt-1 inline-flex rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600">未确认保存</span>
+                                                        </td>
                                                         <td class="px-4 py-3 min-w-[380px]">
                                                             <div class="font-medium text-gray-800">{{ item.room_type?.name || '-' }}</div>
                                                             <div v-if="item.decision_recommendation?.action" class="mt-2 rounded border border-blue-100 bg-blue-50/50 p-2 text-xs leading-5 text-gray-700">
@@ -730,11 +717,11 @@
                                                                 <ai-decision-quality-details :item="item.decision_recommendation"></ai-decision-quality-details>
                                                             </div>
                                                         </td>
-                                                        <td class="px-4 py-3 text-gray-600">¥{{ item.current_price }}</td>
-                                                        <td class="px-4 py-3 font-semibold" :class="item.suggested_price &gt; item.current_price ? 'text-green-600' : 'text-red-600'">¥{{ item.suggested_price }}</td>
+                                                        <td class="px-4 py-3 text-gray-600">{{ Number(item.current_price) &gt; 0 ? '¥' + item.current_price : '—' }}</td>
+                                                        <td class="px-4 py-3 font-semibold" :class="Number(item.suggested_price) &gt; 0 ? (item.suggested_price &gt; item.current_price ? 'text-green-600' : 'text-red-600') : 'text-gray-400'">{{ Number(item.suggested_price) &gt; 0 ? '¥' + item.suggested_price : '—' }}</td>
                                                         <td class="px-4 py-3">
-                                                            <span :class="item.price_change_percent &gt; 0 ? 'text-green-600' : 'text-red-600'">
-                                                                {{ item.price_change_percent &gt; 0 ? '+' : '' }}{{ item.price_change_percent }}%
+                                                            <span :class="Number(item.current_price) &gt; 0 ? (item.price_change_percent &gt; 0 ? 'text-green-600' : 'text-red-600') : 'text-gray-400'">
+                                                                {{ Number(item.current_price) &gt; 0 ? (item.price_change_percent &gt; 0 ? '+' : '') + item.price_change_percent + '%' : '—' }}
                                                             </span>
                                                         </td>
                                                         <td class="px-4 py-3">{{ item.suggestion_type_name }}</td>
@@ -763,10 +750,17 @@
                                                         </td>
                                                     </tr>
                                                     <tr v-if="priceSuggestions.length === 0">
-                                                    <td colspan="7" class="px-4 py-8 text-center text-gray-400">待同步经营数据</td>
+                                                    <td colspan="8" class="px-4 py-8 text-center text-gray-400">所选入住日期范围暂无已保存建议；缺少信号时系统不会用 0 或旧数据补齐</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
+                                        </div>
+                                        <div v-if="priceSuggestionPagination.total &gt; 0" class="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
+                                            <span>共 {{ priceSuggestionPagination.total }} 条 · 第 {{ priceSuggestionPagination.page }} / {{ Math.max(1, priceSuggestionPagination.total_page) }} 页</span>
+                                            <div class="flex items-center gap-2">
+                                                <button @click="changePriceSuggestionPage(priceSuggestionPagination.page - 1)" :disabled="priceSuggestionPagination.page &lt;= 1" class="btn-secondary px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40">上一页</button>
+                                                <button @click="changePriceSuggestionPage(priceSuggestionPagination.page + 1)" :disabled="priceSuggestionPagination.page &gt;= priceSuggestionPagination.total_page" class="btn-secondary px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40">下一页</button>
+                                            </div>
                                         </div>
                                         <div v-if="priceSuggestionReview" class="mt-5 rounded-xl border border-purple-100 bg-purple-50 p-4">
                                             <div class="flex items-center justify-between gap-3 mb-3">

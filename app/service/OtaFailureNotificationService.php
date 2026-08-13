@@ -9,7 +9,6 @@ use app\model\OperationLog;
 use app\model\SystemNotification;
 use app\model\SystemNotificationUserState;
 use app\model\User;
-use think\facade\Cache;
 use think\facade\Db;
 use think\facade\Log;
 use Throwable;
@@ -36,7 +35,8 @@ final class OtaFailureNotificationService
     private array $columnCache = [];
 
     public function __construct(
-        private readonly ?WechatRobotDeliveryService $wechatDelivery = null
+        private readonly ?WechatRobotDeliveryService $wechatDelivery = null,
+        private readonly ?OtaFailureWechatDeliveryLedgerService $wechatDeliveryLedger = null
     ) {
     }
 
@@ -362,18 +362,36 @@ final class OtaFailureNotificationService
         }
 
         $taskId = $this->positiveInt($event['local_collector_task_id'] ?? $event['task_id'] ?? null);
-        $dedupeKey = 'ota_failure_wecom:' . hash('sha256', implode('|', [
-            $hotelId,
-            $platform,
-            $reasonCode,
-            $dataDate,
-            $taskId ?? 0,
-        ]));
-        if (Cache::get($dedupeKey)) {
-            return ['delivery_status' => 'deduplicated', 'hotel_id' => $hotelId];
+        $hotel = $this->hotelRow($hotelId);
+        $ledger = $this->wechatDeliveryLedger ?? new OtaFailureWechatDeliveryLedgerService();
+        try {
+            $claim = $ledger->claim([
+                'tenant_id' => (int)($hotel['tenant_id'] ?? 0),
+                'hotel_id' => $hotelId,
+                'platform' => $platform,
+                'reason_code' => $reasonCode,
+                'data_date' => $dataDate,
+                'collector_task_id' => $taskId,
+            ]);
+        } catch (Throwable $error) {
+            Log::warning('OTA failure WeCom delivery receipt claim failed', [
+                'hotel_id' => $hotelId,
+                'platform' => $platform,
+                'reason_code' => $reasonCode,
+                'exception_type' => get_debug_type($error),
+            ]);
+            return [
+                'delivery_status' => 'receipt_store_unavailable',
+                'hotel_id' => $hotelId,
+                'sent_count' => 0,
+                'failed_count' => 0,
+                'retry_may_duplicate' => false,
+            ];
+        }
+        if (($claim['claimed'] ?? false) !== true) {
+            return $ledger->replayResult($claim);
         }
 
-        $hotel = $this->hotelRow($hotelId);
         $hotelName = trim((string)($hotel['name'] ?? ''));
         if ($hotelName === '') {
             $hotelName = '门店#' . $hotelId;
@@ -394,12 +412,45 @@ final class OtaFailureNotificationService
                 80
             ),
         ], $hotelName);
-        $result = $delivery->deliverToHotel($hotelId, $payload);
-        if (in_array((string)($result['delivery_status'] ?? ''), ['sent', 'partial'], true)) {
-            Cache::set($dedupeKey, 1, 21600);
+        try {
+            $result = $delivery->deliverToHotel($hotelId, $payload);
+        } catch (Throwable $error) {
+            Log::warning('OTA failure WeCom sender interrupted after durable claim', [
+                'hotel_id' => $hotelId,
+                'platform' => $platform,
+                'reason_code' => $reasonCode,
+                'exception_type' => get_debug_type($error),
+            ]);
+            $result = [
+                'delivery_status' => 'outcome_unknown',
+                'hotel_id' => $hotelId,
+                'robot_count' => 0,
+                'sent_count' => 0,
+                'failed_count' => 0,
+                'reason' => 'sender_exception_after_durable_claim',
+            ];
         }
-
-        return $result;
+        try {
+            return $ledger->complete($claim, $result);
+        } catch (Throwable $error) {
+            Log::warning('OTA failure WeCom delivery result could not be persisted', [
+                'hotel_id' => $hotelId,
+                'platform' => $platform,
+                'reason_code' => $reasonCode,
+                'delivery_ledger_id' => (int)($claim['id'] ?? 0),
+                'exception_type' => get_debug_type($error),
+            ]);
+            return [
+                'delivery_status' => 'outcome_unknown',
+                'hotel_id' => $hotelId,
+                'robot_count' => max(0, (int)($result['robot_count'] ?? 0)),
+                'sent_count' => max(0, (int)($result['sent_count'] ?? 0)),
+                'failed_count' => max(0, (int)($result['failed_count'] ?? 0)),
+                'delivery_ledger_id' => (int)($claim['id'] ?? 0),
+                'reason' => 'delivery_receipt_persistence_failed',
+                'retry_may_duplicate' => true,
+            ];
+        }
     }
 
     /** @return array{user_id:int,source:string}|null */

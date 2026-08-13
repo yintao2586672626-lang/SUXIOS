@@ -292,7 +292,12 @@ final class ControllerRouteContractTest extends TestCase
             self::assertStringContainsString("'{$reservedSource}'", $service);
         }
         self::assertStringContainsString('assertPublicPageDiagnosisIntentReadyForApproval($intent)', $service);
-        self::assertStringContainsString('assertSimulationIntentSourceIsCurrent($intent)', $service);
+        self::assertStringContainsString('withSourceBackedExecutionIntentApprovalAuthorization(', $service);
+
+        $tenantConcern = $this->sourceWithoutPhpComments(
+            __DIR__ . '/../app/service/operation/OperationExecutionTenantConcern.php'
+        );
+        self::assertStringContainsString('assertSimulationIntentSourceIsCurrent(', $tenantConcern);
     }
 
     public function testReleaseEvidenceStatusRouteStaysAuthenticatedAndNonClosing(): void

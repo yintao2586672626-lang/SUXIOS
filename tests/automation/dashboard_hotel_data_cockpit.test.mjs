@@ -231,7 +231,7 @@ test('online-data surface exposes the six-step operating loop and retains collec
   assert.equal((onlineDataFragment.match(/refreshCoreOperationsLoop\(\{ resetScope: true \}\)/g) || []).length, 2);
   assert.match(appMain, /options\.resetScope === true/);
   assert.match(diagnosisGenerationSource, /Promise\.allSettled\(\['ctrip', 'meituan'\]\.map/);
-  assert.match(appMain, /const currentPage = ref\(initialPageOverride \|\| 'ai-workbench'\)/);
+  assert.match(appMain, /const currentPage = ref\(initialPageOverride \|\| 'compass'\)/);
   assert.match(appMain, /testid: 'nav-core-operations-loop'/);
   assert.match(operationStatic, /OTA诊断行动/);
   assert.match(operationStatic, /巡检补证任务/);

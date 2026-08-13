@@ -183,6 +183,65 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         }
     }
 
+    public function testLocalCollectorScheduledSelectionRequiresReadyExactPlanGate(): void
+    {
+        $command = new AutoFetchOnlineData();
+        (new \ReflectionProperty($command, 'dispatcherRunId'))->setValue(
+            $command,
+            '12345678-1234-4234-8234-123456789abc'
+        );
+        $gateProperty = new \ReflectionProperty($command, 'scheduledPlanGate');
+        $method = new \ReflectionMethod($command, 'scheduledIngestionMethods');
+
+        self::assertSame(
+            ['browser_profile'],
+            $method->invoke($command, 80, '2026-08-09', [25, 68], ['ctrip', 'meituan'])
+        );
+
+        $readyGate = [
+            'status' => 'ready',
+            'collection_allowed' => true,
+            'dispatcher_run_id' => '12345678-1234-4234-8234-123456789abc',
+            'system_hotel_id' => 80,
+            'business_date' => '2026-08-09',
+            'run_mode' => 'daily',
+            'plan_readback_verified' => true,
+            'binding_digest_matches' => true,
+            'execution_owner_bound' => true,
+            'expected_source_ids' => [25, 68],
+            'actual_source_ids' => [25, 68],
+            'expected_platforms' => ['ctrip', 'meituan'],
+            'actual_platforms' => ['ctrip', 'meituan'],
+        ];
+        $gateProperty->setValue($command, $readyGate);
+        self::assertSame(
+            ['browser_profile', 'local_collector'],
+            $method->invoke($command, 80, '2026-08-09', [68, 25, 68], ['meituan', 'ctrip'])
+        );
+
+        foreach ([
+            ['status' => 'blocked'],
+            ['collection_allowed' => false],
+            ['dispatcher_run_id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+            ['system_hotel_id' => 81],
+            ['business_date' => '2026-08-08'],
+            ['run_mode' => 'realtime'],
+            ['plan_readback_verified' => false],
+            ['binding_digest_matches' => false],
+            ['execution_owner_bound' => false],
+            ['expected_source_ids' => [25, 99]],
+            ['actual_source_ids' => [25, 99]],
+            ['expected_platforms' => ['ctrip']],
+            ['actual_platforms' => ['meituan']],
+        ] as $drift) {
+            $gateProperty->setValue($command, array_replace($readyGate, $drift));
+            self::assertSame(
+                ['browser_profile'],
+                $method->invoke($command, 80, '2026-08-09', [25, 68], ['ctrip', 'meituan'])
+            );
+        }
+    }
+
     public function testCloudCollectorFailsClosedBeforeDatabaseOrPlatformWorkWhenExplicitScopeIsMissing(): void
     {
         $previousCollector = getenv('SUXIOS_OTA_CLOUD_COLLECTOR');
@@ -804,12 +863,36 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         $method = new \ReflectionMethod($command, 'profileLockIsStale');
 
         self::assertFalse($method->invoke($command, [
-            'started_at' => date('Y-m-d H:i:s', time() - 299),
+            'started_at' => date('Y-m-d H:i:s', time() - 3599),
         ]));
         self::assertTrue($method->invoke($command, [
-            'started_at' => date('Y-m-d H:i:s', time() - 301),
+            'started_at' => date('Y-m-d H:i:s', time() - 3601),
         ]));
         self::assertTrue($method->invoke($command, []));
+    }
+
+    public function testHotelProfileRunLockCannotBeReleasedOrReenteredByAnotherOwner(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $acquire = new \ReflectionMethod($command, 'acquireHotelProfileRunLock');
+        $release = new \ReflectionMethod($command, 'releaseHotelProfileRunLock');
+        $hotelId = 900000 + (getmypid() % 10000);
+
+        $first = $acquire->invoke($command, $hotelId);
+        self::assertIsResource($first);
+        try {
+            self::assertNull($acquire->invoke($command, $hotelId));
+        } finally {
+            $release->invoke($command, $first);
+        }
+
+        $next = $acquire->invoke($command, $hotelId);
+        self::assertIsResource($next);
+        $release->invoke($command, $next);
+
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+        self::assertStringContainsString("'owner_token' => \$lockOwnerToken", $source);
+        self::assertStringContainsString("hash_equals(\$lockOwnerToken, (string)(\$currentLock['owner_token'] ?? ''))", $source);
     }
 
     public function testForceRerunIsRestrictedToOneExplicitHotelDateAndSourceScope(): void
@@ -1931,8 +2014,14 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             "\$receipt['collection_run_status']",
             (int)$finalizeAt
         );
+        $terminalRunReceiptOutputAt = strpos(
+            $source,
+            "'SUXIOS_COLLECTION_RUN_RECEIPT='",
+            (int)$finalizeAt
+        );
         $pmsAttachAt = strpos($source, '$receipt[\'pms_run_attachment\']', (int)$finalizeAt);
         self::assertIsInt($finalizeAt);
+        self::assertIsInt($terminalRunReceiptOutputAt);
         self::assertIsInt($evidenceProjectionAt);
         self::assertIsInt($pmsAttachAt);
         $failureBranch = substr(
@@ -1971,7 +2060,60 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         );
         $writeAt = strpos($source, '$this->writeMachineReceipt($output, $receipt);', (int)$pmsAttachAt);
         self::assertIsInt($writeAt);
-        self::assertTrue($evidenceProjectionAt < $pmsAttachAt && $pmsAttachAt < $writeAt);
+        self::assertTrue(
+            $terminalRunReceiptOutputAt < $evidenceProjectionAt
+            && $evidenceProjectionAt < $pmsAttachAt
+            && $pmsAttachAt < $writeAt
+        );
+    }
+
+    public function testCompletedProducerEvidenceWaitsForTrustFinalizationOnTheSameDispatcher(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+        $trustedAt = strpos(
+            $source,
+            '$trustedReady = $this->machineReceiptDailyTrustReady('
+        );
+        $pendingAt = strpos(
+            $source,
+            "\$failureReason = 'requested_scope_authority_or_history_incomplete';",
+            (int)$trustedAt
+        );
+        $finalizeAt = strpos(
+            $source,
+            '$finalizedRunReceipt = $this->finalizeScheduledCollectionReceipt(',
+            (int)$pendingAt
+        );
+        self::assertIsInt($trustedAt);
+        self::assertIsInt($pendingAt);
+        self::assertIsInt($finalizeAt);
+        self::assertTrue($trustedAt < $pendingAt && $pendingAt < $finalizeAt);
+
+        $pendingBranch = substr(
+            $source,
+            (int)$pendingAt,
+            (int)$finalizeAt - (int)$pendingAt
+        );
+        self::assertStringContainsString("'status' => 'in_progress'", $pendingBranch);
+        self::assertStringContainsString(
+            '$receipt = $this->downgradeUntrustedMachineReceipt($receipt);',
+            $pendingBranch
+        );
+        self::assertStringContainsString(
+            '$receipt[\'pms_run_attachment\'] = $this->attachExactScheduledPmsCapture(',
+            $pendingBranch
+        );
+        self::assertStringContainsString('$hasIncompleteDueRun = true;', $pendingBranch);
+        self::assertStringContainsString('continue;', $pendingBranch);
+        self::assertStringNotContainsString(
+            '$this->finalizeScheduledCollectionReceipt(',
+            $pendingBranch
+        );
+        self::assertStringNotContainsString('$this->writeMachineReceipt(', $pendingBranch);
+        self::assertStringNotContainsString('SUXIOS_COLLECTION_RUN_RECEIPT=', $pendingBranch);
+        self::assertStringNotContainsString('SUXIOS_AUTO_FETCH_RECEIPT=', $pendingBranch);
     }
 
     public function testExactTargetDatePmsCaptureIsAttachedOnlyAsRunSidecar(): void

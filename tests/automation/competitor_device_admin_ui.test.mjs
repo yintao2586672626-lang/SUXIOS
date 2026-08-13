@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
+import { readAppMainContractSource } from './helpers/frontend_source.mjs';
 
 const read = (path) => readFileSync(path, 'utf8');
 
 test('superadmin data config closes the competitor device lifecycle without persisting one-time tokens', () => {
   const fragment = read('resources/frontend/templates/fragments/34-page-data-config.html');
-  const appMain = read('public/app-main.js');
+  const appMain = readAppMainContractSource();
   const component = read('public/components/admin/competitor-device-management.js');
   const routes = read('route/app.php');
   const controller = read('app/controller/admin/CompetitorDeviceController.php');
@@ -35,6 +36,8 @@ test('superadmin data config closes the competitor device lifecycle without pers
     assert.match(component, new RegExp(`['"]data-testid['"]?: ['"]${testId}['"]|data-testid="${testId}"`));
   }
   assert.match(component, /binding_missing[\s\S]*不能仅凭“已创建”判断采集可用/);
+  assert.match(component, /按入住日查缺、自动派单并回读[\s\S]*登录失效、验证码或酒店身份不符/);
+  assert.match(component, /受保护环境变量或 Token 文件[\s\S]*npm run competitor:auto-collector/);
   assert.match(component, /const online = enabled && item\.is_online === true/);
   assert.doesNotMatch(component, /token_hash/);
 

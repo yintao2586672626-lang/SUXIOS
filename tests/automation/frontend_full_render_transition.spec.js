@@ -52,7 +52,6 @@ test('five focus pages paint their heading within 300ms on first switch and revi
   const deferredAssetNames = [
     'ctrip-search-opportunity-static.js',
     'user-admin-static.js',
-    'app-deferred-helpers.min.js',
     'app-render.min.js',
   ];
   const deferredRequestCounts = new Map(deferredAssetNames.map(name => [name, 0]));

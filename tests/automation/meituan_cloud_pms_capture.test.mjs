@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildCaptureFromResponses,
+  IDENTITY_API,
   OVERVIEW_API,
   ROOM_API,
 } from '../../scripts/meituan_cloud_pms_capture.mjs';
@@ -12,6 +13,17 @@ import {
 
 function responses(overrides = {}) {
   return {
+    identityResponse: {
+      status: 200,
+      body: {
+        code: 10000,
+        data: {
+          hotelName: '敦煌漠蓝新',
+          hotelId: 'mt-hotel-80',
+          ...(overrides.identity || {}),
+        },
+      },
+    },
     overviewResponse: {
       status: 200,
       body: {
@@ -40,7 +52,6 @@ function responses(overrides = {}) {
       },
     },
     expectedHotelName: '敦煌漠蓝新',
-    identityMatched: true,
     targetDate: '2026-07-28',
     capturedAt: '2026-07-28 12:00:00',
   };
@@ -51,7 +62,7 @@ test('maps reviewed Meituan Cloud PMS fields into sanitized hotel facts', () => 
 
   assert.equal(capture.provider_hotel_id, 'mt-hotel-80');
   assert.equal(capture.provider_hotel_name, '敦煌漠蓝新');
-  assert.equal(capture.identity_evidence_type, 'authenticated_profile_hotel_identity');
+  assert.equal(capture.identity_evidence_type, 'verified_api_hotel_identity');
   assert.equal(capture.date_evidence_type, 'verified_api_business_date');
   assert.deepEqual(capture.summary, {
     estimated_room_revenue: 600,
@@ -66,6 +77,7 @@ test('maps reviewed Meituan Cloud PMS fields into sanitized hotel facts', () => 
   });
   assert.equal(capture.collector_checks.detail_sold_matches_overview, true);
   assert.equal(capture.collector_checks.availability_difference, 0);
+  assert.match(capture.field_trace.provider_hotel_identity, new RegExp(IDENTITY_API));
   assert.match(capture.field_trace.estimated_room_revenue, new RegExp(OVERVIEW_API));
   assert.match(capture.field_trace.total_rooms, new RegExp(ROOM_API));
   assert.equal(Object.hasOwn(capture, 'raw_response'), false);
@@ -85,17 +97,31 @@ test('keeps an availability difference visible for the server-side tolerance gat
   assert.match(capture.validation_warnings[0], /相差5间/);
 });
 
-test('fails closed when the authenticated page cannot prove the expected hotel', () => {
+test('fails closed when the authenticated identity API returns another hotel', () => {
   assert.throws(
-    () => buildCaptureFromResponses({
-      ...responses(),
-      identityMatched: false,
-    }),
-    /meituan_cloud_hotel_identity_unverified/,
+    () => buildCaptureFromResponses(responses({
+      identity: { hotelName: '另一家酒店' },
+    })),
+    /meituan_cloud_hotel_identity_mismatch/,
   );
 });
 
-test('read-only gateway allows only the two reviewed Meituan query POST paths', () => {
+test('fails closed when the identity API is unavailable', () => {
+  assert.throws(
+    () => buildCaptureFromResponses({
+      ...responses(),
+      identityResponse: { status: 500, body: null },
+    }),
+    /meituan_cloud_identity_api_failed/,
+  );
+});
+
+test('read-only gateway allows the identity GET and two reviewed query POST paths', () => {
+  assert.equal(isPmsReadOnlyRequestAllowed({
+    url: `https://pms.meituan.com${IDENTITY_API}`,
+    method: 'GET',
+    resourceType: 'Fetch',
+  }, 'meituan_cloud_pms'), true);
   for (const path of [OVERVIEW_API, ROOM_API]) {
     assert.equal(isPmsReadOnlyRequestAllowed({
       url: `https://pms.meituan.com${path}`,

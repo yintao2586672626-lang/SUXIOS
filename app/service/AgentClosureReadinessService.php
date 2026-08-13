@@ -90,7 +90,10 @@ final class AgentClosureReadinessService
             'stage' => $stage,
             'status_label' => $label,
             'score' => $score,
-            'closed_loop' => $closedLoop,
+            'component_ready' => $closedLoop,
+            'closed_loop' => false,
+            'authority_status' => 'unverified',
+            'source_policy' => 'knowledge_component_only_requires_operating_cycle_kernel',
             'next_action' => $nextAction,
             'missing_evidence' => $missingEvidence,
         ];
@@ -109,7 +112,7 @@ final class AgentClosureReadinessService
     {
         $missing = $readiness['missing_evidence'] ?? [];
         if ($missing === []) {
-            $readiness['notice'] = '已具备当前行的闭环证据';
+            $readiness['notice'] = '知识已启用并被引用，但未绑定酒店、业务日期和权威经营闭环，不代表经营闭环完成';
             return $readiness;
         }
 

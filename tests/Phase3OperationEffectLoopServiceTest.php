@@ -72,8 +72,9 @@ final class Phase3OperationEffectLoopServiceTest extends TestCase
         self::assertSame('success', $first['effect_review']['result_status']);
         self::assertFalse($first['effect_review']['causality_claimed']);
         self::assertSame('candidate', $first['sop']['status']);
-        self::assertSame('candidate', $first['replication']['status']);
+        self::assertSame('screening_only', $first['replication']['status']);
         self::assertSame([8], array_column($first['replication']['target_hotels'], 'hotel_id'));
+        self::assertContains('applicability_profile_and_counterexample_review_required', $first['replication']['reason_codes']);
         self::assertFalse($first['replication']['auto_apply_enabled']);
     }
 

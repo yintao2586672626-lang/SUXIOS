@@ -197,6 +197,22 @@ test('operation execution requests keep the selected hotel identity consistent t
   assert.match(appMain, /执行任务回读酒店身份不一致/);
 });
 
+test('OTA collection capability readback is not discarded when adjacent operation panels fail', () => {
+  const loadStart = appMain.indexOf('const loadOperationActions = async');
+  const loadEnd = appMain.indexOf('const parseOperationEvidenceNumber', loadStart);
+  const loadFlow = appMain.slice(loadStart, loadEnd);
+
+  assert.match(loadFlow, /Promise\.allSettled\(\[/);
+  assert.match(loadFlow, /flowResult\.status === 'fulfilled' \? flowResult\.value : null/);
+  assert.match(loadFlow, /if \(flowRes\?\.code === 200\) \{[\s\S]*operationExecutionFlow\.value = flowRes\.data/);
+  assert.match(loadFlow, /if \(res\?\.code === 200\) \{[\s\S]*operationActions\.value = res\.data\?\.actions/);
+  assert.match(loadFlow, /operationClosureOverview\.value = closureRes\?\.code === 200/);
+
+  const capabilityReadback = loadFlow.indexOf('operationExecutionFlow.value = flowRes.data');
+  const adjacentFailure = loadFlow.indexOf("if (res?.code !== 200) throw new Error");
+  assert.ok(capabilityReadback >= 0 && adjacentFailure > capabilityReadback);
+});
+
 test('execution approval uses an in-page two-click confirmation without a native dialog', () => {
   const start = appMain.indexOf('const operationApprovalConfirming =');
   const end = appMain.indexOf('const recordOperationExecutionEvidence = async', start);

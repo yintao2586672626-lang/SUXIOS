@@ -8,11 +8,19 @@ const decodeTemplateSource = (source) => String(source || '')
   .replaceAll('&lt;', '<')
   .replaceAll('&quot;', '"');
 
+export function readAppMainContractSource() {
+  return [
+    read('public/components/system/app-main-components.js'),
+    read('public/components/system/operating-intelligence-components.js'),
+    read('public/app-main.js'),
+  ].join('\n');
+}
+
 export function readFrontendContractSource() {
   return [
     read('public/index.html'),
     decodeTemplateSource(read('resources/frontend/app-template.html')),
-    read('public/app-main.js'),
+    readAppMainContractSource(),
     decodeTemplateSource(read('resources/frontend/templates/components/data-config-dialogs.html')),
   ].join('\n');
 }

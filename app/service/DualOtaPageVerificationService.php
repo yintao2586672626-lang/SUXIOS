@@ -16,7 +16,8 @@ use think\facade\Db;
  */
 final class DualOtaPageVerificationService
 {
-    public const CONTRACT_VERSION = 'suxios.dual_ota_page_verification.v1';
+    public const CONTRACT_VERSION = 'suxios.dual_ota_page_verification.v2';
+    public const DESCRIPTION_PREFIX = 'dual_ota_page:v2:';
     public const MODULE = 'online_data';
     public const ACTION = 'confirm_dual_ota_page_verification';
 
@@ -341,12 +342,22 @@ final class DualOtaPageVerificationService
                 ? $platformRow['acceptance_receipt']
                 : [];
             $strategy = is_array($receipt['capture_strategy'] ?? null) ? $receipt['capture_strategy'] : [];
+            $readbackScope = is_array($receipt['run_readback_scope'] ?? null)
+                ? $receipt['run_readback_scope']
+                : [];
             $counts = is_array($receipt['counts'] ?? null) ? $receipt['counts'] : [];
             $fields = is_array($receipt['critical_fields'] ?? null) ? $receipt['critical_fields'] : [];
+            if (!is_array($fields['complete'] ?? null) || !is_array($fields['missing'] ?? null)) {
+                throw new \RuntimeException('The page receipt is missing critical-field evidence.', 409);
+            }
+            $failureReason = self::nullableText($platformRow['failure_reason'] ?? null);
 
             $platformContracts[] = [
                 'platform' => $platform,
                 'acceptance_status' => self::text($platformRow['acceptance_status'] ?? $receipt['status'] ?? ''),
+                'p0_status' => self::nullableText($platformRow['p0_status'] ?? null),
+                'missing_metric_keys' => self::sortedStrings($platformRow['missing_metric_keys'] ?? []),
+                'failure_reason_digest' => $failureReason === null ? null : hash('sha256', $failureReason),
                 'system_hotel_id' => self::nullablePositiveInt($receipt['system_hotel_id'] ?? null),
                 'platform_hotel_id' => self::nullableText($receipt['platform_hotel_id'] ?? null),
                 'platform_hotel_status' => self::nullableText($receipt['platform_hotel_status'] ?? null),
@@ -364,6 +375,16 @@ final class DualOtaPageVerificationService
                 'sync_task_id' => self::nullablePositiveInt($receipt['sync_task_id'] ?? null),
                 'sync_task_status' => self::nullableText($receipt['sync_task_status'] ?? null),
                 'data_period' => self::nullableText($receipt['data_period'] ?? null),
+                'run_readback_scope' => [
+                    'status' => self::nullableText($readbackScope['status'] ?? null),
+                    'data_period' => self::nullableText($readbackScope['data_period'] ?? null),
+                    'receipt_row_count' => self::nullableNonNegativeInt($readbackScope['receipt_row_count'] ?? null),
+                    'receipt_current_row_count' => self::nullableNonNegativeInt($readbackScope['receipt_current_row_count'] ?? null),
+                    'receipt_missing_row_count' => self::nullableNonNegativeInt($readbackScope['receipt_missing_row_count'] ?? null),
+                    'receipt_identity_mismatch_count' => self::nullableNonNegativeInt($readbackScope['receipt_identity_mismatch_count'] ?? null),
+                    'authoritative_row_count' => self::nullableNonNegativeInt($readbackScope['authoritative_row_count'] ?? null),
+                    'mismatched_row_count' => self::nullableNonNegativeInt($readbackScope['mismatched_row_count'] ?? null),
+                ],
                 'counts' => [
                     'saved' => self::nullableNonNegativeInt($counts['saved'] ?? null),
                     'readback' => self::nullableNonNegativeInt($counts['readback'] ?? null),
@@ -373,8 +394,8 @@ final class DualOtaPageVerificationService
                     'target_saved_readback_match' => self::nullableBool($counts['target_saved_readback_match'] ?? null),
                 ],
                 'critical_fields' => [
-                    'complete' => self::sortedStrings($fields['complete'] ?? []),
-                    'missing' => self::sortedStrings($fields['missing'] ?? []),
+                    'complete' => self::sortedStrings($fields['complete']),
+                    'missing' => self::sortedStrings($fields['missing']),
                     'status' => self::nullableText($fields['status'] ?? null),
                 ],
                 'claim_allowed' => ($receipt['claim_allowed'] ?? false) === true,
@@ -446,6 +467,10 @@ final class DualOtaPageVerificationService
                 continue;
             }
             $sawDateEvidence = true;
+            $evidenceVersion = self::text($extra['contract_version'] ?? '');
+            if ($evidenceVersion !== '' && $evidenceVersion !== self::CONTRACT_VERSION) {
+                continue;
+            }
 
             $decoded = self::decodeEvidence($row, $tenantId, $hotelId);
             if ($decoded === null) {
@@ -693,7 +718,7 @@ final class DualOtaPageVerificationService
 
     private static function descriptionPrefix(string $targetDate): string
     {
-        return 'dual_ota_page:v1:' . $targetDate . ':';
+        return self::DESCRIPTION_PREFIX . $targetDate . ':';
     }
 
     private static function assertDate(string $value): string

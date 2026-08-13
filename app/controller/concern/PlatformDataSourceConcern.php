@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\service\CtripOrderAnalysisService;
 use app\service\OtaBrowserAssistImportService;
 use app\service\OtaCapabilityStateService;
 use app\service\OtaCollectionQualityStateService;
@@ -52,6 +53,57 @@ trait PlatformDataSourceConcern
             return $this->success($service->listDataSources($this->currentUser, $this->request->get()));
         } catch (\Throwable $e) {
             return $this->error('获取数据源失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function ctripOrderAnalysis(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $requestData = $this->request->get();
+            $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+                $requestData['system_hotel_id']
+                ?? $requestData['systemHotelId']
+                ?? $requestData['hotel_id']
+                ?? $requestData['hotelId']
+                ?? null
+            );
+            if (!$systemHotelId) {
+                throw new \RuntimeException('请选择酒店后查看携程订单分析。', 422);
+            }
+            if (!$this->currentUser->isSuperAdmin()
+                && !$this->currentUser->hasHotelPermission((int)$systemHotelId, 'can_view_online_data')
+            ) {
+                throw new \RuntimeException('无权查看该酒店的携程订单分析。', 403);
+            }
+
+            $hotel = Db::name('hotels')
+                ->where('id', (int)$systemHotelId)
+                ->field('id,name,tenant_id')
+                ->find();
+            if (!is_array($hotel) || (int)($hotel['tenant_id'] ?? 0) <= 0) {
+                throw new \RuntimeException('目标酒店不存在或缺少租户范围。', 422);
+            }
+
+            $analysis = (new CtripOrderAnalysisService())->analyzeStoredRange(
+                (int)$systemHotelId,
+                (int)$hotel['tenant_id'],
+                isset($requestData['date_from']) ? trim((string)$requestData['date_from']) : null,
+                isset($requestData['date_to']) ? trim((string)$requestData['date_to']) : null
+            );
+            $analysis['hotel'] = [
+                'id' => (int)$hotel['id'],
+                'name' => (string)($hotel['name'] ?? ''),
+            ];
+            return $this->success($analysis, '携程订单分析已回读');
+        } catch (\think\exception\HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('携程订单分析回读失败。', 500);
         }
     }
 
@@ -340,6 +392,10 @@ trait PlatformDataSourceConcern
                         'value_level_verified' => ($result['readback_verified'] ?? false) === true,
                     ];
                     $result['import_preview'] = $this->buildChannelOrderImportPreview($readbackRows, $payload);
+                    $result['order_analysis'] = (new CtripOrderAnalysisService())->analyzeRows(
+                        $readbackRows,
+                        $systemHotelId > 0 ? $systemHotelId : null
+                    );
                 } catch (\RuntimeException $readbackError) {
                     $result['import_readback'] = [
                         'status' => 'unverified',

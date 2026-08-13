@@ -1814,6 +1814,22 @@
                                             <span>质量：{{ competitorEventQualityText(competitorEventFeed.quality_status || competitorEventFeed.status) }}</span>
                                             <span>回读已验证：{{ competitorEventFeed.readback_verified_count === null || competitorEventFeed.readback_verified_count === undefined ? '未知' : competitorEventFeed.readback_verified_count }}</span>
                                         </div>
+                                        <div v-if="competitorEventFeed?.collection_coverage" data-testid="competitor-collection-coverage" class="border-b border-[#eee7d8] bg-[#fffdf8] p-4 text-xs">
+                                            <div class="flex flex-wrap items-center gap-3">
+                                                <strong class="text-sm text-gray-900">竞圈采集覆盖清单</strong>
+                                                <span :class="competitorEventFeed.collection_coverage.is_complete_for_availability ? 'text-emerald-700' : 'text-amber-700'">{{ competitorEventFeed.collection_coverage.status_label }}</span>
+                                                <span class="text-gray-600">可售 {{ competitorEventFeed.collection_coverage.availability_verified_target_count }}/{{ competitorEventFeed.collection_coverage.target_count }} · 同口径价 {{ competitorEventFeed.collection_coverage.price_comparable_target_count }}/{{ competitorEventFeed.collection_coverage.target_count }}</span>
+                                            </div>
+                                            <div v-if="competitorEventFeed.collection_coverage.targets?.length" class="mt-3 grid gap-2 md:grid-cols-2">
+                                                <div v-for="target in competitorEventFeed.collection_coverage.targets" :key="`${target.platform}-${target.competitor_hotel_id}`" data-testid="competitor-collection-target" class="rounded border border-[#e8dfcd] bg-white p-2">
+                                                    <div class="flex justify-between gap-2"><b>{{ competitorEventPlatformText(target.platform) }} · {{ target.competitor_hotel_name || '竞品名称未配置' }}</b><span :class="target.price_comparable ? 'text-emerald-700' : target.availability_verified ? 'text-blue-700' : 'text-amber-700'">{{ target.evidence_status_label }}</span></div>
+                                                    <div class="mt-1 text-gray-500">{{ target.latest_collected_at || '当前入住日无采集时间' }} · {{ target.observed_event_count }} 条</div>
+                                                    <div v-if="target.needs_identity_binding" class="mt-1 text-amber-700">竞品 OTA 酒店 ID 未绑定，公开名称不能自动证明身份。</div>
+                                                </div>
+                                            </div>
+                                            <div v-else class="mt-3 text-gray-500">{{ competitorEventFeed.collection_coverage.notice }}</div>
+                                            <p class="mt-2 text-[#6f572f]">{{ competitorEventFeed.collection_coverage.scope_notice }}</p>
+                                        </div>
                                         <div v-if="competitorEventFeed?.truncated" data-testid="competitor-event-feed-truncated" class="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">仅评估最新返回的 {{ competitorEventFeed.returned_event_count }} / {{ competitorEventFeed.sample_count }} 条匹配事件；更早事件未进入本窗口，当前状态按部分证据处理。</div>
                                         <div v-if="competitorEventFeed && competitorEventFeed.returned_event_count > 0 && competitorEventFeed.price_evidence_eligible_sample_count === 0" data-testid="competitor-event-feed-price-boundary" class="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">当前仅有 OTA 公开起价或可售观测，因房型、权益、取消、支付或税费口径不完整，不进入收益定价。</div>
 
@@ -2094,9 +2110,9 @@
                                                         <span class="rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-xs text-indigo-700">推荐路径</span>
                                                         <span class="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">中心不保存 Cookie</span>
                                                     </div>
-                                                    <p class="mt-1 text-sm text-slate-600">一个平台账户在账户使用者电脑保留一个 Profile，可映射该账户下的多家门店；采集与登录均在本机执行，只把结构化业务结果和脱敏状态同步到宿析OS。</p>
+                                                    <p class="mt-1 text-sm text-slate-600">平台 Profile 只留在账户使用者电脑；登录和采集均由原设备执行，宿析OS仅接收结构化结果与脱敏状态。</p>
                                                 </div>
-                                                <button type="button" @click="loadLocalCollectorStatus()" :disabled="localCollectorLoading" class="inline-flex items-center justify-center rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-50 disabled:text-slate-400">
+                                                <button type="button" @click="refreshLocalCollectorStatus()" :disabled="localCollectorLoading" class="inline-flex items-center justify-center rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-50 disabled:text-slate-400">
                                                     <i :class="localCollectorLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>刷新本机状态
                                                 </button>
                                             </div>
@@ -2111,7 +2127,9 @@
                                                 {{ localCollectorError }}
                                                 <button type="button" @click="contactLocalCollectorAdmin" class="ml-2 underline">联系管理员</button>
                                             </div>
-                                            <div v-if="localCollectorStatus.status === 'migration_required'" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ localCollectorStatus.message }}</div>
+                                            <div v-if="localCollectorStatus.status === 'migration_required'" class="border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ localCollectorStatus.message }}</div>
+
+                                            <local-collector-login-handoff />
 
                                             <details class="rounded-xl border border-slate-200 bg-slate-50" :open="!(localCollectorStatus.devices || []).length">
                                                 <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">第 1 步：连接账户使用者电脑</summary>

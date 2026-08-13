@@ -44,6 +44,7 @@ final class MeituanCloudPmsIntegrationService
             'source_scope' => MeituanCloudPmsCaptureService::SOURCE_SCOPE,
             'source_role' => 'independent_real_pms_source',
             'field_coverage' => [
+                'provider_hotel_identity',
                 'estimated_room_revenue',
                 'adr',
                 'revpar',

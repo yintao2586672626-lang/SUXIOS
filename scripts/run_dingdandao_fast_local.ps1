@@ -17,7 +17,10 @@ param(
     [string]$SandboxId = 'sbx_dingdandao_h80_primary',
 
     [ValidatePattern('^http://127\.0\.0\.1:[1-9][0-9]{1,4}$')]
-    [string]$CdpUrl = 'http://127.0.0.1:9223'
+    [string]$CdpUrl = 'http://127.0.0.1:9223',
+
+    [ValidateSet('operating_indicators', 'full_diagnostic')]
+    [string]$CollectionMode = 'operating_indicators'
 )
 
 Set-StrictMode -Version Latest
@@ -113,7 +116,7 @@ if (Test-LocalCdp -BaseUrl $CdpUrl) {
         "--target-date=$TargetDate",
         "--cdp-url=$CdpUrl",
         "--sandbox-id=$SandboxId",
-        '--collection-mode=full_diagnostic',
+        "--collection-mode=$CollectionMode",
         '--require-sandbox'
     )
     $temporaryDirectory = Join-Path $resolvedRoot 'runtime\dingdandao_fast'
@@ -160,7 +163,7 @@ $collectionMode = [string](
 )
 $success = $exitCode -eq 0 `
     -and $status -eq 'saved_and_readback_verified' `
-    -and $collectionMode -eq 'full_diagnostic'
+    -and $collectionMode -eq $CollectionMode
 
 $result = [ordered]@{
     status = if ($success) { $status } else { 'blocked' }
@@ -174,7 +177,8 @@ $result = [ordered]@{
         )
     }
     execution_mode = 'loopback_cdp_structured_api'
-    collection_mode = 'full_diagnostic'
+    collection_mode = $CollectionMode
+    fast_path = $CollectionMode -eq 'operating_indicators'
     duration_ms = [int]$watch.ElapsedMilliseconds
     hotel_id = $HotelId
     target_date = $TargetDate

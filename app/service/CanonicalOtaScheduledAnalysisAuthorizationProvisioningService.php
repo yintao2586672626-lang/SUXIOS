@@ -156,7 +156,11 @@ final class CanonicalOtaScheduledAnalysisAuthorizationProvisioningService
         string $platform,
         string $planId
     ): array {
-        if (($status['enabled'] ?? false) !== true) {
+        $lifecycleManaged = ($status['lifecycle_managed_analysis_enabled'] ?? false) === true
+            && (int)($status['lifecycle_managed_tenant_id'] ?? 0) === $tenantId
+            && (int)($status['lifecycle_managed_hotel_id'] ?? 0) === $hotelId
+            && ($status['lifecycle_external_action_allowed'] ?? true) === false;
+        if (($status['enabled'] ?? false) !== true && !$lifecycleManaged) {
             throw new RuntimeException('canonical_scheduled_analysis_status_not_enabled');
         }
         $map = is_array($status['canonical_daily_analysis_authorizations'] ?? null)

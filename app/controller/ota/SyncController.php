@@ -23,6 +23,11 @@ final class SyncController extends OtaController
         return $this->execute(__FUNCTION__);
     }
 
+    public function ctripOrderAnalysis(): Response
+    {
+        return $this->execute(__FUNCTION__);
+    }
+
     public function syncDataSource(int $id): Response
     {
         return $this->execute(__FUNCTION__, [$id]);
@@ -69,6 +74,11 @@ final class SyncController extends OtaController
     }
 
     public function autoFetchStatus(): Response
+    {
+        return $this->execute(__FUNCTION__);
+    }
+
+    public function enableWindowsOtaDispatcher(): Response
     {
         return $this->execute(__FUNCTION__);
     }

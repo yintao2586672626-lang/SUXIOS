@@ -146,6 +146,416 @@ final class AgentTenantMainlineTest extends TestCase
         $this->assertHttpStatus(403, fn() => $this->controller(['hotel_id' => 30], [], 2)->roomTypes());
     }
 
+    public function testPriceSuggestionRangeListKeepsExactHotelDatesAndReadbackIdentity(): void
+    {
+        $startDate = date('Y-m-d');
+        $middleDate = date('Y-m-d', strtotime('+1 day'));
+        $endDate = date('Y-m-d', strtotime('+2 days'));
+        $middle = $this->suggestionRow(3, 10, 20, 100);
+        $middle['suggestion_date'] = $middleDate;
+        $end = $this->suggestionRow(4, 10, 20, 100);
+        $end['suggestion_date'] = $endDate;
+        Db::name('price_suggestions')->insertAll([$middle, $end]);
+
+        $payload = $this->responseData($this->controller([
+            'hotel_id' => 20,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'page' => 1,
+            'page_size' => 20,
+        ], [], 2)->priceSuggestions());
+
+        self::assertSame(3, (int)$payload['pagination']['total']);
+        self::assertSame([$startDate, $middleDate, $endDate], array_column($payload['list'], 'target_stay_date'));
+        self::assertSame([20], array_values(array_unique(array_map(
+            static fn(array $row): int => (int)$row['hotel_id'],
+            $payload['list']
+        ))));
+        self::assertSame($startDate, $payload['query_scope']['start_date']);
+        self::assertSame($endDate, $payload['query_scope']['end_date']);
+        self::assertSame('ctrip', $payload['query_scope']['platform']);
+        self::assertSame(3, (int)$payload['persistence']['readback_verified_count']);
+        foreach ($payload['list'] as $row) {
+            self::assertTrue($row['persistence']['saved']);
+            self::assertTrue($row['persistence']['readback_verified']);
+            self::assertFalse($row['auto_write_ota']);
+        }
+    }
+
+    public function testPriceSuggestionListDoesNotOverstateIncompleteLegacyRowReadback(): void
+    {
+        $targetDate = date('Y-m-d', strtotime('+4 days'));
+        $legacy = $this->suggestionRow(5, 10, 20, null);
+        $legacy['suggestion_date'] = $targetDate;
+        $legacy['current_price'] = 0;
+        $legacy['suggested_price'] = 0;
+        Db::name('price_suggestions')->insert($legacy);
+
+        $payload = $this->responseData($this->controller([
+            'hotel_id' => 20,
+            'date' => $targetDate,
+        ], [], 2)->priceSuggestions());
+
+        self::assertSame(1, (int)$payload['pagination']['total']);
+        self::assertSame(0, (int)$payload['persistence']['readback_verified_count']);
+        self::assertTrue($payload['list'][0]['persistence']['saved']);
+        self::assertTrue($payload['list'][0]['persistence']['loaded_from_storage']);
+        self::assertFalse($payload['list'][0]['persistence']['exact_identity_complete']);
+        self::assertFalse($payload['list'][0]['persistence']['readback_verified']);
+    }
+
+    public function testPriceSuggestionRangeRejectsReverseAndMoreThanThirtyOneDays(): void
+    {
+        $reversed = $this->controller([
+            'hotel_id' => 20,
+            'start_date' => date('Y-m-d', strtotime('+2 days')),
+            'end_date' => date('Y-m-d', strtotime('+1 day')),
+        ], [], 2)->priceSuggestions();
+        self::assertSame(422, $reversed->getCode());
+        self::assertStringContainsString('start_date must not be after end_date', (string)$reversed->getContent());
+
+        $tooLong = $this->controller([
+            'hotel_id' => 20,
+            'start_date' => date('Y-m-d'),
+            'end_date' => date('Y-m-d', strtotime('+31 days')),
+        ], [], 2)->generatePriceSuggestions();
+        self::assertSame(422, $tooLong->getCode());
+        self::assertStringContainsString('must not exceed 31 days', (string)$tooLong->getContent());
+        self::assertSame(2, Db::name('price_suggestions')->count());
+    }
+
+    public function testPriceSuggestionRangeGenerationSavesEachDayAndDuplicateRunIsExplicit(): void
+    {
+        $startDate = date('Y-m-d', strtotime('+5 days'));
+        $endDate = date('Y-m-d', strtotime('+6 days'));
+        foreach ([$startDate, $endDate] as $index => $targetDate) {
+            Db::name('demand_forecasts')->insert([
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'room_type_id' => 100,
+                'forecast_date' => $targetDate,
+                'forecast_method' => DemandForecast::METHOD_HYBRID,
+                'predicted_occupancy' => 88 + $index,
+                'predicted_demand' => 9 + $index,
+                'confidence_score' => 0.85,
+                'is_event_driven' => 0,
+                'event_factors' => '[]',
+                'historical_data' => json_encode([
+                    'input_type' => DemandForecast::MANUAL_INPUT_TYPE,
+                    'source_scope' => 'ctrip_ota_channel',
+                ], JSON_THROW_ON_ERROR),
+            ]);
+            Db::name('competitor_analysis')->insert([
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'competitor_hotel_id' => 0,
+                'analysis_date' => $targetDate,
+                'room_type_id' => 100,
+                'our_price' => 300,
+                'competitor_price' => 345 + $index,
+                'price_difference' => 45 + $index,
+                'price_index' => 86.96,
+                'ota_platform' => 1,
+                'competitor_data' => '{}',
+            ]);
+        }
+
+        $first = $this->responseData($this->controller([
+            'hotel_id' => 20,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ], [], 2)->generatePriceSuggestions());
+
+        self::assertSame('created', $first['status']);
+        self::assertSame(2, (int)$first['reviewed_count']);
+        self::assertSame(2, (int)$first['created_count']);
+        self::assertSame(0, (int)$first['skipped_count']);
+        self::assertSame(2, (int)$first['readback_verified_count']);
+        self::assertTrue($first['readback_verified']);
+        self::assertCount(2, $first['created_row_ids']);
+        self::assertSame([$startDate, $endDate], array_column($first['list'], 'target_stay_date'));
+        self::assertSame(2, Db::name('price_suggestions')
+            ->where('hotel_id', 20)
+            ->whereBetween('suggestion_date', [$startDate, $endDate])
+            ->count());
+
+        $second = $this->responseData($this->controller([
+            'hotel_id' => 20,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ], [], 2)->generatePriceSuggestions());
+        self::assertSame('blocked', $second['status']);
+        self::assertSame(0, (int)$second['created_count']);
+        self::assertSame(2, (int)$second['skipped_count']);
+        self::assertSame(['pending_suggestion_exists'], array_values(array_unique(array_column($second['skipped'], 'reason'))));
+        self::assertSame([$startDate, $endDate], array_column($second['skipped'], 'target_stay_date'));
+        self::assertSame(2, Db::name('price_suggestions')
+            ->where('hotel_id', 20)
+            ->whereBetween('suggestion_date', [$startDate, $endDate])
+            ->count());
+    }
+
+    public function testPriceSuggestionRangeGenerationKeepsMissingDayExplicitWithoutFallback(): void
+    {
+        $startDate = date('Y-m-d', strtotime('+8 days'));
+        $endDate = date('Y-m-d', strtotime('+9 days'));
+        Db::name('demand_forecasts')->insert([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'room_type_id' => 100,
+            'forecast_date' => $startDate,
+            'forecast_method' => DemandForecast::METHOD_HYBRID,
+            'predicted_occupancy' => 91,
+            'predicted_demand' => 10,
+            'confidence_score' => 0.86,
+            'is_event_driven' => 0,
+            'event_factors' => '[]',
+            'historical_data' => json_encode([
+                'input_type' => DemandForecast::MANUAL_INPUT_TYPE,
+                'source_scope' => 'ctrip_ota_channel',
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        Db::name('competitor_analysis')->insert([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'competitor_hotel_id' => 0,
+            'analysis_date' => $startDate,
+            'room_type_id' => 100,
+            'our_price' => 300,
+            'competitor_price' => 350,
+            'price_difference' => 50,
+            'price_index' => 85.71,
+            'ota_platform' => 1,
+            'competitor_data' => '{}',
+        ]);
+
+        $result = $this->responseData($this->controller([
+            'hotel_id' => 20,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ], [], 2)->generatePriceSuggestions());
+
+        self::assertSame('partial', $result['status']);
+        self::assertSame(1, (int)$result['created_count']);
+        self::assertSame(1, (int)$result['skipped_count']);
+        self::assertSame($startDate, $result['list'][0]['target_stay_date']);
+        self::assertSame($endDate, $result['skipped'][0]['target_stay_date']);
+        self::assertNotEmpty($result['skipped'][0]['data_gaps']);
+        self::assertSame(0, Db::name('price_suggestions')
+            ->where('hotel_id', 20)
+            ->where('suggestion_date', $endDate)
+            ->count());
+    }
+
+    public function testPriceSuggestionGenerationRejectsPreviousDayOrHotelScopeSignals(): void
+    {
+        $targetDate = date('Y-m-d', strtotime('+12 days'));
+        $hotelScopeDate = date('Y-m-d', strtotime('+13 days'));
+        foreach ([$targetDate, $hotelScopeDate] as $forecastDate) {
+            Db::name('demand_forecasts')->insert([
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'room_type_id' => 100,
+                'forecast_date' => $forecastDate,
+                'forecast_method' => DemandForecast::METHOD_HYBRID,
+                'predicted_occupancy' => 94,
+                'predicted_demand' => 12,
+                'confidence_score' => 0.9,
+                'is_event_driven' => 0,
+                'event_factors' => '[]',
+                'historical_data' => json_encode([
+                    'input_type' => DemandForecast::MANUAL_INPUT_TYPE,
+                    'source_scope' => 'ctrip_ota_channel',
+                ], JSON_THROW_ON_ERROR),
+            ]);
+        }
+        Db::name('competitor_analysis')->insertAll([
+            [
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'competitor_hotel_id' => 0,
+                'analysis_date' => date('Y-m-d', strtotime($targetDate . ' -1 day')),
+                'room_type_id' => 100,
+                'our_price' => 300,
+                'competitor_price' => 360,
+                'price_difference' => 60,
+                'price_index' => 83.33,
+                'ota_platform' => 1,
+                'competitor_data' => '{}',
+            ],
+            [
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'competitor_hotel_id' => 0,
+                'analysis_date' => $hotelScopeDate,
+                'room_type_id' => 0,
+                'our_price' => 300,
+                'competitor_price' => 365,
+                'price_difference' => 65,
+                'price_index' => 82.19,
+                'ota_platform' => 1,
+                'competitor_data' => '{}',
+            ],
+        ]);
+
+        $previousDayResult = $this->responseData($this->controller([
+            'hotel_id' => 20,
+            'date' => $targetDate,
+        ], [], 2)->generatePriceSuggestions());
+        self::assertSame('blocked', $previousDayResult['status']);
+        self::assertSame('exact_target_signals_missing', $previousDayResult['reason']);
+        self::assertSame('exact_target_signals_missing', $previousDayResult['skipped'][0]['reason']);
+        self::assertContains('exact_target_room_type_competitor_price_missing', $previousDayResult['skipped'][0]['data_gaps']);
+
+        Db::name('competitor_analysis')->where('room_type_id', 100)->delete();
+        $hotelScopeResult = $this->responseData($this->controller([
+            'hotel_id' => 20,
+            'date' => $hotelScopeDate,
+        ], [], 2)->generatePriceSuggestions());
+        self::assertSame('blocked', $hotelScopeResult['status']);
+        self::assertSame('exact_target_signals_missing', $hotelScopeResult['reason']);
+        self::assertSame('exact_target_signals_missing', $hotelScopeResult['skipped'][0]['reason']);
+        self::assertContains('exact_target_room_type_competitor_price_missing', $hotelScopeResult['skipped'][0]['data_gaps']);
+        self::assertSame(0, Db::name('price_suggestions')
+            ->where('hotel_id', 20)
+            ->whereBetween('suggestion_date', [$targetDate, $hotelScopeDate])
+            ->count());
+    }
+
+    public function testPriceSuggestionGenerationLockBlocksConcurrentSameHotelWrite(): void
+    {
+        $targetDate = date('Y-m-d', strtotime('+15 days'));
+        $owner = $this->controller(['hotel_id' => 20, 'date' => $targetDate], [], 2);
+        $acquire = new \ReflectionMethod($owner, 'acquirePriceSuggestionGenerationLock');
+        $release = new \ReflectionMethod($owner, 'releasePriceSuggestionGenerationLock');
+        $lock = $acquire->invoke($owner, 20);
+        self::assertTrue($lock['acquired']);
+
+        try {
+            $blocked = $this->responseData($this->controller([
+                'hotel_id' => 20,
+                'date' => $targetDate,
+            ], [], 2)->generatePriceSuggestions());
+            self::assertSame('blocked', $blocked['status']);
+            self::assertSame('price_suggestion_generation_in_progress', $blocked['reason']);
+            self::assertSame(0, (int)$blocked['created_count']);
+            self::assertSame(0, Db::name('price_suggestions')
+                ->where('hotel_id', 20)
+                ->where('suggestion_date', $targetDate)
+                ->count());
+        } finally {
+            $release->invoke($owner, $lock);
+        }
+    }
+
+    public function testPriceSuggestionActiveDedupeKeyIsUniqueUntilPendingStateEnds(): void
+    {
+        $targetDate = date('Y-m-d', strtotime('+18 days'));
+        $payload = [
+            'hotel_id' => 20,
+            'room_type_id' => 100,
+            'suggestion_type' => PriceSuggestion::TYPE_DYNAMIC,
+            'status' => PriceSuggestion::STATUS_PENDING,
+            'suggestion_date' => $targetDate,
+            'current_price' => 300,
+            'suggested_price' => 330,
+            'min_price' => 250,
+            'max_price' => 450,
+            'confidence_score' => 0.8,
+            'competitor_data' => [],
+            'factors' => [],
+            'reason' => 'active dedupe invariant test',
+        ];
+
+        $first = PriceSuggestion::runInTenantScope(
+            10,
+            static fn() => PriceSuggestion::create($payload)
+        );
+        $expectedKey = PriceSuggestion::activeDedupeKey(10, 20, 100, $targetDate);
+        self::assertSame($expectedKey, (string)Db::name('price_suggestions')
+            ->where('id', (int)$first->id)
+            ->value('active_dedupe_key'));
+
+        try {
+            PriceSuggestion::runInTenantScope(
+                10,
+                static fn() => PriceSuggestion::create($payload)
+            );
+            self::fail('A second pending suggestion with the same active identity must be rejected by the database.');
+        } catch (\Throwable $error) {
+            self::assertStringContainsString('active_dedupe_key', strtolower($error->getMessage()));
+        }
+        self::assertSame(1, Db::name('price_suggestions')->where('active_dedupe_key', $expectedKey)->count());
+
+        PriceSuggestion::runInTenantScope(10, static function () use ($first): void {
+            $first->reject(2, 'release active key');
+        });
+        self::assertNull(Db::name('price_suggestions')->where('id', (int)$first->id)->value('active_dedupe_key'));
+
+        $second = PriceSuggestion::runInTenantScope(
+            10,
+            static fn() => PriceSuggestion::create($payload)
+        );
+        self::assertNotSame((int)$first->id, (int)$second->id);
+        self::assertSame(1, Db::name('price_suggestions')->where('active_dedupe_key', $expectedKey)->count());
+    }
+
+    public function testPriceSuggestionReviewUsesPendingCompareAndSwap(): void
+    {
+        [$firstReader, $staleReader] = PriceSuggestion::runInTenantScope(10, static fn(): array => [
+            PriceSuggestion::where('id', 1)->find(),
+            PriceSuggestion::where('id', 1)->find(),
+        ]);
+        self::assertInstanceOf(PriceSuggestion::class, $firstReader);
+        self::assertInstanceOf(PriceSuggestion::class, $staleReader);
+
+        $approved = PriceSuggestion::runInTenantScope(
+            10,
+            static fn(): PriceSuggestion => $firstReader->approve(1, 'first terminal decision wins')
+        );
+        self::assertSame(PriceSuggestion::STATUS_APPROVED, (int)$approved->status);
+        self::assertNull(Db::name('price_suggestions')->where('id', 1)->value('active_dedupe_key'));
+
+        try {
+            PriceSuggestion::runInTenantScope(
+                10,
+                static fn(): PriceSuggestion => $staleReader->reject(2, 'must not overwrite approval')
+            );
+            self::fail('A stale reviewer must not overwrite a terminal price suggestion decision.');
+        } catch (\RuntimeException $error) {
+            self::assertSame(409, $error->getCode());
+            self::assertSame('price_suggestion_not_pending_review', $error->getMessage());
+        }
+
+        $stored = Db::name('price_suggestions')->where('id', 1)->find();
+        self::assertSame(PriceSuggestion::STATUS_APPROVED, (int)$stored['status']);
+        self::assertSame('first terminal decision wins', (string)$stored['remark']);
+    }
+
+    public function testPriceSuggestionActiveDedupeMigrationFailsClosedBeforeBackfill(): void
+    {
+        $migration = (string)file_get_contents(
+            dirname(__DIR__) . '/database/migrations/20260812_enforce_active_price_suggestion_idempotency.sql'
+        );
+        $verification = (string)file_get_contents(
+            dirname(__DIR__) . '/database/migrations/20260812_verify_active_price_suggestion_idempotency_contract.sql'
+        );
+        self::assertStringContainsString('duplicate pending identities exist', $migration);
+        self::assertStringContainsString('pending identity is incomplete', $migration);
+        self::assertStringContainsString('uq_price_suggestions_active_dedupe', $migration);
+        self::assertStringContainsString("WHERE `status` = 1", $migration);
+        self::assertStringContainsString('information_schema`.`columns', $verification);
+        self::assertStringContainsString('information_schema`.`statistics', $verification);
+        self::assertStringContainsString('exact_unique_index_row_count', $verification);
+        self::assertStringContainsString('pending key backfill mismatch', $verification);
+        self::assertStringNotContainsString('20260812_enforce_active_price_suggestion_idempotency.sql', (string)file_get_contents(
+            dirname(__DIR__) . '/database/init_full.sql'
+        ));
+        self::assertStringNotContainsString('20260812_verify_active_price_suggestion_idempotency_contract.sql', (string)file_get_contents(
+            dirname(__DIR__) . '/database/init_full.sql'
+        ));
+    }
+
     public function testScopedAiUserWritesTenantAndCannotUseAnotherHotelsRoomType(): void
     {
         $roomType = $this->responseData($this->controller([], [
@@ -495,6 +905,6 @@ final class AgentTenantMainlineTest extends TestCase
         Db::execute('CREATE TABLE agent_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, agent_type INTEGER, action TEXT, message TEXT, log_level INTEGER, context_data TEXT, user_id INTEGER, create_time TEXT)');
         Db::execute('CREATE TABLE demand_forecasts (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, room_type_id INTEGER, forecast_date TEXT, forecast_method INTEGER, predicted_occupancy REAL, predicted_demand INTEGER, confidence_score REAL, actual_occupancy REAL, is_event_driven INTEGER, event_factors TEXT, historical_data TEXT, remark TEXT, create_time TEXT, update_time TEXT)');
         Db::execute('CREATE TABLE competitor_analysis (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, competitor_hotel_id INTEGER, analysis_date TEXT, room_type_id INTEGER, competitor_room_type_id INTEGER, our_price REAL, competitor_price REAL, price_difference REAL, price_index REAL, ota_platform INTEGER, competitor_data TEXT, create_time TEXT, update_time TEXT)');
-        Db::execute('CREATE TABLE price_suggestions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, room_type_id INTEGER, demand_forecast_id INTEGER, suggestion_date TEXT, suggestion_type INTEGER, current_price REAL, suggested_price REAL, min_price REAL, max_price REAL, confidence_score REAL, competitor_data TEXT, factors TEXT, status INTEGER, applied_by INTEGER, applied_time TEXT, remark TEXT, create_time TEXT, update_time TEXT)');
+        Db::execute('CREATE TABLE price_suggestions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, room_type_id INTEGER, demand_forecast_id INTEGER, suggestion_date TEXT, suggestion_type INTEGER, current_price REAL, suggested_price REAL, min_price REAL, max_price REAL, confidence_score REAL, competitor_data TEXT, factors TEXT, reason TEXT, active_dedupe_key TEXT NULL UNIQUE, status INTEGER, applied_by INTEGER, applied_time TEXT, remark TEXT, create_time TEXT, update_time TEXT)');
     }
 }

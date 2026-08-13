@@ -41,6 +41,8 @@ test('platform pages expose one sticky header hotel context switcher', () => {
   assert.match(appShell, /id="platform-hotel-context-options"/);
   assert.match(appShell, /v-for="hotel in filteredPlatformHotelOptions"/);
   assert.match(appShell, /@mousedown\.prevent="selectPlatformHotelOption\(hotel\)"/);
+  assert.match(appShell, /placeholder="搜索名称、城市或ID"/);
+  assert.match(appShell, /· ID \{\{ hotel\.id \}\}/);
   assert.match(appShell, /data-testid="platform-hotel-context-config"/);
   assert.match(appShell, /class="platform-hotel-context-config"/);
   assert.match(appShell, /v-if="platformHotelContext"/);
@@ -52,6 +54,44 @@ test('platform pages expose one sticky header hotel context switcher', () => {
   assert.match(appShell, /ctripDiagnosisSnapshotLoading/);
   assert.match(appShell, /ctripReviewMatchLoading/);
   assert.match(appShell, /fetchingCommentData/);
+});
+
+test('platform hotel picker searches by hotel id and keeps the current hotel first', () => {
+  const pickerSource = sliceFrom(
+    appMain,
+    "const platformHotelSearchKeyword = ref('');",
+    '\n            const clearPlatformHotelSearch',
+  );
+  const computed = getter => ({ get value() { return getter(); } });
+  const sandbox = {
+    ref: value => ({ value }),
+    computed,
+    platformHotelContext: { value: 'ctrip' },
+    ctripTargetHotelOptions: {
+      value: [
+        { id: '64', name: '北京示例酒店', city: '北京' },
+        { id: '80', name: '敦煌漠蓝新', city: '敦煌' },
+      ],
+    },
+    meituanTargetHotelOptions: { value: [] },
+    meituanForm: { value: { hotelId: '' } },
+    selectedCtripHotelId: { value: '80' },
+  };
+  const picker = vm.runInNewContext(`(() => {
+    ${pickerSource}
+    return { platformHotelSearchKeyword, platformHotelSelectedName, filteredPlatformHotelOptions };
+  })()`, sandbox, { filename: 'platform-hotel-picker-search-slice.js' });
+
+  assert.equal(picker.platformHotelSelectedName.value, '敦煌漠蓝新');
+  assert.deepEqual(
+    Array.from(picker.filteredPlatformHotelOptions.value, hotel => hotel.id),
+    ['80', '64'],
+  );
+  picker.platformHotelSearchKeyword.value = '64';
+  assert.deepEqual(
+    Array.from(picker.filteredPlatformHotelOptions.value, hotel => hotel.name),
+    ['北京示例酒店'],
+  );
 });
 
 test('daily Ctrip and Meituan modules no longer repeat hotel selectors', () => {

@@ -1741,7 +1741,7 @@ trait CollectionReliabilityConcern
     }
     private function loadDashboardHotels(?int $hotelId): array
     {
-        $query = \app\model\Hotel::field('id,name,status,create_time,update_time')
+        $query = \app\model\Hotel::field('id,tenant_id,name,status,create_time,update_time')
             ->where('status', \app\model\Hotel::STATUS_ENABLED);
         if ($hotelId !== null) {
             $query->where('id', $hotelId);

@@ -121,6 +121,13 @@ final class UserTenantPropagationTest extends TestCase
             ->order('hotel_id', 'asc')
             ->column('tenant_id', 'hotel_id');
         self::assertSame([10 => 101, 20 => 101], array_map('intval', $permissions));
+
+        $tenantLifecycle = Db::name('tenant_automation_lifecycles')
+            ->where('tenant_id', 101)
+            ->find();
+        self::assertIsArray($tenantLifecycle);
+        self::assertSame('initialized', (string)$tenantLifecycle['status']);
+        self::assertSame('tenant_recorded', (string)$tenantLifecycle['current_stage']);
     }
 
     public function testUserCreateCanGenerateGlobalUsernameAndForcesEnabledStatus(): void
@@ -240,6 +247,12 @@ final class UserTenantPropagationTest extends TestCase
             Db::name('tenants')->where('id', (int)$user['tenant_id'])->value('name')
         );
         self::assertSame(0, Db::name('user_hotel_permissions')->where('user_id', (int)$user['id'])->count());
+        $tenantLifecycle = Db::name('tenant_automation_lifecycles')
+            ->where('tenant_id', (int)$user['tenant_id'])
+            ->find();
+        self::assertIsArray($tenantLifecycle);
+        self::assertSame('initialized', $tenantLifecycle['status']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string)$tenantLifecycle['state_digest']);
         self::assertSame('bound', $payload['data']['tenant_scope_status']);
         self::assertSame(
             (int)$user['tenant_id'],
@@ -298,6 +311,7 @@ final class UserTenantPropagationTest extends TestCase
         self::assertSame(0, Db::name('tenants')->count());
         self::assertSame(0, Db::name('users')->count());
         self::assertSame(0, Db::name('operation_logs')->count());
+        self::assertSame(0, Db::name('tenant_automation_lifecycles')->count());
     }
 
     public function testUnassignedRoleWithoutHotelCreationCapabilityIsRejected(): void
@@ -927,6 +941,35 @@ final class UserTenantPropagationTest extends TestCase
             ip VARCHAR(50),
             user_agent TEXT,
             create_time DATETIME
+        )');
+        if ($withTenantColumns) {
+            $this->createAutomationLifecycleSchema();
+        }
+    }
+
+    private function createAutomationLifecycleSchema(): void
+    {
+        Db::execute('CREATE TABLE tenant_automation_lifecycles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL UNIQUE,
+            status TEXT NOT NULL, current_stage TEXT NOT NULL, state_version INTEGER NOT NULL,
+            state_digest TEXT NOT NULL, safe_state_json TEXT NOT NULL, created_by INTEGER NOT NULL,
+            updated_by INTEGER NOT NULL, create_time TEXT NOT NULL, update_time TEXT NOT NULL
+        )');
+        Db::execute('CREATE TABLE hotel_automation_lifecycles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+            system_hotel_id INTEGER NOT NULL, status TEXT NOT NULL, current_stage TEXT NOT NULL,
+            ota_channel_strategy TEXT NOT NULL, completed_stage_count INTEGER NOT NULL,
+            total_stage_count INTEGER NOT NULL, binding_status TEXT NOT NULL, binding_digest TEXT,
+            active_plan_id INTEGER, active_plan_hash TEXT, dispatcher_status TEXT NOT NULL,
+            dispatcher_task_name TEXT, first_dispatch_requested_at TEXT,
+            first_trusted_business_date TEXT, last_business_date TEXT, last_dispatcher_run_id TEXT,
+            last_run_status TEXT, analysis_status TEXT NOT NULL, analysis_digest TEXT,
+            profile_draft_status TEXT NOT NULL, profile_draft_digest TEXT, failure_code TEXT,
+            upstream_failure_code TEXT, retryable INTEGER NOT NULL, attempt_count INTEGER NOT NULL,
+            next_retry_at TEXT, state_version INTEGER NOT NULL, state_digest TEXT NOT NULL,
+            safe_state_json TEXT NOT NULL, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL,
+            create_time TEXT NOT NULL, update_time TEXT NOT NULL,
+            UNIQUE (tenant_id, system_hotel_id)
         )');
     }
 

@@ -19,11 +19,13 @@ use app\service\AgentClosureReadinessService;
 use app\service\AiDecisionQualityService;
 use app\service\AiModelRoutingService;
 use app\service\CompetitorPriceReadinessService;
+use app\service\CtripOperatingRadarDiagnosisService;
 use app\service\FeasibilityReportService;
 use app\service\KnowledgeDecisionGateService;
 use app\service\LlmClient;
 use app\service\OperationManagementService;
 use app\service\OtaOperatingScope;
+use app\service\OtaDiagnosisRequestedPeriodGateService;
 use app\service\RevenueAiOverviewService;
 use app\service\RevenueForecastReadinessService;
 use app\service\RevenuePricingRecommendationService;
@@ -515,6 +517,9 @@ class Agent extends Base
                     $startDate,
                     $endDate
                 );
+                if ($platform === 'ctrip') {
+                    $result['operating_radar'] = (new CtripOperatingRadarDiagnosisService())->build($result);
+                }
                 $result['analysis_runtime'] = array_merge($analysisRuntime, [
                     'mode' => 'not_run_no_data',
                     'model_called' => false,
@@ -528,6 +533,7 @@ class Agent extends Base
             $effectiveStartDate = (string) ($dataSet['effective_start_date'] ?? $startDate);
             $effectiveEndDate = (string) ($dataSet['effective_end_date'] ?? $endDate);
             $usedLatestAvailableData = !empty($dataSet['used_latest_available_data']);
+            $analysisRuntime = OtaDiagnosisRequestedPeriodGateService::apply($analysisRuntime, $usedLatestAvailableData);
             $effectiveHotelName = $hotelName !== '' ? $hotelName : trim((string)($dataSet['hotel']['name'] ?? ''));
             $result = $this->buildOtaDiagnosisResult($dataSet, $hotelId, $hotelIdRaw, $effectiveHotelName, $platform, $effectiveStartDate, $effectiveEndDate, $analysisType);
             $ruleDiagnosis = is_array($result['diagnosis'] ?? null) ? $result['diagnosis'] : [];
@@ -623,6 +629,9 @@ class Agent extends Base
             $result['action_items'] = $this->buildOtaDiagnosisActionItems($result['recommended_actions'], $result['evidence_sources'], $result);
             if ($usedLatestAvailableData) {
                 $result = $this->blockOtaDiagnosisActionsForLatestAvailableData($result, $startDate, $endDate, $effectiveStartDate, $effectiveEndDate);
+            }
+            if ($platform === 'ctrip') {
+                $result['operating_radar'] = (new CtripOperatingRadarDiagnosisService())->build($result);
             }
             $result['diagnosis_sections'] = $this->buildOtaDiagnosisSections($result['diagnosis'] ?? [], $result['missing_sections'] ?? []);
             $result['ai_governance'] = $this->buildAiGovernancePayload('ota_diagnosis', $result, $llmResult);
@@ -916,16 +925,7 @@ class Agent extends Base
             return $this->error('feasibility report id is invalid', 422);
         }
 
-        $hotelId = (int) $this->request->param('hotel_id', 0);
-        if ($hotelId <= 0) {
-            return $this->error('hotel_id is required for feasibility execution tracking', 422);
-        }
-
-        $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
-        if (empty($permittedHotelIds) || !in_array($hotelId, $permittedHotelIds, true)) {
-            return $this->error('hotel_id is not permitted', 403);
-        }
-
+        $requestedHotelId = (int) $this->request->param('hotel_id', 0);
         $userId = (int) ($this->currentUser->id ?? 0);
         $isSuperAdmin = $this->currentUser->isSuperAdmin();
         $feasibilityService = $this->feasibilityService();
@@ -934,23 +934,28 @@ class Agent extends Base
             return $this->error('feasibility report not found', 404);
         }
 
-        if ((int)($report['report']['execution_intent_id'] ?? 0) > 0) {
-            return $this->error('feasibility report already linked to execution intent', 409);
+        try { $hotelId = $feasibilityService->executionHotelId($report); } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), str_contains($e->getMessage(), 'conflict') ? 409 : 422);
         }
-
+        if ($requestedHotelId > 0 && $requestedHotelId !== $hotelId) return $this->error('feasibility report hotel scope mismatch', 409);
+        $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+        if (!$permittedHotelIds || !in_array($hotelId, $permittedHotelIds, true)) return $this->error('hotel_id is not permitted', 403);
+        $denied = $this->hotelCapabilityDeniedResponse($hotelId, 'operation.execute', 'operation.execute permission is required for this hotel');
+        if ($denied !== null) return $denied;
         try {
             $result = Db::transaction(function () use ($feasibilityService, $report, $id, $hotelId, $permittedHotelIds, $userId, $isSuperAdmin): array {
                 $operationService = new OperationManagementService();
                 $input = $feasibilityService->buildExecutionIntentInput($report, $hotelId, [
-                    'date_start' => (string)$this->request->param('date_start', ''),
-                    'date_end' => (string)$this->request->param('date_end', ''),
+                    'date_start' => (string)$this->request->param('date_start', ''), 'date_end' => (string)$this->request->param('date_end', ''),
                 ]);
-                $intent = $operationService->createExecutionIntent($permittedHotelIds, $hotelId, $input, $userId);
-                $updatedReport = $feasibilityService->attachExecutionTracking($id, $userId, $isSuperAdmin, [
-                    'execution_intent_id' => (int)($intent['id'] ?? 0),
-                    'hotel_id' => $hotelId,
-                    'status' => (string)($intent['status'] ?? ''),
-                ]);
+                $intent = $operationService->createExecutionIntent($permittedHotelIds, $hotelId, $input, $userId, false, null, true);
+                $updatedReport = ($intent['idempotent_replay'] ?? false) === true
+                    ? $report
+                    : $feasibilityService->attachExecutionTracking($id, $userId, $isSuperAdmin, [
+                        'execution_intent_id' => (int)($intent['id'] ?? 0),
+                        'hotel_id' => $hotelId,
+                        'status' => (string)($intent['status'] ?? ''),
+                    ]);
 
                 return [
                     'execution_intent' => $intent,
@@ -1622,22 +1627,27 @@ class Agent extends Base
     {
         $hotelId = (int) $this->request->param('hotel_id', 0);
         $status = (int) $this->request->param('status', 0);
-        $date = (string) $this->request->param('date', date('Y-m-d'));
+        $legacyDate = (string) $this->request->param('date', date('Y-m-d'));
+        $startDate = (string) $this->request->param('start_date', $legacyDate);
+        $endDate = (string) $this->request->param('end_date', $startDate);
         $pagination = $this->getPagination();
         if ($hotelId <= 0) {
             return $this->error('hotel_id is required', 422);
         }
-        if (!$this->isDateString($date)) {
-            return $this->error('date must be YYYY-MM-DD', 422);
+        try {
+            [$startDate, $endDate] = $this->normalizePriceSuggestionDateRange($startDate, $endDate);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
         }
         $this->assertRevenueHotelPermission($hotelId);
 
         return $this->success($this->buildPriceSuggestionsPayload(
             $hotelId,
             $status,
-            $date,
+            $startDate,
             $pagination['page'],
-            $pagination['page_size']
+            $pagination['page_size'],
+            $endDate
         ));
     }
 
@@ -1647,13 +1657,18 @@ class Agent extends Base
     private function buildPriceSuggestionsPayload(
         int $hotelId,
         int $status,
-        string $date,
+        string $startDate,
         int $page,
-        int $pageSize
+        int $pageSize,
+        ?string $endDate = null
     ): array {
-        
-        $query = PriceSuggestion::where('hotel_id', $hotelId)
-            ->where('suggestion_date', $date);
+        $endDate = $endDate ?: $startDate;
+        $query = PriceSuggestion::where('hotel_id', $hotelId);
+        if ($startDate === $endDate) {
+            $query->where('suggestion_date', $startDate);
+        } else {
+            $query->whereBetween('suggestion_date', [$startDate, $endDate]);
+        }
         
         if ($status > 0) {
             $query->where('status', $status);
@@ -1661,6 +1676,8 @@ class Agent extends Base
         
         $total = $query->count();
         $list = $query->with('roomType')
+            ->order('suggestion_date', 'asc')
+            ->order('room_type_id', 'asc')
             ->order('id', 'desc')
             ->page($page, $pageSize)
             ->select()
@@ -1670,6 +1687,7 @@ class Agent extends Base
             $list,
             $this->priceSuggestionExecutionItemsByRecordId($hotelId, array_column($list, 'id'))
         );
+        $list = $this->markPersistedPriceSuggestionRows($list);
         
         return [
             'list' => $list,
@@ -1679,7 +1697,281 @@ class Agent extends Base
                 'page_size' => $pageSize,
                 'total_page' => (int)ceil($total / $pageSize),
             ],
+            'query_scope' => [
+                'hotel_id' => $hotelId,
+                'platform' => 'ctrip',
+                'metric_scope' => 'ota_channel_price_recommendation',
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ],
+            'persistence' => [
+                'storage' => 'price_suggestions',
+                'rows_on_page' => count($list),
+                'readback_verified_count' => count(array_filter(
+                    $list,
+                    static fn(array $row): bool => ($row['persistence']['readback_verified'] ?? false) === true
+                )),
+            ],
+            'advisory_only' => true,
+            'manual_review_required' => true,
+            'auto_write_ota' => false,
         ];
+    }
+
+    /**
+     * @return array{0:string,1:string}
+     */
+    private function normalizePriceSuggestionDateRange(string $startDate, string $endDate): array
+    {
+        $startDate = trim($startDate);
+        $endDate = trim($endDate);
+        if (!$this->isDateString($startDate) || !$this->isDateString($endDate)) {
+            throw new \InvalidArgumentException('start_date and end_date must be YYYY-MM-DD');
+        }
+        if ($startDate > $endDate) {
+            throw new \InvalidArgumentException('start_date must not be after end_date');
+        }
+
+        $dayCount = count($this->priceSuggestionDateRange($startDate, $endDate));
+        if ($dayCount > 31) {
+            throw new \InvalidArgumentException('price suggestion date range must not exceed 31 days');
+        }
+
+        return [$startDate, $endDate];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function priceSuggestionDateRange(string $startDate, string $endDate): array
+    {
+        $dates = [];
+        $cursor = new \DateTimeImmutable($startDate);
+        $last = new \DateTimeImmutable($endDate);
+        while ($cursor <= $last) {
+            $dates[] = $cursor->format('Y-m-d');
+            $cursor = $cursor->modify('+1 day');
+        }
+
+        return $dates;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function markPersistedPriceSuggestionRows(array $rows): array
+    {
+        return array_map(static function (array $row): array {
+            $targetDate = (string)($row['suggestion_date'] ?? '');
+            $id = (int)($row['id'] ?? 0);
+            $loadedFromStorage = $id > 0;
+            $exactIdentityComplete = $loadedFromStorage
+                && (int)($row['tenant_id'] ?? 0) > 0
+                && (int)($row['hotel_id'] ?? 0) > 0
+                && (int)($row['room_type_id'] ?? 0) > 0
+                && preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) === 1
+                && (float)($row['current_price'] ?? 0) > 0
+                && (float)($row['suggested_price'] ?? 0) > 0
+                && (int)($row['status'] ?? 0) > 0;
+            $row['target_stay_date'] = $targetDate;
+            $row['persistence'] = [
+                'saved' => $loadedFromStorage,
+                'storage' => 'price_suggestions',
+                'loaded_from_storage' => $loadedFromStorage,
+                'exact_identity_complete' => $exactIdentityComplete,
+                'readback_verified' => $exactIdentityComplete,
+            ];
+            $row['advisory_only'] = true;
+            $row['manual_review_required'] = true;
+            $row['auto_write_ota'] = false;
+
+            return $row;
+        }, $rows);
+    }
+
+    private function readBackCreatedPriceSuggestion(
+        int $id,
+        int $hotelId,
+        int $roomTypeId,
+        string $targetDate,
+        float $currentPrice,
+        float $suggestedPrice,
+        string $activeDedupeKey
+    ): PriceSuggestion {
+        $persisted = PriceSuggestion::where('id', $id)
+            ->where('hotel_id', $hotelId)
+            ->where('room_type_id', $roomTypeId)
+            ->where('suggestion_date', $targetDate)
+            ->find();
+        if (!$persisted
+            || (int)$persisted->tenant_id <= 0
+            || (int)$persisted->status !== PriceSuggestion::STATUS_PENDING
+            || (string)($persisted->getData()['active_dedupe_key'] ?? '') !== $activeDedupeKey
+            || abs((float)$persisted->current_price - $currentPrice) > 0.001
+            || abs((float)$persisted->suggested_price - $suggestedPrice) > 0.001
+        ) {
+            throw new \RuntimeException('price suggestion saved readback identity mismatch');
+        }
+
+        return $persisted;
+    }
+
+    /**
+     * @param array<string, mixed> $recommendation
+     * @return array<int, string>
+     */
+    private function priceSuggestionExactTargetSignalGaps(
+        array $recommendation,
+        int $roomTypeId,
+        string $targetDate
+    ): array {
+        $signals = is_array($recommendation['factors']['signals'] ?? null)
+            ? $recommendation['factors']['signals']
+            : [];
+        $forecast = is_array($signals['demand_forecast'] ?? null) ? $signals['demand_forecast'] : [];
+        $competitor = is_array($signals['competitor'] ?? null) ? $signals['competitor'] : [];
+        $gaps = [];
+
+        if (($forecast['data_status'] ?? '') !== 'ok'
+            || (string)($forecast['source'] ?? '') !== 'demand_forecasts'
+            || (int)($forecast['id'] ?? 0) <= 0
+            || (int)($forecast['room_type_id'] ?? 0) !== $roomTypeId
+            || (string)($forecast['forecast_date'] ?? '') !== $targetDate
+        ) {
+            $gaps[] = 'exact_target_room_type_demand_forecast_missing';
+        }
+
+        if (($competitor['data_status'] ?? '') !== 'ok'
+            || (string)($competitor['source_scope'] ?? '') !== 'room_type'
+            || (string)($competitor['source_date'] ?? '') !== $targetDate
+            || (int)($competitor['sample_count'] ?? 0) <= 0
+        ) {
+            $gaps[] = 'exact_target_room_type_competitor_price_missing';
+        }
+
+        return $gaps;
+    }
+
+    /** @return array<string, mixed> */
+    private function existingPendingPriceSuggestionSkip(
+        PriceSuggestion $suggestion,
+        int $roomTypeId,
+        string $roomTypeName,
+        string $targetDate,
+        bool $deduplicated = false
+    ): array {
+        return [
+            'suggestion_date' => $targetDate,
+            'target_stay_date' => $targetDate,
+            'room_type_id' => $roomTypeId,
+            'room_type_name' => $roomTypeName,
+            'reason' => 'pending_suggestion_exists',
+            'existing_suggestion_id' => (int)$suggestion->id,
+            'existing_readback_verified' => (int)$suggestion->id > 0,
+            'deduplicated' => $deduplicated,
+            'primary_signal_count' => null,
+            'price_change_rate' => null,
+            'risk_level' => 'medium',
+            'data_gaps' => [],
+            'review_checklist' => ['Review or close the existing pending suggestion before generating another one.'],
+        ];
+    }
+
+    private function priceSuggestionGenerationLockName(int $hotelId): string
+    {
+        $connection = Db::connect();
+        $databaseIdentity = implode(':', [
+            strtolower((string)$connection->getConfig('type')),
+            (string)$connection->getConfig('hostname'),
+            (string)$connection->getConfig('hostport'),
+            (string)$connection->getConfig('database'),
+        ]);
+        return 'suxios_price_gen_' . substr(hash('sha256', $databaseIdentity . ':hotel:' . $hotelId), 0, 40);
+    }
+
+    private function isPriceSuggestionActiveDedupeConflict(\Throwable $error): bool
+    {
+        $message = strtolower($error->getMessage());
+        $isUniqueConflict = str_contains($message, 'duplicate')
+            || str_contains($message, 'unique constraint');
+        return $isUniqueConflict
+            && (str_contains($message, 'active_dedupe_key')
+                || str_contains($message, 'uq_price_suggestions_active_dedupe'));
+    }
+
+    /**
+     * @return array{acquired:bool,driver:string,name:string,handle:mixed,reason:string}
+     */
+    private function acquirePriceSuggestionGenerationLock(int $hotelId): array
+    {
+        $name = $this->priceSuggestionGenerationLockName($hotelId);
+        $driver = strtolower((string)Db::connect()->getConfig('type'));
+        if ($driver === 'mysql') {
+            try {
+                $rows = Db::query("SELECT GET_LOCK('{$name}', 0) AS acquired");
+                $acquired = (int)(array_values((array)($rows[0] ?? []))[0] ?? 0) === 1;
+                return [
+                    'acquired' => $acquired,
+                    'driver' => $driver,
+                    'name' => $name,
+                    'handle' => null,
+                    'reason' => $acquired ? '' : 'price_suggestion_generation_in_progress',
+                ];
+            } catch (\Throwable) {
+                return [
+                    'acquired' => false,
+                    'driver' => $driver,
+                    'name' => $name,
+                    'handle' => null,
+                    'reason' => 'price_suggestion_generation_lock_unavailable',
+                ];
+            }
+        }
+
+        $path = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR
+            . $name
+            . '.lock';
+        $handle = @fopen($path, 'c+');
+        $handleOpened = is_resource($handle);
+        $acquired = $handleOpened && @flock($handle, LOCK_EX | LOCK_NB);
+        if (!$acquired && is_resource($handle)) {
+            fclose($handle);
+            $handle = null;
+        }
+
+        return [
+            'acquired' => $acquired,
+            'driver' => $driver,
+            'name' => $name,
+            'handle' => $handle,
+            'reason' => $acquired ? '' : ($handleOpened
+                ? 'price_suggestion_generation_in_progress'
+                : 'price_suggestion_generation_lock_unavailable'),
+        ];
+    }
+
+    /** @param array{driver?:string,name?:string,handle?:mixed} $lock */
+    private function releasePriceSuggestionGenerationLock(array $lock): void
+    {
+        if (($lock['driver'] ?? '') === 'mysql') {
+            try {
+                $name = (string)($lock['name'] ?? '');
+                if ($name !== '') {
+                    Db::query("SELECT RELEASE_LOCK('{$name}') AS released");
+                }
+            } catch (\Throwable) {
+                // The connection teardown also releases a MySQL advisory lock.
+            }
+            return;
+        }
+
+        $handle = $lock['handle'] ?? null;
+        if (is_resource($handle)) {
+            @flock($handle, LOCK_UN);
+            fclose($handle);
+        }
     }
 
     /**
@@ -1734,18 +2026,28 @@ class Agent extends Base
         $id = (int) $this->request->param('id', 0);
         $action = (string) $this->request->param('action', 'approve'); // approve/reject
         $remark = (string) $this->request->param('remark', '');
+        if (!in_array($action, ['approve', 'reject'], true)) {
+            return $this->error('不支持的定价建议审核动作', 422);
+        }
         
         $suggestion = PriceSuggestion::find($id);
         if (!$suggestion) {
             return $this->error('定价建议不存在');
         }
         
-        if ($action === 'approve') {
-            $suggestion->approve($this->currentUser->id ?? 0, $remark);
-            $message = '定价建议已批准';
-        } else {
-            $suggestion->reject($this->currentUser->id ?? 0, $remark);
-            $message = '定价建议已拒绝';
+        try {
+            if ($action === 'approve') {
+                $suggestion = $suggestion->approve((int)($this->currentUser->id ?? 0), $remark);
+                $message = '定价建议已批准';
+            } else {
+                $suggestion = $suggestion->reject((int)($this->currentUser->id ?? 0), $remark);
+                $message = '定价建议已拒绝';
+            }
+        } catch (\RuntimeException $error) {
+            if ($error->getMessage() === 'price_suggestion_not_pending_review') {
+                return $this->error('定价建议已完成审核，请刷新后重试', 409);
+            }
+            throw $error;
         }
         
         // 记录日志
@@ -1765,12 +2067,16 @@ class Agent extends Base
     public function generatePriceSuggestions(): Response
     {
         $hotelId = (int)$this->request->param('hotel_id', 0);
-        $date = (string)$this->request->param('date', date('Y-m-d'));
+        $legacyDate = (string)$this->request->param('date', date('Y-m-d'));
+        $startDate = (string)$this->request->param('start_date', $legacyDate);
+        $endDate = (string)$this->request->param('end_date', $startDate);
         if ($hotelId <= 0) {
             return $this->error('hotel_id is required', 422);
         }
-        if (!$this->isDateString($date)) {
-            return $this->error('date must be YYYY-MM-DD', 422);
+        try {
+            [$startDate, $endDate] = $this->normalizePriceSuggestionDateRange($startDate, $endDate);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
         }
         $this->assertRevenueHotelPermission($hotelId);
 
@@ -1781,81 +2087,187 @@ class Agent extends Base
                 $this->buildPriceSuggestionGenerationBlockedResult(
                     'room_types_empty',
                     $hotelId,
-                    $date,
+                    $startDate,
                     [],
-                    '携程目标酒店暂无启用房型，不能生成待审调价建议。'
+                    '携程目标酒店暂无启用房型，不能生成待审调价建议。',
+                    $endDate
                 ),
                 'price suggestion generation blocked'
             );
         }
-        $created = [];
-        $skipped = [];
-        foreach ($roomTypes as $roomType) {
-            $roomTypeId = (int)$roomType->id;
-            $exists = PriceSuggestion::where('hotel_id', $hotelId)
-                ->where('room_type_id', $roomTypeId)
-                ->where('suggestion_date', $date)
-                ->where('status', PriceSuggestion::STATUS_PENDING)
-                ->find();
-            if ($exists) {
-                $skipped[] = [
-                    'room_type_id' => $roomTypeId,
-                    'room_type_name' => (string)($roomType->name ?? ''),
-                    'reason' => 'pending_suggestion_exists',
-                    'existing_suggestion_id' => (int)$exists->id,
-                    'primary_signal_count' => 0,
-                    'price_change_rate' => 0.0,
-                    'risk_level' => 'medium',
-                    'data_gaps' => [],
-                    'review_checklist' => ['Review or close the existing pending suggestion before generating another one.'],
-                ];
-                continue;
-            }
+        $dates = $this->priceSuggestionDateRange($startDate, $endDate);
+        $generationLock = $this->acquirePriceSuggestionGenerationLock($hotelId);
+        if (($generationLock['acquired'] ?? false) !== true) {
+            $reason = (string)($generationLock['reason'] ?? 'price_suggestion_generation_lock_unavailable');
+            return $this->success(
+                $this->buildPriceSuggestionGenerationBlockedResult(
+                    $reason,
+                    $hotelId,
+                    $startDate,
+                    [],
+                    '',
+                    $endDate
+                ),
+                'price suggestion generation blocked'
+            );
+        }
 
-            $recommendation = $pricingService->recommend($hotelId, $roomType->toArray(), $date);
-            if (($recommendation['should_create'] ?? false) !== true) {
-                $skipped[] = [
-                    'room_type_id' => $roomTypeId,
-                    'room_type_name' => (string)($roomType->name ?? ''),
-                    'reason' => (string)($recommendation['skip_reason'] ?? 'not_created'),
-                    'primary_signal_count' => (int)($recommendation['primary_signal_count'] ?? 0),
-                    'price_change_rate' => (float)($recommendation['price_change_rate'] ?? 0),
-                    'risk_level' => (string)($recommendation['risk_level'] ?? 'high'),
-                    'data_gaps' => array_values((array)($recommendation['factors']['signals']['data_gaps'] ?? [])),
-                    'review_checklist' => array_values((array)($recommendation['review_checklist'] ?? [])),
-                ];
-                continue;
-            }
+        try {
+            [$created, $skipped] = Db::transaction(function () use (
+                $hotelId,
+                $roomTypes,
+                $pricingService,
+                $dates
+            ): array {
+                $created = [];
+                $skipped = [];
+                foreach ($dates as $targetDate) {
+                    foreach ($roomTypes as $roomType) {
+                    $roomTypeId = (int)$roomType->id;
+                    $roomTypeName = (string)($roomType->name ?? '');
+                    $tenantId = (int)($roomType->tenant_id ?? 0);
+                    $activeDedupeKey = PriceSuggestion::activeDedupeKey(
+                        $tenantId,
+                        $hotelId,
+                        $roomTypeId,
+                        $targetDate
+                    );
+                    $exists = PriceSuggestion::where('hotel_id', $hotelId)
+                        ->where('tenant_id', $tenantId)
+                        ->where('room_type_id', $roomTypeId)
+                        ->where('suggestion_date', $targetDate)
+                        ->where('status', PriceSuggestion::STATUS_PENDING)
+                        ->lock(true)
+                        ->find();
+                    if ($exists) {
+                        $skipped[] = $this->existingPendingPriceSuggestionSkip(
+                            $exists,
+                            $roomTypeId,
+                            $roomTypeName,
+                            $targetDate
+                        );
+                        continue;
+                    }
 
-            $suggestion = PriceSuggestion::create([
-                'hotel_id' => $hotelId,
-                'room_type_id' => $roomTypeId,
-                'suggestion_type' => PriceSuggestion::TYPE_DYNAMIC,
-                'status' => PriceSuggestion::STATUS_PENDING,
-                'suggestion_date' => $date,
-                'current_price' => (float)$recommendation['current_price'],
-                'suggested_price' => (float)$recommendation['suggested_price'],
-                'min_price' => (float)$roomType->min_price,
-                'max_price' => (float)$roomType->max_price,
-                'confidence_score' => (float)$recommendation['confidence_score'],
-                'competitor_data' => $recommendation['competitor_data'] ?? [],
-                'factors' => $recommendation['factors'] ?? [],
-                'demand_forecast_id' => (int)($recommendation['factors']['signals']['demand_forecast']['id'] ?? 0),
-                'reason' => (string)$recommendation['reason'],
-            ]);
-            $createdRow = $suggestion->toArray();
-            $createdRow['risk_level'] = (string)($recommendation['risk_level'] ?? 'medium');
-            $createdRow['review_checklist'] = array_values((array)($recommendation['review_checklist'] ?? []));
-            $created[] = $pricingService->enrichSuggestionRows([$createdRow])[0];
+                    $recommendation = $pricingService->recommend($hotelId, $roomType->toArray(), $targetDate);
+                    $exactTargetSignalGaps = $this->priceSuggestionExactTargetSignalGaps(
+                        $recommendation,
+                        $roomTypeId,
+                        $targetDate
+                    );
+                    if ($exactTargetSignalGaps !== []) {
+                        $skipped[] = [
+                            'suggestion_date' => $targetDate,
+                            'target_stay_date' => $targetDate,
+                            'room_type_id' => $roomTypeId,
+                            'room_type_name' => (string)($roomType->name ?? ''),
+                            'reason' => 'exact_target_signals_missing',
+                            'primary_signal_count' => (int)($recommendation['primary_signal_count'] ?? 0),
+                            'price_change_rate' => array_key_exists('price_change_rate', $recommendation)
+                                ? (float)$recommendation['price_change_rate']
+                                : null,
+                            'risk_level' => 'high',
+                            'data_gaps' => array_values(array_unique(array_merge(
+                                (array)($recommendation['factors']['signals']['data_gaps'] ?? []),
+                                $exactTargetSignalGaps
+                            ))),
+                            'review_checklist' => [
+                                'Provide same-hotel, same-room-type, same-target-date demand and competitor evidence.',
+                            ],
+                        ];
+                        continue;
+                    }
+                    if (($recommendation['should_create'] ?? false) !== true) {
+                        $skipped[] = [
+                            'suggestion_date' => $targetDate,
+                            'target_stay_date' => $targetDate,
+                            'room_type_id' => $roomTypeId,
+                            'room_type_name' => (string)($roomType->name ?? ''),
+                            'reason' => (string)($recommendation['skip_reason'] ?? 'not_created'),
+                            'primary_signal_count' => (int)($recommendation['primary_signal_count'] ?? 0),
+                            'price_change_rate' => array_key_exists('price_change_rate', $recommendation)
+                                ? (float)$recommendation['price_change_rate']
+                                : null,
+                            'risk_level' => (string)($recommendation['risk_level'] ?? 'high'),
+                            'data_gaps' => array_values((array)($recommendation['factors']['signals']['data_gaps'] ?? [])),
+                            'review_checklist' => array_values((array)($recommendation['review_checklist'] ?? [])),
+                        ];
+                        continue;
+                    }
+
+                    try {
+                        $suggestion = PriceSuggestion::create([
+                            'hotel_id' => $hotelId,
+                            'room_type_id' => $roomTypeId,
+                            'suggestion_type' => PriceSuggestion::TYPE_DYNAMIC,
+                            'status' => PriceSuggestion::STATUS_PENDING,
+                            'suggestion_date' => $targetDate,
+                            'current_price' => (float)$recommendation['current_price'],
+                            'suggested_price' => (float)$recommendation['suggested_price'],
+                            'min_price' => (float)$roomType->min_price,
+                            'max_price' => (float)$roomType->max_price,
+                            'confidence_score' => (float)$recommendation['confidence_score'],
+                            'competitor_data' => $recommendation['competitor_data'] ?? [],
+                            'factors' => $recommendation['factors'] ?? [],
+                            'demand_forecast_id' => (int)($recommendation['factors']['signals']['demand_forecast']['id'] ?? 0),
+                            'reason' => (string)$recommendation['reason'],
+                        ]);
+                    } catch (\Throwable $error) {
+                        if (!$this->isPriceSuggestionActiveDedupeConflict($error)) {
+                            throw $error;
+                        }
+                        $raced = PriceSuggestion::where('active_dedupe_key', $activeDedupeKey)
+                            ->where('tenant_id', $tenantId)
+                            ->where('hotel_id', $hotelId)
+                            ->where('room_type_id', $roomTypeId)
+                            ->where('suggestion_date', $targetDate)
+                            ->where('status', PriceSuggestion::STATUS_PENDING)
+                            ->lock(true)
+                            ->find();
+                        if (!$raced) {
+                            throw $error;
+                        }
+                        $skipped[] = $this->existingPendingPriceSuggestionSkip(
+                            $raced,
+                            $roomTypeId,
+                            $roomTypeName,
+                            $targetDate,
+                            true
+                        );
+                        continue;
+                    }
+                    $persisted = $this->readBackCreatedPriceSuggestion(
+                        (int)$suggestion->id,
+                        $hotelId,
+                        $roomTypeId,
+                        $targetDate,
+                        (float)$recommendation['current_price'],
+                        (float)$recommendation['suggested_price'],
+                        $activeDedupeKey
+                    );
+                    $createdRow = $persisted->toArray();
+                    $createdRow['risk_level'] = (string)($recommendation['risk_level'] ?? 'medium');
+                    $createdRow['review_checklist'] = array_values((array)($recommendation['review_checklist'] ?? []));
+                    $created[] = $this->markPersistedPriceSuggestionRows(
+                        $pricingService->enrichSuggestionRows([$createdRow])
+                    )[0];
+                    }
+                }
+
+                return [$created, $skipped];
+            });
+        } finally {
+            $this->releasePriceSuggestionGenerationLock($generationLock);
         }
 
         return $this->success(
             $this->buildPriceSuggestionGenerationRuntimeResult(
                 $hotelId,
-                $date,
+                $startDate,
                 $created,
                 $skipped,
-                $pricingService->hotelPricingModelSummary($hotelId, $date)
+                $pricingService->hotelPricingModelSummary($hotelId, $startDate),
+                $endDate
             ),
             'success'
         );
@@ -1872,9 +2284,13 @@ class Agent extends Base
         string $date,
         array $created,
         array $skipped,
-        array $modelSummary
+        array $modelSummary,
+        ?string $endDate = null
     ): array {
-        $status = count($created) > 0 ? 'created' : 'blocked';
+        $endDate = $endDate ?: $date;
+        $status = count($created) > 0
+            ? (count($skipped) > 0 ? 'partial' : 'created')
+            : 'blocked';
         $reason = count($created) > 0
             ? 'price_suggestions_pending_review'
             : (string)($skipped[0]['reason'] ?? 'pricing_candidate_signals_missing');
@@ -1885,6 +2301,24 @@ class Agent extends Base
             ? '进入待审建议列表完成人工审核；本接口只创建待审建议，不写入携程 OTA 价格。'
             : $this->priceSuggestionGenerationNextAction($reason);
 
+        $targetFilter = [
+            'hotel_id' => $hotelId,
+            'date' => $date,
+            'status' => count($created) > 0 ? PriceSuggestion::STATUS_PENDING : 0,
+        ];
+        if ($endDate !== $date) {
+            $targetFilter['start_date'] = $date;
+            $targetFilter['end_date'] = $endDate;
+        }
+        $createdRowIds = array_values(array_filter(array_map(
+            static fn(array $row): int => (int)($row['id'] ?? 0),
+            $created
+        ), static fn(int $id): bool => $id > 0));
+        $readbackVerifiedCount = count(array_filter(
+            $created,
+            static fn(array $row): bool => ($row['persistence']['readback_verified'] ?? false) === true
+        ));
+
         return [
             'status' => $status,
             'reason' => $reason,
@@ -1892,14 +2326,18 @@ class Agent extends Base
             'source_scope' => 'ctrip_ota_channel',
             'source_channels' => ['ctrip'],
             'target_hotel_ids' => [$hotelId],
-            'target_filter' => [
-                'hotel_id' => $hotelId,
-                'date' => $date,
-                'status' => count($created) > 0 ? PriceSuggestion::STATUS_PENDING : 0,
+            'target_filter' => $targetFilter,
+            'date_range' => [
+                'start_date' => $date,
+                'end_date' => $endDate,
+                'day_count' => count($this->priceSuggestionDateRange($date, $endDate)),
             ],
             'reviewed_count' => count($created) + count($skipped),
             'created_count' => count($created),
             'skipped_count' => count($skipped),
+            'created_row_ids' => $createdRowIds,
+            'readback_verified_count' => $readbackVerifiedCount,
+            'readback_verified' => count($created) > 0 && $readbackVerifiedCount === count($created),
             'list' => $created,
             'skipped' => $skipped,
             'advisory_only' => true,
@@ -1931,8 +2369,20 @@ class Agent extends Base
         int $hotelId,
         string $date,
         array $skipped = [],
-        string $detail = ''
+        string $detail = '',
+        ?string $endDate = null
     ): array {
+        $endDate = $endDate ?: $date;
+        $targetFilter = [
+            'hotel_id' => $hotelId,
+            'date' => $date,
+            'status' => 0,
+        ];
+        if ($endDate !== $date) {
+            $targetFilter['start_date'] = $date;
+            $targetFilter['end_date'] = $endDate;
+        }
+
         return [
             'status' => 'blocked',
             'reason' => $reason,
@@ -1940,14 +2390,18 @@ class Agent extends Base
             'source_scope' => 'ctrip_ota_channel',
             'source_channels' => ['ctrip'],
             'target_hotel_ids' => [$hotelId],
-            'target_filter' => [
-                'hotel_id' => $hotelId,
-                'date' => $date,
-                'status' => 0,
+            'target_filter' => $targetFilter,
+            'date_range' => [
+                'start_date' => $date,
+                'end_date' => $endDate,
+                'day_count' => count($this->priceSuggestionDateRange($date, $endDate)),
             ],
             'reviewed_count' => count($skipped),
             'created_count' => 0,
             'skipped_count' => count($skipped),
+            'created_row_ids' => [],
+            'readback_verified_count' => 0,
+            'readback_verified' => false,
             'list' => [],
             'skipped' => $skipped,
             'advisory_only' => true,
@@ -2018,6 +2472,19 @@ class Agent extends Base
             ]];
         }
 
+        if (in_array($reason, [
+            'price_suggestion_generation_in_progress',
+            'price_suggestion_generation_lock_unavailable',
+        ], true)) {
+            return [[
+                'code' => 'price_suggestion_generation_lock',
+                'status' => $reason === 'price_suggestion_generation_in_progress' ? 'in_progress' : 'unavailable',
+                'source' => 'price_suggestion_generation_lock',
+                'required_before' => 'POST /api/agent/price-suggestions/generate',
+                'next_action' => $this->priceSuggestionGenerationNextAction($reason),
+            ]];
+        }
+
         return $inputs;
     }
 
@@ -2026,6 +2493,9 @@ class Agent extends Base
         return match ($reason) {
             'room_types_empty' => '携程目标酒店暂无启用房型，不能生成待审调价建议。',
             'pending_suggestion_exists' => '已存在待审调价建议，不能重复生成。',
+            'exact_target_signals_missing' => '目标入住日、目标房型的需求预测或携程竞品价格证据不完整，不使用旧日或酒店级样本补齐。',
+            'price_suggestion_generation_in_progress' => '同一酒店已有远期定价生成任务正在执行，本次未重复写入。',
+            'price_suggestion_generation_lock_unavailable' => '远期定价生成互斥锁不可用，本次已安全阻断写入。',
             'pricing_candidate_signals_missing' => '调价候选信号不足，当前不会生成待审建议。',
             default => '定价建议生成前置条件未满足。',
         };
@@ -2036,6 +2506,9 @@ class Agent extends Base
         return match ($reason) {
             'room_types_empty' => '为携程目标酒店配置启用房型和最低保护价，再补需求预测与竞对样本；缺口未补齐前不生成待审建议。',
             'pending_suggestion_exists' => '进入收益 Agent 的定价建议列表完成已有待审建议审核；Revenue AI 不自动写 OTA。',
+            'exact_target_signals_missing' => '逐日补齐同酒店、同房型、同入住日的需求预测与携程竞品价格样本，再重新生成；旧日或酒店级样本只作参考。',
+            'price_suggestion_generation_in_progress' => '等待当前生成请求结束后刷新台账；不要重复提交。',
+            'price_suggestion_generation_lock_unavailable' => '检查数据库或本地锁目录可用性后重试；锁恢复前不生成待审建议。',
             default => '补齐需求预测、竞对价格、历史价格变化和保护价信号，直到只读预检出现可生成候选。',
         };
     }
@@ -2296,6 +2769,8 @@ class Agent extends Base
         $endDate = (string)$this->request->param('end_date', date('Y-m-d'));
         $businessDate = (string)$this->request->param('business_date', date('Y-m-d'));
         $priceDate = (string)$this->request->param('date', $businessDate);
+        $priceStartDate = (string)$this->request->param('price_start_date', $priceDate);
+        $priceEndDate = (string)$this->request->param('price_end_date', $priceStartDate);
         $competitorDate = (string)$this->request->param('competitor_date', $businessDate);
         $status = (int)$this->request->param('status', 0);
         $pagination = $this->getPagination();
@@ -2308,6 +2783,8 @@ class Agent extends Base
             'end_date' => $endDate,
             'business_date' => $businessDate,
             'date' => $priceDate,
+            'price_start_date' => $priceStartDate,
+            'price_end_date' => $priceEndDate,
             'competitor_date' => $competitorDate,
         ] as $field => $date) {
             if (!$this->isDateString($date)) {
@@ -2316,6 +2793,14 @@ class Agent extends Base
         }
         if ($startDate > $endDate) {
             return $this->error('start_date must not be after end_date', 422);
+        }
+        try {
+            [$priceStartDate, $priceEndDate] = $this->normalizePriceSuggestionDateRange(
+                $priceStartDate,
+                $priceEndDate
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
         }
         $this->assertRevenueHotelPermission($hotelId);
 
@@ -2349,9 +2834,10 @@ class Agent extends Base
             'price_suggestions' => $this->buildPriceSuggestionsPayload(
                 $hotelId,
                 $status,
-                $priceDate,
+                $priceStartDate,
                 $pagination['page'],
-                $pagination['page_size']
+                $pagination['page_size'],
+                $priceEndDate
             ),
             'query_scope' => [
                 'hotel_id' => $hotelId,
@@ -2365,6 +2851,8 @@ class Agent extends Base
                 'end_date' => $endDate,
                 'business_date' => $businessDate,
                 'price_date' => $priceDate,
+                'price_start_date' => $priceStartDate,
+                'price_end_date' => $priceEndDate,
                 'competitor_date' => $competitorDate,
             ],
         ]);

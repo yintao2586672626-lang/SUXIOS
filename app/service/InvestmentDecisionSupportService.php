@@ -14,9 +14,21 @@ class InvestmentDecisionSupportService
 
     private const COMPETITOR_BOOKABLE_STATUSES = ['available', 'bookable'];
 
-    public function overview(array $hotelIds, ?int $hotelId, int $userId, bool $isSuperAdmin): array
+    public function overview(
+        array $hotelIds,
+        ?int $hotelId,
+        int $userId,
+        bool $isSuperAdmin,
+        string $businessDate = ''
+    ): array
     {
-        $closureOverview = (new BusinessClosureOverviewService())->overview($hotelIds, $hotelId, $userId, $isSuperAdmin);
+        $closureOverview = (new BusinessClosureOverviewService())->overview(
+            $hotelIds,
+            $hotelId,
+            $userId,
+            $isSuperAdmin,
+            $businessDate
+        );
 
         return $this->buildOverviewFromEvidence(
             $closureOverview,
@@ -102,13 +114,19 @@ class InvestmentDecisionSupportService
             ? (new P0OtaDownstreamGateService())->normalize($closureOverview['p0_downstream_gate'])
             : [];
         $p0Blocked = (string)($p0DownstreamGate['status'] ?? '') === 'blocked_by_p0_ota_gate';
+        $kernel = is_array($closureOverview['operating_loop'] ?? null)
+            ? $closureOverview['operating_loop']
+            : (is_array($closureOverview['summary'] ?? null) ? $closureOverview['summary'] : []);
+        $kernelState = strtolower(trim((string)($kernel['authoritative_state'] ?? 'not_started')));
+        $kernelReadback = ($kernel['readback_verified'] ?? false) === true;
+        $kernelReady = $kernelState === 'completed' && $kernelReadback;
         $operation = $modules['operation_execution'] ?? [];
         $operationRoiEvidenceReady = (bool)($operation['roi_ready'] ?? false)
             || (int)($operation['roi_ready_count'] ?? 0) > 0
             || (int)($closureOverview['summary']['operation_roi_ready'] ?? 0) > 0;
         $processClosedEvidenceReady = (bool)($operation['process_closed_loop'] ?? false)
             || (string)($operation['process_status'] ?? '') === 'closed';
-        $operationRoiReady = !$p0Blocked && $operationRoiEvidenceReady;
+        $operationRoiReady = !$p0Blocked && $kernelReady && $operationRoiEvidenceReady;
         $processClosed = !$p0Blocked && $processClosedEvidenceReady;
 
         $missing = [];
@@ -117,6 +135,13 @@ class InvestmentDecisionSupportService
                 'code' => 'p0_ota_gate_not_ready',
                 'label' => 'P0 OTA字段闭环门禁',
                 'next_action' => '先完成授权浏览器 Profile 登录态、目标日 OTA/流量入库和 P0 field-loop verifier ready，再进入投决判断。',
+            ];
+        }
+        if (!$kernelReady) {
+            $missing[] = [
+                'code' => 'operating_loop_kernel_not_completed',
+                'label' => '经营闭环内核权威状态',
+                'next_action' => '先完成同酒店、同业务日经营闭环内核的八阶段精确回读；模块过程或 ROI 记录不能替代权威状态。',
             ];
         }
         if (!$operationRoiReady) {
@@ -152,15 +177,25 @@ class InvestmentDecisionSupportService
 
         $status = $p0Blocked
             ? 'blocked_by_p0_ota_gate'
+            : (!$kernelReady
+            ? 'blocked_by_operating_loop_kernel'
             : ($operationRoiReady
             ? 'closed_operating_data_ready'
-            : ($processClosed ? 'process_closed_missing_roi' : 'not_ready'));
+            : ($processClosed ? 'process_closed_missing_roi' : 'not_ready')));
 
         return [
             'status' => $status,
             'status_label' => $p0Blocked ? 'P0未就绪' : ($operationRoiReady ? '可进入投决读取' : '未达到投决准入'),
             'can_use_for_investment_judgement' => $operationRoiReady,
-            'required_gate' => $p0Blocked ? 'p0_ota_field_loop.ready + operation_execution.roi_ready' : 'operation_execution.roi_ready',
+            'required_gate' => $p0Blocked
+                ? 'p0_ota_field_loop.ready + operating_loop_kernel.completed + operation_execution.roi_ready'
+                : 'operating_loop_kernel.completed + operation_execution.roi_ready',
+            'authority_status' => [
+                'state' => $kernelState,
+                'readback_verified' => $kernelReadback,
+                'kernel_id' => $kernel['kernel_id'] ?? null,
+                'revision' => (int)($kernel['revision'] ?? 0),
+            ],
             'source_scope' => 'OTA -> revenue -> AI/manual decision -> operation execution -> review/ROI',
             'missing_evidence' => $missing,
             'signals' => $signals,
@@ -327,8 +362,8 @@ class InvestmentDecisionSupportService
             'blocking_count' => $blockingCount,
             'source_policy' => 'OTA数据 -> 收益分析 -> AI决策 -> 运营管理 -> 投资决策；缺失阶段必须显式展示，不用兜底值补成闭环。',
             'judgement_gate' => $p0Blocked
-                ? 'p0_ota_field_loop.ready + operation_execution.roi_ready + decision_record.readiness_ready'
-                : 'operation_execution.roi_ready + decision_record.readiness_ready',
+                ? 'p0_ota_field_loop.ready + operating_loop_kernel.completed + operation_execution.roi_ready + decision_record.readiness_ready'
+                : 'operating_loop_kernel.completed + operation_execution.roi_ready + decision_record.readiness_ready',
             'stages' => $stages,
         ];
     }

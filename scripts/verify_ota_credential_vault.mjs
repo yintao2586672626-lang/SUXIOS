@@ -602,10 +602,14 @@ for (const [relativePath, methodName, kind] of endpointContracts) {
   const runtimeDetailSanitized = kind === 'detail'
     && /\$safeList\s*=\s*\$this->sanitizeStoredOtaConfigListForRuntime\(\[\s*\$id\s*=>\s*\$list\[\$id\]\s*\]\)\s*;/.test(method)
     && /(?:success|json)\s*\(\s*\$safeList\s*\[\s*\$id\s*\]\s*\?\?\s*\[\]\s*\)/.test(method);
+  const assignedRuntimeDetailSanitized = kind === 'detail'
+    && /\$safeList\s*=\s*\$this->sanitizeStoredOtaConfigListForRuntime\(\[\s*\$id\s*=>\s*\$list\[\$id\]\s*\]\)\s*;/.test(method)
+    && /\$responseConfig\s*=\s*\$safeList\s*\[\s*\$id\s*\]\s*\?\?\s*\[\]\s*;/.test(method)
+    && /(?:success|json)\s*\(\s*\$responseConfig\s*\)/.test(method);
   const sanitizes = kind === 'list'
     ? runtimeListSanitized
       || /array_map\s*\(\s*\[\s*\$this\s*,\s*['"]sanitizeSecretConfig['"]\s*\]/.test(method)
-    : runtimeDetailSanitized;
+    : runtimeDetailSanitized || assignedRuntimeDetailSanitized;
   const rawReturn = kind === 'list'
     ? !runtimeListSanitized && /(?:success|json)\s*\(\s*(?:array_values\s*\(\s*)?\$list\b/.test(method)
     : /(?:success|json)\s*\(\s*\$list\s*\[\s*\$id\s*\]/.test(method);
@@ -749,17 +753,27 @@ for (const relativePath of strictRuntimeFiles) {
 if (exists('app/command/AutoFetchOnlineData.php')) {
   const scheduledAutoFetch = read('app/command/AutoFetchOnlineData.php');
   check(
-    'scheduled auto-fetch is Profile-only and has no reusable Cookie fallback',
+    'scheduled auto-fetch has no reusable Cookie fallback and gates local collector scope',
     scheduledAutoFetch.includes('scheduled_browser_profile_source_required')
-      && scheduledAutoFetch.includes('Scheduled collection is Profile-only.')
+      && scheduledAutoFetch.includes('Ordinary scheduled collection is Profile-only.')
+      && scheduledAutoFetch.includes('scheduledIngestionMethods(')
+      && scheduledAutoFetch.includes("['browser_profile', 'local_collector']")
       && !scheduledAutoFetch.includes('withPayloadForExecution(')
       && !scheduledAutoFetch.includes('sendHttpRequest('),
-    'Profile-only scheduled collection boundary'
+    'plan-gated scheduled collection boundary'
   );
 }
 if (exists('app/controller/concern/AutoFetchConcern.php')) {
   const autoFetch = read('app/controller/concern/AutoFetchConcern.php');
-  const boundary = extractPhpMethod(autoFetch, 'withAutoFetchCredential');
+  const ctripAutoFetchPath = 'app/controller/concern/CtripAutoFetchExecutionConcern.php';
+  checkFile(ctripAutoFetchPath);
+  const ctripAutoFetch = exists(ctripAutoFetchPath) ? read(ctripAutoFetchPath) : '';
+  const boundary = extractPhpMethod(ctripAutoFetch, 'withAutoFetchCredential');
+  check(
+    'controller auto-fetch composes the reviewed Ctrip execution concern',
+    autoFetch.includes('use CtripAutoFetchExecutionConcern;'),
+    'AutoFetchConcern trait composition'
+  );
   const profileCacheSanitizer = extractPhpMethod(autoFetch, 'sanitizeBrowserProfileSourcesForSharedCache');
   const listProfileSources = extractPhpMethod(autoFetch, 'listEnabledBrowserProfileDataSources');
   const prepareProfileLoginRequest = extractPhpMethod(autoFetch, 'preparePlatformProfileLoginRequest');
@@ -941,8 +955,16 @@ for (const [relativePath, methodName] of manualExecutionContracts) {
 }
 if (exists('app/service/PlatformDataSyncService.php')) {
   const platformSync = read('app/service/PlatformDataSyncService.php');
-  const vaultFetch = extractPhpMethod(platformSync, 'fetchOtaSourceInsideVault');
-  const profileFetch = extractPhpMethod(platformSync, 'fetchOtaBrowserProfileSource');
+  const executionConcernPath = 'app/service/concern/PlatformDataSourceExecutionConcern.php';
+  checkFile(executionConcernPath);
+  const executionConcern = exists(executionConcernPath) ? read(executionConcernPath) : '';
+  check(
+    'platform data sync composes the reviewed execution concern',
+    platformSync.includes('use \\app\\service\\concern\\PlatformDataSourceExecutionConcern;'),
+    'PlatformDataSyncService trait composition'
+  );
+  const vaultFetch = extractPhpMethod(executionConcern, 'fetchOtaSourceInsideVault');
+  const profileFetch = extractPhpMethod(executionConcern, 'fetchOtaBrowserProfileSource');
   const saveOtaSource = extractPhpMethod(platformSync, 'saveOtaDataSource');
   check(
     'OTA platform sync loads credentials only through the vault callback',

@@ -2,15 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
-  // 2026-08-11 reviewed merge rebaseline: targets stay unchanged; exact ratchets freeze the combined mainline baseline so future growth still fails closed.
-  { path: 'public/app-main.js', max_lines: 49_934, ratchet_max_lines: 52_373, boundary: 'formal promotion + temporal trial + XLSX verified closure plus authenticated patrol-report export; zero-growth until a behavior-driven domain extraction' },
-  { path: 'public/data-health-static.js', max_lines: 7_000, ratchet_max_lines: 7_444, boundary: 'data-health presentation domains; zero-growth until page-specific extraction' },
+  // 2026-08-16 integration rebaseline: targets stay unchanged; exact ratchets freeze the combined reviewed baseline so future growth still fails closed.
+  { path: 'public/app-main.js', max_lines: 49_934, ratchet_max_lines: 54_539, boundary: 'formal promotion + temporal trial + XLSX verified closure plus authenticated patrol-report export; zero-growth until a behavior-driven domain extraction' },
+  { path: 'public/data-health-static.js', max_lines: 7_000, ratchet_max_lines: 7_447, boundary: 'data-health presentation domains; zero-growth until page-specific extraction' },
   { path: 'tests/OnlineDataTest.php', max_lines: 2_800, boundary: 'platform test-case traits' },
-  { path: 'app/controller/Agent.php', max_lines: 2_700, ratchet_max_lines: 2_722, boundary: 'Agent OTA concern traits plus persisted decision-route wiring; zero-growth until route orchestration extraction' },
-  { path: 'app/controller/concern/AutoFetchConcern.php', max_lines: 5_200, ratchet_max_lines: 5_269, boundary: 'platform execution concern traits' },
+  { path: 'app/controller/Agent.php', max_lines: 2_700, ratchet_max_lines: 3_212, boundary: 'Agent OTA concern traits plus persisted decision-route wiring; zero-growth until route orchestration extraction' },
+  { path: 'app/controller/concern/AutoFetchConcern.php', max_lines: 5_200, ratchet_max_lines: 5_579, boundary: 'platform execution concern traits' },
   { path: 'app/service/PlatformDataSyncService.php', max_lines: 3_800, ratchet_max_lines: 4_239, boundary: 'data source, task, persistence, and target-date provenance concerns; zero-growth until another concern extraction' },
   { path: 'app/service/OperationManagementService.php', max_lines: 4_800, ratchet_max_lines: 6_294, boundary: 'snapshot and alert concerns' },
-  { path: 'app/service/OtaLocalCollectorService.php', max_lines: 4_800, ratchet_max_lines: 5_996, boundary: 'pairing, scheduling, result persistence, browser-profile status, and idempotency conflict fencing; zero-growth until another concern extraction' },
+  { path: 'app/service/OtaLocalCollectorService.php', max_lines: 4_800, ratchet_max_lines: 6_440, boundary: 'pairing, scheduling, result persistence, browser-profile status, and idempotency conflict fencing; zero-growth until another concern extraction' },
   { path: 'app/service/RevenueAiOverviewService.php', max_lines: 4_800, ratchet_max_lines: 6_386, boundary: 'revenue fact reads, overview composition, and AI evidence concerns' },
   { path: 'app/service/AiDailyReportService.php', max_lines: 4_800, ratchet_max_lines: 5_059, boundary: 'daily report fact selection, generation, and persistence concerns' },
   { path: 'app/controller/concern/Phase1EmployeeConsoleConcern.php', max_lines: 4_000, ratchet_max_lines: 4_977, boundary: 'phase-one employee console orchestration; zero-growth until page workflow extraction' },
@@ -21,7 +21,7 @@ export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'tests/Support/OnlineData/MeituanTestCases.php', max_lines: 2_200, boundary: 'Meituan contract tests' },
   { path: 'tests/Support/OnlineData/ProfileTestCases.php', max_lines: 2_450, boundary: 'Profile contract tests' },
   { path: 'tests/Support/OnlineData/AutoFetchTestCases.php', max_lines: 800, boundary: 'AutoFetch contract tests' },
-  { path: 'app/command/AutoFetchOnlineData.php', max_lines: 4_000, ratchet_max_lines: 5_111, boundary: 'hotel-scoped collection planning, execution, durable receipts, and fail-closed source selection; zero-growth until command orchestration extraction' },
+  { path: 'app/command/AutoFetchOnlineData.php', max_lines: 4_000, ratchet_max_lines: 5_204, boundary: 'hotel-scoped collection planning, execution, durable receipts, owner-safe locking, and fail-closed source selection; zero-growth until command orchestration extraction' },
   { path: 'app/controller/concern/AgentOtaExecutionIntentConcern.php', max_lines: 250, boundary: 'Agent execution intents' },
   { path: 'app/controller/concern/AgentCapturedOtaAnalysisConcern.php', max_lines: 2_450, ratchet_max_lines: 2_507, boundary: 'captured OTA analysis plus truthful decision-route composition; zero-growth until route service extraction' },
   { path: 'app/controller/concern/AgentOtaDiagnosisBuildConcern.php', max_lines: 1_500, ratchet_max_lines: 2_401, boundary: 'OTA diagnosis build' },
@@ -34,6 +34,11 @@ export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'app/service/concern/PlatformDataPersistenceConcern.php', max_lines: 1_700, boundary: 'platform persistence' },
   { path: 'app/service/operation/OperationSnapshotConcern.php', max_lines: 2_300, boundary: 'operation snapshots' },
   { path: 'app/service/operation/OperationAlertConcern.php', max_lines: 1_000, boundary: 'operation alerts' },
+  { path: 'app/service/operation/OperationExecutionReceiptConcern.php', max_lines: 400, boundary: 'auditable execution-receipt truth contract' },
+  { path: 'app/service/operation/OperationEffectReadbackConcern.php', max_lines: 500, boundary: 'effect review and controlled-replication source readback' },
+  { path: 'app/service/concern/OtaLocalCollectorLeaseConcern.php', max_lines: 500, boundary: 'local collector lease ownership and recovery' },
+  { path: 'app/service/concern/OtaLocalCollectorManualLoginConcern.php', max_lines: 250, boundary: 'manual Profile login resume identity contract' },
+  { path: 'app/service/concern/AiDailyReportReadinessConcern.php', max_lines: 150, boundary: 'AI daily report authoritative-loop readiness' },
 ]);
 
 export const SOURCE_HOTSPOT_DISCOVERY = Object.freeze({

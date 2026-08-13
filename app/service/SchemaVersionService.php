@@ -19,9 +19,10 @@ final class SchemaVersionService
     ];
     /**
      * Applied migrations remain immutable by default. These revisions are
-     * narrowly allowed because they only added IF NOT EXISTS guards after the
-     * original DDL had already been applied, or normalized trailing whitespace
-     * without changing SQL. Both the old and current hashes must match exactly.
+     * narrowly allowed because they only added retry guards after the original
+     * DDL had already been applied, added a fail-closed empty-table preflight,
+     * or normalized trailing whitespace without changing the resulting schema.
+     * Both the old and current hashes must match exactly.
      * The historical registry value is preserved; compatibility must never
      * rewrite the evidence of which bytes were originally registered.
      *
@@ -59,6 +60,10 @@ final class SchemaVersionService
         '20260809_d_repair_ctrip_reform_watch_checklist_evidence_label.sql' => [
             'd89bc7633624351221cb2cf6786a042758afd9266864c62181c8478acd45494e'
                 => '1e044674a15b745c94dbadb4b23f8065897ce1a1b03891235ffea3297e3f709a',
+        ],
+        '20260812_za_harden_hotel_operating_cycle_kernel.sql' => [
+            '9bd56641ec22e020765cbef99a1ee3cfb3f4bdc6285af6d76827487903d5e853'
+                => 'dcc2e1d86528e34b4f4328e563be44a8c36513382e20274600112e8d503059b6',
         ],
     ];
     private const HISTORICAL_NOT_APPLICABLE_GUARDS = [

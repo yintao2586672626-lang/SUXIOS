@@ -288,6 +288,9 @@ final class CloudMessageTaskOverviewService
                 )
                 && !ManualNotificationService::isOperatingDailyTriggerAllowed(
                     $trigger
+                )
+                && !ManualNotificationService::isStrictThreeSourceIntervalPlan(
+                    $row
                 );
             $status = $operatingDailyLoopBlocked ? 'blocked' : $storedStatus;
             $activeCandidate = $enabled
@@ -382,6 +385,9 @@ final class CloudMessageTaskOverviewService
         if (ManualNotificationService::isOperatingDailyReportType($templateType)
             && !ManualNotificationService::isOperatingDailyTriggerAllowed(
                 $trigger
+            )
+            && !ManualNotificationService::isStrictThreeSourceIntervalPlan(
+                $row
             )
         ) {
             return '循环计划已停用，需改为每日固定时间';

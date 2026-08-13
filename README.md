@@ -72,7 +72,7 @@
 ## 项目基础信息
 
 - 后端：ThinkPHP 8
-- PHP：>= 8.0，推荐 8.2
+- PHP：>= 8.2
 - 数据库：MySQL
 - 默认数据库名：hotelx
 - Web 根目录：public

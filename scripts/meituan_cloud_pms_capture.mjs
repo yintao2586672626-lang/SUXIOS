@@ -3,6 +3,8 @@ import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 
 export const SOURCE_URL = 'https://pms.meituan.com/#qk-workbench';
+export const IDENTITY_API =
+  '/hotelpms/api/v1/property/hotel/getHotelInfo';
 export const OVERVIEW_API =
   '/hotelpms/api/v1/report/home/workbench/businessOverview';
 export const ROOM_API =
@@ -65,10 +67,12 @@ function explicitBusinessDate(overview) {
   return null;
 }
 
-function providerHotelId(overview) {
-  for (const key of ['hotelId', 'poiId', 'hotelPoiId', 'orgId']) {
-    const value = text(overview?.[key], 120);
-    if (value) return value;
+function providerHotelId(...sources) {
+  for (const source of sources) {
+    for (const key of ['hotelId', 'poiId', 'hotelPoiId', 'orgId', 'id']) {
+      const value = text(source?.[key], 120);
+      if (value) return value;
+    }
   }
   return null;
 }
@@ -87,20 +91,26 @@ function saleOrderCount(overview) {
  * fact contract. Raw account responses never leave this function's caller.
  */
 export function buildCaptureFromResponses({
+  identityResponse,
   overviewResponse,
   roomResponse,
   expectedHotelName,
-  identityMatched,
   targetDate,
   capturedAt,
 }) {
+  const identity = apiData(identityResponse, 'identity');
   const overview = apiData(overviewResponse, 'overview');
   const roomRows = apiData(roomResponse, 'room');
-  if (!overview || !Array.isArray(roomRows) || roomRows.length === 0) {
+  if (!identity || !overview || !Array.isArray(roomRows) || roomRows.length === 0) {
     throw new Error('meituan_cloud_business_data_missing');
   }
-  if (identityMatched !== true || !normalizeHotelName(expectedHotelName)) {
+  const actualHotelName = text(identity.hotelName ?? identity.name);
+  const normalizedExpectedHotelName = normalizeHotelName(expectedHotelName);
+  if (!actualHotelName || !normalizedExpectedHotelName) {
     throw new Error('meituan_cloud_hotel_identity_unverified');
+  }
+  if (normalizeHotelName(actualHotelName) !== normalizedExpectedHotelName) {
+    throw new Error('meituan_cloud_hotel_identity_mismatch');
   }
 
   const roomTypes = roomRows.map((row) => {
@@ -154,9 +164,9 @@ export function buildCaptureFromResponses({
     capture_method: 'same_origin_api',
     captured_at: capturedAt,
     business_date: businessDate,
-    provider_hotel_id: providerHotelId(overview),
-    provider_hotel_name: text(expectedHotelName),
-    identity_evidence_type: 'authenticated_profile_hotel_identity',
+    provider_hotel_id: providerHotelId(identity, overview),
+    provider_hotel_name: actualHotelName,
+    identity_evidence_type: 'verified_api_hotel_identity',
     date_evidence_type: dateEvidenceType,
     summary: {
       estimated_room_revenue: number(
@@ -174,6 +184,8 @@ export function buildCaptureFromResponses({
     },
     room_types: roomTypes,
     field_trace: {
+      provider_hotel_identity:
+        `API:${IDENTITY_API}#data.hotelName+data.hotelId`,
       estimated_room_revenue: `API:${OVERVIEW_API}#data.estimatedRoomAmt`,
       adr: `API:${OVERVIEW_API}#data.estimatedAvgRoomPrice`,
       revpar: `API:${OVERVIEW_API}#data.estimatedRevPAR`,
@@ -231,17 +243,13 @@ function safeReason(error) {
     .slice(0, 100) || 'meituan_cloud_capture_failed';
 }
 
-async function collect(page, expectedHotelName) {
-  return page.evaluate(async ({ expectedName, overviewApi, roomApi }) => {
+async function collect(page) {
+  return page.evaluate(async ({ identityApi, overviewApi, roomApi }) => {
     const bodyText = String(document.body?.innerText || '').replace(/\s+/g, ' ');
-    const compact = (value) => String(value || '')
-      .toLowerCase()
-      .replace(/[\s·•・（）()\-—_]/g, '');
-    const identityMatched = compact(bodyText).includes(compact(expectedName));
     const loginVisible = /验证码登录|账号登录|手机号登录/.test(bodyText);
-    const post = async (path) => {
+    const request = async (path, method = 'GET') => {
       const response = await fetch(path, {
-        method: 'POST',
+        method,
         credentials: 'include',
         headers: { Accept: 'application/json' },
       });
@@ -253,14 +261,19 @@ async function collect(page, expectedHotelName) {
       }
       return { status: response.status, body };
     };
+    const [identityResponse, overviewResponse, roomResponse] = await Promise.all([
+      request(identityApi),
+      request(overviewApi, 'POST'),
+      request(roomApi, 'POST'),
+    ]);
     return {
-      identityMatched,
       loginVisible,
-      overviewResponse: await post(overviewApi),
-      roomResponse: await post(roomApi),
+      identityResponse,
+      overviewResponse,
+      roomResponse,
     };
   }, {
-    expectedName: expectedHotelName,
+    identityApi: IDENTITY_API,
     overviewApi: OVERVIEW_API,
     roomApi: ROOM_API,
   });
@@ -286,7 +299,7 @@ async function main() {
     ) {
       throw new Error('meituan_cloud_session_not_authenticated');
     }
-    const collected = await collect(page, options.expectedHotelName);
+    const collected = await collect(page);
     if (collected.loginVisible) throw new Error('meituan_cloud_session_expired');
     const time = shanghaiDateTime();
     if (time.date !== options.targetDate) {

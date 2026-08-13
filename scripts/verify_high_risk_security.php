@@ -458,10 +458,14 @@ assert_true(str_contains($platformSyncSource, "'tenant_id'"), 'platform sync wri
 assert_true(str_contains($loginLogSource, 'tenantIdForUser'), 'login logs must populate tenant_id for authenticated users when available');
 assert_true(str_contains($operationSource, 'withHotelTenantId'), 'hotel-scoped operation writes must resolve tenant_id from the owning hotel');
 assert_true(str_contains($operationSource, 'withExecutionTaskTenantId'), 'execution evidence writes must inherit and verify the task tenant scope');
+$transferSaveRecord = extract_method_source($transferSource, 'saveRecord');
 assert_true(
-    str_contains($transferSource, "Db::name('hotels')->where('id', \$hotelId)->value('tenant_id')")
-    && str_contains($transferSource, "'tenant_id' => \$tenantId"),
-    'transfer records must populate tenant_id from the authoritative hotel tenant on write'
+    str_contains($transferSaveRecord, 'Db::transaction(')
+    && str_contains($transferSaveRecord, 'lockedHotelIdentity($hotelId, false)')
+    && str_contains($transferSaveRecord, "\$tenantId = (int)\$hotel['tenant_id']")
+    && str_contains($transferSaveRecord, 'assertTransferSnapshotBinding($input, $snapshot, $hotelId, $tenantId)')
+    && str_contains($transferSaveRecord, "'tenant_id' => \$tenantId"),
+    'transfer records must lock the authoritative hotel, revalidate snapshot binding, and persist that locked tenant_id in one transaction'
 );
 assert_true(str_contains($initFullSource, '20260529_add_tenant_security_fields.sql'), 'full database initialization must apply tenant security migration');
 assert_true(str_contains($hotelMergePreviewSource, '$this->checkPermission(true);'), 'hotel data merge preview must require super admin');

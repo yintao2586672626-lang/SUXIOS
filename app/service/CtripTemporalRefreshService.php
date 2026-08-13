@@ -45,7 +45,8 @@ final class CtripTemporalRefreshService
         int $hotelId,
         string $hotelName,
         string $businessDate,
-        DateTimeImmutable $observedAt
+        DateTimeImmutable $observedAt,
+        bool $currentOnly = false
     ): array {
         $timezone = new DateTimeZone(self::TIMEZONE);
         $observedAt = $observedAt->setTimezone($timezone);
@@ -67,52 +68,58 @@ final class CtripTemporalRefreshService
             return $this->blocked('ctrip_profile_source_missing');
         }
 
-        try {
-            $before = $this->payloadService()->broadcastPreview(
-                $tenantId,
-                $hotelId,
-                $hotelName,
-                $businessDate
-            );
-        } catch (\Throwable) {
-            return $this->blocked('ctrip_temporal_preview_read_failed');
-        }
-        $segments = is_array($before['segments'] ?? null)
-            ? $before['segments']
-            : [];
-        try {
-            $attemptedDailyFlows = $this->dailyAttemptedFlows(
-                $sourceId,
-                $hotelId,
-                $businessDate
-            );
-        } catch (\Throwable) {
-            return $this->blocked('ctrip_daily_flow_attempts_read_failed');
+        $segments = [];
+        $attemptedDailyFlows = [];
+        if (!$currentOnly) {
+            try {
+                $before = $this->payloadService()->broadcastPreview(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    $businessDate
+                );
+            } catch (\Throwable) {
+                return $this->blocked('ctrip_temporal_preview_read_failed');
+            }
+            $segments = is_array($before['segments'] ?? null)
+                ? $before['segments']
+                : [];
+            try {
+                $attemptedDailyFlows = $this->dailyAttemptedFlows(
+                    $sourceId,
+                    $hotelId,
+                    $businessDate
+                );
+            } catch (\Throwable) {
+                return $this->blocked('ctrip_daily_flow_attempts_read_failed');
+            }
         }
         $flows = [];
         $flowResults = [];
-        foreach ([
-            'past' => 'historical_review',
-            'future' => 'future_demand',
-        ] as $segmentName => $flow) {
-            if (!$this->segmentNeedsDailyRefresh(
-                (array)($segments[$segmentName] ?? []),
-                $businessDate
-            )) {
-                continue;
+        if (!$currentOnly) {
+            foreach ([
+                'past' => 'historical_review',
+                'future' => 'future_demand',
+            ] as $segmentName => $flow) {
+                if (!$this->segmentNeedsDailyRefresh(
+                    (array)($segments[$segmentName] ?? []),
+                    $businessDate
+                )) {
+                    continue;
+                }
+                if (in_array($flow, $attemptedDailyFlows, true)) {
+                    $flowResults[] = [
+                        'flow' => $flow,
+                        'status' => 'skipped',
+                        'task_id' => 0,
+                        'saved_count' => 0,
+                        'readback_verified' => false,
+                        'reason_code' => 'ctrip_daily_flow_already_attempted',
+                    ];
+                    continue;
+                }
+                $flows[] = $flow;
             }
-            if (in_array($flow, $attemptedDailyFlows, true)) {
-                $flowResults[] = [
-                    'flow' => $flow,
-                    'status' => 'skipped',
-                    'task_id' => 0,
-                    'saved_count' => 0,
-                    'readback_verified' => false,
-                    'reason_code' => 'ctrip_daily_flow_already_attempted',
-                ];
-                continue;
-            }
-            $flows[] = $flow;
         }
         $flows[] = 'realtime';
 
@@ -203,6 +210,7 @@ final class CtripTemporalRefreshService
             'sync_task_id' => $realtimeTaskId,
             'saved_count' => $savedCount,
             'readback_verified' => true,
+            'refresh_scope' => $currentOnly ? 'current_only' : 'temporal_complete',
             'flows' => $flowResults,
         ];
     }

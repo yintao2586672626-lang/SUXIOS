@@ -149,6 +149,120 @@ try {
         throw new RuntimeException('GET did not prove exact single-platform diagnosis identity and readback.');
     }
 
+    $storedLog = Db::name('agent_logs')->where('id', $recordId)->find();
+    $storedContext = is_array($storedLog) ? ($storedLog['context_data'] ?? []) : [];
+    if (is_string($storedContext)) {
+        $storedContext = json_decode($storedContext, true, 512, JSON_THROW_ON_ERROR);
+    }
+    $expectedStorageSchema = $platform === 'ctrip' ? 4 : 2;
+    $storedDiagnosis = is_array($storedContext['diagnosis_result'] ?? null)
+        ? $storedContext['diagnosis_result']
+        : [];
+    if (!is_array($storedContext)
+        || (int)($storedContext['schema_version'] ?? 0) !== $expectedStorageSchema
+        || trim((string)($storedContext['readback_identity_digest'] ?? '')) === ''
+        || (int)($storedDiagnosis['saved_record']['id'] ?? 0) !== $recordId
+    ) {
+        throw new RuntimeException('Database context did not preserve the expected diagnosis schema and identity.');
+    }
+
+    $radarAcceptance = null;
+    if ($platform === 'ctrip') {
+        $savedRadar = is_array($saved['operating_radar'] ?? null) ? $saved['operating_radar'] : [];
+        $readRadar = is_array($diagnosis['operating_radar'] ?? null) ? $diagnosis['operating_radar'] : [];
+        $expectedDimensionKeys = [
+            'information_score',
+            'friendliness',
+            'quality',
+            'welcome',
+            'platform_technical_service_fee',
+        ];
+        $dimensionKeys = array_values(array_map(
+            static fn(array $dimension): string => (string)($dimension['key'] ?? ''),
+            array_values(array_filter((array)($readRadar['dimensions'] ?? []), 'is_array'))
+        ));
+        $scopeReadback = is_array($readRadar['scope'] ?? null) ? $readRadar['scope'] : [];
+        $scorePolicy = is_array($readRadar['score_policy'] ?? null) ? $readRadar['score_policy'] : [];
+        $guards = is_array($readRadar['guards'] ?? null) ? $readRadar['guards'] : [];
+        if ($savedRadar === []
+            || $readRadar !== $savedRadar
+            || (int)($readRadar['schema_version'] ?? 0) !== 2
+            || (string)($readRadar['contract_version'] ?? '') !== 'ctrip_operating_radar.v2'
+            || (string)($readRadar['knowledge']['truth_profile_version'] ?? '') !== '2026-08-11.4'
+            || (int)($scopeReadback['hotel_id'] ?? 0) !== $hotelId
+            || (string)($scopeReadback['platform'] ?? '') !== 'ctrip'
+            || (string)($scopeReadback['requested_start_date'] ?? '') !== $businessDate
+            || (string)($scopeReadback['requested_end_date'] ?? '') !== $businessDate
+            || (string)($scopeReadback['source_scope'] ?? '') !== 'ctrip_ota_channel_only'
+            || $dimensionKeys !== $expectedDimensionKeys
+            || ($scorePolicy['official_score_available'] ?? null) !== false
+            || ($scorePolicy['official_weights_available'] ?? null) !== false
+            || ($scorePolicy['official_formula_available'] ?? null) !== false
+            || !array_key_exists('composite_score', $scorePolicy)
+            || $scorePolicy['composite_score'] !== null
+        ) {
+            throw new RuntimeException('Ctrip operating radar was not saved and read back with its exact five-dimension truth contract.');
+        }
+        foreach ([
+            'decision_safe',
+            'task_draft_safe',
+            'external_write_authorized',
+            'automatic_pricing',
+            'automatic_inventory_change',
+            'automatic_commission_change',
+            'automatic_marketing',
+            'automatic_ota_write',
+            'automatic_pms_write',
+        ] as $guardKey) {
+            if (($guards[$guardKey] ?? null) !== false) {
+                throw new RuntimeException('Ctrip operating radar guard is not closed: ' . $guardKey);
+            }
+        }
+        $nonBlockedRootRefs = [];
+        foreach ((array)($readRadar['dimensions'] ?? []) as $dimension) {
+            if (!is_array($dimension)
+                || !array_key_exists('official_score', $dimension)
+                || $dimension['official_score'] !== null
+            ) {
+                throw new RuntimeException('Ctrip operating radar exposed an inferred official dimension score.');
+            }
+            if ((string)($dimension['key'] ?? '') === 'platform_technical_service_fee'
+                && in_array('commission_rate', array_map(
+                    static fn(array $metric): string => (string)($metric['key'] ?? ''),
+                    array_values(array_filter((array)($dimension['metrics'] ?? []), 'is_array'))
+                ), true)
+            ) {
+                throw new RuntimeException('Ctrip commission rate was used as technical service fee evidence.');
+            }
+            $rootRefs = array_values(array_map('strval', (array)($dimension['root_evidence_refs'] ?? [])));
+            if ((string)($dimension['status'] ?? '') !== 'blocked_by_data'
+                && ($rootRefs === [] || (string)($dimension['root_evidence_status'] ?? '') !== 'verified')
+            ) {
+                throw new RuntimeException('Ctrip operating radar exposed a non-blocked dimension without channel root evidence.');
+            }
+            if ((string)($dimension['status'] ?? '') !== 'blocked_by_data') {
+                $nonBlockedRootRefs[(string)($dimension['key'] ?? '')] = $rootRefs;
+            }
+        }
+        if (($storedDiagnosis['operating_radar'] ?? null) !== $readRadar) {
+            throw new RuntimeException('Database context and GET radar payload are not identical.');
+        }
+        $radarAcceptance = [
+            'status' => (string)($readRadar['status'] ?? ''),
+            'dimension_count' => count($dimensionKeys),
+            'observed_count' => (int)($readRadar['summary']['observed_count'] ?? 0),
+            'partial_count' => (int)($readRadar['summary']['partial_count'] ?? 0),
+            'blocked_count' => (int)($readRadar['summary']['blocked_count'] ?? 0),
+            'knowledge_version' => (string)($readRadar['knowledge']['truth_profile_version'] ?? ''),
+            'exact_readback' => true,
+            'non_blocked_root_refs' => $nonBlockedRootRefs,
+            'official_score_available' => false,
+            'external_write_authorized' => false,
+        ];
+    } elseif (isset($diagnosis['operating_radar'])) {
+        throw new RuntimeException('Non-Ctrip diagnosis unexpectedly exposed a Ctrip operating radar.');
+    }
+
     $decisionStatus = (string)($diagnosis['decision_status'] ?? '');
     if (!in_array($decisionStatus, ['action_required', 'no_action', 'blocked_by_missing_facts'], true)) {
         throw new RuntimeException('Single-platform diagnosis returned an imprecise decision status: ' . $decisionStatus);
@@ -285,6 +399,7 @@ try {
         'status' => 'passed',
         'transport' => 'local_http_route',
         'record_id' => $recordId,
+        'storage_schema_version' => $expectedStorageSchema,
         'scope' => $scope,
         'decision_status' => $decisionStatus,
         'workflow_status' => (string)($diagnosis['workflow_status'] ?? ''),
@@ -295,6 +410,7 @@ try {
         'same_scope_verified_source_row_count' => count($verifiedEvidenceIds),
         'model_called' => false,
         'linked_execution_intent_count' => 0,
+        'ctrip_operating_radar' => $radarAcceptance,
         'saved' => true,
         'readback_verified' => true,
     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . PHP_EOL;

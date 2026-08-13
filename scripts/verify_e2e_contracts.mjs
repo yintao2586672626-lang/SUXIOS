@@ -19,6 +19,7 @@ const readTemplateSemantic = () => readRaw('resources/frontend/app-template.html
 const frontendSemanticSources = () => [
   { file: 'public/index.html', source: readRaw('public/index.html') },
   { file: 'resources/frontend/app-template.html (semantic)', source: readTemplateSemantic() },
+  { file: 'public/components/system/app-main-components.js', source: readRaw('public/components/system/app-main-components.js') },
   { file: 'public/app-main.js', source: readRaw('public/app-main.js') },
 ];
 const sourceEntries = (file) => file === 'public/index.html'
@@ -259,7 +260,7 @@ requireTextBetween('public/index.html', 'const resolveDefaultReportHotelId = () 
 requireNoTextBetween('public/index.html', 'const resolveDefaultReportHotelId = () => {', 'let suppressNextReportHotelDashboardRefresh', 'permittedHotels.value?.[0]', 'AI workbench never treats the first permitted hotel as an implicit main hotel');
 requireNoTextBetween('public/index.html', 'const resolveDefaultReportHotelId = () => {', 'let suppressNextReportHotelDashboardRefresh', 'hotels.value?.[0]', 'AI workbench never treats the first visible hotel as an implicit main hotel');
 requireText('public/index.html', '尚未设置可用主门店，普通板块将保持未选择；请前往门店管理设置主门店。', 'AI workbench reports the missing-main-hotel state instead of silently choosing another hotel');
-requireText('public/index.html', "if (!dualOtaSuppressHotelSearchRecord && currentPage.value === 'ai-workbench') {\n                    recordDualOtaHotelSearch(filterReportHotel.value);\n                }", 'AI workbench records only manual current-hotel searches, not default binding selection');
+requireText('public/index.html', "if (!dualOtaSuppressHotelSearchRecord && currentPage.value === 'compass') {\n                    recordDualOtaHotelSearch(filterReportHotel.value);\n                }", 'canonical Compass records only manual current-hotel searches, not default binding selection');
 requireNoText('public/index.html', 'filterReportHotel.value = permittedHotels.value[0].id;', 'AI workbench default hotel selection is no longer limited to non-admin single-hotel users');
 requireText('public/index.html', 'const dualOtaMetricNoteText = (note = \'\') => {', 'AI workbench translates metric source notes before rendering');
 requireText('public/index.html', 'const dualOtaIsCtripTrafficPendingWindow = () => {', 'AI workbench has an explicit early-morning Ctrip traffic pending window');
@@ -930,7 +931,7 @@ requireText('public/index.html', 'permittedHotels.value = dedupeHotels(res.data.
 requireText('public/index.html', 'const clearAuthSession = () => {', 'auth cleanup clears token and cached auth user together');
 requireText('public/index.html', 'clearCachedAuthUser();', 'auth cleanup removes cached auth profile');
 requireText('public/index.html', 'const activateCoreOperationsAfterLogin = () => {', 'login startup owns one default operating-dashboard landing helper');
-requireText('public/index.html', "const landingPage = initialPageOverride || 'ai-workbench';", 'login startup lands on the today operating dashboard');
+requireText('public/index.html', "const landingPage = initialPageOverride || 'compass';", 'login startup lands on the canonical today operating dashboard');
 requireNoText('public/index.html', "const activateCoreOperationsAfterLogin = () => {\n                // Login/default-session entry owns only the default landing page. Explicit\n                // deep links are preserved by the mounted-session guard below.\n                return openOnlineDataEntryTab('data-health');", 'login startup must not default to the yesterday operating loop');
 requireText('public/index.html', 'activateCoreOperationsAfterLogin();', 'fresh login and legacy default sessions share the core-operations entry helper');
 requireText('public/index.html', 'const HOME_SECONDARY_PANEL_DELAY_MS = 4200;', 'home lower panels are delayed so immediate OTA navigation has a lighter first interaction window');
@@ -1040,7 +1041,7 @@ requireNoText('public/index.html', 'return loadMeituanConfig();\n               
 requireNoText('public/index.html', 'return loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS });\n                }, 3000);', 'Meituan hotel-list refresh must not compete with the first interaction window');
 requireNoText('public/index.html', 'return Promise.allSettled([\n                        loadCtripConfigList().then(() => {', 'Ctrip manual page must not start config/latest/cookies/bookmarklet in parallel on first paint');
 requireNoText('public/index.html', 'return Promise.allSettled([\n                        loadMeituanConfigList().then(() => prewarmSelectedMeituanConfigSecret()),', 'Meituan manual page must not start config/hotel-list in parallel on first paint');
-requireText('public/index.html', 'const isCompassDataPage = (page = currentPage.value) => [\'ai-workbench\', \'compass\'].includes(page);', 'AI workbench and business overview share the verified compass data loader');
+requireText('public/index.html', "const isCompassDataPage = (page = currentPage.value) => normalizeCanonicalPage(page) === 'compass';", 'legacy workbench aliases resolve to the one verified Compass data loader');
 requireText('public/index.html', "if (!token.value || !isCompassDataPage()) return;", 'home trend and holiday requests do not run after leaving compass-data pages');
 requireText('public/index.html', "if (!token.value || !isCompassDataPage() || macroSignalLoading.value) return;", 'macro signal request does not run after leaving compass-data pages');
 requireText('public/index.html', "if (options.requireCompass === true && !isCompassDataPage()) return;", 'home competitor summary request can be scoped to compass-data pages');

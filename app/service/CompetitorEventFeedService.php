@@ -55,10 +55,11 @@ final class CompetitorEventFeedService
             throw new InvalidArgumentException('collected_at_start cannot be later than collected_at_end');
         }
         $limit = max(1, min(500, $limit));
+        $targetRows = $this->activeCompetitorTargets($systemHotelId, $platforms);
 
         $missingColumns = $this->missingSchemaColumns();
         if ($missingColumns !== []) {
-            return $this->schemaInsufficientPayload(
+            $payload = $this->schemaInsufficientPayload(
                 $systemHotelId,
                 $platforms,
                 $stayDate,
@@ -66,6 +67,17 @@ final class CompetitorEventFeedService
                 $collectedAtEnd,
                 $missingColumns
             );
+            $payload['collection_coverage'] = $this->buildCollectionCoverage(
+                $targetRows ?? [],
+                [],
+                $systemHotelId,
+                $platforms,
+                $stayDate,
+                false,
+                $targetRows !== null,
+                false
+            );
+            return $payload;
         }
 
         $storagePlatforms = [];
@@ -101,7 +113,9 @@ final class CompetitorEventFeedService
             $stayDate,
             $collectedAtStart,
             $collectedAtEnd,
-            $matchedCount
+            $matchedCount,
+            $targetRows ?? [],
+            $targetRows !== null
         );
     }
 
@@ -110,6 +124,7 @@ final class CompetitorEventFeedService
      *
      * @param array<int,array<string,mixed>> $rows
      * @param array<int,string>|string $platformFilter
+     * @param array<int,array<string,mixed>> $targetRows
      * @return array<string,mixed>
      */
     public function buildFromRows(
@@ -119,7 +134,9 @@ final class CompetitorEventFeedService
         string $stayDate,
         string $collectedAtStart = '',
         string $collectedAtEnd = '',
-        ?int $matchedCount = null
+        ?int $matchedCount = null,
+        array $targetRows = [],
+        bool $targetLookupAvailable = true
     ): array {
         if ($systemHotelId <= 0) {
             throw new InvalidArgumentException('system_hotel_id/store_id must be a positive integer');
@@ -293,6 +310,17 @@ final class CompetitorEventFeedService
             ];
         }
 
+        $collectionCoverage = $this->buildCollectionCoverage(
+            $targetRows,
+            $events,
+            $systemHotelId,
+            $platforms,
+            $stayDate,
+            $truncated,
+            $targetLookupAvailable,
+            true
+        );
+
         return [
             'status' => $status,
             'quality_status' => $status,
@@ -328,9 +356,239 @@ final class CompetitorEventFeedService
             'decision_gate' => $decisionGate,
             'data_gaps' => $dataGaps,
             'events' => $events,
+            'collection_coverage' => $collectionCoverage,
             'source_scope' => 'ctrip_meituan_ota_channel_competitor_rate_events_only',
             'scope_notice' => '仅表示携程/美团 OTA 渠道公开竞价与可订状态，不代表酒店总房态、真实剩余库存或全酒店经营事实；不形成自动评分。',
         ];
+    }
+
+    /**
+     * @param array<int,string> $platforms
+     * @return array<int,array<string,mixed>>|null Null means the target lookup failed.
+     */
+    private function activeCompetitorTargets(int $systemHotelId, array $platforms): ?array
+    {
+        $storagePlatforms = [];
+        foreach ($platforms as $platform) {
+            $storagePlatforms = array_merge($storagePlatforms, self::PLATFORM_ALIASES[$platform] ?? []);
+        }
+
+        try {
+            return Db::name('competitor_hotel')
+                ->where('store_id', $systemHotelId)
+                ->where('status', 1)
+                ->whereIn('platform', array_values(array_unique($storagePlatforms)))
+                ->field('id,store_id,platform,hotel_name,hotel_code,status')
+                ->order('platform', 'asc')
+                ->order('id', 'asc')
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Builds the current competition-circle collection checklist without
+     * upgrading partial observations into comparable price facts.
+     *
+     * @param array<int,array<string,mixed>> $targetRows
+     * @param array<int,array<string,mixed>> $events
+     * @param array<int,string> $platforms
+     * @return array<string,mixed>
+     */
+    private function buildCollectionCoverage(
+        array $targetRows,
+        array $events,
+        int $systemHotelId,
+        array $platforms,
+        string $stayDate,
+        bool $truncated,
+        bool $targetLookupAvailable,
+        bool $schemaReady
+    ): array {
+        $targets = [];
+        foreach ($targetRows as $target) {
+            if (!is_array($target)) {
+                continue;
+            }
+            $targetStoreId = (int)($target['store_id'] ?? $systemHotelId);
+            if ($targetStoreId !== $systemHotelId || (int)($target['status'] ?? 1) !== 1) {
+                continue;
+            }
+            $targetId = (int)($target['id'] ?? 0);
+            $platform = $this->canonicalPlatform((string)($target['platform'] ?? ''));
+            if ($targetId <= 0 || $platform === null || !in_array($platform, $platforms, true)) {
+                continue;
+            }
+            $otaHotelId = trim((string)($target['hotel_code'] ?? ''));
+            $targets[$targetId] = [
+                'competitor_hotel_id' => $targetId,
+                'platform' => $platform,
+                'competitor_hotel_name' => $this->nullableText($target['hotel_name'] ?? null, 160),
+                'identity_status' => preg_match('/^[1-9][0-9]{0,19}$/D', $otaHotelId) === 1
+                    ? 'ota_hotel_id_configured'
+                    : 'target_binding_missing',
+            ];
+        }
+
+        uasort($targets, static function (array $left, array $right): int {
+            $platformOrder = strcmp((string)$left['platform'], (string)$right['platform']);
+            if ($platformOrder !== 0) {
+                return $platformOrder;
+            }
+            $nameOrder = strcmp(
+                (string)($left['competitor_hotel_name'] ?? ''),
+                (string)($right['competitor_hotel_name'] ?? '')
+            );
+            return $nameOrder !== 0
+                ? $nameOrder
+                : ((int)$left['competitor_hotel_id'] <=> (int)$right['competitor_hotel_id']);
+        });
+
+        $eventsByTarget = [];
+        foreach ($events as $event) {
+            $targetId = (int)($event['competitor_hotel_id'] ?? 0);
+            if ($targetId <= 0 || !isset($targets[$targetId])) {
+                continue;
+            }
+            if (($event['platform'] ?? '') !== $targets[$targetId]['platform']) {
+                continue;
+            }
+            $eventsByTarget[$targetId][] = $event;
+        }
+
+        $coverageRows = [];
+        $observedTargetCount = 0;
+        $availabilityVerifiedTargetCount = 0;
+        $priceComparableTargetCount = 0;
+        foreach ($targets as $targetId => $target) {
+            $targetEvents = $eventsByTarget[$targetId] ?? [];
+            $observed = $targetEvents !== [];
+            $availabilityVerified = false;
+            $priceComparable = false;
+            $readbackVerified = false;
+            $latest = null;
+            foreach ($targetEvents as $event) {
+                $availabilityVerified = $availabilityVerified
+                    || ($event['availability_evidence_eligible'] ?? false) === true;
+                $priceComparable = $priceComparable
+                    || ($event['price_evidence_eligible'] ?? false) === true;
+                $readbackVerified = $readbackVerified
+                    || ($event['readback_verified'] ?? false) === true;
+                if ($latest === null
+                    || strcmp((string)($event['collected_at'] ?? ''), (string)($latest['collected_at'] ?? '')) > 0
+                    || ((string)($event['collected_at'] ?? '') === (string)($latest['collected_at'] ?? '')
+                        && (int)($event['id'] ?? 0) > (int)($latest['id'] ?? 0))
+                ) {
+                    $latest = $event;
+                }
+            }
+
+            if ($observed) {
+                $observedTargetCount++;
+            }
+            if ($availabilityVerified) {
+                $availabilityVerifiedTargetCount++;
+            }
+            if ($priceComparable) {
+                $priceComparableTargetCount++;
+            }
+
+            $evidenceStatus = match (true) {
+                !$schemaReady => 'unverifiable',
+                $priceComparable => 'price_comparable',
+                $availabilityVerified => 'availability_verified',
+                $readbackVerified => 'saved_evidence_incomplete',
+                $observed => 'unverified',
+                $truncated => 'not_seen_in_returned_window',
+                default => 'not_collected',
+            };
+            $coverageRows[] = [
+                ...$target,
+                'stay_date' => $stayDate,
+                'observed_event_count' => count($targetEvents),
+                'latest_event_id' => is_array($latest) ? (int)($latest['id'] ?? 0) : null,
+                'latest_collected_at' => is_array($latest) ? ($latest['collected_at'] ?? null) : null,
+                'latest_availability' => is_array($latest) ? ($latest['availability'] ?? null) : null,
+                'evidence_status' => $evidenceStatus,
+                'evidence_status_label' => $this->collectionTargetStatusLabel($evidenceStatus),
+                'availability_verified' => $availabilityVerified,
+                'price_comparable' => $priceComparable,
+                'readback_verified' => $readbackVerified,
+                'needs_collection' => !$availabilityVerified,
+                'needs_identity_binding' => $target['identity_status'] !== 'ota_hotel_id_configured',
+            ];
+        }
+
+        $targetCount = count($coverageRows);
+        $unobservedTargetCount = max(0, $targetCount - $observedTargetCount);
+        $completionStatus = match (true) {
+            !$targetLookupAvailable || !$schemaReady => 'unavailable',
+            $targetCount === 0 => 'not_configured',
+            $truncated => 'partial_window',
+            $priceComparableTargetCount === $targetCount => 'complete_comparable',
+            $availabilityVerifiedTargetCount === $targetCount => 'complete_availability',
+            $observedTargetCount === 0 => 'not_started',
+            default => 'partial',
+        };
+        $notice = match ($completionStatus) {
+            'unavailable' => '竞品目标或事件结构不可用，当前不能核验采集覆盖。',
+            'not_configured' => '当前门店与平台尚未配置启用的竞品酒店。',
+            'partial_window' => '仅按本次返回的最新事件窗口展示，不将未出现的酒店直接判定为未采。',
+            default => '逐店覆盖基于当前启用竞品与所选入住日的已保存回读事件。',
+        };
+
+        return [
+            'status' => $completionStatus,
+            'status_label' => $this->collectionCoverageStatusLabel($completionStatus),
+            'system_hotel_id' => $systemHotelId,
+            'platforms' => $platforms,
+            'stay_date' => $stayDate,
+            'target_count' => $targetCount,
+            'observed_target_count' => $observedTargetCount,
+            'unobserved_target_count' => $unobservedTargetCount,
+            'missing_target_count' => $truncated ? null : $unobservedTargetCount,
+            'availability_verified_target_count' => $availabilityVerifiedTargetCount,
+            'price_comparable_target_count' => $priceComparableTargetCount,
+            'is_complete_for_availability' => in_array(
+                $completionStatus,
+                ['complete_availability', 'complete_comparable'],
+                true
+            ),
+            'coverage_scope' => !$schemaReady
+                ? 'schema_unavailable'
+                : ($truncated ? 'latest_returned_events_only' : 'all_matching_events'),
+            'targets' => array_values($coverageRows),
+            'notice' => $notice,
+            'scope_notice' => '这是所选门店、平台和入住日的 OTA 竞圈采集进度，不是价格评分；可售证据完整也不等于同口径价格可用于收益定价。',
+        ];
+    }
+
+    private function collectionCoverageStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'complete_comparable' => '同口径价格已覆盖',
+            'complete_availability' => '可售证据已覆盖',
+            'partial' => '待补采',
+            'not_started' => '尚未采集',
+            'not_configured' => '未配置竞圈',
+            'partial_window' => '返回窗口不完整',
+            default => '覆盖不可核验',
+        };
+    }
+
+    private function collectionTargetStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'price_comparable' => '同口径价格已核验',
+            'availability_verified' => '可售证据已核验',
+            'saved_evidence_incomplete' => '已保存，证据待补',
+            'unverified' => '观测未核验',
+            'not_seen_in_returned_window' => '当前返回窗口未见',
+            'not_collected' => '待采集',
+            default => '暂不可核验',
+        };
     }
 
     /** @return array<int,string> */

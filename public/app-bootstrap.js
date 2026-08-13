@@ -151,9 +151,19 @@
             return false;
         }
     };
+    const resolveAssetUrl = (src) => {
+        try {
+            return new URL(String(src || ''), document.baseURI).href;
+        } catch (error) {
+            return String(src || '');
+        }
+    };
     const loadScript = (src) => new Promise((resolve, reject) => {
         const assetName = assetBaseName(src);
-        const existing = [...document.scripts].find((script) => assetBaseName(script.getAttribute('src')) === assetName);
+        const resolvedSrc = resolveAssetUrl(src);
+        const existing = [...document.scripts].find(
+            (script) => resolveAssetUrl(script.getAttribute('src')) === resolvedSrc
+        );
         if (existing) {
             if (existing.dataset.suxiAssetLoaded === '1') {
                 resolve();
@@ -354,6 +364,7 @@
             await waitForFirstAuthenticatedPaint();
             try {
                 await Promise.all(assets.map((asset) => loadAuthenticatedAsset(asset)));
+                document.documentElement.dataset.suxiFullRenderReady = '1';
                 window.dispatchEvent(new CustomEvent('suxi:full-render-ready', {
                     detail: { assets: assets.map((asset) => assetBaseName(asset.src)) },
                 }));

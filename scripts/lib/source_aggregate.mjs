@@ -21,6 +21,15 @@ export const SOURCE_CONCERN_PATHS = Object.freeze({
   'app/service/OperationManagementService.php': Object.freeze([
     'app/service/operation/OperationSnapshotConcern.php',
     'app/service/operation/OperationAlertConcern.php',
+    'app/service/operation/OperationExecutionReceiptConcern.php',
+    'app/service/operation/OperationEffectReadbackConcern.php',
+  ]),
+  'app/service/OtaLocalCollectorService.php': Object.freeze([
+    'app/service/concern/OtaLocalCollectorLeaseConcern.php',
+    'app/service/concern/OtaLocalCollectorManualLoginConcern.php',
+  ]),
+  'app/service/AiDailyReportService.php': Object.freeze([
+    'app/service/concern/AiDailyReportReadinessConcern.php',
   ]),
 });
 

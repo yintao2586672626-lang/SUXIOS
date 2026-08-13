@@ -106,6 +106,10 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
             partial_ready: '部分可执行',
             action_required: '需要行动',
             no_action: '无需行动',
+            observed_channel_signal: '已取得渠道信号',
+            partial_evidence: '部分证据',
+            reference_only: '仅供参考',
+            not_available: '未取得',
             blocked_by_data: '数据不足',
             blocked: '证据阻断',
             blocked_by_missing_ota_data: '缺OTA数据',
@@ -127,11 +131,47 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
 
     const otaDiagnosisDecisionStatusClass = (status) => {
         const value = String(status || '').toLowerCase();
-        if (['ready', 'confirmed', 'no_action'].includes(value)) return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-        if (['pending', 'pending_human_confirmation', 'partial_ready', 'action_required'].includes(value)) return 'bg-amber-50 text-amber-700 border-amber-100';
+        if (['ready', 'confirmed', 'no_action', 'observed_channel_signal'].includes(value)) return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+        if (['pending', 'pending_human_confirmation', 'partial_ready', 'partial_evidence', 'action_required'].includes(value)) return 'bg-amber-50 text-amber-700 border-amber-100';
         if (value.startsWith('blocked') || ['rejected'].includes(value)) return 'bg-red-50 text-red-700 border-red-100';
-        if (['not_required', 'optional_missing'].includes(value)) return 'bg-slate-50 text-slate-600 border-slate-200';
+        if (['not_required', 'optional_missing', 'reference_only', 'not_available'].includes(value)) return 'bg-slate-50 text-slate-600 border-slate-200';
         return 'bg-gray-50 text-gray-600 border-gray-200';
+    };
+
+    const escapeOtaDiagnosisHtml = (value) => String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[character]));
+
+    const renderCtripOperatingRadarHtml = (result = {}) => {
+        const radar = result?.operating_radar;
+        if (!radar || typeof radar !== 'object') return '';
+        const dimensions = Array.isArray(radar.dimensions) ? radar.dimensions.filter(item => item && typeof item === 'object') : [];
+        const summary = radar.summary && typeof radar.summary === 'object' ? radar.summary : {};
+        const saved = result.saved_record && typeof result.saved_record === 'object' ? result.saved_record : {};
+        const status = String(radar.status || 'blocked_by_data');
+        const savedBadge = saved.saved === true && saved.readback_verified === true
+            ? `<span class="rounded border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-emerald-200">已保存并精确回读 #${escapeOtaDiagnosisHtml(saved.id || '-')}</span>`
+            : '<span class="rounded border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-amber-100">尚未完成保存回读</span>';
+        const cards = dimensions.map(dimension => {
+            const metrics = Array.isArray(dimension.metrics) ? dimension.metrics.filter(item => item && typeof item === 'object').slice(0, 5) : [];
+            const missingFacts = Array.isArray(dimension.missing_facts) ? dimension.missing_facts.filter(item => item && typeof item === 'object') : [];
+            const evidenceRefs = Array.isArray(dimension.evidence_refs) ? dimension.evidence_refs.map(String).filter(Boolean) : [];
+            const rootEvidenceVerified = dimension.root_evidence_status === 'verified';
+            const metricHtml = metrics.length
+                ? `<div class="mt-3 space-y-1.5"><div class="text-[11px] font-semibold ${rootEvidenceVerified ? 'text-slate-700' : 'text-amber-700'}">${rootEvidenceVerified ? '已闭合渠道根证据' : '待核验派生信号'}</div>${metrics.map(metric => `<div class="flex items-center justify-between gap-2 text-[11px]"><span class="min-w-0 truncate text-slate-500" title="${escapeOtaDiagnosisHtml(metric.label || metric.key || '')}">${escapeOtaDiagnosisHtml(metric.label || metric.key || '-')}</span><strong class="whitespace-nowrap text-slate-800">${escapeOtaDiagnosisHtml(metric.display_value ?? '-')}</strong></div>`).join('')}</div>`
+                : '<div class="mt-3 text-[11px] text-slate-400">尚无可展示的目标日期信号</div>';
+            const missingLabels = missingFacts.map(item => String(item.label || item.key || '')).filter(Boolean);
+            const missingHtml = missingLabels.length
+                ? `<div class="mt-3"><div class="text-[11px] font-semibold text-amber-700">待补事实</div><p class="mt-1 text-[11px] leading-relaxed text-amber-700" title="${escapeOtaDiagnosisHtml(missingLabels.join('、'))}">${escapeOtaDiagnosisHtml(missingLabels.slice(0, 3).join('、'))}${missingLabels.length > 3 ? ` 等${missingLabels.length}项` : ''}</p></div>`
+                : '';
+            return `<article class="flex min-h-[18rem] flex-col rounded-xl border border-[#e5dcc8] bg-white p-3.5 shadow-sm"><div class="flex items-start justify-between gap-2"><div><div class="text-sm font-semibold text-[#06110d]">${escapeOtaDiagnosisHtml(dimension.label || '-')}</div><div class="mt-1 text-[11px] text-slate-400">${escapeOtaDiagnosisHtml(dimension.stage || '-')}</div></div><span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap ${otaDiagnosisDecisionStatusClass(dimension.status)}">${escapeOtaDiagnosisHtml(dimension.status_label || otaDiagnosisDecisionStatusText(dimension.status))}</span></div><p class="mt-2 text-[11px] leading-relaxed text-slate-500">${escapeOtaDiagnosisHtml(dimension.meaning || '')}</p><div class="mt-3 rounded-lg border border-dashed border-[#e5dcc8] bg-[#fcfaf5] px-2.5 py-2 text-[11px] text-slate-600">官方分数：<strong class="text-slate-900">未提供</strong></div>${metricHtml}${missingHtml}<div class="mt-auto border-t border-slate-100 pt-3"><p class="text-[11px] leading-relaxed text-slate-600">${escapeOtaDiagnosisHtml(dimension.next_check || '')}</p><p class="mt-1 text-[10px] text-slate-400" title="${escapeOtaDiagnosisHtml(evidenceRefs.join('、'))}">证据引用 ${evidenceRefs.length} 项</p></div></article>`;
+        }).join('');
+
+        return `<section data-testid="ctrip-operating-radar-diagnosis" class="overflow-hidden rounded-xl border border-[#e5dcc8] bg-[#fcfaf5]"><header class="flex flex-col gap-3 bg-[#06110d] px-4 py-4 text-white lg:flex-row lg:items-start lg:justify-between"><div><div class="flex flex-wrap items-center gap-2"><h3 class="text-base font-semibold">携程经营雷达诊断</h3><span class="rounded-full border border-[#dcc591]/50 bg-[#dcc591]/10 px-2.5 py-1 text-[11px] text-[#dcc591]">五维证据视图</span><span class="rounded-full border px-2.5 py-1 text-[11px] ${otaDiagnosisDecisionStatusClass(status)}">${escapeOtaDiagnosisHtml(otaDiagnosisDecisionStatusText(status))}</span></div><p class="mt-2 max-w-3xl text-xs leading-relaxed text-slate-300">${escapeOtaDiagnosisHtml(radar.message || '')}</p></div><div class="flex flex-wrap items-center gap-2 text-[11px]"><span class="rounded border border-white/15 bg-white/5 px-2.5 py-1 text-slate-200">知识版本 ${escapeOtaDiagnosisHtml(radar.knowledge?.truth_profile_version || '-')}</span>${savedBadge}</div></header><div class="space-y-4 p-4"><div class="flex flex-col gap-3 rounded-lg border border-[#e5dcc8] bg-white p-3 text-xs text-slate-600 lg:flex-row lg:items-center lg:justify-between"><p><strong class="text-slate-900">边界：</strong>这不是携程官方分数、权重或排名公式；只展示当前宿析已取得的携程渠道事实与待核验缺口。</p><div class="flex flex-wrap gap-2 whitespace-nowrap"><span class="rounded bg-emerald-50 px-2 py-1 text-emerald-700">渠道信号 ${escapeOtaDiagnosisHtml(summary.observed_count || 0)}</span><span class="rounded bg-amber-50 px-2 py-1 text-amber-700">部分证据 ${escapeOtaDiagnosisHtml(summary.partial_count || 0)}</span><span class="rounded bg-slate-100 px-2 py-1 text-slate-600">数据受阻 ${escapeOtaDiagnosisHtml(summary.blocked_count || 0)}</span></div></div><div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">${cards}</div><div class="rounded-lg border border-[#e5dcc8] bg-white px-3 py-2.5 text-[11px] leading-relaxed text-slate-500">五维相互独立，单一维度不决定结果。该视图不可用于自动调价、改房态、调佣/服务费、购买流量、创建任务或写入 OTA/PMS。</div></div></section>`;
     };
 
     const otaDiagnosisDecisionClosure = (result = {}) => {
@@ -974,6 +1014,7 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         buildOtaDiagnosisResultSections,
         otaDiagnosisDecisionStatusText,
         otaDiagnosisDecisionStatusClass,
+        renderCtripOperatingRadarHtml,
         buildOtaDiagnosisDecisionClosureCards,
         buildOtaDiagnosisBusinessLoopSteps,
         buildOtaDiagnosisActionRows,

@@ -239,7 +239,7 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             ]],
         ]);
 
-        self::assertSame('pending_execution_transfer', $readiness['stage']);
+        self::assertSame('pending_execution_transfer', $readiness['component_stage']);
         self::assertFalse($readiness['closed_loop']);
         self::assertSame(1, $readiness['transferable_count']);
         self::assertContains('execution_intent', array_column($readiness['missing_evidence'], 'code'));
@@ -259,7 +259,7 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             ]],
         ]);
 
-        self::assertSame('data_recheck_required', $readiness['stage']);
+        self::assertSame('data_recheck_required', $readiness['component_stage']);
         self::assertFalse($readiness['closed_loop']);
         self::assertSame(0, $readiness['transferable_count']);
         self::assertContains('data_gaps', array_column($readiness['missing_evidence'], 'code'));
@@ -282,15 +282,16 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         ]);
 
         self::assertSame(0, $readiness['transferable_count']);
-        self::assertSame('no_action_required', $readiness['stage']);
-        self::assertSame('无需行动，日报闭环', $readiness['status_label']);
+        self::assertSame('unverified', $readiness['stage']);
+        self::assertSame('no_action_required', $readiness['component_stage']);
+        self::assertSame('无需行动，日报闭环', $readiness['component_status_label']);
         self::assertSame('no_action', $readiness['decision_status']);
-        self::assertTrue($readiness['closed_loop']);
+        self::assertTrue($readiness['component_closed_loop']);
+        self::assertFalse($readiness['closed_loop']);
         self::assertSame(0, $readiness['blocked_count']);
         self::assertSame(0, $readiness['investigation_count']);
         self::assertSame(0, $readiness['execution_action_count']);
-        self::assertSame([], $readiness['missing_evidence']);
-        self::assertSame('真实证据未触发行动阈值，本次不创建执行单。', $readiness['notice']);
+        self::assertSame(['operating_cycle_kernel'], array_column($readiness['missing_evidence'], 'code'));
     }
 
     public function testPriceReviewWithoutConcreteTargetIsNotMarkedTransferable(): void
@@ -364,7 +365,7 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             ]],
         ]);
 
-        self::assertSame('investigation_only', $readiness['stage']);
+        self::assertSame('investigation_only', $readiness['component_stage']);
         self::assertSame(1, $readiness['investigation_count']);
         self::assertSame(0, $readiness['blocked_count']);
         self::assertSame(0, $readiness['execution_action_count']);
@@ -398,7 +399,8 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             'roi' => ['status' => 'ready', 'value' => 12.5],
         ]]);
 
-        self::assertSame('daily_loop_closed', $readiness['stage']);
+        self::assertSame('daily_loop_closed', $readiness['component_stage']);
+        self::assertFalse($readiness['closed_loop']);
         self::assertSame(2, $readiness['action_count']);
         self::assertSame(1, $readiness['execution_action_count']);
         self::assertSame(1, $readiness['investigation_count']);
@@ -427,14 +429,14 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             'roi' => ['status' => 'data_gap'],
         ]]);
 
-        self::assertSame('reviewed_no_roi', $readiness['stage']);
+        self::assertSame('reviewed_no_roi', $readiness['component_stage']);
         self::assertFalse($readiness['closed_loop']);
         self::assertSame(1, $readiness['reviewed_count']);
         self::assertSame(0, $readiness['roi_ready_count']);
         self::assertContains('roi_evidence', array_column($readiness['missing_evidence'], 'code'));
     }
 
-    public function testReportIsClosedOnlyWhenEveryActionHasRoiReadyEvidence(): void
+    public function testReportIsClosedOnlyWhenKernelIsVerifiedAndCompleted(): void
     {
         $service = new AiDailyReportService();
 
@@ -454,9 +456,16 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             'evidence' => ['count' => 1],
             'review' => ['status' => 'success'],
             'roi' => ['status' => 'ready', 'value' => 12.5],
-        ]]);
+        ]], [
+            'kernel_id' => 'cycle-16',
+            'revision' => 8,
+            'authoritative_state' => 'completed',
+            'readback_verified' => true,
+            'next_action' => ['action' => '进入下一业务日'],
+        ]);
 
-        self::assertSame('daily_loop_closed', $readiness['stage']);
+        self::assertSame('operating_loop_completed', $readiness['stage']);
+        self::assertSame('daily_loop_closed', $readiness['component_stage']);
         self::assertTrue($readiness['closed_loop']);
         self::assertSame(100, $readiness['score']);
         self::assertSame(1, $readiness['roi_ready_count']);
@@ -481,7 +490,8 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             'snapshot_json' => '{"input_trust":{"readback_verified":true},"report_scope":{"hotel_id":2,"report_date":"2026-07-19","source_scope":"ota_channel"}}',
         ]]);
 
-        self::assertSame('pending_execution_transfer', $rows[0]['report_readiness']['stage']);
+        self::assertSame('unverified', $rows[0]['report_readiness']['stage']);
+        self::assertSame('pending_execution_transfer', $rows[0]['report_readiness']['component_stage']);
         self::assertSame('pending_transfer', $rows[0]['recommended_actions'][0]['action_readiness']['stage']);
         self::assertSame(8, $rows[0]['yesterday_result']['metrics'][0]['value']);
         self::assertSame([], $rows[0]['owner_communication_brief']);
@@ -506,7 +516,8 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         self::assertFalse($rows[0]['recommended_actions'][0]['can_create_execution_intent']);
         self::assertSame('blocked_by_data_gap', $rows[0]['recommended_actions'][0]['action_readiness']['stage']);
         self::assertSame(0, $rows[0]['report_readiness']['transferable_count']);
-        self::assertSame('data_recheck_required', $rows[0]['report_readiness']['stage']);
+        self::assertSame('unverified', $rows[0]['report_readiness']['stage']);
+        self::assertSame('data_recheck_required', $rows[0]['report_readiness']['component_stage']);
     }
 
     public function testExecutionIntentIdempotencyIsPerActionAndFailedTerminalsCanRetry(): void

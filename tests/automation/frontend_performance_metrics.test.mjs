@@ -72,6 +72,17 @@ test('summarizeFrontendPerformance reports navigation, paint, resources, and lon
   });
 });
 
+test('summarizeFrontendPerformance preserves missing LCP and handoff timings as missing', () => {
+  const summary = summarizeFrontendPerformance({
+    navigation: {},
+    lcp: null,
+    loginHandoff: { status: 'pending', auth_to_interactive_ms: null },
+  });
+
+  assert.equal(summary.lcp_ms, null);
+  assert.equal(summary.auth_to_interactive_ms, null);
+});
+
 test('summarizeApiPerformance keeps only post-boundary API timings and hides query values', () => {
   const summary = summarizeApiPerformance([
     {

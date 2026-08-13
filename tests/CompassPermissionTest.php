@@ -56,7 +56,11 @@ final class CompassPermissionTest extends TestCase
         self::assertSame([], $payload['alerts']);
         self::assertSame([], $payload['holidays']);
         self::assertSame('not_loaded', $payload['metrics']['data_status']);
-        self::assertSame('compass_contract_only_no_metric_facts', $payload['metrics']['source_policy']);
+        self::assertSame('diagnostic_only_no_operating_authority', $payload['metrics']['source_policy']);
+        self::assertSame('not_started', $payload['operating_loop']['authoritative_state']);
+        self::assertFalse($payload['operating_loop']['readback_verified']);
+        self::assertSame('hotel_operating_cycle_kernel_only', $payload['operating_loop']['source_policy']);
+        self::assertTrue($payload['drilldowns']['diagnostic_only']);
         self::assertSame([
             'todos' => 'not_loaded',
             'weather' => 'not_loaded',
@@ -64,7 +68,7 @@ final class CompassPermissionTest extends TestCase
             'alerts' => 'not_loaded',
             'holidays' => 'not_loaded',
             'weather_source_policy' => 'compass_contract_only_no_weather_facts',
-            'source_policy' => 'compass_contract_only_no_operating_facts',
+            'source_policy' => 'hotel_operating_cycle_kernel_only',
         ], $payload['contract_status']);
     }
 
@@ -110,7 +114,7 @@ final class CompassPermissionTest extends TestCase
         $method = $reflection->getMethod('buildCompassData');
         $method->setAccessible(true);
 
-        return $method->invoke($controller, 0);
+        return $method->invoke($controller, 0, '2026-08-10');
     }
 
     /**

@@ -244,7 +244,12 @@ final class TenantIsolationTest extends TestCase
                 'tenant_write',
                 'tenant write verification'
             ),
-            PriceSuggestion::create(['hotel_id' => 11, 'label' => 'price_write']),
+            PriceSuggestion::create([
+                'hotel_id' => 11,
+                'room_type_id' => 1101,
+                'suggestion_date' => '2026-07-22',
+                'label' => 'price_write',
+            ]),
             DemandForecast::createForecast(11, '2026-07-22', []),
         ];
 

@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\ManualNotificationDispatchLedgerService;
 use app\service\ManualNotificationBusinessPayloadService;
+use app\service\ManualNotificationConditionRuleService;
 use app\service\ManualNotificationScheduleService;
 use app\service\ManualNotificationService;
 use app\service\OperatingDailyReportPayloadService;
@@ -48,12 +49,14 @@ final class ManualNotificationServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        Db::execute('CREATE TABLE IF NOT EXISTS manual_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, notification_type VARCHAR(40) NOT NULL, template_type VARCHAR(40) NOT NULL, source_scope VARCHAR(32) NOT NULL DEFAULT "combined", content_sections VARCHAR(512) NOT NULL DEFAULT "", business_date VARCHAR(10) NOT NULL, business_date_rule VARCHAR(24) NOT NULL DEFAULT "today", title VARCHAR(120) NOT NULL, body TEXT NOT NULL, send_method VARCHAR(32) NOT NULL, trigger_type VARCHAR(32) NOT NULL, interval_minutes INTEGER NULL, planned_send_at DATETIME NULL, active_weekdays VARCHAR(20) NOT NULL DEFAULT "1,2,3,4,5,6,7", effective_from VARCHAR(10) NULL, effective_to VARCHAR(10) NULL, hourly_start_time VARCHAR(8) NOT NULL DEFAULT "09:00:00", hourly_end_time VARCHAR(8) NOT NULL DEFAULT "22:00:00", enabled INTEGER NOT NULL, schedule_status VARCHAR(32) NOT NULL, last_test_status VARCHAR(32) NOT NULL, last_test_message VARCHAR(255) NULL, last_tested_at DATETIME NULL, last_tested_by INTEGER NULL, test_robot_id INTEGER NULL, test_robot_name VARCHAR(120) NULL, created_by INTEGER NOT NULL, create_time DATETIME NOT NULL, update_time DATETIME NOT NULL)');
+        Db::execute('CREATE TABLE IF NOT EXISTS manual_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, notification_type VARCHAR(40) NOT NULL, template_type VARCHAR(40) NOT NULL, source_scope VARCHAR(32) NOT NULL DEFAULT "combined", content_sections VARCHAR(512) NOT NULL DEFAULT "", business_date VARCHAR(10) NOT NULL, business_date_rule VARCHAR(24) NOT NULL DEFAULT "today", title VARCHAR(120) NOT NULL, body TEXT NOT NULL, send_method VARCHAR(32) NOT NULL, trigger_type VARCHAR(32) NOT NULL, interval_minutes INTEGER NULL, planned_send_at DATETIME NULL, active_weekdays VARCHAR(20) NOT NULL DEFAULT "1,2,3,4,5,6,7", effective_from VARCHAR(10) NULL, effective_to VARCHAR(10) NULL, hourly_start_time VARCHAR(8) NOT NULL DEFAULT "09:00:00", hourly_end_time VARCHAR(8) NOT NULL DEFAULT "22:00:00", condition_type VARCHAR(32) NOT NULL DEFAULT "always", condition_threshold REAL NULL, condition_step REAL NULL, enabled INTEGER NOT NULL, schedule_status VARCHAR(32) NOT NULL, last_test_status VARCHAR(32) NOT NULL, last_test_message VARCHAR(255) NULL, last_tested_at DATETIME NULL, last_tested_by INTEGER NULL, test_robot_id INTEGER NULL, test_robot_name VARCHAR(120) NULL, created_by INTEGER NOT NULL, create_time DATETIME NOT NULL, update_time DATETIME NOT NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS competitor_wechat_robot (id INTEGER PRIMARY KEY AUTOINCREMENT, store_id INTEGER NOT NULL, name VARCHAR(120) NOT NULL, webhook TEXT NULL, status INTEGER NOT NULL, owner_user_id INTEGER NULL, notification_scope VARCHAR(40) NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(120) NOT NULL)');
-        Db::execute('CREATE TABLE IF NOT EXISTS manual_notification_schedule_dispatches (id INTEGER PRIMARY KEY AUTOINCREMENT, notification_id INTEGER NOT NULL, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, dispatch_window VARCHAR(32) NOT NULL, delivery_mode VARCHAR(16) NOT NULL, trigger_type VARCHAR(32) NOT NULL, request_kind VARCHAR(32) NOT NULL, business_date VARCHAR(10) NULL, payload_fingerprint VARCHAR(64) NULL, tested_plan_fingerprint VARCHAR(64) NULL, source_snapshot_refs_json TEXT NULL, source_snapshot_fingerprint VARCHAR(64) NULL, operating_target_record_id INTEGER NULL, snapshot_revision_no INTEGER NULL, render_contract_version VARCHAR(48) NULL, payload_snapshot_json TEXT NULL, attempt_count INTEGER NOT NULL, max_attempts INTEGER NOT NULL, next_retry_at DATETIME NULL, last_attempt_at DATETIME NULL, response_reference VARCHAR(120) NULL, robot_id INTEGER NOT NULL, robot_name VARCHAR(120) NOT NULL, status VARCHAR(24) NOT NULL, result_code VARCHAR(64) NOT NULL, result_message VARCHAR(255) NULL, claimed_at DATETIME NOT NULL, dispatched_at DATETIME NULL, create_time DATETIME NOT NULL, update_time DATETIME NOT NULL, UNIQUE(notification_id, dispatch_window, delivery_mode))');
+        Db::execute('CREATE TABLE IF NOT EXISTS manual_notification_schedule_dispatches (id INTEGER PRIMARY KEY AUTOINCREMENT, notification_id INTEGER NOT NULL, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, dispatch_window VARCHAR(32) NOT NULL, delivery_mode VARCHAR(16) NOT NULL, trigger_type VARCHAR(32) NOT NULL, request_kind VARCHAR(32) NOT NULL, business_date VARCHAR(10) NULL, payload_fingerprint VARCHAR(64) NULL, tested_plan_fingerprint VARCHAR(64) NULL, condition_rule_fingerprint VARCHAR(64) NULL, condition_trigger_bucket REAL NULL, condition_observed_value REAL NULL, source_snapshot_refs_json TEXT NULL, source_snapshot_fingerprint VARCHAR(64) NULL, operating_target_record_id INTEGER NULL, snapshot_revision_no INTEGER NULL, render_contract_version VARCHAR(48) NULL, payload_snapshot_json TEXT NULL, attempt_count INTEGER NOT NULL, max_attempts INTEGER NOT NULL, next_retry_at DATETIME NULL, last_attempt_at DATETIME NULL, response_reference VARCHAR(120) NULL, robot_id INTEGER NOT NULL, robot_name VARCHAR(120) NOT NULL, status VARCHAR(24) NOT NULL, result_code VARCHAR(64) NOT NULL, result_message VARCHAR(255) NULL, claimed_at DATETIME NOT NULL, dispatched_at DATETIME NULL, create_time DATETIME NOT NULL, update_time DATETIME NOT NULL, UNIQUE(notification_id, dispatch_window, delivery_mode))');
+        Db::execute('CREATE TABLE IF NOT EXISTS manual_notification_rule_states (id INTEGER PRIMARY KEY AUTOINCREMENT, notification_id INTEGER NOT NULL, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, business_date VARCHAR(10) NOT NULL, condition_type VARCHAR(32) NOT NULL, rule_fingerprint VARCHAR(64) NOT NULL, highest_triggered_bucket REAL NULL, pending_trigger_bucket REAL NULL, pending_dispatch_id INTEGER NULL, pending_claimed_at DATETIME NULL, last_observed_value REAL NULL, last_observed_at DATETIME NULL, last_triggered_at DATETIME NULL, last_dispatch_id INTEGER NULL, create_time DATETIME NOT NULL, update_time DATETIME NOT NULL, UNIQUE(notification_id, business_date, rule_fingerprint))');
         Db::execute('CREATE TABLE IF NOT EXISTS manual_notification_dispatch_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, dispatch_id INTEGER NOT NULL, notification_id INTEGER NOT NULL, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, attempt_no INTEGER NOT NULL, request_kind VARCHAR(32) NOT NULL, status VARCHAR(32) NOT NULL, result_code VARCHAR(64) NOT NULL, result_message VARCHAR(255) NULL, payload_fingerprint VARCHAR(64) NULL, response_reference VARCHAR(120) NULL, attempted_at DATETIME NOT NULL, create_time DATETIME NOT NULL, UNIQUE(dispatch_id, attempt_no))');
         Db::name('manual_notification_dispatch_attempts')->delete(true);
+        Db::name('manual_notification_rule_states')->delete(true);
         Db::name('manual_notification_schedule_dispatches')->delete(true);
         Db::name('manual_notifications')->delete(true);
         Db::name('competitor_wechat_robot')->delete(true);
@@ -125,6 +128,10 @@ final class ManualNotificationServiceTest extends TestCase
         self::assertContains(
             'interval_minutes',
             array_column($metadata['trigger_types'], 'key')
+        );
+        self::assertSame(
+            ['always', 'occupancy_ladder', 'full_house'],
+            array_column($metadata['condition_rules'], 'key')
         );
         self::assertSame(
             ['manual_test', 'daily_fixed_time'],
@@ -566,6 +573,67 @@ final class ManualNotificationServiceTest extends TestCase
             'hourly_end_time' => '22:45',
             'enabled' => true,
         ]));
+    }
+
+    public function testHotel80StrictThreeSourceFormalPlanSupportsThirtyMinuteInterval(): void
+    {
+        Db::name('competitor_wechat_robot')->insert([
+            'id' => 27,
+            'store_id' => 80,
+            'name' => '正式三源群',
+            'webhook' => 'not-read-by-service-test',
+            'status' => 1,
+            'owner_user_id' => null,
+            'notification_scope' => 'admin_shared',
+        ]);
+        $service = new ManualNotificationService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            new OperatingDailyReportPayloadService(
+                null,
+                static fn(): array => [],
+                static fn(): ?array => null
+            )
+        );
+
+        $saved = $service->save(9, 80, 7, '敦煌漠蓝新', $this->validInput([
+            'template_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'notification_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'title' => '酒店80三源经营数据',
+            'body' => '订单来了 PMS、携程、美团同日真实数据汇总。',
+            'source_scope' => 'combined',
+            'content_sections' => [
+                'pms_summary',
+                'pms_efficiency',
+                'ctrip_traffic',
+                'meituan_traffic',
+            ],
+            'send_method' => 'wecom_formal',
+            'trigger_type' => 'interval_minutes',
+            'interval_minutes' => 30,
+            'hourly_start_time' => '00:00',
+            'enabled' => true,
+            'target_robot_id' => 27,
+            'target_robot_name' => '正式三源群',
+        ]));
+
+        self::assertSame('interval_minutes', $saved['record']['trigger_type']);
+        self::assertSame(30, $saved['record']['interval_minutes']);
+        self::assertSame('awaiting_test', $saved['record']['schedule_status']);
+        self::assertNull($saved['record']['schedule_block_reason_code']);
+        self::assertSame(
+            ['pms_summary', 'pms_efficiency', 'ctrip_traffic', 'meituan_traffic'],
+            $saved['record']['content_sections']
+        );
+        self::assertTrue(
+            ManualNotificationService::isStrictThreeSourceIntervalPlan([
+                ...$saved['record'],
+                'hotel_id' => 80,
+            ])
+        );
     }
 
     public function testOperatingDailyCustomPlanRejectsHourlyLoop(): void
@@ -1219,6 +1287,81 @@ final class ManualNotificationServiceTest extends TestCase
         );
     }
 
+    public function testLegacyAlwaysTestRetryRestoresFormalScheduleState(): void
+    {
+        Db::name('competitor_wechat_robot')->insert([
+            'id' => 28,
+            'store_id' => 80,
+            'name' => '旧计划测试群',
+            'webhook' => 'not-read-by-service-test',
+            'status' => 1,
+            'owner_user_id' => null,
+            'notification_scope' => 'admin_shared',
+        ]);
+        $failedService = new ManualNotificationService(
+            static fn(): array => [
+                'delivery_status' => 'failed',
+                'error' => 'temporary_provider_failure',
+            ]
+        );
+        $saved = $failedService->save(
+            9,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $this->validInput([
+                'notification_type' => 'anomaly_alert',
+                'title' => '旧计划测试重试',
+                'body' => "异常编号：legacy-retry\n业务服务正文：等待重试",
+                'send_method' => 'wecom_formal',
+                'trigger_type' => 'daily_fixed_time',
+                'planned_send_at' => '2026-07-26T18:00',
+                'enabled' => true,
+                'target_robot_id' => 28,
+                'target_robot_name' => '旧计划测试群',
+            ])
+        );
+        $failed = $failedService->testPush(
+            9,
+            80,
+            (int)$saved['record']['id'],
+            7,
+            true,
+            28,
+            '旧计划测试群',
+            '敦煌漠蓝新',
+            'legacy-always-test-retry-001'
+        );
+        self::assertSame('failed', $failed['delivery_status']);
+        $dispatchId = (int)$failed['dispatch']['id'];
+        $plan = $failedService->read(
+            9,
+            80,
+            (int)$saved['record']['id']
+        );
+        $legacyFingerprint =
+            ManualNotificationService::legacyPlanFingerprint($plan);
+        Db::name('manual_notification_schedule_dispatches')
+            ->where('id', $dispatchId)
+            ->update(['tested_plan_fingerprint' => $legacyFingerprint]);
+
+        $retried = (new ManualNotificationService(
+            static fn(): array => [
+                'delivery_status' => 'sent',
+                'response_reference' => 'wecom:errcode=0',
+            ]
+        ))->retryDispatch(9, 80, $dispatchId, 7, true);
+
+        self::assertSame('sent', $retried['delivery_status']);
+        $readback = $failedService->read(
+            9,
+            80,
+            (int)$saved['record']['id']
+        );
+        self::assertSame('schedule_enabled', $readback['schedule_status']);
+        self::assertSame('sent', $readback['last_test_status']);
+    }
+
     public function testInactiveRobotDoesNotPreventPausingExistingPlan(): void
     {
         Db::name('competitor_wechat_robot')->insert([
@@ -1704,6 +1847,110 @@ final class ManualNotificationServiceTest extends TestCase
                 ],
             ]
         );
+    }
+
+    public function testBusinessConditionRuleSavesReadsBackAndChangesPlanFingerprint(): void
+    {
+        $service = new ManualNotificationService();
+        $saved = $service->save(
+            9,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $this->validInput([
+                'notification_type' => 'today_revenue_management',
+                'send_method' => 'manual_preview',
+                'condition_type' => 'occupancy_ladder',
+                'condition_threshold' => 20,
+                'condition_step' => 5,
+            ])
+        );
+
+        self::assertTrue($saved['readback_verified']);
+        self::assertSame('occupancy_ladder', $saved['record']['condition_type']);
+        self::assertSame(20.0, $saved['record']['condition_threshold']);
+        self::assertSame(5.0, $saved['record']['condition_step']);
+        self::assertNull($saved['record']['condition_state']);
+        $changed = $saved['record'];
+        $changed['condition_threshold'] = 25;
+        self::assertNotSame(
+            ManualNotificationService::planFingerprint($saved['record']),
+            ManualNotificationService::planFingerprint($changed)
+        );
+        $always = $saved['record'];
+        $always['condition_type'] = ManualNotificationConditionRuleService::ALWAYS;
+        $always['condition_threshold'] = null;
+        $always['condition_step'] = null;
+        $legacy = ManualNotificationService::legacyPlanFingerprint($always);
+        self::assertNotSame(
+            ManualNotificationService::planFingerprint($always),
+            $legacy
+        );
+        self::assertTrue(
+            ManualNotificationService::planFingerprintMatches($legacy, $always)
+        );
+        self::assertFalse(
+            ManualNotificationService::planFingerprintMatches(
+                $legacy,
+                $saved['record']
+            )
+        );
+    }
+
+    public function testBusinessConditionRuleRejectsTemplateWithoutVerifiedFacts(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(
+            'manual_notification_condition_template_unsupported'
+        );
+        (new ManualNotificationService())->save(
+            9,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $this->validInput([
+                'condition_type' => 'full_house',
+            ])
+        );
+    }
+
+    public function testDynamicTodayPreviewUsesResolvedCurrentBusinessDate(): void
+    {
+        $service = new ManualNotificationService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->operatingDailyThreeSourcePayloads()
+        );
+        $preview = $service->preview(
+            80,
+            '敦煌漠蓝新',
+            $this->validInput([
+                'notification_type' =>
+                    ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+                'template_type' =>
+                    ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+                'source_scope' => 'combined',
+                'content_sections' => [
+                    'pms_summary',
+                    'pms_efficiency',
+                    'ctrip_traffic',
+                    'meituan_traffic',
+                ],
+                'business_date' => '2026-07-26',
+                'business_date_rule' => 'today',
+            ]),
+            9
+        );
+
+        self::assertSame(
+            (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
+                ->format('Y-m-d'),
+            $preview['business_date']
+        );
+        self::assertNotSame('2026-07-26', $preview['business_date']);
     }
 
     /** @param array<string, mixed> $overrides @return array<string, mixed> */

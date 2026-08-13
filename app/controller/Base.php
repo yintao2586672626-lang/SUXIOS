@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\controller;
 
+use app\service\PermissionService;
 use think\App;
 use think\exception\ValidateException;
 use think\Validate;
@@ -161,5 +162,29 @@ abstract class Base
         if (!$this->currentUser->isSuperAdmin() && empty($this->currentUser->getPermittedHotelIds())) {
             abort(403, '您未关联酒店，请联系管理员');
         }
+    }
+
+    protected function hotelCapabilityDeniedResponse(
+        int $hotelId,
+        string $capability,
+        string $message = 'hotel capability is required'
+    ): ?Response {
+        if (!$this->currentUser) {
+            return $this->error('not logged in', 401);
+        }
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id is required', 422);
+        }
+
+        $authorization = (new PermissionService())->authorize($this->currentUser, $capability, $hotelId);
+        if (($authorization['allowed'] ?? false) === true) {
+            return null;
+        }
+
+        return $this->error($message, 403, [
+            'reason_code' => (string)($authorization['reason'] ?? 'capability_denied'),
+            'hotel_id' => $hotelId,
+            'required_permission' => $capability,
+        ]);
     }
 }

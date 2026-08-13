@@ -31,6 +31,11 @@ final class OtaDomainSplitTest extends TestCase
 {
     private const LEGACY_ROUTE_SURFACE_COUNT = 110;
     private const LEGACY_ROUTE_SURFACE_SHA256 = '0715b449024fbf30d7df784751aa6e3c54546882d2330f2a1e3b86eae99e101f';
+    private const ADDITIVE_ROUTE_ACTIONS = [
+        'ctripOrderAnalysis',
+        // Concurrent additive action already present in this shared worktree.
+        'enableWindowsOtaDispatcher',
+    ];
 
     private const CONTROLLERS = [
         OtaDomain::CTRIP => [CtripController::class, 'ota.CtripController'],
@@ -114,12 +119,38 @@ final class OtaDomainSplitTest extends TestCase
         ];
 
         foreach ($cases as [$controllerClass, $action, $arguments]) {
+            $windowOpenedAt = time();
             $legacyResponse = (new OnlineData($app))->{$action}(...$arguments);
             $domainResponse = (new $controllerClass($app))->{$action}(...$arguments);
+            $windowClosedAt = time();
+            $legacySnapshot = $this->responseSnapshot($legacyResponse);
+            $domainSnapshot = $this->responseSnapshot($domainResponse);
+
+            if ($action === 'collectionStatus') {
+                self::assertIsArray($legacySnapshot['payload']['data'] ?? null);
+                self::assertIsArray($domainSnapshot['payload']['data'] ?? null);
+                self::assertArrayHasKey('generated_at', $legacySnapshot['payload']['data']);
+                self::assertArrayHasKey('generated_at', $domainSnapshot['payload']['data']);
+
+                $this->assertShanghaiGeneratedAt(
+                    $legacySnapshot['payload']['data']['generated_at'],
+                    $windowOpenedAt,
+                    $windowClosedAt
+                );
+                $this->assertShanghaiGeneratedAt(
+                    $domainSnapshot['payload']['data']['generated_at'],
+                    $windowOpenedAt,
+                    $windowClosedAt
+                );
+                unset(
+                    $legacySnapshot['payload']['data']['generated_at'],
+                    $domainSnapshot['payload']['data']['generated_at']
+                );
+            }
 
             self::assertSame(
-                $this->responseSnapshot($legacyResponse),
-                $this->responseSnapshot($domainResponse),
+                $legacySnapshot,
+                $domainSnapshot,
                 "{$controllerClass}::{$action} changed the legacy response"
             );
         }
@@ -248,6 +279,9 @@ final class OtaDomainSplitTest extends TestCase
         $actions = [];
         foreach (OtaActionCatalog::all() as $domainActions) {
             foreach ($domainActions as $action) {
+                if (in_array($action, self::ADDITIVE_ROUTE_ACTIONS, true)) {
+                    continue;
+                }
                 $actions[$action] = true;
             }
         }
@@ -292,5 +326,28 @@ final class OtaDomainSplitTest extends TestCase
             'status' => $response->getCode(),
             'payload' => $payload,
         ];
+    }
+
+    private function assertShanghaiGeneratedAt(mixed $value, int $windowOpenedAt, int $windowClosedAt): void
+    {
+        self::assertIsString($value);
+        self::assertMatchesRegularExpression('/\A\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\z/D', $value);
+
+        $generatedAt = \DateTimeImmutable::createFromFormat(
+            '!Y-m-d H:i:s',
+            $value,
+            new \DateTimeZone('Asia/Shanghai')
+        );
+        $parseErrors = \DateTimeImmutable::getLastErrors();
+        self::assertTrue(
+            $parseErrors === false
+                || ($parseErrors['warning_count'] === 0 && $parseErrors['error_count'] === 0),
+            'generated_at must be a valid Asia/Shanghai calendar time'
+        );
+        self::assertNotFalse($generatedAt);
+        self::assertSame('Asia/Shanghai', $generatedAt->getTimezone()->getName());
+        self::assertSame($value, $generatedAt->format('Y-m-d H:i:s'));
+        self::assertGreaterThanOrEqual($windowOpenedAt - 1, $generatedAt->getTimestamp());
+        self::assertLessThanOrEqual($windowClosedAt + 1, $generatedAt->getTimestamp());
     }
 }

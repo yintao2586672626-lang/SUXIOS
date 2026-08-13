@@ -8,6 +8,19 @@ use PHPUnit\Framework\TestCase;
 
 final class InvestmentDecisionSupportServiceTest extends TestCase
 {
+    public function testInvestmentOverviewRequiresAndForwardsAnExplicitBusinessDate(): void
+    {
+        $controller = (string)file_get_contents(dirname(__DIR__) . '/app/controller/InvestmentDecision.php');
+        $service = (string)file_get_contents(dirname(__DIR__) . '/app/service/InvestmentDecisionSupportService.php');
+
+        self::assertStringContainsString("param('business_date', '')", $controller);
+        self::assertStringContainsString('business_date 必须是明确的 YYYY-MM-DD 业务日期', $controller);
+        self::assertMatchesRegularExpression(
+            '/BusinessClosureOverviewService\(\)\)->overview\([\s\S]*?\$businessDate\s*\)/',
+            $service
+        );
+    }
+
     public function testInvestmentDecisionBlocksReadyRecordsWithoutClosedOperatingRoi(): void
     {
         $service = new InvestmentDecisionSupportService();
@@ -41,7 +54,7 @@ final class InvestmentDecisionSupportServiceTest extends TestCase
             array_column($overview['business_closure_chain']['stages'], 'key')
         );
         self::assertTrue($overview['business_closure_chain']['stages'][3]['blocking']);
-        self::assertSame('operation_execution.roi_ready + decision_record.readiness_ready', $overview['business_closure_chain']['judgement_gate']);
+        self::assertSame('operating_loop_kernel.completed + operation_execution.roi_ready + decision_record.readiness_ready', $overview['business_closure_chain']['judgement_gate']);
         self::assertSame('has_action', $overview['action_queue']['status']);
         self::assertGreaterThanOrEqual(1, $overview['action_queue']['blocking_count']);
         self::assertGreaterThanOrEqual(2, $overview['action_queue']['item_count']);
@@ -120,10 +133,10 @@ final class InvestmentDecisionSupportServiceTest extends TestCase
         self::assertFalse($overview['summary']['decision_allowed']);
         self::assertSame('blocked_by_p0_ota_gate', $overview['operating_data_gate']['status']);
         self::assertFalse($overview['operating_data_gate']['can_use_for_investment_judgement']);
-        self::assertSame('p0_ota_field_loop.ready + operation_execution.roi_ready', $overview['operating_data_gate']['required_gate']);
+        self::assertSame('p0_ota_field_loop.ready + operating_loop_kernel.completed + operation_execution.roi_ready', $overview['operating_data_gate']['required_gate']);
         self::assertContains('p0_ota_gate_not_ready', array_column($overview['operating_data_gate']['missing_evidence'], 'code'));
         self::assertSame('not_closed', $overview['business_closure_chain']['status']);
-        self::assertSame('p0_ota_field_loop.ready + operation_execution.roi_ready + decision_record.readiness_ready', $overview['business_closure_chain']['judgement_gate']);
+        self::assertSame('p0_ota_field_loop.ready + operating_loop_kernel.completed + operation_execution.roi_ready + decision_record.readiness_ready', $overview['business_closure_chain']['judgement_gate']);
         self::assertSame('blocked_by_p0_ota_gate', $overview['business_closure_chain']['stages'][1]['status']);
         self::assertSame('blocked_by_p0_ota_gate', $overview['business_closure_chain']['stages'][2]['status']);
         self::assertSame('blocked_by_p0_ota_gate', $overview['business_closure_chain']['stages'][3]['status']);
@@ -158,6 +171,27 @@ final class InvestmentDecisionSupportServiceTest extends TestCase
         self::assertContains('competitor_to_pricing_roi_missing', array_column($overview['sections']['competitor_comparison']['missing_evidence'], 'code'));
         self::assertContains('competitor_to_pricing_roi_missing', array_column($overview['action_queue']['items'], 'evidence_code'));
         self::assertSame('has_action', $overview['action_queue']['status']);
+    }
+
+    public function testLocalModuleRoiCannotAuthorizeInvestmentWithoutCompletedKernel(): void
+    {
+        $closure = $this->closureOverview(true);
+        unset($closure['operating_loop']);
+
+        $overview = (new InvestmentDecisionSupportService())->buildOverviewFromEvidence(
+            $closure,
+            ['status' => 'ok', 'records' => [$this->projectReadyRecord('expansion', 10)]],
+            [],
+            [],
+            ['status' => 'ok', 'sample_count' => 2, 'decision_eligible_sample_count' => 2]
+        );
+
+        self::assertFalse($overview['summary']['decision_allowed']);
+        self::assertSame('blocked_by_operating_loop_kernel', $overview['operating_data_gate']['status']);
+        self::assertContains(
+            'operating_loop_kernel_not_completed',
+            array_column($overview['operating_data_gate']['missing_evidence'], 'code')
+        );
     }
 
     public function testLegacyRawCompetitorCountsRemainReferenceOnlyAtInvestmentBoundary(): void
@@ -273,6 +307,12 @@ final class InvestmentDecisionSupportServiceTest extends TestCase
             'summary' => [
                 'operation_execution_total' => 3,
                 'operation_roi_ready' => $roiReady ? 1 : 0,
+            ],
+            'operating_loop' => [
+                'authoritative_state' => 'completed',
+                'readback_verified' => true,
+                'kernel_id' => 'cycle-1',
+                'revision' => 8,
             ],
             'modules' => [
                 [

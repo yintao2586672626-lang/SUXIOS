@@ -173,6 +173,7 @@
                                                             <span class="ml-1 font-semibold text-gray-800 truncate" :title="hotelOwnerText(hotel)">{{ hotelOwnerText(hotel) }}</span>
                                                         </div>
                                                     </div>
+                                                    <component :is="hotelAutomationLifecycleSummary" :hotel="hotel" class="mt-2"></component>
                                                     <div v-if="hotelBlockingIssueRows(hotel).length" data-testid="hotel-blocking-summary" class="mt-2 space-y-1 rounded-lg border border-red-100 bg-red-50/70 p-2 text-xs text-red-700">
                                                         <div class="flex items-center justify-between gap-2 font-semibold">
                                                             <span>阻塞原因</span>
@@ -316,6 +317,7 @@
                                             </div>
                                         </div>
                                     </div>
+                                    <component :is="hotelAutomationLifecycleSummary" :hotel="hotel" class="mt-3"></component>
                                     <div v-if="hotelBlockingIssueRows(hotel).length" data-testid="hotel-blocking-summary" class="mt-3 space-y-1 rounded-lg border border-red-100 bg-red-50/70 p-2 text-xs text-red-700">
                                         <div class="flex items-center justify-between gap-2 font-semibold">
                                             <span>阻塞原因</span>
@@ -388,23 +390,23 @@
                         </div>
                         </template>
 
-                        <div v-if="showHotelDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" @click.self="closeHotelDeleteModal()">
-                            <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-                                <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
+                        <div v-if="showHotelDeleteModal" class="hotel-delete-overlay modal-overlay" @click.self="closeHotelDeleteModal()">
+                            <div role="dialog" aria-modal="true" class="hotel-delete-dialog">
+                                <div class="hotel-delete-dialog__header px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
                                     <div class="flex items-start gap-3">
                                         <div class="w-10 h-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
                                             <i class="fas fa-trash-alt"></i>
                                         </div>
                                         <div>
                                             <h3 class="text-lg font-semibold text-gray-900">永久删除门店</h3>
-                                            <p class="text-sm text-gray-500 mt-1">确认后将永久删除该酒店及关联业务数据、OTA 配置；员工账号保留但解除门店归属。</p>
+                                            <p class="text-sm text-gray-500 mt-1">确认后永久删除该酒店及关联业务数据、OTA 配置；员工账号保留但解除门店归属。</p>
                                         </div>
                                     </div>
                                     <button type="button" @click="closeHotelDeleteModal()" class="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100">
                                         <i class="fas fa-times"></i>
                                     </button>
                                 </div>
-                                <div class="p-6 space-y-4">
+                                <div class="hotel-delete-dialog__body p-6 space-y-4">
                                     <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
                                         <div class="text-xs text-gray-500 mb-2">当前选择</div>
                                         <div class="text-base font-semibold text-gray-900">{{ hotelDeleteTarget?.name || '未命名门店' }}</div>
@@ -426,7 +428,7 @@
                                         </div>
                                         <p class="text-xs text-amber-800 mt-3">上述关联数据将在确认后永久删除；员工账号保留，但会解除该门店归属。</p>
                                     </div>
-                                    <div v-if="hotelDeleteReferences.length" class="rounded-lg border border-red-200 bg-red-50 p-4">
+                                    <div v-if="hotelDeletePreviewReady" class="rounded-lg border border-red-200 bg-red-50 p-4">
                                         <label class="block text-sm font-medium text-red-900 mb-2">请输入完整门店名称“{{ hotelDeleteTarget?.name || '' }}”确认永久删除</label>
                                         <input v-model="hotelDeleteConfirmationName" type="text" autocomplete="off" class="w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100">
                                     </div>
@@ -434,12 +436,12 @@
                                         {{ hotelDeleteError }}
                                     </div>
                                 </div>
-                                <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-col sm:flex-row justify-end gap-3">
+                                <div class="hotel-delete-dialog__actions px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-col justify-end gap-3">
                                     <button type="button" @click="closeHotelDeleteModal()" class="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50">
                                         取消
                                     </button>
-                                    <button type="button" @click="confirmDeleteHotel" :disabled="hotelDeleteLoading || (hotelDeleteReferences.length &gt; 0 &amp;&amp; (!hotelDeleteCanForce || String(hotelDeleteConfirmationName || '').trim() !== String(hotelDeleteTarget?.name || '').trim()))" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60">
-                                        {{ hotelDeleteLoading ? '处理中...' : (hotelDeleteReferences.length ? '确认永久删除' : '查看影响清单') }}
+                                    <button type="button" @click="confirmDeleteHotel" :disabled="hotelDeleteLoading || (hotelDeletePreviewReady &amp;&amp; (!hotelDeleteCanForce || String(hotelDeleteConfirmationName || '').trim() !== String(hotelDeleteTarget?.name || '').trim()))" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60">
+                                        {{ hotelDeleteLoading ? '处理中...' : (hotelDeletePreviewReady ? '确认永久删除' : '查看影响清单') }}
                                     </button>
                                 </div>
                             </div>

@@ -105,6 +105,17 @@ test('OTA analysis page renders complete event fields and honest loading, error 
   assert.match(analysisTemplate, /competitorEventFeed\.sample_count === null/);
   assert.match(analysisTemplate, /data-testid="competitor-event-feed-truncated"/);
   assert.match(analysisTemplate, /仅评估最新返回的/);
+  assert.match(analysisTemplate, /data-testid="competitor-collection-coverage"/);
+  assert.match(analysisTemplate, /竞圈采集覆盖清单/);
+  assert.match(analysisTemplate, /collection_coverage\.target_count/);
+  assert.match(analysisTemplate, /collection_coverage\.availability_verified_target_count/);
+  assert.match(analysisTemplate, /collection_coverage\.price_comparable_target_count/);
+  assert.match(analysisTemplate, /data-testid="competitor-collection-target"/);
+  assert.match(analysisTemplate, /target\.evidence_status_label/);
+  assert.match(analysisTemplate, /target\.needs_identity_binding/);
+  assert.match(analysisTemplate, /公开名称不能自动证明身份/);
+  assert.match(analysisTemplate, /collection_coverage\.scope_notice/);
+  assert.doesNotMatch(analysisTemplate, /collection_coverage\.score/);
   assert.match(analysisTemplate, /event\.collected_at \|\| '未知'/);
   assert.match(analysisTemplate, /event\.price === null \|\| event\.price === undefined \? \(\['sold_out', 'unavailable'\]\.includes\(event\.availability\) \? '无公开报价' : '价格缺失'\)/);
   assert.match(analysisTemplate, /event\.competitor_hotel_name \|\| '竞品名称未回填'/);

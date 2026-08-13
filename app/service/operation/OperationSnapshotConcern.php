@@ -13,6 +13,8 @@ use Throwable;
 
 trait OperationSnapshotConcern
 {
+    use OperationBaselineConcern;
+
     private function buildSummary(array $hotelIds, ?int $hotelId, string $date): array
     {
         return $this->buildSummaryFromRows(
@@ -24,8 +26,24 @@ trait OperationSnapshotConcern
         );
     }
 
-    private function buildSummaryFromRows(array $daily, array $online, array $hotelIds, ?int $hotelId, string $date): array
+    private function buildSummaryFromTenantScopedRows(array $daily, array $online, array $hotelIds, ?int $hotelId, string $date): array
     {
+        $trustedDaily = [];
+        $rejectedDailyReportReasons = [];
+        foreach ($daily as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            if ($this->dailyReportValidationStatusIsTrusted($row)) {
+                $trustedDaily[] = $row;
+                continue;
+            }
+            $reason = $this->dailyReportValidationRejectionReason($row);
+            $rejectedDailyReportReasons[$reason] = ($rejectedDailyReportReasons[$reason] ?? 0) + 1;
+        }
+        $rejectedDailyReportCount = array_sum($rejectedDailyReportReasons);
+        $daily = $trustedDaily;
+
         $base = [
             'hotel_id' => $hotelId ?: ($hotelIds[0] ?? null),
             'date' => $date,
@@ -50,10 +68,22 @@ trait OperationSnapshotConcern
             ],
             'optional_data_gaps' => [],
             'evidence_refs' => [],
+            'rejected_daily_report_count' => $rejectedDailyReportCount,
+            'rejected_daily_report_reasons' => $rejectedDailyReportReasons,
         ];
 
         $canonicalOnlineFacts = $this->canonicalOnlineOperatingFacts($online);
         if (empty($daily) && empty($canonicalOnlineFacts)) {
+            if ($rejectedDailyReportCount > 0) {
+                $base['data_status'] = 'partial';
+                $base['source_status'] = 'partial';
+                $base['data_gaps'][] = [
+                    'code' => 'operation_daily_report_validation_untrusted',
+                    'message' => $rejectedDailyReportCount
+                        . ' daily report record(s) were rejected because they were not formally submitted '
+                        . 'or exact verified legacy evidence',
+                ];
+            }
             return $base;
         }
 
@@ -61,6 +91,7 @@ trait OperationSnapshotConcern
         $metricPresent = ['revenue' => false, 'orders' => false, 'room_nights' => false];
         $metricScopes = ['revenue' => [], 'orders' => [], 'room_nights' => []];
         $dailyRevenueCoverage = [];
+        $dailyOrderCoverage = [];
         $dailyRoomNightCoverage = [];
         $roomCount = 0.0;
         $roomCountPresent = false;
@@ -89,6 +120,7 @@ trait OperationSnapshotConcern
                 $totals['orders'] += $dailyOrders;
                 $metricPresent['orders'] = true;
                 $metricScopes['orders']['whole_hotel_daily_report'] = true;
+                $this->markDailyMetricCoverage($dailyOrderCoverage, $row);
                 $dailyMetricKeys[] = 'orders';
             }
             $rowRoomCount = $this->extractSalableRoomCount($row, $reportData);
@@ -129,7 +161,7 @@ trait OperationSnapshotConcern
                     $onlineOrders = $onlineOrders === null ? $rawOrders : max($onlineOrders, $rawOrders);
                 }
             }
-            if ($onlineOrders !== null) {
+            if (!$this->hasDailyMetricForOnlineRow($dailyOrderCoverage, $row) && $onlineOrders !== null) {
                 $totals['orders'] += $onlineOrders;
                 $metricPresent['orders'] = true;
                 $metricScopes['orders']['ota_channel'] = true;
@@ -182,16 +214,27 @@ trait OperationSnapshotConcern
             ];
         }
 
+        $revenueScopes = array_keys($metricScopes['revenue']);
+        $roomNightScopes = array_keys($metricScopes['room_nights']);
+        $derivedRevenueRoomScopeMatches = count($revenueScopes) === 1
+            && count($roomNightScopes) === 1
+            && $revenueScopes[0] === $roomNightScopes[0];
+        $wholeHotelRevenue = $revenueScopes === ['whole_hotel_daily_report'];
+        $wholeHotelRoomNights = $roomNightScopes === ['whole_hotel_daily_report'];
+
         $base['revenue'] = $metricPresent['revenue'] ? round($totals['revenue'], 2) : null;
         $base['orders'] = $metricPresent['orders'] ? (int)round($totals['orders']) : null;
         $base['room_nights'] = $metricPresent['room_nights'] ? round($totals['room_nights'], 2) : null;
-        $base['adr'] = $metricPresent['revenue'] && $metricPresent['room_nights'] && $base['room_nights'] > 0
+        $base['adr'] = $derivedRevenueRoomScopeMatches
+            && $metricPresent['revenue']
+            && $metricPresent['room_nights']
+            && $base['room_nights'] > 0
             ? round((float)$base['revenue'] / (float)$base['room_nights'], 2)
             : null;
-        if ($base['occ'] === null && $roomCountPresent && $metricPresent['room_nights']) {
+        if ($base['occ'] === null && $roomCountPresent && $wholeHotelRoomNights && $metricPresent['room_nights']) {
             $base['occ'] = round(((float)$base['room_nights'] / $roomCount) * 100, 2);
         }
-        $base['revpar'] = $roomCountPresent && $metricPresent['revenue']
+        $base['revpar'] = $roomCountPresent && $wholeHotelRevenue && $metricPresent['revenue']
             ? round((float)$base['revenue'] / $roomCount, 2)
             : null;
 
@@ -207,6 +250,26 @@ trait OperationSnapshotConcern
         }
         if ($sourceMissing) {
             $dataGaps[] = ['code' => 'operation_source_missing', 'message' => '存在未标明 OTA 渠道来源的经营记录'];
+        }
+        if ($rejectedDailyReportCount > 0) {
+            $dataGaps[] = [
+                'code' => 'operation_daily_report_validation_untrusted',
+                'message' => $rejectedDailyReportCount
+                    . ' daily report record(s) were rejected because they were not formally submitted '
+                    . 'or exact verified legacy evidence',
+            ];
+        }
+        $observedMetricScopes = [];
+        foreach ($metricScopes as $scopes) {
+            foreach (array_keys($scopes) as $scope) {
+                $observedMetricScopes[$scope] = true;
+            }
+        }
+        if (count($observedMetricScopes) > 1) {
+            $dataGaps[] = [
+                'code' => 'operation_metric_scope_mixed',
+                'message' => 'PMS whole-hotel metrics and OTA channel metrics cannot be presented as one complete operating summary',
+            ];
         }
         if ($base['adr'] === null) {
             $base['optional_data_gaps'][] = ['code' => 'operation_adr_not_calculable', 'message' => '收入或间夜缺失，或间夜为0，ADR不可计算'];
@@ -224,7 +287,7 @@ trait OperationSnapshotConcern
             : (isset($sourceKinds['daily_reports'])
                 ? 'whole_hotel_daily_report'
                 : (isset($sourceKinds['ota_channel']) ? 'ota_channel' : 'unknown'));
-        $base['source_status'] = $sourceMissing ? 'partial' : 'clear';
+        $base['source_status'] = ($sourceMissing || $rejectedDailyReportCount > 0) ? 'partial' : 'clear';
         $base['data_gaps'] = $dataGaps;
         $base['data_status'] = $dataGaps === [] ? self::DATA_OK : 'partial';
 
@@ -474,7 +537,7 @@ trait OperationSnapshotConcern
     {
         $selected = [];
         foreach ($rows as $row) {
-            if (!$this->isTrustedSelfOtaFactRow($row)) {
+            if (!$this->isTrustedSelfOtaFactRow($row, true)) {
                 continue;
             }
             $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
@@ -504,17 +567,21 @@ trait OperationSnapshotConcern
                 continue;
             }
             $hotelId = (string)($row['system_hotel_id'] ?? $row['hotel_id'] ?? '');
-            $source = strtolower(trim((string)($row['source'] ?? ''))) ?: 'unknown';
-            $platform = $this->normalizeOtaChannel((string)($row['platform'] ?? ''));
-            $key = $hotelId . '|' . $source . '|' . $platform . '|' . $date;
+            $channel = $this->onlineRowChannelIdentity($row);
+            if ($channel === '') {
+                continue;
+            }
+            $key = $hotelId . '|online_flow|' . $channel . '|' . $date;
             $current = $selected[$key] ?? null;
             $rowRank = $this->onlineFlowRowRank($row);
             $currentRank = is_array($current) ? $this->onlineFlowRowRank($current) : -1;
+            $rowTime = $this->onlineRowSortTimestamp($row);
+            $currentTime = is_array($current) ? $this->onlineRowSortTimestamp($current) : 0;
             if ($current === null
                 || $rowRank > $currentRank
-                || ($rowRank === $currentRank && $this->onlineRowTimestamp($row) > $this->onlineRowTimestamp($current))
+                || ($rowRank === $currentRank && $rowTime > $currentTime)
                 || ($rowRank === $currentRank
-                    && $this->onlineRowTimestamp($row) === $this->onlineRowTimestamp($current)
+                    && $rowTime === $currentTime
                     && (int)($row['id'] ?? 0) > (int)($current['id'] ?? 0))) {
                 $selected[$key] = $row;
             }
@@ -584,43 +651,105 @@ trait OperationSnapshotConcern
     /** @param array<string, mixed> $row */
     private function trustedOnlineCollectionTimestamp(array $row): int
     {
+        $businessTime = $this->onlineRowBusinessTime($row);
+        if ($businessTime['status'] === 'invalid') {
+            return 0;
+        }
+        if ($businessTime['status'] === 'valid') {
+            return $businessTime['timestamp'];
+        }
+
+        $collectionTime = $this->onlineRowTrustedCollectionTime($row);
+        return $collectionTime['status'] === 'valid' ? $collectionTime['timestamp'] : 0;
+    }
+
+    /** @param array<string, mixed> $row @return array{status:string,timestamp:int,sort_timestamp?:int} */
+    private function onlineRowTrustedCollectionTime(array $row): array
+    {
         $rawValue = $row['raw_data'] ?? [];
         $raw = is_array($rawValue) ? $rawValue : $this->decodeJson((string)$rawValue);
         $meta = is_array($raw['meta'] ?? null) ? $raw['meta'] : [];
         $capture = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
-        $timestamps = [];
-        foreach ([
-            $row['collected_at'] ?? null,
-            $row['snapshot_time'] ?? null,
+        return $this->onlineRowTimeIdentity([
             $row['received_at'] ?? null,
+            $raw['fetched_at'] ?? null,
+            $raw['fetch_time'] ?? null,
+            $meta['fetched_at'] ?? null,
+            $capture['fetched_at'] ?? null,
+        ]);
+    }
+
+    /** @param array<string, mixed> $row @return array{status:string,timestamp:int,sort_timestamp?:int} */
+    private function onlineRowBusinessTime(array $row): array
+    {
+        $rawValue = $row['raw_data'] ?? [];
+        $raw = is_array($rawValue) ? $rawValue : $this->decodeJson((string)$rawValue);
+        $meta = is_array($raw['meta'] ?? null) ? $raw['meta'] : [];
+        $capture = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
+        return $this->onlineRowTimeIdentity([
+            $row['snapshot_time'] ?? null,
+            $row['collected_at'] ?? null,
+            $row['captured_at'] ?? null,
             $raw['collected_at'] ?? null,
             $raw['collectedAt'] ?? null,
             $raw['captured_at'] ?? null,
             $raw['capturedAt'] ?? null,
-            $raw['fetched_at'] ?? null,
-            $raw['fetch_time'] ?? null,
             $meta['collected_at'] ?? null,
             $meta['captured_at'] ?? null,
             $capture['collected_at'] ?? null,
             $capture['captured_at'] ?? null,
-        ] as $value) {
-            if (!is_scalar($value)) {
+        ]);
+    }
+
+    /** @param array<int, mixed> $values @return array{status:string,timestamp:int,sort_timestamp?:int} */
+    private function onlineRowTimeIdentity(array $values): array
+    {
+        $timestamps = [];
+        $explicit = false;
+        foreach ($values as $value) {
+            if ($value === null || (is_scalar($value) && trim((string)$value) === '')) {
                 continue;
+            }
+            $explicit = true;
+            if (!is_scalar($value)) {
+                return ['status' => 'invalid', 'timestamp' => 0];
             }
             $text = trim((string)$value);
             if (preg_match(
                 '/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/D',
                 $text
             ) !== 1) {
-                continue;
+                return ['status' => 'invalid', 'timestamp' => 0];
             }
-            $timestamp = strtotime($text);
-            if ($timestamp !== false && $timestamp > 0) {
-                $timestamps[] = $timestamp;
+            try {
+                $hasExplicitOffset = preg_match('/(?:Z|[+-]\d{2}:?\d{2})$/iD', $text) === 1;
+                $dateTime = $hasExplicitOffset
+                    ? new DateTimeImmutable($text)
+                    : new DateTimeImmutable($text, new DateTimeZone('Asia/Shanghai'));
+            } catch (\Throwable) {
+                return ['status' => 'invalid', 'timestamp' => 0];
             }
+            $errors = DateTimeImmutable::getLastErrors();
+            if (($errors !== false && ((int)$errors['warning_count'] > 0 || (int)$errors['error_count'] > 0))
+                || (int)$dateTime->format('U') <= 0
+            ) {
+                return ['status' => 'invalid', 'timestamp' => 0];
+            }
+            $timestamp = (int)$dateTime->format('U');
+            $sortTimestamp = ($timestamp * 1_000_000) + (int)$dateTime->format('u');
+            $timestamps[(string)$sortTimestamp] = [
+                'timestamp' => $timestamp,
+                'sort_timestamp' => $sortTimestamp,
+            ];
+        }
+        if (!$explicit) {
+            return ['status' => 'missing', 'timestamp' => 0];
+        }
+        if (count($timestamps) !== 1) {
+            return ['status' => 'invalid', 'timestamp' => 0];
         }
 
-        return $timestamps === [] ? 0 : min($timestamps);
+        return ['status' => 'valid'] + reset($timestamps);
     }
 
     /** @param array<string, mixed> $row */
@@ -653,9 +782,9 @@ trait OperationSnapshotConcern
     }
 
     /** @param array<string, mixed> $row */
-    private function isTrustedSelfOtaFactRow(array $row): bool
+    private function isTrustedSelfOtaFactRow(array $row, bool $allowHistoricalFlowPersistenceFallback = false): bool
     {
-        if (!$this->hasTrustedOtaEvidenceEnvelope($row)) {
+        if (!$this->hasTrustedOtaEvidenceEnvelope($row, $allowHistoricalFlowPersistenceFallback)) {
             return false;
         }
 
@@ -671,24 +800,17 @@ trait OperationSnapshotConcern
             }
         }
 
-        $source = $this->normalizeOtaChannel((string)($row['source'] ?? ''));
-        $platform = $this->normalizeOtaChannel((string)($row['platform'] ?? ''));
-        $knownChannels = ['ctrip', 'meituan', 'qunar'];
-        if (($source !== '' && !in_array($source, $knownChannels, true))
-            || ($platform !== '' && !in_array($platform, $knownChannels, true))
-            || ($source === '' && $platform === '')
-            || ($source !== '' && $platform !== '' && $source !== $platform)
-        ) {
+        if ($this->onlineRowChannelIdentity($row) === '') {
             return false;
         }
 
         $dataDate = trim((string)($row['data_date'] ?? ''));
-        $parsedDate = DateTimeImmutable::createFromFormat('!Y-m-d', $dataDate);
+        $parsedDate = DateTimeImmutable::createFromFormat('!Y-m-d', $dataDate, new DateTimeZone('Asia/Shanghai'));
         if ($parsedDate === false || $parsedDate->format('Y-m-d') !== $dataDate) {
             return false;
         }
 
-        $today = date('Y-m-d');
+        $today = $this->operationShanghaiToday();
         if ($dataDate > $today) {
             return false;
         }
@@ -717,26 +839,57 @@ trait OperationSnapshotConcern
     }
 
     /** @param array<string, mixed> $row */
-    private function hasTrustedOtaEvidenceEnvelope(array $row): bool
+    private function hasTrustedOtaEvidenceEnvelope(
+        array $row,
+        bool $allowHistoricalFlowPersistenceFallback = false
+    ): bool
     {
+        $hasTrustedTime = $this->hasTrustedOnlineCollectionTimestamp($row)
+            || ($allowHistoricalFlowPersistenceFallback
+                && $this->hasHistoricalFlowPersistenceTimeFallback($row));
         return $this->hasTrustedOnlineValidationStatus($row)
             && $this->hasNoBlockingOnlineRowState($row)
             && (int)($row['system_hotel_id'] ?? 0) > 0
             && (int)($row['data_source_id'] ?? 0) > 0
             && (int)($row['readback_verified'] ?? 0) === 1
             && $this->hasTrustedOnlineIngestionMethod($row)
-            && $this->hasTrustedOnlineCollectionTimestamp($row);
+            && $hasTrustedTime;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function hasHistoricalFlowPersistenceTimeFallback(array $row): bool
+    {
+        $endpointId = $this->onlineEndpointIdFromRow($row);
+        return $this->onlineRowBusinessTime($row)['status'] === 'missing'
+            && $this->onlineRowTrustedCollectionTime($row)['status'] === 'missing'
+            && trim((string)($row['data_date'] ?? '')) < $this->operationShanghaiToday()
+            && strtolower(trim((string)($row['data_period'] ?? ''))) === 'historical_daily'
+            && (int)($row['is_final'] ?? 0) === 1
+            && in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)
+            && $this->hasOnlineFlowEvidence($row)
+            && $this->onlineRowPersistenceTimestamp($row) > 0;
     }
 
     private function normalizeOtaChannel(string $value): string
     {
-        $value = strtolower(trim($value));
-        return match ($value) {
-            '携程', 'trip', 'trip.com', 'ebooking' => 'ctrip',
-            '美团', 'meituan hotel' => 'meituan',
-            '去哪儿', 'qunar.com' => 'qunar',
-            default => $value,
-        };
+        return OtaStandardEtlService::canonicalPlatformKey($value);
+    }
+
+    /** @param array<string, mixed> $row */
+    private function onlineRowChannelIdentity(array $row): string
+    {
+        $source = $this->normalizeOtaChannel((string)($row['source'] ?? ''));
+        $platform = $this->normalizeOtaChannel((string)($row['platform'] ?? ''));
+        $knownChannels = ['ctrip', 'meituan', 'qunar'];
+        if (($source !== '' && !in_array($source, $knownChannels, true))
+            || ($platform !== '' && !in_array($platform, $knownChannels, true))
+            || ($source === '' && $platform === '')
+            || ($source !== '' && $platform !== '' && $source !== $platform)
+        ) {
+            return '';
+        }
+
+        return $platform !== '' ? $platform : $source;
     }
 
     /** @param array<string, mixed> $summary */
@@ -903,15 +1056,55 @@ trait OperationSnapshotConcern
     /** @param array<string, mixed> $row */
     private function onlineRowTimestamp(array $row): int
     {
+        $businessTime = $this->onlineRowBusinessTime($row);
+        if ($businessTime['status'] === 'valid') {
+            return $businessTime['timestamp'];
+        }
+        if ($businessTime['status'] === 'invalid') {
+            return 0;
+        }
+        $collectionTime = $this->onlineRowTrustedCollectionTime($row);
+        if ($collectionTime['status'] === 'valid') {
+            return $collectionTime['timestamp'];
+        }
+        if ($collectionTime['status'] === 'invalid') {
+            return 0;
+        }
+        return $this->onlineRowPersistenceTimestamp($row);
+    }
+
+    /** @param array<string, mixed> $row */
+    private function onlineRowSortTimestamp(array $row): int
+    {
+        foreach ([$this->onlineRowBusinessTime($row), $this->onlineRowTrustedCollectionTime($row)] as $time) {
+            if ($time['status'] === 'valid') {
+                return (int)($time['sort_timestamp'] ?? ((int)$time['timestamp'] * 1_000_000));
+            }
+            if ($time['status'] === 'invalid') {
+                return 0;
+            }
+        }
         foreach (['update_time', 'create_time'] as $field) {
             $value = trim((string)($row[$field] ?? ''));
             if ($value === '') {
                 continue;
             }
-            $timestamp = strtotime($value);
-            if ($timestamp !== false) {
-                return $timestamp;
+            $time = $this->onlineRowTimeIdentity([$value]);
+            return $time['status'] === 'valid' ? (int)($time['sort_timestamp'] ?? 0) : 0;
+        }
+        return 0;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function onlineRowPersistenceTimestamp(array $row): int
+    {
+        foreach (['update_time', 'create_time'] as $field) {
+            $value = trim((string)($row[$field] ?? ''));
+            if ($value === '') {
+                continue;
             }
+            $time = $this->onlineRowTimeIdentity([$value]);
+            return $time['status'] === 'valid' ? $time['timestamp'] : 0;
         }
         return 0;
     }
@@ -2094,149 +2287,6 @@ trait OperationSnapshotConcern
             'order_rate' => $visitors > 0 ? $orders / $visitors * 100 : 0,
             'data_status' => $exposure > 0 && ($visitors > 0 || $views > 0) ? self::DATA_OK : 'partial',
         ];
-    }
-
-    private function baseline(array $hotelIds, int $days, ?string $endDate = null): array
-    {
-        $end = $endDate ? date('Y-m-d', strtotime($endDate . ' -1 day')) : date('Y-m-d');
-        $start = date('Y-m-d', strtotime($end . ' -' . ($days - 1) . ' days'));
-        $daily = $this->dailyReportRows($hotelIds, $start, $end);
-        $onlineRows = $this->onlineRows($hotelIds, $start, $end);
-        $dailyByDate = [];
-        $onlineByDate = [];
-        $dates = [];
-        foreach ($daily as $row) {
-            $date = substr(trim((string)($row['report_date'] ?? '')), 0, 10);
-            if ($date !== '') {
-                $dailyByDate[$date][] = $row;
-                $dates[$date] = true;
-            }
-        }
-        foreach ($onlineRows as $row) {
-            $date = substr(trim((string)($row['data_date'] ?? '')), 0, 10);
-            if ($date !== '') {
-                $onlineByDate[$date][] = $row;
-                $dates[$date] = true;
-            }
-        }
-
-        $metricValues = ['orders' => [], 'revenue' => [], 'room_nights' => []];
-        $sourceScopes = [];
-        $incompleteDates = [];
-        $actualDates = [];
-        foreach (array_keys($dates) as $date) {
-            $summary = $this->buildSummaryFromRows(
-                $dailyByDate[$date] ?? [],
-                $onlineByDate[$date] ?? [],
-                $hotelIds,
-                count($hotelIds) === 1 ? (int)$hotelIds[0] : null,
-                $date
-            );
-            if (($summary['evidence_refs'] ?? []) === []) {
-                continue;
-            }
-            $actualDates[$date] = true;
-            $sourceScopes[(string)($summary['source_scope'] ?? 'unknown')] = true;
-            if (($summary['data_status'] ?? '') !== self::DATA_OK) {
-                $incompleteDates[] = $date;
-            }
-            foreach (array_keys($metricValues) as $metric) {
-                if ($summary[$metric] !== null && is_numeric($summary[$metric])) {
-                    $metricValues[$metric][] = (float)$summary[$metric];
-                }
-            }
-        }
-
-        $conversionValues = [];
-        $flowByDate = [];
-        foreach ($this->latestOnlineFlowRows($onlineRows) as $row) {
-            $day = (string)($row['data_date'] ?? '');
-            if ($day === '') {
-                continue;
-            }
-            $metrics = $this->onlineFlowMetrics($row);
-            $flowByDate[$day]['visitors'] = ($flowByDate[$day]['visitors'] ?? 0) + $metrics['visitors'];
-            $flowByDate[$day]['orders'] = ($flowByDate[$day]['orders'] ?? 0) + $metrics['orders'];
-        }
-        foreach ($flowByDate as $metric) {
-            $visitors = (float)($metric['visitors'] ?? 0);
-            if ($visitors > 0) {
-                $conversionValues[] = (float)($metric['orders'] ?? 0) / $visitors * 100;
-            }
-        }
-
-        $count = count($actualDates);
-        $dataGaps = [];
-        foreach ([
-            'orders' => ['baseline_orders_incomplete', '订单'],
-            'revenue' => ['baseline_revenue_incomplete', '收入'],
-            'room_nights' => ['baseline_room_nights_incomplete', '间夜'],
-        ] as $metric => [$code, $label]) {
-            if (count($metricValues[$metric]) < $count) {
-                $dataGaps[] = [
-                    'code' => $code,
-                    'message' => $label . '仅覆盖 ' . count($metricValues[$metric]) . '/' . $count . ' 个有效日期',
-                ];
-            }
-        }
-        if ($incompleteDates !== []) {
-            $dataGaps[] = [
-                'code' => 'baseline_daily_summary_partial',
-                'message' => count($incompleteDates) . ' 个日期存在必需字段或来源缺口',
-            ];
-        }
-
-        return [
-            'days' => $days,
-            'actual_days' => $count,
-            'avg_orders' => $metricValues['orders'] !== [] ? round(array_sum($metricValues['orders']) / count($metricValues['orders']), 2) : null,
-            'avg_revenue' => $metricValues['revenue'] !== [] ? round(array_sum($metricValues['revenue']) / count($metricValues['revenue']), 2) : null,
-            'avg_room_nights' => $metricValues['room_nights'] !== [] ? round(array_sum($metricValues['room_nights']) / count($metricValues['room_nights']), 2) : null,
-            'avg_conversion' => $conversionValues !== [] ? round(array_sum($conversionValues) / count($conversionValues), 2) : null,
-            'metric_sample_days' => [
-                'orders' => count($metricValues['orders']),
-                'revenue' => count($metricValues['revenue']),
-                'room_nights' => count($metricValues['room_nights']),
-                'conversion' => count($conversionValues),
-            ],
-            'source_scopes' => array_keys($sourceScopes),
-            'data_gaps' => $dataGaps,
-            'data_status' => $count === 0 ? 'missing' : ($dataGaps === [] ? self::DATA_OK : 'partial'),
-        ];
-    }
-
-    private function dailyReportRows(array $hotelIds, string $startDate, string $endDate): array
-    {
-        if (!$this->tableExists('daily_reports') || empty($hotelIds)) {
-            return [];
-        }
-
-        try {
-            return Db::name('daily_reports')
-                ->whereIn('hotel_id', $hotelIds)
-                ->whereBetween('report_date', [$startDate, $endDate])
-                ->select()
-                ->toArray();
-        } catch (Throwable $e) {
-            return [];
-        }
-    }
-
-    private function onlineRows(array $hotelIds, string $startDate, string $endDate): array
-    {
-        if (!$this->tableExists('online_daily_data')) {
-            return [];
-        }
-
-        try {
-            $query = Db::name('online_daily_data')->whereBetween('data_date', [$startDate, $endDate]);
-            if (!empty($hotelIds)) {
-                $query->whereIn('system_hotel_id', array_map('intval', $hotelIds));
-            }
-            return $query->select()->toArray();
-        } catch (Throwable $e) {
-            return [];
-        }
     }
 
 }

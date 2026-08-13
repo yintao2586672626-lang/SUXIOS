@@ -24,7 +24,20 @@ class Simulation extends Base
     {
         try {
             $this->ensureLogin();
-            $data = $this->service->calculateAndSave($this->request->post(), (int)($this->currentUser->id ?? 0));
+            $payload = $this->request->post();
+            $rawInput = is_array($payload['input'] ?? null) ? $payload['input'] : $payload;
+            [$hotelIds, $hotelId] = $this->resolveExecutionHotelScope((int)(
+                $rawInput['hotel_id'] ?? $rawInput['system_hotel_id'] ?? $payload['hotel_id'] ?? 0
+            ));
+            $payload['input'] = array_merge($rawInput, [
+                'hotel_id' => $hotelId,
+                'system_hotel_id' => $hotelId,
+            ]);
+            $data = $this->service->calculateAndSave(
+                $payload,
+                (int)($this->currentUser->id ?? 0),
+                $hotelIds
+            );
             return $this->success($data, '量化模拟已保存');
         } catch (Throwable $e) {
             return $this->error('量化模拟失败：' . $e->getMessage(), 400);
@@ -84,15 +97,23 @@ class Simulation extends Base
             }
 
             $data = $this->requestData();
-            [$hotelIds, $hotelId] = $this->resolveExecutionHotelScope((int)($data['hotel_id'] ?? $this->request->param('hotel_id', 0)));
-            $existingId = $this->existingExecutionIntentId('quant_simulation', $id, $hotelIds);
-            if ($existingId > 0) {
-                return $this->error('quant simulation record already linked to execution intent', 409);
-            }
-
+            $requestedHotelId = (int)($data['hotel_id'] ?? $this->request->param('hotel_id', 0));
             $record = $this->service->detail($id, (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
-            $input = (new SimulationExecutionReadinessService())->buildQuantExecutionIntentInput($record, [
-                'hotel_id' => $hotelId,
+            $readinessService = new SimulationExecutionReadinessService();
+            $sourceHotelId = $readinessService->quantExecutionHotelId($record);
+            if ($requestedHotelId > 0 && $requestedHotelId !== $sourceHotelId) {
+                return $this->error('quant simulation hotel scope mismatch', 409);
+            }
+            [$hotelIds, $hotelId] = $this->resolveExecutionHotelScope($sourceHotelId);
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'operation.execute',
+                'operation.execute permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
+            $input = $readinessService->buildQuantExecutionIntentInput($record, [
+                'hotel_id' => $sourceHotelId,
                 'date_start' => (string)($data['date_start'] ?? $this->request->param('date_start', '')),
                 'date_end' => (string)($data['date_end'] ?? $this->request->param('date_end', '')),
             ]);
@@ -154,18 +175,4 @@ class Simulation extends Base
         throw new \InvalidArgumentException('hotel_id is required for quant simulation execution intent');
     }
 
-    private function existingExecutionIntentId(string $sourceModule, int $sourceRecordId, array $hotelIds): int
-    {
-        try {
-            return (int)(Db::name('operation_execution_intents')
-                ->where('source_module', $sourceModule)
-                ->where('source_record_id', $sourceRecordId)
-                ->whereIn('hotel_id', $hotelIds)
-                ->whereNull('deleted_at')
-                ->order('id', 'desc')
-                ->value('id') ?: 0);
-        } catch (Throwable $e) {
-            return 0;
-        }
-    }
 }

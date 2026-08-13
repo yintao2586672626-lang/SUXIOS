@@ -551,6 +551,13 @@ final class HotelCollectionPlanService
         $failureReasons = $this->uniqueIssues($failureReasons);
         $collectionAllowed = ($plan['execution_authorized'] ?? false) === true
             && $failureReasons === [];
+        $otaResumeScopes = array_values(array_unique(array_filter(array_map(
+            static fn(string $platform): string => trim((string)($sources[$platform]['resume_scope'] ?? '')),
+            ['ctrip', 'meituan']
+        ))));
+        $resumeScope = count($otaResumeScopes) === 1
+            ? $otaResumeScopes[0]
+            : 'same_planned_execution_binding';
         $scopeHash = hash('sha256', $this->encode([
             'tenant_id' => $tenantId,
             'system_hotel_id' => $hotelId,
@@ -585,7 +592,7 @@ final class HotelCollectionPlanService
             'scope_hash' => $scopeHash,
             'failure_reasons' => $failureReasons,
             'automatic_device_substitution' => false,
-            'resume_scope' => 'same_account_same_device_same_hotel_same_platform',
+            'resume_scope' => $resumeScope,
             'sensitive_values_exposed' => false,
         ];
     }
@@ -673,12 +680,14 @@ final class HotelCollectionPlanService
                 'ingestion_method' => strtolower(trim((string)($binding['ingestion_method'] ?? ''))),
                 'platform_hotel_id' => trim((string)($binding['platform_hotel_id'] ?? '')) ?: null,
                 'profile_binding_digest' => trim((string)($profile['profile_binding_digest'] ?? '')) ?: null,
+                'execution_binding_kind' => trim((string)($device['binding_kind'] ?? '')) ?: null,
                 'execution_binding_digest' => trim((string)($device['execution_binding_digest'] ?? '')) ?: null,
                 'device_binding_digest' => trim((string)($device['device_binding_digest'] ?? '')) ?: null,
                 'binding_status' => (string)($binding['status'] ?? 'blocked'),
                 'failure_codes' => $this->bindingCodes($binding),
                 'automatic_device_substitution' => false,
-                'resume_scope' => 'same_account_same_device_same_hotel_same_platform',
+                'resume_scope' => trim((string)($device['resume_scope'] ?? ''))
+                    ?: 'same_account_same_device_same_hotel_same_platform',
             ];
         }
         $pms = is_array($bindings['pms'] ?? null) ? $bindings['pms'] : [];

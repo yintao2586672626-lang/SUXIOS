@@ -165,6 +165,21 @@ test('runtime budget fails closed on missing or unverified measurements', () => 
   assert(metrics.includes('lcp_p95_ms'));
 });
 
+test('runtime budget fails closed when a verified run has no LCP sample', () => {
+  const report = passingReport();
+  report.aggregate.metrics.lcp_ms.sample_count = 4;
+
+  const failure = evaluateFrontendRuntimeBudget(report).failures.find(
+    (entry) => entry.metric === 'lcp_sample_count'
+  );
+  assert.deepEqual(failure, {
+    metric: 'lcp_sample_count',
+    actual: 4,
+    limit: 5,
+    reason: 'incomplete_measurement_samples',
+  });
+});
+
 test('runtime budget requires top-level and per-run authenticated evidence', () => {
   const report = passingReport();
   report.authenticated = false;

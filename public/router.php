@@ -4,7 +4,7 @@
  */
 
 const SUXI_STATIC_GZIP_LEVEL = 6;
-const SUXI_CSP_REPORT_ONLY = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' 'sha256-sGmHtz3c5oX2Qt7Y8ows2buHFKo+q72CzwRiUl1Q3HQ=' 'sha256-KtMDY/XkEbZFabcPqczrirnIjdmMQ+36AkxBBm4FVM4=' 'sha256-LVv/26o2w7ZGbEFyp2a1eeKNc3cZnV/P5lalHh3/N3s='; script-src-attr 'none'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; media-src 'self'; worker-src 'self'; manifest-src 'self'";
+const SUXI_CSP_REPORT_ONLY = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' 'sha256-sGmHtz3c5oX2Qt7Y8ows2buHFKo+q72CzwRiUl1Q3HQ=' 'sha256-gFbWf/oz4stLGaC+cyUvGScgHYvy9S1uFmTuCIM68Zs=' 'sha256-LVv/26o2w7ZGbEFyp2a1eeKNc3cZnV/P5lalHh3/N3s='; script-src-attr 'none'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; media-src 'self'; worker-src 'self'; manifest-src 'self'";
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');

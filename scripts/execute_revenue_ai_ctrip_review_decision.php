@@ -1208,18 +1208,19 @@ function ctrip_review_decision_run(array $options): array
             $operatorReviewEvidence,
             $fileHash
         );
-        PriceSuggestion::runInTenantScope($suggestionTenantId, static function () use (
+        $transitioned = PriceSuggestion::runInTenantScope($suggestionTenantId, static function () use (
             $suggestion,
             $action,
             $userId,
             $remark,
             $state
-        ): void {
-            $suggestion->status = ctrip_review_decision_status_after($action);
-            $suggestion->applied_by = $userId;
-            $suggestion->remark = $remark;
-            $suggestion->factors = $state['factors'];
-            $suggestion->save();
+        ): PriceSuggestion {
+            return $suggestion->reviewPending(
+                ctrip_review_decision_status_after($action),
+                $userId,
+                $remark,
+                $state['factors']
+            );
         });
 
         $fresh = PriceSuggestion::runInTenantScope(
@@ -1229,7 +1230,7 @@ function ctrip_review_decision_run(array $options): array
                 ->where('hotel_id', $suggestionHotelId)
                 ->find()
         );
-        if (!$fresh) {
+        if (!$fresh || (int)$fresh->id !== (int)$transitioned->id) {
             throw new RuntimeException('Price suggestion readback escaped its tenant scope.', 409);
         }
         $freshArray = $fresh ? $fresh->toArray() : $suggestion->toArray();

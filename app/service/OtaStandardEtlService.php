@@ -67,7 +67,13 @@ class OtaStandardEtlService
 
             $decodedRaw = $this->decodeJson($row['raw_data'] ?? []);
             $dataType = $this->normalizeDataType((string)($row['data_type'] ?? $decodedRaw['data_type'] ?? 'business'));
-            $raw = $this->sanitizeRawData($decodedRaw, $dataType === 'order');
+            $raw = $this->sanitizeRawData(
+                $decodedRaw,
+                $dataType === 'order',
+                false,
+                false,
+                $dataType === 'business'
+            );
             $source = $this->platformKey($this->firstText($row, $raw, ['platform', 'source', 'ota_source', 'otaSource']));
             $date = $this->dateValue($row['data_date'] ?? $row['date'] ?? $raw['dataDate'] ?? $raw['date'] ?? '');
             $hotelId = trim((string)($row['hotel_id'] ?? $raw['hotelId'] ?? $raw['poiId'] ?? ''));
@@ -2024,11 +2030,25 @@ class OtaStandardEtlService
         return null;
     }
 
-    private function platformKey(string $value): string
+    /**
+     * Canonical OTA identity shared by ETL filters and downstream consumers.
+     * This is intentionally pure so persisted source aliases cannot drift
+     * between ingestion and operating analysis.
+     */
+    public static function canonicalPlatformKey(string $value): string
     {
         $value = strtolower(trim($value));
         if ($value === '') {
             return '';
+        }
+        if (in_array($value, ['携程', 'trip', 'ebooking'], true)) {
+            return 'ctrip';
+        }
+        if (in_array($value, ['美团', 'meituan hotel'], true)) {
+            return 'meituan';
+        }
+        if (in_array($value, ['去哪儿', 'qunar.com'], true)) {
+            return 'qunar';
         }
         if (str_contains($value, 'meituan') || str_contains($value, 'dianping')) {
             return 'meituan';
@@ -2040,6 +2060,11 @@ class OtaStandardEtlService
             return 'qunar';
         }
         return in_array($value, ['ctrip', 'meituan', 'qunar'], true) ? $value : '';
+    }
+
+    private function platformKey(string $value): string
+    {
+        return self::canonicalPlatformKey($value);
     }
 
     private function platformName(string $source): string
@@ -2078,7 +2103,12 @@ class OtaStandardEtlService
         if (in_array($value, ['traffic', 'flow'], true)) {
             return 'traffic';
         }
-        if (in_array($value, ['order', 'orders', 'order_list', 'order-list'], true)) {
+        if (in_array($value, [
+            'order', 'orders', 'order_list', 'order-list',
+            'booking', 'bookings', 'booking_list', 'booking-list', 'booking_data', 'booking-data',
+            'reservation', 'reservations', 'reservation_list', 'reservation-list',
+            'reservation_data', 'reservation-data',
+        ], true)) {
             return 'order';
         }
         if (in_array($value, ['ad', 'ads', 'advertising', 'advertisement', 'campaign', 'campaigns'], true)) {
@@ -2530,7 +2560,13 @@ class OtaStandardEtlService
      * @param array<string, mixed> $raw
      * @return array<string, mixed>
      */
-    private function sanitizeRawData(array $raw, bool $orderContext = false): array
+    private function sanitizeRawData(
+        array $raw,
+        bool $orderContext = false,
+        bool $identityContext = false,
+        bool $businessDescriptorContext = false,
+        bool $businessContext = false
+    ): array
     {
         $sanitized = [];
         foreach ($raw as $key => $value) {
@@ -2539,14 +2575,70 @@ class OtaStandardEtlService
                 continue;
             }
 
-            $childOrderContext = $orderContext || $this->isOrderContainerKey($keyText);
+            $numericKey = is_int($key) || ctype_digit($keyText);
+            $childOrderContext = $orderContext || (!$numericKey && $this->isOrderContainerKey($keyText));
+            $identityContainer = !$numericKey
+                && !($businessDescriptorContext && $this->isBusinessDescriptorWrapperKey($keyText))
+                && (
+                    $this->isIdentityContainerKey($keyText)
+                    || ($childOrderContext && $this->isOrderRoomingIdentityContainerKey($keyText))
+                );
+            $childIdentityContext = $identityContext || $identityContainer;
+            $childBusinessDescriptorContext = $businessDescriptorContext;
+            if (!$numericKey && (
+                $this->isBusinessDescriptorContainerKey($keyText)
+                || $this->isBusinessDescriptorScalarKey($keyText)
+            )) {
+                $childBusinessDescriptorContext = true;
+            }
+            if ($identityContainer) {
+                $childBusinessDescriptorContext = false;
+            }
+
             if (is_array($value)) {
-                $sanitized[$key] = $this->sanitizeRawData($value, $childOrderContext);
+                if (!$numericKey && (
+                    $this->isOrderIdKey($keyText)
+                    || $this->isPhoneKey($keyText)
+                    || $this->isSensitiveOrderCollectionKey($keyText)
+                )) {
+                    continue;
+                }
+                $child = $this->sanitizeRawData(
+                    $value,
+                    $childOrderContext,
+                    $childIdentityContext,
+                    $childBusinessDescriptorContext,
+                    $businessContext
+                );
+                $sanitized[$key] = array_is_list($value) ? array_values($child) : $child;
                 continue;
             }
 
-            if ($childOrderContext || $this->isOrderPiiKey($keyText)) {
-                $this->appendRedactedOrderField($sanitized, $keyText, $value);
+            if ($numericKey && $identityContext) {
+                continue;
+            }
+
+            if (!is_scalar($value) && $value !== null) {
+                continue;
+            }
+
+            if (($businessContext || $childOrderContext || $childBusinessDescriptorContext)
+                && !$this->isOrderIdKey($keyText)
+                && !$this->isPhoneKey($keyText)
+                && !($childIdentityContext && $this->isGuestNameKey($keyText, true))
+                && $this->containsHighConfidencePiiValue($value)) {
+                continue;
+            }
+
+            if ($childOrderContext || $identityContext || (!$numericKey && $this->isOrderPiiKey($keyText))) {
+                $this->appendRedactedOrderField(
+                    $sanitized,
+                    $keyText,
+                    $value,
+                    $childOrderContext,
+                    $childIdentityContext,
+                    $childBusinessDescriptorContext
+                );
                 continue;
             }
 
@@ -2558,7 +2650,14 @@ class OtaStandardEtlService
     /**
      * @param array<mixed> $target
      */
-    private function appendRedactedOrderField(array &$target, string $key, mixed $value): void
+    private function appendRedactedOrderField(
+        array &$target,
+        string $key,
+        mixed $value,
+        bool $orderContext = false,
+        bool $identityContext = false,
+        bool $businessDescriptorContext = false
+    ): void
     {
         if ($this->isOrderIdKey($key)) {
             $text = trim((string)$value);
@@ -2574,11 +2673,30 @@ class OtaStandardEtlService
             }
             return;
         }
-        if ($this->isGuestNameKey($key)) {
+        if ($this->isGuestNameKey(
+            $key,
+            $identityContext || (
+                $orderContext
+                && !$businessDescriptorContext
+                && $this->isExplicitPersonalNameKey($key)
+            )
+        )) {
             $masked = $this->maskName((string)$value);
             if ($masked !== '') {
                 $target[$this->redactedOrderFieldName($key, 'masked')] = $masked;
             }
+            return;
+        }
+        if ($identityContext && $this->isOpaqueIdentityValueKey($key)) {
+            return;
+        }
+        // Identity containers are fail-closed. Only the explicit hash/mask
+        // branches above may retain identity values; arbitrary free text,
+        // numbers, and provider-specific fields are not evidence-safe.
+        if ($identityContext) {
+            return;
+        }
+        if ($orderContext && $this->isWrappedOrderPiiKey($key)) {
             return;
         }
         if ($this->isSensitiveOrderTextKey($key)) {
@@ -2590,35 +2708,341 @@ class OtaStandardEtlService
 
     private function isOrderContainerKey(string $key): bool
     {
-        return preg_match('/order[_-]?(list|rows|items|data|detail|details|info)|orders/i', $key) === 1;
+        return in_array($this->compactOrderFieldKey($key), [
+            'order', 'orders', 'orderlist', 'orderrows', 'orderitems', 'orderdata',
+            'orderdetail', 'orderdetails', 'orderinfo',
+            'booking', 'bookings', 'bookinglist', 'bookingrows', 'bookingitems',
+            'bookingdata', 'bookingdetail', 'bookingdetails', 'bookinginfo',
+            'reservation', 'reservations', 'reservationlist', 'reservationrows',
+            'reservationitems', 'reservationdata', 'reservationdetail',
+            'reservationdetails', 'reservationinfo',
+        ], true);
     }
 
-    private function isOrderPiiKey(string $key): bool
+    private function isIdentityContainerKey(string $key): bool
+    {
+        if ($this->isGuestNameKey($key) || $this->isPhoneKey($key)) {
+            return false;
+        }
+
+        $segments = $this->orderFieldKeySegments($key);
+        if (!$this->containsIdentitySubject($segments)) {
+            return false;
+        }
+        return true;
+    }
+
+    private function isOrderRoomingIdentityContainerKey(string $key): bool
+    {
+        return in_array($this->compactOrderFieldKey($key), [
+            'rooming', 'roomings', 'roominglist', 'roominglists',
+            'roominginfo', 'roominginfos', 'roominginformation',
+            'roomingdata', 'roomingdetail', 'roomingdetails',
+            'roomingrow', 'roomingrows', 'roomingitem', 'roomingitems',
+            'roomingrecord', 'roomingrecords',
+            'roomingguest', 'roomingguests', 'roomoccupant', 'roomoccupants',
+            'occupancylist', 'occupantlist',
+        ], true);
+    }
+
+    private function isBusinessDescriptorContainerKey(string $key): bool
+    {
+        return in_array($this->compactOrderFieldKey($key), [
+            'orderstatussummary', 'preorderstrend', 'competitorprofile',
+            'roomtype', 'rateplan', 'channel', 'product',
+        ], true);
+    }
+
+    private function isBusinessDescriptorScalarKey(string $key): bool
+    {
+        return preg_match(
+            '/^(orderstatussummary|preorderstrend|competitorprofile|roomtype|rateplan|channel|product)'
+                . '(name|description|value|text|label|summary|detail|details)$/',
+            $this->compactOrderFieldKey($key)
+        ) === 1;
+    }
+
+    private function isBusinessDescriptorWrapperKey(string $key): bool
+    {
+        return in_array($this->compactOrderFieldKey($key), [
+            'contactinfo', 'contactinformation', 'contactdetail', 'contactdetails',
+            'contactdata', 'contactvalue',
+        ], true);
+    }
+
+    private function containsHighConfidencePiiValue(mixed $value): bool
+    {
+        if (is_int($value)) {
+            $text = (string)$value;
+        } elseif (is_float($value) && is_finite($value) && floor($value) === $value) {
+            $text = sprintf('%.0f', $value);
+        } elseif (is_string($value)) {
+            $text = trim($value);
+        } else {
+            return false;
+        }
+
+        if ($text === '') {
+            return false;
+        }
+
+        if (preg_match('/[a-z0-9.!#$%&\'*+\/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+/iu', $text) === 1) {
+            return true;
+        }
+
+        if (preg_match('/(?<!\d)(?:\+?86[\s-]?)?1[3-9](?:[\s-]?\d){9}(?!\d)/u', $text) === 1) {
+            return true;
+        }
+
+        if (preg_match('/(?:身份证(?:号|号码)?|identity\s*card|national\s*id).{0,12}(?:\d{15}|\d{17}[\dXx])/iu', $text) === 1) {
+            return true;
+        }
+
+        if (preg_match_all('/(?<!\d)([1-9]\d{16}[\dXx])(?!\d)/u', $text, $identityMatches) > 0) {
+            foreach ($identityMatches[1] as $identityNumber) {
+                if ($this->isValidChineseIdentityNumber((string)$identityNumber)) {
+                    return true;
+                }
+            }
+        }
+
+        if (preg_match('/\bwxid[_-][a-z0-9_-]{4,}\b/iu', $text) === 1
+            || preg_match('/(?:微信(?:号|账号)?|wechat(?:\s*(?:id|account))?|weixin(?:\s*(?:id|account))?|wx)\s*[:：=]\s*\S{5,}/iu', $text) === 1) {
+            return true;
+        }
+
+        return preg_match('/\bqq\s*(?:号|号码|id|account)?\s*[:：=]?\s*[1-9]\d{4,11}\b/iu', $text) === 1;
+    }
+
+    private function isValidChineseIdentityNumber(string $value): bool
+    {
+        $value = strtoupper(trim($value));
+        if (preg_match('/^[1-9]\d{16}[\dX]$/', $value) !== 1) {
+            return false;
+        }
+
+        $birthDate = substr($value, 6, 8);
+        $year = (int)substr($birthDate, 0, 4);
+        $month = (int)substr($birthDate, 4, 2);
+        $day = (int)substr($birthDate, 6, 2);
+        if ($year < 1900 || $year > (int)date('Y') || !checkdate($month, $day, $year)) {
+            return false;
+        }
+
+        $weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+        $checks = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2'];
+        $sum = 0;
+        foreach ($weights as $index => $weight) {
+            $sum += ((int)$value[$index]) * $weight;
+        }
+        return $checks[$sum % 11] === $value[17];
+    }
+
+    private function isOrderPiiKey(string $key, bool $orderContext = false): bool
     {
         return $this->isOrderIdKey($key)
             || $this->isPhoneKey($key)
             || $this->isGuestNameKey($key)
-            || $this->isSensitiveOrderTextKey($key);
+            || $this->isSensitiveOrderTextKey($key)
+            || ($orderContext && (
+                $this->isGuestNameKey($key, true)
+                || $this->isWrappedOrderPiiKey($key)
+            ));
     }
 
     private function isOrderIdKey(string $key): bool
     {
-        return preg_match('/^(order[_-]?(id|no|num|number|sn)|booking[_-]?(id|no|number))$/i', $key) === 1;
+        if (in_array($this->compactOrderFieldKey($key), [
+            'orderid', 'orderno', 'ordernum', 'ordernumber', 'ordersn',
+            'bookingid', 'bookingno', 'bookingnumber',
+            'reservationid', 'reservationno', 'reservationnumber',
+        ], true)) {
+            return true;
+        }
+
+        $segments = $this->orderFieldKeySegments($key);
+        $last = $segments[array_key_last($segments)] ?? '';
+        if (!in_array($last, ['id', 'no', 'num', 'number', 'sn'], true)) {
+            return false;
+        }
+        $subjectPosition = count($segments) - 2;
+        if (!in_array($segments[$subjectPosition] ?? '', ['order', 'booking', 'reservation'], true)) {
+            return false;
+        }
+        return array_diff(array_slice($segments, 0, $subjectPosition), [
+            'primary', 'external', 'platform', 'ota', 'source', 'original',
+            'linked', 'parent', 'master',
+        ]) === [];
     }
 
     private function isPhoneKey(string $key): bool
     {
-        return preg_match('/(phone|mobile|tel)$/i', $key) === 1;
+        $compact = $this->compactOrderFieldKey($key);
+        if (in_array($compact, [
+            'phone', 'phoneno', 'phonenumber', 'mobile', 'mobileno', 'mobilenumber',
+            'phones', 'phonenumbers', 'mobiles', 'mobilenumbers',
+            'tel', 'telno', 'telephone', 'cellphone', 'contactphone', 'contactmobile',
+            'guestphone', 'guestmobile', 'customerphone', 'customermobile',
+            'clientphone', 'clientmobile', 'linkmanphone', 'linkmanmobile',
+            'receiverphone', 'receivermobile',
+        ], true)) {
+            return true;
+        }
+        $segments = $this->orderFieldKeySegments($key);
+        foreach (['phone', 'mobile', 'tel', 'telephone', 'cellphone'] as $phoneSegment) {
+            $position = array_search($phoneSegment, $segments, true);
+            if ($position === false) {
+                continue;
+            }
+            $tail = array_slice($segments, $position + 1);
+            if ($tail === [] || array_diff($tail, ['no', 'num', 'number']) === []) {
+                return true;
+            }
+        }
+        return in_array($compact, [
+            '手机', '手机号', '手机号码', '电话', '电话号码', '联系电话', '联系手机',
+        ], true);
     }
 
-    private function isGuestNameKey(string $key): bool
+    private function isGuestNameKey(string $key, bool $allowGenericName = false): bool
     {
-        return preg_match('/(guest|customer|contact|user|traveller|passenger)[_-]?name$/i', $key) === 1;
+        $compact = $this->compactOrderFieldKey($key);
+        if (in_array($compact, [
+            'guestname', 'customername', 'clientname', 'personname', 'linkman',
+            'linkmanname', 'contactname', 'username', 'travellername', 'travelername',
+            'passengername', 'bookername', 'reservername', 'recipientname',
+            'receivername', 'consigneename', 'occupantname', 'realname', 'fullname',
+            'guestnames', 'customernames', 'clientnames', 'passengernames',
+            '客人姓名', '住客姓名', '客户姓名', '联系人', '联系人姓名', '预订人',
+            '预订人姓名', '入住人', '入住人姓名', '收件人', '收件人姓名', '姓名',
+        ], true)) {
+            return true;
+        }
+        $segments = $this->orderFieldKeySegments($key);
+        $last = $segments[array_key_last($segments)] ?? '';
+        if ($last === 'name' && $this->containsIdentitySubject(array_slice($segments, 0, -1))) {
+            return true;
+        }
+        return $allowGenericName && (in_array($compact, [
+            'name', 'person', 'persons', 'guest', 'guests', 'customer', 'customers',
+            'client', 'clients', 'firstname', 'lastname', 'givenname', 'familyname',
+            'surname', 'forename',
+        ], true) || ($last === 'name' && count($segments) <= 2));
+    }
+
+    private function isExplicitPersonalNameKey(string $key): bool
+    {
+        return in_array($this->compactOrderFieldKey($key), [
+            'firstname', 'lastname', 'givenname', 'familyname',
+            'surname', 'forename',
+        ], true);
+    }
+
+    private function isSensitiveOrderCollectionKey(string $key): bool
+    {
+        $compact = $this->compactOrderFieldKey($key);
+        return in_array($compact, [
+            'phones', 'phonenumbers', 'mobiles', 'mobilenumbers',
+            'emails', 'emailaddresses', 'mails', 'guestnames', 'customernames',
+            'clientnames', 'passengernames', 'socialaccounts', 'wechataccounts',
+            'qqaccounts', 'imaccounts',
+        ], true);
+    }
+
+    private function isOpaqueIdentityValueKey(string $key): bool
+    {
+        return in_array($this->compactOrderFieldKey($key), [
+            'value', 'text', 'label', 'content', 'rawvalue', 'displayvalue',
+        ], true);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function orderFieldKeySegments(string $key): array
+    {
+        $normalized = $this->normalizeOrderFieldKey($key);
+        return $normalized === '' ? [] : array_values(array_filter(explode('_', $normalized)));
+    }
+
+    /**
+     * @param list<string> $segments
+     */
+    private function containsIdentitySubject(array $segments): bool
+    {
+        foreach ($segments as $segment) {
+            if ($this->isIdentitySubjectSegment($segment)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isIdentitySubjectSegment(string $segment): bool
+    {
+        return in_array($segment, [
+            'guest', 'guests', 'customer', 'customers', 'client', 'clients',
+            'person', 'persons', 'passenger', 'passengers', 'traveller', 'travellers',
+            'traveler', 'travelers', 'occupant', 'occupants', 'booker', 'bookers',
+            'reserver', 'reservers', 'recipient', 'recipients', 'receiver', 'receivers',
+            'consignee', 'consignees', 'contact', 'contacts', 'linkman', 'linkmen',
+            'identity', 'identities', 'personal', 'personals',
+        ], true);
+    }
+
+    private function isWrappedOrderPiiKey(string $key): bool
+    {
+        return in_array($this->compactOrderFieldKey($key), [
+            'contact', 'contacts', 'contactinfo', 'contactinfos', 'contactinformation',
+            'contactdetail', 'contactdetails', 'contactdata', 'contactvalue',
+            'guestinfo', 'guestinformation', 'guestdetail', 'guestdetails', 'guestdata',
+            'customerinfo', 'customerinformation', 'customerdata',
+            'clientinfo', 'clientinformation', 'clientdata',
+            'personinfo', 'personinformation', 'persondata',
+        ], true);
     }
 
     private function isSensitiveOrderTextKey(string $key): bool
     {
-        return preg_match('/(certificate|credential|id[_-]?card|card[_-]?no|passport|remark|memo|note|address)/i', $key) === 1;
+        $compact = $this->compactOrderFieldKey($key);
+
+        if (preg_match('/(email|emails|emailaddress|emailaddresses|mailaddress|mailaddresses)$/', $compact) === 1
+            || in_array($compact, ['mail', 'mails', '邮箱', '电子邮箱', '邮件地址'], true)) {
+            return true;
+        }
+        if (in_array($compact, [
+            'wechat', 'wechatid', 'wechatno', 'wechataccount', 'wechataccounts',
+            'weixin', 'weixinid', 'weixinno', 'weixinaccount', 'wx', 'wxid',
+            'qq', 'qqid', 'qqno', 'qqnumber', 'qqaccount', 'qqaccounts', 'im', 'imid',
+            'imaccount', 'imaccounts', 'social', 'socialid', 'socialaccount',
+            'socialaccounts', 'socialmediaaccount', 'lineid', 'lineaccount',
+            'whatsapp', 'whatsappid', 'telegram', 'telegramid',
+            '微信', '微信号', '微信账号', 'qq号', 'qq账号', '即时通讯账号', '社交账号',
+        ], true)) {
+            return true;
+        }
+        if (preg_match('/(certificate|credential|idcard|identity|passport|license)(id|no|num|number)?$/', $compact) === 1
+            || in_array($compact, [
+                'idno', 'idnum', 'idnumber', 'cardno', 'cardnumber',
+                '证件', '证件号', '证件号码', '身份证',
+                '身份证号', '身份证号码', '护照', '护照号', '护照号码',
+            ], true)) {
+            return true;
+        }
+        if (preg_match('/address$/', $compact) === 1
+            || in_array($compact, ['地址', '详细地址', '联系地址', '收件地址', '入住地址'], true)) {
+            return true;
+        }
+        if (preg_match('/(remark|remarks|memo|note|notes|message|comment|comments|specialrequest|specialrequests)$/', $compact) === 1
+            || in_array($compact, [
+                '备注', '留言', '买家留言', '特殊要求', '特殊需求', '客户备注', '客人备注',
+            ], true)) {
+            return true;
+        }
+        return in_array($compact, [
+            'birthday', 'birthdate', 'dateofbirth', 'dob', 'bankcard', 'bankaccount',
+            'alipayaccount', '生日', '出生日期', '银行卡', '银行卡号', '银行账号', '支付宝账号',
+        ], true);
     }
 
     private function redactedOrderFieldName(string $key, string $suffix): string
@@ -2626,10 +3050,22 @@ class OtaStandardEtlService
         if ($this->isOrderIdKey($key)) {
             return 'order_id_hash';
         }
-        $name = preg_replace('/(?<!^)[A-Z]/', '_$0', $key) ?? $key;
-        $name = strtolower((string)preg_replace('/[^a-zA-Z0-9]+/', '_', $name));
+        $name = preg_replace('/[^a-z0-9]+/', '_', $this->normalizeOrderFieldKey($key)) ?? '';
         $name = trim($name, '_');
         return ($name !== '' ? $name : 'field') . '_' . $suffix;
+    }
+
+    private function compactOrderFieldKey(string $key): string
+    {
+        return str_replace('_', '', $this->normalizeOrderFieldKey($key));
+    }
+
+    private function normalizeOrderFieldKey(string $key): string
+    {
+        $key = preg_replace('/([a-z0-9])([A-Z])/', '$1_$2', trim($key)) ?? $key;
+        $key = mb_strtolower($key, 'UTF-8');
+        $key = preg_replace('/[^\p{L}\p{N}]+/u', '_', $key) ?? $key;
+        return trim($key, '_');
     }
 
     private function maskPhone(string $value): string

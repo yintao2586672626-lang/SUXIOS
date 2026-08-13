@@ -16,6 +16,12 @@
                     ? builder(this.ctx?.autoFetchStatus?.natural_daily_acceptance)
                     : { visible: false };
             },
+            windowsOtaSchedulerStatus() {
+                const builder = window.SUXI_AUTO_FETCH_STATIC?.buildWindowsOtaSchedulerStatus;
+                return typeof builder === 'function'
+                    ? builder(this.ctx?.autoFetchStatus?.windows_scheduler_receipt)
+                    : { visible: false };
+            },
         },
         template: `
             <div data-testid="platform-auto-settings-panels" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -211,6 +217,38 @@
                             {{ ctx.platformProfileLoginTaskText(ctx.ctripPlatformProfileLoginTask) }}
                         </div>
                     </div>
+                </div>
+
+                <div v-if="windowsOtaSchedulerStatus?.visible" class="rounded-lg border px-4 py-3 text-sm" :class="windowsOtaSchedulerStatus.status_class" data-testid="windows-ota-dispatcher-status">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <div class="font-semibold text-slate-900">酒店80 Windows 双平台定时任务</div>
+                            <div class="mt-1 text-xs text-slate-700">{{ windowsOtaSchedulerStatus.scope_text }}</div>
+                        </div>
+                        <span class="rounded border border-current px-2 py-0.5 text-xs font-medium">{{ windowsOtaSchedulerStatus.status_text }}</span>
+                    </div>
+                    <div class="mt-2 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+                        <div><span class="text-slate-500">任务状态：</span><span class="font-medium">{{ windowsOtaSchedulerStatus.task_state_text }}</span></div>
+                        <div><span class="text-slate-500">上次运行：</span><span class="font-medium">{{ windowsOtaSchedulerStatus.last_run_text }}</span></div>
+                        <div><span class="text-slate-500">结果码：</span><span class="font-medium">{{ windowsOtaSchedulerStatus.last_result_text }}</span></div>
+                        <div><span class="text-slate-500">下次计划：</span><span class="font-medium">{{ windowsOtaSchedulerStatus.next_run_text }}</span></div>
+                    </div>
+                    <div class="mt-2 text-xs text-slate-700">{{ windowsOtaSchedulerStatus.trigger_text }}</div>
+                    <div v-if="windowsOtaSchedulerStatus.status === 'blocked'" class="mt-2 text-xs font-medium text-rose-800" data-testid="windows-ota-dispatcher-blocker">
+                        {{ windowsOtaSchedulerStatus.reason_text }}<span v-if="windowsOtaSchedulerStatus.binding_reason_text">；{{ windowsOtaSchedulerStatus.binding_reason_text }}</span>
+                    </div>
+                    <div class="mt-3 flex flex-wrap items-center gap-3">
+                        <button type="button"
+                            data-testid="windows-ota-dispatcher-enable"
+                            @click="ctx.enableWindowsOtaDispatcher"
+                            :disabled="!windowsOtaSchedulerStatus.can_enable || ctx.windowsOtaDispatcherEnabling"
+                            class="inline-flex items-center justify-center rounded-md bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500">
+                            <i :class="ctx.windowsOtaDispatcherEnabling ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-power-off mr-1.5'"></i>
+                            {{ ctx.windowsOtaDispatcherEnabling ? '正在安全启用并回读' : (windowsOtaSchedulerStatus.control_state_verified !== true ? '状态未验证，无法启用' : (windowsOtaSchedulerStatus.enabled === true ? '已启用，等待自然运行' : '安全启用（关闭补跑，不立即运行）')) }}
+                        </button>
+                        <span class="text-[11px] text-slate-600">{{ windowsOtaSchedulerStatus.boundary_text }}</span>
+                    </div>
+                    <div class="mt-1 text-[11px] text-amber-700">{{ windowsOtaSchedulerStatus.local_only_text }}</div>
                 </div>
 
                 <div v-if="naturalDailyAcceptanceStatus?.visible" class="rounded-lg border px-4 py-3 text-sm" :class="naturalDailyAcceptanceStatus.status_class" data-testid="natural-daily-acceptance-status">

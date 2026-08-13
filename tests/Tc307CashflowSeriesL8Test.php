@@ -139,6 +139,9 @@ final class Tc307CashflowSeriesL8Test extends TestCase
 
         $detail = $service->detail($id, self::OWNER_USER_ID, false);
         self::assertSame((string)$payload['project_name'], $detail['project_name'], $message);
+        self::assertSame(self::OWNER_TENANT_ID, $detail['input']['hotel_id'], $message . ' persisted hotel identity');
+        self::assertSame(self::OWNER_TENANT_ID, $detail['input']['system_hotel_id'], $message . ' persisted system hotel identity');
+        self::assertSame(self::OWNER_TENANT_ID, $detail['truth_context']['hotel_id'], $message . ' hotel identity readback');
         $this->assertCashflowContract(
             $detail['result'],
             (string)$payload['input']['valuation_date'],
@@ -146,6 +149,23 @@ final class Tc307CashflowSeriesL8Test extends TestCase
             $message . ' saved detail'
         );
         $this->assertPersistedJsonMatchesDetail($id, $detail, $message);
+    }
+
+    public function testQuantSaveRejectsAHotelOutsideTheActorPrimaryScope(): void
+    {
+        $payload = [
+            'project_name' => 'TC307_CROSS_HOTEL_REJECT',
+            'model_key' => 'tc307_local_no_network',
+            'input' => array_merge($this->completeInput($this->freshValuationDate()), [
+                'hotel_id' => self::OUTSIDER_TENANT_ID,
+                'system_hotel_id' => self::OUTSIDER_TENANT_ID,
+            ]),
+        ];
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('not permitted');
+        (new Tc307SqliteQuantSimulationService(new Tc307LocalLlmClient()))
+            ->calculateAndSave($payload, self::OWNER_USER_ID);
     }
 
     /**
@@ -445,6 +465,17 @@ SQL);
         Db::name('users')->insertAll([
             ['id' => self::OWNER_USER_ID, 'tenant_id' => self::OWNER_TENANT_ID, 'hotel_id' => self::OWNER_TENANT_ID],
             ['id' => self::OUTSIDER_USER_ID, 'tenant_id' => self::OUTSIDER_TENANT_ID, 'hotel_id' => self::OUTSIDER_TENANT_ID],
+        ]);
+
+        Db::execute(<<<'SQL'
+CREATE TABLE hotels (
+    id INTEGER PRIMARY KEY,
+    tenant_id INTEGER NOT NULL
+)
+SQL);
+        Db::name('hotels')->insertAll([
+            ['id' => self::OWNER_TENANT_ID, 'tenant_id' => self::OWNER_TENANT_ID],
+            ['id' => self::OUTSIDER_TENANT_ID, 'tenant_id' => self::OUTSIDER_TENANT_ID],
         ]);
 
         Db::execute(<<<'SQL'

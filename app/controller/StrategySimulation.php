@@ -150,13 +150,6 @@ class StrategySimulation extends Base
                 return $this->error('strategy simulation record id is invalid', 422);
             }
 
-            $data = $this->requestData();
-            [$hotelIds, $hotelId] = $this->resolveExecutionHotelScope((int)($data['hotel_id'] ?? $this->request->param('hotel_id', 0)));
-            $existingId = $this->existingExecutionIntentId('strategy_simulation', $id, $hotelIds);
-            if ($existingId > 0) {
-                return $this->error('strategy simulation record already linked to execution intent', 409);
-            }
-
             $query = StrategySimulationRecord::where('id', $id)->whereNull('deleted_at');
             $this->applyTenantScope($query);
             if (!$this->currentUser->isSuperAdmin()) {
@@ -169,7 +162,22 @@ class StrategySimulation extends Base
             }
 
             $record = $this->formatRecord($row->toArray(), true);
-            $input = (new SimulationExecutionReadinessService())->buildStrategyExecutionIntentInput($record, [
+            $readinessService = new SimulationExecutionReadinessService();
+            $hotelId = $readinessService->strategyExecutionHotelId($record);
+            $data = $this->requestData();
+            $requestedHotelId = (int)($data['hotel_id'] ?? $this->request->param('hotel_id', 0));
+            if ($requestedHotelId > 0 && $requestedHotelId !== $hotelId) {
+                return $this->error('strategy simulation hotel scope mismatch', 409);
+            }
+            [$hotelIds] = $this->resolveExecutionHotelScope($hotelId);
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'operation.execute',
+                'operation.execute permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
+            $input = $readinessService->buildStrategyExecutionIntentInput($record, [
                 'hotel_id' => $hotelId,
                 'date_start' => (string)($data['date_start'] ?? $this->request->param('date_start', '')),
                 'date_end' => (string)($data['date_end'] ?? $this->request->param('date_end', '')),
@@ -1053,6 +1061,7 @@ class StrategySimulation extends Base
         $record = [
             'id' => (int)($row['id'] ?? 0),
             'record_id' => (int)($row['id'] ?? 0),
+            '_execution_source_tenant_id' => (int)($row['tenant_id'] ?? 0),
             'project_name' => (string)($row['project_name'] ?? ($input['project_name'] ?? '')),
             'city_tier' => (string)($input['city_tier'] ?? ''),
             'city' => (string)($row['city'] ?? ($input['city'] ?? '')),
@@ -1159,21 +1168,6 @@ class StrategySimulation extends Base
         }
 
         throw new \InvalidArgumentException('hotel_id is required for strategy execution intent');
-    }
-
-    private function existingExecutionIntentId(string $sourceModule, int $sourceRecordId, array $hotelIds): int
-    {
-        try {
-            return (int)(Db::name('operation_execution_intents')
-                ->where('source_module', $sourceModule)
-                ->where('source_record_id', $sourceRecordId)
-                ->whereIn('hotel_id', $hotelIds)
-                ->whereNull('deleted_at')
-                ->order('id', 'desc')
-                ->value('id') ?: 0);
-        } catch (\Throwable $e) {
-            return 0;
-        }
     }
 
     private function executionBridgeHotelIds(): array

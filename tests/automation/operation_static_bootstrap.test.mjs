@@ -340,3 +340,166 @@ test('revenue node record keeps one fixed scope and explicit missing-state valid
   const fields = api.operationRevenueNodeFieldsForItem({ evidence_summary: { node_record: { status: 'available', comparison_basis: 'saved basis' } } });
   assert.equal(fields.find(field => field.name === 'comparison_basis').value, 'saved basis');
 });
+
+test('operating goal contract payload keeps explicit thresholds, scopes, dates, and rollback facts', () => {
+  const api = loadOperationStaticApi();
+  const payload = JSON.parse(JSON.stringify(api.buildOperatingGoalContractPayload({
+    primary_objective: 'revenue',
+    primary_metric_key: '',
+    objective_direction: 'increase',
+    adr_min: '268.5',
+    occupancy_rate_min: '72',
+    rating_min: '4.6',
+    cancellation_rate_max: '12',
+    minimum_room_rate: '199',
+    available_room_count: '3',
+    room_types_csv: ' 大床房, 双床房，大床房 ',
+    channels_csv: '携程,美团',
+    effective_from: '2026-08-12',
+    effective_to: '2026-09-12',
+    risk_preference: 'balanced',
+    operating_phase: '暑期收益爬坡',
+    phase_note: ' 先保住评分 ',
+    stop_conditions_text: '评分低于4.6\n取消率高于12%\n评分低于4.6',
+    rollback_plan: ' 恢复上一版价格与库存 ',
+    version_note: ' 暑期换版 ',
+  })));
+
+  assert.deepEqual(payload, {
+    primary_objective: 'revenue',
+    primary_metric_key: 'revenue',
+    objective_direction: 'increase',
+    guard_metrics: [
+      { metric_key: 'adr', operator: '>=', threshold: 268.5 },
+      { metric_key: 'occupancy_rate', operator: '>=', threshold: 72 },
+      { metric_key: 'rating', operator: '>=', threshold: 4.6 },
+      { metric_key: 'cancellation_rate', operator: '<=', threshold: 12 },
+    ],
+    operating_constraints: [
+      { constraint_key: 'minimum_room_rate', operator: '>=', value: 199 },
+      { constraint_key: 'available_room_count', operator: '>=', value: 3 },
+      { constraint_key: 'room_types', operator: 'in', value: ['大床房', '双床房'] },
+      { constraint_key: 'channels', operator: 'in', value: ['携程', '美团'] },
+    ],
+    risk_preference: 'balanced',
+    operating_phase: '暑期收益爬坡',
+    phase_note: '先保住评分',
+    stop_conditions: ['评分低于4.6', '取消率高于12%'],
+    rollback_plan: '恢复上一版价格与库存',
+    effective_from: '2026-08-12',
+    effective_to: '2026-09-12',
+    version_note: '暑期换版',
+  });
+  assert.equal(
+    api.operatingGoalContractText({ version_no: 3, primary_objective: 'revenue', operating_phase: '暑期收益爬坡', effective_from: '2026-08-12', effective_to: '2026-09-12' }),
+    'v3 · 收入 · 暑期收益爬坡 · 2026-08-12~2026-09-12',
+  );
+});
+
+test('operating goal monitor status requires an exact persisted heartbeat', () => {
+  const api = loadOperationStaticApi();
+  const notRun = api.operatingGoalMonitorStatusModel({ hotel_id: 80, monitor: { status: 'not_run' } }, 80);
+  assert.equal(notRun.state, 'inactive');
+  assert.equal(notRun.label, '智能监控未运行');
+
+  const monitoring = api.operatingGoalMonitorStatusModel({
+    hotel_id: 80,
+    monitor: {
+      status: 'ready',
+      monitor_state: 'monitoring',
+      business_date: '2026-08-12',
+      last_observed_at: '2026-08-12 09:00:00',
+      data_gaps: [],
+    },
+  }, 80);
+  assert.equal(monitoring.state, 'monitoring');
+  assert.equal(monitoring.label, '智能监控运行中');
+  assert.match(monitoring.detail, /经营日 2026-08-12.*最近核验/);
+
+  const attention = api.operatingGoalMonitorStatusModel({
+    hotel_id: 80,
+    monitor: {
+      status: 'ready',
+      monitor_state: 'attention',
+      data_gaps: ['guard_metric_unavailable'],
+    },
+  }, 80);
+  assert.equal(attention.state, 'attention');
+  assert.match(attention.detail, /1 个数据缺口/);
+
+  const mismatch = api.operatingGoalMonitorStatusModel({
+    hotel_id: 81,
+    monitor: { status: 'ready', monitor_state: 'monitoring' },
+  }, 80);
+  assert.equal(mismatch.state, 'unknown');
+  assert.equal(mismatch.label, '监控身份不一致');
+});
+
+test('operating goal contract rejects missing or invalid protection thresholds', () => {
+  const api = loadOperationStaticApi();
+  const form = {
+    primary_objective: 'profit',
+    objective_direction: 'preserve',
+    adr_min: 260,
+    occupancy_rate_min: 70,
+    rating_min: 4.5,
+    cancellation_rate_max: 10,
+    minimum_room_rate: 188,
+    available_room_count: 0,
+    room_types_csv: '大床房',
+    channels_csv: '携程',
+    effective_from: '2026-08-12',
+    effective_to: '2026-08-31',
+    risk_preference: 'conservative',
+    operating_phase: '保守观察',
+    stop_conditions_text: '评分越界立即停止',
+    rollback_plan: '恢复上一版合同',
+  };
+
+  assert.throws(() => api.buildOperatingGoalContractPayload({ ...form, adr_min: '' }), /ADR保护阈值/);
+  assert.throws(() => api.buildOperatingGoalContractPayload({ ...form, rating_min: 5.1 }), /评分保护阈值范围无效/);
+  assert.throws(() => api.buildOperatingGoalContractPayload({ ...form, effective_to: '2026-08-01' }), /截止日期不能早于生效日期/);
+});
+
+test('intervention learning exposes latest intent assessment with three-state and unassessed mappings', () => {
+  const api = loadOperationStaticApi();
+  const expected = {
+    supported: ['证据支持', 'bg-green-50 text-green-700'],
+    contradicted: ['证据反驳', 'bg-red-50 text-red-700'],
+    indeterminate: ['证据不足', 'bg-amber-50 text-amber-700'],
+    '': ['未判定', 'bg-gray-50 text-gray-600'],
+  };
+  Object.entries(expected).forEach(([verdict, [label, className]]) => {
+    assert.equal(api.operationLearningVerdictLabel(verdict), label);
+    assert.equal(api.operationLearningVerdictClass(verdict), className);
+  });
+
+  const model = JSON.parse(JSON.stringify(api.operationInterventionLearningModel(
+    { id: 41 },
+    {
+      interventions: [
+        { id: 7, intent_id: 41, version_no: 1, contract_status: 'retrospective', latest_assessment: { verdict: 'contradicted', result_summary: '旧判定' } },
+        { id: 9, intent_id: 41, version_no: 2, contract_status: 'prospective', latest_assessment: { verdict: 'supported', result_summary: '收入达标且保护指标未越界' } },
+        { id: 10, intent_id: 42, version_no: 3, contract_status: 'prospective', latest_assessment: { verdict: 'indeterminate', result_summary: '他的判定' } },
+      ],
+    },
+  )));
+  assert.deepEqual(model, {
+    contract_status: 'prospective',
+    verdict: 'supported',
+    label: '证据支持',
+    className: 'bg-green-50 text-green-700',
+    summary: '收入达标且保护指标未越界',
+  });
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(api.operationInterventionLearningModel({ id: 99 }, { interventions: [] }))),
+    {
+      contract_status: '',
+      verdict: '',
+      label: '未判定',
+      className: 'bg-gray-50 text-gray-600',
+      summary: '尚未登记经营干预',
+    },
+  );
+});

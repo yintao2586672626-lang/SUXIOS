@@ -345,6 +345,247 @@ window.SUXI_OPERATION_STATIC = (() => {
         const label = statusLabel(review.status);
         return review.summary ? `${label} · ${review.summary}` : label;
     };
+    const operationUniqueTextValues = (values = []) => {
+        const seen = new Set();
+        return values.reduce((result, value) => {
+            const text = String(value ?? '').trim();
+            if (!text || seen.has(text)) return result;
+            seen.add(text);
+            result.push(text);
+            return result;
+        }, []);
+    };
+    const operationParseCsvValues = (value) => operationUniqueTextValues(
+        Array.isArray(value) ? value : String(value ?? '').split(/[,，]/)
+    );
+    const operationParseLineValues = (value) => operationUniqueTextValues(
+        Array.isArray(value) ? value : String(value ?? '').split(/\r?\n/)
+    );
+    const buildOperatingGoalContractPayload = (form = {}) => {
+        const fieldValue = (...names) => {
+            for (const name of names) {
+                if (Object.prototype.hasOwnProperty.call(form, name)) return form[name];
+            }
+            return undefined;
+        };
+        const requiredText = (label, ...names) => {
+            const value = String(fieldValue(...names) ?? '').trim();
+            if (!value) throw new Error(`请填写${label}`);
+            return value;
+        };
+        const requiredNumber = (label, names, { min = null, max = null, integer = false, exclusiveMin = false } = {}) => {
+            const raw = fieldValue(...names);
+            if (raw === null || raw === undefined || String(raw).trim() === '') {
+                throw new Error(`请填写${label}`);
+            }
+            const value = Number(raw);
+            const belowMinimum = min !== null && (exclusiveMin ? value <= min : value < min);
+            if (!Number.isFinite(value) || belowMinimum || (max !== null && value > max) || (integer && !Number.isInteger(value))) {
+                throw new Error(`${label}范围无效`);
+            }
+            return value;
+        };
+        const requiredDate = (label, name) => {
+            const value = requiredText(label, name);
+            const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+            if (!match) throw new Error(`${label}格式无效`);
+            const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+            if (date.getUTCFullYear() !== Number(match[1])
+                || date.getUTCMonth() !== Number(match[2]) - 1
+                || date.getUTCDate() !== Number(match[3])) {
+                throw new Error(`${label}格式无效`);
+            }
+            return value;
+        };
+
+        const primaryObjective = requiredText('首要目标', 'primary_objective').toLowerCase();
+        const objectiveMetricMap = { revenue: 'revenue', profit: 'profit', cash_flow: 'cash_flow' };
+        if (!Object.prototype.hasOwnProperty.call(objectiveMetricMap, primaryObjective)) {
+            throw new Error('首要目标无效');
+        }
+        const primaryMetricKey = String(fieldValue('primary_metric_key') ?? '').trim()
+            || objectiveMetricMap[primaryObjective];
+        const objectiveDirection = requiredText('目标方向', 'objective_direction').toLowerCase();
+        if (!['increase', 'preserve'].includes(objectiveDirection)) throw new Error('目标方向无效');
+        const riskPreference = requiredText('风险偏好', 'risk_preference').toLowerCase();
+        if (!['conservative', 'balanced', 'aggressive'].includes(riskPreference)) throw new Error('风险偏好无效');
+
+        const adrMinimum = requiredNumber('ADR保护阈值', ['adr_min', 'adr_guard_min', 'guard_adr_min'], { min: 0, exclusiveMin: true });
+        const occupancyMinimum = requiredNumber('入住率保护阈值', ['occupancy_rate_min', 'occupancy_min', 'guard_occupancy_rate_min'], { min: 0, max: 100 });
+        const ratingMinimum = requiredNumber('评分保护阈值', ['rating_min', 'score_min', 'guard_rating_min'], { min: 0, max: 5, exclusiveMin: true });
+        const cancellationMaximum = requiredNumber('取消率保护阈值', ['cancellation_rate_max', 'cancel_rate_max', 'guard_cancellation_rate_max'], { min: 0, max: 100 });
+        const minimumRoomRate = requiredNumber('最低价', ['minimum_room_rate', 'minimum_price', 'min_price'], { min: 0, exclusiveMin: true });
+        const availableRoomCount = requiredNumber('保底可售库存', ['available_room_count', 'minimum_inventory', 'min_inventory'], { min: 0, integer: true });
+        const roomTypes = operationParseCsvValues(fieldValue('room_types_csv', 'room_types'));
+        if (!roomTypes.length) throw new Error('请填写房型范围');
+        const channels = operationParseCsvValues(fieldValue('channels_csv', 'channels'));
+        if (!channels.length) throw new Error('请填写渠道范围');
+        const stopConditions = operationParseLineValues(fieldValue('stop_conditions_text', 'stop_conditions'));
+        if (!stopConditions.length) throw new Error('请填写停止条件');
+        const effectiveFrom = requiredDate('生效日期', 'effective_from');
+        const effectiveTo = requiredDate('截止日期', 'effective_to');
+        if (effectiveTo < effectiveFrom) throw new Error('截止日期不能早于生效日期');
+
+        return {
+            primary_objective: primaryObjective,
+            primary_metric_key: primaryMetricKey,
+            objective_direction: objectiveDirection,
+            guard_metrics: [
+                { metric_key: 'adr', operator: '>=', threshold: adrMinimum },
+                { metric_key: 'occupancy_rate', operator: '>=', threshold: occupancyMinimum },
+                { metric_key: 'rating', operator: '>=', threshold: ratingMinimum },
+                { metric_key: 'cancellation_rate', operator: '<=', threshold: cancellationMaximum },
+            ],
+            operating_constraints: [
+                { constraint_key: 'minimum_room_rate', operator: '>=', value: minimumRoomRate },
+                { constraint_key: 'available_room_count', operator: '>=', value: availableRoomCount },
+                { constraint_key: 'room_types', operator: 'in', value: roomTypes },
+                { constraint_key: 'channels', operator: 'in', value: channels },
+            ],
+            risk_preference: riskPreference,
+            operating_phase: requiredText('经营阶段', 'operating_phase'),
+            phase_note: String(fieldValue('phase_note') ?? '').trim(),
+            stop_conditions: stopConditions,
+            rollback_plan: requiredText('回滚方案', 'rollback_plan'),
+            effective_from: effectiveFrom,
+            effective_to: effectiveTo,
+            version_note: String(fieldValue('version_note') ?? '').trim(),
+        };
+    };
+    const operatingGoalContractText = (contract = null) => {
+        if (!contract || typeof contract !== 'object') return '未设置经营目标合同';
+        const version = Number(contract.version_no || contract.version || 0);
+        const objective = String(contract.primary_objective || '').trim();
+        const objectiveText = ({ revenue: '收入', profit: '利润', cash_flow: '现金流' }[objective] || objective || '首要目标未返回');
+        const phase = String(contract.operating_phase || '').trim() || '阶段未返回';
+        const from = String(contract.effective_from || '').trim();
+        const to = String(contract.effective_to || '').trim();
+        const effectivePeriod = from && to ? `${from}~${to}` : (from || to || '有效期未返回');
+        return `${version > 0 ? `v${version}` : 'v-'} · ${objectiveText} · ${phase} · ${effectivePeriod}`;
+    };
+    const operatingGoalMonitorStatusModel = (overview = {}, selectedHotelId = 0) => {
+        const hotelId = Number(selectedHotelId || 0);
+        if (!hotelId) {
+            return {
+                state: 'inactive',
+                label: '选择酒店后监控',
+                detail: '请选择单店，系统才会锁定酒店身份与经营日。',
+                className: 'border-slate-200 bg-slate-50 text-slate-600',
+                iconClass: 'fas fa-pause-circle',
+            };
+        }
+        const responseHotelId = Number(overview?.hotel_id || 0);
+        if (responseHotelId > 0 && responseHotelId !== hotelId) {
+            return {
+                state: 'unknown',
+                label: '监控身份不一致',
+                detail: '返回结果不属于当前酒店，已拒绝显示为运行中。',
+                className: 'border-rose-200 bg-rose-50 text-rose-700',
+                iconClass: 'fas fa-exclamation-triangle',
+            };
+        }
+        const monitor = overview?.monitor && typeof overview.monitor === 'object'
+            ? overview.monitor
+            : {};
+        const status = String(monitor.status || '').trim().toLowerCase();
+        const state = String(monitor.monitor_state || '').trim().toLowerCase();
+        const observedAt = String(monitor.last_observed_at || '').trim();
+        const businessDate = String(monitor.business_date || '').trim();
+        const gaps = Array.isArray(monitor.data_gaps) ? monitor.data_gaps.filter(Boolean) : [];
+        if (overview?.migration_required === true || status === 'migration_required') {
+            return {
+                state: 'inactive',
+                label: '智能监控待启用',
+                detail: '监控账本迁移尚未应用，当前没有后台心跳。',
+                className: 'border-amber-200 bg-amber-50 text-amber-800',
+                iconClass: 'fas fa-tools',
+            };
+        }
+        if (status === 'not_run' || !status) {
+            return {
+                state: 'inactive',
+                label: '智能监控未运行',
+                detail: '目标可保存，但尚未回读到后台定时监控心跳。',
+                className: 'border-slate-200 bg-slate-50 text-slate-600',
+                iconClass: 'far fa-clock',
+            };
+        }
+        if (status !== 'ready') {
+            return {
+                state: 'unknown',
+                label: '监控状态未取得',
+                detail: '没有足够回读证明监控正在工作。',
+                className: 'border-slate-200 bg-slate-50 text-slate-600',
+                iconClass: 'fas fa-question-circle',
+            };
+        }
+        const heartbeat = [businessDate ? `经营日 ${businessDate}` : '', observedAt ? `最近核验 ${observedAt}` : '']
+            .filter(Boolean)
+            .join(' · ');
+        if (state === 'attention') {
+            return {
+                state,
+                label: '智能监控 · 有待处理',
+                detail: `${heartbeat || '已有监控心跳'}${gaps.length ? ` · ${gaps.length} 个数据缺口` : ''}`,
+                className: 'border-rose-200 bg-rose-50 text-rose-700',
+                iconClass: 'fas fa-exclamation-circle',
+            };
+        }
+        if (state === 'monitoring') {
+            return {
+                state,
+                label: '智能监控运行中',
+                detail: heartbeat || '后台已持续读取目标、保护指标与干预观察窗。',
+                className: 'border-blue-200 bg-blue-50 text-blue-700',
+                iconClass: 'fas fa-satellite-dish',
+            };
+        }
+        return {
+            state: 'inactive',
+            label: '智能监控未激活',
+            detail: heartbeat || '当前没有有效目标合同或监控边界。',
+            className: 'border-slate-200 bg-slate-50 text-slate-600',
+            iconClass: 'fas fa-pause-circle',
+        };
+    };
+    const operationLearningVerdictLabel = (verdict) => ({
+        supported: '证据支持',
+        contradicted: '证据反驳',
+        indeterminate: '证据不足',
+    }[String(verdict || '').trim().toLowerCase()] || '未判定');
+    const operationLearningVerdictClass = (verdict) => ({
+        supported: 'bg-green-50 text-green-700',
+        contradicted: 'bg-red-50 text-red-700',
+        indeterminate: 'bg-amber-50 text-amber-700',
+    }[String(verdict || '').trim().toLowerCase()] || 'bg-gray-50 text-gray-600');
+    const operationInterventionLearningModel = (item = {}, overview = {}) => {
+        const intentId = Number(item?.id || item?.intent_id || 0);
+        const matches = (Array.isArray(overview?.interventions) ? overview.interventions : [])
+            .filter(intervention => intentId > 0 && Number(intervention?.intent_id || 0) === intentId)
+            .sort((left, right) => {
+                const versionDelta = Number(right?.version_no || 0) - Number(left?.version_no || 0);
+                if (versionDelta !== 0) return versionDelta;
+                const idDelta = Number(right?.id || 0) - Number(left?.id || 0);
+                if (idDelta !== 0) return idDelta;
+                return String(right?.created_at || '').localeCompare(String(left?.created_at || ''));
+            });
+        const intervention = matches[0] || null;
+        const assessment = intervention?.latest_assessment && typeof intervention.latest_assessment === 'object'
+            ? intervention.latest_assessment
+            : null;
+        const verdict = String(assessment?.verdict || intervention?.verdict || '').trim().toLowerCase();
+        const summary = String(assessment?.result_summary || intervention?.result_summary || '').trim()
+            || (!intervention
+                ? '尚未登记经营干预'
+                : '干预已登记，系统正在读取观察窗并等待自动判定');
+        return {
+            contract_status: String(intervention?.contract_status || intervention?.design_timing || '').trim(),
+            verdict,
+            label: operationLearningVerdictLabel(verdict),
+            className: operationLearningVerdictClass(verdict),
+            summary,
+        };
+    };
     const operationRevenueNodeDialogFields = [
         { name: 'operating_period', label: '经营周期', type: 'select', required: true, value: '', options: [{ value: 'weekday', label: '周内' }, { value: 'weekend', label: '周末' }, { value: 'holiday', label: '节假日' }, { value: 'special_event', label: '特殊事件' }] },
         { name: 'special_event', label: '特殊事件（无则留空）', value: '', placeholder: '如考试、会展' },
@@ -1138,6 +1379,14 @@ window.SUXI_OPERATION_STATIC = (() => {
         operationExecutionSourceText,
         operationExecutionActionText,
         operationExecutionReviewText,
+        operationParseCsvValues,
+        operationParseLineValues,
+        buildOperatingGoalContractPayload,
+        operatingGoalContractText,
+        operatingGoalMonitorStatusModel,
+        operationInterventionLearningModel,
+        operationLearningVerdictLabel,
+        operationLearningVerdictClass,
         operationRevenueNodeDialogFields,
         operationRevenueNodeFieldsForItem,
         buildOperationRevenueNodeRecord,

@@ -4,7 +4,10 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\OnlineDataFieldFactService;
+use app\service\AiDecisionQualityService;
 use app\service\OperationManagementService;
+use app\service\PriceSuggestionOtaTargetMappingService;
+use app\service\RevenuePricingRecommendationService;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ReflectionHelper;
 
@@ -34,6 +37,112 @@ final class OperationManagementServiceTest extends TestCase
                 $methodName . ' must narrow permitted hotel ids when one hotel is selected'
             );
         }
+    }
+
+    public function testExecutionDatesRejectCalendarOverflowRelativeAndEmptyValues(): void
+    {
+        $service = new OperationManagementService();
+        foreach (['2026-02-30', 'tomorrow', '', null, ' 2026-08-13 '] as $invalid) {
+            try {
+                $service->buildExecutionIntentPayload([7], 7, [
+                    'hotel_id' => 7,
+                    'object_type' => 'inventory',
+                    'action_type' => 'inventory_review',
+                    'date_start' => $invalid,
+                ], 9);
+                self::fail('Invalid execution date must fail: ' . json_encode($invalid));
+            } catch (\InvalidArgumentException) {
+                self::assertTrue(true);
+            }
+        }
+    }
+
+    public function testPriceSuggestionDefaultExecutionDateUsesShanghaiBusinessDayAcrossProcessTimezone(): void
+    {
+        $mapping = [
+            'mapping_record_id' => 'fixture-ctrip-room-3', 'mapping_version' => 'v1',
+            'status' => 'confirmed', 'tenant_id' => 7, 'hotel_id' => 7, 'platform' => 'ctrip',
+            'room_type_id' => 3, 'room_type_key' => 'deluxe-king', 'rate_plan_key' => 'standard',
+            'confirmed_by' => 3, 'confirmed_at' => '2026-08-13 08:00:00',
+        ];
+        $mapping['mapping_digest'] = PriceSuggestionOtaTargetMappingService::mappingDigest($mapping);
+        $pricing = $this->createMock(RevenuePricingRecommendationService::class);
+        $pricing->method('enrichSuggestionRows')->willReturnCallback(static function (array $rows): array {
+            $rows[0]['decision_recommendation'] = [
+                'can_create_execution_intent' => true,
+                'blocked_reason' => '',
+                'decision_quality' => [
+                    'contract_version' => AiDecisionQualityService::CONTRACT_VERSION,
+                    'execution_ready' => true,
+                ],
+            ];
+            return $rows;
+        });
+        $service = new OperationManagementService($pricing);
+        $shanghaiDate = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $originalTimezone = date_default_timezone_get();
+        $differentTimezone = null;
+        foreach (['Etc/GMT+12', 'Pacific/Kiritimati'] as $candidate) {
+            $candidateDate = (new \DateTimeImmutable('now', new \DateTimeZone($candidate)))->format('Y-m-d');
+            if ($candidateDate !== $shanghaiDate) {
+                $differentTimezone = $candidate;
+                break;
+            }
+        }
+        self::assertNotNull($differentTimezone, 'Fixture must select a process timezone on a different calendar day.');
+
+        date_default_timezone_set((string)$differentTimezone);
+        try {
+            self::assertNotSame($shanghaiDate, date('Y-m-d'));
+            $input = $service->buildPriceSuggestionExecutionIntentInput([
+                'id' => 88,
+                'tenant_id' => 7,
+                'status' => \app\model\PriceSuggestion::STATUS_APPROVED,
+                'hotel_id' => 7,
+                'room_type_id' => 3,
+                'suggestion_date' => $shanghaiDate,
+                'current_price' => 300,
+                'suggested_price' => 320,
+                'min_price' => 260,
+                'max_price' => 380,
+                'reason' => 'approved source',
+                'factors' => [
+                    'manual_review_versions' => [['action' => 'approve']],
+                    PriceSuggestionOtaTargetMappingService::FACTOR_KEY => $mapping,
+                ],
+                'competitor_data' => ['avg_price' => 330],
+                'applied_by' => 3,
+            ], [
+                'platform' => 'ctrip',
+                'room_type_key' => 'deluxe-king',
+                'rate_plan_key' => 'standard',
+            ]);
+
+            self::assertSame($shanghaiDate, $input['date_start']);
+            self::assertSame($shanghaiDate, $input['date_end']);
+            self::assertSame($shanghaiDate, $input['evidence']['execution_date']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testFullDataReusesOneOnlineSnapshotAcrossDerivedModules(): void
+    {
+        $method = new \ReflectionMethod(OperationManagementService::class, 'fullData');
+        $lines = file($method->getFileName()) ?: [];
+        $source = implode('', array_slice(
+            $lines,
+            $method->getStartLine() - 1,
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+
+        self::assertSame(1, substr_count($source, '$this->onlineRows('));
+        self::assertStringContainsString(
+            '$this->buildSummaryFromRows($daily, $online, $hotelIds, $hotelId, $date)',
+            $source
+        );
+        self::assertStringContainsString('$this->buildOtaFromRows($online)', $source);
+        self::assertStringContainsString('$this->buildServiceQualityFromRows($online)', $source);
     }
 
     public function testSelectedHotelScopeRejectsHotelOutsidePermissionSet(): void
@@ -69,30 +178,46 @@ final class OperationManagementServiceTest extends TestCase
     public function testEffectValidationSummaryCalculatesProductLevelClosedLoopMetrics(): void
     {
         $service = new OperationManagementService();
+        $effect = function (float $revenue, float $conversion): array {
+            $revenueIdentity = $this->comparableEffectBaseline('revenue', 'ota_channel', 'ctrip', 'ctrip', $revenue);
+            $conversionIdentity = $this->comparableEffectBaseline('conversion', 'ota_channel', 'ctrip', 'ctrip', $conversion);
+            return array_replace($revenueIdentity, [
+                'avg_conversion' => $conversion,
+                'metric_sample_days' => ['revenue' => 7, 'conversion' => 7],
+                'metric_identities' => [
+                    'revenue' => $revenueIdentity['metric_identities']['revenue'],
+                    'conversion' => $conversionIdentity['metric_identities']['conversion'],
+                ],
+            ]);
+        };
 
         $summary = $this->invokeNonPublic($service, 'buildEffectValidationSummary', [
             [
                 [
                     'action_type' => 'price_adjust',
-                    'before' => ['data_status' => 'ok', 'avg_revenue' => 1000, 'avg_conversion' => 10],
-                    'after' => ['data_status' => 'ok', 'avg_revenue' => 1200, 'avg_conversion' => 12],
+                    'target_metric' => 'revenue',
+                    'before' => $effect(1000, 10),
+                    'after' => $effect(1200, 12),
                     'result' => ['status' => 'success'],
                 ],
                 [
                     'action_type' => 'price_adjust',
-                    'before' => ['data_status' => 'ok', 'avg_revenue' => 1000, 'avg_conversion' => 9],
-                    'after' => ['data_status' => 'ok', 'avg_revenue' => 1050, 'avg_conversion' => 9],
+                    'target_metric' => 'revenue',
+                    'before' => $effect(1000, 9),
+                    'after' => $effect(1050, 9),
                     'result' => ['status' => 'near_success'],
                 ],
                 [
                     'action_type' => 'promotion',
-                    'before' => ['data_status' => 'ok', 'avg_revenue' => 500, 'avg_conversion' => 8],
-                    'after' => ['data_status' => 'ok', 'avg_revenue' => 450, 'avg_conversion' => 7],
+                    'target_metric' => 'revenue',
+                    'before' => $effect(500, 8),
+                    'after' => $effect(450, 7),
                     'result' => ['status' => 'failed'],
                 ],
                 [
                     'action_type' => 'room_inventory',
-                    'before' => ['data_status' => 'ok', 'avg_revenue' => 300, 'avg_conversion' => 5],
+                    'target_metric' => 'revenue',
+                    'before' => $effect(300, 5),
                     'after' => ['data_status' => '待接入真实数据'],
                     'result' => ['status' => 'observing'],
                 ],
@@ -129,6 +254,186 @@ final class OperationManagementServiceTest extends TestCase
         self::assertNull($this->metricValue($summary, 'revenue_lift_rate'));
         self::assertNull($this->metricValue($summary, 'alert_accuracy_rate'));
         self::assertContains('operation_alerts_accuracy_label_missing', array_column($summary['data_gaps'], 'code'));
+    }
+
+    public function testActionEffectRejectsMissingOrDriftedMetricIdentityBeforeTerminalJudgment(): void
+    {
+        $service = new OperationManagementService();
+        $valid = $this->comparableEffectBaseline('revenue', 'ota_channel', 'ctrip', 'ctrip', 1000.0);
+
+        foreach ([
+            'legacy_before_without_identity' => array_diff_key($valid, ['metric_identities' => true]),
+            'whole_hotel_scope_drift' => $this->comparableEffectBaseline(
+                'revenue',
+                'whole_hotel_daily_report',
+                '',
+                'daily_reports',
+                1000.0
+            ),
+            'ota_platform_drift' => $this->comparableEffectBaseline('revenue', 'ota_channel', 'meituan', 'meituan', 1000.0),
+            'missing_source_scopes' => array_diff_key($valid, ['source_scopes' => true]),
+            'partial_data' => array_replace($valid, ['data_status' => 'partial']),
+        ] as $case => $before) {
+            $assessment = $this->invokeNonPublic(
+                $service,
+                'assessComparableActionEffectEvidence',
+                ['revenue', $before, array_replace($valid, ['avg_revenue' => 1200.0])]
+            );
+            self::assertFalse($assessment['comparable'], $case);
+            self::assertNotSame('', $assessment['gap_code'], $case);
+        }
+
+        $assessment = $this->invokeNonPublic(
+            $service,
+            'assessComparableActionEffectEvidence',
+            ['revenue', $valid, array_replace($valid, ['avg_revenue' => 1200.0])]
+        );
+        self::assertTrue($assessment['comparable']);
+        self::assertSame('', $assessment['gap_code']);
+    }
+
+    public function testActionEffectRejectsUnequalOrUntraceableObservationWindows(): void
+    {
+        $service = new OperationManagementService();
+        $before = $this->comparableEffectBaseline('revenue', 'ota_channel', 'ctrip', 'ctrip', 1000.0);
+        $after = array_replace($before, [
+            'days' => 4,
+            'actual_days' => 4,
+            'avg_revenue' => 1200.0,
+            'metric_sample_days' => ['revenue' => 4],
+            'window_start_date' => '2026-08-01',
+            'window_end_date' => '2026-08-04',
+        ]);
+
+        $unequal = $this->invokeNonPublic(
+            $service,
+            'assessComparableActionEffectEvidence',
+            ['revenue', $before, $after]
+        );
+        self::assertFalse($unequal['comparable']);
+        self::assertSame('operation_action_effect_window_mismatch', $unequal['gap_code']);
+
+        $missingCalendarRange = $this->invokeNonPublic(
+            $service,
+            'assessComparableActionEffectEvidence',
+            ['revenue', array_diff_key($before, ['window_start_date' => true]), $before]
+        );
+        self::assertFalse($missingCalendarRange['comparable']);
+        self::assertSame('operation_action_effect_window_metadata_missing', $missingCalendarRange['gap_code']);
+
+        $summary = $this->invokeNonPublic($service, 'buildEffectValidationSummary', [[[
+            'action_type' => 'price_adjust',
+            'target_metric' => 'revenue',
+            'before' => $before,
+            'after' => $after,
+            'result' => ['status' => 'success'],
+        ]], ['total' => 0, 'adopted' => 0], ['reviewed' => 0, 'accurate' => 0], []]);
+        self::assertSame(0, $summary['action_counts']['reviewed']);
+        self::assertSame(1, $summary['action_counts']['observing']);
+        self::assertNull($this->metricValue($summary, 'pricing_hit_rate'));
+        self::assertContains('operation_action_effect_window_mismatch', array_column($summary['data_gaps'], 'code'));
+    }
+
+    public function testEffectValidationExcludesTerminalStatusWhenBeforeAfterEvidenceIsNotComparable(): void
+    {
+        $service = new OperationManagementService();
+        $valid = $this->comparableEffectBaseline('revenue', 'ota_channel', 'ctrip', 'ctrip', 1000.0);
+        $drifted = $this->comparableEffectBaseline('revenue', 'ota_channel', 'meituan', 'meituan', 1200.0);
+
+        $summary = $this->invokeNonPublic($service, 'buildEffectValidationSummary', [[[
+            'action_type' => 'price_adjust',
+            'target_metric' => 'revenue',
+            'before' => $valid,
+            'after' => $drifted,
+            'result' => ['status' => 'success'],
+        ]], ['total' => 0, 'adopted' => 0], ['reviewed' => 0, 'accurate' => 0], []]);
+
+        self::assertSame(0, $summary['action_counts']['reviewed']);
+        self::assertSame(1, $summary['action_counts']['observing']);
+        self::assertSame(0, $summary['metrics'][2]['sample_count']);
+        self::assertContains('operation_action_effect_identity_drift', array_column($summary['data_gaps'], 'code'));
+    }
+
+    public function testActionEvaluationCannotBecomeTerminalAcrossOtaPlatformDrift(): void
+    {
+        $service = new OperationManagementService();
+        $row = [
+            'hotel_id' => 7,
+            'start_date' => '2026-08-01',
+            'end_date' => '2026-08-07',
+            'target_metric' => 'revenue',
+            'target_change_rate' => 10,
+        ];
+        $before = $this->comparableEffectBaseline('revenue', 'ota_channel', 'ctrip', 'ctrip', 1000);
+        $after = $this->comparableEffectBaseline('revenue', 'ota_channel', 'meituan', 'meituan', 1200);
+        $now = new \DateTimeImmutable('2026-08-13 00:30:00', new \DateTimeZone('Asia/Shanghai'));
+
+        $drifted = $this->invokeNonPublic($service, 'evaluateActionResult', [$row, $before, $after, $now]);
+        self::assertSame('observing', $drifted['status']);
+        self::assertSame('operation_action_effect_identity_drift', $drifted['gap_code']);
+
+        $valid = $this->invokeNonPublic(
+            $service,
+            'evaluateActionResult',
+            [$row, $before, array_replace($before, ['avg_revenue' => 1200]), $now]
+        );
+        self::assertSame('success', $valid['status']);
+    }
+
+    public function testShanghaiBusinessDateHelpersIgnoreProcessTimezoneAtUtcBoundary(): void
+    {
+        $service = new OperationManagementService();
+        $utcBoundary = new \DateTimeImmutable('2026-08-12 16:30:00', new \DateTimeZone('UTC'));
+
+        self::assertSame(
+            '2026-08-13',
+            $this->invokeNonPublic($service, 'operationShanghaiDateTime', [$utcBoundary])->format('Y-m-d')
+        );
+        self::assertSame(
+            '2026-08-13',
+            $this->invokeNonPublic($service, 'operationShanghaiBusinessDate', [$utcBoundary])
+        );
+        $originalTimezone = date_default_timezone_get();
+        date_default_timezone_set('UTC');
+        try {
+            self::assertSame('2026-08-13 00:30:00', $this->invokeNonPublic(
+                $service,
+                'executionReviewAvailableAt',
+                [[
+                    'source_module' => 'ota_diagnosis_saved',
+                    'target_value' => ['workflow_schedule' => ['review_at' => '2026-08-13 00:30:00']],
+                ], []]
+            ));
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testDailyWorkbenchPatrolDefaultUsesShanghaiBusinessDateAndRejectsOverflow(): void
+    {
+        $service = new OperationManagementService();
+        $shanghaiToday = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $originalTimezone = date_default_timezone_get();
+        date_default_timezone_set('Etc/GMT+12');
+        try {
+            $payload = $this->invokeNonPublic($service, 'buildDailyWorkbenchPatrolExecutionIntentInput', [[
+                'hotel_id' => 7,
+                'action_code' => 'collect_ota_data',
+                'run_id' => 'patrol-default-date',
+            ], 123]);
+            self::assertSame($shanghaiToday, $payload['date_start']);
+            self::assertSame($shanghaiToday, $payload['date_end']);
+            self::assertSame($shanghaiToday, $payload['target_value']['target_date']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->invokeNonPublic($service, 'buildDailyWorkbenchPatrolExecutionIntentInput', [[
+            'hotel_id' => 7,
+            'action_code' => 'collect_ota_data',
+            'target_date' => '2026-02-30',
+        ], 124]);
     }
 
     public function testExecutionIntentKeepsOtaDiagnosisEvidenceForDataCollectionAction(): void
@@ -207,10 +512,11 @@ final class OperationManagementServiceTest extends TestCase
     {
         $service = new OperationManagementService();
 
-        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
             [[
                 'hotel_id' => 7,
                 'report_date' => '2026-05-18',
+                'status' => 2,
                 'report_data' => json_encode([
                     'xb_revenue' => '1,200',
                     'mt_revenue' => 300,
@@ -243,21 +549,60 @@ final class OperationManagementServiceTest extends TestCase
         self::assertSame(300.0, $summary['adr']);
         self::assertSame(50.0, $summary['occ']);
         self::assertSame(150.0, $summary['revpar']);
-        self::assertSame('ok', $summary['data_status']);
+        self::assertSame('partial', $summary['data_status']);
         self::assertSame('mixed_whole_hotel_and_ota_channel', $summary['source_scope']);
         self::assertSame(['whole_hotel_daily_report'], $summary['metric_scopes']['revenue']);
         self::assertSame(['ota_channel'], $summary['metric_scopes']['orders']);
+        self::assertContains('operation_metric_scope_mixed', array_column($summary['data_gaps'], 'code'));
+    }
+
+    public function testDashboardSummaryDoesNotDoubleCountOtaOrdersCoveredByWholeHotelDailyReport(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
+            [[
+                'hotel_id' => 7,
+                'report_date' => '2026-05-18',
+                'status' => 2,
+                'report_data' => json_encode([
+                    'xb_revenue' => 1200,
+                    'xb_rooms' => 4,
+                    'salable_rooms' => 10,
+                    'order_count' => 10,
+                ], JSON_UNESCAPED_UNICODE),
+            ]],
+            [$this->trustedOtaOperatingRow([
+                'id' => 4,
+                'system_hotel_id' => 7,
+                'hotel_id' => 130079194,
+                'data_date' => '2026-05-18',
+                'source' => 'ctrip',
+                'platform' => 'ctrip',
+                'snapshot_time' => '2026-05-18 09:00:00',
+                'amount' => 999,
+                'quantity' => 9,
+                'book_order_num' => 3,
+            ])],
+            [7],
+            7,
+            '2026-05-18',
+        ]);
+
+        self::assertSame(10, $summary['orders']);
+        self::assertSame(['whole_hotel_daily_report'], $summary['metric_scopes']['orders']);
     }
 
     public function testDashboardSummaryKeepsMissingMetricsNullAndReportsGaps(): void
     {
         $service = new OperationManagementService();
 
-        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
             [[
                 'id' => 5,
                 'hotel_id' => 7,
                 'report_date' => '2026-07-15',
+                'status' => 2,
                 'revenue' => 0,
                 'report_data' => '{}',
             ]],
@@ -276,11 +621,48 @@ final class OperationManagementServiceTest extends TestCase
         self::assertContains('operation_room_nights_missing', array_column($summary['data_gaps'], 'code'));
     }
 
+    public function testDashboardSummaryRejectsUnverifiedDailyReportWithExplicitGap(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
+            [[
+                'id' => 9,
+                'hotel_id' => 7,
+                'report_date' => '2026-07-15',
+                'status' => 1,
+                'revenue' => 1200,
+                'report_data' => json_encode([
+                    'xb_revenue' => 1200,
+                    'xb_rooms' => 4,
+                    'order_count' => 6,
+                    'salable_rooms' => 10,
+                ], JSON_UNESCAPED_UNICODE),
+            ]],
+            [],
+            [7],
+            7,
+            '2026-07-15',
+        ]);
+
+        self::assertNull($summary['revenue']);
+        self::assertNull($summary['orders']);
+        self::assertNull($summary['room_nights']);
+        self::assertSame('partial', $summary['data_status']);
+        self::assertSame('partial', $summary['source_status']);
+        self::assertSame(1, $summary['rejected_daily_report_count']);
+        self::assertSame(['report_status_draft' => 1], $summary['rejected_daily_report_reasons']);
+        self::assertContains(
+            'operation_daily_report_validation_untrusted',
+            array_column($summary['data_gaps'], 'code')
+        );
+    }
+
     public function testDashboardSummaryRejectsExplicitZeroesWithoutCompleteTrustEvidence(): void
     {
         $service = new OperationManagementService();
 
-        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
             [],
             [[
                 'id' => 6,
@@ -312,7 +694,7 @@ final class OperationManagementServiceTest extends TestCase
     {
         $service = new OperationManagementService();
 
-        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
             [],
             [$this->trustedOtaOperatingRow([
                 'id' => 8,
@@ -387,7 +769,7 @@ final class OperationManagementServiceTest extends TestCase
             ], JSON_UNESCAPED_UNICODE),
         ]);
 
-        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
             [],
             [$partialCheckout],
             [80],
@@ -402,7 +784,7 @@ final class OperationManagementServiceTest extends TestCase
                 'quantity' => 3,
             ],
         ], JSON_UNESCAPED_UNICODE);
-        $blocked = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+        $blocked = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
             [],
             [$withoutMetricFacts],
             [80],
@@ -482,7 +864,7 @@ final class OperationManagementServiceTest extends TestCase
     {
         $service = new OperationManagementService();
 
-        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
             [],
             [$this->trustedOtaOperatingRow([
                 'id' => 7,
@@ -508,7 +890,7 @@ final class OperationManagementServiceTest extends TestCase
     {
         $service = new OperationManagementService();
 
-        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
             [],
             [
                 $this->trustedOtaOperatingRow([
@@ -632,7 +1014,7 @@ final class OperationManagementServiceTest extends TestCase
         self::assertSame(['exposure', 'visitors'], $ota['missing_metrics']);
         self::assertNotContains('online_daily_data#43491', array_column($ota['evidence_refs'], 'source_ref'));
 
-        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromTenantScopedRows', [
             [],
             [$selfBusiness, $competitorTraffic],
             [80],
@@ -939,6 +1321,224 @@ final class OperationManagementServiceTest extends TestCase
         );
     }
 
+    public function testExecutedTaskWithRemarkOnlyEvidenceStaysBlocked(): void
+    {
+        $service = new OperationManagementService();
+
+        $result = $service->buildExecutionTaskUpdate(
+            ['id' => 81, 'status' => 'pending_execute'],
+            ['status' => 'approved', 'source_module' => 'manual'],
+            [
+                'status' => 'executed',
+                'evidence_type' => 'manual_operation_execution',
+                'evidence' => [
+                    'platform_response' => ['mode' => 'manual'],
+                    'remark' => 'operator says the action was done',
+                ],
+            ],
+            9
+        );
+
+        self::assertSame('blocked', $result['task']['status']);
+        self::assertStringContainsString('meaningful execution evidence', $result['task']['blocked_reason']);
+        self::assertArrayNotHasKey('executed_at', $result['task']);
+        self::assertNull($result['evidence']);
+    }
+
+    public function testMeaningfulExecutionReceiptContractRequiresAuditableContentAndOperator(): void
+    {
+        self::assertFalse(OperationManagementService::isMeaningfulExecutionReceipt([
+            'evidence_type' => 'manual_operation_execution',
+            'platform_response' => ['mode' => 'manual', 'arbitrary' => 'non-empty'],
+            'remark' => 'free-form text is not a receipt',
+            'created_by' => 9,
+        ], 9));
+        self::assertFalse(OperationManagementService::isMeaningfulExecutionReceipt([
+            'evidence_type' => 'source_verified_metric_readback',
+            'before' => ['conversion_rate' => 10],
+            'after' => ['conversion_rate' => 12],
+            'created_by' => 0,
+        ]));
+        self::assertFalse(OperationManagementService::isMeaningfulExecutionReceipt([
+            'evidence_type' => 'manual_operation_execution',
+            'platform_response' => ['completed_action' => 'updated campaign image'],
+            'created_by' => 8,
+        ], 9));
+        self::assertFalse(OperationManagementService::isMeaningfulExecutionReceipt([
+            'evidence_type' => 'manual_operation_execution',
+            'before_json' => '{"arbitrary":"same-placeholder"}',
+            'after_json' => '{"arbitrary":"same-placeholder"}',
+            'created_by' => 9,
+        ], 9));
+        self::assertFalse(OperationManagementService::isMeaningfulExecutionReceipt([
+            'evidence_type' => 'manual_operation_execution',
+            'before_json' => '{"arbitrary":"placeholder-a"}',
+            'after_json' => '{"arbitrary":"placeholder-b"}',
+            'created_by' => 9,
+        ], 9));
+        self::assertFalse(OperationManagementService::isMeaningfulExecutionReceipt([
+            'evidence_type' => 'manual_operation_execution',
+            'before_json' => '{"hero_image":"same-image"}',
+            'after_json' => '{"hero_image":"same-image"}',
+            'created_by' => 9,
+        ], 9));
+
+        self::assertTrue(OperationManagementService::isMeaningfulExecutionReceipt([
+            'evidence_type' => 'manual_operation_execution',
+            'platform_response' => ['completed_action' => 'updated campaign image'],
+            'created_by' => 9,
+        ], 9));
+        self::assertTrue(OperationManagementService::isMeaningfulExecutionReceipt([
+            'evidence_type' => 'manual_operation_execution',
+            'before_json' => '{"hero_image":"baseline"}',
+            'after_json' => '{"hero_image":"candidate_b"}',
+            'created_by' => 9,
+        ], 9));
+        self::assertTrue(OperationManagementService::isMeaningfulExecutionReceipt([
+            'evidence_type' => 'manual_screenshot',
+            'attachment_path' => '/runtime/evidence/campaign-81.png',
+            'created_by' => 9,
+        ], 9));
+    }
+
+    public function testExecutedTaskWithPlaceholderBeforeAfterEvidenceStaysBlocked(): void
+    {
+        $service = new OperationManagementService();
+
+        $result = $service->buildExecutionTaskUpdate(
+            ['id' => 81, 'status' => 'pending_execute'],
+            ['status' => 'approved', 'source_module' => 'manual'],
+            [
+                'status' => 'executed',
+                'evidence_type' => 'manual_operation_execution',
+                'evidence' => [
+                    'before' => ['arbitrary' => 'same-placeholder'],
+                    'after' => ['arbitrary' => 'same-placeholder'],
+                ],
+            ],
+            9
+        );
+
+        self::assertSame('blocked', $result['task']['status']);
+        self::assertStringContainsString('meaningful execution evidence', $result['task']['blocked_reason']);
+        self::assertArrayNotHasKey('executed_at', $result['task']);
+        self::assertNull($result['evidence']);
+    }
+
+    public function testOperatingNetworkReadbackUsesTargetHotelSameScopeVerifiedRows(): void
+    {
+        $service = new OperationManagementService();
+        $baselineDate = (new \DateTimeImmutable('today'))->modify('-2 days')->format('Y-m-d');
+        $reviewDate = (new \DateTimeImmutable('today'))->modify('-1 day')->format('Y-m-d');
+        $executedAt = $baselineDate . ' 18:00:00';
+        $reviewAt = $reviewDate . ' 10:00:00';
+        $readbackAt = $reviewDate . ' 12:00:00';
+        $intent = [
+            'tenant_id' => 10,
+            'hotel_id' => 21,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'expected_metric' => 'conversion_rate',
+            'date_start' => $baselineDate,
+            'date_end' => $baselineDate,
+            'current_value' => ['conversion_rate' => 10],
+        ];
+        $task = ['id' => 81, 'hotel_id' => 21, 'executed_at' => $executedAt];
+        $scope = [
+            'intent_platform' => 'ctrip',
+            'readback_platform' => 'ctrip',
+            'expected_metric' => 'conversion_rate',
+            'object_type' => 'campaign',
+            'date_start' => $baselineDate,
+            'date_end' => $baselineDate,
+            'baseline_date' => $baselineDate,
+            'review_date' => $reviewDate,
+            'review_timestamp' => strtotime($reviewAt),
+            'executed_timestamp' => strtotime($executedAt),
+            'replication_id' => 17,
+            'replication_content_digest' => str_repeat('a', 64),
+            'execution_contract_digest' => str_repeat('b', 64),
+            'declared_target_fact_refs' => ['online_daily_data#701'],
+            'declared_target_fact_ids' => [701],
+        ];
+        $row = static function (int $id, string $date, string $collectedAt, int $orders): array {
+            return [
+                'id' => $id,
+                'tenant_id' => 10,
+                'system_hotel_id' => 21,
+                'data_source_id' => 25,
+                'data_date' => $date,
+                'platform' => 'ctrip',
+                'source' => 'ctrip',
+                'compare_type' => 'self',
+                'data_type' => 'traffic',
+                'data_period' => 'historical_daily',
+                'is_final' => 1,
+                'dimension' => 'catalog:ctrip:business_flow_transform:v1',
+                'list_exposure' => 1000,
+                'detail_exposure' => 100,
+                'visitors' => 100,
+                'book_order_num' => $orders,
+                'validation_status' => 'verified',
+                'readback_verified' => 1,
+                'ingestion_method' => 'authorized_api_collection',
+                'collected_at' => $collectedAt,
+            ];
+        };
+        $baselineRow = $row(701, $baselineDate, $baselineDate . ' 12:00:00', 10);
+        $reviewRow = $row(702, $reviewDate, $readbackAt, 12);
+
+        $payload = $this->invokeNonPublic(
+            $service,
+            'buildOperatingNetworkSourceVerifiedReadbackPayloadFromRows',
+            [$task, $intent, $scope, [$baselineRow], [$reviewRow]]
+        );
+        self::assertIsArray($payload);
+        self::assertSame('source_verified_metric_readback', $payload['evidence_type']);
+        self::assertSame('online_daily_data#701', $payload['platform_response']['baseline_source_ref']);
+        self::assertSame('online_daily_data#702', $payload['platform_response']['followup_source_ref']);
+        self::assertSame(21, $payload['platform_response']['system_hotel_id']);
+        self::assertSame('ctrip', $payload['platform_response']['platform']);
+        self::assertSame('conversion_rate', $payload['platform_response']['metric_key']);
+        self::assertTrue($payload['platform_response']['readback_verified']);
+        self::assertFalse($payload['platform_response']['causality_claimed']);
+
+        $truth = $this->invokeNonPublic($service, 'assessExecutionEvidenceTruth', [$intent, $task, $payload]);
+        self::assertTrue($truth['source_verified']);
+
+        $unverifiedReviewRow = array_replace($reviewRow, ['readback_verified' => 0]);
+        self::assertNull($this->invokeNonPublic(
+            $service,
+            'buildOperatingNetworkSourceVerifiedReadbackPayloadFromRows',
+            [$task, $intent, $scope, [$baselineRow], [$unverifiedReviewRow]]
+        ));
+        $wrongHotelReviewRow = array_replace($reviewRow, ['system_hotel_id' => 22]);
+        self::assertNull($this->invokeNonPublic(
+            $service,
+            'buildOperatingNetworkSourceVerifiedReadbackPayloadFromRows',
+            [$task, $intent, $scope, [$baselineRow], [$wrongHotelReviewRow]]
+        ));
+        $driftedBaselineScope = array_replace($scope, [
+            'declared_target_fact_refs' => ['online_daily_data#700'],
+            'declared_target_fact_ids' => [700],
+        ]);
+        self::assertNull($this->invokeNonPublic(
+            $service,
+            'buildOperatingNetworkSourceVerifiedReadbackPayloadFromRows',
+            [$task, $intent, $driftedBaselineScope, [$baselineRow], [$reviewRow]]
+        ));
+
+        $dispatcher = new \ReflectionMethod(OperationManagementService::class, 'buildSourceVerifiedMetricReadbackPayload');
+        $lines = file($dispatcher->getFileName()) ?: [];
+        $source = implode('', array_slice(
+            $lines,
+            $dispatcher->getStartLine() - 1,
+            $dispatcher->getEndLine() - $dispatcher->getStartLine() + 1
+        ));
+        self::assertStringContainsString('OperatingNetworkService::EXECUTION_SOURCE_MODULE', $source);
+        self::assertStringContainsString('buildOperatingNetworkSourceVerifiedReadbackPayload', $source);
+    }
+
     public function testLegacyExecutionRowsRedactCredentialsWithoutAlteringCurrencyOrIds(): void
     {
         $service = new OperationManagementService();
@@ -1000,8 +1600,14 @@ final class OperationManagementServiceTest extends TestCase
 
     public function testExecutionTaskReviewGuardsBothInputAndDerivedSummaryBeforeWrite(): void
     {
-        $method = new \ReflectionMethod(OperationManagementService::class, 'reviewExecutionTask');
+        $entryMethod = new \ReflectionMethod(OperationManagementService::class, 'reviewExecutionTask');
+        $method = new \ReflectionMethod(OperationManagementService::class, 'reviewExecutionTaskAuthorized');
         $lines = file($method->getFileName()) ?: [];
+        $entrySource = implode('', array_slice(
+            $lines,
+            $entryMethod->getStartLine() - 1,
+            $entryMethod->getEndLine() - $entryMethod->getStartLine() + 1
+        ));
         $source = implode('', array_slice(
             $lines,
             $method->getStartLine() - 1,
@@ -1010,22 +1616,28 @@ final class OperationManagementServiceTest extends TestCase
 
         self::assertGreaterThanOrEqual(
             2,
-            substr_count($source, 'assertExecutionPayloadHasNoCredentialMaterial'),
+            substr_count($entrySource . $source, 'assertExecutionPayloadHasNoCredentialMaterial'),
             'Task review must guard both request input and any summary derived from legacy action tracking.'
         );
     }
 
     public function testExecutionTaskReviewUsesTransactionalCompareAndSwap(): void
     {
-        $method = new \ReflectionMethod(OperationManagementService::class, 'reviewExecutionTask');
+        $entryMethod = new \ReflectionMethod(OperationManagementService::class, 'reviewExecutionTask');
+        $method = new \ReflectionMethod(OperationManagementService::class, 'reviewExecutionTaskAuthorized');
         $lines = file($method->getFileName()) ?: [];
+        $entrySource = implode('', array_slice(
+            $lines,
+            $entryMethod->getStartLine() - 1,
+            $entryMethod->getEndLine() - $entryMethod->getStartLine() + 1
+        ));
         $source = implode('', array_slice(
             $lines,
             $method->getStartLine() - 1,
             $method->getEndLine() - $method->getStartLine() + 1
         ));
 
-        self::assertStringContainsString('Db::transaction', $source);
+        self::assertStringContainsString('withExecutionTaskMutationAuthorization', $entrySource);
         self::assertStringContainsString("->where('status', 'executed')", $source);
         self::assertStringContainsString("->where('result_status', \$expectedResultStatus)", $source);
         self::assertStringContainsString("->where('result_summary', \$expectedResultSummary)", $source);
@@ -1340,7 +1952,7 @@ final class OperationManagementServiceTest extends TestCase
 
     public function testTemporalForecastDatabaseFailureIsNotReportedAsMissingReadback(): void
     {
-        $targetDate = date('Y-m-d', strtotime('-1 day'));
+        $targetDate = '2026-08-12';
         $service = new OperationManagementService(
             null,
             null,
@@ -1385,7 +1997,7 @@ final class OperationManagementServiceTest extends TestCase
                     'forecast_run_id' => 'forecast-run-123',
                 ]],
             ],
-        ], 'all_ota']);
+        ], 'all_ota', new \DateTimeImmutable('2026-08-12 16:30:00', new \DateTimeZone('UTC'))]);
     }
 
     public function testSavedOtaDiagnosisApprovalFreezesTargetAndExactReadbackDigest(): void
@@ -1831,6 +2443,35 @@ final class OperationManagementServiceTest extends TestCase
         }
 
         self::fail('Metric not found: ' . $key);
+    }
+
+    /** @return array<string,mixed> */
+    private function comparableEffectBaseline(
+        string $metric,
+        string $scope,
+        string $platform,
+        string $source,
+        float $value
+    ): array {
+        $valueKey = 'avg_' . $metric;
+        return [
+            'data_status' => 'ok',
+            'days' => 7,
+            'actual_days' => 7,
+            'window_start_date' => '2026-07-25',
+            'window_end_date' => '2026-07-31',
+            $valueKey => $value,
+            'metric_sample_days' => [$metric => 7],
+            'source_scopes' => [$scope],
+            'metric_identities' => [$metric => [[
+                'metric' => $metric,
+                'scope' => $scope,
+                'platform' => $platform,
+                'source' => $source,
+                'measurement_grain' => 'daily_average',
+            ]]],
+            'data_gaps' => [],
+        ];
     }
 
     /** @param array<string, mixed> $overrides */

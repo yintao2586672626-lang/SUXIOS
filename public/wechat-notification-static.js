@@ -287,6 +287,8 @@
             latestDispatch: { type: Object, default: null },
             validationErrors: { type: Object, default: () => ({}) },
             operatingDaily: { type: Boolean, default: false },
+            strictThreeSourceInterval: { type: Boolean, default: false },
+            strictThreeSourceIntervalAvailable: { type: Boolean, default: false },
             error: { type: String, default: '' },
         },
         emits: ['field-change'],
@@ -335,10 +337,16 @@
                 const metadata = props.metadata || {};
                 const form = props.form || {};
                 const triggerType = String(form.trigger_type || 'manual_test');
+                const conditionType = String(form.condition_type || 'always');
                 const operatingDailyTriggerAllowed = (
                     !props.operatingDaily
                     || ['manual_test', 'daily_fixed_time'].includes(triggerType)
+                    || props.strictThreeSourceInterval
                 );
+                const strictIntervalNeedsCorrection = props.operatingDaily
+                    && triggerType === 'interval_minutes'
+                    && props.strictThreeSourceIntervalAvailable
+                    && !props.strictThreeSourceInterval;
                 const planActive = form.enabled
                     && form.schedule_status === 'schedule_enabled'
                     && operatingDailyTriggerAllowed;
@@ -376,7 +384,9 @@
                     : '未取得发送回执';
                 const blocker = props.error
                     || (!operatingDailyTriggerAllowed
-                        ? '旧循环计划已停用，请改为每日固定时间并重新测试'
+                        ? (strictIntervalNeedsCorrection
+                            ? '三源严格计划配置不完整，请恢复当日、正式群及指定四项内容'
+                            : '旧循环计划已停用，请改为每日固定时间并重新测试')
                         : !form.enabled
                         ? '计划已暂停'
                         : form.schedule_status === 'awaiting_test'
@@ -429,7 +439,12 @@
                 const triggerOptions = props.operatingDaily
                     ? [
                         ...configuredOperatingDailyTriggers,
-                        ...(!operatingDailyTriggerAllowed ? [{
+                        ...(props.strictThreeSourceIntervalAvailable ? [{
+                            key: 'interval_minutes',
+                            label: '每 30 分钟（三源严格计划）',
+                        }] : []),
+                        ...(!operatingDailyTriggerAllowed
+                            && !props.strictThreeSourceIntervalAvailable ? [{
                             key: triggerType,
                             label: `${optionLabel(
                                 allTriggerOptions,
@@ -440,6 +455,31 @@
                         }] : []),
                     ]
                     : allTriggerOptions;
+                const templateType = String(form.template_type || form.notification_type || '');
+                const hasPmsConditionFacts = !props.operatingDaily || (
+                    ['combined', 'dingdandao_pms'].includes(
+                        String(selectedSourceScope.key || '')
+                    )
+                    && selectedSections.includes('pms_efficiency')
+                );
+                const conditionRules = (Array.isArray(metadata.condition_rules)
+                    ? metadata.condition_rules
+                    : [{ key: 'always', label: '到点即发送' }]
+                ).filter(rule => {
+                    const supported = Array.isArray(rule?.supported_template_types)
+                        ? rule.supported_template_types
+                        : [];
+                    const templateSupported = supported.length === 0
+                        || supported.includes(templateType);
+                    const factsSupported = rule?.requires_pms_facts !== true
+                        || hasPmsConditionFacts;
+                    return String(rule?.key || '') === 'always'
+                        || (templateSupported && factsSupported);
+                });
+                const selectedCondition = conditionRules.find(
+                    rule => String(rule?.key || '') === conditionType
+                ) || conditionRules[0] || { key: 'always', label: '到点即发送' };
+                const conditionState = form.condition_state || null;
 
                 return h('section', {
                     class: 'rounded-2xl border border-[#eadfc9] bg-[#fffdf8] p-4',
@@ -455,17 +495,22 @@
                         }, planActive
                             ? '本计划已开启'
                             : !operatingDailyTriggerAllowed
-                                ? '旧循环计划已阻断'
+                                ? (strictIntervalNeedsCorrection
+                                    ? '严格计划配置待修正'
+                                    : '旧循环计划已阻断')
                                 : '本计划已暂停'),
                     ]),
-                    h('div', { class: 'mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4' }, [
+                    h('div', { class: 'mt-4 grid grid-cols-2 gap-2 lg:grid-cols-5' }, [
                         summary('数据范围', props.dataScopeLabel, 'manual-notification-data-scope'),
                         summary('数据日期', dateRuleLabel, 'manual-notification-date-rule-summary'),
+                        summary('发送条件', selectedCondition.label || conditionType, 'manual-notification-condition-summary'),
                         summary('计划状态', form.schedule_status_label || props.dataStatus),
                         summary(
                             '下次运行',
                             !operatingDailyTriggerAllowed
-                                ? '循环计划已停用'
+                                ? (strictIntervalNeedsCorrection
+                                    ? '严格计划配置待修正'
+                                    : '循环计划已停用')
                                 : (form.next_run_at || '保存并通过测试后计算'),
                             'manual-notification-next-run'
                         ),
@@ -573,13 +618,16 @@
                                 ), '', fieldError('hourly_end_time')),
                             ]),
                         ] : []),
-                        ...(!props.operatingDaily && triggerType === 'interval_minutes' ? [
+                        ...((!props.operatingDaily || props.strictThreeSourceIntervalAvailable)
+                            && triggerType === 'interval_minutes' ? [
                             field('每隔多久发送', input(
                                 'interval_minutes',
                                 'number',
                                 'manual-notification-interval-minutes',
-                                { min: 5, max: 1440, step: 1 }
-                            ), '',
+                                props.operatingDaily
+                                    ? { min: 30, max: 30, step: 30, readonly: true }
+                                    : { min: 5, max: 1440, step: 1 }
+                            ), props.operatingDaily ? '酒店 80 三源严格计划固定为每 30 分钟。' : '',
                             fieldError('interval_minutes')),
                             field('首次发送时间', input(
                                 'hourly_start_time',
@@ -594,7 +642,43 @@
                                 class: 'md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800',
                                 role: 'alert',
                                 'data-testid': 'manual-notification-operating-daily-loop-blocked',
-                            }, '该旧计划使用循环发送，现已停止执行。请选择“每日固定时间”并重新保存、测试后再启用。'),
+                            }, strictIntervalNeedsCorrection
+                                ? '该每 30 分钟计划已偏离酒店 80 三源严格合同，请恢复当日、正式群及指定四项内容。'
+                                : '该旧计划使用循环发送，现已停止执行。请选择“每日固定时间”并重新保存、测试后再启用。'),
+                        ] : []),
+                        field('发送条件', select(
+                            'condition_type',
+                            conditionRules,
+                            'manual-notification-condition-type'
+                        ), selectedCondition.description || '时间到达后再按经营事实判断是否发送。', fieldError('condition_type')),
+                        ...(conditionType === 'occupancy_ladder' ? [
+                            field('入住率起始档（%）', input(
+                                'condition_threshold',
+                                'number',
+                                'manual-notification-condition-threshold',
+                                { min: 0.01, max: 100, step: 0.01 }
+                            ), '首次达到该档位时发送。', fieldError('condition_threshold')),
+                            field('跨档步长（百分点）', input(
+                                'condition_step',
+                                'number',
+                                'manual-notification-condition-step',
+                                { min: 0.01, max: 100, step: 0.01 }
+                            ), '例如起始 20、步长 5：20/25/30…各成功提醒一次。', fieldError('condition_step')),
+                        ] : []),
+                        ...(conditionType === 'full_house' ? [
+                            h('p', {
+                                class: 'md:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800',
+                                'data-testid': 'manual-notification-full-house-rule-help',
+                            }, '只读取同酒店、同业务日已保存回读的 PMS 事实；可售归零后首次成功送达才记为已提醒。'),
+                        ] : []),
+                        ...(conditionType !== 'always' && conditionState ? [
+                            h('div', {
+                                class: 'md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700',
+                                'data-testid': 'manual-notification-condition-state',
+                            }, [
+                                h('b', {}, '最近规则状态：'),
+                                h('span', {}, `业务日 ${conditionState.business_date || '未取得'}；最近观测 ${conditionState.last_observed_value ?? '未取得'}；已成功档位 ${conditionState.highest_triggered_bucket ?? '尚未触发'}；触发时间 ${conditionState.last_triggered_at || '尚未触发'}`),
+                            ]),
                         ] : []),
                         h('fieldset', {
                             class: 'md:col-span-2',

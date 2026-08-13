@@ -369,7 +369,7 @@ class OperationLog extends BaseTenantModel
             || $explicitTenantId <= 0
             || (int)($extraData['hotel_id'] ?? 0) !== $hotelId
             || trim((string)($extraData['contract_version'] ?? ''))
-                !== 'suxios.dual_ota_page_verification.v1'
+                !== 'suxios.dual_ota_page_verification.v2'
         ) {
             return false;
         }

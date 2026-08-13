@@ -24,3 +24,22 @@ test('validated capture sections stay bounded and are reported in the safe summa
   assert.match(source, /\$syncOptions\['capture_sections'\] = \$boundedSections/);
   assert.match(source, /'capture_sections' => \$captureSections/);
 });
+
+test('operator sync keeps business date and data period mutually consistent', () => {
+  assert.match(source, /'data-period:'/);
+  assert.match(source, /new \\DateTimeZone\('Asia\/Shanghai'\)/);
+  assert.match(source, /\$targetDay < \$today \? 'historical_daily' : 'realtime_snapshot'/);
+  assert.match(source, /data_period_target_date_mismatch/);
+  assert.match(source, /'data_period' => \$dataPeriod/);
+  assert.match(source, /'snapshot_time' => \$dataPeriod === 'realtime_snapshot'/);
+});
+
+test('operator sync reports and exits from the exact run readback instead of aggregate task counts', () => {
+  assert.match(source, /\$receipt = is_array\(\$taskStats\['run_readback'\]/);
+  assert.match(source, /->where\('data_period', \$dataPeriod\)/);
+  assert.match(source, /\$exactReadbackVerified =/);
+  assert.match(source, /'task_saved_count' =>/);
+  assert.match(source, /'target_saved_count' => count\(\$targetRowIds\)/);
+  assert.match(source, /'target_readback_count' => \$targetDateReadbackCount/);
+  assert.match(source, /&& \$exactReadbackVerified \? 0 : 2/);
+});

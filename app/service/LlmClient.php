@@ -386,6 +386,30 @@ class LlmClient
             ];
         }
 
+        $finishReason = strtolower(trim((string)($data['choices'][0]['finish_reason'] ?? '')));
+        if (is_array($options['json_schema'] ?? null) && $finishReason !== 'stop') {
+            $message = 'LLM structured response did not finish normally';
+            return [
+                'success' => false,
+                'circuit_failure' => true,
+                'response' => (string)$response,
+                'http_status' => $statusCode,
+                'retry_attempts' => (int)$transport['retry_attempts'],
+                'payload_size' => strlen($payloadJson),
+                'error_type' => 'incomplete_structured_response',
+                'error_message' => $message,
+                'result' => [
+                    'ok' => false,
+                    'message' => $message,
+                    'code' => 502,
+                    'finish_reason' => $finishReason,
+                    'data' => $this->debug('incomplete_structured_response', $config, $statusCode, '', $prompt, $content, $message, array_merge($debugMeta, [
+                        'finish_reason' => $finishReason,
+                    ]), strlen($payloadJson)),
+                ],
+            ];
+        }
+
         if (is_array($options['json_schema'] ?? null)) {
             $structured = json_decode($this->extractJsonText($content), true);
             if (!is_array($structured)) {
@@ -407,6 +431,30 @@ class LlmClient
                     ],
                 ];
             }
+            try {
+                $this->assertStructuredJsonMatchesSchema($structured, $options['json_schema']);
+            } catch (RuntimeException) {
+                $message = 'LLM structured response does not match the required schema';
+                return [
+                    'success' => false,
+                    'circuit_failure' => true,
+                    'response' => (string)$response,
+                    'http_status' => $statusCode,
+                    'retry_attempts' => (int)$transport['retry_attempts'],
+                    'payload_size' => strlen($payloadJson),
+                    'error_type' => 'structured_schema_mismatch',
+                    'error_message' => $message,
+                    'result' => [
+                        'ok' => false,
+                        'message' => $message,
+                        'code' => 502,
+                        'finish_reason' => $finishReason,
+                        'data' => $this->debug('structured_schema_mismatch', $config, $statusCode, '', $prompt, $content, $message, array_merge($debugMeta, [
+                            'finish_reason' => $finishReason,
+                        ]), strlen($payloadJson)),
+                    ],
+                ];
+            }
         }
 
         return [
@@ -425,6 +473,7 @@ class LlmClient
                 'model' => $config['model'],
                 'model_key' => $config['model_key'],
                 'provider' => $config['provider'],
+                'finish_reason' => $finishReason,
                 'data' => [
                     'debug' => [
                         'provider' => (string)$config['provider'],
@@ -439,6 +488,7 @@ class LlmClient
                         'retry_attempts' => (int)$transport['retry_attempts'],
                         'max_retries' => (int)$transport['max_retries'],
                         'retry_delays_ms' => $this->retrySchedule($options),
+                        'finish_reason' => $finishReason,
                     ],
                 ],
             ],
@@ -687,6 +737,80 @@ class LlmClient
         return $data;
     }
 
+    /**
+     * Execute one current-provider structured request without provider, cache,
+     * rule-engine or idempotency replay fallback. The caller can therefore
+     * persist the actual provider/model and truthfully distinguish this call
+     * from a degraded answer.
+     *
+     * @return array{data:array<string,mixed>,meta:array<string,mixed>}
+     */
+    public function createJsonResponseEnvelope(
+        array $messages,
+        array $schema,
+        string $modelKey = 'deepseek_v4_default'
+    ): array {
+        $governanceMeta = $this->schemaGovernanceMeta($schema);
+        $schemaForPrompt = $this->schemaWithoutGovernance($schema);
+        $prompt = $this->messagesToPrompt($messages, $schemaForPrompt);
+        $anonymousUserId = substr(hash('sha256', implode(':', [
+            'suxios-operating-question',
+            (string)($governanceMeta['hotel_id'] ?? 0),
+            (string)($governanceMeta['user_id'] ?? 0),
+        ])), 0, 40);
+        $result = $this->chat($prompt, $modelKey, array_merge($governanceMeta, [
+            'prompt_length' => mb_strlen($prompt),
+        ]), [
+            'temperature' => 0.1,
+            'timeout' => 45,
+            'max_tokens' => 2048,
+            'max_retries' => 1,
+            'retry_base_delay_ms' => 500,
+            'retry_max_delay_ms' => 1000,
+            'retry_jitter_ms' => 0,
+            'json_schema' => $schemaForPrompt,
+            'json_schema_name' => $this->schemaResponseName((string)($governanceMeta['scenario'] ?? $governanceMeta['prompt_version'] ?? 'structured_response')),
+            'provider_fallback_enabled' => false,
+            'max_provider_fallbacks' => 0,
+            'response_cache_enabled' => false,
+            'idempotency_enabled' => false,
+            'deepseek_thinking' => 'disabled',
+            'user_id' => $anonymousUserId,
+        ]);
+        if (($result['ok'] ?? false) !== true
+            || ($result['degraded'] ?? false) === true
+            || ($result['fallback_used'] ?? false) === true
+        ) {
+            throw new RuntimeException(
+                (string)($result['message'] ?? 'LLM direct structured request failed'),
+                (int)($result['code'] ?? 200)
+            );
+        }
+
+        $jsonText = $this->extractJsonText((string)($result['content'] ?? ''));
+        $data = json_decode($jsonText, true);
+        if (!is_array($data)) {
+            throw new RuntimeException('LLM did not return valid JSON.');
+        }
+        $this->assertStructuredJsonMatchesSchema($data, $schemaForPrompt);
+        $this->updateGovernanceFromJson($result, $data);
+        $debug = is_array($result['data']['debug'] ?? null) ? $result['data']['debug'] : [];
+
+        return [
+            'data' => $data,
+            'meta' => [
+                'provider' => mb_substr(trim((string)($result['provider'] ?? $debug['provider'] ?? '')), 0, 50),
+                'model_key' => mb_substr(trim((string)($result['model_key'] ?? $debug['model_key'] ?? $modelKey)), 0, 100),
+                'model' => mb_substr(trim((string)($result['model'] ?? $debug['model'] ?? '')), 0, 150),
+                'finish_reason' => mb_substr(trim((string)($result['finish_reason'] ?? $debug['finish_reason'] ?? '')), 0, 50),
+                'http_status' => max(0, (int)($debug['http_status'] ?? 0)),
+                'fallback_used' => false,
+                'cache_hit' => false,
+                'degraded' => false,
+            ],
+        ];
+    }
+
     public function isConfiguredModelKey(string $modelKey): bool
     {
         $modelKey = $this->normalizeModelKey($modelKey);
@@ -755,6 +879,9 @@ class LlmClient
         if ($modelName === '') {
             return $this->configIssue('AI模型名称为空，请填写实际模型名。', $errorConfig);
         }
+        $configuredModelName = $modelName;
+        $modelName = $this->resolvedProviderModelName($provider, $modelName);
+        $errorConfig['model'] = $modelName;
         if ($requiresApiKey && trim((string)$config->api_key_encrypted) === '') {
             return $this->configIssue('AI模型 API Key 为空，请重新保存密钥。', $errorConfig);
         }
@@ -778,6 +905,8 @@ class LlmClient
             'base_url' => $baseUrl,
             'api_key' => $apiKey,
             'model' => $modelName,
+            'configured_model' => $configuredModelName,
+            'model_compatibility_mapped' => $configuredModelName !== $modelName,
             'model_key' => $requestedModelKey,
             'source' => 'database',
         ];
@@ -792,6 +921,18 @@ class LlmClient
             'config_entry' => '/ai-model-config',
             'next_action' => '检查模型Key、Base URL、模型名称、API Key和AI_CONFIG_SECRET。',
         ], $config);
+    }
+
+    private function resolvedProviderModelName(string $provider, string $modelName): string
+    {
+        if (strtolower(trim($provider)) !== 'deepseek') {
+            return trim($modelName);
+        }
+        return match (strtolower(trim($modelName))) {
+            'deepseek-chat' => 'deepseek-v4-flash',
+            'deepseek-reasoner' => 'deepseek-v4-pro',
+            default => trim($modelName),
+        };
     }
 
     private function normalizeModelKey(string $modelKey, array $options = []): string
@@ -1334,7 +1475,22 @@ class LlmClient
         if ($responseFormat !== []) {
             $payload['response_format'] = $responseFormat;
         }
-        if (strtolower(trim((string)($config['provider'] ?? ''))) === 'ollama') {
+        $provider = strtolower(trim((string)($config['provider'] ?? '')));
+        if ($provider === 'deepseek') {
+            $payload['thinking'] = [
+                'type' => strtolower(trim((string)($options['deepseek_thinking'] ?? 'disabled'))) === 'enabled'
+                    ? 'enabled'
+                    : 'disabled',
+            ];
+            $userId = trim((string)($options['user_id'] ?? ''));
+            if ($userId !== '' && preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $userId) === 1) {
+                $payload['user_id'] = $userId;
+            }
+        }
+        if (isset($options['max_tokens'])) {
+            $payload['max_tokens'] = max(1, min(8192, (int)$options['max_tokens']));
+        }
+        if ($provider === 'ollama') {
             $payload['reasoning_effort'] = (string)($options['reasoning_effort'] ?? 'none');
         }
 
@@ -1344,6 +1500,10 @@ class LlmClient
     private function nativeJsonSchemaResponseFormat(array $config, array $options): array
     {
         $provider = strtolower(trim((string)($config['provider'] ?? '')));
+        if ($provider === 'deepseek') {
+            $schema = $options['json_schema'] ?? null;
+            return is_array($schema) && $schema !== [] ? ['type' => 'json_object'] : [];
+        }
         if (!in_array($provider, ['openai', 'ollama'], true)) {
             return [];
         }
@@ -1371,6 +1531,49 @@ class LlmClient
             $name = 'structured_response';
         }
         return substr($name, 0, 64);
+    }
+
+    /** @param array<string,mixed> $schema */
+    private function assertStructuredJsonMatchesSchema(mixed $value, array $schema, string $path = '$'): void
+    {
+        if (isset($schema['enum']) && is_array($schema['enum']) && !in_array($value, $schema['enum'], true)) {
+            throw new RuntimeException('LLM structured JSON enum mismatch at ' . $path);
+        }
+
+        $type = strtolower(trim((string)($schema['type'] ?? '')));
+        $validType = match ($type) {
+            '', 'any' => true,
+            'object' => is_array($value) && ($value === [] || !array_is_list($value)),
+            'array' => is_array($value) && array_is_list($value),
+            'string' => is_string($value),
+            'integer' => is_int($value),
+            'number' => is_int($value) || is_float($value),
+            'boolean' => is_bool($value),
+            'null' => $value === null,
+            default => false,
+        };
+        if (!$validType) {
+            throw new RuntimeException('LLM structured JSON type mismatch at ' . $path);
+        }
+
+        if ($type === 'object') {
+            foreach ((array)($schema['required'] ?? []) as $required) {
+                $required = (string)$required;
+                if ($required !== '' && !array_key_exists($required, $value)) {
+                    throw new RuntimeException('LLM structured JSON missing required field at ' . $path . '.' . $required);
+                }
+            }
+            foreach ((array)($schema['properties'] ?? []) as $key => $childSchema) {
+                if (array_key_exists((string)$key, $value) && is_array($childSchema)) {
+                    $this->assertStructuredJsonMatchesSchema($value[(string)$key], $childSchema, $path . '.' . (string)$key);
+                }
+            }
+        }
+        if ($type === 'array' && is_array($schema['items'] ?? null)) {
+            foreach ($value as $index => $item) {
+                $this->assertStructuredJsonMatchesSchema($item, $schema['items'], $path . '[' . $index . ']');
+            }
+        }
     }
 
     private function extractJsonText(string $text): string

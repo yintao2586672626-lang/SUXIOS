@@ -46,6 +46,7 @@ final class HotelCollectionPlanServiceTest extends TestCase
 
     protected function setUp(): void
     {
+        Db::name('dingdandao_operating_target_captures')->delete(true);
         Db::name('hotel_collection_plan_run_sources')->delete(true);
         Db::name('hotel_collection_plan_runs')->delete(true);
         Db::name('hotel_collection_plans')->delete(true);
@@ -280,6 +281,59 @@ final class HotelCollectionPlanServiceTest extends TestCase
         self::assertSame(2, $current['pending_draft']['plan_version']);
         self::assertTrue($current['execution_authorized']);
         self::assertTrue($gate['collection_allowed']);
+        self::assertSame(1, Db::name('hotel_collection_plans')->where('active_slot', 1)->count());
+    }
+
+    public function testVerifiedLocalCollectorSourcesAtomicallyReplaceTheLegacyActivePlan(): void
+    {
+        $loader = function (array $hotel, int $actor, string $date, array $designated): array {
+            $ctripSourceId = (int)($designated['ctrip'] ?? 0);
+            $meituanSourceId = (int)($designated['meituan'] ?? 0);
+            $binding = $this->bindingReceipt(
+                'ready',
+                hash('sha256', $ctripSourceId . ':' . $meituanSourceId),
+                $ctripSourceId,
+                $meituanSourceId
+            );
+            $method = $ctripSourceId >= 500 ? 'local_collector' : 'browser_profile';
+            foreach (['ctrip', 'meituan'] as $platform) {
+                $binding['bindings'][$platform]['ingestion_method'] = $method;
+                $binding['bindings'][$platform]['execution_device_binding']['binding_kind'] =
+                    $method === 'local_collector'
+                        ? 'local_collector_device'
+                        : 'browser_profile_single_user_local';
+            }
+            return $binding;
+        };
+        $service = new HotelCollectionPlanService($loader, $this->clock(), $this->signingKey());
+
+        $legacy = $service->save($this->hotel(80), 7, $this->input(25, 68, true));
+        $replacement = $service->save($this->hotel(80), 7, $this->input(501, 502, true));
+        $readback = $service->read($this->hotel(80), 7, '2026-08-09');
+
+        $legacyRow = Db::name('hotel_collection_plans')->where('id', (int)$legacy['id'])->find();
+        self::assertIsArray($legacyRow);
+        self::assertSame('superseded', $legacyRow['plan_status']);
+        self::assertSame(0, (int)$legacyRow['enabled']);
+        self::assertNull($legacyRow['active_slot']);
+        self::assertSame(2, $replacement['plan_version']);
+        self::assertSame('active_ready', $replacement['status']);
+        self::assertTrue($replacement['save_verified']);
+        self::assertTrue($replacement['readback_verified']);
+        self::assertTrue($replacement['execution_authorized']);
+        self::assertSame(501, $replacement['sources']['ctrip']['data_source_id']);
+        self::assertSame('local_collector', $replacement['sources']['ctrip']['ingestion_method']);
+        self::assertSame(502, $replacement['sources']['meituan']['data_source_id']);
+        self::assertSame('local_collector', $replacement['sources']['meituan']['ingestion_method']);
+        self::assertSame(
+            7,
+            (int)Db::name('hotel_collection_plans')
+                ->where('id', (int)$replacement['id'])
+                ->where('tenant_id', 8)
+                ->where('system_hotel_id', 80)
+                ->value('execution_owner_user_id')
+        );
+        self::assertSame(2, $readback['plan_version']);
         self::assertSame(1, Db::name('hotel_collection_plans')->where('active_slot', 1)->count());
     }
 
@@ -580,6 +634,9 @@ final class HotelCollectionPlanServiceTest extends TestCase
         int $meituanSourceId,
         string $status
     ): void {
+        $pmsCaptureId = $status === 'succeeded'
+            ? (int)hexdec(substr($dispatcherRunId, 0, 8))
+            : 0;
         $runId = (int)Db::name('hotel_collection_plan_runs')->insertGetId([
             'dispatcher_run_id' => $dispatcherRunId,
             'tenant_id' => 8,
@@ -608,7 +665,7 @@ final class HotelCollectionPlanServiceTest extends TestCase
                 : null,
             'pms_provider' => 'dingdandao_pms',
             'pms_status' => $status === 'succeeded' ? 'verified' : 'not_run',
-            'pms_capture_id' => $status === 'succeeded' ? '81' : null,
+            'pms_capture_id' => $status === 'succeeded' ? (string)$pmsCaptureId : null,
             'pms_readback_verified' => $status === 'succeeded' ? 1 : null,
             'started_at' => '2026-08-10 08:00:00',
             'finished_at' => '2026-08-10 08:05:00',
@@ -636,6 +693,20 @@ final class HotelCollectionPlanServiceTest extends TestCase
                 'page_acceptance_log_id' => $status === 'succeeded' ? 91 : null,
                 'started_at' => '2026-08-10 08:00:00',
                 'finished_at' => '2026-08-10 08:05:00',
+            ]);
+        }
+        if ($status === 'succeeded') {
+            Db::name('dingdandao_operating_target_captures')->insert([
+                'id' => $pmsCaptureId,
+                'tenant_id' => 8,
+                'hotel_id' => $hotelId,
+                'provider' => 'dingdandao_pms',
+                'business_date' => $businessDate,
+                'identity_status' => 'matched',
+                'capture_status' => 'verified',
+                'quality_status' => 'verified',
+                'reconciliation_status' => 'matched',
+                'readback_status' => 'readback_verified',
             ]);
         }
     }
@@ -742,6 +813,18 @@ final class HotelCollectionPlanServiceTest extends TestCase
             page_acceptance_log_id INTEGER NULL,
             started_at TEXT NULL,
             finished_at TEXT NULL
+        )');
+        Db::execute('CREATE TABLE dingdandao_operating_target_captures (
+            id INTEGER PRIMARY KEY,
+            tenant_id INTEGER NOT NULL,
+            hotel_id INTEGER NOT NULL,
+            provider TEXT NOT NULL,
+            business_date TEXT NOT NULL,
+            identity_status TEXT NOT NULL,
+            capture_status TEXT NOT NULL,
+            quality_status TEXT NOT NULL,
+            reconciliation_status TEXT NOT NULL,
+            readback_status TEXT NOT NULL
         )');
     }
 }

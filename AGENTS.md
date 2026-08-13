@@ -211,7 +211,7 @@ Superpowers 用作降低风险的流程关口，不作为死板步骤清单。�
 
 | 层级 | 技术 | 说明 |
 |------|------|------|
-| 后端 | ThinkPHP 8.0 + ThinkORM | PHP >= 8.0 |
+| 后端 | ThinkPHP 8.0 + ThinkORM | PHP >= 8.2 |
 | 前端（当前） | Vue 3 runtime-only + 业务模板分片 + 静态 helper | `resources/frontend/templates/fragments/` 是模板源码，`public/index.html` 是启动壳 |
 | 前端（重构） | 未启用 | 当前仓库没有 `hotel-frontend/`，如需重启 Vite 重构必须单独立项并提交源码 |
 | 数据库 | MySQL | 默认库名 `hotelx`，连接由 `.env` 覆盖 |

@@ -49,7 +49,7 @@ final class CloudMessageTaskOverviewServiceTest extends TestCase
         Db::execute('CREATE TABLE IF NOT EXISTS hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(120) NOT NULL, status INTEGER NOT NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS competitor_wechat_robot (id INTEGER PRIMARY KEY, store_id INTEGER NOT NULL, name VARCHAR(120) NOT NULL, status INTEGER NOT NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module VARCHAR(50) NOT NULL, action VARCHAR(50) NOT NULL, hotel_id INTEGER NOT NULL, error_info TEXT NULL, extra_data TEXT NULL, create_time DATETIME NOT NULL)');
-        Db::execute('CREATE TABLE IF NOT EXISTS manual_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, title VARCHAR(120) NOT NULL, notification_type VARCHAR(50) NOT NULL, template_type VARCHAR(50) NOT NULL, source_scope VARCHAR(32) NOT NULL DEFAULT "combined", content_sections VARCHAR(512) NOT NULL DEFAULT "", business_date_rule VARCHAR(24) NOT NULL DEFAULT "today", trigger_type VARCHAR(32) NOT NULL, interval_minutes INTEGER NULL, planned_send_at DATETIME NULL, active_weekdays VARCHAR(20) NOT NULL DEFAULT "1,2,3,4,5,6,7", effective_from VARCHAR(10) NULL, effective_to VARCHAR(10) NULL, hourly_start_time VARCHAR(8) NOT NULL DEFAULT "09:00:00", hourly_end_time VARCHAR(8) NOT NULL DEFAULT "22:00:00", enabled INTEGER NOT NULL, schedule_status VARCHAR(32) NOT NULL, last_tested_at DATETIME NULL, test_robot_id INTEGER NULL, test_robot_name VARCHAR(120) NULL, update_time DATETIME NOT NULL)');
+        Db::execute('CREATE TABLE IF NOT EXISTS manual_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, title VARCHAR(120) NOT NULL, notification_type VARCHAR(50) NOT NULL, template_type VARCHAR(50) NOT NULL, source_scope VARCHAR(32) NOT NULL DEFAULT "combined", content_sections VARCHAR(512) NOT NULL DEFAULT "", business_date_rule VARCHAR(24) NOT NULL DEFAULT "today", send_method VARCHAR(32) NOT NULL DEFAULT "wecom_test", trigger_type VARCHAR(32) NOT NULL, interval_minutes INTEGER NULL, planned_send_at DATETIME NULL, active_weekdays VARCHAR(20) NOT NULL DEFAULT "1,2,3,4,5,6,7", effective_from VARCHAR(10) NULL, effective_to VARCHAR(10) NULL, hourly_start_time VARCHAR(8) NOT NULL DEFAULT "09:00:00", hourly_end_time VARCHAR(8) NOT NULL DEFAULT "22:00:00", enabled INTEGER NOT NULL, schedule_status VARCHAR(32) NOT NULL, last_tested_at DATETIME NULL, test_robot_id INTEGER NULL, test_robot_name VARCHAR(120) NULL, update_time DATETIME NOT NULL)');
 
         Db::name('manual_notifications')->delete(true);
         Db::name('operation_logs')->delete(true);
@@ -188,6 +188,7 @@ final class CloudMessageTaskOverviewServiceTest extends TestCase
             'source_scope' => 'meituan',
             'content_sections' => 'meituan_traffic,meituan_conversion',
             'business_date_rule' => 'today',
+            'send_method' => 'wecom_test',
             'active_weekdays' => '1,2,3,4,5,6,7',
             'effective_from' => null,
             'effective_to' => null,
@@ -216,6 +217,19 @@ final class CloudMessageTaskOverviewServiceTest extends TestCase
                 'planned_send_at' => null,
             ])
         );
+        $strictLoopId = (int)Db::name('manual_notifications')->insertGetId(
+            array_replace($base, [
+                'title' => '酒店80三源半小时经营日报',
+                'source_scope' => 'combined',
+                'content_sections' =>
+                    'pms_summary,pms_efficiency,ctrip_traffic,meituan_traffic',
+                'business_date_rule' => 'today',
+                'send_method' => 'wecom_formal',
+                'trigger_type' => 'interval_minutes',
+                'interval_minutes' => 30,
+                'planned_send_at' => null,
+            ])
+        );
         $units = [
             'suxios-cloud-hotel-daily@80.timer' => $this->timer(
                 '2026-07-28 09:01:38',
@@ -230,7 +244,7 @@ final class CloudMessageTaskOverviewServiceTest extends TestCase
         ))->overview(80, 80);
 
         $tasks = array_column($overview['tasks'], null, 'key');
-        self::assertSame(3, $overview['task_count']);
+        self::assertSame(4, $overview['task_count']);
         self::assertArrayHasKey('daily_operating_report', $tasks);
         self::assertArrayNotHasKey('editable', $tasks['daily_operating_report']);
         $fixed = $tasks['manual_notification_' . $fixedId];
@@ -254,6 +268,13 @@ final class CloudMessageTaskOverviewServiceTest extends TestCase
             'operating_daily_fixed_time_required',
             $legacy['block_reason_code']
         );
+
+        $strict = $tasks['manual_notification_' . $strictLoopId];
+        self::assertSame('active', $strict['status']);
+        self::assertSame('schedule_enabled', $strict['plan_status']);
+        self::assertSame('configured', $strict['service_result']);
+        self::assertSame('从 09:15 起，每 30 分钟', $strict['schedule']);
+        self::assertNull($strict['block_reason_code']);
     }
 
     /** @return array<string, string> */
