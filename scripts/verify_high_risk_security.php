@@ -458,10 +458,14 @@ assert_true(str_contains($platformSyncSource, "'tenant_id'"), 'platform sync wri
 assert_true(str_contains($loginLogSource, 'tenantIdForUser'), 'login logs must populate tenant_id for authenticated users when available');
 assert_true(str_contains($operationSource, 'withHotelTenantId'), 'hotel-scoped operation writes must resolve tenant_id from the owning hotel');
 assert_true(str_contains($operationSource, 'withExecutionTaskTenantId'), 'execution evidence writes must inherit and verify the task tenant scope');
+$transferSaveRecord = extract_method_source($transferSource, 'saveRecord');
 assert_true(
-    str_contains($transferSource, "Db::name('hotels')->where('id', \$hotelId)->value('tenant_id')")
-    && str_contains($transferSource, "'tenant_id' => \$tenantId"),
-    'transfer records must populate tenant_id from the authoritative hotel tenant on write'
+    str_contains($transferSaveRecord, 'Db::transaction(')
+    && str_contains($transferSaveRecord, 'lockedHotelIdentity($hotelId, false)')
+    && str_contains($transferSaveRecord, "\$tenantId = (int)\$hotel['tenant_id']")
+    && str_contains($transferSaveRecord, 'assertTransferSnapshotBinding($input, $snapshot, $hotelId, $tenantId)')
+    && str_contains($transferSaveRecord, "'tenant_id' => \$tenantId"),
+    'transfer records must lock the authoritative hotel, revalidate snapshot binding, and persist that locked tenant_id in one transaction'
 );
 assert_true(str_contains($initFullSource, '20260529_add_tenant_security_fields.sql'), 'full database initialization must apply tenant security migration');
 assert_true(str_contains($hotelMergePreviewSource, '$this->checkPermission(true);'), 'hotel data merge preview must require super admin');
@@ -523,8 +527,75 @@ assert_true(str_contains($otaConfigConcernSource, 'withPayloadForExecution('), '
 foreach (['ctrip_config_list', 'meituan_config_list', 'online_data_cookies_', 'data_config_'] as $legacySecretStore) {
     assert_true(!str_contains($commandSource, $legacySecretStore), 'scheduled OTA execution must not parse legacy secret store ' . $legacySecretStore);
 }
-assert_true(str_contains($commandSource, 'Scheduled collection is Profile-only.'), 'scheduled OTA execution must remain Profile-only');
-assert_true(str_contains($commandSource, "where('ingestion_method', 'browser_profile')"), 'scheduled OTA execution must select browser Profile sources only');
+assert_true(str_contains($commandSource, 'Ordinary scheduled collection is Profile-only.'), 'ordinary scheduled OTA execution must remain Profile-only');
+assert_true(
+    str_contains($commandSource, '$scheduledIngestionMethods = $this->scheduledIngestionMethods(')
+        && str_contains($commandSource, "->whereIn('ingestion_method', \$scheduledIngestionMethods)"),
+    'scheduled OTA execution must select sources through the fail-closed ingestion-method gate'
+);
+$scheduledCommand = new \app\command\AutoFetchOnlineData();
+$scheduledDispatcherRunId = '12345678-1234-4234-8234-123456789abc';
+set_private_property($scheduledCommand, 'dispatcherRunId', $scheduledDispatcherRunId);
+assert_same(
+    ['browser_profile'],
+    call_private($scheduledCommand, 'scheduledIngestionMethods', [
+        80,
+        '2026-08-09',
+        [25, 68],
+        ['ctrip', 'meituan'],
+    ]),
+    'local collector selection must remain blocked without an exact durable plan gate'
+);
+set_private_property($scheduledCommand, 'scheduledPlanGate', [
+    'status' => 'ready',
+    'collection_allowed' => true,
+    'dispatcher_run_id' => $scheduledDispatcherRunId,
+    'system_hotel_id' => 80,
+    'business_date' => '2026-08-09',
+    'run_mode' => 'daily',
+    'plan_readback_verified' => true,
+    'binding_digest_matches' => true,
+    'execution_owner_bound' => true,
+    'expected_source_ids' => [25, 68],
+    'actual_source_ids' => [25, 68],
+    'expected_platforms' => ['ctrip', 'meituan'],
+    'actual_platforms' => ['ctrip', 'meituan'],
+]);
+assert_same(
+    ['browser_profile', 'local_collector'],
+    call_private($scheduledCommand, 'scheduledIngestionMethods', [
+        80,
+        '2026-08-09',
+        [68, 25],
+        ['meituan', 'ctrip'],
+    ]),
+    'exact durable dispatcher plan may select only browser Profile and bound local collector sources'
+);
+set_private_property($scheduledCommand, 'scheduledPlanGate', [
+    'status' => 'ready',
+    'collection_allowed' => true,
+    'dispatcher_run_id' => $scheduledDispatcherRunId,
+    'system_hotel_id' => 81,
+    'business_date' => '2026-08-09',
+    'run_mode' => 'daily',
+    'plan_readback_verified' => true,
+    'binding_digest_matches' => true,
+    'execution_owner_bound' => true,
+    'expected_source_ids' => [25, 68],
+    'actual_source_ids' => [25, 68],
+    'expected_platforms' => ['ctrip', 'meituan'],
+    'actual_platforms' => ['ctrip', 'meituan'],
+]);
+assert_same(
+    ['browser_profile'],
+    call_private($scheduledCommand, 'scheduledIngestionMethods', [
+        80,
+        '2026-08-09',
+        [25, 68],
+        ['ctrip', 'meituan'],
+    ]),
+    'local collector selection must fail closed when the hotel scope drifts'
+);
 assert_true(!str_contains($commandSource, 'withPayloadForExecution('), 'scheduled OTA execution must not decrypt reusable Cookie/API credentials');
 
 $migrationRunSource = extract_method_source($otaMigrationServiceSource, 'run');

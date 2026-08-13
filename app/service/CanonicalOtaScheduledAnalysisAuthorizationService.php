@@ -46,7 +46,12 @@ final class CanonicalOtaScheduledAnalysisAuthorizationService
         );
 
         $status = ($this->statusLoader)($expectedHotelId);
-        if (!is_array($status) || ($status['enabled'] ?? false) !== true) {
+        $lifecycleManaged = is_array($status)
+            && ($status['lifecycle_managed_analysis_enabled'] ?? false) === true
+            && (int)($status['lifecycle_managed_tenant_id'] ?? 0) === $expectedTenantId
+            && (int)($status['lifecycle_managed_hotel_id'] ?? 0) === $expectedHotelId
+            && ($status['lifecycle_external_action_allowed'] ?? true) === false;
+        if (!is_array($status) || (($status['enabled'] ?? false) !== true && !$lifecycleManaged)) {
             throw new RuntimeException('canonical_scheduled_analysis_grant_unavailable');
         }
         $authorizationMap = is_array($status['canonical_daily_analysis_authorizations'] ?? null)

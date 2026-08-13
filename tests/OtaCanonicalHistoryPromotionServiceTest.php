@@ -304,6 +304,7 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
         $fact = $method->invoke($service, 80, 80, '2026-08-08', $task);
         self::assertSame('ready', $fact['historical_core_contract_status']);
         self::assertSame([], $fact['missing_core_metric_keys']);
+        self::assertFalse($fact['producer_evidence_verified']);
 
         $orderRaw = json_decode((string)Db::name('online_daily_data')
             ->where('id', 6891)

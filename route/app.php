@@ -122,12 +122,15 @@ Route::post('api/hotels/', 'Hotel/create')->middleware(\app\middleware\Auth::cla
 Route::group('api/hotels', function () {
     Route::get('/', 'Hotel/index');
     Route::get('/all', 'Hotel/all');
+    Route::get('/automation-lifecycle', 'Hotel/automationLifecycle');
     Route::post('/batch-status', 'Hotel/batchStatus');
     Route::get('/merge-preview', 'Hotel/mergePreview');
     Route::post('/merge-execute', 'Hotel/mergeExecute');
     Route::get('/:id/pms-binding', 'Hotel/pmsBinding');
     Route::put('/:id/pms-binding', 'Hotel/updatePmsBinding');
     Route::get('/:id/collection-binding-receipt', 'Hotel/collectionBindingReceipt');
+    Route::get('/:id/ota-binding-onboarding', 'Hotel/otaBindingOnboarding');
+    Route::put('/:id/ota-binding-onboarding', 'Hotel/confirmOtaBindingOnboarding');
     Route::get('/:id/collection-plan', 'Hotel/collectionPlan');
     Route::put('/:id/collection-plan', 'Hotel/updateCollectionPlan');
     Route::get('/:id', 'Hotel/read');
@@ -368,6 +371,7 @@ Route::group('api/online-data', function () {
     Route::get('/collection-resources', 'ota.SyncController/collectionResourceCatalog');
     Route::get('/collection-status', 'ota.SyncController/collectionStatus');
     Route::get('/data-sources', 'ota.SyncController/dataSourceList');
+    Route::get('/ctrip/order-analysis', 'ota.SyncController/ctripOrderAnalysis');
     Route::post('/data-sources/:id/sync', 'ota.SyncController/syncDataSource');
     Route::post('/data-sources', 'ota.SyncController/saveDataSource');
     Route::delete('/data-sources/:id', 'ota.SyncController/deleteDataSource');
@@ -407,6 +411,7 @@ Route::group('api/online-data', function () {
     Route::get('/hotel-list', 'OnlineData/hotelList');
     Route::post('/auto-fetch', 'ota.SyncController/autoFetch');
     Route::get('/auto-fetch-status', 'ota.SyncController/autoFetchStatus');
+    Route::post('/enable-windows-ota-dispatcher', 'ota.SyncController/enableWindowsOtaDispatcher');
     Route::get('/auto-fetch-records', 'ota.SyncController/autoFetchRecords');
     Route::post('/batch-delete-auto-fetch-records', 'ota.SyncController/batchDeleteAutoFetchRecords');
     Route::post('/clear-auto-fetch-records', 'ota.SyncController/clearAutoFetchRecords');
@@ -562,9 +567,20 @@ Route::group('api/simulation', function () {
     Route::get('/records', 'Simulation/records');
 })->middleware(\app\middleware\Auth::class);
 // ==================== 运营管理 API ====================
+Route::group('api/operating-loop', function () {
+    Route::get('/current', 'OperatingLoop/current');
+    Route::post('/reconcile', 'OperatingLoop/reconcile');
+    Route::post('/', 'OperatingLoop/open');
+    Route::post('/:id/transitions', 'OperatingLoop/transition');
+    Route::get('/:id', 'OperatingLoop/read');
+})->middleware(\app\middleware\Auth::class);
+
 Route::group('api/operation', function () {
     Route::get('/full-data', 'OperationManagement/fullData');
     Route::post('/root-cause', 'OperationManagement/rootCause');
+    Route::get('/goal-intervention-overview', 'OperationManagement/operatingGoalInterventionOverview');
+    Route::post('/goal-contracts', 'OperationManagement/createOperatingGoalContract');
+    Route::post('/interventions', 'OperationManagement/createManualIntervention');
     Route::get('/alerts', 'OperationManagement/alerts');
     Route::post('/alerts/read', 'OperationManagement/alertsRead');
     Route::post('/alerts/:id/execution-intent', 'OperationManagement/alertExecutionIntent');
@@ -572,6 +588,7 @@ Route::group('api/operation', function () {
     Route::post('/execution-intents/:id/approve', 'OperationManagement/approveExecutionIntent');
     Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
     Route::post('/execution-tasks/:id/evidence', 'OperationManagement/executionTaskEvidence');
+    Route::post('/execution-tasks/:id/intervention-assessments', 'OperationManagement/assessExecutionTaskIntervention');
     Route::post('/execution-tasks/:id/reconcile-review', 'OperationManagement/reconcileExecutionTaskReview');
     Route::post('/execution-tasks/:id/review', 'OperationManagement/reviewExecutionTask');
     Route::post('/execution-tasks/:id/operating-memory', 'OperationManagement/saveExecutionTaskOperatingMemory');
@@ -583,12 +600,19 @@ Route::group('api/operation', function () {
     Route::post('/growth-archive/:id/milestone', 'OperationManagement/markGrowthArchiveMilestone');
     Route::get('/operating-memories/:id', 'OperationManagement/readOperatingMemory');
     Route::get('/operating-memories', 'OperationManagement/operatingMemories');
+    Route::get('/operating-network', 'OperatingIntelligence/operatingNetwork');
+    Route::get('/operating-profiles/preview', 'OperatingIntelligence/previewOperatingProfile');
+    Route::post('/operating-profiles', 'OperatingIntelligence/saveOperatingProfile');
+    Route::post('/operating-sop-replications/:id/execution-intent', 'OperatingIntelligence/createReplicationExecutionIntent');
+    Route::get('/operating-sop-replications/:id/reviews', 'OperatingIntelligence/replicationReviews');
+    Route::post('/operating-sop-replications/:id/reviews', 'OperatingIntelligence/reviewReplication');
     Route::post('/operating-sops/:id/replications', 'OperatingIntelligence/replicateSop');
     Route::post('/operating-sops/:id/validate', 'OperatingIntelligence/validateSop');
     Route::get('/operating-sop-replications/:id', 'OperatingIntelligence/readReplication');
     Route::get('/operating-sops/:id', 'OperatingIntelligence/readSop');
     Route::get('/operating-sops', 'OperatingIntelligence/sops');
     Route::post('/operating-sops', 'OperatingIntelligence/createSop');
+    Route::post('/execution-intents/:id/intervention', 'OperationManagement/saveExecutionIntentIntervention');
     Route::get('/execution-intents/:id', 'OperationManagement/readExecutionIntent');
     Route::get('/execution-tasks/:id', 'OperationManagement/readExecutionTask');
     Route::get('/execution-intents', 'OperationManagement/executionIntents');
@@ -789,9 +813,11 @@ Route::group('api/agent', function () {
     Route::get('/ota-diagnosis', 'Agent/latestOtaDiagnosis');
     Route::post('/ota-diagnosis', 'Agent/otaDiagnosis');
     Route::post('/ota-diagnoses/:id/actions/:actionIndex/execution-intent', 'Agent/createOtaDiagnosisExecutionIntent');
+    Route::post('/system-guidance', 'SystemGuidance/guide');
     Route::get('/operating-questions/:id', 'OperatingIntelligence/readQuestion');
     Route::get('/operating-questions', 'OperatingIntelligence/questions');
     Route::post('/operating-questions', 'OperatingIntelligence/createQuestion');
+    Route::post('/operating-questions/:id/action-drafts/:actionIndex/execution-intent', 'OperatingIntelligence/createQuestionExecutionIntent');
     Route::post('/analyze-captured-ota-data', 'Agent/analyzeCapturedOtaData');
     Route::post('/summarize-captured-ota-analysis', 'Agent/summarizeCapturedOtaAnalysis');
 

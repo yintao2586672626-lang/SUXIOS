@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\DailyReport;
+use app\model\DailyReport as DailyReportModel;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\ReflectionHelper;
@@ -16,6 +17,25 @@ final class DailyReportTest extends TestCase
     {
         $reflection = new ReflectionClass(DailyReport::class);
         return $reflection->newInstanceWithoutConstructor();
+    }
+
+    public function testDailyReportWorkflowStatusAndWriterDefaultStayExplicit(): void
+    {
+        self::assertSame(1, DailyReportModel::STATUS_DRAFT);
+        self::assertSame(2, DailyReportModel::STATUS_SUBMITTED);
+
+        $method = new \ReflectionMethod(DailyReport::class, 'create');
+        $lines = file($method->getFileName()) ?: [];
+        $source = implode('', array_slice(
+            $lines,
+            $method->getStartLine() - 1,
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+
+        self::assertStringContainsString(
+            "\$report->status = \$data['status'] ?? DailyReportModel::STATUS_SUBMITTED;",
+            $source
+        );
     }
 
     /**

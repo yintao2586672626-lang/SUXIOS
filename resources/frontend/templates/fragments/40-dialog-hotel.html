@@ -53,8 +53,10 @@
                                     <span>美团</span>
                                 </label>
                             </div>
-                            <p class="text-xs text-gray-400 mt-1">保存后只检查已选平台，不会自动采集。</p>
+                            <p class="text-xs text-gray-400 mt-1">保存后系统会持续检查已选平台；绑定、原设备登录和可信数据齐备后，自动启用采集与分析。</p>
                         </div>
+
+                        <component :is="hotelBusinessProfileEditor"></component>
 
                         <div id="hotel-pms-configuration" class="pt-3 border-t border-gray-100" data-testid="hotel-pms-configuration">
                             <div class="rounded-lg border border-[#eadfc9] bg-[#fffdf8] px-3 py-2.5">

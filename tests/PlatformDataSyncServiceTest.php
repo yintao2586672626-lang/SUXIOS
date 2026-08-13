@@ -6,6 +6,7 @@ namespace Tests;
 use app\service\PlatformDataSyncService;
 use app\service\PlatformNormalizedRowPersistenceService;
 use app\service\OnlineDataFieldFactService;
+use app\service\platform\BrowserProfileProcessOutputSanitizer;
 use app\service\platform\CtripBrowserProfileDataSourceAdapter;
 use app\service\platform\MeituanBrowserProfileDataSourceAdapter;
 use PHPUnit\Framework\TestCase;
@@ -5727,9 +5728,9 @@ final class PlatformDataSyncServiceTest extends TestCase
                     $ctripWriter($args);
                     return [
                         'success' => false,
-                        'message' => 'collector exited non-zero',
-                        'stdout' => '',
-                        'stderr' => '',
+                        'message' => 'collector failed {"\u0063\u006f\u006f\u006b\u0069\u0065\u0073":[{"value":"ctrip-message-secret"}]}',
+                        'stdout' => 'Error URL https\u003a\u002f\u002fuser\u003actrip-stdout-secret\u0040example.invalid\u002fpath',
+                        'stderr' => 'Authorization: Bearer ctrip-stderr-secret',
                     ];
                 }
             );
@@ -5741,6 +5742,11 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('failed', $ctripResult['status']);
             self::assertSame('capture_process_failed', $ctripResult['status_code']);
             self::assertArrayNotHasKey('rows', $ctripResult['payload']);
+            $ctripFailureJson = json_encode($ctripResult, JSON_UNESCAPED_SLASHES) ?: '';
+            self::assertStringNotContainsString('ctrip-message-secret', $ctripFailureJson);
+            self::assertStringNotContainsString('ctrip-stdout-secret', $ctripFailureJson);
+            self::assertStringNotContainsString('ctrip-stderr-secret', $ctripFailureJson);
+            self::assertStringContainsString('redacted', $ctripFailureJson);
 
             $meituanWriter = $this->captureRunner([
                 'auth_status' => ['ok' => true, 'status' => 'logged_in'],
@@ -5761,9 +5767,9 @@ final class PlatformDataSyncServiceTest extends TestCase
                     $meituanWriter($args);
                     return [
                         'success' => false,
-                        'message' => 'collector exited non-zero',
-                        'stdout' => '',
-                        'stderr' => '',
+                        'message' => 'collector failed {"\u0063\u006f\u006f\u006b\u0069\u0065\u004a\u0061\u0072":{"foo":"meituan-message-secret"}}',
+                        'stdout' => 'Error URL https://example.invalid/?token=meituan-stdout-secret',
+                        'stderr' => 'Cookie: session=meituan-stderr-secret',
                     ];
                 }
             );
@@ -5775,10 +5781,91 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('failed', $meituanResult['status']);
             self::assertSame('capture_process_failed', $meituanResult['status_code']);
             self::assertArrayNotHasKey('rows', $meituanResult['payload']);
+            $meituanFailureJson = json_encode($meituanResult, JSON_UNESCAPED_SLASHES) ?: '';
+            self::assertStringNotContainsString('meituan-message-secret', $meituanFailureJson);
+            self::assertStringNotContainsString('meituan-stdout-secret', $meituanFailureJson);
+            self::assertStringNotContainsString('meituan-stderr-secret', $meituanFailureJson);
+            self::assertStringContainsString('redacted', $meituanFailureJson);
         } finally {
             $this->removeDirectory($ctripRoot);
             $this->removeDirectory($meituanRoot);
         }
+    }
+
+    public function testBrowserProfileProcessDiagnosticsSuppressCredentialBearingLines(): void
+    {
+        $nestedEscape = static fn(string $value): string => str_replace(
+            ['\\', '"', '/'],
+            ['\\\\', '\\"', '\\/'],
+            $value
+        );
+        $tripleEscapedCookie = '{"cookies":[{"value":"live-secret-triple-cookie"}]}';
+        $tripleEscapedUrl = 'https://user:live-secret-triple-userinfo@example.invalid/path';
+        for ($pass = 0; $pass < 3; $pass++) {
+            $tripleEscapedCookie = $nestedEscape($tripleEscapedCookie);
+            $tripleEscapedUrl = $nestedEscape($tripleEscapedUrl);
+        }
+        $cases = [
+            ['Error: access_token=live-secret-123', 'live-secret-123'],
+            ['Exception Authorization: Bearer live-secret-789', 'live-secret-789'],
+            ['failed api_key=live-secret-abc', 'live-secret-abc'],
+            ['failed URL https://example.invalid/?token=live-secret-query', 'live-secret-query'],
+            ['failed Cookie: session=live-secret-cookie', 'live-secret-cookie'],
+            ['failed --refresh-token live-secret-refresh', 'live-secret-refresh'],
+            ['failed mtgsig=live-secret-signature', 'live-secret-signature'],
+            ['Error payload {"access_token":"live-secret-json"}', 'live-secret-json'],
+            [
+                'Error payload {"cookies":[{"name":"foo","value":"live-secret-cookie-jar"}]}',
+                'live-secret-cookie-jar',
+            ],
+            [
+                'failed URL https://user:live-secret-userinfo@example.invalid/path',
+                'live-secret-userinfo',
+            ],
+            [
+                'Error payload {\"cookies\":[{\"value\":\"live-secret-escaped-cookie\"}]}',
+                'live-secret-escaped-cookie',
+            ],
+            [
+                'Error payload {\"cookieJar\":{\"value\":\"live-secret-escaped-jar\"}}',
+                'live-secret-escaped-jar',
+            ],
+            [
+                'failed URL https:\/\/user:live-secret-escaped-userinfo@example.invalid/path',
+                'live-secret-escaped-userinfo',
+            ],
+            ['Error payload ' . $tripleEscapedCookie, 'live-secret-triple-cookie'],
+            ['failed URL ' . $tripleEscapedUrl, 'live-secret-triple-userinfo'],
+            [
+                'Error payload {"\u0063\u006f\u006f\u006b\u0069\u0065\u0073":[{"value":"live-secret-unicode-cookie"}]}',
+                'live-secret-unicode-cookie',
+            ],
+            [
+                'failed URL https\u003a\u002f\u002fuser\u003alive-secret-unicode-userinfo\u0040example.invalid\u002fpath',
+                'live-secret-unicode-userinfo',
+            ],
+            [
+                'failed URL \u0068\u0074\u0074\u0070\u0073\u003a\u002f\u002fuser\u003alive-secret-full-unicode-url\u0040example.invalid',
+                'live-secret-full-unicode-url',
+            ],
+        ];
+
+        foreach ($cases as [$line, $secret]) {
+            $log = BrowserProfileProcessOutputSanitizer::sanitizeLog("safe prelude\n{$line}\nsafe tail");
+            $summary = BrowserProfileProcessOutputSanitizer::summarize($line, '');
+
+            self::assertStringNotContainsString($secret, $log);
+            self::assertStringContainsString('[redacted_sensitive_process_output]', $log);
+            self::assertSame('browser_profile_process_error_redacted', $summary);
+        }
+
+        self::assertSame(
+            'Error: browser process timed out after 60 seconds',
+            BrowserProfileProcessOutputSanitizer::summarize(
+                'Error: browser process timed out after 60 seconds',
+                ''
+            )
+        );
     }
 
     private function ctripBrowserProfileSource(): array

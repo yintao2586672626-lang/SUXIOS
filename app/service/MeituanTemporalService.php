@@ -63,7 +63,12 @@ final class MeituanTemporalService
     }
 
     /** @return array<string, mixed> */
-    public function refresh($user, int $systemHotelId, string $asOfDate): array
+    public function refresh(
+        $user,
+        int $systemHotelId,
+        string $asOfDate,
+        bool $currentOnly = false
+    ): array
     {
         $asOf = $this->date($asOfDate);
         $this->assertHotelPermission($user, $systemHotelId, 'can_fetch_online_data');
@@ -92,13 +97,16 @@ final class MeituanTemporalService
 
         $source = $selection['source'];
         $sourceId = (int)($source['id'] ?? 0);
-        $hasFutureToday = $this->hasCompleteVerifiedFutureSnapshotCapturedOn(
-            $systemHotelId,
-            $asOf->format('Y-m-d'),
-            $asOf->format('Y-m-d')
-        );
+        $hasFutureToday = $currentOnly
+            ? false
+            : $this->hasCompleteVerifiedFutureSnapshotCapturedOn(
+                $systemHotelId,
+                $asOf->format('Y-m-d'),
+                $asOf->format('Y-m-d')
+            );
+        $refreshPlan = self::refreshPlan($currentOnly, $hasFutureToday);
         $tasks = [];
-        $todayScope = $hasFutureToday ? 'today' : 'today_future';
+        $todayScope = $refreshPlan['today_scope'];
         $todayTask = $this->runRefreshTask($user, $sourceId, 'today', [
             'data_date' => $asOf->format('Y-m-d'),
             'data_period' => 'realtime_snapshot',
@@ -113,35 +121,42 @@ final class MeituanTemporalService
         $todayTask = self::withFutureCaptureOutcome(
             $todayTask,
             $todayScope,
-            $this->hasCompleteVerifiedFutureSnapshotCapturedOn(
-                $systemHotelId,
-                $asOf->format('Y-m-d'),
-                $asOf->format('Y-m-d')
-            ),
+            $currentOnly
+                ? false
+                : $this->hasCompleteVerifiedFutureSnapshotCapturedOn(
+                    $systemHotelId,
+                    $asOf->format('Y-m-d'),
+                    $asOf->format('Y-m-d')
+                ),
             $now
         );
         $tasks[] = $todayTask;
 
-        $yesterday = $asOf->sub(new DateInterval('P1D'))->format('Y-m-d');
-        if ((int)$now->format('H') < 9) {
-            $tasks[] = $this->skippedTask('yesterday', 'before_platform_update_window');
-        } elseif ($this->hasCompleteVerifiedYesterdaySnapshotCapturedOn(
-            $systemHotelId,
-            $yesterday,
-            $asOf->format('Y-m-d')
-        )) {
-            $tasks[] = $this->skippedTask('yesterday', 'verified_snapshot_already_collected_today');
-        } else {
-            $tasks[] = $this->runRefreshTask($user, $sourceId, 'yesterday', [
-                'data_date' => $yesterday,
-                'data_period' => 'historical_daily',
-                'capture_sections' => 'traffic',
-                'capture_mode' => 'temporal_summary',
-                'temporal_scope' => 'yesterday',
-                'timeout_seconds' => self::CAPTURE_TIMEOUT_SECONDS,
-                'interactive_browser' => false,
-                'trigger_type' => 'manual',
-            ]);
+        if ($refreshPlan['include_yesterday']) {
+            $yesterday = $asOf->sub(new DateInterval('P1D'))->format('Y-m-d');
+            if ((int)$now->format('H') < 9) {
+                $tasks[] = $this->skippedTask('yesterday', 'before_platform_update_window');
+            } elseif ($this->hasCompleteVerifiedYesterdaySnapshotCapturedOn(
+                $systemHotelId,
+                $yesterday,
+                $asOf->format('Y-m-d')
+            )) {
+                $tasks[] = $this->skippedTask(
+                    'yesterday',
+                    'verified_snapshot_already_collected_today'
+                );
+            } else {
+                $tasks[] = $this->runRefreshTask($user, $sourceId, 'yesterday', [
+                    'data_date' => $yesterday,
+                    'data_period' => 'historical_daily',
+                    'capture_sections' => 'traffic',
+                    'capture_mode' => 'temporal_summary',
+                    'temporal_scope' => 'yesterday',
+                    'timeout_seconds' => self::CAPTURE_TIMEOUT_SECONDS,
+                    'interactive_browser' => false,
+                    'trigger_type' => 'manual',
+                ]);
+            }
         }
 
         $blockedTask = null;
@@ -162,7 +177,20 @@ final class MeituanTemporalService
             'system_hotel_id' => $systemHotelId,
             'as_of_date' => $asOf->format('Y-m-d'),
             'data_scope' => 'ota_channel',
+            'refresh_scope' => $refreshPlan['refresh_scope'],
             'tasks' => $tasks,
+        ];
+    }
+
+    /** @return array{today_scope:string,include_yesterday:bool,refresh_scope:string} */
+    private static function refreshPlan(bool $currentOnly, bool $hasFutureToday): array
+    {
+        return [
+            'today_scope' => $currentOnly || $hasFutureToday
+                ? 'today'
+                : 'today_future',
+            'include_yesterday' => !$currentOnly,
+            'refresh_scope' => $currentOnly ? 'current_only' : 'temporal_complete',
         ];
     }
 

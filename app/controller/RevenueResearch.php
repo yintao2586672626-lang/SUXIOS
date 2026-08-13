@@ -60,6 +60,13 @@ class RevenueResearch extends Base
             if ($hotelId === null || $hotelId <= 0) {
                 throw new InvalidArgumentException('hotel_id is required for revenue research execution intent');
             }
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'operation.execute',
+                'operation.execute permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
 
             $actorId = (int)($this->currentUser->id ?? 0);
             $artifactService = new RevenueResearchExecutionArtifactService();

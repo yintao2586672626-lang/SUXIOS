@@ -13,6 +13,8 @@ const contractComponent = read(
   'public/components/operations/automation-collection-contract.js'
 );
 const hotelController = read('app/controller/Hotel.php');
+const routes = read('route/app.php');
+const onboardingService = read('app/service/HotelOtaBindingOnboardingService.php');
 
 test('automation monitor exposes one hotel-scoped binding and plan surface', () => {
   assert.match(template, /:is="automationCollectionContractBody"/);
@@ -36,6 +38,75 @@ test('binding read pins the selected hotel, date and persisted source ids', () =
   assert.match(hotelController, /\$designatedSourceIds\s*\n\s*\)/);
 });
 
+test('hotel 80 binding onboarding pins sources 25 and 68 and never accepts browser identity inputs', () => {
+  assert.match(appMain, /const HOTEL_80_COLLECTION_SOURCE_IDS = Object\.freeze\(\{\s*ctrip: 25,\s*meituan: 68/);
+  assert.match(appMain, /\/hotels\/\$\{hotelId\}\/ota-binding-onboarding\?/);
+  assert.match(appMain, /\/hotels\/\$\{hotelId\}\/ota-binding-onboarding`/);
+  assert.match(contractComponent, /'data-testid': 'automation-binding-onboarding-panel'/);
+  assert.match(contractComponent, /testid: `automation-binding-source-\$\{platform\}`/);
+  assert.match(contractComponent, /testid: `automation-binding-canonical-\$\{platform\}`/);
+  assert.match(contractComponent, /testid: `automation-binding-legacy-candidate-\$\{platform\}`/);
+  assert.match(contractComponent, /'data-testid': 'automation-binding-explicit-confirm'/);
+  assert.match(contractComponent, /'automation-binding-action-claim'/);
+  assert.match(contractComponent, /'automation-binding-action-bind'/);
+  assert.match(contractComponent, /'data-testid': 'automation-binding-readback-status'/);
+  assert.match(hotelController, /\$allowedKeys = \['contract_version', 'action', 'expected_intent_digest', 'confirmed'\]/);
+  assert.match(hotelController, /\$unknownKeys = array_values\(array_diff\(array_keys\(\$input\), \$allowedKeys\)\)/);
+  assert.match(routes, /Route::get\('\/:id\/ota-binding-onboarding', 'Hotel\/otaBindingOnboarding'\)/);
+  assert.match(routes, /Route::put\('\/:id\/ota-binding-onboarding', 'Hotel\/confirmOtaBindingOnboarding'\)/);
+  assert.ok(routes.indexOf("/:id/ota-binding-onboarding") < routes.indexOf("Route::get('/:id', 'Hotel/read')"));
+  assert.match(hotelController, /authorize\(\s*\$this->currentUser,\s*'ota\.collect',\s*\$id/);
+  assert.match(hotelController, /\$permissionService->authorize\(\$this->currentUser, 'hotel\.update', \$id\)/);
+  assert.match(onboardingService, /public const HOTEL_ID = 80/);
+  assert.match(onboardingService, /public const CTRIP_SOURCE_ID = 25/);
+  assert.match(onboardingService, /public const MEITUAN_SOURCE_ID = 68/);
+  assert.doesNotMatch(onboardingService, /request->|\$_POST|\$_GET/);
+});
+
+test('hotel plans select current server-declared sources without reusing the legacy hotel 80 pin', () => {
+  const optionsStart = appMain.indexOf('const automationMonitorContractSourceOptions');
+  const optionsEnd = appMain.indexOf('const automationMonitorContractCanActivate', optionsStart);
+  const formStart = appMain.indexOf('const syncAutomationMonitorPlanForm');
+  const formEnd = appMain.indexOf('const loadAutomationMonitorContract', formStart);
+  const loadStart = appMain.indexOf('const loadAutomationMonitorContract');
+  const loadEnd = appMain.indexOf('const automationMonitorOtaBindingReadbackVerified', loadStart);
+  const saveStart = appMain.indexOf('const saveAutomationMonitorPlan');
+  const saveEnd = appMain.indexOf('const stopAutomationMonitorPolling', saveStart);
+  const options = appMain.slice(optionsStart, optionsEnd);
+  const form = appMain.slice(formStart, formEnd);
+  const loader = appMain.slice(loadStart, loadEnd);
+  const saver = appMain.slice(saveStart, saveEnd);
+
+  assert.ok(optionsStart > 0 && optionsEnd > optionsStart);
+  assert.match(options, /candidate_source_ids/);
+  assert.match(options, /planSourceId/);
+  assert.doesNotMatch(options, /automationMonitorContractExpectedSourceId/);
+  assert.doesNotMatch(form, /automationMonitorContractExpectedSourceId/);
+  assert.match(loader, /Number\(plan\?\.sources\?\.ctrip\?\.data_source_id \|\| 0\)/);
+  assert.match(loader, /Number\(plan\?\.sources\?\.meituan\?\.data_source_id \|\| 0\)/);
+  assert.doesNotMatch(loader, /automationMonitorContractExpectedSourceId/);
+  assert.doesNotMatch(saver, /HOTEL_80_COLLECTION_SOURCE_IDS/);
+  assert.match(appMain, /const automationMonitorContractSourceLocked = \(platform\) => \(\s*false\s*\)/);
+});
+
+test('binding confirmation is zero-collection and requires a fresh exact readback', () => {
+  const start = appMain.indexOf('const confirmAutomationMonitorOtaBinding');
+  const end = appMain.indexOf('const saveAutomationMonitorPlan', start);
+  const handler = appMain.slice(start, end);
+  assert.ok(start > 0 && end > start);
+  assert.match(handler, /confirmed: true/);
+  assert.match(handler, /operation\?\.exact_readback_verified !== true/);
+  assert.match(handler, /response\.data\?\.binding_readback_status === 'readback_verified'/);
+  assert.match(handler, /automationMonitorOtaBindingReadbackVerified\(freshBinding, action\)/);
+  assert.doesNotMatch(handler, /runCtripBrowserCapture/);
+  assert.doesNotMatch(handler, /runMeituanBrowserCapture/);
+  assert.doesNotMatch(handler, /triggerAutomationMonitorSource/);
+  assert.doesNotMatch(handler, /createLocalCollectorTask/);
+  assert.doesNotMatch(handler, /saveAutomationMonitorPlan/);
+  assert.match(contractComponent, /collector task/);
+  assert.match(contractComponent, /Windows/);
+});
+
 test('late contract responses cannot overwrite the current hotel and business date', () => {
   const start = appMain.indexOf('const loadAutomationMonitorContract');
   const end = appMain.indexOf('const saveAutomationMonitorPlan', start);
@@ -46,7 +117,7 @@ test('late contract responses cannot overwrite the current hotel and business da
   assert.match(loader, /String\(automationMonitorContractHotelId\.value \|\| ''\)\.trim\(\) === String\(hotelId\)/);
   assert.match(loader, /String\(automationMonitorDate\.value \|\| ''\)\.trim\(\) === businessDate/);
   const finalScopeGuardAt = loader.lastIndexOf('if (!scopeIsCurrent())');
-  const commitAt = loader.indexOf('automationMonitorContract.value = { binding, plan }');
+  const commitAt = loader.indexOf('automationMonitorContract.value = { binding, plan, onboarding }');
   assert.ok(finalScopeGuardAt > 0 && commitAt > finalScopeGuardAt);
 });
 
@@ -100,6 +171,7 @@ test('lazy collection contract component renders the exact hotel plan without a 
   assert.ok(component);
 
   let openedHotelId = '';
+  let bindingAction = '';
   const ctx = {
     automationMonitorContractHotelId: '80',
     automationMonitorDate: '2026-08-09',
@@ -107,6 +179,8 @@ test('lazy collection contract component renders the exact hotel plan without a 
     automationMonitorContractLoading: false,
     automationMonitorContractSaving: false,
     automationMonitorContractError: '',
+    automationMonitorBindingConfirmation: false,
+    automationMonitorBindingActionBusy: '',
     automationMonitorContractCanActivate: false,
     automationMonitorContractReasons: [
       { platform: 'meituan', code: 'ota_platform_hotel_id_canonical_missing' },
@@ -115,11 +189,23 @@ test('lazy collection contract component renders the exact hotel plan without a 
       status: 'blocked',
       system_hotel: { system_hotel_id: 80, tenant_id: 80, hotel_name: '敦煌漠蓝新' },
       bindings: {
-        ctrip: { status: 'blocked', source_id: 25, platform_hotel_id: '130079194', profile_binding: { status: 'active' }, execution_device_binding: { status: 'missing' } },
-        meituan: { status: 'blocked', source_id: 68, platform_hotel_id: null, profile_binding: { status: 'active' }, execution_device_binding: { status: 'missing' } },
+        ctrip: { status: 'blocked', system_hotel_id: 80, source_id: 25, platform_hotel_id: '130079194', identity_evidence: { status: 'verified', source: 'trip_public_profile', checked_at: '2026-08-09 08:00:00' }, profile_binding: { status: 'active' }, execution_device_binding: { status: 'missing' } },
+        meituan: { status: 'blocked', system_hotel_id: 80, source_id: 68, platform_hotel_id: null, legacy_platform_hotel_id_candidate: '1029642156589279', identity_evidence: { status: 'unverified', source: null, checked_at: null }, profile_binding: { status: 'active' }, execution_device_binding: { status: 'missing' } },
         pms: { status: 'ready', provider: 'dingdandao_pms', provider_hotel_id: '5206408', provider_hotel_name: '敦煌漠蓝' },
       },
       replication_gate: { ready: false },
+    },
+    automationMonitorContractOnboarding: {
+      status: 'unverified',
+      binding_readback_status: 'readback_verified',
+      action_required: 'claim_meituan_identity',
+      actions: {
+        claim_meituan_identity: { allowed: true, intent_digest: 'a'.repeat(64) },
+        bind_local_profile_scheduler: { allowed: false, intent_digest: 'b'.repeat(64) },
+      },
+      reason_codes: [
+        { platform: 'meituan', code: 'local_profile_scheduler_canonical_identity_unverified' },
+      ],
     },
     automationMonitorContractPlan: {
       status: 'draft',
@@ -153,13 +239,16 @@ test('lazy collection contract component renders the exact hotel plan without a 
     automationMonitorContractStatusText: status => String(status || 'missing'),
     automationMonitorContractReasonText: issue => issue.code,
     automationMonitorContractSourceOptions: platform => platform === 'ctrip' ? [25] : [68, 101],
+    automationMonitorContractSourceLocked: () => false,
     loadAutomationMonitorContract: () => {},
     saveAutomationMonitorPlan: () => {},
+    confirmAutomationMonitorOtaBinding: action => { bindingAction = String(action); },
     openHotelCollectionDeviceOnboarding: hotelId => { openedHotelId = String(hotelId); },
   };
   const tree = component.setup({ ctx })();
   const testIds = [];
   let onboardingButton = null;
+  let claimButton = null;
   const visit = node => {
     if (!node || typeof node !== 'object') return;
     if (node.props?.['data-testid']) {
@@ -167,6 +256,7 @@ test('lazy collection contract component renders the exact hotel plan without a 
       if (node.props['data-testid'] === 'automation-contract-open-device-onboarding') {
         onboardingButton = node;
       }
+      if (node.props['data-testid'] === 'automation-binding-action-claim') claimButton = node;
     }
     const children = Array.isArray(node.children) ? node.children : [node.children];
     children.forEach(visit);
@@ -179,11 +269,33 @@ test('lazy collection contract component renders the exact hotel plan without a 
   assert.ok(testIds.includes('automation-plan-save-draft'));
   assert.ok(testIds.includes('automation-plan-activate'));
   assert.ok(testIds.includes('automation-contract-open-device-onboarding'));
+  assert.ok(testIds.includes('automation-binding-onboarding-panel'));
+  assert.ok(testIds.includes('automation-binding-source-ctrip'));
+  assert.ok(testIds.includes('automation-binding-source-meituan'));
+  assert.ok(testIds.includes('automation-binding-canonical-meituan'));
+  assert.ok(testIds.includes('automation-binding-legacy-candidate-meituan'));
+  assert.ok(testIds.includes('automation-binding-explicit-confirm'));
+  assert.ok(testIds.includes('automation-binding-readback-status'));
+  assert.equal(claimButton.props.disabled, true);
   assert.ok(testIds.includes('automation-collection-run-receipt'));
   assert.ok(testIds.includes('automation-run-ctrip'));
   assert.ok(testIds.includes('automation-run-meituan'));
   onboardingButton.props.onClick();
   assert.equal(openedHotelId, '80');
+
+  ctx.automationMonitorBindingConfirmation = true;
+  const confirmedTree = component.setup({ ctx })();
+  let confirmedClaimButton = null;
+  const visitConfirmed = node => {
+    if (!node || typeof node !== 'object') return;
+    if (node.props?.['data-testid'] === 'automation-binding-action-claim') confirmedClaimButton = node;
+    const children = Array.isArray(node.children) ? node.children : [node.children];
+    children.forEach(visitConfirmed);
+  };
+  visitConfirmed(confirmedTree);
+  assert.equal(confirmedClaimButton.props.disabled, false);
+  confirmedClaimButton.props.onClick();
+  assert.equal(bindingAction, 'claim_meituan_identity');
 
   ctx.automationMonitorDate = '2026-08-10';
   const staleScopeTree = component.setup({ ctx })();

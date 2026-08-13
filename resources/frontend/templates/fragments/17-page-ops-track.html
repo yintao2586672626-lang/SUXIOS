@@ -15,33 +15,42 @@
                                 </label>
                             </div>
                         </div>
-                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                            <div class="mb-4">
-                                <h3 class="font-bold text-gray-900">人工新建运营任务</h3>
-                                <p class="mt-1 text-sm text-gray-500">只补录线下已决定的动作；系统建议直接进入执行池。</p>
+                        <div data-testid="operating-goal-intervention-learning" class="overflow-hidden rounded-2xl border border-[#d8e4df] bg-white shadow-sm">
+                            <div class="flex flex-col gap-4 border-b border-slate-100 bg-[#f6faf8] px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <h3 class="font-bold text-slate-900">经营目标与干预学习</h3>
+                                        <span v-if="currentOperatingGoalContract" class="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">合同 v{{ currentOperatingGoalContract.version_no || currentOperatingGoalContract.version }}</span>
+                                        <span v-else class="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">目标待建立</span>
+                                        <span data-testid="operating-goal-monitor-status" :class="['inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium', operatingGoalMonitorModel.className]">
+                                            <i :class="operatingGoalMonitorModel.iconClass"></i>{{ operatingGoalMonitorModel.label }}
+                                        </span>
+                                    </div>
+                                    <p class="mt-1 max-w-3xl text-sm leading-6 text-slate-600">目标只设置一次；系统持续读取已验证事实，自动盯目标、保护线、停止条件和观察窗口，并只输出 supported、contradicted、indeterminate。</p>
+                                    <p class="mt-1 text-xs leading-5 text-slate-500">{{ operatingGoalMonitorModel.detail }}</p>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <button type="button" @click="openOperatingGoalContractForm" :disabled="operatingGoalInterventionLoading || !operationFilters.hotel_id || operatingGoalInterventionOverview.migration_required" class="rounded-lg border border-[#315d50] bg-white px-3 py-2 text-sm font-medium text-[#315d50] hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50">{{ currentOperatingGoalContract ? '新建合同版本' : '建立目标合同' }}</button>
+                                    <button type="button" @click="openOperatingInterventionForm()" :disabled="operatingGoalInterventionLoading || !currentOperatingGoalContract || operatingGoalInterventionOverview.migration_required" class="rounded-lg bg-[#315d50] px-3 py-2 text-sm font-medium text-white hover:bg-[#264a40] disabled:cursor-not-allowed disabled:opacity-50">发起经营干预</button>
+                                </div>
                             </div>
-                            <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                                <label class="text-xs text-gray-500">任务名称<input v-model="actionForm.action_title" placeholder="例如：调整今日房价" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
-                                <label class="text-xs text-gray-500">任务类型<select v-model="actionForm.action_type" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800">
-                                    <option v-for="item in operationStrategyTypes" :key="item.key" :value="item.key">{{ item.label }}</option>
-                                </select></label>
-                                <label class="text-xs text-gray-500">执行门店<select v-model="actionForm.hotel_id" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800">
-                                    <option value="">自动选择可见酒店</option>
-                                    <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
-                                </select></label>
-                                <label class="text-xs text-gray-500">开始日期<input v-model="actionForm.start_date" type="date" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
-                                <label class="text-xs text-gray-500">结束日期<input v-model="actionForm.end_date" type="date" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
-                                <label class="text-xs text-gray-500">目标指标<select v-model="actionForm.target_metric" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800">
-                                    <option value="orders">订单</option>
-                                    <option value="revenue">收入</option>
-                                    <option value="room_nights">间夜</option>
-                                    <option value="conversion">转化率</option>
-                                </select></label>
-                                <label class="text-xs text-gray-500">目标变化（%）<input v-model.number="actionForm.target_change_rate" type="number" placeholder="例如 10" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
-                                <label class="text-xs text-gray-500">执行说明<input v-model="actionForm.remark" placeholder="补充动作范围或注意事项" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
-                                <button @click="createOperationAction" :disabled="operationLoading.actions" class="self-end px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
-                                    <i class="fas fa-plus mr-2"></i>创建运营任务
-                                </button>
+                            <div class="grid gap-4 p-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)]">
+                                <div class="rounded-xl border border-slate-200 bg-white p-4">
+                                    <div class="text-xs font-semibold tracking-wide text-slate-500">当前目标合同</div>
+                                    <div class="mt-2 text-sm font-medium leading-6 text-slate-900">{{ currentOperatingGoalContractText }}</div>
+                                    <div v-if="currentOperatingGoalContract" class="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                                        <div class="rounded-lg bg-slate-50 p-2"><div class="text-slate-400">风险偏好</div><div class="mt-1 font-medium text-slate-700">{{ currentOperatingGoalContract.risk_preference || '-' }}</div></div>
+                                        <div class="rounded-lg bg-slate-50 p-2"><div class="text-slate-400">经营阶段</div><div class="mt-1 font-medium text-slate-700">{{ currentOperatingGoalContract.operating_phase || '-' }}</div></div>
+                                        <div class="rounded-lg bg-slate-50 p-2"><div class="text-slate-400">累计干预</div><div class="mt-1 font-medium text-slate-700">{{ operatingGoalInterventionSummary.intervention_count || 0 }}</div></div>
+                                        <div class="rounded-lg bg-slate-50 p-2"><div class="text-slate-400">累计判定</div><div class="mt-1 font-medium text-slate-700">{{ operatingGoalInterventionSummary.assessment_count || 0 }}</div></div>
+                                    </div>
+                                    <div v-if="operatingGoalInterventionDataGapText" class="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{{ operatingGoalInterventionDataGapText }}</div>
+                                </div>
+                                <div class="grid grid-cols-3 gap-2" aria-label="学习结论口径">
+                                    <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><div class="text-xs font-semibold text-emerald-800">supported</div><div class="mt-2 text-[11px] leading-4 text-emerald-700">证据支持动作有效</div></div>
+                                    <div class="rounded-xl border border-rose-200 bg-rose-50 p-3"><div class="text-xs font-semibold text-rose-800">contradicted</div><div class="mt-2 text-[11px] leading-4 text-rose-700">结果与预期相反</div></div>
+                                    <div class="rounded-xl border border-amber-200 bg-amber-50 p-3"><div class="text-xs font-semibold text-amber-800">indeterminate</div><div class="mt-2 text-[11px] leading-4 text-amber-700">证据不足，不强判</div></div>
+                                </div>
                             </div>
                         </div>
 
@@ -122,6 +131,10 @@
                                             </td>
                                             <td class="px-4 py-3">
                                                 <div>{{ operationExecutionActionText(item) }}</div>
+                                                <div class="mt-2 max-w-xs" data-testid="operation-intervention-learning-state">
+                                                    <span :class="['inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium', operationInterventionLearningModelForItem(item).className]">{{ operationInterventionLearningModelForItem(item).label }}</span>
+                                                    <div class="mt-1 text-[11px] leading-4 text-slate-500">{{ operationInterventionLearningModelForItem(item).summary }}</div>
+                                                </div>
                                                 <div v-if="item.assignment?.status === 'scheduled'" data-testid="operation-execution-schedule-readback" class="mt-1 space-y-0.5 text-[11px] leading-4 text-gray-500">
                                                     <div>负责人：用户 #{{ item.assignment.assignee_id }}</div>
                                                     <div>截止：{{ item.assignment.due_at }}</div>
@@ -149,6 +162,8 @@
                                                     <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">录证据</button>
                                                     <button v-if="operationCanReconcileExecution(item) || operationCanReviewExecution(item)" data-testid="operation-review-action" @click="operationCanReconcileExecution(item) ? reconcileOperationExecutionReview(item) : reviewOperationExecutionTask(item)" class="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">{{ operationCanReconcileExecution(item) ? '读取事实' : '复盘' }}</button>
                                                     <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_at || item.review.available_on || '次日' }} 可读取</span>
+                                                    <button v-if="operationCanDefineIntervention(item)" type="button" @click="openOperatingInterventionForm(item)" class="rounded-lg border border-[#315d50] bg-white px-2.5 py-1 text-xs font-medium text-[#315d50] hover:bg-emerald-50">定义干预</button>
+                                                    <span v-if="operationCanAssessIntervention(item)" class="rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">系统自动观察与判定</span>
                                                     <button v-if="canSaveMemo(item)" @click="saveMemo(item)" data-testid="save-operating-memory">沉淀记忆</button>
                                                     <span v-if="!operationExecutionActionAvailable(item)" class="text-xs text-gray-400">-</span>
                                                 </div>

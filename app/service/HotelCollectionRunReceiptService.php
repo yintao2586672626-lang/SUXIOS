@@ -829,7 +829,13 @@ final class HotelCollectionRunReceiptService
                 $readbackCount = max(0, (int)($result['readback_count'] ?? count($rowIds)));
                 $readbackVerified = ($readback['readback_verified'] ?? false) === true
                     && ($result['readback_verified'] ?? false) === true;
+                $rowCountsVerified = $this->rowCountsMatch(
+                    $savedCount,
+                    $readbackCount,
+                    $rowIds
+                );
                 $persistenceVerified = $readbackVerified
+                    && $rowCountsVerified
                     && $this->persistedSourceEvidenceMatches(
                         $run,
                         $stored,
@@ -865,7 +871,9 @@ final class HotelCollectionRunReceiptService
                     ?? $result['message']
                     ?? ''
                 ));
-                if (($result['success'] ?? false) === true && !$persistenceVerified) {
+                if (($result['success'] ?? false) === true && !$rowCountsVerified) {
+                    $failureCode = 'collection_row_count_mismatch';
+                } elseif (($result['success'] ?? false) === true && !$persistenceVerified) {
                     $failureCode = 'collection_persistence_evidence_mismatch';
                 }
                 if (!$strictSuccess && $failureCode === '') {
@@ -1053,11 +1061,25 @@ final class HotelCollectionRunReceiptService
                     $expectedTrigger = (string)($child['ingestion_method'] ?? '') === 'local_collector'
                         ? 'local_collector_upload'
                         : 'daily_profile_reuse';
-                    if (!is_array($child)
-                        || !is_array($task)
-                        || !is_array($rawTask)
-                        || (string)($child['status'] ?? '') !== 'success'
+                    if (!is_array($child) || !is_array($task) || !is_array($rawTask)) {
+                        $exactSources = false;
+                        break;
+                    }
+                    $taskRowIds = $this->positiveIds($task['row_ids'] ?? []);
+                    $taskSavedCount = max(0, (int)($rawTask['saved_count'] ?? 0));
+                    $taskReadbackCount = max(0, (int)($rawTask['readback_count'] ?? 0));
+                    $childSavedCount = max(0, (int)($child['saved_row_count'] ?? 0));
+                    $childReadbackCount = max(0, (int)($child['readback_row_count'] ?? 0));
+                    if ((string)($child['status'] ?? '') !== 'success'
                         || (int)($child['readback_verified'] ?? 0) !== 1
+                        || !$this->rowCountsMatch(
+                            $taskSavedCount,
+                            $taskReadbackCount,
+                            $taskRowIds
+                        )
+                        || $childSavedCount !== $taskSavedCount
+                        || $childReadbackCount !== $taskReadbackCount
+                        || ($rawTask['readback_verified'] ?? false) !== true
                         || (int)($child['data_source_id'] ?? 0) !== (int)$task['data_source_id']
                         || (int)($child['platform_sync_task_id'] ?? 0) !== (int)$task['sync_task_id']
                         || $this->code((string)($task['collection_status'] ?? '')) !== 'success'
@@ -1081,6 +1103,7 @@ final class HotelCollectionRunReceiptService
                             (int)($child['local_collector_task_id'] ?? 0),
                             (array)$task['row_ids']
                         )
+                        || !$this->successfulSourceReceiptVerified($run, $child)
                     ) {
                         $exactSources = false;
                         break;
@@ -2223,11 +2246,41 @@ final class HotelCollectionRunReceiptService
             && $captureId !== ''
             && $rawReadbackVerified
         ) {
+            $capture = null;
+            try {
+                $capture = ctype_digit($captureId) && (int)$captureId > 0
+                    ? Db::name('dingdandao_operating_target_captures')
+                        ->where('id', (int)$captureId)
+                        ->find()
+                    : null;
+            } catch (\Throwable) {
+                $capture = null;
+            }
+            if (is_array($capture)
+                && (int)($capture['tenant_id'] ?? 0) === (int)($run['tenant_id'] ?? 0)
+                && (int)($capture['hotel_id'] ?? 0) === (int)($run['system_hotel_id'] ?? 0)
+                && $this->date((string)($capture['business_date'] ?? ''))
+                    === $this->date((string)($run['business_date'] ?? ''))
+                && $this->code((string)($capture['provider'] ?? '')) === $provider
+                && (string)($capture['identity_status'] ?? '') === 'matched'
+                && (string)($capture['capture_status'] ?? '') === 'verified'
+                && (string)($capture['quality_status'] ?? '') === 'verified'
+                && (string)($capture['reconciliation_status'] ?? '') === 'matched'
+                && (string)($capture['readback_status'] ?? '') === 'readback_verified'
+            ) {
+                return [
+                    'provider' => 'dingdandao_pms',
+                    'status' => 'verified',
+                    'capture_id' => $captureId,
+                    'readback_verified' => true,
+                ];
+            }
             return [
-                'provider' => 'dingdandao_pms',
-                'status' => 'verified',
-                'capture_id' => $captureId,
-                'readback_verified' => true,
+                'provider' => null,
+                'status' => 'conflict',
+                'capture_id' => null,
+                'readback_verified' => false,
+                'reason_code' => 'pms_capture_evidence_drifted',
             ];
         }
         if (($provider === '' || $provider === 'dingdandao_pms')
@@ -2324,7 +2377,10 @@ final class HotelCollectionRunReceiptService
             || (string)($log['module'] ?? '') !== DualOtaPageVerificationService::MODULE
             || (string)($log['action'] ?? '') !== DualOtaPageVerificationService::ACTION
             || (string)($log['description'] ?? '')
-                !== 'dual_ota_page:v1:' . $businessDate . ':' . $contractHash
+                !== DualOtaPageVerificationService::DESCRIPTION_PREFIX
+                    . $businessDate
+                    . ':'
+                    . $contractHash
         ) {
             return false;
         }
@@ -2421,6 +2477,14 @@ final class HotelCollectionRunReceiptService
     private function firstIssueCode(array $issues, string $fallback): string
     {
         return (string)($issues[0]['code'] ?? $fallback);
+    }
+
+    /** @param array<int,mixed> $rowIds */
+    private function rowCountsMatch(int $savedCount, int $readbackCount, array $rowIds): bool
+    {
+        return $savedCount > 0
+            && $savedCount === $readbackCount
+            && $readbackCount === count($this->positiveIds($rowIds));
     }
 
     /** @param mixed $values @return array<int,int> */

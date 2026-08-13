@@ -20,6 +20,12 @@ param(
     [ValidateSet('', 'ctrip', 'meituan', 'ctrip,meituan', 'meituan,ctrip')]
     [string]$Platforms = '',
 
+    # Zero selects the bounded production default for the selected mode. A
+    # small explicit value exists for isolated operational verification; the
+    # registered task never supplies it.
+    [ValidateRange(0, 2100)]
+    [int]$CollectionTimeoutSeconds = 0,
+
     [switch]$PreflightOnly
 )
 
@@ -38,6 +44,10 @@ $explicitScopeRequested = $HotelId -gt 0 -or $SourceIds -ne '' -or $Platforms -n
 $explicitScopeComplete = $HotelId -gt 0 -and $SourceIds -ne '' -and $Platforms -ne ''
 if ($explicitScopeRequested -and -not $explicitScopeComplete) {
     throw 'Scoped OTA dispatcher requires HotelId, SourceIds, and Platforms together.'
+}
+$maximumCollectionTimeoutSeconds = if ($Mode -eq 'Realtime') { 1200 } else { 2100 }
+if ($CollectionTimeoutSeconds -gt $maximumCollectionTimeoutSeconds) {
+    throw "CollectionTimeoutSeconds exceeds the bounded $Mode task window."
 }
 
 $logDirectory = Join-Path $resolvedRoot 'runtime\dispatcher'
@@ -96,19 +106,28 @@ function Get-DispatcherCollectionScope {
         [Parameter(Mandatory = $true)][string]$ScopedPlatforms
     )
 
-    $normalizedSourceIds = [int[]]@(
-        $ScopedSourceIds.Split(',') |
-            ForEach-Object { [int]$_.Trim() } |
-            Sort-Object -Unique
+    $inputSourceIds = [int[]]@(
+        $ScopedSourceIds.Split(',') | ForEach-Object { [int]$_.Trim() }
     )
-    $normalizedPlatforms = [string[]]@(
-        $ScopedPlatforms.Split(',') |
-            ForEach-Object { $_.Trim().ToLowerInvariant() } |
-            Sort-Object -Unique
+    $inputPlatforms = [string[]]@(
+        $ScopedPlatforms.Split(',') | ForEach-Object { $_.Trim().ToLowerInvariant() }
     )
-    if ($normalizedSourceIds.Count -eq 0 -or $normalizedPlatforms.Count -eq 0) {
+    $normalizedSourceIds = [int[]]@($inputSourceIds | Sort-Object -Unique)
+    $normalizedPlatforms = [string[]]@($inputPlatforms | Sort-Object -Unique)
+    if ($inputSourceIds.Count -eq 0 `
+        -or $inputSourceIds.Count -ne $inputPlatforms.Count `
+        -or $normalizedSourceIds.Count -ne $inputSourceIds.Count `
+        -or $normalizedPlatforms.Count -ne $inputPlatforms.Count
+    ) {
         throw 'dispatcher_collection_scope_invalid'
     }
+
+    $platformSourceBindings = [string[]]@(
+        for ($bindingIndex = 0; $bindingIndex -lt $inputPlatforms.Count; $bindingIndex++) {
+            '{0}:{1}' -f $inputPlatforms[$bindingIndex], $inputSourceIds[$bindingIndex]
+        }
+    ) | Sort-Object
+    $platformSourceBindingsText = [string]::Join(',', $platformSourceBindings)
 
     # A plan fingerprint is optional because the current scheduled invocation
     # has no pre-dispatch plan-read command. If an operator-owned launcher can
@@ -131,6 +150,7 @@ function Get-DispatcherCollectionScope {
         "business_date=$BusinessDate",
         "source_ids=$sourceIdsText",
         "platforms=$platformsText",
+        "platform_source_bindings=$platformSourceBindingsText",
         "plan_fingerprint=$planFingerprint"
     ))
     $scopeKey = Get-DispatcherTextSha256 -Value $scopeMaterial
@@ -143,6 +163,8 @@ function Get-DispatcherCollectionScope {
         source_ids_text = $sourceIdsText
         platforms = $normalizedPlatforms
         platforms_text = $platformsText
+        platform_source_bindings = $platformSourceBindings
+        platform_source_bindings_text = $platformSourceBindingsText
         plan_fingerprint = $planFingerprint
         scope_key = $scopeKey
         state_path = Join-Path $logDirectory "ota_collection_run_$scopeKey.json"
@@ -330,6 +352,184 @@ function Write-TrustedDispatcherCollectionState {
     }
 }
 
+function Get-DispatcherPlatformSourceBindingsText {
+    param(
+        [object[]]$Rows = @(),
+        [Parameter(Mandatory = $true)][string]$PlatformProperty,
+        [Parameter(Mandatory = $true)][string]$SourceIdProperty
+    )
+
+    $bindings = @()
+    $platforms = @()
+    $sourceIds = @()
+    foreach ($row in @($Rows)) {
+        if ($null -eq $row `
+            -or $row.PSObject.Properties.Name -notcontains $PlatformProperty `
+            -or $row.PSObject.Properties.Name -notcontains $SourceIdProperty
+        ) {
+            return ''
+        }
+        $platform = ([string]$row.PSObject.Properties[$PlatformProperty].Value).Trim().ToLowerInvariant()
+        $sourceId = [int]$row.PSObject.Properties[$SourceIdProperty].Value
+        if ($platform -notmatch '^[a-z0-9_]{1,40}$' -or $sourceId -le 0) {
+            return ''
+        }
+        $platforms += $platform
+        $sourceIds += $sourceId
+        $bindings += ('{0}:{1}' -f $platform, $sourceId)
+    }
+    if (@($bindings).Count -eq 0 `
+        -or @($bindings | Sort-Object -Unique).Count -ne @($bindings).Count `
+        -or @($platforms | Sort-Object -Unique).Count -ne @($platforms).Count `
+        -or @($sourceIds | Sort-Object -Unique).Count -ne @($sourceIds).Count
+    ) {
+        return ''
+    }
+    return [string]::Join(',', [string[]]@($bindings | Sort-Object))
+}
+
+function Get-DispatcherSourceExecutionBindingsText {
+    param(
+        [object[]]$Rows = @(),
+        [Parameter(Mandatory = $true)][string]$SyncTaskIdProperty
+    )
+
+    $bindings = @()
+    foreach ($row in @($Rows)) {
+        foreach ($requiredProperty in @(
+            'platform',
+            'data_source_id',
+            'ingestion_method',
+            $SyncTaskIdProperty
+        )) {
+            if ($null -eq $row -or $row.PSObject.Properties.Name -notcontains $requiredProperty) {
+                return ''
+            }
+        }
+        $platform = ([string]$row.platform).Trim().ToLowerInvariant()
+        $sourceId = [int]$row.data_source_id
+        $ingestionMethod = ([string]$row.ingestion_method).Trim().ToLowerInvariant()
+        $syncTaskId = [int]$row.PSObject.Properties[$SyncTaskIdProperty].Value
+        $localCollectorTaskId = if ($row.PSObject.Properties.Name -contains 'local_collector_task_id') {
+            [int]$row.local_collector_task_id
+        } else {
+            0
+        }
+        if ($platform -notmatch '^[a-z0-9_]{1,40}$' `
+            -or $sourceId -le 0 `
+            -or $syncTaskId -le 0 `
+            -or ($ingestionMethod -eq 'local_collector' -and $localCollectorTaskId -le 0) `
+            -or ($ingestionMethod -eq 'browser_profile' -and $localCollectorTaskId -ne 0) `
+            -or $ingestionMethod -notin @('browser_profile', 'local_collector')
+        ) {
+            return ''
+        }
+        $bindings += [string]::Join(':', [string[]]@(
+            $platform,
+            [string]$sourceId,
+            $ingestionMethod,
+            [string]$syncTaskId,
+            [string]$localCollectorTaskId
+        ))
+    }
+    if ($bindings.Count -eq 0 `
+        -or @($bindings | Sort-Object -Unique).Count -ne $bindings.Count
+    ) {
+        return ''
+    }
+    return [string]::Join(',', [string[]]@($bindings | Sort-Object))
+}
+
+function Test-DispatcherCollectionPlanGate {
+    param(
+        [Parameter(Mandatory = $true)][object]$Gate,
+        [Parameter(Mandatory = $true)][object]$Scope,
+        [Parameter(Mandatory = $true)][guid]$CollectionRunGuid
+    )
+
+    try {
+        $expectedRunId = $CollectionRunGuid.ToString('D').ToLowerInvariant()
+        if ([int]$Gate.schema_version -ne 1 `
+            -or ([string]$Gate.status).Trim().ToLowerInvariant() -cne 'ready' `
+            -or $Gate.collection_allowed -isnot [bool] `
+            -or $Gate.collection_allowed -ne $true `
+            -or $Gate.plan_readback_verified -isnot [bool] `
+            -or $Gate.plan_readback_verified -ne $true `
+            -or $Gate.binding_digest_matches -isnot [bool] `
+            -or $Gate.binding_digest_matches -ne $true `
+            -or $Gate.execution_owner_bound -isnot [bool] `
+            -or $Gate.execution_owner_bound -ne $true `
+            -or $Gate.automatic_device_substitution -isnot [bool] `
+            -or $Gate.automatic_device_substitution -ne $false `
+            -or $Gate.sensitive_values_exposed -isnot [bool] `
+            -or $Gate.sensitive_values_exposed -ne $false `
+            -or ([string]$Gate.dispatcher_run_id).Trim().ToLowerInvariant() -cne $expectedRunId `
+            -or [int]$Gate.tenant_id -le 0 `
+            -or [int]$Gate.system_hotel_id -ne [int]$Scope.hotel_id `
+            -or ([string]$Gate.business_date).Trim() -cne [string]$Scope.business_date `
+            -or ([string]$Gate.run_mode).Trim().ToLowerInvariant() -cne 'daily' `
+            -or [int]$Gate.plan_id -le 0 `
+            -or [int]$Gate.plan_version -le 0 `
+            -or ([string]$Gate.plan_hash).Trim().ToLowerInvariant() -notmatch '^[a-f0-9]{64}$' `
+            -or ([string]$Gate.scope_hash).Trim().ToLowerInvariant() -notmatch '^[a-f0-9]{64}$'
+        ) {
+            return $false
+        }
+        foreach ($requiredListProperty in @(
+            'expected_source_ids',
+            'actual_source_ids',
+            'expected_platforms',
+            'actual_platforms'
+        )) {
+            if ($Gate.PSObject.Properties.Name -notcontains $requiredListProperty) {
+                return $false
+            }
+        }
+        foreach ($sourceProperty in @('expected_source_ids', 'actual_source_ids')) {
+            $ids = [int[]]@(
+                @($Gate.PSObject.Properties[$sourceProperty].Value) |
+                    ForEach-Object { [int]$_ } |
+                    Sort-Object -Unique
+            )
+            $idsText = [string]::Join(',', [string[]]@($ids | ForEach-Object { [string]$_ }))
+            if ($idsText -cne [string]$Scope.source_ids_text) {
+                return $false
+            }
+        }
+        foreach ($platformProperty in @('expected_platforms', 'actual_platforms')) {
+            $platforms = [string[]]@(
+                @($Gate.PSObject.Properties[$platformProperty].Value) |
+                    ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } |
+                    Sort-Object -Unique
+            )
+            if ([string]::Join(',', $platforms) -cne [string]$Scope.platforms_text) {
+                return $false
+            }
+        }
+        if ($null -eq $Gate.sources) {
+            return $false
+        }
+        $sourceRows = @()
+        foreach ($platform in @($Scope.platforms)) {
+            if ($Gate.sources.PSObject.Properties.Name -notcontains [string]$platform) {
+                return $false
+            }
+            $source = $Gate.sources.PSObject.Properties[[string]$platform].Value
+            $sourceRows += [pscustomobject]@{
+                platform = [string]$platform
+                data_source_id = [int]$source.data_source_id
+            }
+        }
+        $sourceBindingsText = Get-DispatcherPlatformSourceBindingsText `
+            -Rows $sourceRows `
+            -PlatformProperty 'platform' `
+            -SourceIdProperty 'data_source_id'
+        return $sourceBindingsText -ceq [string]$Scope.platform_source_bindings_text
+    } catch {
+        return $false
+    }
+}
+
 function Test-DispatcherAutoFetchSuccessReceipt {
     param(
         [Parameter(Mandatory = $true)][object]$Receipt,
@@ -338,6 +538,12 @@ function Test-DispatcherAutoFetchSuccessReceipt {
     )
 
     if ($ChildExitCode -ne 0) {
+        return $false
+    }
+    if ($Receipt.PSObject.Properties.Name -notcontains 'sensitive_values_exposed' `
+        -or $Receipt.sensitive_values_exposed -isnot [bool] `
+        -or $Receipt.sensitive_values_exposed -ne $false
+    ) {
         return $false
     }
     foreach ($requiredFlag in @(
@@ -419,12 +625,17 @@ function Test-DispatcherAutoFetchSuccessReceipt {
         [string[]]@($taskSourceIds | ForEach-Object { [string]$_ })
     )
     $taskPlatformsText = [string]::Join(',', $taskPlatforms)
+    $taskBindingsText = Get-DispatcherPlatformSourceBindingsText `
+        -Rows $sourceTasks `
+        -PlatformProperty 'platform' `
+        -SourceIdProperty 'data_source_id'
     return $taskSourceIds.Count -eq 2 `
         -and $taskPlatforms.Count -eq 2 `
         -and $taskSyncIds.Count -eq 2 `
         -and $localCollectorTaskIds.Count -eq $localCollectorTaskCount `
         -and $taskSourceIdsText -ceq [string]$Scope.source_ids_text `
-        -and $taskPlatformsText -ceq [string]$Scope.platforms_text
+        -and $taskPlatformsText -ceq [string]$Scope.platforms_text `
+        -and $taskBindingsText -ceq [string]$Scope.platform_source_bindings_text
 }
 
 function Test-DispatcherCollectionRunSuccessReceipt {
@@ -440,7 +651,10 @@ function Test-DispatcherCollectionRunSuccessReceipt {
     }
     try {
         $expectedRunId = $CollectionRunGuid.ToString('D').ToLowerInvariant()
-        if (([string]$Receipt.dispatcher_run_id).Trim().ToLowerInvariant() -cne $expectedRunId `
+        if ($Receipt.PSObject.Properties.Name -notcontains 'sensitive_values_exposed' `
+            -or $Receipt.sensitive_values_exposed -isnot [bool] `
+            -or $Receipt.sensitive_values_exposed -ne $false `
+            -or ([string]$Receipt.dispatcher_run_id).Trim().ToLowerInvariant() -cne $expectedRunId `
             -or [int]$Receipt.system_hotel_id -ne [int]$Scope.hotel_id `
             -or ([string]$Receipt.business_date).Trim() -cne [string]$Scope.business_date `
             -or ([string]$Receipt.status).Trim().ToLowerInvariant() -cne 'succeeded'
@@ -530,14 +744,230 @@ function Test-DispatcherCollectionRunSuccessReceipt {
             [string[]]@($sourceIds | ForEach-Object { [string]$_ })
         )
         $platformsText = [string]::Join(',', $platforms)
+        $sourceBindingsText = Get-DispatcherPlatformSourceBindingsText `
+            -Rows $sourceReceipts `
+            -PlatformProperty 'platform' `
+            -SourceIdProperty 'data_source_id'
         return $sourceIds.Count -eq 2 `
             -and $platforms.Count -eq 2 `
             -and $syncTaskIds.Count -eq 2 `
             -and $localCollectorTaskIds.Count -eq $localCollectorTaskCount `
             -and $sourceIdsText -ceq [string]$Scope.source_ids_text `
-            -and $platformsText -ceq [string]$Scope.platforms_text
+            -and $platformsText -ceq [string]$Scope.platforms_text `
+            -and $sourceBindingsText -ceq [string]$Scope.platform_source_bindings_text
     } catch {
         return $false
+    }
+}
+
+function Test-DispatcherCollectionRunTerminalReceipt {
+    param(
+        [Parameter(Mandatory = $true)][object]$Receipt,
+        [Parameter(Mandatory = $true)][object]$Scope,
+        [Parameter(Mandatory = $true)][guid]$CollectionRunGuid
+    )
+
+    $invalid = [pscustomobject]@{
+        valid = $false
+        status = 'started'
+        source = 'runner_child_start'
+    }
+    try {
+        $status = ([string]$Receipt.status).Trim().ToLowerInvariant()
+        if ($status -notin @('partial', 'failed', 'blocked', 'skipped', 'deferred') `
+            -or ([string]$Receipt.dispatcher_run_id).Trim().ToLowerInvariant() `
+                -cne $CollectionRunGuid.ToString('D').ToLowerInvariant() `
+            -or [int]$Receipt.system_hotel_id -ne [int]$Scope.hotel_id `
+            -or ([string]$Receipt.business_date).Trim() -cne [string]$Scope.business_date `
+            -or $Receipt.ledger_structure_verified -isnot [bool] `
+            -or $Receipt.ledger_structure_verified -ne $true `
+            -or $Receipt.readback_verified -isnot [bool] `
+            -or $Receipt.readback_verified -ne $true `
+            -or ([string]$Receipt.finished_at).Trim() -eq '' `
+            -or ([string]$Receipt.scope_hash).Trim().ToLowerInvariant() -notmatch '^[a-f0-9]{64}$'
+        ) {
+            return $invalid
+        }
+
+        $anchorHash = if ($Receipt.PSObject.Properties.Name -contains 'collection_anchor_hash') {
+            ([string]$Receipt.collection_anchor_hash).Trim()
+        } else { '' }
+        $trustDigest = if ($Receipt.PSObject.Properties.Name -contains 'trust_receipt_digest') {
+            ([string]$Receipt.trust_receipt_digest).Trim()
+        } else { '' }
+        $failureStage = ([string]$Receipt.failure_stage).Trim().ToLowerInvariant()
+        $failureCode = ([string]$Receipt.failure_code).Trim().ToLowerInvariant()
+        if ($anchorHash -ne '' -or $trustDigest -ne '' `
+            -or $failureStage -notmatch '^[a-z0-9_]{1,80}$' `
+            -or $failureCode -notmatch '^[a-z0-9_]{1,120}$'
+        ) {
+            return $invalid
+        }
+
+        $sourceReceipts = @($Receipt.source_receipts)
+        if ($sourceReceipts.Count -ne 2 `
+            -or @($Scope.source_ids).Count -ne 2 `
+            -or @($Scope.platforms).Count -ne 2
+        ) {
+            return $invalid
+        }
+
+        $sourceIds = @()
+        $platforms = @()
+        $syncTaskIds = @()
+        $localTaskIds = @()
+        $sourceStatuses = @()
+        $sourceFailureStages = @()
+        foreach ($sourceReceipt in $sourceReceipts) {
+            if ($null -eq $sourceReceipt `
+                -or $sourceReceipt.sensitive_values_exposed -isnot [bool] `
+                -or $sourceReceipt.sensitive_values_exposed -ne $false `
+                -or $sourceReceipt.automatic_device_substitution -isnot [bool] `
+                -or $sourceReceipt.automatic_device_substitution -ne $false `
+                -or [int]$sourceReceipt.data_source_id -le 0 `
+                -or ([string]$sourceReceipt.finished_at).Trim() -eq ''
+            ) {
+                return $invalid
+            }
+
+            $platform = ([string]$sourceReceipt.platform).Trim().ToLowerInvariant()
+            $sourceStatus = ([string]$sourceReceipt.status).Trim().ToLowerInvariant()
+            $sourceFailureStage = ([string]$sourceReceipt.failure_stage).Trim().ToLowerInvariant()
+            $sourceFailureCode = ([string]$sourceReceipt.failure_code).Trim().ToLowerInvariant()
+            $ingestionMethod = ([string]$sourceReceipt.ingestion_method).Trim().ToLowerInvariant()
+            $syncTaskId = [int]$sourceReceipt.platform_sync_task_id
+            $localTaskId = [int]$sourceReceipt.local_collector_task_id
+            $savedCount = [int]$sourceReceipt.saved_row_count
+            $readbackCount = [int]$sourceReceipt.readback_row_count
+            $readbackVerified = $sourceReceipt.readback_verified
+            if ($platform -eq '' `
+                -or $sourceStatus -notin @('success', 'partial', 'failed', 'blocked', 'skipped', 'deferred') `
+                -or $readbackVerified -isnot [bool] `
+                -or $savedCount -lt 0 `
+                -or $readbackCount -lt 0
+            ) {
+                return $invalid
+            }
+
+            $noCollectionChild = $sourceStatus -in @('blocked', 'skipped', 'deferred') `
+                -and $syncTaskId -eq 0 `
+                -and $localTaskId -eq 0 `
+                -and $savedCount -eq 0 `
+                -and $readbackCount -eq 0 `
+                -and $readbackVerified -eq $false
+            if ($ingestionMethod -eq 'local_collector') {
+                if ((-not $noCollectionChild) -and ($syncTaskId -le 0 -or $localTaskId -le 0)) {
+                    return $invalid
+                }
+            } elseif ($ingestionMethod -eq 'browser_profile') {
+                if ($localTaskId -ne 0 -or ((-not $noCollectionChild) -and $syncTaskId -le 0)) {
+                    return $invalid
+                }
+            } else {
+                return $invalid
+            }
+
+            if ($sourceStatus -eq 'success') {
+                if ($sourceFailureStage -ne '' `
+                    -or $sourceFailureCode -ne '' `
+                    -or $readbackVerified -ne $true `
+                    -or $savedCount -le 0 `
+                    -or $readbackCount -le 0 `
+                    -or $savedCount -ne $readbackCount
+                ) {
+                    return $invalid
+                }
+            } else {
+                if ($sourceFailureStage -notmatch '^[a-z0-9_]{1,80}$' `
+                    -or $sourceFailureCode -notmatch '^[a-z0-9_]{1,120}$'
+                ) {
+                    return $invalid
+                }
+                if ($readbackVerified -eq $true `
+                    -and ($savedCount -le 0 `
+                        -or $readbackCount -le 0 `
+                        -or $savedCount -ne $readbackCount `
+                        -or $syncTaskId -le 0)
+                ) {
+                    return $invalid
+                }
+                if ($readbackVerified -eq $false `
+                    -and ($savedCount -gt 0 -or $readbackCount -gt 0) `
+                    -and $syncTaskId -le 0
+                ) {
+                    return $invalid
+                }
+            }
+
+            $sourceIds += [int]$sourceReceipt.data_source_id
+            $platforms += $platform
+            if ($syncTaskId -gt 0) { $syncTaskIds += $syncTaskId }
+            if ($localTaskId -gt 0) { $localTaskIds += $localTaskId }
+            $sourceStatuses += $sourceStatus
+            $sourceFailureStages += $sourceFailureStage
+        }
+
+        $sourceIds = [int[]]@($sourceIds | Sort-Object -Unique)
+        $platforms = [string[]]@($platforms | Sort-Object -Unique)
+        $uniqueSyncTaskIds = [int[]]@($syncTaskIds | Sort-Object -Unique)
+        $uniqueLocalTaskIds = [int[]]@($localTaskIds | Sort-Object -Unique)
+        $sourceIdsText = [string]::Join(',', [string[]]@($sourceIds | ForEach-Object { [string]$_ }))
+        $platformsText = [string]::Join(',', $platforms)
+        $sourceBindingsText = Get-DispatcherPlatformSourceBindingsText `
+            -Rows $sourceReceipts `
+            -PlatformProperty 'platform' `
+            -SourceIdProperty 'data_source_id'
+        if ($sourceIds.Count -ne 2 `
+            -or $platforms.Count -ne 2 `
+            -or $uniqueSyncTaskIds.Count -ne @($syncTaskIds).Count `
+            -or $uniqueLocalTaskIds.Count -ne @($localTaskIds).Count `
+            -or $sourceIdsText -cne [string]$Scope.source_ids_text `
+            -or $platformsText -cne [string]$Scope.platforms_text `
+            -or $sourceBindingsText -cne [string]$Scope.platform_source_bindings_text
+        ) {
+            return $invalid
+        }
+
+        $allSourcesSucceeded = @($sourceStatuses | Where-Object { $_ -ne 'success' }).Count -eq 0
+        if ($failureStage -eq 'trust_finalization' `
+            -and $status -in @('partial', 'failed') `
+            -and $allSourcesSucceeded
+        ) {
+            # Older producers could mark fully persisted dual-source data as a
+            # terminal trust-finalization failure. The collection is durable,
+            # but trust is recoverable only on this exact UUID.
+            return [pscustomobject]@{
+                valid = $true
+                status = 'collected'
+                source = 'collection_run_recoverable_trust_finalization'
+            }
+        }
+
+        if ($status -in @('partial', 'failed')) {
+            if (@($sourceStatuses | Where-Object { $_ -notin @('success', 'partial', 'failed') }).Count -gt 0) {
+                return $invalid
+            }
+            $derivedStatus = if (@($sourceStatuses | Where-Object { $_ -in @('success', 'partial') }).Count -gt 0) {
+                'partial'
+            } else { 'failed' }
+            if ($derivedStatus -cne $status) {
+                return $invalid
+            }
+        } else {
+            if (@($sourceStatuses | Where-Object { $_ -cne $status }).Count -gt 0 `
+                -or @($sourceFailureStages | Where-Object { $_ -cne $failureStage }).Count -gt 0
+            ) {
+                return $invalid
+            }
+        }
+
+        return [pscustomobject]@{
+            valid = $true
+            status = $status
+            source = 'collection_run_authoritative'
+        }
+    } catch {
+        return $invalid
     }
 }
 
@@ -550,27 +980,73 @@ function Resolve-DispatcherCollectionOutputStatus {
     )
 
     $expectedRunId = $CollectionRunGuid.ToString('D').ToLowerInvariant()
-    $observedStatuses = @()
     $outputInvalid = $false
+    $autoFetchReceiptSeen = $false
+    $autoFetchReceiptStatus = ''
     $autoFetchSuccessReceiptSeen = $false
     $autoFetchSuccessReceiptsValid = $true
+    $autoFetchSuccessEvidenceKey = ''
+    $collectionRunReceiptSeen = $false
+    $collectionRunReceiptStatus = ''
     $collectionRunSuccessReceiptSeen = $false
     $collectionRunSuccessReceiptsValid = $true
+    $collectionRunSuccessEvidenceKey = ''
+    $collectionRunSuccessScopeHash = ''
+    $collectionRunTerminalReceiptSeen = $false
+    $collectionRunTerminalReceiptValid = $false
+    $collectionRunTerminalTrustedStatus = ''
+    $collectionRunTerminalTrustedSource = ''
+    $planGateSeen = $false
+    $planGateValid = $false
+    $planGateScopeHash = ''
     foreach ($outputLine in @($OutputLines)) {
         $line = [string]$outputLine
         $receiptType = ''
         $jsonText = ''
-        if ($line -match '^SUXIOS_COLLECTION_RUN_RECEIPT=(\{.*\})$') {
+        if ($line -match '^SUXIOS_COLLECTION_PLAN_GATE=(.*)$') {
+            if ($planGateSeen) {
+                $outputInvalid = $true
+                continue
+            }
+            $planGateSeen = $true
+            try {
+                if ((ConvertTo-SafeDispatcherLine -Value $line) -ceq '[sensitive dispatcher output suppressed]') {
+                    throw 'dispatcher_collection_plan_gate_sensitive_value_detected'
+                }
+                $planGate = ([string]$Matches[1]) | ConvertFrom-Json -ErrorAction Stop
+                $planGateValid = Test-DispatcherCollectionPlanGate `
+                    -Gate $planGate `
+                    -Scope $Scope `
+                    -CollectionRunGuid $CollectionRunGuid
+                $planGateScopeHash = ([string]$planGate.scope_hash).Trim().ToLowerInvariant()
+                if (-not $planGateValid) {
+                    throw 'dispatcher_collection_plan_gate_invalid'
+                }
+            } catch {
+                $planGateValid = $false
+                $outputInvalid = $true
+            }
+            continue
+        } elseif ($line -match '^SUXIOS_COLLECTION_RUN_RECEIPT=(.*)$') {
             $receiptType = 'collection_run'
             $jsonText = [string]$Matches[1]
-        } elseif ($line -match '^SUXIOS_AUTO_FETCH_RECEIPT=(\{.*\})$') {
+        } elseif ($line -match '^SUXIOS_AUTO_FETCH_RECEIPT=(.*)$') {
             $receiptType = 'auto_fetch'
             $jsonText = [string]$Matches[1]
         } else {
             continue
         }
         try {
+            if ((ConvertTo-SafeDispatcherLine -Value $line) -ceq '[sensitive dispatcher output suppressed]') {
+                throw 'dispatcher_collection_output_sensitive_value_detected'
+            }
             $receipt = $jsonText | ConvertFrom-Json -ErrorAction Stop
+            if ($receipt.PSObject.Properties.Name -notcontains 'sensitive_values_exposed' `
+                -or $receipt.sensitive_values_exposed -isnot [bool] `
+                -or $receipt.sensitive_values_exposed -ne $false
+            ) {
+                throw 'dispatcher_collection_output_sensitive_contract_invalid'
+            }
             $receiptRunId = ([string]$receipt.dispatcher_run_id).Trim().ToLowerInvariant()
             $receiptHotelId = if ($receiptType -eq 'collection_run') {
                 [int]$receipt.system_hotel_id
@@ -631,6 +1107,21 @@ function Resolve-DispatcherCollectionOutputStatus {
             if ($receiptStatus -notin @($collectionActiveStatuses + $collectionTerminalStatuses)) {
                 throw 'dispatcher_collection_output_status_invalid'
             }
+            if ($receiptType -eq 'auto_fetch') {
+                if ($autoFetchReceiptSeen) {
+                    throw 'dispatcher_collection_output_duplicate_auto_receipt'
+                }
+                $autoFetchReceiptSeen = $true
+                $autoFetchReceiptStatus = $receiptStatus
+            } else {
+                if ($collectionRunReceiptSeen `
+                    -and $collectionRunReceiptStatus -in $collectionTerminalStatuses
+                ) {
+                    throw 'dispatcher_collection_output_duplicate_collection_receipt'
+                }
+                $collectionRunReceiptSeen = $true
+                $collectionRunReceiptStatus = $receiptStatus
+            }
             if ($receiptType -eq 'auto_fetch' -and $receiptStatus -eq 'succeeded') {
                 $autoFetchSuccessReceiptSeen = $true
                 if (-not (Test-DispatcherAutoFetchSuccessReceipt `
@@ -639,6 +1130,16 @@ function Resolve-DispatcherCollectionOutputStatus {
                     -ChildExitCode $ChildExitCode
                 )) {
                     $autoFetchSuccessReceiptsValid = $false
+                } else {
+                    $autoExecutionBindingsText = Get-DispatcherSourceExecutionBindingsText `
+                        -Rows @($receipt.source_tasks) `
+                        -SyncTaskIdProperty 'sync_task_id'
+                    $autoFetchSuccessEvidenceKey = [string]::Join('|', [string[]]@(
+                        [string]$Scope.platform_source_bindings_text,
+                        $autoExecutionBindingsText,
+                        ([string]$receipt.collection_anchor_hash).Trim().ToLowerInvariant(),
+                        ([string]$receipt.trust_receipt_digest).Trim().ToLowerInvariant()
+                    ))
                 }
             } elseif ($receiptType -eq 'collection_run' -and $receiptStatus -eq 'succeeded') {
                 $collectionRunSuccessReceiptSeen = $true
@@ -649,12 +1150,55 @@ function Resolve-DispatcherCollectionOutputStatus {
                     -ChildExitCode $ChildExitCode
                 )) {
                     $collectionRunSuccessReceiptsValid = $false
+                } else {
+                    $collectionRunSuccessScopeHash = (
+                        [string]$receipt.scope_hash
+                    ).Trim().ToLowerInvariant()
+                    $collectionExecutionBindingsText = Get-DispatcherSourceExecutionBindingsText `
+                        -Rows @($receipt.source_receipts) `
+                        -SyncTaskIdProperty 'platform_sync_task_id'
+                    $collectionRunSuccessEvidenceKey = [string]::Join('|', [string[]]@(
+                        [string]$Scope.platform_source_bindings_text,
+                        $collectionExecutionBindingsText,
+                        ([string]$receipt.collection_anchor_hash).Trim().ToLowerInvariant(),
+                        ([string]$receipt.trust_receipt_digest).Trim().ToLowerInvariant()
+                    ))
+                }
+            } elseif ($receiptType -eq 'collection_run' `
+                -and $receiptStatus -in @('partial', 'failed', 'blocked', 'skipped', 'deferred')
+            ) {
+                $collectionRunTerminalReceiptSeen = $true
+                $terminalReceiptContract = Test-DispatcherCollectionRunTerminalReceipt `
+                    -Receipt $receipt `
+                    -Scope $Scope `
+                    -CollectionRunGuid $CollectionRunGuid
+                $collectionRunTerminalReceiptValid = [bool]$terminalReceiptContract.valid
+                if ($collectionRunTerminalReceiptValid) {
+                    $collectionRunTerminalTrustedStatus = [string]$terminalReceiptContract.status
+                    $collectionRunTerminalTrustedSource = [string]$terminalReceiptContract.source
                 }
             }
-            $observedStatuses += $receiptStatus
         } catch {
             $outputInvalid = $true
         }
+    }
+    if ($autoFetchReceiptSeen -and $collectionRunReceiptSeen `
+        -and ($autoFetchReceiptStatus -cne $collectionRunReceiptStatus `
+            -or ($collectionRunReceiptStatus -eq 'succeeded' `
+                -and $autoFetchSuccessEvidenceKey -cne $collectionRunSuccessEvidenceKey))
+    ) {
+        # AUTO is supplementary when both receipts exist. The durable
+        # COLLECTION ledger is authoritative, while any disagreement makes the
+        # pair unusable rather than allowing output order to choose a winner.
+        $outputInvalid = $true # dispatcher_collection_output_receipt_disagreement
+    }
+    if (($autoFetchSuccessReceiptSeen -or $collectionRunSuccessReceiptSeen) `
+        -and (-not $planGateSeen `
+            -or -not $planGateValid `
+            -or -not $collectionRunSuccessReceiptSeen `
+            -or $collectionRunSuccessScopeHash -cne $planGateScopeHash)
+    ) {
+        $outputInvalid = $true # dispatcher_collection_output_plan_gate_unbound
     }
     if ($outputInvalid) {
         return [pscustomobject]@{
@@ -664,18 +1208,30 @@ function Resolve-DispatcherCollectionOutputStatus {
             reason = 'child_output_untrusted'
         }
     }
-    $terminalStatuses = @($observedStatuses | Where-Object { $_ -in $collectionTerminalStatuses })
-    if ($terminalStatuses.Count -gt 0) {
-        $terminalStatus = [string]$terminalStatuses[$terminalStatuses.Count - 1]
-        $successReceiptVerified = if ($autoFetchSuccessReceiptSeen) {
-            $autoFetchSuccessReceiptsValid
+    $authoritativeStatus = if ($collectionRunReceiptSeen) {
+        $collectionRunReceiptStatus
+    } elseif ($autoFetchReceiptSeen) {
+        $autoFetchReceiptStatus
+    } else {
+        ''
+    }
+    $authoritativeSource = if ($collectionRunReceiptSeen) {
+        'collection_run_authoritative'
+    } else {
+        'auto_fetch_fallback'
+    }
+    if ($authoritativeStatus -in $collectionTerminalStatuses) {
+        $successReceiptVerified = if ($collectionRunReceiptSeen) {
+            $collectionRunSuccessReceiptSeen `
+                -and $collectionRunSuccessReceiptsValid `
+                -and (-not $autoFetchReceiptSeen `
+                    -or ($autoFetchSuccessReceiptSeen -and $autoFetchSuccessReceiptsValid))
         } else {
-            $collectionRunSuccessReceiptSeen -and $collectionRunSuccessReceiptsValid
+            $autoFetchSuccessReceiptSeen -and $autoFetchSuccessReceiptsValid
         }
-        if ($terminalStatus -eq 'succeeded' `
+        if ($authoritativeStatus -eq 'succeeded' `
             -and ($ChildExitCode -ne 0 `
-                -or -not $successReceiptVerified `
-                -or @($terminalStatuses | Where-Object { $_ -ne 'succeeded' }).Count -gt 0)
+                -or -not $successReceiptVerified)
         ) {
             return [pscustomobject]@{
                 trusted = $false
@@ -684,19 +1240,40 @@ function Resolve-DispatcherCollectionOutputStatus {
                 reason = 'child_output_untrusted'
             }
         }
+        if ($authoritativeStatus -ne 'succeeded') {
+            # AUTO may summarize a failure but cannot prove a durable terminal
+            # ledger. Only the exact strict COLLECTION receipt may rotate the
+            # UUID; malformed or incomplete evidence keeps the run recoverable.
+            if (-not $collectionRunReceiptSeen `
+                -or -not $collectionRunTerminalReceiptSeen `
+                -or -not $collectionRunTerminalReceiptValid
+            ) {
+                return [pscustomobject]@{
+                    trusted = $false
+                    status = 'started'
+                    source = 'runner_child_start'
+                    reason = 'child_output_untrusted'
+                }
+            }
+            return [pscustomobject]@{
+                trusted = $true
+                status = $collectionRunTerminalTrustedStatus
+                source = $collectionRunTerminalTrustedSource
+                reason = ''
+            }
+        }
         return [pscustomobject]@{
             trusted = $true
-            status = $terminalStatus
-            source = 'child_structured_terminal_receipt'
+            status = $authoritativeStatus
+            source = $authoritativeSource
             reason = ''
         }
     }
-    $activeStatuses = @($observedStatuses | Where-Object { $_ -in $collectionActiveStatuses })
-    if ($activeStatuses.Count -gt 0) {
+    if ($authoritativeStatus -in $collectionActiveStatuses) {
         return [pscustomobject]@{
             trusted = $true
-            status = [string]$activeStatuses[$activeStatuses.Count - 1]
-            source = 'child_structured_active_receipt'
+            status = $authoritativeStatus
+            source = $authoritativeSource
             reason = ''
         }
     }
@@ -705,6 +1282,256 @@ function Resolve-DispatcherCollectionOutputStatus {
         status = 'started'
         source = 'runner_child_start'
         reason = 'child_output_untrusted'
+    }
+}
+
+function Resolve-DispatcherZeroExitReceiptContract {
+    param(
+        [string[]]$OutputLines = @(),
+        [Parameter(Mandatory = $true)][int]$ChildExitCode
+    )
+
+    if ($ChildExitCode -ne 0) {
+        return [pscustomobject]@{
+            allowed = $true
+            status = ''
+            fail_exit_code = $ChildExitCode
+        }
+    }
+
+    $statuses = @()
+    $seenTypes = @{}
+    foreach ($outputLine in @($OutputLines)) {
+        $line = [string]$outputLine
+        $receiptType = ''
+        $jsonText = ''
+        if ($line -match '^SUXIOS_COLLECTION_RUN_RECEIPT=(.*)$') {
+            $receiptType = 'collection_run'
+            $jsonText = [string]$Matches[1]
+        } elseif ($line -match '^SUXIOS_AUTO_FETCH_RECEIPT=(.*)$') {
+            $receiptType = 'auto_fetch'
+            $jsonText = [string]$Matches[1]
+        } else {
+            continue
+        }
+        try {
+            if ($seenTypes.ContainsKey($receiptType) `
+                -or (ConvertTo-SafeDispatcherLine -Value $line) -ceq '[sensitive dispatcher output suppressed]'
+            ) {
+                throw 'dispatcher_zero_exit_receipt_invalid'
+            }
+            $seenTypes[$receiptType] = $true
+            $receipt = $jsonText | ConvertFrom-Json -ErrorAction Stop
+            if ($receipt.PSObject.Properties.Name -notcontains 'sensitive_values_exposed' `
+                -or $receipt.sensitive_values_exposed -isnot [bool] `
+                -or $receipt.sensitive_values_exposed -ne $false
+            ) {
+                throw 'dispatcher_zero_exit_receipt_sensitive_contract_invalid'
+            }
+            $status = ([string]$receipt.status).Trim().ToLowerInvariant()
+            if ($receiptType -eq 'auto_fetch') {
+                $status = switch ($status) {
+                    'success' { 'succeeded' }
+                    'partial_success' { 'partial' }
+                    default { $status }
+                }
+            }
+            if ($status -notin @($collectionActiveStatuses + $collectionTerminalStatuses)) {
+                throw 'dispatcher_zero_exit_receipt_status_invalid'
+            }
+            $statuses += $status
+        } catch {
+            return [pscustomobject]@{
+                allowed = $false
+                status = 'invalid_receipt'
+                fail_exit_code = 125
+            }
+        }
+    }
+
+    if ($statuses.Count -eq 0) {
+        return [pscustomobject]@{
+            allowed = $true
+            status = ''
+            fail_exit_code = 0
+        }
+    }
+    $uniqueStatuses = @($statuses | Sort-Object -Unique)
+    if ($uniqueStatuses.Count -ne 1) {
+        return [pscustomobject]@{
+            allowed = $false
+            status = 'receipt_disagreement'
+            fail_exit_code = 125
+        }
+    }
+    $status = [string]$uniqueStatuses[0]
+    if ($status -eq 'succeeded') {
+        return [pscustomobject]@{
+            allowed = $true
+            status = $status
+            fail_exit_code = 0
+        }
+    }
+    return [pscustomobject]@{
+        allowed = $false
+        status = $status
+        fail_exit_code = if ($status -in $collectionActiveStatuses) { 125 } else { 1 }
+    }
+}
+
+function Enter-DispatcherScopeLock {
+    param(
+        [Parameter(Mandatory = $true)][int]$SystemHotelId,
+        [AllowNull()][object]$Scope,
+        [Parameter(Mandatory = $true)][guid]$CurrentExecutionGuid
+    )
+
+    $scopeLabel = if ($SystemHotelId -gt 0) { "hotel:$SystemHotelId" } else { 'hotel:global' }
+    $globalGuardPath = Join-Path $logDirectory 'ota_dispatcher_all_hotels.guard.lock'
+    $lockPath = if ($SystemHotelId -gt 0) {
+        Join-Path $logDirectory "ota_dispatcher_hotel_$SystemHotelId.lock"
+    } else {
+        $globalGuardPath
+    }
+    $guardStream = $null
+    $lockStream = $null
+    try {
+        if ($SystemHotelId -gt 0) {
+            # Hotel-scoped runs share the global guard, then take an exclusive
+            # per-hotel lease. This preserves cross-hotel parallelism while an
+            # unscoped legacy run can still exclude every hotel-scoped run.
+            $guardStream = [System.IO.File]::Open(
+                $globalGuardPath,
+                [System.IO.FileMode]::OpenOrCreate,
+                [System.IO.FileAccess]::ReadWrite,
+                [System.IO.FileShare]::ReadWrite
+            )
+            $lockStream = [System.IO.File]::Open(
+                $lockPath,
+                [System.IO.FileMode]::OpenOrCreate,
+                [System.IO.FileAccess]::ReadWrite,
+                [System.IO.FileShare]::None
+            )
+        } else {
+            # The global runner exclusively owns the shared guard, preventing
+            # overlap with both other global runs and every hotel-scoped run.
+            $lockStream = [System.IO.File]::Open(
+                $globalGuardPath,
+                [System.IO.FileMode]::OpenOrCreate,
+                [System.IO.FileAccess]::ReadWrite,
+                [System.IO.FileShare]::None
+            )
+        }
+        # These handles are OS-owned process-lifetime leases. There is no TTL
+        # that can expire during a legitimate retry window, and the persistent
+        # lock files are never deleted, so owner A cannot unlink owner B's lock.
+        $metadata = [ordered]@{
+            schema_version = 1
+            owner_execution_id = $CurrentExecutionGuid.ToString('D').ToLowerInvariant()
+            owner_process_id = $PID
+            scope = $scopeLabel
+            scope_key = if ($null -ne $Scope) { [string]$Scope.scope_key } else { '' }
+            acquired_at = [datetimeoffset]::Now.ToString('o')
+            lease = 'process_lifetime'
+        } | ConvertTo-Json -Compress
+        $lockStream.SetLength(0)
+        $writer = [System.IO.StreamWriter]::new($lockStream, $utf8, 1024, $true)
+        try {
+            $writer.Write($metadata)
+            $writer.Flush()
+            $lockStream.Flush($true)
+        } finally {
+            $writer.Dispose()
+        }
+        return [pscustomobject]@{
+            acquired = $true
+            handle = $lockStream
+            guard_handle = $guardStream
+            scope = $scopeLabel
+            path = $lockPath
+            reason = ''
+        }
+    } catch {
+        if ($null -ne $lockStream) {
+            $lockStream.Dispose()
+        }
+        if ($null -ne $guardStream) {
+            $guardStream.Dispose()
+        }
+        return [pscustomobject]@{
+            acquired = $false
+            handle = $null
+            guard_handle = $null
+            scope = $scopeLabel
+            path = $lockPath
+            reason = $_.Exception.GetType().Name
+        }
+    }
+}
+
+function Exit-DispatcherScopeLock {
+    param([AllowNull()][object]$Lock)
+
+    if ($null -ne $Lock `
+        -and $Lock.PSObject.Properties.Name -contains 'handle' `
+        -and $null -ne $Lock.handle
+    ) {
+        $Lock.handle.Dispose()
+    }
+    if ($null -ne $Lock `
+        -and $Lock.PSObject.Properties.Name -contains 'guard_handle' `
+        -and $null -ne $Lock.guard_handle
+    ) {
+        $Lock.guard_handle.Dispose()
+    }
+}
+
+function Stop-DispatcherProcessTree {
+    param([AllowNull()][System.Diagnostics.Process]$Process)
+
+    if ($null -eq $Process) {
+        return $true
+    }
+    try {
+        if ($Process.HasExited) {
+            return $true
+        }
+    } catch {
+        return $true
+    }
+
+    $taskKillPath = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+    $treeKillCompleted = $false
+    if (Test-Path -LiteralPath $taskKillPath -PathType Leaf) {
+        try {
+            $treeKiller = Start-Process `
+                -FilePath $taskKillPath `
+                -ArgumentList @('/PID', [string]$Process.Id, '/T', '/F') `
+                -WindowStyle Hidden `
+                -PassThru
+            # Process-tree cleanup must not consume the collection timeout a
+            # second time. taskkill continues independently if Windows needs
+            # longer, while the direct parent fallback keeps this runner
+            # bounded and the returned flag remains fail-closed.
+            $treeKillCompleted = $treeKiller.WaitForExit(750)
+            if (-not $treeKillCompleted) {
+                # Do not allow a lingering taskkill process to inherit the
+                # scheduled runner's output handles and keep its caller open.
+                $treeKiller.Kill()
+                $null = $treeKiller.WaitForExit(250)
+            }
+        } catch {
+            # The direct-process fallback below is still required.
+        }
+    }
+    try {
+        if (-not $Process.HasExited) {
+            $Process.Kill()
+        }
+        $parentStopped = $Process.WaitForExit(250)
+        return $parentStopped -and $treeKillCompleted
+    } catch {
+        return $false
     }
 }
 
@@ -744,20 +1571,89 @@ function ConvertTo-SafeDispatcherLine {
     param([AllowNull()][object]$Value)
 
     $line = [string]$Value
+    $unicodeEscapePattern = [System.Text.RegularExpressions.Regex]::new(
+        '[\\]+u([0-9a-f]{4})',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    $unicodeEscapeEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
+        param([System.Text.RegularExpressions.Match]$unicodeMatch)
+
+        $codePoint = [Convert]::ToInt32($unicodeMatch.Groups[1].Value, 16)
+        if ($codePoint -ge 0x20 -and $codePoint -le 0x7e) {
+            return [string][char]$codePoint
+        }
+        return $unicodeMatch.Value
+    }
+    $detectionLine = $line
+    do {
+        $previousDetectionLine = $detectionLine
+        $detectionLine = $unicodeEscapePattern.Replace(
+            $detectionLine,
+            $unicodeEscapeEvaluator
+        )
+        $detectionLine = $detectionLine -replace '[\\]+(?=["/])', ''
+    } while ($detectionLine -cne $previousDetectionLine)
     # The scheduled command must never put authorization material in its
     # diagnostic log. Suppress a whole suspicious line instead of attempting
     # partial redaction that can leave a new platform key format exposed.
-    if ($line -match '(?i)(?:cookie|spidertoken|authorization|password|secret|session|credential|profile)\s*(?:[:=]|[\"''])') {
+    $sensitiveKeyPattern = '(?i)(?:^|[^a-z0-9_])["'']?(?:access[_-]?token|refresh[_-]?token|api[_-]?key|spidertoken|token|set[_-]?cookies?|cookies?(?:[_-]?(?:file|jar|store))?|authorization|auth|password|passwd|secret|session(?:[_-]?id)?|signature|mtgsig|spiderkey|ticket|credential|profile(?:[_-]?key)?)["'']?\s*[:=]'
+    $sensitiveCliPattern = '(?i)(?:^|\s)--(?:access[_-]?token|refresh[_-]?token|api[_-]?key|spidertoken|token|set[_-]?cookies?|cookies?(?:[_-]?(?:file|jar|store))?|authorization|auth|password|passwd|secret|session(?:[_-]?id)?|signature|mtgsig|spiderkey|ticket|credential|profile(?:[_-]?key)?)(?:=|\s+)'
+    $bearerPattern = '(?i)\bbearer(?:\s+|%20)[a-z0-9._~+/%=-]+'
+    $urlQueryPattern = '(?i)(?:https?://|(?:^|\s)/)[^\s?#]*\?[^\s#]*'
+    $urlUserInfoPattern = '(?i)\bhttps?://[^\s/@]+@'
+    if ($detectionLine -match $sensitiveKeyPattern `
+        -or $detectionLine -match $sensitiveCliPattern `
+        -or $detectionLine -match $bearerPattern `
+        -or $detectionLine -match $urlQueryPattern `
+        -or $detectionLine -match $urlUserInfoPattern
+    ) {
         return '[sensitive dispatcher output suppressed]'
     }
     # Keep the task log machine-readable. Native PHP localized output has an
     # inconsistent legacy-console decode on this Windows host; the structured
     # receipt below is the authoritative diagnostic evidence and contains the
     # hotel/date/platform state without exposing a garbled display name.
-    if ($line -notmatch '^SUXIOS_AUTO_FETCH_RECEIPT=' -and $line -match '[^\x00-\x7F]') {
+    if ($line -notmatch '^SUXIOS_(?:AUTO_FETCH|COLLECTION_RUN)_RECEIPT=' `
+        -and $line -notmatch '^SUXIOS_COLLECTION_PLAN_GATE=' `
+        -and $line -match '[^\x00-\x7F]'
+    ) {
         return '[localized dispatcher detail omitted; inspect the safe receipt]'
     }
     return $line
+}
+
+function Initialize-DispatcherPrivateCaptureFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    [System.IO.File]::WriteAllText($Path, '', $utf8)
+    try {
+        $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+        if ($null -eq $currentSid) {
+            throw 'dispatcher_capture_file_identity_unavailable'
+        }
+        $security = [System.Security.AccessControl.FileSecurity]::new()
+        $security.SetOwner($currentSid)
+        $security.SetAccessRuleProtection($true, $false)
+        $security.AddAccessRule(
+            [System.Security.AccessControl.FileSystemAccessRule]::new(
+                $currentSid,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.Security.AccessControl.AccessControlType]::Allow
+            )
+        )
+        [System.IO.File]::SetAccessControl($Path, $security)
+        $readback = [System.IO.File]::GetAccessControl($Path)
+        if (-not $readback.AreAccessRulesProtected) {
+            throw 'dispatcher_capture_file_acl_readback_failed'
+        }
+    } catch {
+        try {
+            [System.IO.File]::Delete($Path)
+        } catch {
+            # Preserve the original ACL/setup failure.
+        }
+        throw
+    }
 }
 
 function Invoke-SafeDispatcherProcess {
@@ -773,6 +1669,8 @@ function Invoke-SafeDispatcherProcess {
     $safeStderrPath = Join-Path $logDirectory "ota_dispatcher_$runId.$Label.stderr.tmp"
     $childProcess = $null
     try {
+        Initialize-DispatcherPrivateCaptureFile -Path $safeStdoutPath
+        Initialize-DispatcherPrivateCaptureFile -Path $safeStderrPath
         $childProcess = Start-Process `
             -FilePath $FilePath `
             -ArgumentList $ArgumentList `
@@ -789,17 +1687,11 @@ function Invoke-SafeDispatcherProcess {
         $null = $childProcess.Handle
         $completed = $childProcess.WaitForExit($TimeoutSeconds * 1000)
         if (-not $completed) {
-            try {
-                $childProcess.Kill()
-                $childProcess.WaitForExit()
-            } catch {
-                # The structured timeout result remains authoritative even when
-                # the child exits between the timeout and termination attempt.
-            }
+            $treeStopped = Stop-DispatcherProcessTree -Process $childProcess
             return [pscustomobject]@{
                 exit_code = 124
                 timed_out = $true
-                exception_type = ''
+                exception_type = if ($treeStopped) { '' } else { 'child_tree_stop_unverified' }
                 stdout_lines = @()
             }
         }
@@ -833,9 +1725,16 @@ function Invoke-SafeDispatcherProcess {
             stdout_lines = @()
         }
     } finally {
+        if ($null -ne $childProcess) {
+            $childProcess.Dispose()
+        }
         foreach ($temporaryPath in @($safeStdoutPath, $safeStderrPath)) {
             if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
-                Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+                try {
+                    [System.IO.File]::Delete($temporaryPath)
+                } catch {
+                    # The file remains ACL-restricted if the OS still owns it.
+                }
             }
         }
     }
@@ -1014,7 +1913,46 @@ function Get-DispatcherFinishProvenance {
         } else {
             'unavailable'
         }
-        $machineReceiptLines = @($ChildOutputLines | Where-Object { [string]$_ -match '^SUXIOS_AUTO_FETCH_RECEIPT=' })
+        $autoFetchReceiptLines = @(
+            $ChildOutputLines | Where-Object { [string]$_ -match '^SUXIOS_AUTO_FETCH_RECEIPT=' }
+        )
+        $collectionRunReceiptLines = @(
+            $ChildOutputLines | Where-Object { [string]$_ -match '^SUXIOS_COLLECTION_RUN_RECEIPT=' }
+        )
+        $terminalCollectionRunReceiptLines = @()
+        foreach ($collectionRunReceiptLine in $collectionRunReceiptLines) {
+            try {
+                $collectionRunReceipt = (
+                    [string]$collectionRunReceiptLine -replace '^SUXIOS_COLLECTION_RUN_RECEIPT=', ''
+                ) | ConvertFrom-Json -ErrorAction Stop
+                $collectionRunStatus = ([string]$collectionRunReceipt.status).Trim().ToLowerInvariant()
+                if ($collectionRunReceipt.PSObject.Properties.Name -notcontains 'sensitive_values_exposed' `
+                    -or $collectionRunReceipt.sensitive_values_exposed -isnot [bool] `
+                    -or $collectionRunReceipt.sensitive_values_exposed -ne $false
+                ) {
+                    throw 'dispatcher_collection_receipt_sensitive_contract_invalid'
+                }
+                if ($collectionRunStatus -in $collectionTerminalStatuses) {
+                    $terminalCollectionRunReceiptLines += [string]$collectionRunReceiptLine
+                }
+            } catch {
+                # The main child-output validator already forces a non-zero
+                # result. Do not let malformed lifecycle output become the
+                # canonical provenance line as a fallback.
+                $terminalCollectionRunReceiptLines = @()
+                break
+            }
+        }
+        # AUTO remains the compatibility receipt when present. Early plan-gate
+        # failures and collection-run-only children emit only the durable
+        # COLLECTION receipt, which must still be represented in provenance.
+        $machineReceiptLines = @(
+            if ($autoFetchReceiptLines.Count -gt 0) {
+                $autoFetchReceiptLines
+            } else {
+                $terminalCollectionRunReceiptLines
+            }
+        )
         $childReceiptPresent = $machineReceiptLines.Count -gt 0
         $childReceiptHash = if ($childReceiptPresent) {
             Get-SuxiosStableSha256 -Value $machineReceiptLines
@@ -1095,6 +2033,25 @@ if ($explicitScopeComplete) {
 if ($PreflightOnly) {
     $lines += 'dispatcher_run_mode=preflight_only;ota_collection_started=false'
 }
+$effectiveCollectionTimeoutSeconds = if ($CollectionTimeoutSeconds -gt 0) {
+    $CollectionTimeoutSeconds
+} else {
+    $maximumCollectionTimeoutSeconds
+}
+$scopeLock = Enter-DispatcherScopeLock `
+    -SystemHotelId $HotelId `
+    -Scope $collectionScope `
+    -CurrentExecutionGuid $executionGuid
+if (-not [bool]$scopeLock.acquired) {
+    $lines += "dispatcher_scope_lock=blocked;scope=$([string]$scopeLock.scope);lease=process_lifetime;ota_collection_started=false"
+    $lines += 'dispatcher_terminal_status=finished;exit_code=125'
+    [System.IO.File]::WriteAllLines($logPath, [string[]]$lines, $utf8)
+    Exit-DispatcherScopeLock -Lock $scopeLock
+    Write-Output "dispatcher_log=$logPath"
+    Write-Output 'dispatcher_exit_code=125'
+    exit 125
+}
+$lines += "dispatcher_scope_lock=acquired;scope=$([string]$scopeLock.scope);lease=process_lifetime"
 $lines += 'dispatcher_terminal_status=started_without_terminal_receipt'
 # Persist the safe scope/start receipt before the child process begins. If the
 # Windows execution limit terminates this runner, the missing terminal status
@@ -1289,6 +2246,7 @@ if ($PreflightOnly -or $databasePreflightBlocked) {
     $lines += "dispatcher_terminal_status=finished;exit_code=$exitCode"
     $lines += "[$finishedAt] SUXIOS OTA dispatcher preflight finished. exit_code=$exitCode"
     [System.IO.File]::WriteAllLines($logPath, [string[]]$lines, $utf8)
+    Exit-DispatcherScopeLock -Lock $scopeLock
     Write-Output "dispatcher_log=$logPath"
     Write-Output "dispatcher_exit_code=$exitCode"
     exit $exitCode
@@ -1322,6 +2280,7 @@ if (-not $collectionStartStateReady) {
     $lines += 'dispatcher_terminal_status=finished;exit_code=125'
     $lines += "[$finishedAt] SUXIOS OTA dispatcher blocked before collection. exit_code=125"
     [System.IO.File]::WriteAllLines($logPath, [string[]]$lines, $utf8)
+    Exit-DispatcherScopeLock -Lock $scopeLock
     Write-Output "dispatcher_log=$logPath"
     Write-Output 'dispatcher_exit_code=125'
     exit 125
@@ -1329,8 +2288,12 @@ if (-not $collectionStartStateReady) {
 
 $lines += 'dispatcher_preflight_result=ready;ota_collection_started=pending'
 [System.IO.File]::WriteAllLines($logPath, [string[]]$lines, $utf8)
-$rawOutput = @()
+$rawStdout = @()
+$rawStderr = @()
+$process = $null
 try {
+    Initialize-DispatcherPrivateCaptureFile -Path $stdoutPath
+    Initialize-DispatcherPrivateCaptureFile -Path $stderrPath
     $process = Start-Process `
         -FilePath $resolvedPhp `
         -ArgumentList $dispatcherArguments `
@@ -1343,30 +2306,54 @@ try {
     # PowerShell 5.1 can expose ExitCode=$null for a short redirected process;
     # casting that value to int would create a false success (0).
     $null = $process.Handle
-    $process.WaitForExit()
-    $process.WaitForExit()
-    $capturedDispatcherExitCode = $process.ExitCode
-    if ($null -eq $capturedDispatcherExitCode) {
-        $exitCode = 125
-        $lines += 'dispatcher_child_exit_code=unavailable;fail_closed_exit_code=125'
+    $dispatcherCompleted = $process.WaitForExit($effectiveCollectionTimeoutSeconds * 1000)
+    if (-not $dispatcherCompleted) {
+        $treeStopped = Stop-DispatcherProcessTree -Process $process
+        $exitCode = 124
+        $lines += "dispatcher_child=timed_out;timeout_seconds=$effectiveCollectionTimeoutSeconds;exit_code=124;process_tree_stopped=$($treeStopped.ToString().ToLowerInvariant())"
     } else {
-        $exitCode = [int]$capturedDispatcherExitCode
-    }
-    foreach ($capturePath in @($stdoutPath, $stderrPath)) {
-        if (Test-Path -LiteralPath $capturePath -PathType Leaf) {
-            $rawOutput += [System.IO.File]::ReadAllLines($capturePath, $utf8)
+        # Flush redirected streams after the bounded wait completed.
+        $process.WaitForExit()
+        $capturedDispatcherExitCode = $process.ExitCode
+        if ($null -eq $capturedDispatcherExitCode) {
+            $exitCode = 125
+            $lines += 'dispatcher_child_exit_code=unavailable;fail_closed_exit_code=125'
+        } else {
+            $exitCode = [int]$capturedDispatcherExitCode
         }
     }
-    foreach ($entry in $rawOutput) {
+    # A timed-out process tree may still be completing taskkill asynchronously
+    # and therefore retain redirected-file handles briefly. Its partial output
+    # is not eligible as a terminal receipt, so do not reopen those captures or
+    # let a sharing violation replace the authoritative timeout exit code.
+    if ($exitCode -ne 124) {
+        if (Test-Path -LiteralPath $stdoutPath -PathType Leaf) {
+            $rawStdout = @([System.IO.File]::ReadAllLines($stdoutPath, $utf8))
+        }
+        if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
+            $rawStderr = @([System.IO.File]::ReadAllLines($stderrPath, $utf8))
+        }
+    }
+    foreach ($entry in @($rawStdout)) {
+        $lines += ConvertTo-SafeDispatcherLine -Value $entry
+    }
+    foreach ($entry in @($rawStderr)) {
         $lines += ConvertTo-SafeDispatcherLine -Value $entry
     }
 } catch {
     $lines += ('dispatcher_exception=' + $_.Exception.GetType().FullName)
     $exitCode = 1
 } finally {
+    if ($null -ne $process) {
+        $process.Dispose()
+    }
     foreach ($capturePath in @($stdoutPath, $stderrPath)) {
         if (Test-Path -LiteralPath $capturePath -PathType Leaf) {
-            Remove-Item -LiteralPath $capturePath -Force -ErrorAction SilentlyContinue
+            try {
+                [System.IO.File]::Delete($capturePath)
+            } catch {
+                # The file remains ACL-restricted if the OS still owns it.
+            }
         }
     }
 }
@@ -1374,7 +2361,7 @@ try {
 $childExitCode = $exitCode
 if ($collectionStateEnabled) {
     $collectionOutputStatus = Resolve-DispatcherCollectionOutputStatus `
-        -OutputLines $rawOutput `
+        -OutputLines $rawStdout `
         -Scope $collectionScope `
         -CollectionRunGuid $dispatcherRunGuid `
         -ChildExitCode $childExitCode
@@ -1396,6 +2383,10 @@ if ($collectionStateEnabled) {
                 -StatusSource ([string]$collectionOutputStatus.source) `
                 -CurrentExecutionGuid $executionGuid
             $lines += "dispatcher_collection_state=stored;status=$([string]$collectionOutputStatus.status);source=$([string]$collectionOutputStatus.source)"
+            if ($childExitCode -eq 0 -and [string]$collectionOutputStatus.status -ne 'succeeded') {
+                $exitCode = if ([string]$collectionOutputStatus.status -in $collectionActiveStatuses) { 125 } else { 1 }
+                $lines += "dispatcher_child_zero_exit_rejected=status:$([string]$collectionOutputStatus.status);final_exit_code=$exitCode"
+            }
         } catch {
             # Keep the prior started state so the next invocation reuses the same
             # collection UUID instead of orphaning an exact local collector task.
@@ -1403,13 +2394,24 @@ if ($collectionStateEnabled) {
             $exitCode = 125
         }
     }
+} elseif ($childExitCode -eq 0) {
+    # Non-daily or unscoped runs do not own the durable collection ledger. They
+    # may still emit a machine receipt; a declared failure/active state must not
+    # be converted into scheduler success merely because the child returned 0.
+    $zeroExitReceiptContract = Resolve-DispatcherZeroExitReceiptContract `
+        -OutputLines $rawStdout `
+        -ChildExitCode $childExitCode
+    if (-not [bool]$zeroExitReceiptContract.allowed) {
+        $exitCode = [int]$zeroExitReceiptContract.fail_exit_code
+        $lines += "dispatcher_child_zero_exit_rejected=status:$([string]$zeroExitReceiptContract.status);final_exit_code=$exitCode"
+    }
 }
 $finishedAtOffset = [datetimeoffset]::Now
 $finishProvenance = Get-DispatcherFinishProvenance `
     -StartState $provenanceState `
     -FinishedAt $finishedAtOffset `
     -ChildExitCode $childExitCode `
-    -ChildOutputLines $rawOutput
+    -ChildOutputLines $rawStdout
 $lines += $finishProvenance.line
 if ([bool]$finishProvenance.code_drifted) {
     $exitCode = 1
@@ -1427,7 +2429,17 @@ if ($Mode -eq 'Daily' -and $explicitScopeComplete) {
     $acceptanceScriptPath = Join-Path $resolvedRoot 'scripts\verify_canonical_ota_daily_natural_acceptance.php'
     $acceptanceLine = ''
     $acceptanceExitCode = 125
-    if (Test-Path -LiteralPath $acceptanceScriptPath -PathType Leaf) {
+    $acceptanceUnavailableReason = if ($childExitCode -eq 124) {
+        'collection_child_timed_out'
+    } else {
+        'daily_acceptance_sidecar_unavailable'
+    }
+    # A timed-out collection cannot satisfy natural acceptance. Emit the
+    # fail-closed fallback directly instead of starting another PHP process
+    # after the authoritative collection deadline has already elapsed.
+    if ($childExitCode -ne 124 `
+        -and (Test-Path -LiteralPath $acceptanceScriptPath -PathType Leaf)
+    ) {
         $acceptanceResult = Invoke-SafeDispatcherProcess `
             -FilePath $resolvedPhp `
             -ArgumentList @(
@@ -1464,7 +2476,7 @@ if ($Mode -eq 'Daily' -and $explicitScopeComplete) {
         $fallbackAcceptance = [ordered]@{
             schema_version = 'suxios_ota_daily_natural_acceptance.v1'
             status = 'blocked'
-            reason_codes = @('daily_acceptance_sidecar_unavailable')
+            reason_codes = @($acceptanceUnavailableReason)
             hotel_id = $HotelId
             target_date = $dailyTargetDate
             collection_triggered_by_acceptance = $false
@@ -1491,6 +2503,7 @@ if ($Mode -eq 'Daily' -and $explicitScopeComplete) {
     [System.IO.File]::WriteAllLines($logPath, [string[]]$lines, $utf8)
 }
 
+Exit-DispatcherScopeLock -Lock $scopeLock
 Write-Output "dispatcher_log=$logPath"
 Write-Output "dispatcher_exit_code=$exitCode"
 exit $exitCode

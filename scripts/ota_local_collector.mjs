@@ -11,6 +11,9 @@ const COLLECTOR_VERSION = '1.0.0';
 const DEFAULT_CONFIG = resolve('storage/local_collector/device.json');
 const DEFAULT_POLL_MS = 15_000;
 const MAX_UPLOAD_ROWS = 2_000;
+// Keep the interactive window within the 15-minute server lease while giving
+// an on-site operator enough time for SMS/captcha/account confirmation.
+const INTERACTIVE_LOGIN_TIMEOUT_MS = 600_000;
 // Failed capture payloads are useful for a short local diagnosis window, but must
 // never turn a long-running collector into an unbounded disk consumer.
 const LOCAL_RESULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -616,7 +619,7 @@ async function runCapture(task, outputPath) {
   }
   if (task.task_type === 'login') {
     captureArgs.push('--login-only=true');
-    captureArgs.push('--login-timeout-ms=300000');
+    captureArgs.push(`--login-timeout-ms=${INTERACTIVE_LOGIN_TIMEOUT_MS}`);
   } else if (task.task_type === 'session_probe') {
     captureArgs.push('--session-probe-only=true');
   }
@@ -637,7 +640,11 @@ async function executeTask(device, task) {
   const outputPath = resolve(`storage/local_collector/results/task_${task.id}_${Date.now()}.json`);
   await mkdir(dirname(outputPath), { recursive: true });
   console.log(`开始任务 #${task.id}：${task.account_alias} / ${task.platform} / ${task.task_type}`);
-  await postProgress(device, task, 'running', '本机浏览器任务已启动。');
+  const progressStatus = task.task_type === 'login' ? 'waiting_user_login' : 'running';
+  const progressMessage = task.task_type === 'login'
+    ? '等待运营人员在原设备、原账号和原酒店 Profile 完成登录。'
+    : '本机浏览器任务已启动。';
+  await postProgress(device, task, progressStatus, progressMessage);
   const capture = await runCapture(task, outputPath);
   let payload = {};
   if (existsSync(outputPath)) {

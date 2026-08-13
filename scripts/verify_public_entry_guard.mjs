@@ -20,6 +20,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const indexPath = path.join(repoRoot, 'public/index.html');
 const appBootstrapPath = path.join(repoRoot, 'public/app-bootstrap.js');
 const appMainPath = path.join(repoRoot, 'public/app-main.js');
+const appMainComponentsPath = path.join(repoRoot, 'public/components/system/app-main-components.js');
+const operatingIntelligenceComponentsPath = path.join(repoRoot, 'public/components/system/operating-intelligence-components.js');
 const appMainRuntimePath = path.join(repoRoot, 'public/app-main.min.js');
 const appTemplatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
 const appRenderRuntimePath = path.join(repoRoot, 'public/app-render.min.js');
@@ -121,6 +123,17 @@ if (!fs.existsSync(indexPath)) {
   ) || '';
   const appBootstrapContent = fs.existsSync(appBootstrapPath) ? fs.readFileSync(appBootstrapPath, 'utf8') : '';
   const appMainContent = fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '';
+  const appMainComponentsContent = fs.existsSync(appMainComponentsPath)
+    ? fs.readFileSync(appMainComponentsPath, 'utf8')
+    : '';
+  const operatingIntelligenceComponentsContent = fs.existsSync(operatingIntelligenceComponentsPath)
+    ? fs.readFileSync(operatingIntelligenceComponentsPath, 'utf8')
+    : '';
+  const appMainContractContent = [
+    appMainComponentsContent,
+    operatingIntelligenceComponentsContent,
+    appMainContent,
+  ].join('\n');
   const appMainRuntimeContent = fs.existsSync(appMainRuntimePath) ? fs.readFileSync(appMainRuntimePath, 'utf8') : '';
   const appTemplateContent = fs.existsSync(appTemplatePath) ? fs.readFileSync(appTemplatePath, 'utf8') : '';
   const appRenderRuntimeContent = fs.existsSync(appRenderRuntimePath) ? fs.readFileSync(appRenderRuntimePath, 'utf8') : '';
@@ -130,7 +143,7 @@ if (!fs.existsSync(indexPath)) {
     .replaceAll('&gt;', '>')
     .replaceAll('&lt;', '<')
     .replaceAll('&quot;', '"');
-  let content = `${htmlContent}\n${appTemplateSemanticContent}\n${appMainContent}`;
+  let content = `${htmlContent}\n${appTemplateSemanticContent}\n${appMainContractContent}`;
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
   const otaBrowserAssistStaticContent = fs.existsSync(otaBrowserAssistStaticPath)
     ? fs.readFileSync(otaBrowserAssistStaticPath)
@@ -337,7 +350,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
       failures.push(`${file} must keep OTA authorization copy on account-owner local-computer authorization and must not contain legacy server/login-task wording: ${text}`);
     }
   }
-  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260809-natural-acceptance-h1e6ebe2648';")
+  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3';")
     || !content.includes("const PlatformAutoSettingsPanels = {")
     || !content.includes("const PlatformAutoSecondaryPanels = {")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
@@ -924,9 +937,9 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   const dataConfigModalShownAt = openDataConfigModalSource.indexOf('showDataConfigModal.value = true;');
   const dataConfigComponentLoadAt = openDataConfigModalSource.indexOf('void ensureDataConfigDialogsReady()');
   const dataConfigDeferredLoadAt = openDataConfigModalSource.indexOf('deferUiTask(async () => {');
-  if (!appMainContent.includes("const dataConfigDialogsScript = 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1';")
-    || !appMainContent.includes("requireSystemComponent('DataConfigDialogsBody')")
-    || !appMainContent.includes('const DataConfigDialogs = {')
+  if (!appMainContractContent.includes("const dataConfigDialogsScript = 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1';")
+    || !appMainContractContent.includes("requireSystemComponent('DataConfigDialogsBody')")
+    || !appMainContractContent.includes('const DataConfigDialogs = {')
     || !appTemplateContent.includes('<data-config-dialogs v-if="showDataConfigModal" :ctx="$root"></data-config-dialogs>')
     || appTemplateContent.includes('<form @submit.prevent="saveDataConfig"')
     || !dataConfigDialogsTemplateContent.includes('<form @submit.prevent="saveDataConfig"')
@@ -2062,7 +2075,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   }
   if (!platformAutoTemplateSource.includes('<platform-auto-settings-panels')
     || !platformAutoTemplateSource.includes(':ctx="$root"')
-    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260809-natural-acceptance-h1e6ebe2648';")
+    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3';")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
     || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
     || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")
@@ -3569,7 +3582,11 @@ if (!fs.existsSync(competitorDeviceComponentPath)) {
   failures.push('The competitor device management component is missing.');
 } else {
   const competitorDeviceComponentSource = fs.readFileSync(competitorDeviceComponentPath, 'utf8');
-  const appMainSource = fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '';
+  const appMainSource = [
+    fs.existsSync(appMainComponentsPath) ? fs.readFileSync(appMainComponentsPath, 'utf8') : '',
+    fs.existsSync(operatingIntelligenceComponentsPath) ? fs.readFileSync(operatingIntelligenceComponentsPath, 'utf8') : '',
+    fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '',
+  ].join('\n');
   if (!appMainSource.includes('components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3')
     || !appMainSource.includes("requireOnlineDataComponent('CompetitorDeviceManagementBody')")) {
     failures.push('The admin data-config page must lazy-load the versioned competitor device management component.');

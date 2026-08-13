@@ -115,7 +115,7 @@
                             h('h3', { class: 'font-medium' }, '竞对采集设备'),
                             h('span', { class: 'rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600' }, `本页有效 ${activeCount} 条 · 共 ${pagination.total} 条`),
                         ]),
-                        h('p', { class: 'mt-1 text-sm text-gray-500' }, '只有成功握手后才视为采集可用。'),
+                        h('p', { class: 'mt-1 text-sm text-gray-500' }, '启用本机常驻采集器后，宿析会按入住日查缺、自动派单并回读，日常无需逐店补录。登录失效、验证码或酒店身份不符时会明确标记，等待人工处理。'),
                     ]),
                     h('div', { class: 'flex gap-2' }, [
                         actionButton(c.competitorDevicesLoading ? '刷新中' : '刷新', c.loadCompetitorDeviceWorkbench, 'rounded-lg border px-3 py-2 text-sm disabled:opacity-50', c.competitorDevicesLoading),
@@ -195,7 +195,7 @@
                     h('p', { class: 'mt-1 text-sm text-red-600' }, '关闭后不再显示；轮换后旧 Token 立即失效。'),
                 ]),
                 h('div', { class: 'space-y-4 p-5' }, [
-                    h('div', { class: 'rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800' }, '任务领取使用 X-Task-Token，结果上报使用 X-Report-Token，填写同一个值。'),
+                    h('div', { class: 'rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800' }, '任务领取和结果上报使用同一个一次性 Token。仅把它写入采集电脑的受保护环境变量或 Token 文件，不要保存到浏览器或命令行历史。完成本机登录与配置后，运行 npm run competitor:auto-collector 即可常驻轮询。'),
                     h('div', { class: 'text-xs text-gray-500' }, `设备 ${credential.device_id} · Token 版本 ${credential.token_version}`),
                     h('div', { class: 'text-xs text-gray-600' }, `平台 ${c.competitorDevicePlatformLabel(credential.platform)} · 门店 ${c.getCompetitorStoreName(credential.store_id)} · 员工 ${c.competitorDeviceUserLabel(credential.user_id)} · ${Number(credential.status) === 1 ? '已启用' : '待启用'}`),
                     h('div', { class: 'flex gap-2' }, [

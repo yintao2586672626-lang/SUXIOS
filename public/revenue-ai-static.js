@@ -1332,6 +1332,7 @@
         ready_for_manual_generation: '可生成待审',
         pending_review_exists: '已有待审',
         skipped_by_operator_policy: '缺口仍阻断',
+        partial: '部分生成',
         blocked: '生成受阻',
         failed: '预检失败',
         not_loaded: '未加载',
@@ -1342,6 +1343,9 @@
         pricing_generation_hotel_scope_missing: '调价建议生成缺少目标系统酒店范围。',
         room_types_empty: '携程目标酒店暂无启用房型，不能生成待审调价建议。',
         missing_pricing_inputs_skipped_by_operator_policy: '旧记录缺少可核验的操作者、确认时间和持久化记录，按定价输入缺口阻断。',
+        exact_target_signals_missing: '目标入住日、目标房型的需求预测或携程竞品价格证据不完整；不使用旧日或酒店级样本补齐。',
+        price_suggestion_generation_in_progress: '同一酒店已有远期定价生成任务正在执行，本次未重复写入。',
+        price_suggestion_generation_lock_unavailable: '远期定价生成互斥锁不可用，本次已安全阻断写入。',
         pricing_candidate_signals_missing: '调价候选信号不足，当前不会生成待审建议。',
         pricing_generation_candidates_ready: '已存在可生成待审调价建议的只读候选。',
         price_suggestions_pending_review: '存在待人工审核调价建议。',
@@ -1500,8 +1504,9 @@
             .slice(0, 4);
         const reasonText = String(data.detail || '') || revenueAiPricingGenerationReasonText(reason);
         const nextAction = String(data.next_action || '');
+        const readbackVerifiedCount = Number(data.readback_verified_count || 0);
         const message = isCreated
-            ? `已生成 ${createdCount} 条待审建议；仍需人工审核，不写 OTA。`
+            ? `已生成 ${createdCount} 条待审建议并回读 ${readbackVerifiedCount} 条；仍需人工审核，不写 OTA。`
             : (nextAction || reasonText || String(payload.message || '定价建议生成受阻'));
         const targetFilter = data.target_filter && typeof data.target_filter === 'object'
             ? data.target_filter
@@ -1511,13 +1516,23 @@
             .map((item, index) => {
                 const dataGaps = Array.isArray(item?.data_gaps) ? item.data_gaps.map(String).filter(Boolean) : [];
                 const reviewChecklist = Array.isArray(item?.review_checklist) ? item.review_checklist.map(String).filter(Boolean) : [];
+                const targetDate = String(item?.target_stay_date || item?.suggestion_date || '');
+                const rawPriceChangeRate = item?.price_change_rate;
+                const priceChangeRate = rawPriceChangeRate === null || rawPriceChangeRate === undefined || rawPriceChangeRate === ''
+                    ? null
+                    : Number(rawPriceChangeRate);
+                const rawPrimarySignalCount = item?.primary_signal_count;
+                const primarySignalCount = rawPrimarySignalCount === null || rawPrimarySignalCount === undefined || rawPrimarySignalCount === ''
+                    ? null
+                    : Number(rawPrimarySignalCount);
                 return {
-                    key: `${Number(item?.room_type_id || 0) || 'room'}-${String(item?.reason || 'skipped')}-${index}`,
+                    key: `${targetDate || 'date'}-${Number(item?.room_type_id || 0) || 'room'}-${String(item?.reason || 'skipped')}-${index}`,
+                    targetDate,
                     roomTypeId: Number(item?.room_type_id || 0),
                     roomTypeName: String(item?.room_type_name || item?.room_type?.name || '未命名房型'),
                     reason: String(item?.reason || 'not_created'),
-                    primarySignalCount: Number(item?.primary_signal_count || 0),
-                    priceChangeRate: Number(item?.price_change_rate || 0),
+                    primarySignalCount: Number.isFinite(primarySignalCount) ? primarySignalCount : null,
+                    priceChangeRate: Number.isFinite(priceChangeRate) ? priceChangeRate : null,
                     riskLevel: String(item?.risk_level || ''),
                     dataGaps: dataGaps.slice(0, 4),
                     hiddenDataGapCount: Math.max(0, dataGaps.length - 4),
@@ -1542,8 +1557,14 @@
                 ? data.target_hotel_ids.map(item => Number(item || 0)).filter(item => item > 0)
                 : [],
             targetFilter,
+            dateRange: data.date_range && typeof data.date_range === 'object' ? data.date_range : {},
             createdCount,
             skippedCount,
+            createdRowIds: Array.isArray(data.created_row_ids)
+                ? data.created_row_ids.map(item => Number(item || 0)).filter(item => item > 0)
+                : [],
+            readbackVerifiedCount,
+            readbackVerified: data.readback_verified === true,
             reviewedCount: Number(data.reviewed_count || createdCount + skippedCount),
             skippedItems,
             hiddenSkippedItemCount: Math.max(0, rawSkippedItems.length - skippedItems.length),

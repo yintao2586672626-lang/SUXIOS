@@ -5,6 +5,7 @@ namespace tests;
 
 use app\service\HotelCollectionBindingReceiptService;
 use PHPUnit\Framework\TestCase;
+use ReflectionMethod;
 
 final class HotelCollectionBindingReceiptServiceTest extends TestCase
 {
@@ -43,6 +44,188 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
         self::assertStringNotContainsString('profile_path', strtolower($json));
         self::assertArrayNotHasKey('device_id', $receipt['bindings']['ctrip']['execution_device_binding']);
         self::assertArrayNotHasKey('account_id', $receipt['bindings']['ctrip']['execution_device_binding']);
+    }
+
+    public function testSingleUserLocalBrowserProfileUsesItsExactPersistedExecutionBinding(): void
+    {
+        $receipt = $this->service($this->singleUserLocalProfileSources(), null, [])->receipt(
+            $this->hotel(),
+            7,
+            '2026-08-09',
+            ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        self::assertSame('ready', $receipt['status']);
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $execution = $receipt['bindings'][$platform]['execution_device_binding'];
+            self::assertSame('bound', $execution['status'], $platform);
+            self::assertSame('browser_profile_single_user_local', $execution['binding_kind'], $platform);
+            self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', (string)$execution['execution_binding_digest']);
+            self::assertSame(hash('sha256', 'server-owner-device'), $execution['device_binding_digest']);
+            self::assertNull($execution['device_status']);
+            self::assertNull($execution['account_status']);
+            self::assertSame('profile_reuse_verified', $execution['session_status']);
+            self::assertSame(
+                'same_bound_local_profile_owner_hotel_platform',
+                $execution['resume_scope']
+            );
+        }
+        self::assertNotContains(
+            'ota_execution_device_binding_missing',
+            array_column($receipt['blockers'], 'code')
+        );
+        self::assertFalse($receipt['execution_policy']['automatic_device_substitution']);
+        self::assertFalse($receipt['sensitive_values_exposed']);
+        self::assertStringNotContainsString(
+            'server-owner-device',
+            json_encode($receipt, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)
+        );
+    }
+
+    public function testOrdinaryBrowserProfileDoesNotSilentlyBecomeASchedulerExecutionBinding(): void
+    {
+        $receipt = $this->service(null, null, [])->receipt(
+            $this->hotel(),
+            7,
+            '2026-08-09',
+            ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        self::assertSame('blocked', $receipt['status']);
+        self::assertContains(
+            'ota_execution_device_binding_missing',
+            array_column($receipt['blockers'], 'code')
+        );
+        self::assertSame('missing', $receipt['bindings']['ctrip']['execution_device_binding']['status']);
+    }
+
+    public function testIncompleteSingleUserLocalDeclarationCannotFallBackToAnotherDeviceMapping(): void
+    {
+        $sources = $this->singleUserLocalProfileSources();
+        foreach ($sources as &$source) {
+            $config = json_decode((string)$source['config_json'], true, 512, JSON_THROW_ON_ERROR);
+            unset($config['collector_device_id_hash']);
+            $source['config_json'] = json_encode($config, JSON_THROW_ON_ERROR);
+        }
+        unset($source);
+
+        $receipt = $this->service($sources)->receipt(
+            $this->hotel(),
+            7,
+            '2026-08-09',
+            ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        self::assertSame('blocked', $receipt['status']);
+        self::assertContains(
+            'ota_execution_device_binding_missing',
+            array_column($receipt['blockers'], 'code')
+        );
+        self::assertSame('missing', $receipt['bindings']['ctrip']['execution_device_binding']['status']);
+    }
+
+    public function testExpiredSingleUserLocalProfileIsRecoverableWithoutChangingItsBinding(): void
+    {
+        $receipt = $this->service(
+            $this->singleUserLocalProfileSources(),
+            null,
+            [],
+            null,
+            null,
+            null,
+            null,
+            static fn(array $source): array => [
+                'status' => 'expired',
+                'is_reusable' => false,
+                'reason' => 'profile_reauthentication_required',
+            ]
+        )->receipt(
+            $this->hotel(),
+            7,
+            '2026-08-09',
+            ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        self::assertSame('recoverable', $receipt['status']);
+        self::assertSame([], $receipt['blockers']);
+        self::assertContains('session_expired', array_column($receipt['recovery_reasons'], 'code'));
+        self::assertSame(
+            'bound',
+            $receipt['bindings']['ctrip']['execution_device_binding']['status']
+        );
+        self::assertSame(
+            'session_expired',
+            $receipt['bindings']['ctrip']['execution_device_binding']['session_status']
+        );
+    }
+
+    public function testSingleUserLocalBindingDigestChangesWithDeviceOrBindingTime(): void
+    {
+        $sources = $this->singleUserLocalProfileSources();
+        $baseline = $this->service($sources, null, [])->receipt(
+            $this->hotel(),
+            7,
+            '2026-08-09',
+            ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        $rotated = $sources;
+        $delayed = $sources;
+        foreach ($rotated as &$source) {
+            $config = json_decode((string)$source['config_json'], true, 512, JSON_THROW_ON_ERROR);
+            $config['collector_device_id'] = 'replacement-owner-device';
+            $config['collector_device_id_hash'] = hash('sha256', 'replacement-owner-device');
+            $source['config_json'] = json_encode($config, JSON_THROW_ON_ERROR);
+        }
+        unset($source);
+        foreach ($delayed as &$source) {
+            $config = json_decode((string)$source['config_json'], true, 512, JSON_THROW_ON_ERROR);
+            $config['collector_bound_at'] = '2026-08-09 08:21:00';
+            $source['config_json'] = json_encode($config, JSON_THROW_ON_ERROR);
+        }
+        unset($source);
+
+        $rotatedReceipt = $this->service($rotated, null, [])->receipt(
+            $this->hotel(), 7, '2026-08-09', ['ctrip' => 25, 'meituan' => 68]
+        );
+        $delayedReceipt = $this->service($delayed, null, [])->receipt(
+            $this->hotel(), 7, '2026-08-09', ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        self::assertNotSame($baseline['binding_digest'], $rotatedReceipt['binding_digest']);
+        self::assertNotSame($baseline['binding_digest'], $delayedReceipt['binding_digest']);
+        self::assertNotSame(
+            $baseline['bindings']['ctrip']['execution_device_binding']['execution_binding_digest'],
+            $rotatedReceipt['bindings']['ctrip']['execution_device_binding']['execution_binding_digest']
+        );
+        self::assertNotSame(
+            $baseline['bindings']['ctrip']['execution_device_binding']['execution_binding_digest'],
+            $delayedReceipt['bindings']['ctrip']['execution_device_binding']['execution_binding_digest']
+        );
+    }
+
+    public function testLocalCollectorStillRequiresItsExactOperatorDeviceMapping(): void
+    {
+        $receipt = $this->service(
+            $this->localCollectorSources(),
+            [],
+            []
+        )->receipt(
+            $this->hotel(),
+            7,
+            '2026-08-09',
+            ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        self::assertSame('blocked', $receipt['status']);
+        self::assertContains(
+            'ota_execution_device_binding_missing',
+            array_column($receipt['blockers'], 'code')
+        );
+        self::assertSame(
+            'missing',
+            $receipt['bindings']['ctrip']['execution_device_binding']['status']
+        );
     }
 
     public function testLegacyMeituanAliasesCannotSilentlyReplaceCanonicalIdentity(): void
@@ -272,6 +455,20 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
         self::assertFalse($receipt['execution_policy']['automatic_device_substitution']);
     }
 
+    public function testSuperAdminExecutionOwnerMayUseAnExplicitCrossTenantHotelScope(): void
+    {
+        $method = new ReflectionMethod(
+            HotelCollectionBindingReceiptService::class,
+            'executionOwnerTenantCompatible'
+        );
+        $method->setAccessible(true);
+        $service = $this->service();
+
+        self::assertTrue($method->invoke($service, 7, 80, true));
+        self::assertFalse($method->invoke($service, 7, 80, false));
+        self::assertTrue($method->invoke($service, 80, 80, false));
+    }
+
     public function testBindingDigestChangesWhenAccountOrExecutionOwnerChangesOnSameDevice(): void
     {
         $baseline = $this->service()->receipt($this->hotel(), 7, '2026-08-09');
@@ -360,7 +557,8 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
         ?array $pms = null,
         ?callable $identityOwners = null,
         ?callable $clock = null,
-        ?callable $executionOwnerPermission = null
+        ?callable $executionOwnerPermission = null,
+        ?callable $profileSessionState = null
     ): HotelCollectionBindingReceiptService {
         $sources ??= $this->sources();
         $profiles ??= $this->profiles();
@@ -378,6 +576,11 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
         };
         $clock ??= static fn(): \DateTimeImmutable => new \DateTimeImmutable('2026-08-09 08:36:30');
         $executionOwnerPermission ??= static fn(int $tenantId, int $hotelId, int $userId): bool => true;
+        $profileSessionState ??= static fn(array $source): array => [
+            'status' => 'reusable',
+            'is_reusable' => true,
+            'reason' => 'profile_proof_reusable',
+        ];
 
         return new HotelCollectionBindingReceiptService(
             static fn(int $tenantId, int $hotelId): array => $sources,
@@ -386,7 +589,8 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
             static fn(int $tenantId, int $hotelId, int $userId, string $date): array => $pms,
             $identityOwners,
             $clock,
-            $executionOwnerPermission
+            $executionOwnerPermission,
+            $profileSessionState
         );
     }
 
@@ -444,6 +648,27 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
                 ], JSON_THROW_ON_ERROR),
             ],
         ];
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function singleUserLocalProfileSources(): array
+    {
+        $sources = $this->sources();
+        foreach ($sources as &$source) {
+            $config = json_decode((string)$source['config_json'], true, 512, JSON_THROW_ON_ERROR);
+            $config['source_method'] = 'single_user_local';
+            $config['collector_binding_mode'] = 'single_user_local';
+            $config['collector_device_id'] = 'server-owner-device';
+            $config['collector_device_id_hash'] = hash('sha256', 'server-owner-device');
+            $config['collector_user_id'] = 7;
+            $config['collector_tenant_id'] = 8;
+            $config['collector_hotel_id'] = 80;
+            $config['collector_platform'] = (string)$source['platform'];
+            $config['collector_bound_at'] = '2026-08-09 08:20:00';
+            $source['config_json'] = json_encode($config, JSON_THROW_ON_ERROR);
+        }
+        unset($source);
+        return $sources;
     }
 
     /** @return array<int,array<string,mixed>> */

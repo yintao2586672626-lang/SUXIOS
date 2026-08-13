@@ -15,6 +15,10 @@ class OperationManagementService
 {
     use \app\service\operation\OperationSnapshotConcern;
     use \app\service\operation\OperationAlertConcern;
+    use \app\service\operation\OperationAlertAnalysisConcern;
+    use \app\service\operation\OperationExecutionReceiptConcern;
+    use \app\service\operation\OperationEffectReadbackConcern;
+    use \app\service\operation\OperationExecutionTenantConcern;
 
     private RevenuePricingRecommendationService $pricingRecommendationService;
     private ExecutionOutcomeService $executionOutcomeService;
@@ -91,12 +95,152 @@ class OperationManagementService
         return [$hotelId];
     }
 
+    /** @return array{code:string,message:string,migration_required:bool}|null */
+    private function operationAlertTenantSchemaGap(): ?array
+    {
+        return $this->operationTenantSchemaGap(
+            'operation_alerts',
+            'operation_alert_tenant_scope_missing',
+            'operation alert tenant scope table is unavailable',
+            'operation_alerts_tenant_schema_missing',
+            'operation alerts must expose tenant_id and hotel_id with authoritative hotel tenant scope'
+        );
+    }
+
+    /** @return array{code:string,message:string,migration_required:bool}|null */
+    private function priceSuggestionTenantSchemaGap(): ?array
+    {
+        return $this->operationTenantSchemaGap(
+            'price_suggestions',
+            'price_suggestions_tenant_scope_missing',
+            'price suggestion tenant scope table is unavailable',
+            'price_suggestions_tenant_schema_missing',
+            'price suggestions must expose tenant_id and hotel_id with authoritative hotel tenant scope'
+        );
+    }
+
+    private function operationTenantSchemaGap(
+        string $table, string $scopeCode, string $scopeMessage, string $columnCode, string $columnMessage
+    ): ?array {
+        if (!$this->tableExists($table)) {
+            return null;
+        }
+        foreach ([$table => ['tenant_id', 'hotel_id'], 'hotels' => ['id', 'tenant_id']] as $name => $columns) {
+            if (!$this->tableExists($name)) {
+                return $this->operationAlertMigrationGap($scopeCode, $scopeMessage);
+            }
+            foreach ($columns as $column) {
+                if (!$this->executionTenantSchemaHasColumn($name, $column)) {
+                    return $this->operationAlertMigrationGap($columnCode, $columnMessage);
+                }
+            }
+        }
+        return null;
+    }
+
+    private function operationAlertMigrationGap(string $code, string $message): array
+    {
+        return ['code' => $code, 'message' => 'migration_required: ' . $message, 'migration_required' => true];
+    }
+
+    private function scopeOperationAlertQueryToCurrentTenant(mixed $query): mixed
+    {
+        return $this->scopeOperationTenantQuery($query, 'operation_alerts', 'operation_alert_hotel');
+    }
+
+    private function scopePriceSuggestionQueryToCurrentTenant(mixed $query): mixed
+    {
+        return $this->scopeOperationTenantQuery($query, 'price_suggestions', 'price_suggestion_hotel');
+    }
+
+    private function scopeOperationTenantQuery(mixed $query, string $table, string $alias): mixed
+    {
+        $sourceTable = Db::name($table)->getTable();
+        $hotelTable = Db::name('hotels')->getTable();
+        return $query->whereExists(static function ($hotelQuery) use ($sourceTable, $hotelTable, $alias): void {
+            $hotelQuery->table([$hotelTable => $alias])
+                ->whereColumn($alias . '.id', $sourceTable . '.hotel_id')
+                ->whereColumn($alias . '.tenant_id', $sourceTable . '.tenant_id')
+                ->where($alias . '.tenant_id', '>', 0);
+        });
+    }
+
+    private function operationAlertSchemaGapResponse(array $gap, int $hotelId): array
+    {
+        return [
+            'list' => [], 'unread_count' => 0, 'data_status' => 'migration_required', 'data_gaps' => [$gap],
+            'selected_hotel_id' => $hotelId, 'generated_for_date' => $this->operationShanghaiToday(),
+            'scope' => 'single_hotel', 'capabilities' => ['can_execute' => false, 'can_mark_read' => false],
+        ];
+    }
+
+    private function normalizeAlertRow(array $row): array
+    {
+        $row['id'] = (int)$row['id'];
+        $row['tenant_id'] = (int)($row['tenant_id'] ?? 0);
+        $row['hotel_id'] = (int)$row['hotel_id'];
+        $row['raw_data'] = $this->decodeJson((string)($row['raw_data'] ?? ''));
+        $row['action_suggestion'] = $this->normalizeAlertSuggestion($row);
+        return $row;
+    }
+
+    private function alertExecutionBridgeFromIntent(array $intent): array
+    {
+        return [
+            'can_convert' => false, 'linked' => (int)($intent['id'] ?? 0) > 0,
+            'intent_id' => (int)($intent['id'] ?? 0), 'intent_status' => (string)($intent['status'] ?? ''),
+            'blocked_reason' => (string)($intent['blocked_reason'] ?? ''), 'unavailable_reason' => '',
+        ];
+    }
+
+    /** Stable mutation lock order: hotels ascending -> alerts ascending. */
+    private function withOperationAlertMutationAuthorization(array $alertIds, array $hotelIds, callable $mutation): mixed
+    {
+        if (($gap = $this->operationAlertTenantSchemaGap()) !== null) {
+            throw new \RuntimeException($gap['message']);
+        }
+        $alertIds = array_values(array_unique(array_filter(array_map('intval', $alertIds))));
+        $hotelIds = array_values(array_unique(array_filter(array_map('intval', $hotelIds))));
+        sort($alertIds);
+        sort($hotelIds);
+        if ($alertIds === [] || $hotelIds === []) {
+            return $mutation([]);
+        }
+        return Db::transaction(function () use ($alertIds, $hotelIds, $mutation): mixed {
+            try {
+                $hotels = Db::name('hotels')->whereIn('id', $hotelIds)->order('id', 'asc')->lock(true)->select()->toArray();
+            } catch (Throwable $exception) {
+                throw new \RuntimeException('migration_required: operation alert hotel tenant scope cannot be read', 0, $exception);
+            }
+            $tenantByHotel = [];
+            foreach ($hotels as $hotel) {
+                $id = (int)($hotel['id'] ?? 0);
+                $tenant = (int)($hotel['tenant_id'] ?? 0);
+                if ($id > 0 && $tenant > 0) {
+                    $tenantByHotel[$id] = $tenant;
+                }
+            }
+            try {
+                $alerts = Db::name('operation_alerts')->whereIn('id', $alertIds)->whereIn('hotel_id', $hotelIds)
+                    ->whereNull('deleted_at')->order('id', 'asc')->lock(true)->select()->toArray();
+            } catch (Throwable $exception) {
+                throw new \RuntimeException('migration_required: current-tenant operation alerts cannot be locked', 0, $exception);
+            }
+            return $mutation(array_values(array_filter($alerts, static function (array $alert) use ($tenantByHotel): bool {
+                $hotelId = (int)($alert['hotel_id'] ?? 0);
+                return (int)($alert['tenant_id'] ?? 0) > 0
+                    && (int)($alert['tenant_id'] ?? 0) === (int)($tenantByHotel[$hotelId] ?? 0);
+            })));
+        });
+    }
+
     public function fullData(array $hotelIds, ?int $hotelId, string $date): array
     {
         $hotelIds = $this->scopeHotelIdsForSelection($hotelIds, $hotelId);
-        $summary = $this->buildSummary($hotelIds, $hotelId, $date);
-        $ota = $this->buildOta($hotelIds, $date);
-        $serviceQuality = $this->buildServiceQuality($hotelIds, $date);
+        [$daily, $online] = [$this->dailyReportRows($hotelIds, $date, $date), $this->onlineRows($hotelIds, $date, $date)];
+        $summary = $this->buildSummaryFromRows($daily, $online, $hotelIds, $hotelId, $date);
+        $online = $this->scopeOnlineRowsToCurrentTenant($online, $hotelIds)['rows'];
+        [$ota, $serviceQuality] = [$this->buildOtaFromRows($online), $this->buildServiceQualityFromRows($online)];
         $competitors = $this->buildCompetitors($hotelIds, $date, $summary);
         $holiday = $this->buildHoliday($date);
         $abnormalFlags = [];
@@ -286,119 +430,6 @@ class OperationManagementService
         ];
     }
 
-    public function alerts(array $hotelIds, ?int $hotelId, bool $canExecute = false): array
-    {
-        if ($hotelId === null || $hotelId <= 0) {
-            throw new \InvalidArgumentException('运营预警必须选择单个有权限的酒店');
-        }
-        $hotelIds = $this->scopeHotelIdsForSelection($hotelIds, $hotelId);
-
-        $persisted = $this->tableExists('operation_alerts');
-        $generated = $this->generateRuleAlerts([$hotelId], $hotelId);
-        if ($persisted) {
-            if ($generated !== []) {
-                $this->persistRuleAlerts($generated);
-            }
-
-            $rows = Db::name('operation_alerts')
-                ->where('hotel_id', $hotelId)
-                ->whereNull('deleted_at')
-                ->order('id', 'desc')
-                ->limit(100)
-                ->select()
-                ->toArray();
-            $alerts = array_map([$this, 'normalizeAlertRow'], $rows);
-        } else {
-            $alerts = $generated;
-        }
-
-        return [
-            'list' => $this->attachAlertExecutionBridges($alerts, $persisted, $canExecute),
-            'unread_count' => count(array_filter($alerts, static fn(array $row): bool => ($row['status'] ?? '') !== 'read')),
-            'data_status' => empty($alerts) ? '暂无预警' : self::DATA_OK,
-            'selected_hotel_id' => $hotelId,
-            'generated_for_date' => date('Y-m-d'),
-            'scope' => 'single_hotel',
-            'capabilities' => [
-                'can_execute' => $canExecute,
-                'can_mark_read' => $canExecute,
-            ],
-        ];
-    }
-
-    public function markAlertsRead(array $ids, array $hotelIds): int
-    {
-        if (!$this->tableExists('operation_alerts')) {
-            return 0;
-        }
-
-        return Db::name('operation_alerts')
-            ->whereIn('id', $ids)
-            ->whereIn('hotel_id', $hotelIds)
-            ->update([
-                'status' => 'read',
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
-    }
-
-    public function createExecutionIntentFromAlert(int $alertId, array $hotelIds, int $createdBy): array
-    {
-        if ($alertId <= 0) {
-            throw new \InvalidArgumentException('operation alert id is invalid');
-        }
-        if (!$this->tableExists('operation_alerts')) {
-            throw new \RuntimeException('operation_alerts table does not exist, run database migration first');
-        }
-
-        $hotelIds = array_values(array_unique(array_filter(
-            array_map('intval', $hotelIds),
-            static fn(int $id): bool => $id > 0
-        )));
-        $row = Db::name('operation_alerts')
-            ->where('id', $alertId)
-            ->whereIn('hotel_id', $hotelIds)
-            ->whereNull('deleted_at')
-            ->find();
-        if (!$row) {
-            throw new \RuntimeException('operation alert not found: 预警不存在或无权限');
-        }
-
-        $alert = $this->normalizeAlertRow($row);
-        $unavailableReason = $this->alertExecutionEvidenceUnavailableReason($alert);
-        if ($unavailableReason !== '') {
-            throw new \InvalidArgumentException($unavailableReason);
-        }
-        $hotelId = (int)$alert['hotel_id'];
-        $idempotencyKey = 'operation_alert_' . md5('v1|' . $hotelId . '|' . $alertId);
-        $intent = $this->createExecutionIntent(
-            $hotelIds,
-            $hotelId,
-            $this->buildAlertExecutionIntentInput($alert),
-            $createdBy,
-            false,
-            $idempotencyKey,
-            true
-        );
-
-        Db::name('operation_alerts')
-            ->where('id', $alertId)
-            ->where('hotel_id', $hotelId)
-            ->whereNull('deleted_at')
-            ->update([
-                'status' => 'read',
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
-        $alert['status'] = 'read';
-        $alert['task_bridge'] = $this->alertExecutionBridgeFromIntent($intent);
-
-        return [
-            'alert' => $alert,
-            'execution_intent' => $intent,
-            'reused_existing_intent' => ($intent['idempotent_replay'] ?? false) === true,
-            'execution_policy' => 'pending_human_approval_no_automatic_ota_write',
-        ];
-    }
-
     public function strategySimulation(array $hotelIds, ?int $hotelId, array $input): array
     {
         $hotelIds = $this->scopeHotelIdsForSelection($hotelIds, $hotelId);
@@ -555,6 +586,9 @@ class OperationManagementService
                 'data_status' => self::DATA_PENDING,
             ];
         }
+        if (($tenantSchemaGap = $this->operationActionTrackTenantSchemaGap()) !== null) {
+            return $this->operationActionTrackSchemaGapResponse($tenantSchemaGap);
+        }
 
         $query = Db::name('operation_action_tracks')->whereNull('deleted_at');
         if ($hotelId !== null && $hotelId > 0) {
@@ -563,7 +597,11 @@ class OperationManagementService
             $query->whereIn('hotel_id', $hotelIds);
         }
 
-        $rows = $query->order('id', 'desc')->limit(100)->select()->toArray();
+        $rows = $this->scopeOperationActionTrackQueryToCurrentTenant($query)
+            ->order('id', 'desc')
+            ->limit(100)
+            ->select()
+            ->toArray();
         $actions = [];
         foreach ($rows as $row) {
             $before = $this->decodeJson((string)($row['before_data_json'] ?? ''));
@@ -596,22 +634,13 @@ class OperationManagementService
     public function executionFlow(array $hotelIds, ?int $hotelId, array $filters = []): array
     {
         if (!$this->tableExists('operation_execution_intents')) {
-            return [
-                'summary' => $this->buildExecutionFlowSummary([]),
-                'stages' => $this->buildExecutionFlowStages([]),
-                'list' => [],
-                'data_status' => self::DATA_PENDING,
-                'data_gaps' => [['code' => 'operation_execution_intents_missing', 'message' => 'execution intent table missing']],
-                'matched_total' => null,
-                'returned_count' => 0,
-                'truncated' => false,
-                'statistics' => [
-                    'execution_total_loaded' => false,
-                    'task_status_loaded' => false,
-                    'evidence_loaded' => false,
-                    'roi_loaded' => false,
-                ],
-            ];
+            return $this->executionFlowSchemaGapResponse(['code' => 'operation_execution_intents_missing', 'message' => 'execution intent table missing']);
+        }
+        if (($tenantSchemaGap = $this->executionIntentTenantSchemaGap()) !== null) {
+            return $this->executionFlowSchemaGapResponse($tenantSchemaGap);
+        }
+        if (($dependencySchemaGap = $this->executionFlowDependencySchemaGap()) !== null) {
+            return $this->executionFlowSchemaGapResponse($dependencySchemaGap);
         }
 
         $query = Db::name('operation_execution_intents')->whereNull('deleted_at');
@@ -654,28 +683,13 @@ class OperationManagementService
             );
         }
 
-        $limit = max(1, min(500, (int)($filters['limit'] ?? 100)));
+        $query = $this->scopeExecutionIntentQueryToCurrentHotelTenant($query);
         $matchedTotal = (int)(clone $query)->count();
+        $limit = max(1, min(500, (int)($filters['limit'] ?? 100)));
         $intentRows = $query->order('id', 'desc')->limit($limit)->select()->toArray();
         $truncated = $matchedTotal > count($intentRows);
         if (empty($intentRows)) {
-            $summary = $this->buildExecutionFlowSummary([]);
-            return [
-                'summary' => $summary,
-                'stages' => $this->buildExecutionFlowStages($summary),
-                'list' => [],
-                'data_status' => self::DATA_OK,
-                'data_gaps' => [],
-                'matched_total' => 0,
-                'returned_count' => 0,
-                'truncated' => false,
-                'statistics' => [
-                    'execution_total_loaded' => true,
-                    'task_status_loaded' => true,
-                    'evidence_loaded' => true,
-                    'roi_loaded' => true,
-                ],
-            ];
+            return $this->emptyExecutionFlowResponse();
         }
 
         $intentIds = array_map(static fn(array $row): int => (int)$row['id'], $intentRows);
@@ -796,25 +810,26 @@ class OperationManagementService
             return false;
         }
 
-        $row = Db::name('operation_action_tracks')->where('id', $id)->whereIn('hotel_id', $hotelIds)->find();
-        if (!$row) {
-            return false;
-        }
+        return (bool)$this->withOperationActionTrackMutationAuthorization(
+            $id,
+            $hotelIds,
+            function (array $row) use ($id): bool {
+                $before = $this->decodeJson((string)($row['before_data_json'] ?? ''));
+                $after = $this->afterData($row);
+                $result = $this->evaluateActionResult($row, $before, $after);
+                $summary = '策略已结束，结果状态：' . $result['status'] . '，' . $result['message'];
 
-        $before = $this->decodeJson((string)($row['before_data_json'] ?? ''));
-        $after = $this->afterData($row);
-        $result = $this->evaluateActionResult($row, $before, $after);
-        $summary = '策略已结束，结果状态：' . $result['status'] . '，' . $result['message'];
+                Db::name('operation_action_tracks')->where('id', $id)->update([
+                    'status' => 'finished',
+                    'after_data_json' => json_encode($after, JSON_UNESCAPED_UNICODE),
+                    'result_status' => $result['status'],
+                    'result_summary' => $summary,
+                    'updated_at' => $this->operationShanghaiNow(),
+                ]);
 
-        Db::name('operation_action_tracks')->where('id', $id)->update([
-            'status' => 'finished',
-            'after_data_json' => json_encode($after, JSON_UNESCAPED_UNICODE),
-            'result_status' => $result['status'],
-            'result_summary' => $summary,
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
-
-        return true;
+                return true;
+            }
+        );
     }
 
     public function buildPriceSuggestionExecutionIntentInput(array $suggestion, array $overrides = []): array
@@ -823,6 +838,7 @@ class OperationManagementService
         if ((int)($suggestion['status'] ?? 0) !== \app\model\PriceSuggestion::STATUS_APPROVED) {
             throw new \InvalidArgumentException('price suggestion must be approved before creating an execution intent');
         }
+        $sourceSuggestion = $suggestion;
         $enrichedRows = $this->pricingRecommendationService->enrichSuggestionRows([$suggestion]);
         $suggestion = is_array($enrichedRows[0] ?? null) ? $enrichedRows[0] : [];
         $decisionRecommendation = is_array($suggestion['decision_recommendation'] ?? null)
@@ -841,22 +857,20 @@ class OperationManagementService
                 : 'price suggestion has not passed the AI decision quality v2 gate');
         }
 
-        $sourceBusinessDate = $this->normalizeExecutionDate((string)($suggestion['suggestion_date'] ?? date('Y-m-d')));
+        $sourceBusinessDate = $this->normalizeExecutionDate((string)($sourceSuggestion['suggestion_date'] ?? ''));
+        $shanghaiToday = $this->operationShanghaiToday();
         $requestedExecutionDate = trim((string)($overrides['execution_date'] ?? ''));
         $executionDate = $this->normalizeExecutionDate(
-            $requestedExecutionDate !== '' ? $requestedExecutionDate : date('Y-m-d')
+            $requestedExecutionDate !== '' ? $requestedExecutionDate : $shanghaiToday
         );
-        if ($executionDate < date('Y-m-d')) {
+        if ($executionDate < $shanghaiToday) {
             throw new \InvalidArgumentException('计划执行日期不能早于今天');
         }
         $factors = $this->arrayValue($suggestion['factors'] ?? []);
         $manualReview = $this->latestManualReviewFromFactors($factors);
         $originalSuggestedPrice = (float)($suggestion['suggested_price'] ?? 0);
         $targetPrice = $this->manualApprovedPriceFromReview($manualReview) ?? $originalSuggestedPrice;
-        $requestedPlatform = strtolower(trim((string)($overrides['platform'] ?? $overrides['channel'] ?? '')));
-        if ($requestedPlatform !== '' && $requestedPlatform !== 'ctrip') {
-            throw new \InvalidArgumentException('price suggestion platform must remain bound to ctrip');
-        }
+        $otaTargetMapping = (new PriceSuggestionOtaTargetMappingService())->confirmedMapping($sourceSuggestion, $overrides);
 
         return [
             'source_module' => 'price_suggestion',
@@ -875,8 +889,8 @@ class OperationManagementService
                 'target_price' => $targetPrice,
                 'min_price' => (float)($suggestion['min_price'] ?? 0),
                 'max_price' => (float)($suggestion['max_price'] ?? 0),
-                'room_type_key' => trim((string)($overrides['room_type_key'] ?? '')),
-                'rate_plan_key' => trim((string)($overrides['rate_plan_key'] ?? '')),
+                'room_type_key' => $otaTargetMapping['room_type_key'],
+                'rate_plan_key' => $otaTargetMapping['rate_plan_key'],
                 'room_type_id' => (int)($suggestion['room_type_id'] ?? 0),
             ],
             'evidence' => [
@@ -890,6 +904,8 @@ class OperationManagementService
                 'decision_recommendation' => $decisionRecommendation,
                 'source_business_date' => $sourceBusinessDate,
                 'execution_date' => $executionDate,
+                'source_snapshot_digest' => SourceBackedExecutionIntentIdentityService::priceSuggestionSnapshotDigest($sourceSuggestion),
+                'ota_target_mapping' => $otaTargetMapping,
                 'auto_write_ota' => false,
             ],
             'expected_metric' => trim((string)($overrides['expected_metric'] ?? 'orders')),
@@ -921,7 +937,15 @@ class OperationManagementService
         $targetValue = $this->arrayValue($input['target_value'] ?? []);
         $currentValue = $this->arrayValue($input['current_value'] ?? []);
         $evidence = $this->buildExecutionIntentEvidence($input);
-        $effectiveDate = trim((string)($input['effective_date'] ?? $input['date_start'] ?? $input['start_date'] ?? ''));
+        $executionDateField = array_key_exists('effective_date', $input)
+            ? 'effective_date'
+            : (array_key_exists('date_start', $input)
+                ? 'date_start'
+                : (array_key_exists('start_date', $input) ? 'start_date' : null));
+        $effectiveDate = $executionDateField === null ? '' : (string)$input[$executionDateField];
+        if ($executionDateField !== null && $effectiveDate === '') {
+            throw new \InvalidArgumentException('execution date must be a valid YYYY-MM-DD calendar date');
+        }
         if ($objectType === 'price') {
             $this->assertPriceExecutionIntentIsComplete($input, $targetValue, $evidence, $effectiveDate);
         }
@@ -932,11 +956,13 @@ class OperationManagementService
         $status = $objectType === 'price'
             ? 'pending_approval'
             : ($blockedReasons ? 'blocked' : (in_array((string)($input['status'] ?? ''), ['draft', 'pending_approval'], true) ? (string)$input['status'] : 'pending_approval'));
-        $dateStart = $effectiveDate !== '' ? $effectiveDate : date('Y-m-d');
-        $dateEnd = trim((string)($input['date_end'] ?? $input['end_date'] ?? $dateStart));
+        $dateStart = $effectiveDate !== '' ? $effectiveDate : $this->operationShanghaiToday();
+        $dateEnd = array_key_exists('date_end', $input)
+            ? (string)$input['date_end']
+            : (array_key_exists('end_date', $input) ? (string)$input['end_date'] : $dateStart);
 
         return [
-            'source_module' => trim((string)($input['source_module'] ?? 'manual')),
+            'source_module' => $this->canonicalExecutionSourceModule($input['source_module'] ?? 'manual'),
             'source_record_id' => (int)($input['source_record_id'] ?? 0),
             'hotel_id' => $selectedHotelId,
             'platform' => strtolower(trim((string)($input['platform'] ?? ''))),
@@ -980,16 +1006,16 @@ class OperationManagementService
         if ($effectiveDate === '') {
             throw new \InvalidArgumentException('effective_date is required');
         }
-        if (!$this->hasMeaningfulExecutionEvidence($evidence)) {
+        if (!$this->hasNonEmptyValue($evidence)) {
             throw new \InvalidArgumentException('evidence is required');
         }
     }
 
-    private function hasMeaningfulExecutionEvidence(mixed $value): bool
+    private function hasNonEmptyValue(mixed $value): bool
     {
         if (is_array($value)) {
             foreach ($value as $item) {
-                if ($this->hasMeaningfulExecutionEvidence($item)) {
+                if ($this->hasNonEmptyValue($item)) {
                     return true;
                 }
             }
@@ -1103,6 +1129,22 @@ class OperationManagementService
         }
 
         $evidence = $this->arrayValue($input['evidence'] ?? []);
+        $evidenceType = strtolower(trim((string)($input['evidence_type'] ?? $evidence['evidence_type'] ?? 'manual')));
+        $normalizedEvidenceContent = [];
+        if ($evidence !== []) {
+            $this->assertOperatorExecutionEvidenceBoundary($evidenceType, $evidence);
+            $normalizedEvidenceContent = [
+                'evidence_type' => $evidenceType,
+                'before' => $this->arrayValue($evidence['before'] ?? []),
+                'after' => $this->arrayValue($evidence['after'] ?? []),
+                'attachment_path' => trim((string)($evidence['attachment_path'] ?? '')),
+                'platform_response' => $this->buildExecutionEvidencePlatformResponse($evidence, $task, $intent),
+                'remark' => trim((string)($evidence['remark'] ?? '')),
+                'created_by' => $operatorId,
+            ];
+        }
+        $terminalEvidenceIsMeaningful = $evidence !== []
+            && self::isMeaningfulExecutionReceipt($normalizedEvidenceContent, $operatorId);
         $isTemporalForecast = in_array(
             strtolower(trim((string)($intent['source_module'] ?? ''))),
             [
@@ -1157,16 +1199,17 @@ class OperationManagementService
         }
         if ($currentStatus === 'blocked'
             && in_array($status, ['executed', 'failed'], true)
-            && empty($evidence)
+            && !$terminalEvidenceIsMeaningful
         ) {
-            throw new \InvalidArgumentException('duplicate execution replay remains blocked until evidence is supplied');
+            throw new \InvalidArgumentException('duplicate execution replay remains blocked until meaningful execution evidence is supplied');
         }
-        if (in_array($status, ['executed', 'failed'], true) && empty($evidence)) {
+        $requestedTerminalStatus = in_array($status, ['executed', 'failed'], true);
+        if ($requestedTerminalStatus && !$terminalEvidenceIsMeaningful) {
             $requestedStatus = $status;
             $status = 'blocked';
             $defaultBlockedReason = $requestedStatus === 'failed'
-                ? 'execution failure evidence missing'
-                : 'execution evidence missing';
+                ? 'meaningful execution failure evidence missing'
+                : 'meaningful execution evidence missing';
             $input['blocked_reason'] = trim((string)($input['blocked_reason'] ?? $defaultBlockedReason));
         }
         if ($status === $currentStatus) {
@@ -1192,17 +1235,15 @@ class OperationManagementService
         }
 
         $evidencePayload = null;
-        if (!empty($evidence)) {
-            $evidenceType = strtolower(trim((string)($input['evidence_type'] ?? $evidence['evidence_type'] ?? 'manual')));
-            $this->assertOperatorExecutionEvidenceBoundary($evidenceType, $evidence);
+        if ($evidence !== [] && !($requestedTerminalStatus && !$terminalEvidenceIsMeaningful)) {
             $evidencePayload = [
                 'task_id' => (int)($task['id'] ?? 0),
                 'evidence_type' => $evidenceType,
-                'before' => $this->arrayValue($evidence['before'] ?? []),
-                'after' => $this->arrayValue($evidence['after'] ?? []),
-                'attachment_path' => trim((string)($evidence['attachment_path'] ?? '')),
-                'platform_response' => $this->buildExecutionEvidencePlatformResponse($evidence, $task, $intent),
-                'remark' => trim((string)($evidence['remark'] ?? '')),
+                'before' => $normalizedEvidenceContent['before'],
+                'after' => $normalizedEvidenceContent['after'],
+                'attachment_path' => $normalizedEvidenceContent['attachment_path'],
+                'platform_response' => $normalizedEvidenceContent['platform_response'],
+                'remark' => $normalizedEvidenceContent['remark'],
                 'created_by' => $operatorId,
                 'created_at' => $now,
             ];
@@ -1267,15 +1308,17 @@ class OperationManagementService
             'operation_alert',
             'operating_target',
             'knowledge_sop',
+            'feasibility_report',
+            'opening',
+            'transfer_decision',
+            OperatingNetworkService::EXECUTION_SOURCE_MODULE,
             TemporalInsightService::OPERATION_SOURCE_MODULE,
             TemporalForecastTrialService::OPERATION_SOURCE_MODULE,
             OperationOptimizationExecutionBridgeService::SOURCE_MODULE,
+            OperatingQuestionExecutionBridgeService::SOURCE_MODULE,
         ];
         if (in_array((string)$payload['source_module'], $reservedSources, true) && !$trustedReservedSource) {
             throw new \InvalidArgumentException('reserved execution source must be created from its scoped source endpoint');
-        }
-        if ($trustedReservedSource && in_array((string)$payload['source_module'], ['strategy_simulation', 'quant_simulation'], true)) {
-            $this->assertSimulationIntentSourceIsCurrent($payload);
         }
         $usesExpansionSource = $payload['source_module'] === 'expansion' || $payload['object_type'] === 'expansion';
         if ($usesExpansionSource
@@ -1283,94 +1326,20 @@ class OperationManagementService
         ) {
             throw new \InvalidArgumentException('expansion execution intent must be created from the scoped expansion record endpoint');
         }
-        $trustedIdempotencyKey = $this->normalizeTrustedExecutionIntentIdempotencyKey($trustedIdempotencyKey);
-        $idempotencyKey = null;
-        $usesExpansionIdempotency = false;
-        if ($trustedExpansionSource && $payload['source_module'] === 'expansion' && $payload['object_type'] === 'expansion') {
-            if ($trustedIdempotencyKey !== null) {
-                throw new \InvalidArgumentException('expansion execution intent cannot override its idempotency key');
-            }
-            if ((int)$payload['source_record_id'] <= 0) {
-                throw new \InvalidArgumentException('source_record_id is required for expansion execution intent');
-            }
-            $usesExpansionIdempotency = true;
-            $idempotencyKey = $this->expansionExecutionIntentIdempotencyKey($payload);
-            $existingIntent = $this->replayExpansionExecutionIntent($idempotencyKey, $payload, $hotelIds);
-            if ($existingIntent !== null) {
-                return $existingIntent;
-            }
-        } elseif ($trustedReservedSource && $payload['source_module'] === 'price_suggestion') {
-            if ($trustedIdempotencyKey !== null) {
-                throw new \InvalidArgumentException('price suggestion execution intent cannot override its idempotency key');
-            }
-            if ((int)$payload['source_record_id'] <= 0) {
-                throw new \InvalidArgumentException('source_record_id is required for price suggestion execution intent');
-            }
-            $idempotencyKey = $this->priceSuggestionExecutionIntentIdempotencyKey($payload);
-            $existingIntent = $this->replayTrustedExecutionIntent($idempotencyKey, $payload, $hotelIds);
-            if ($existingIntent !== null) {
-                return $existingIntent;
-            }
-        } elseif ($trustedReservedSource && $payload['source_module'] === 'knowledge_sop') {
-            if ($trustedIdempotencyKey !== null) {
-                throw new \InvalidArgumentException('knowledge SOP execution intent cannot override its idempotency key');
-            }
-            $idempotencyKey = $this->knowledgeSopExecutionIntentIdempotencyKey($payload);
-            $existingIntent = $this->replayTrustedExecutionIntent($idempotencyKey, $payload, $hotelIds);
-            if ($existingIntent !== null) {
-                return $existingIntent;
-            }
-        } elseif ($trustedIdempotencyKey !== null) {
-            $idempotencyKey = $trustedIdempotencyKey;
-            $existingIntent = $this->replayTrustedExecutionIntent($idempotencyKey, $payload, $hotelIds);
-            if ($existingIntent !== null) {
-                return $existingIntent;
-            }
-        }
-        $now = date('Y-m-d H:i:s');
-
-        $insert = [
-            'source_module' => $payload['source_module'],
-            'source_record_id' => $payload['source_record_id'],
-            'hotel_id' => $payload['hotel_id'],
-            'platform' => $payload['platform'],
-            'object_type' => $payload['object_type'],
-            'action_type' => $payload['action_type'],
-            'date_start' => $payload['date_start'],
-            'date_end' => $payload['date_end'],
-            'current_value_json' => json_encode($payload['current_value'], JSON_UNESCAPED_UNICODE),
-            'target_value_json' => json_encode($payload['target_value'], JSON_UNESCAPED_UNICODE),
-            'evidence_json' => json_encode($payload['evidence'], JSON_UNESCAPED_UNICODE),
-            'expected_metric' => $payload['expected_metric'],
-            'expected_delta' => $payload['expected_delta'],
-            'risk_level' => $payload['risk_level'],
-            'blocked_reason' => $payload['blocked_reason'],
-            'status' => $payload['status'],
-            'created_by' => $createdBy,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ];
-        if ($idempotencyKey !== null) {
-            $insert['idempotency_key'] = $idempotencyKey;
+        $payload['tenant_id'] = $this->tenantIdForHotel((int)$payload['hotel_id']);
+        $creation = fn(array $lockedPayload): array => $this->persistExecutionIntentPayload(
+            $lockedPayload,
+            $hotelIds,
+            $createdBy,
+            $trustedExpansionSource,
+            $trustedReservedSource,
+            $trustedIdempotencyKey
+        );
+        if ($this->sourceBackedExecutionIntentSupports($payload)) {
+            return $this->withSourceBackedExecutionIntentCreationAuthorization($payload, $hotelIds, $creation);
         }
 
-        try {
-            $id = (int)Db::name('operation_execution_intents')->insertGetId(
-                $this->withHotelTenantId($insert, 'operation_execution_intents', (int)$payload['hotel_id'])
-            );
-        } catch (Throwable $e) {
-            if ($idempotencyKey !== null) {
-                $existingIntent = $usesExpansionIdempotency
-                    ? $this->replayExpansionExecutionIntent($idempotencyKey, $payload, $hotelIds)
-                    : $this->replayTrustedExecutionIntent($idempotencyKey, $payload, $hotelIds);
-                if ($existingIntent !== null) {
-                    return $existingIntent;
-                }
-            }
-            throw $e;
-        }
-
-        return $this->executionIntentDetail($id, $hotelIds);
+        return $creation($payload);
     }
 
     public function syncDailyWorkbenchPatrolAction(array $hotelIds, array $input, int $userId): array
@@ -1470,7 +1439,10 @@ class OperationManagementService
     public function executionIntents(array $hotelIds, ?int $hotelId, array $filters = []): array
     {
         if (!$this->tableExists('operation_execution_intents')) {
-            return ['list' => [], 'data_status' => self::DATA_PENDING];
+            return $this->executionIntentListSchemaGapResponse(['code' => 'operation_execution_intents_missing', 'message' => 'execution intent table missing']);
+        }
+        if (($tenantSchemaGap = $this->executionIntentTenantSchemaGap()) !== null) {
+            return $this->executionIntentListSchemaGapResponse($tenantSchemaGap);
         }
 
         $query = Db::name('operation_execution_intents')->whereNull('deleted_at');
@@ -1486,10 +1458,17 @@ class OperationManagementService
             }
         }
 
+        $query = $this->scopeExecutionIntentQueryToCurrentHotelTenant($query);
+        $matchedTotal = (int)(clone $query)->count();
         $rows = $query->order('id', 'desc')->limit(100)->select()->toArray();
+        $rows = $this->filterCurrentSourceBackedTenantRows($rows);
         return [
             'list' => array_map([$this, 'normalizeExecutionIntentRow'], $rows),
-            'data_status' => self::DATA_OK,
+            'data_status' => $matchedTotal > count($rows) ? 'partial' : self::DATA_OK,
+            'data_gaps' => $matchedTotal > count($rows) ? [['code' => 'operation_execution_intents_truncated', 'message' => 'execution intent list returned 100 of ' . $matchedTotal . ' matched intents']] : [],
+            'matched_total' => $matchedTotal, 'returned_count' => count($rows),
+            'truncated' => $matchedTotal > count($rows),
+            'statistics' => ['execution_total_loaded' => $matchedTotal <= count($rows)],
         ];
     }
 
@@ -1507,13 +1486,12 @@ class OperationManagementService
         if ($idempotencyKey === '' || $hotelIds === []) {
             return null;
         }
-
         try {
             $row = Db::name('operation_execution_intents')
                 ->where('idempotency_key', $idempotencyKey)
                 ->whereIn('hotel_id', $hotelIds)
                 ->whereNull('deleted_at')
-                ->field('id')
+                ->field('id,tenant_id,source_module,hotel_id')
                 ->find();
         } catch (Throwable $e) {
             $message = strtolower($e->getMessage());
@@ -1530,9 +1508,15 @@ class OperationManagementService
             throw $e;
         }
 
-        return is_array($row)
-            ? $this->executionIntentDetail((int)($row['id'] ?? 0), $hotelIds)
-            : null;
+        if (!is_array($row)) {
+            return null;
+        }
+        if ($this->tableExists('hotels') && !$this->sourceBackedIntentTenantIsCurrent($row)
+        ) {
+            return null;
+        }
+
+        return $this->executionIntentDetail((int)($row['id'] ?? 0), $hotelIds);
     }
 
     /** @return array{intent:array<string,mixed>,attempt:int,idempotency_key:string}|null */
@@ -1546,13 +1530,13 @@ class OperationManagementService
         }
 
         try {
-            $rows = Db::name('operation_execution_intents')
+            $query = Db::name('operation_execution_intents')
                 ->where('idempotency_key', 'like', $baseKey . ':attempt:%')
                 ->whereIn('hotel_id', $hotelIds)
                 ->whereNull('deleted_at')
-                ->field('id,idempotency_key')
+                ->field('id,idempotency_key');
+            $rows = $this->scopeExecutionIntentQueryToCurrentHotelTenant($query)
                 ->order('id', 'desc')
-                ->limit(100)
                 ->select()
                 ->toArray();
         } catch (Throwable $e) {
@@ -1587,7 +1571,6 @@ class OperationManagementService
         if (!is_array($selected) || $selectedAttempt <= 0) {
             return null;
         }
-
         return [
             'intent' => $this->executionIntentDetail((int)($selected['id'] ?? 0), $hotelIds),
             'attempt' => $selectedAttempt,
@@ -1611,54 +1594,51 @@ class OperationManagementService
         $this->assertExecutionPayloadHasNoCredentialMaterial($schedule);
         $now = date('Y-m-d H:i:s');
 
-        Db::transaction(function () use ($id, $hotelIds, $schedule, $updatedBy, $now): void {
-            $row = Db::name('operation_execution_intents')
-                ->where('id', $id)
-                ->whereIn('hotel_id', $hotelIds)
-                ->whereNull('deleted_at')
-                ->lock(true)
-                ->find();
-            if (!is_array($row)) {
-                throw new \RuntimeException('execution intent not found');
-            }
-            $status = strtolower(trim((string)($row['status'] ?? '')));
-            if (!in_array($status, ['draft', 'pending_approval'], true)) {
-                throw new \InvalidArgumentException('only draft or pending_approval execution intents can be rescheduled');
-            }
-            $taskCount = (int)Db::name('operation_execution_tasks')
-                ->where('intent_id', $id)
-                ->where('hotel_id', (int)$row['hotel_id'])
-                ->whereNull('deleted_at')
-                ->count();
-            if ($taskCount > 0) {
-                throw new \InvalidArgumentException('execution intent already has a task and cannot be rescheduled');
-            }
+        return $this->withSourceBackedExecutionIntentApprovalAuthorization(
+            $id,
+            $hotelIds,
+            function (array $authorization) use ($id, $hotelIds, $schedule, $updatedBy, $now): array {
+                $row = $authorization['intent'];
+                if ($this->sourceBackedExecutionIntentSupports($row)) {
+                    $this->assertSourceBackedIntentCurrentWithAuthorization(
+                        $this->normalizeExecutionIntentRow($row),
+                        $authorization
+                    );
+                }
+                $status = strtolower(trim((string)($row['status'] ?? '')));
+                if (!in_array($status, ['draft', 'pending_approval'], true)) {
+                    throw new \InvalidArgumentException('only draft or pending_approval execution intents can be rescheduled');
+                }
+                if ((array)($authorization['tasks'] ?? []) !== []) {
+                    throw new \InvalidArgumentException('execution intent already has a task and cannot be rescheduled');
+                }
 
-            $targetValue = $this->decodeJson((string)($row['target_value_json'] ?? ''));
-            $evidence = $this->decodeJson((string)($row['evidence_json'] ?? ''));
-            foreach (['assignee_id', 'due_at', 'review_at'] as $field) {
-                $targetValue[$field] = $schedule[$field];
-            }
-            $targetValue['workflow_schedule'] = $schedule;
-            $evidence['workflow_schedule'] = $schedule;
-            $evidence['schedule_updated_by'] = $updatedBy;
-            $evidence['schedule_updated_at'] = $now;
-            $affected = (int)Db::name('operation_execution_intents')
-                ->where('id', $id)
-                ->where('hotel_id', (int)$row['hotel_id'])
-                ->where('status', $status)
-                ->whereNull('deleted_at')
-                ->update([
-                    'target_value_json' => json_encode($targetValue, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-                    'evidence_json' => json_encode($evidence, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-                    'updated_at' => $now,
-                ]);
-            if ($affected !== 1) {
-                throw new \InvalidArgumentException('execution intent state changed; refresh before rescheduling');
-            }
-        });
+                $targetValue = $this->decodeJson((string)($row['target_value_json'] ?? ''));
+                $evidence = $this->decodeJson((string)($row['evidence_json'] ?? ''));
+                foreach (['assignee_id', 'due_at', 'review_at'] as $field) {
+                    $targetValue[$field] = $schedule[$field];
+                }
+                $targetValue['workflow_schedule'] = $schedule;
+                $evidence['workflow_schedule'] = $schedule;
+                $evidence['schedule_updated_by'] = $updatedBy;
+                $evidence['schedule_updated_at'] = $now;
+                $affected = (int)Db::name('operation_execution_intents')
+                    ->where('id', $id)
+                    ->where('hotel_id', (int)$row['hotel_id'])
+                    ->where('status', $status)
+                    ->whereNull('deleted_at')
+                    ->update([
+                        'target_value_json' => json_encode($targetValue, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                        'evidence_json' => json_encode($evidence, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                        'updated_at' => $now,
+                    ]);
+                if ($affected !== 1) {
+                    throw new \InvalidArgumentException('execution intent state changed; refresh before rescheduling');
+                }
 
-        return $this->executionIntentDetail($id, $hotelIds);
+                return $this->executionIntentDetail($id, $hotelIds);
+            }
+        );
     }
 
     public function readExecutionTask(int $id, array $hotelIds): array
@@ -1676,16 +1656,22 @@ class OperationManagementService
      */
     public function reconcileScheduledExecutionTask(int $taskId, array $hotelIds): array
     {
-        $this->ensureExecutionTables();
-        $taskRow = $this->executionTaskRow($taskId, $hotelIds);
-        if ($taskRow === null) {
-            throw new \RuntimeException('execution task not found');
-        }
-        $intentRow = $this->executionIntentRow((int)($taskRow['intent_id'] ?? 0), $hotelIds);
-        if ($intentRow === null) {
-            throw new \RuntimeException('execution intent not found');
-        }
-        $this->assertExecutionTaskIntentIdentity($taskRow, $intentRow);
+        return $this->withExecutionTaskMutationAuthorization(
+            $taskId,
+            $hotelIds,
+            fn(array $context): array => $this->reconcileScheduledExecutionTaskAuthorized(
+                $taskId,
+                $hotelIds,
+                $context
+            )
+        );
+    }
+
+    /** @param array{task:array<string,mixed>,intent:array<string,mixed>} $context */
+    private function reconcileScheduledExecutionTaskAuthorized(int $taskId, array $hotelIds, array $context): array
+    {
+        $taskRow = $context['task'];
+        $intentRow = $context['intent'];
 
         if ((string)($taskRow['status'] ?? '') !== 'executed') {
             throw new \InvalidArgumentException('execution task must be executed before scheduled readback');
@@ -1741,7 +1727,7 @@ class OperationManagementService
             throw new \InvalidArgumentException('execution task result status is not eligible for scheduled readback');
         }
 
-        $this->syncSourceVerifiedMetricReadback($task, $intent);
+        $this->syncSourceVerifiedMetricReadback($task, $intent, $context);
         $detail = $this->executionTaskDetail($taskId, $hotelIds);
         $sourceVerified = (bool)($detail['evidence_truth']['source_verified'] ?? false);
 
@@ -1776,7 +1762,7 @@ class OperationManagementService
         $this->ensureExecutionTables();
         $now = date('Y-m-d H:i:s');
         $status = $approved ? 'approved' : 'rejected';
-        Db::transaction(function () use (
+        $approveLockedIntent = function (array $intent, ?array $authorization = null) use (
             $id,
             $status,
             $userId,
@@ -1786,10 +1772,6 @@ class OperationManagementService
             $hotelIds,
             $approvalInput
         ): void {
-            $intent = $this->executionIntentRow($id, $hotelIds, true);
-            if (!$intent) {
-                throw new \RuntimeException('execution intent not found');
-            }
             if (($intent['status'] ?? '') === 'blocked') {
                 throw new \InvalidArgumentException('blocked execution intent cannot be approved');
             }
@@ -1802,7 +1784,10 @@ class OperationManagementService
                     $this->decodeJson((string)($intent['target_value_json'] ?? '')),
                     $this->decodeJson((string)($intent['evidence_json'] ?? '')),
                 ]);
-                $this->assertAiDecisionIntentReadyForApproval($this->normalizeExecutionIntentRow($intent));
+                $this->assertAiDecisionIntentReadyForApproval(
+                    $this->normalizeExecutionIntentRow($intent),
+                    $authorization
+                );
             }
 
             $targetValueJson = (string)($intent['target_value_json'] ?? '{}');
@@ -1812,7 +1797,12 @@ class OperationManagementService
                 ? null
                 : (float)$intent['expected_delta'];
             $approvalUpdate = [];
-            if ($approved && strtolower(trim((string)($intent['source_module'] ?? ''))) === 'ota_diagnosis_saved') {
+            $requiresFrozenEffectTarget = in_array(
+                strtolower(trim((string)($intent['source_module'] ?? ''))),
+                ['ota_diagnosis_saved', OperatingNetworkService::EXECUTION_SOURCE_MODULE],
+                true
+            );
+            if ($approved && $requiresFrozenEffectTarget) {
                 $approvalContract = $this->buildSavedOtaDiagnosisApprovalTarget(
                     $this->normalizeExecutionIntentRow($intent),
                     $approvalInput,
@@ -1854,11 +1844,13 @@ class OperationManagementService
             }
 
             if ($approved) {
-                $taskExists = (int)Db::name('operation_execution_tasks')
-                    ->where('intent_id', $id)
-                    ->where('hotel_id', (int)$intent['hotel_id'])
-                    ->whereNull('deleted_at')
-                    ->count();
+                $taskExists = $authorization !== null
+                    ? count((array)($authorization['tasks'] ?? []))
+                    : (int)Db::name('operation_execution_tasks')
+                        ->where('intent_id', $id)
+                        ->where('hotel_id', (int)$intent['hotel_id'])
+                        ->whereNull('deleted_at')
+                        ->count();
                 if ($taskExists === 0) {
                     Db::name('operation_execution_tasks')->insert($this->withHotelTenantId([
                         'intent_id' => $id,
@@ -1869,10 +1861,12 @@ class OperationManagementService
                         'status' => 'pending_execute',
                         'created_at' => $now,
                         'updated_at' => $now,
-                    ], 'operation_execution_tasks', (int)$intent['hotel_id']));
+                    ], 'operation_execution_tasks', (int)$intent['hotel_id'],
+                        $authorization !== null ? (int)($authorization['hotel']['tenant_id'] ?? 0) : null
+                    ));
                 }
             }
-            if ($approved && strtolower(trim((string)($intent['source_module'] ?? ''))) === 'ota_diagnosis_saved') {
+            if ($approved && $requiresFrozenEffectTarget) {
                 $approvalReadback = $this->executionIntentDetail($id, $hotelIds);
                 $this->assertSavedOtaDiagnosisApprovalTargetReadback($approvalReadback);
             }
@@ -1886,10 +1880,21 @@ class OperationManagementService
                     $now
                 );
             }
-        });
+        };
+        $probe = $this->executionIntentRow($id, $hotelIds);
+        if (!is_array($probe)) {
+            throw new \RuntimeException('execution intent not found');
+        }
+        $this->withSourceBackedExecutionIntentApprovalAuthorization(
+            $id, $hotelIds, static fn(array $authorization): mixed => $approveLockedIntent($authorization['intent'], $authorization)
+        );
 
         $detail = $this->executionIntentDetail($id, $hotelIds);
-        if ($approved && strtolower(trim((string)($detail['source_module'] ?? ''))) === 'ota_diagnosis_saved') {
+        if ($approved && in_array(
+            strtolower(trim((string)($detail['source_module'] ?? ''))),
+            ['ota_diagnosis_saved', OperatingNetworkService::EXECUTION_SOURCE_MODULE],
+            true
+        )) {
             $this->assertSavedOtaDiagnosisApprovalTargetReadback($detail);
         }
 
@@ -1906,7 +1911,7 @@ class OperationManagementService
         $expectedMetric = strtolower(trim((string)($input['expected_metric'] ?? '')));
         $sourceMetric = strtolower(trim((string)($intent['expected_metric'] ?? '')));
         if ($expectedMetric === '' || $sourceMetric === '' || $expectedMetric !== $sourceMetric) {
-            throw new \InvalidArgumentException('approval expected_metric must match the saved diagnosis metric');
+            throw new \InvalidArgumentException('approval expected_metric must match the saved execution-intent metric');
         }
 
         $direction = strtolower(trim((string)($input['expected_direction'] ?? '')));
@@ -1925,7 +1930,7 @@ class OperationManagementService
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $baselineDate) !== 1
             || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $reviewBusinessDate) !== 1
         ) {
-            throw new \InvalidArgumentException('diagnosis and review business dates must use YYYY-MM-DD');
+            throw new \InvalidArgumentException('baseline and review business dates must use YYYY-MM-DD');
         }
         $expectedReviewBusinessDate = (new DateTimeImmutable($baselineDate))
             ->modify('+1 day')
@@ -2012,6 +2017,7 @@ class OperationManagementService
             $sourceMetric,
             $metricDefinition
         );
+        $approvalSourceModule = strtolower(trim((string)($intent['source_module'] ?? '')));
         $contract = [
             'version' => 'ota_execution_approval_target.v1',
             'intent_id' => (int)($intent['id'] ?? 0),
@@ -2033,7 +2039,9 @@ class OperationManagementService
             'approved_by' => $approvedBy,
             'approved_at' => $approvedAt,
             'diagnosis_recommendation_digest' => (string)($evidence['decision_recommendation_digest'] ?? ''),
-            'source_policy' => 'saved_diagnosis_metric_and_human_target_frozen_before_task_creation',
+            'source_policy' => $approvalSourceModule === OperatingNetworkService::EXECUTION_SOURCE_MODULE
+                ? 'operating_network_replication_and_human_target_frozen_before_task_creation'
+                : 'saved_diagnosis_metric_and_human_target_frozen_before_task_creation',
         ];
         $contract['content_digest'] = $this->savedOtaDiagnosisApprovalTargetDigest($contract);
 
@@ -2221,23 +2229,32 @@ class OperationManagementService
     }
 
     /** @param array<string, mixed> $intent */
-    private function assertAiDecisionIntentReadyForApproval(array $intent): void
+    private function assertAiDecisionIntentReadyForApproval(array $intent, ?array $authorization = null): void
     {
         $sourceModule = strtolower(trim((string)($intent['source_module'] ?? '')));
+        $intent['source_module'] = $sourceModule;
         if ($sourceModule === 'knowledge_sop') {
             (new KnowledgeSopExecutionProvenanceService())->assertIntentCurrent($intent, true);
+            return;
+        }
+        if ($sourceModule === OperatingQuestionExecutionBridgeService::SOURCE_MODULE) {
+            (new OperatingQuestionExecutionBridgeService())->assertIntentCurrent($intent);
             return;
         }
         if ($sourceModule === 'ota_diagnosis') {
             $this->assertPublicPageDiagnosisIntentReadyForApproval($intent);
             return;
         }
-        if (in_array($sourceModule, ['strategy_simulation', 'quant_simulation'], true)) {
-            $this->assertSimulationIntentSourceIsCurrent($intent);
+        if (SourceBackedExecutionIntentIdentityService::supports($intent)) {
+            $this->assertSourceBackedIntentCurrentWithAuthorization($intent, $authorization);
             return;
         }
         if ($sourceModule === 'operating_target') {
             $this->assertOperatingTargetIntentSourceIsCurrent($intent);
+            return;
+        }
+        if ($sourceModule === OperatingNetworkService::EXECUTION_SOURCE_MODULE) {
+            (new OperatingNetworkService())->assertReplicationExecutionIntentCurrent($intent);
             return;
         }
         if ($sourceModule === TemporalInsightService::OPERATION_SOURCE_MODULE) {
@@ -2411,100 +2428,6 @@ class OperationManagementService
     }
 
     /** @param array<string, mixed> $intent */
-    private function assertSimulationIntentSourceIsCurrent(array $intent): void
-    {
-        $sourceModule = strtolower(trim((string)($intent['source_module'] ?? '')));
-        $sourceRecordId = (int)($intent['source_record_id'] ?? 0);
-        $hotelId = (int)($intent['hotel_id'] ?? 0);
-        $table = match ($sourceModule) {
-            'strategy_simulation' => 'strategy_simulation_records',
-            'quant_simulation' => 'quant_simulation_records',
-            default => '',
-        };
-        if ($table === '' || $sourceRecordId <= 0 || $hotelId <= 0 || !$this->tableExists($table)) {
-            throw new \InvalidArgumentException('simulation source identity is no longer valid');
-        }
-
-        $row = Db::name($table)
-            ->where('id', $sourceRecordId)
-            ->whereNull('deleted_at')
-            ->find();
-        if (!is_array($row)
-            || (int)($row['tenant_id'] ?? 0) <= 0
-            || (int)$row['tenant_id'] !== $this->tenantIdForHotel($hotelId)
-        ) {
-            throw new \InvalidArgumentException('simulation source record is missing or outside the hotel tenant scope');
-        }
-
-        $record = $sourceModule === 'strategy_simulation'
-            ? $this->strategySimulationRecordForExecution($row)
-            : $this->quantSimulationRecordForExecution($row);
-        $readinessService = new SimulationExecutionReadinessService();
-        $currentInput = $sourceModule === 'strategy_simulation'
-            ? $readinessService->buildStrategyExecutionIntentInput($record, [
-                'hotel_id' => $hotelId,
-                'date_start' => (string)($intent['date_start'] ?? ''),
-                'date_end' => (string)($intent['date_end'] ?? ''),
-            ])
-            : $readinessService->buildQuantExecutionIntentInput($record, [
-                'hotel_id' => $hotelId,
-                'date_start' => (string)($intent['date_start'] ?? ''),
-                'date_end' => (string)($intent['date_end'] ?? ''),
-            ]);
-        $storedEvidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
-        $currentEvidence = is_array($currentInput['evidence'] ?? null) ? $currentInput['evidence'] : [];
-        $storedPayloadDigest = strtolower(trim((string)($storedEvidence['simulation_payload_digest'] ?? '')));
-        $storedSourceDigest = strtolower(trim((string)($storedEvidence['source_record_digest'] ?? '')));
-        $currentPayloadDigest = strtolower(trim((string)($currentEvidence['simulation_payload_digest'] ?? '')));
-        $currentSourceDigest = strtolower(trim((string)($currentEvidence['source_record_digest'] ?? '')));
-        if (preg_match('/^[a-f0-9]{64}$/D', $storedPayloadDigest) !== 1
-            || preg_match('/^[a-f0-9]{64}$/D', $storedSourceDigest) !== 1
-            || !hash_equals($storedSourceDigest, $currentSourceDigest)
-            || !hash_equals($storedPayloadDigest, $currentPayloadDigest)
-            || !hash_equals($storedPayloadDigest, $readinessService->simulationPayloadDigest($intent))
-            || !in_array((string)($currentEvidence['readiness_stage'] ?? ''), ['review_ready', 'approved_pending_execution', 'execution_ready'], true)
-            || !empty($currentEvidence['data_gaps'])
-        ) {
-            throw new \InvalidArgumentException('simulation source or readiness changed; create a new execution intent');
-        }
-    }
-
-    /** @param array<string, mixed> $row @return array<string, mixed> */
-    private function strategySimulationRecordForExecution(array $row): array
-    {
-        $scores = $this->decodeJson((string)($row['score_json'] ?? ''));
-
-        return [
-            'id' => (int)($row['id'] ?? 0),
-            'record_id' => (int)($row['id'] ?? 0),
-            'project_name' => (string)($row['project_name'] ?? ''),
-            'total_score' => (int)($scores['total_score'] ?? 0),
-            'input' => $this->decodeJson((string)($row['input_json'] ?? '')),
-            'scores' => is_array($scores['items'] ?? null) ? $scores['items'] : $scores,
-            'recommendation' => $this->decodeJson((string)($row['recommendation_json'] ?? '')),
-            'risk' => $this->decodeJson((string)($row['risk_json'] ?? '')),
-            'data_snapshot' => $this->decodeJson((string)($row['data_snapshot_json'] ?? '')),
-        ];
-    }
-
-    /** @param array<string, mixed> $row @return array<string, mixed> */
-    private function quantSimulationRecordForExecution(array $row): array
-    {
-        return [
-            'id' => (int)($row['id'] ?? 0),
-            'record_id' => (int)($row['id'] ?? 0),
-            'project_name' => (string)($row['project_name'] ?? ''),
-            'monthly_net_cashflow' => (float)($row['monthly_net_cashflow'] ?? 0),
-            'payback_months' => $row['payback_months'] ?? null,
-            'risk_level' => (string)($row['risk_level'] ?? ''),
-            'input' => $this->decodeJson((string)($row['input_json'] ?? '')),
-            'result' => $this->decodeJson((string)($row['result_json'] ?? '')),
-            'scenarios' => $this->decodeJson((string)($row['scenarios_json'] ?? '')),
-            'risk_hints' => $this->decodeJson((string)($row['risk_hints_json'] ?? '')),
-        ];
-    }
-
-    /** @param array<string, mixed> $intent */
     private function assertPublicPageDiagnosisIntentReadyForApproval(array $intent): void
     {
         if (!$this->hasVerifiedPublicPageDiagnosisProvenance($intent, ['intent_id' => (int)($intent['id'] ?? 0)])) {
@@ -2550,17 +2473,29 @@ class OperationManagementService
 
     public function executeExecutionTask(int $taskId, array $hotelIds, array $input, int $operatorId): array
     {
-        $this->ensureExecutionTables();
-        $task = $this->executionTaskRow($taskId, $hotelIds);
-        if (!$task) {
-            throw new \RuntimeException('execution task not found');
-        }
+        return $this->withExecutionTaskMutationAuthorization(
+            $taskId,
+            $hotelIds,
+            fn(array $context): array => $this->executeExecutionTaskAuthorized(
+                $taskId,
+                $hotelIds,
+                $input,
+                $operatorId,
+                $context
+            )
+        );
+    }
 
-        $intent = $this->executionIntentRow((int)$task['intent_id'], $hotelIds);
-        if (!$intent) {
-            throw new \RuntimeException('execution intent not found');
-        }
-        $this->assertExecutionTaskIntentIdentity($task, $intent);
+    /** @param array{task:array<string,mixed>,intent:array<string,mixed>} $context */
+    private function executeExecutionTaskAuthorized(
+        int $taskId,
+        array $hotelIds,
+        array $input,
+        int $operatorId,
+        array $context
+    ): array {
+        $task = $context['task'];
+        $intent = $context['intent'];
         $normalizedIntent = $this->normalizeExecutionIntentRow($intent);
         $this->assertExecutionTaskAssignee($intent, $operatorId);
         $this->assertExecutionPayloadHasNoCredentialMaterial([
@@ -2580,7 +2515,7 @@ class OperationManagementService
         }
 
         $expectedTaskStatus = (string)($task['status'] ?? '');
-        Db::transaction(function () use (
+        (function () use (
             $taskId,
             $dbUpdate,
             $built,
@@ -2588,8 +2523,10 @@ class OperationManagementService
             $task,
             $intent,
             $normalizedIntent,
-            $expectedTaskStatus
+            $expectedTaskStatus,
+            $operatorId
         ): void {
+            $this->assertExecutionTaskAssignee($intent, $operatorId);
             if (strtolower(trim((string)($normalizedIntent['source_module'] ?? ''))) === 'knowledge_sop'
                 && in_array((string)($taskUpdate['status'] ?? ''), ['executing', 'executed'], true)
             ) {
@@ -2605,17 +2542,21 @@ class OperationManagementService
                 throw new \InvalidArgumentException('execution task state changed; refresh before execution');
             }
             if ($built['evidence'] !== null) {
-                $this->insertExecutionEvidence($built['evidence']);
+                $this->insertExecutionEvidence($built['evidence'], (int)($task['tenant_id'] ?? 0));
             }
 
             if (($taskUpdate['status'] ?? '') === 'executed'
                 && empty($task['action_track_id'])
                 && $this->tableExists('operation_action_tracks')
             ) {
-                $actionTrackId = $this->createActionTrackForExecution($intent, $taskId);
+                $actionTrackId = $this->createActionTrackForExecution(
+                    $intent,
+                    $taskId,
+                    (int)($task['tenant_id'] ?? 0)
+                );
                 Db::name('operation_execution_tasks')->where('id', $taskId)->update(['action_track_id' => $actionTrackId]);
             }
-        });
+        })();
 
         return $this->executionTaskDetail($taskId, $hotelIds);
     }
@@ -2655,16 +2596,29 @@ class OperationManagementService
     public function addExecutionEvidence(int $taskId, array $hotelIds, array $input, int $userId): array
     {
         $this->assertExecutionPayloadHasNoCredentialMaterial($input);
-        $this->ensureExecutionTables();
-        $task = $this->executionTaskRow($taskId, $hotelIds);
-        if (!$task) {
-            throw new \RuntimeException('execution task not found');
-        }
-        $intent = $this->executionIntentRow((int)($task['intent_id'] ?? 0), $hotelIds);
-        if ($intent === null) {
-            throw new \RuntimeException('execution intent not found');
-        }
-        $this->assertExecutionTaskIntentIdentity($task, $intent);
+        return $this->withExecutionTaskMutationAuthorization(
+            $taskId,
+            $hotelIds,
+            fn(array $context): array => $this->addExecutionEvidenceAuthorized(
+                $taskId,
+                $hotelIds,
+                $input,
+                $userId,
+                $context
+            )
+        );
+    }
+
+    /** @param array{task:array<string,mixed>,intent:array<string,mixed>} $context */
+    private function addExecutionEvidenceAuthorized(
+        int $taskId,
+        array $hotelIds,
+        array $input,
+        int $userId,
+        array $context
+    ): array {
+        $task = $context['task'];
+        $intent = $context['intent'];
         $this->assertExecutionTaskAllowsOperatorMutation($task, $intent);
         $evidence = $this->arrayValue($input['evidence'] ?? $input);
         if (empty($evidence)) {
@@ -2689,7 +2643,7 @@ class OperationManagementService
             'created_by' => $userId,
             'created_at' => date('Y-m-d H:i:s'),
         ];
-        if (!$this->hasMeaningfulExecutionEvidence($this->executionEvidenceContent($payload))) {
+        if (!$this->hasNonEmptyValue($this->executionEvidenceContent($payload))) {
             throw new \InvalidArgumentException('execution evidence content is required');
         }
         if ($isRevenueNodeCheck
@@ -2698,18 +2652,13 @@ class OperationManagementService
             throw new \InvalidArgumentException('revenue node check requires operation_revenue_node.v2 identity');
         }
         $fingerprint = $this->executionEvidenceFingerprint($payload);
-        $write = Db::transaction(function () use (
+        $write = (function () use (
             $taskId,
-            $hotelIds,
-            $intent,
+            $task,
             $payload,
             $fingerprint
         ): array {
-            $lockedTask = $this->executionTaskRow($taskId, $hotelIds, true);
-            if ($lockedTask === null) {
-                throw new \RuntimeException('execution task not found');
-            }
-            $this->assertExecutionTaskIntentIdentity($lockedTask, $intent);
+            $lockedTask = $task;
             $lockedStatus = strtolower(trim((string)($lockedTask['status'] ?? '')));
             if (!$this->executionEvidenceCanBeAddedAtStatus((string)$payload['evidence_type'], $lockedStatus)) {
                 throw new \InvalidArgumentException('execution task must be executed before evidence can be added');
@@ -2723,8 +2672,11 @@ class OperationManagementService
                 $this->assertCompensationReceiptIsCurrentAndComplete($lockedTask, $payload['platform_response']);
             }
 
-            return ['id' => $this->insertExecutionEvidence($payload), 'created' => true];
-        });
+            return [
+                'id' => $this->insertExecutionEvidence($payload, (int)($lockedTask['tenant_id'] ?? 0)),
+                'created' => true,
+            ];
+        })();
 
         $detail = $this->executionTaskDetail($taskId, $hotelIds);
         $detail['evidence_write'] = [
@@ -2919,16 +2871,29 @@ class OperationManagementService
     public function reviewExecutionTask(int $taskId, array $hotelIds, array $input = [], int $reviewerId = 0): array
     {
         $this->assertExecutionPayloadHasNoCredentialMaterial($input);
-        $this->ensureExecutionTables();
-        $task = $this->executionTaskRow($taskId, $hotelIds);
-        if (!$task) {
-            throw new \RuntimeException('execution task not found');
-        }
-        $intentRow = $this->executionIntentRow((int)($task['intent_id'] ?? 0), $hotelIds);
-        if ($intentRow === null) {
-            throw new \RuntimeException('execution intent not found');
-        }
-        $this->assertExecutionTaskIntentIdentity($task, $intentRow);
+        return $this->withExecutionTaskMutationAuthorization(
+            $taskId,
+            $hotelIds,
+            fn(array $context): array => $this->reviewExecutionTaskAuthorized(
+                $taskId,
+                $hotelIds,
+                $input,
+                $reviewerId,
+                $context
+            )
+        );
+    }
+
+    /** @param array{task:array<string,mixed>,intent:array<string,mixed>} $context */
+    private function reviewExecutionTaskAuthorized(
+        int $taskId,
+        array $hotelIds,
+        array $input,
+        int $reviewerId,
+        array $context
+    ): array {
+        $task = $context['task'];
+        $intentRow = $context['intent'];
         $this->assertExecutionTaskAllowsOperatorMutation($task, $intentRow);
         if (($task['status'] ?? '') !== 'executed') {
             throw new \InvalidArgumentException('execution task must be executed before review');
@@ -2964,9 +2929,11 @@ class OperationManagementService
         $normalizedIntent = $this->normalizeExecutionIntentRow($intentRow);
         $normalizedTask = $this->normalizeExecutionTaskRow($task);
         $normalizedEvidenceRows = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
+        $expectedOperatorId = (int)($normalizedTask['operator_id'] ?? 0);
+        $expectedOperatorId = $expectedOperatorId > 0 ? $expectedOperatorId : null;
         $meaningfulEvidenceRows = array_values(array_filter(
             $normalizedEvidenceRows,
-            fn(array $row): bool => $this->hasMeaningfulExecutionEvidence($this->executionEvidenceContent($row))
+            static fn(array $row): bool => self::isMeaningfulExecutionReceipt($row, $expectedOperatorId)
         ));
         if ($meaningfulEvidenceRows === []) {
             throw new \InvalidArgumentException('meaningful execution evidence is required before review');
@@ -2994,17 +2961,18 @@ class OperationManagementService
             === TemporalInsightService::OPERATION_SOURCE_MODULE;
         $isSavedOtaDiagnosis = strtolower(trim((string)($normalizedIntent['source_module'] ?? '')))
             === 'ota_diagnosis_saved';
-        if ($isSavedOtaDiagnosis && $reviewReadbackEvidence !== null) {
+        $effectContractDeclared = $this->intentDeclaresEffectContract($normalizedIntent);
+        if ($effectContractDeclared && $reviewReadbackEvidence !== null) {
             throw new \InvalidArgumentException(
-                'saved OTA diagnosis effect review does not accept client-submitted effect evidence; use system source readback'
+                'frozen effect review does not accept client-submitted effect evidence; use system source readback'
             );
         }
         if (in_array($manualResultStatus, ['success', 'near_success'], true)
             || $isOperationOptimizer
             || $isTemporalForecast
-            || ($isSavedOtaDiagnosis && $manualResultStatus === 'failed')
+            || ($effectContractDeclared && $manualResultStatus === 'failed')
         ) {
-            $this->syncSourceVerifiedMetricReadback($normalizedTask, $normalizedIntent);
+            $this->syncSourceVerifiedMetricReadback($normalizedTask, $normalizedIntent, $context);
             $evidenceQuery = Db::name('operation_execution_evidence')
                 ->where('task_id', $taskId)
                 ->whereNull('deleted_at');
@@ -3027,13 +2995,13 @@ class OperationManagementService
             array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows)
         );
         $hasSourceVerifiedReviewEvidence = ($reviewEvidenceTruth['source_verified'] ?? false) === true;
-        $hasOperatorExecutionEvidence = ($reviewEvidenceTruth['operator_attested'] ?? false) === true;
-        if ($isSavedOtaDiagnosis
+        $hasMeaningfulOperatorExecutionEvidence = $meaningfulEvidenceRows !== [];
+        if ($effectContractDeclared
             && in_array($manualResultStatus, ['success', 'near_success', 'failed'], true)
-            && !$hasOperatorExecutionEvidence
+            && !$hasMeaningfulOperatorExecutionEvidence
         ) {
             throw new \InvalidArgumentException(
-                'operator execution evidence must be saved separately before terminal effect review'
+                'meaningful operator execution evidence must be saved separately before terminal effect review'
             );
         }
         if ($isOperationOptimizer
@@ -3052,7 +3020,7 @@ class OperationManagementService
                 'same-hotel, same-platform and same-metric scheduled OTA readback is required before terminal review'
             );
         }
-        if (($isOperationOptimizer || $isSavedOtaDiagnosis)
+        if (($isOperationOptimizer || $effectContractDeclared)
             && $manualResultStatus === 'failed'
             && !in_array((string)($reviewOutcomeTruth['status'] ?? ''), ['adverse', 'missed'], true)
         ) {
@@ -3060,10 +3028,18 @@ class OperationManagementService
                 'failed review requires a source-verified metric outcome that did not improve'
             );
         }
+        if ($effectContractDeclared
+            && in_array($manualResultStatus, ['success', 'near_success', 'failed'], true)
+            && !$hasSourceVerifiedReviewEvidence
+        ) {
+            throw new \InvalidArgumentException(
+                'frozen effect contract requires same-hotel, same-platform and same-metric source readback'
+            );
+        }
         $actionTrackId = (int)($task['action_track_id'] ?? 0);
         $reviewedAt = date('Y-m-d H:i:s');
 
-        Db::transaction(function () use (
+        (function () use (
             $taskId,
             $task,
             $manualResultStatus,
@@ -3075,6 +3051,7 @@ class OperationManagementService
             $hasSourceVerifiedReviewEvidence,
             $reviewOutcomeTruth,
             $isSavedOtaDiagnosis,
+            $effectContractDeclared,
             $normalizedIntent,
             $normalizedTask,
             $evidenceRows,
@@ -3106,7 +3083,7 @@ class OperationManagementService
                 );
             }
             if ($reviewReadbackEvidence !== null) {
-                $this->insertExecutionEvidence($reviewReadbackEvidence);
+                $this->insertExecutionEvidence($reviewReadbackEvidence, (int)($task['tenant_id'] ?? 0));
             }
 
             $this->assertExecutionPayloadHasNoCredentialMaterial($summary);
@@ -3126,8 +3103,8 @@ class OperationManagementService
                 throw new \InvalidArgumentException('execution task state changed; refresh before review');
             }
 
-            if ($isSavedOtaDiagnosis && in_array($resultStatus, ['success', 'near_success', 'failed'], true)) {
-                $this->createSavedOtaDiagnosisEffectReview(
+            if ($effectContractDeclared && in_array($resultStatus, ['success', 'near_success', 'failed'], true)) {
+                $this->createOperationEffectReview(
                     $normalizedIntent,
                     $normalizedTask,
                     $evidenceRows,
@@ -3137,87 +3114,9 @@ class OperationManagementService
                     $reviewedAt
                 );
             }
-        });
+        })();
 
         return $this->executionTaskDetail($taskId, $hotelIds);
-    }
-
-    /**
-     * Persist the observed effect separately from action/execution evidence.
-     * The effect service re-verifies every identity, date, metric, target and
-     * source-readback assertion before it appends the immutable review row.
-     *
-     * @param array<string,mixed> $intent
-     * @param array<string,mixed> $task
-     * @param array<int,array<string,mixed>> $evidenceRows
-     */
-    private function createSavedOtaDiagnosisEffectReview(
-        array $intent,
-        array $task,
-        array $evidenceRows,
-        string $resultStatus,
-        string $resultSummary,
-        int $reviewerId,
-        string $reviewedAt
-    ): void {
-        if ($reviewerId <= 0) {
-            throw new \InvalidArgumentException('authenticated human reviewer is required for effect review');
-        }
-        if (!$this->tableExists(OperationEffectReviewService::TABLE)) {
-            throw new \RuntimeException('operation_effect_reviews table does not exist, run database migration first');
-        }
-
-        $sourceEvidenceId = 0;
-        $sourceContext = [];
-        foreach ($evidenceRows as $row) {
-            if (!is_array($row)
-                || strtolower(trim((string)($row['evidence_type'] ?? ''))) !== 'source_verified_metric_readback'
-            ) {
-                continue;
-            }
-            $candidateId = (int)($row['id'] ?? 0);
-            $candidateContext = $this->decodeJson((string)($row['platform_response_json'] ?? ''));
-            if ($candidateId > 0 && $candidateContext !== []) {
-                $sourceEvidenceId = $candidateId;
-                $sourceContext = $candidateContext;
-                break;
-            }
-        }
-        if ($sourceEvidenceId <= 0) {
-            throw new \InvalidArgumentException('source-verified metric readback evidence is required for effect review');
-        }
-
-        $tenantId = (int)($task['tenant_id'] ?? $intent['tenant_id'] ?? 0);
-        $hotelId = (int)($task['hotel_id'] ?? $intent['hotel_id'] ?? 0);
-        $intentId = (int)($intent['id'] ?? 0);
-        $taskId = (int)($task['id'] ?? 0);
-        $platform = strtolower(trim((string)($intent['platform'] ?? '')));
-        $metricKey = strtolower(trim((string)($intent['expected_metric'] ?? '')));
-        $baselineDate = substr(trim((string)($intent['date_end'] ?? $intent['date_start'] ?? '')), 0, 10);
-        $reviewDate = substr(trim((string)($sourceContext['review_date'] ?? '')), 0, 10);
-
-        (new OperationEffectReviewService($this->executionOutcomeService))->create(
-            $tenantId,
-            $hotelId,
-            $intentId,
-            $taskId,
-            [
-                'tenant_id' => $tenantId,
-                'hotel_id' => $hotelId,
-                'intent_id' => $intentId,
-                'task_id' => $taskId,
-                'platform' => $platform,
-                'metric_key' => $metricKey,
-                'baseline_business_date' => $baselineDate,
-                'review_business_date' => $reviewDate,
-                'source_readback_evidence_id' => $sourceEvidenceId,
-                'result_status' => $resultStatus,
-                'result_summary' => $resultSummary,
-                'reviewed_at' => $reviewedAt,
-                'causality_claimed' => false,
-            ],
-            $reviewerId
-        );
     }
 
     /**
@@ -3227,7 +3126,7 @@ class OperationManagementService
      * @param array<string, mixed> $task
      * @param array<string, mixed> $intent
      */
-    private function syncSourceVerifiedMetricReadback(array $task, array $intent): void
+    private function syncSourceVerifiedMetricReadback(array $task, array $intent, array $context): void
     {
         $taskId = (int)($task['id'] ?? 0);
         $isPublicPageDiagnosis = strtolower(trim((string)($intent['source_module'] ?? ''))) === 'ota_diagnosis'
@@ -3252,13 +3151,9 @@ class OperationManagementService
             return;
         }
 
-        Db::transaction(function () use ($payload, $taskId, $task, $intent): void {
-            $hotelId = (int)($task['hotel_id'] ?? $intent['hotel_id'] ?? 0);
-            $lockedTaskRow = $this->executionTaskRow($taskId, [$hotelId], true);
-            if ($lockedTaskRow === null) {
-                return;
-            }
-            $this->assertExecutionTaskIntentIdentity($lockedTaskRow, $intent);
+        (function () use ($payload, $taskId, $context): void {
+            $lockedTaskRow = $context['task'];
+            $intent = $this->normalizeExecutionIntentRow($context['intent']);
             $lockedTask = $this->normalizeExecutionTaskRow($lockedTaskRow);
             $currentRows = Db::name('operation_execution_evidence')
                 ->where('task_id', $taskId)
@@ -3274,7 +3169,7 @@ class OperationManagementService
             if (($currentTruth['source_verified'] ?? false) === true) {
                 return;
             }
-            $this->insertExecutionEvidence($payload);
+            $this->insertExecutionEvidence($payload, (int)($lockedTaskRow['tenant_id'] ?? 0));
             $persistedRows = Db::name('operation_execution_evidence')
                 ->where('task_id', $taskId)
                 ->whereNull('deleted_at')
@@ -3289,7 +3184,7 @@ class OperationManagementService
             if (($truth['source_verified'] ?? false) !== true) {
                 throw new \RuntimeException('system source readback evidence failed strict database readback');
             }
-        });
+        })();
     }
 
     /**
@@ -3325,6 +3220,20 @@ class OperationManagementService
         if ($sourceModule === OperationOptimizationExecutionBridgeService::SOURCE_MODULE) {
             return $this->operationOptimizationReviewService
                 ->buildSourceVerifiedMetricReadbackPayload($task, $intent);
+        }
+
+        if ($sourceModule === OperatingNetworkService::EXECUTION_SOURCE_MODULE) {
+            return $this->buildOperatingNetworkSourceVerifiedReadbackPayload(
+                $task,
+                $intent,
+                $intentPlatform,
+                $platform,
+                $expectedMetric,
+                $objectType,
+                $dateStart,
+                $dateEnd,
+                $executedTimestamp
+            );
         }
 
         if ($sourceModule === TemporalInsightService::OPERATION_SOURCE_MODULE) {
@@ -3836,7 +3745,7 @@ class OperationManagementService
     private function buildTemporalForecastSourceVerifiedReadbackPayload(
         array $task,
         array $intent,
-        string $intentPlatform
+        string $intentPlatform, ?\DateTimeInterface $now = null
     ): ?array {
         $hotelId = (int)($intent['hotel_id'] ?? 0);
         $forecastPointId = (int)($intent['source_record_id'] ?? 0);
@@ -3863,8 +3772,8 @@ class OperationManagementService
             || $intentPlatform !== 'all_ota'
             || $objectType !== 'operation_checklist'
             || $actionType !== 'manual_forecast_review'
-            || preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) !== 1
-            || date('Y-m-d') < date('Y-m-d', strtotime($targetDate . ' +1 day'))
+            || $this->operationStrictShanghaiDateOrNull($targetDate) === null
+            || $this->operationShanghaiBusinessDate($now) < $this->operationStrictShanghaiDateOrNull($targetDate)->modify('+1 day')->format('Y-m-d')
             || (int)($forecastRef['row_id'] ?? 0) !== $forecastPointId
             || (string)($forecastRef['metric_key'] ?? '') !== $metricKey
             || (string)($forecastRef['target_date'] ?? '') !== $targetDate
@@ -3910,9 +3819,9 @@ class OperationManagementService
         ) {
             return null;
         }
-        $executedAt = strtotime(trim((string)($task['executed_at'] ?? '')));
-        $readbackAt = strtotime(trim((string)($actual['readback_at'] ?? '')));
-        if ($executedAt === false || $readbackAt === false || $readbackAt < $executedAt) {
+        $executedAt = $this->operationShanghaiTimestampOrNull((string)($task['executed_at'] ?? ''));
+        $readbackAt = $this->operationShanghaiTimestampOrNull((string)($actual['readback_at'] ?? ''));
+        if ($executedAt === null || $readbackAt === null || $readbackAt < $executedAt) {
             return null;
         }
 
@@ -4190,6 +4099,8 @@ class OperationManagementService
         return match (strtolower(trim((string)($intent['source_module'] ?? '')))) {
             'daily_workbench_patrol' => $this->hasVerifiedDailyWorkbenchPatrolProvenance($intent, $task),
             'ota_diagnosis_saved' => $this->hasVerifiedOtaDiagnosisProvenance($intent),
+            OperatingQuestionExecutionBridgeService::SOURCE_MODULE =>
+                (new OperatingQuestionExecutionBridgeService())->isIntentCurrent($intent),
             default => false,
         };
     }
@@ -4758,21 +4669,37 @@ class OperationManagementService
         }
     }
 
-    private function withHotelTenantId(array $data, string $table, int $hotelId): array
+    private function withHotelTenantId(
+        array $data,
+        string $table,
+        int $hotelId,
+        ?int $authorizedTenantId = null
+    ): array
     {
-        if ($this->tableHasColumn($table, 'tenant_id')) {
-            $data['tenant_id'] = $this->tenantIdForHotel($hotelId);
+        if ($this->tableHasColumn($table, 'tenant_id')
+            || $this->sqliteTableHasColumn($table, 'tenant_id')
+        ) {
+            $data['tenant_id'] = $authorizedTenantId !== null && $authorizedTenantId > 0
+                ? $authorizedTenantId
+                : $this->tenantIdForHotel($hotelId);
         }
 
         return $data;
     }
 
-    private function withExecutionTaskTenantId(array $data, string $table, int $taskId): array
+    private function withExecutionTaskTenantId(
+        array $data,
+        string $table,
+        int $taskId,
+        ?int $authorizedTenantId = null
+    ): array
     {
         if ($this->tableHasColumn($table, 'tenant_id')
             || $this->sqliteTableHasColumn($table, 'tenant_id')
         ) {
-            $data['tenant_id'] = $this->tenantIdForExecutionTask($taskId);
+            $data['tenant_id'] = $authorizedTenantId !== null && $authorizedTenantId > 0
+                ? $authorizedTenantId
+                : $this->tenantIdForExecutionTask($taskId);
         }
 
         return $data;
@@ -4892,7 +4819,8 @@ class OperationManagementService
 
     private function buildDailyWorkbenchPatrolExecutionIntentInput(array $input, int $sourceRecordId): array
     {
-        $targetDate = trim((string)($input['target_date'] ?? date('Y-m-d')));
+        $targetDate = trim((string)($input['target_date'] ?? ''));
+        $targetDate = $targetDate === '' ? $this->operationShanghaiToday() : $this->operationStrictShanghaiDate($targetDate, 'daily workbench target_date')->format('Y-m-d');
         $actionCode = trim((string)($input['action_code'] ?? ''));
         $questionKey = trim((string)($input['question_key'] ?? ''));
         $platform = strtolower(trim((string)($input['platform'] ?? 'ota')));
@@ -4917,15 +4845,15 @@ class OperationManagementService
             'platform' => $platform !== '' ? $platform : 'ota',
             'object_type' => 'data_collection',
             'action_type' => $actionIdentity,
-            'date_start' => $targetDate !== '' ? $targetDate : date('Y-m-d'),
-            'date_end' => $targetDate !== '' ? $targetDate : date('Y-m-d'),
+            'date_start' => $targetDate,
+            'date_end' => $targetDate,
             'current_value' => [
                 'patrol_action_status' => $status,
                 'source' => 'daily_workbench_patrol',
             ],
             'target_value' => [
                 'collection_scope' => 'daily_workbench_patrol_action',
-                'target_date' => $targetDate !== '' ? $targetDate : date('Y-m-d'),
+                'target_date' => $targetDate,
                 'action_text' => $actionText,
                 'entry' => $entry,
                 'question_key' => $questionKey,
@@ -5061,7 +4989,7 @@ class OperationManagementService
         if (empty($targetValue)) {
             $reasons[] = 'target_value missing';
         }
-        if (!$this->hasMeaningfulExecutionEvidence($evidence)) {
+        if (!$this->hasNonEmptyValue($evidence)) {
             $reasons[] = 'evidence missing';
         }
 
@@ -5366,12 +5294,16 @@ class OperationManagementService
 
     private function normalizeExecutionDate(string $date): string
     {
-        $timestamp = strtotime($date);
-        if ($timestamp === false) {
-            throw new \InvalidArgumentException('计划执行日期格式无效');
+        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date, new DateTimeZone('Asia/Shanghai'));
+        $errors = DateTimeImmutable::getLastErrors();
+        if ($parsed === false
+            || ($errors !== false && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0))
+            || $parsed->format('Y-m-d') !== $date
+        ) {
+            throw new \InvalidArgumentException('execution date must be a valid YYYY-MM-DD calendar date');
         }
 
-        return date('Y-m-d', $timestamp);
+        return $date;
     }
 
     private function ensureExecutionTables(): void
@@ -5451,7 +5383,7 @@ class OperationManagementService
             return null;
         }
         $value = trim($value);
-        if (preg_match('/^(?:ota_diagnosis_action_[a-f0-9]{32}:attempt:[1-9][0-9]*|operation_alert_[a-f0-9]{32}|operating_target_[a-f0-9]{32}|operation_optimizer_[a-f0-9]{32})$/D', $value) !== 1) {
+        if (preg_match('/^(?:expansion:v1:[1-9][0-9]*|ota_diagnosis_action_[a-f0-9]{32}:attempt:[1-9][0-9]*|operation_alert_[a-f0-9]{32}|operating_target_[a-f0-9]{32}|operation_optimizer_[a-f0-9]{32}|operating_network_replication_[a-f0-9]{32}|operating_question_action_[a-f0-9]{32}|source_intent_[a-f0-9]{32})$/D', $value) !== 1) {
             throw new \InvalidArgumentException('trusted execution-intent idempotency key is invalid');
         }
         return $value;
@@ -5514,7 +5446,7 @@ class OperationManagementService
             $row = Db::name('operation_execution_intents')
                 ->where('idempotency_key', $idempotencyKey)
                 ->whereNull('deleted_at')
-                ->field('id,source_module,source_record_id,hotel_id,platform,object_type,action_type')
+                ->field('id,tenant_id,source_module,source_record_id,hotel_id,platform,object_type,action_type')
                 ->find();
         } catch (Throwable $e) {
             $message = strtolower($e->getMessage());
@@ -5533,6 +5465,16 @@ class OperationManagementService
 
         if (!$row) {
             return null;
+        }
+        $row['source_module'] = $this->canonicalExecutionSourceModule($row['source_module'] ?? '');
+        $payload['source_module'] = $this->canonicalExecutionSourceModule($payload['source_module'] ?? '');
+        if (SourceBackedExecutionIntentIdentityService::supports($payload)
+            && !$this->sourceBackedReplayTenantIsCurrent($row, $payload)
+        ) {
+            throw new \RuntimeException(
+                'execution-intent idempotency key is outside the current tenant scope',
+                409
+            );
         }
         foreach (['source_module', 'source_record_id', 'hotel_id', 'platform', 'object_type', 'action_type'] as $field) {
             if ((string)($row[$field] ?? '') !== (string)($payload[$field] ?? '')) {
@@ -5541,46 +5483,62 @@ class OperationManagementService
         }
 
         $intent = $this->executionIntentDetail((int)$row['id'], $hotelIds);
+        if (SourceBackedExecutionIntentIdentityService::supports($payload)) {
+            $storedEvidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
+            $currentEvidence = is_array($payload['evidence'] ?? null) ? $payload['evidence'] : [];
+            $storedDigest = strtolower(trim((string)($storedEvidence['source_snapshot_digest'] ?? '')));
+            $currentDigest = strtolower(trim((string)($currentEvidence['source_snapshot_digest'] ?? '')));
+            $storedHasDigest = preg_match('/^[a-f0-9]{64}$/D', $storedDigest) === 1;
+            $currentHasDigest = preg_match('/^[a-f0-9]{64}$/D', $currentDigest) === 1;
+            if ($storedHasDigest !== $currentHasDigest
+                || ($storedHasDigest && !hash_equals($storedDigest, $currentDigest))) {
+                throw new \InvalidArgumentException('source-backed execution snapshot changed; create a new execution intent');
+            }
+        }
         $intent['idempotent_replay'] = true;
         return $intent;
     }
 
-    /** @param array<string, mixed> $payload */
-    private function replayExpansionExecutionIntent(string $idempotencyKey, array $payload, array $hotelIds): ?array
+    /** @param array<string,mixed> $payload @param array<int,int|string> $hotelIds */
+    private function replayLegacyExpansionExecutionIntent(array $payload, array $hotelIds): ?array
     {
-        try {
-            $row = Db::name('operation_execution_intents')
-                ->where('idempotency_key', $idempotencyKey)
-                ->where('source_module', 'expansion')
-                ->where('object_type', 'expansion')
-                ->where('source_record_id', (int)$payload['source_record_id'])
-                ->whereNull('deleted_at')
-                ->field('id,hotel_id')
-                ->find();
-        } catch (Throwable $e) {
-            $message = strtolower($e->getMessage());
-            if (str_contains($message, 'unknown column')
-                || str_contains($message, 'no such column')
-                || str_contains($message, 'undefined column')
-            ) {
-                throw new \RuntimeException(
-                    'operation_execution_intents.idempotency_key is unavailable; run the 20260716 execution-intent idempotency migration first',
-                    500,
-                    $e
-                );
+        $rows = Db::name('operation_execution_intents')
+            ->whereRaw('LOWER(TRIM(`source_module`)) = ?', ['expansion'])
+            ->where('source_record_id', (int)($payload['source_record_id'] ?? 0))
+            ->whereNull('deleted_at')
+            ->order('id', 'asc')
+            ->select()->toArray();
+        $legacyKey = $this->expansionExecutionIntentIdempotencyKey($payload);
+        foreach ($rows as $row) {
+            if (!$this->sourceBackedReplayTenantIsCurrent($row, $payload) || !$this->sourceBackedIntentTenantIsCurrent($row)) {
+                continue;
+            }
+            if ((int)($row['hotel_id'] ?? 0) !== (int)($payload['hotel_id'] ?? 0)) {
+                throw new \RuntimeException('expansion record is already linked to an execution intent for a different hotel', 409);
+            }
+            if ((string)($row['idempotency_key'] ?? '') !== $legacyKey) {
+                continue;
+            }
+            foreach (['platform', 'object_type', 'action_type'] as $field) {
+                if ((string)($row[$field] ?? '') !== (string)($payload[$field] ?? '')) {
+                    throw new \RuntimeException('expansion execution source is already linked to a different request', 409);
+                }
+            }
+            $stored = $this->normalizeExecutionIntentRow($row);
+            $storedEvidence = is_array($stored['evidence'] ?? null) ? $stored['evidence'] : [];
+            $currentEvidence = is_array($payload['evidence'] ?? null) ? $payload['evidence'] : [];
+            $storedDigest = strtolower(trim((string)($storedEvidence['source_snapshot_digest'] ?? '')));
+            $currentDigest = strtolower(trim((string)($currentEvidence['source_snapshot_digest'] ?? '')));
+            if (preg_match('/^[a-f0-9]{64}$/D', $storedDigest) !== 1
+                || preg_match('/^[a-f0-9]{64}$/D', $currentDigest) !== 1 || !hash_equals($storedDigest, $currentDigest)) {
+                continue;
             }
 
-            throw $e;
+            $intent = $this->executionIntentDetail((int)$row['id'], $hotelIds);
+            $intent['idempotent_replay'] = true;
+            return $intent;
         }
-
-        if (!$row) {
-            return null;
-        }
-        if ((int)$row['hotel_id'] !== (int)$payload['hotel_id']) {
-            throw new \RuntimeException('expansion record is already linked to an execution intent for a different hotel', 409);
-        }
-
-        return $this->executionIntentDetail((int)$row['id'], $hotelIds);
+        return null;
     }
 
     private function executionIntentRow(int $id, array $hotelIds, bool $lock = false): ?array
@@ -5621,9 +5579,13 @@ class OperationManagementService
 
     private function executionIntentDetail(int $id, array $hotelIds): array
     {
+        $this->assertExecutionTenantReadSchema();
         $row = $this->executionIntentRow($id, $hotelIds);
         if (!$row) {
             throw new \RuntimeException('execution intent not found');
+        }
+        if (!$this->sourceBackedIntentTenantIsCurrent($row)) {
+            throw new \RuntimeException('execution intent not found in the current tenant scope');
         }
 
         $intent = $this->normalizeExecutionIntentRow($row);
@@ -5645,17 +5607,11 @@ class OperationManagementService
 
     private function executionTaskDetail(int $id, array $hotelIds): array
     {
-        $row = $this->executionTaskRow($id, $hotelIds);
-        if (!$row) {
-            throw new \RuntimeException('execution task not found');
-        }
-
+        $this->assertExecutionTenantReadSchema();
+        $context = $this->executionTaskAuthorizationContext($id, $hotelIds);
+        $row = $context['task'];
         $task = $this->normalizeExecutionTaskRow($row);
-        $intentRow = $this->executionIntentRow((int)($task['intent_id'] ?? 0), $hotelIds);
-        if ($intentRow === null) {
-            throw new \RuntimeException('execution task parent intent not found');
-        }
-        $this->assertExecutionTaskIntentIdentity($row, $intentRow);
+        $intentRow = $context['intent'];
 
         $evidenceQuery = Db::name('operation_execution_evidence')
             ->where('task_id', $id)
@@ -5780,12 +5736,12 @@ class OperationManagementService
             ? substr($task['review_available_at'], 0, 10)
             : $this->executionReviewAvailableOn($task['evidence']);
         $reviewAvailableTimestamp = $task['review_available_at'] !== ''
-            ? strtotime($task['review_available_at'])
-            : false;
+            ? $this->operationShanghaiTimestampOrNull($task['review_available_at'])
+            : null;
         $task['review_is_available'] = $task['review_available_on'] === ''
-            || ($reviewAvailableTimestamp !== false
-                ? time() >= $reviewAvailableTimestamp
-                : $task['review_available_on'] <= date('Y-m-d'));
+            || ($reviewAvailableTimestamp !== null
+                ? $this->operationShanghaiDateTime() >= $reviewAvailableTimestamp
+                : $task['review_available_on'] <= $this->operationShanghaiToday());
         $task['sop_candidate'] = $this->executionFlowReadService->buildSopCandidate(
             $intent,
             $task,
@@ -5828,7 +5784,7 @@ class OperationManagementService
         if (strtolower(trim((string)($intent['source_module'] ?? ''))) === 'ota_diagnosis_saved') {
             $scheduledTimestamp = $this->savedOtaDiagnosisReviewTimestamp($intent);
             if ($scheduledTimestamp !== null) {
-                return date('Y-m-d H:i:s', $scheduledTimestamp);
+                return $this->operationShanghaiDateTime(new DateTimeImmutable('@' . $scheduledTimestamp))->format('Y-m-d H:i:s');
             }
         }
 
@@ -5853,6 +5809,7 @@ class OperationManagementService
     private function normalizeExecutionIntentRow(array $row): array
     {
         $row['id'] = (int)$row['id'];
+        $row['source_module'] = $this->canonicalExecutionSourceModule($row['source_module'] ?? '');
         $row['hotel_id'] = (int)$row['hotel_id'];
         $row['source_record_id'] = (int)($row['source_record_id'] ?? 0);
         $row['expected_delta'] = ($row['expected_delta'] ?? null) === null
@@ -5896,7 +5853,7 @@ class OperationManagementService
         return is_array($sanitized) ? $sanitized : [];
     }
 
-    private function insertExecutionEvidence(array $payload): int
+    private function insertExecutionEvidence(array $payload, ?int $authorizedTenantId = null): int
     {
         $this->assertExecutionPayloadHasNoCredentialMaterial($payload);
         $taskId = (int)$payload['task_id'];
@@ -5911,7 +5868,7 @@ class OperationManagementService
             'created_by' => (int)($payload['created_by'] ?? 0),
             'created_at' => (string)($payload['created_at'] ?? date('Y-m-d H:i:s')),
             'updated_at' => date('Y-m-d H:i:s'),
-        ], 'operation_execution_evidence', $taskId));
+        ], 'operation_execution_evidence', $taskId, $authorizedTenantId));
         if ($id <= 0) {
             throw new \RuntimeException('execution evidence save failed: missing evidence id');
         }
@@ -6021,7 +5978,7 @@ class OperationManagementService
         return $normalized;
     }
 
-    private function createActionTrackForExecution(array $intent, int $taskId): int
+    private function createActionTrackForExecution(array $intent, int $taskId, ?int $authorizedTenantId = null): int
     {
         $target = $this->decodeJson((string)($intent['target_value_json'] ?? ''));
         $dateStart = (string)($intent['date_start'] ?? date('Y-m-d'));
@@ -6046,7 +6003,7 @@ class OperationManagementService
             'status' => 'active',
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
-        ], 'operation_action_tracks', $hotelId));
+        ], 'operation_action_tracks', $hotelId, $authorizedTenantId));
     }
 
     private function buildEffectValidation(array $hotelIds, ?int $hotelId, array $actions): array
@@ -6077,6 +6034,20 @@ class OperationManagementService
         foreach ($actions as $action) {
             $result = is_array($action['result'] ?? null) ? $action['result'] : [];
             $status = (string)($result['status'] ?? $action['result_status'] ?? 'observing');
+            $before = is_array($action['before'] ?? null) ? $action['before'] : [];
+            $after = is_array($action['after'] ?? null) ? $action['after'] : [];
+            $comparability = $this->assessComparableActionEffectEvidence(
+                (string)($action['target_metric'] ?? ''),
+                $before,
+                $after
+            );
+            if (in_array($status, $reviewedStatuses, true) && !$comparability['comparable']) {
+                $status = 'observing';
+                $dataGaps[] = [
+                    'code' => $comparability['gap_code'],
+                    'message' => $comparability['message'],
+                ];
+            }
             if (in_array($status, $reviewedStatuses, true)) {
                 $counts['reviewed']++;
                 $counts[$status]++;
@@ -6091,12 +6062,12 @@ class OperationManagementService
                 }
             }
 
-            $before = is_array($action['before'] ?? null) ? $action['before'] : [];
-            $after = is_array($action['after'] ?? null) ? $action['after'] : [];
-            if (($before['data_status'] ?? '') === self::DATA_OK && ($after['data_status'] ?? '') === self::DATA_OK) {
+            $revenueComparable = $this->assessComparableActionEffectEvidence('revenue', $before, $after)['comparable'];
+            $conversionComparable = $this->assessComparableActionEffectEvidence('conversion', $before, $after)['comparable'];
+            if ($revenueComparable || $conversionComparable) {
                 $beforeRevenue = (float)($before['avg_revenue'] ?? 0);
                 $afterRevenue = (float)($after['avg_revenue'] ?? 0);
-                if ($beforeRevenue > 0) {
+                if ($revenueComparable && $beforeRevenue > 0) {
                     $revenue['before'] += $beforeRevenue;
                     $revenue['after'] += $afterRevenue;
                     $revenue['sample_count']++;
@@ -6104,7 +6075,7 @@ class OperationManagementService
 
                 $beforeConversion = (float)($before['avg_conversion'] ?? 0);
                 $afterConversion = (float)($after['avg_conversion'] ?? 0);
-                if ($beforeConversion > 0) {
+                if ($conversionComparable && $beforeConversion > 0) {
                     $conversion['before'] += $beforeConversion;
                     $conversion['after'] += $afterConversion;
                     $conversion['sample_count']++;
@@ -6157,9 +6128,14 @@ class OperationManagementService
 
         $readyCount = count(array_filter($metrics, static fn(array $metric): bool => ($metric['status'] ?? '') === 'ready'));
         $status = $readyCount === count($metrics) ? 'ready' : ($readyCount > 0 ? 'partial' : 'data_gap');
+        $dataStatus = array_filter(
+            $dataGaps,
+            static fn(array $gap): bool => ($gap['migration_required'] ?? false) === true
+        ) !== [] ? 'migration_required' : $status;
 
         return [
             'status' => $status,
+            'data_status' => $dataStatus,
             'period' => [
                 'price_suggestion_days' => 30,
                 'alert_accuracy_days' => 30,
@@ -6191,9 +6167,15 @@ class OperationManagementService
             $dataGaps[] = ['code' => 'price_suggestions_missing', 'message' => '定价建议表不存在'];
             return ['total' => 0, 'adopted' => 0, 'data_status' => self::DATA_PENDING];
         }
+        if (($gap = $this->priceSuggestionTenantSchemaGap()) !== null) {
+            $dataGaps[] = $gap;
+            return ['total' => 0, 'adopted' => 0, 'data_status' => 'migration_required'];
+        }
 
-        $start = date('Y-m-d', strtotime('-' . max(0, $days - 1) . ' days'));
-        $end = date('Y-m-d');
+        $end = $this->operationShanghaiToday();
+        $start = (new DateTimeImmutable($end, new DateTimeZone('Asia/Shanghai')))
+            ->modify('-' . max(0, $days - 1) . ' days')
+            ->format('Y-m-d');
         try {
             $query = Db::name('price_suggestions')->field('status')->whereBetween('suggestion_date', [$start, $end]);
             if ($hotelId !== null && $hotelId > 0) {
@@ -6201,10 +6183,13 @@ class OperationManagementService
             } elseif (!empty($hotelIds)) {
                 $query->whereIn('hotel_id', $hotelIds);
             }
-            $rows = $query->select()->toArray();
+            $rows = $this->scopePriceSuggestionQueryToCurrentTenant($query)->select()->toArray();
         } catch (Throwable $e) {
-            $dataGaps[] = ['code' => 'price_suggestions_read_failed', 'message' => '定价建议统计读取失败'];
-            return ['total' => 0, 'adopted' => 0, 'data_status' => 'read_failed'];
+            $dataGaps[] = $this->operationAlertMigrationGap(
+                'price_suggestions_tenant_read_failed',
+                'current-tenant price suggestions could not be read'
+            );
+            return ['total' => 0, 'adopted' => 0, 'data_status' => 'migration_required'];
         }
 
         $adopted = 0;
@@ -6227,9 +6212,15 @@ class OperationManagementService
             $dataGaps[] = ['code' => 'operation_alerts_missing', 'message' => '运营预警表不存在'];
             return ['reviewed' => 0, 'accurate' => 0, 'data_status' => self::DATA_PENDING];
         }
+        if (($gap = $this->operationAlertTenantSchemaGap()) !== null) {
+            $dataGaps[] = $gap;
+            return ['reviewed' => 0, 'accurate' => 0, 'data_status' => 'migration_required'];
+        }
 
-        $start = date('Y-m-d', strtotime('-' . max(0, $days - 1) . ' days'));
-        $end = date('Y-m-d');
+        $end = $this->operationShanghaiToday();
+        $start = (new DateTimeImmutable($end, new DateTimeZone('Asia/Shanghai')))
+            ->modify('-' . max(0, $days - 1) . ' days')
+            ->format('Y-m-d');
         try {
             $query = Db::name('operation_alerts')
                 ->field('raw_data')
@@ -6240,10 +6231,13 @@ class OperationManagementService
             } elseif (!empty($hotelIds)) {
                 $query->whereIn('hotel_id', $hotelIds);
             }
-            $rows = $query->select()->toArray();
+            $rows = $this->scopeOperationAlertQueryToCurrentTenant($query)->select()->toArray();
         } catch (Throwable $e) {
-            $dataGaps[] = ['code' => 'operation_alerts_read_failed', 'message' => '预警准确率统计读取失败'];
-            return ['reviewed' => 0, 'accurate' => 0, 'data_status' => 'read_failed'];
+            $dataGaps[] = $this->operationAlertMigrationGap(
+                'operation_alerts_tenant_read_failed',
+                'current-tenant operation alert accuracy could not be read'
+            );
+            return ['reviewed' => 0, 'accurate' => 0, 'data_status' => 'migration_required'];
         }
 
         $reviewed = 0;
@@ -6273,6 +6267,10 @@ class OperationManagementService
     {
         if (array_key_exists('is_accurate', $raw) && is_bool($raw['is_accurate'])) {
             return $raw['is_accurate'];
+        }
+        $accuracyReview = $raw['accuracy_review'] ?? null;
+        if (is_array($accuracyReview) && is_bool($accuracyReview['accurate'] ?? null)) {
+            return $accuracyReview['accurate'];
         }
 
         foreach (['accuracy_status', 'review_status', 'accuracy', 'verification_result'] as $key) {

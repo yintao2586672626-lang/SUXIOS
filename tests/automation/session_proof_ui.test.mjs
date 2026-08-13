@@ -13,7 +13,7 @@ const loadWindowApi = (source, apiName) => {
 
 const ctripStatic = read('public/ctrip-static.js');
 const meituanStatic = read('public/meituan-static.js');
-const appMain = read('public/app-main.js');
+const appMain = `${read('public/components/system/app-main-components.js')}\n${read('public/app-main.js')}`;
 const ctripTemplate = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
 const platformPanels = read('public/components/online-data/platform-auto-settings-panels.js');
 const ctripApi = loadWindowApi(ctripStatic, 'SUXI_CTRIP_STATIC');

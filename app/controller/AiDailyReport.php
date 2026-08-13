@@ -161,6 +161,18 @@ class AiDailyReport extends Base
 
             [$hotelIds] = $this->resolveHotelScope();
             $userId = (int)($this->currentUser->id ?? 0);
+            $report = $this->service->read($id, $hotelIds);
+            $hotelId = (int)($report['hotel_id'] ?? 0);
+            if (!is_array($report) || $hotelId <= 0) {
+                return $this->error('AI daily report not found', 404);
+            }
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'operation.execute',
+                'operation.execute permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
 
             return $this->success($this->service->createExecutionIntentFromAction($id, $actionIndex, $hotelIds, $userId));
         } catch (Throwable $e) {

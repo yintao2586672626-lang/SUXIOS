@@ -4,12 +4,17 @@ set -Eeuo pipefail
 APP_ROOT="/var/www/suxios"
 ENV_FILE="/etc/suxios/suxios.env"
 BACKUP_CMD="/usr/local/sbin/suxios-db-backup"
+FORMAL_DISPATCH_TIMER="suxios-manual-notification-formal-dispatch.timer"
 NO_SWITCH=0
 APPLY_MIGRATIONS=0
 ARCHIVE=""
 RELEASE_NAME=""
 EXPECTED_SHA256=""
 HEALTH_HOST=""
+FORMAL_DISPATCH_WAS_INSTALLED=0
+FORMAL_DISPATCH_WAS_ENABLED=0
+FORMAL_DISPATCH_WAS_ACTIVE=0
+FORMAL_DISPATCH_REFRESH_ATTEMPTED=0
 
 while (($#)); do
   case "$1" in
@@ -111,6 +116,24 @@ if [[ $NO_SWITCH -eq 1 ]]; then
   exit 0
 fi
 
+# A release-pinned formal notification service must follow the application
+# release without installing an optional timer that was never installed or
+# enabling one that the operator left disabled. Record the exact lifecycle
+# state so a failed refresh can restore the previous release's unit and state.
+if systemctl cat "$FORMAL_DISPATCH_TIMER" >/dev/null 2>&1; then
+  FORMAL_DISPATCH_WAS_INSTALLED=1
+fi
+if systemctl is-enabled --quiet "$FORMAL_DISPATCH_TIMER"; then
+  FORMAL_DISPATCH_WAS_ENABLED=1
+fi
+if systemctl is-active --quiet "$FORMAL_DISPATCH_TIMER"; then
+  FORMAL_DISPATCH_WAS_ACTIVE=1
+fi
+printf 'FORMAL_DISPATCH_PREVIOUS_STATE installed=%s enabled=%s active=%s\n' \
+  "$FORMAL_DISPATCH_WAS_INSTALLED" \
+  "$FORMAL_DISPATCH_WAS_ENABLED" \
+  "$FORMAL_DISPATCH_WAS_ACTIVE"
+
 test -x "$BACKUP_CMD"
 backup_output="$("$BACKUP_CMD" --env-file "$ENV_FILE")"
 backup_file="$(printf '%s\n' "$backup_output" | awk -F= '$1 == "backup_file" { print $2 }' | tail -n 1)"
@@ -148,6 +171,66 @@ reload_services() {
   nginx -t && systemctl reload php8.3-fpm && systemctl reload nginx
 }
 
+refresh_formal_dispatch_for_release() {
+  local release_root="$1"
+  local installer="$release_root/deploy/systemd/install_manual_notification_formal_dispatch.sh"
+
+  if [[ $FORMAL_DISPATCH_WAS_INSTALLED -ne 1 ]]; then
+    return 0
+  fi
+
+  FORMAL_DISPATCH_REFRESH_ATTEMPTED=1
+  if [[ ! -f "$installer" ]]; then
+    return 1
+  fi
+  if [[ $FORMAL_DISPATCH_WAS_ENABLED -eq 1 ]]; then
+    if ! bash "$installer" \
+        --release-root "$release_root" \
+        --install \
+        --enable-formal-dispatch; then
+      return 1
+    fi
+    if ! systemctl is-enabled --quiet "$FORMAL_DISPATCH_TIMER"; then
+      return 1
+    fi
+  else
+    if ! bash "$installer" \
+        --release-root "$release_root" \
+        --install; then
+      return 1
+    fi
+    if systemctl is-enabled --quiet "$FORMAL_DISPATCH_TIMER"; then
+      return 1
+    fi
+  fi
+
+  if [[ $FORMAL_DISPATCH_WAS_ACTIVE -eq 1 ]]; then
+    if ! systemctl is-active --quiet "$FORMAL_DISPATCH_TIMER"; then
+      systemctl start "$FORMAL_DISPATCH_TIMER"
+    fi
+    systemctl is-active --quiet "$FORMAL_DISPATCH_TIMER"
+    return
+  fi
+  systemctl stop "$FORMAL_DISPATCH_TIMER" >/dev/null 2>&1 || true
+  ! systemctl is-active --quiet "$FORMAL_DISPATCH_TIMER"
+}
+
+restore_previous_formal_dispatch() {
+  if [[ $FORMAL_DISPATCH_WAS_INSTALLED -ne 1 \
+    || $FORMAL_DISPATCH_REFRESH_ATTEMPTED -ne 1 ]]; then
+    return 0
+  fi
+  if [[ -z "$PREVIOUS_RELEASE" || ! -d "$PREVIOUS_RELEASE" ]]; then
+    return 1
+  fi
+
+  local installer="$PREVIOUS_RELEASE/deploy/systemd/install_manual_notification_formal_dispatch.sh"
+  if [[ ! -f "$installer" ]]; then
+    return 1
+  fi
+  refresh_formal_dispatch_for_release "$PREVIOUS_RELEASE"
+}
+
 ROLLBACK_LINK="$APP_ROOT/.current-${RELEASE_NAME}"
 ln -s "$RELEASE_DIR" "$ROLLBACK_LINK"
 mv -Tf "$ROLLBACK_LINK" "$CURRENT_LINK"
@@ -159,8 +242,17 @@ rollback_and_verify() {
     return 1
   fi
 
-  ln -sfn "$PREVIOUS_RELEASE" "$CURRENT_LINK"
-  reload_services && verify_health
+  if ! ln -sfn "$PREVIOUS_RELEASE" "$CURRENT_LINK"; then
+    return 1
+  fi
+  local formal_dispatch_restored=1
+  if ! restore_previous_formal_dispatch; then
+    formal_dispatch_restored=0
+  fi
+  if ! reload_services || ! verify_health; then
+    return 1
+  fi
+  [[ $formal_dispatch_restored -eq 1 ]]
 }
 
 if ! reload_services; then
@@ -181,6 +273,16 @@ if ! verify_health; then
     exit 81
   fi
   exit 80
+fi
+
+if ! refresh_formal_dispatch_for_release "$RELEASE_DIR"; then
+  if rollback_and_verify; then
+    echo "Formal WeCom scheduler refresh failed; previous release and formal unit restored and health verified." >&2
+  else
+    echo "Formal WeCom scheduler refresh failed and the previous release or formal unit could not be restored." >&2
+    exit 81
+  fi
+  exit 82
 fi
 
 printf 'DEPLOYED release=%s sha256=%s previous=%s\n' \

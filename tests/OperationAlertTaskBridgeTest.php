@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\OperationManagementService;
+use app\service\SourceBackedExecutionIntentIdentityService;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ReflectionHelper;
 use think\App;
@@ -34,8 +35,14 @@ final class OperationAlertTaskBridgeTest extends TestCase
         ];
         Config::set($database, 'database');
         Db::connect(null, true);
-        Db::execute('CREATE TABLE operation_alerts (id INTEGER PRIMARY KEY, hotel_id INTEGER, alert_type TEXT, level TEXT, title TEXT, message TEXT, source TEXT, status TEXT, related_date TEXT, action_suggestion TEXT, raw_data TEXT, deleted_at TEXT, updated_at TEXT)');
-        Db::execute('CREATE TABLE operation_execution_intents (id INTEGER PRIMARY KEY, tenant_id INTEGER, source_module TEXT, source_record_id INTEGER, hotel_id INTEGER, status TEXT, blocked_reason TEXT, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER)');
+        Db::name('hotels')->insertAll([
+            ['id' => 7, 'tenant_id' => 1],
+            ['id' => 8, 'tenant_id' => 1],
+            ['id' => 9, 'tenant_id' => 2],
+        ]);
+        Db::execute('CREATE TABLE operation_alerts (id INTEGER PRIMARY KEY, tenant_id INTEGER, hotel_id INTEGER, alert_type TEXT, monitor_dedupe_key TEXT UNIQUE, level TEXT, title TEXT, message TEXT, source TEXT, status TEXT, related_date TEXT, action_suggestion TEXT, raw_data TEXT, deleted_at TEXT, created_at TEXT, updated_at TEXT)');
+        Db::execute('CREATE TABLE operation_execution_intents (id INTEGER PRIMARY KEY, tenant_id INTEGER, source_module TEXT, source_record_id INTEGER, hotel_id INTEGER, status TEXT, blocked_reason TEXT, evidence_json TEXT, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
         Db::execute('CREATE TABLE operation_execution_tasks (id INTEGER PRIMARY KEY)');
         Db::execute('CREATE TABLE operation_execution_evidence (id INTEGER PRIMARY KEY)');
     }
@@ -75,6 +82,7 @@ final class OperationAlertTaskBridgeTest extends TestCase
     {
         Db::name('operation_alerts')->insert([
             'id' => 501,
+            'tenant_id' => 1,
             'hotel_id' => 7,
             'alert_type' => 'conversion_low',
             'level' => 'medium',
@@ -114,6 +122,11 @@ final class OperationAlertTaskBridgeTest extends TestCase
         self::assertSame('operation_alert', $service->capturedArguments[2]['source_module']);
         self::assertSame(501, $service->capturedArguments[2]['source_record_id']);
         self::assertTrue($service->capturedArguments[6]);
+        self::assertNull($service->capturedArguments[5]);
+        self::assertMatchesRegularExpression(
+            '/^[a-f0-9]{64}$/D',
+            $service->capturedArguments[2]['evidence']['source_snapshot_digest']
+        );
         self::assertSame(77, $result['execution_intent']['id']);
         self::assertSame('read', Db::name('operation_alerts')->where('id', 501)->value('status'));
     }
@@ -187,23 +200,92 @@ final class OperationAlertTaskBridgeTest extends TestCase
 
     public function testAlertBridgeUsesExactHotelAndAlertPairAcrossMultipleHotels(): void
     {
+        $alertA = ['id' => 101, 'tenant_id' => 1, 'hotel_id' => 7];
+        $alertB = ['id' => 202, 'tenant_id' => 1, 'hotel_id' => 8];
         Db::name('operation_execution_intents')->insertAll([
-            ['id' => 11, 'tenant_id' => 1, 'source_module' => 'operation_alert', 'source_record_id' => 101, 'hotel_id' => 7, 'status' => 'pending_approval'],
-            ['id' => 12, 'tenant_id' => 1, 'source_module' => 'operation_alert', 'source_record_id' => 202, 'hotel_id' => 8, 'status' => 'draft'],
-            ['id' => 21, 'tenant_id' => 1, 'source_module' => 'operation_alert', 'source_record_id' => 101, 'hotel_id' => 8, 'status' => 'blocked'],
-            ['id' => 22, 'tenant_id' => 1, 'source_module' => 'operation_alert', 'source_record_id' => 202, 'hotel_id' => 7, 'status' => 'blocked'],
+            ['id' => 11, 'tenant_id' => 1, 'source_module' => 'operation_alert', 'source_record_id' => 101, 'hotel_id' => 7, 'status' => 'pending_approval', 'evidence_json' => $this->alertDigestEvidence($alertA)],
+            ['id' => 12, 'tenant_id' => 1, 'source_module' => 'operation_alert', 'source_record_id' => 202, 'hotel_id' => 8, 'status' => 'draft', 'evidence_json' => $this->alertDigestEvidence($alertB)],
+            ['id' => 21, 'tenant_id' => 1, 'source_module' => 'operation_alert', 'source_record_id' => 101, 'hotel_id' => 8, 'status' => 'blocked', 'evidence_json' => '{}'],
+            ['id' => 22, 'tenant_id' => 1, 'source_module' => 'operation_alert', 'source_record_id' => 202, 'hotel_id' => 7, 'status' => 'blocked', 'evidence_json' => '{}'],
         ]);
         $service = new OperationManagementService();
 
         $alerts = $this->invokeNonPublic($service, 'attachAlertExecutionBridges', [[
-            ['id' => 101, 'hotel_id' => 7],
-            ['id' => 202, 'hotel_id' => 8],
+            $alertA,
+            $alertB,
         ], true]);
 
         self::assertSame(11, $alerts[0]['task_bridge']['intent_id']);
         self::assertSame('pending_approval', $alerts[0]['task_bridge']['intent_status']);
         self::assertSame(12, $alerts[1]['task_bridge']['intent_id']);
         self::assertSame('draft', $alerts[1]['task_bridge']['intent_status']);
+    }
+
+    public function testAlertBridgeRejectsStaleSnapshotAndMaterialRefreshRestoresUnreadVisibility(): void
+    {
+        $service = new OperationManagementService();
+        $base = [
+            'id' => 1, 'tenant_id' => 1, 'hotel_id' => 7,
+            'alert_type' => 'conversion_low', 'level' => 'medium',
+            'title' => 'Conversion alert', 'message' => 'Observed 2.4%',
+            'source' => 'rule', 'status' => 'unread', 'related_date' => '2026-08-13',
+            'action_suggestion' => 'Review conversion funnel',
+            'raw_data' => [
+                'metric_key' => 'ota_conversion_rate', 'threshold_value' => 3,
+                'observed_value' => 2.4, 'comparison_rule' => 'observed_value < threshold_value',
+            ],
+        ];
+        $persisted = $this->invokeNonPublic($service, 'persistRuleAlerts', [[$base]]);
+        self::assertSame('unread', $persisted[0]['status']);
+        $alertId = (int)$persisted[0]['id'];
+        Db::name('operation_alerts')->where('id', $alertId)->update(['status' => 'read']);
+
+        $same = $this->invokeNonPublic($service, 'persistRuleAlerts', [[$base]]);
+        self::assertSame($alertId, (int)$same[0]['id']);
+        self::assertSame('read', $same[0]['status'], 'display-only refresh must preserve read tracking');
+
+        Db::name('operation_execution_intents')->insert([
+            'id' => 90, 'tenant_id' => 1, 'source_module' => 'operation_alert',
+            'source_record_id' => $alertId, 'hotel_id' => 7, 'status' => 'pending_approval',
+            'evidence_json' => $this->alertDigestEvidence($same[0]),
+        ]);
+        $changed = $base;
+        $changed['message'] = 'Observed 1.8%';
+        $changed['raw_data']['observed_value'] = 1.8;
+        $refreshed = $this->invokeNonPublic($service, 'persistRuleAlerts', [[$changed]]);
+        self::assertSame($alertId, (int)$refreshed[0]['id']);
+        self::assertSame('unread', $refreshed[0]['status']);
+
+        $bridged = $this->invokeNonPublic($service, 'attachAlertExecutionBridges', [[$refreshed[0]], true, true]);
+        self::assertFalse($bridged[0]['task_bridge']['linked']);
+        self::assertTrue($bridged[0]['task_bridge']['can_convert']);
+    }
+
+    public function testMySqlDedupeIndexContractRejectsCompositeAndPrefixUniqueIndexes(): void
+    {
+        $service = new OperationManagementService();
+        $exact = [[
+            'Key_name' => 'uniq_alert_dedupe', 'Non_unique' => 0, 'Seq_in_index' => 1,
+            'Column_name' => 'monitor_dedupe_key', 'Sub_part' => null,
+        ]];
+        $composite = array_merge($exact, [[
+            'Key_name' => 'uniq_alert_dedupe', 'Non_unique' => 0, 'Seq_in_index' => 2,
+            'Column_name' => 'tenant_id', 'Sub_part' => null,
+        ]]);
+        $prefix = $exact;
+        $prefix[0]['Sub_part'] = 64;
+
+        self::assertTrue($this->invokeNonPublic($service, 'operationAlertMySqlIndexRowsHaveExactDedupeUnique', [$exact]));
+        self::assertFalse($this->invokeNonPublic($service, 'operationAlertMySqlIndexRowsHaveExactDedupeUnique', [$composite]));
+        self::assertFalse($this->invokeNonPublic($service, 'operationAlertMySqlIndexRowsHaveExactDedupeUnique', [$prefix]));
+    }
+
+    /** @param array<string,mixed> $alert */
+    private function alertDigestEvidence(array $alert): string
+    {
+        return json_encode([
+            'source_snapshot_digest' => SourceBackedExecutionIntentIdentityService::operationAlertSnapshotDigest($alert),
+        ], JSON_THROW_ON_ERROR);
     }
 
     public function testAlertBridgeIgnoresForeignHotelIntentAndKeepsConversionAvailable(): void
@@ -221,6 +303,7 @@ final class OperationAlertTaskBridgeTest extends TestCase
         $alerts = $this->invokeNonPublic($service, 'attachAlertExecutionBridges', [[
             [
                 'id' => 303,
+                'tenant_id' => 1,
                 'hotel_id' => 7,
                 'source' => 'rule',
                 'alert_type' => 'conversion_low',
@@ -246,6 +329,7 @@ final class OperationAlertTaskBridgeTest extends TestCase
         $alerts = $this->invokeNonPublic($service, 'attachAlertExecutionBridges', [[
             [
                 'id' => 404,
+                'tenant_id' => 1,
                 'hotel_id' => 7,
                 'source' => 'rule',
                 'alert_type' => 'conversion_low',
@@ -265,6 +349,7 @@ final class OperationAlertTaskBridgeTest extends TestCase
         $alerts = $this->invokeNonPublic($service, 'attachAlertExecutionBridges', [[
             [
                 'id' => 405,
+                'tenant_id' => 1,
                 'hotel_id' => 7,
                 'source' => 'rule',
                 'alert_type' => 'traffic_zero',

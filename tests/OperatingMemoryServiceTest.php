@@ -113,6 +113,129 @@ final class OperatingMemoryServiceTest extends TestCase
         self::assertSame(2, (int)Db::name(OperatingMemoryService::TABLE)->count());
     }
 
+    public function testExecutionMemoryWriteReusesTheOuterTaskAuthorizationTransaction(): void
+    {
+        $method = new \ReflectionMethod(OperatingMemoryService::class, 'createFromExecutionTask');
+        $lines = file($method->getFileName()) ?: [];
+        $source = implode('', array_slice(
+            $lines,
+            $method->getStartLine() - 1,
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+
+        self::assertStringContainsString('withExecutionTaskMutationAuthorization', $source);
+        self::assertStringNotContainsString('Db::transaction', $source);
+    }
+
+    public function testTransferredHotelCannotTurnAnOldTenantTaskIntoMemory(): void
+    {
+        $source = $this->operationSource();
+        Db::name('hotels')->where('id', 20)->update(['tenant_id' => 11]);
+
+        try {
+            (new OperatingMemoryService($source))->createFromExecutionTask(301, 11, [20], 7);
+            self::fail('The new tenant must not persist memory from the previous tenant task.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('current tenant scope', $exception->getMessage());
+        }
+
+        self::assertSame(0, (int)Db::name(OperatingMemoryService::TABLE)->count());
+    }
+
+    public function testTransferredHotelAfterPreReadCannotReturnExistingExecutionMemory(): void
+    {
+        $source = $this->operationSource();
+        $service = new OperatingMemoryService($source);
+        $memoryId = (int)$service->createFromExecutionTask(301, 10, [20], 7)['memory']['id'];
+        $before = $this->memoryRowBytes($memoryId);
+        $source->afterIntentRead = function (): void {
+            Db::name('hotels')->where('id', 20)->update(['tenant_id' => 11]);
+        };
+
+        try {
+            $service->createFromExecutionTask(301, 10, [20], 7);
+            self::fail('An idempotent hit must reauthorize after the external pre-read.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('current tenant scope', $exception->getMessage());
+        }
+
+        self::assertSame($before, $this->memoryRowBytes($memoryId));
+        self::assertSame(1, (int)Db::name(OperatingMemoryService::TABLE)->count());
+    }
+
+    public function testDuplicateWinnerCannotBypassTaskAuthorizationAfterHotelTransfer(): void
+    {
+        $source = $this->operationSource();
+        $service = new OperatingMemoryService($source);
+        $identity = [
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'memory_key' => 'execution-review:duplicate-transfer',
+        ];
+        $winnerId = 0;
+        $winnerBytes = '';
+
+        try {
+            $this->invokeIdempotentConvergence(
+                $service,
+                $identity,
+                function () use ($identity, &$winnerId, &$winnerBytes): array {
+                    $winnerId = $this->insertMemoryFixture($identity);
+                    $winnerBytes = $this->memoryRowBytes($winnerId);
+                    $this->transferHotelWithSeparateConnection(20, 11);
+                    throw $this->databaseException(
+                        '23000',
+                        1062,
+                        "Duplicate entry for key 'uniq_operating_memory_identity'"
+                    );
+                },
+                static fn(array $winner): array => $source->withExecutionTaskMutationAuthorization(
+                    301,
+                    [20],
+                    static fn(array $authorization): array => [
+                        'id' => (int)$winner['id'],
+                        'created' => false,
+                    ]
+                )
+            );
+            self::fail('A duplicate winner must be reauthorized before convergence returns it.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('current tenant scope', $exception->getMessage());
+        }
+
+        self::assertGreaterThan(0, $winnerId);
+        self::assertNotSame('', $winnerBytes);
+        self::assertSame($winnerBytes, $this->memoryRowBytes($winnerId));
+        self::assertSame(1, (int)Db::name(OperatingMemoryService::TABLE)->count());
+    }
+
+    public function testTransferredHotelMemoriesAreHiddenFromReadAndList(): void
+    {
+        $service = new OperatingMemoryService($this->operationSource());
+        $memoryId = (int)$service->createFromExecutionTask(301, 10, [20], 7)['memory']['id'];
+        $this->transferHotelWithSeparateConnection(20, 11);
+
+        foreach ([
+            static fn() => $service->read($memoryId, 10, [20]),
+            static fn() => $service->list(10, [20], 20),
+        ] as $read) {
+            try {
+                $read();
+                self::fail('Stored tenant identity must not outlive the current hotel tenant mapping.');
+            } catch (RuntimeException $exception) {
+                self::assertStringContainsString('current tenant scope', $exception->getMessage());
+            }
+        }
+
+        try {
+            $service->read($memoryId, 0, [20]);
+            self::fail('A stale stored tenant must not be readable through a system-scoped hotel id.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('operating memory not found', $exception->getMessage());
+        }
+        self::assertSame([], $service->list(0, [20], 20)['list']);
+    }
+
     public function testRejectsSystemAuthorizedAnalysisWithoutWritingMemory(): void
     {
         $source = $this->operationSource();
@@ -457,11 +580,129 @@ final class OperatingMemoryServiceTest extends TestCase
         ]);
     }
 
+    public function testManualGrowthPersistenceRejectsTenantTransferBeforeInsertAndSupersede(): void
+    {
+        $service = new OperatingMemoryService($this->operationSource());
+        $base = $service->createManualGrowthEvent(10, [20], 20, [
+            'event_kind' => 'decision',
+            'title' => 'transfer boundary base',
+            'summary' => 'base record remains immutable',
+            'occurred_at' => '2026-08-05 08:00:00',
+            'platform' => 'manual',
+            'source_scope' => 'whole_hotel',
+        ], 7)['memory'];
+        $annotation = $service->addOwnerAnnotation(
+            (int)$base['id'],
+            10,
+            [20],
+            ['annotation' => 'stale annotation must not be inserted'],
+            7
+        )['memory'];
+        $milestone = $service->markMilestone(
+            (int)$base['id'],
+            10,
+            [20],
+            ['note' => 'first milestone'],
+            7
+        )['memory'];
+
+        $cases = [];
+        foreach ([
+            [(int)$base['id'], false, ['memory_layer' => 'decision', 'event_kind' => 'decision']],
+            [(int)$annotation['id'], false, [
+                'memory_layer' => 'judgement',
+                'event_kind' => 'judgement',
+                'source_record_id' => (int)$base['id'],
+            ]],
+            [(int)$milestone['id'], true, [
+                'memory_layer' => 'milestone',
+                'event_kind' => 'milestone',
+                'source_record_id' => (int)$base['id'],
+            ]],
+        ] as [$memoryId, $supersede, $expected]) {
+            $staleRecord = Db::name(OperatingMemoryService::TABLE)->where('id', $memoryId)->find();
+            self::assertIsArray($staleRecord);
+            unset($staleRecord['id']);
+            $staleRecord['memory_key'] = (string)$staleRecord['memory_key'] . ':after-transfer';
+            $staleRecord['content_digest'] = hash('sha256', 'after-transfer:' . $memoryId);
+            $staleRecord['previous_memory_id'] = null;
+            $cases[] = [$staleRecord, $expected, $supersede];
+        }
+        $beforeCount = (int)Db::name(OperatingMemoryService::TABLE)->count();
+        $beforeAnnotation = $this->memoryRowBytes((int)$annotation['id']);
+        $beforeMilestone = $this->memoryRowBytes((int)$milestone['id']);
+
+        // This is the exact old TOCTOU window: scope-derived record exists, then
+        // another connection transfers the hotel before the write transaction.
+        $this->transferHotelWithSeparateConnection(20, 11);
+        $method = new \ReflectionMethod($service, 'persistGrowthRecord');
+        $method->setAccessible(true);
+        foreach ($cases as [$staleRecord, $expected, $supersede]) {
+            try {
+                $method->invoke($service, $staleRecord, 10, [20], $expected, $supersede);
+                self::fail('A transferred hotel must be rejected inside the growth write transaction.');
+            } catch (\ReflectionException $exception) {
+                throw $exception;
+            } catch (\Throwable $exception) {
+                $cause = $exception instanceof \ReflectionException
+                    ? $exception
+                    : ($exception->getPrevious() ?? $exception);
+                self::assertInstanceOf(RuntimeException::class, $cause);
+            }
+        }
+
+        self::assertSame($beforeCount, (int)Db::name(OperatingMemoryService::TABLE)->count());
+        self::assertSame($beforeAnnotation, $this->memoryRowBytes((int)$annotation['id']));
+        self::assertSame($beforeMilestone, $this->memoryRowBytes((int)$milestone['id']));
+        self::assertSame('active', (string)Db::name(OperatingMemoryService::TABLE)
+            ->where('id', (int)$milestone['id'])
+            ->value('lifecycle_status'));
+    }
+
+    public function testListAndTimelineDeclareTruncationAndFilterEventKindBeforeLimit(): void
+    {
+        $service = new OperatingMemoryService($this->operationSource());
+        $rows = [];
+        for ($index = 1; $index <= 505; $index++) {
+            $rows[] = $this->memoryFixtureRow([
+                'memory_key' => 'newer-fact-' . $index,
+                'memory_layer' => 'fact',
+                'context_json' => '{"event_kind":"fact"}',
+                'occurred_at' => '2026-08-06 12:00:00',
+            ]);
+        }
+        for ($index = 1; $index <= 105; $index++) {
+            $rows[] = $this->memoryFixtureRow([
+                'memory_key' => 'older-judgement-' . $index,
+                'memory_layer' => 'judgement',
+                'context_json' => '{"event_kind":"judgement"}',
+                'occurred_at' => '2026-08-05 12:00:00',
+            ]);
+        }
+        foreach (array_chunk($rows, 300) as $chunk) {
+            Db::name(OperatingMemoryService::TABLE)->insertAll($chunk);
+        }
+
+        $list = $service->list(10, [20], 20);
+        self::assertSame(610, $list['matched_total']);
+        self::assertSame(100, $list['returned_count']);
+        self::assertTrue($list['truncated']);
+        self::assertCount(100, $list['list']);
+
+        $timeline = $service->growthTimeline(10, [20], 20, ['event_kind' => 'judgement']);
+        self::assertSame(105, $timeline['matched_total']);
+        self::assertSame(100, $timeline['returned_count']);
+        self::assertTrue($timeline['truncated']);
+        self::assertCount(100, $timeline['list']);
+        self::assertSame(['judgement'], array_values(array_unique(array_column($timeline['list'], 'event_kind'))));
+    }
+
     private function operationSource(bool $tableExists = true): OperationManagementService
     {
         return new class($tableExists) extends OperationManagementService {
             public array $task;
             public array $intent;
+            public ?\Closure $afterIntentRead = null;
 
             public function __construct(private bool $memoryTableExists)
             {
@@ -519,18 +760,65 @@ final class OperatingMemoryServiceTest extends TestCase
 
             public function readExecutionTask(int $id, array $hotelIds): array
             {
-                if ($id !== (int)$this->task['id'] || !in_array((int)$this->task['hotel_id'], $hotelIds, true)) {
-                    throw new \RuntimeException('execution task not found');
+                $currentTenantId = (int)Db::name('hotels')->where('id', (int)$this->task['hotel_id'])->value('tenant_id');
+                if ($id !== (int)$this->task['id']
+                    || !in_array((int)$this->task['hotel_id'], $hotelIds, true)
+                    || $currentTenantId <= 0
+                    || (int)$this->task['tenant_id'] !== $currentTenantId
+                ) {
+                    throw new \RuntimeException('execution task not found in the current tenant scope');
                 }
                 return $this->task;
             }
 
             public function readExecutionIntent(int $id, array $hotelIds): array
             {
-                if ($id !== (int)$this->intent['id'] || !in_array((int)$this->intent['hotel_id'], $hotelIds, true)) {
-                    throw new \RuntimeException('execution intent not found');
+                $currentTenantId = (int)Db::name('hotels')->where('id', (int)$this->intent['hotel_id'])->value('tenant_id');
+                if ($id !== (int)$this->intent['id']
+                    || !in_array((int)$this->intent['hotel_id'], $hotelIds, true)
+                    || $currentTenantId <= 0
+                    || (int)$this->intent['tenant_id'] !== $currentTenantId
+                ) {
+                    throw new \RuntimeException('execution intent not found in the current tenant scope');
                 }
-                return $this->intent;
+                $intent = $this->intent;
+                if ($this->afterIntentRead instanceof \Closure) {
+                    $callback = $this->afterIntentRead;
+                    $this->afterIntentRead = null;
+                    $callback();
+                }
+                return $intent;
+            }
+
+            public function assertExecutionTaskMutationAuthorized(int $taskId, array $hotelIds): void
+            {
+                $currentTenantId = (int)Db::name('hotels')->where('id', (int)$this->task['hotel_id'])->value('tenant_id');
+                if ($taskId !== (int)$this->task['id']
+                    || !in_array((int)$this->task['hotel_id'], $hotelIds, true)
+                    || (int)$this->task['tenant_id'] !== (int)$this->intent['tenant_id']
+                    || $currentTenantId <= 0
+                    || (int)$this->task['tenant_id'] !== $currentTenantId
+                ) {
+                    throw new \RuntimeException('execution task not found in the current tenant scope');
+                }
+            }
+
+            public function withExecutionTaskMutationAuthorization(
+                int $taskId,
+                array $hotelIds,
+                callable $mutation
+            ): mixed {
+                $this->assertExecutionTaskMutationAuthorized($taskId, $hotelIds);
+
+                return $mutation([
+                    'hotel' => [
+                        'id' => (int)$this->task['hotel_id'],
+                        'tenant_id' => (int)$this->task['tenant_id'],
+                    ],
+                    'task' => $this->task,
+                    'intent' => $this->intent,
+                    'source' => null,
+                ]);
             }
         };
     }
@@ -543,14 +831,28 @@ final class OperatingMemoryServiceTest extends TestCase
     private function invokeIdempotentConvergence(
         OperatingMemoryService $service,
         array $identity,
-        callable $writer
+        callable $writer,
+        ?callable $authorizeExisting = null
     ): array {
         $method = new \ReflectionMethod($service, 'convergeIdempotentWrite');
         $method->setAccessible(true);
 
         /** @var array{id:int,created:bool} $result */
-        $result = $method->invoke($service, $identity, $writer);
+        $result = $method->invoke($service, $identity, $writer, $authorizeExisting);
         return $result;
+    }
+
+    private function transferHotelWithSeparateConnection(int $hotelId, int $tenantId): void
+    {
+        $connection = new \PDO('sqlite:' . self::$sqlitePath);
+        $statement = $connection->prepare('UPDATE hotels SET tenant_id = :tenant_id WHERE id = :hotel_id');
+        $statement->execute(['tenant_id' => $tenantId, 'hotel_id' => $hotelId]);
+    }
+
+    private function memoryRowBytes(int $memoryId): string
+    {
+        $row = Db::name(OperatingMemoryService::TABLE)->where('id', $memoryId)->find();
+        return serialize(is_array($row) ? $row : []);
     }
 
     private function databaseException(
@@ -569,11 +871,17 @@ final class OperatingMemoryServiceTest extends TestCase
     /** @param array{tenant_id:int,hotel_id:int,memory_key:string} $identity */
     private function insertMemoryFixture(array $identity): int
     {
+        return (int)Db::name(OperatingMemoryService::TABLE)->insertGetId($this->memoryFixtureRow($identity));
+    }
+
+    /** @param array<string,mixed> $overrides @return array<string,mixed> */
+    private function memoryFixtureRow(array $overrides): array
+    {
         $now = '2026-08-05 10:00:00';
-        return (int)Db::name(OperatingMemoryService::TABLE)->insertGetId([
-            'tenant_id' => $identity['tenant_id'],
-            'hotel_id' => $identity['hotel_id'],
-            'memory_key' => $identity['memory_key'],
+        $row = [
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'memory_key' => '',
             'memory_layer' => 'fact',
             'title' => '并发幂等测试',
             'summary' => '仅用于隔离数据库测试。',
@@ -588,13 +896,19 @@ final class OperatingMemoryServiceTest extends TestCase
             'quality_status' => 'unverified',
             'usage_level' => 'archive_only',
             'lifecycle_status' => 'active',
-            'content_digest' => hash('sha256', implode(':', $identity)),
+            'content_digest' => '',
             'previous_memory_id' => null,
             'recorded_by' => 7,
             'occurred_at' => $now,
             'created_at' => $now,
             'updated_at' => $now,
             'deleted_at' => null,
-        ]);
+        ];
+        $row['tenant_id'] = (int)($overrides['tenant_id'] ?? 10);
+        $row['hotel_id'] = (int)($overrides['hotel_id'] ?? 20);
+        $row['memory_key'] = (string)($overrides['memory_key'] ?? ('fixture-' . bin2hex(random_bytes(8))));
+        $row['content_digest'] = (string)($overrides['content_digest']
+            ?? hash('sha256', $row['tenant_id'] . ':' . $row['hotel_id'] . ':' . $row['memory_key']));
+        return array_replace($row, $overrides);
     }
 }

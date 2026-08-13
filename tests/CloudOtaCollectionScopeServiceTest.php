@@ -111,7 +111,7 @@ final class CloudOtaCollectionScopeServiceTest extends TestCase
         }
     }
 
-    public function testHotelOtherThan80CannotUseCloudCompatibilityAllowlist(): void
+    public function testExplicitlyScopedHotelOtherThan80UsesSameIsolationContract(): void
     {
         $scope = $this->scope([25], ['ctrip']);
         $scope['hotel_id'] = 81;
@@ -124,8 +124,10 @@ final class CloudOtaCollectionScopeServiceTest extends TestCase
 
         $receipt = $this->service(true)->evaluate([$source], $scope);
 
-        self::assertSame('blocked', $receipt['status']);
-        self::assertSame('scope_mismatch', $receipt['sources'][0]['status_code']);
+        self::assertSame('ready_to_collect', $receipt['status']);
+        self::assertTrue($receipt['collection_allowed']);
+        self::assertSame('ready_to_collect', $receipt['sources'][0]['status']);
+        self::assertSame('ready', $receipt['sources'][0]['status_code']);
     }
 
     public function testTamperedPlatformHotelAnchorCannotReuseMatchedProbe(): void

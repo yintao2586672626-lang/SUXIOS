@@ -543,7 +543,7 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertSame('未评估', $bounded['market_judgement']['competition_level']);
     }
 
-    public function testReadinessRequiresEvidenceReviewAndTrackingForFeasibilityClosure(): void
+    public function testReadinessDoesNotTreatUnverifiedOpeningProjectIdAsTrackingClosure(): void
     {
         $service = new FeasibilityReportService($this->failingClient());
         $input = $this->validInput([
@@ -579,9 +579,10 @@ final class FeasibilityReportServiceTest extends TestCase
 
         $readiness = $service->buildFeasibilityReadiness($input, $snapshot, $report);
 
-        self::assertSame('feasibility_ready', $readiness['stage']);
-        self::assertTrue($readiness['feasibility_ready']);
-        self::assertSame(100, $readiness['score']);
+        self::assertSame('approved_pending_tracking', $readiness['stage']);
+        self::assertFalse($readiness['feasibility_ready']);
+        self::assertSame(94, $readiness['score']);
+        self::assertContains('post_decision_tracking', array_column($readiness['missing_evidence'], 'code'));
     }
 
     public function testFormattedRecordReturnsFeasibilityReadinessForListAndDetail(): void
@@ -692,7 +693,7 @@ final class FeasibilityReportServiceTest extends TestCase
     public function testBuildExecutionIntentInputCarriesReadinessAndInvestmentScope(): void
     {
         $service = new FeasibilityReportService($this->failingClient());
-        $input = $this->validInput(['manual_review' => 'approved']);
+        $input = $this->validInput(['manual_review' => 'approved', 'hotel_id' => 3, 'system_hotel_id' => 3]);
         $snapshot = [
             'source_counts' => ['daily_reports' => 12, 'competitor_price_logs' => 5],
             'daily_summary' => ['avg_adr' => 310, 'avg_occ' => 0.76],
@@ -741,6 +742,34 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertSame('investment_decision_closure', $intentInput['target_value']['target_metric']);
         self::assertSame('approved_pending_tracking', $intentInput['evidence']['readiness_stage']);
         self::assertSame('medium', $intentInput['risk_level']);
+    }
+
+    public function testExecutionIntentRejectsHotelDifferentFromPersistedFeasibilityScope(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $record = [
+            'id' => 7,
+            'input' => ['hotel_id' => 3, 'system_hotel_id' => 3],
+            'snapshot' => ['snapshot_scope' => ['hotel_id' => 3]],
+        ];
+
+        self::assertSame(3, $service->executionHotelId($record));
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('feasibility report hotel scope mismatch');
+        $service->assertExecutionHotelMatches($record, 4);
+    }
+
+    public function testExecutionIntentFailsClosedWhenPersistedFeasibilityHotelScopesConflict(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('feasibility report hotel scope conflict');
+        $service->executionHotelId([
+            'input' => ['hotel_id' => 3],
+            'snapshot' => ['snapshot_scope' => ['hotel_id' => 4]],
+        ]);
     }
 
     private function comparableCompetitorPrice(float $price, array $overrides = []): array

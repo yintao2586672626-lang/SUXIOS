@@ -47,8 +47,26 @@
     <script>
         (() => {
             const fontAwesomeStylesheet = 'font-awesome.min.css?v=20260628-static-router-fix';
-            const loadFontAwesomeStylesheet = () => {
+            const FONT_AWESOME_FALLBACK_MS = 8000;
+            let fontAwesomeFallbackTimer = null;
+            const loadFontAwesomeStylesheet = ({ force = false } = {}) => {
                 if (document.querySelector('link[data-suxi-fontawesome="1"]')) return;
+                if (!force && document.documentElement.dataset.suxiAuthenticatedInteractiveReady !== '1') {
+                    window.addEventListener(
+                        'suxi:authenticated-interactive-ready',
+                        loadFontAwesomeStylesheet,
+                        { once: true }
+                    );
+                    fontAwesomeFallbackTimer ||= window.setTimeout(
+                        () => loadFontAwesomeStylesheet({ force: true }),
+                        FONT_AWESOME_FALLBACK_MS
+                    );
+                    return;
+                }
+                if (fontAwesomeFallbackTimer !== null) {
+                    window.clearTimeout(fontAwesomeFallbackTimer);
+                    fontAwesomeFallbackTimer = null;
+                }
                 const link = document.createElement('link');
                 link.rel = 'stylesheet';
                 link.href = fontAwesomeStylesheet;
@@ -99,11 +117,11 @@
     <script type="application/json" id="suxi-authenticated-assets">
         [
             {
-                "src": "tailwind.min.css?v=20260717-login-usability-hd3c201b320",
+                "src": "tailwind.min.css?v=20260717-login-usability-hafa2553672",
                 "type": "style"
             },
             {
-                "src": "style.min.css?v=20260804-authenticated-style-h66232176da",
+                "src": "style.min.css?v=20260804-authenticated-style-h6c7c9954fe",
                 "type": "style"
             },
             {
@@ -112,7 +130,8 @@
             },
             "vue.runtime.global.prod.js?v=20260713-runtime-h039d03af6b",
             "app-startup-helpers.min.js?v=20260725-startup-bundle-h0c29d869e1",
-            "components/system/business-closure-loader.js?v=20260803-business-closure-loader-hd8635bd0bd",
+            "components/system/business-closure-loader.js?v=20260803-business-closure-loader-h8ee6775901",
+            "components/online-data/ctrip-order-analysis-loader.js?v=20260813-order-analysis-h4259b4e1fe",
             {
                 "src": "ctrip-search-opportunity-static.js?v=20260713-percentage-points-h4247608158",
                 "phase": "after-first-paint"
@@ -121,18 +140,17 @@
                 "src": "user-admin-static.js?v=20260810-controlled-partner-hfd90442693",
                 "phase": "after-first-paint"
             },
+            "app-deferred-helpers.min.js?v=20260731-deferred-domain-hda4458b206",
+            "components/system/app-main-components.js?v=20260813-yesterday-closure-h50c6d36cd5",
+            "components/system/operating-intelligence-components.js?v=20260813-yesterday-closure-h45ea5a84e0",
+            "app-startup-render.min.js?v=20260717-home-first-hd89d3d9979",
             {
-                "src": "app-deferred-helpers.min.js?v=20260731-deferred-domain-h9c0cce4043",
+                "src": "app-render.min.js?v=20260717-ai-daily-result-hdf3c0f4cf3",
                 "phase": "after-first-paint"
             },
-            "app-startup-render.min.js?v=20260717-home-first-h7db0f10eb7",
-            {
-                "src": "app-render.min.js?v=20260717-ai-daily-result-hb7df9a7f36",
-                "phase": "after-first-paint"
-            },
-            "app-main.min.js?v=20260716-login-flow-he4160817b7"
+            "app-main.min.js?v=20260716-login-flow-h446a3ec8bb"
         ]
     </script>
-    <script defer src="app-bootstrap.min.js?v=20260717-login-warmup-hda57ee7fb9" data-suxi-critical-asset="app-bootstrap.js"></script>
+    <script defer src="app-bootstrap.min.js?v=20260717-login-warmup-h5cbcd7a631" data-suxi-critical-asset="app-bootstrap.js"></script>
 </body>
 </html>

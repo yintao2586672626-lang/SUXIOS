@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\ManualNotificationDispatchLedgerService;
 use app\service\ManualNotificationBusinessPayloadService;
+use app\service\ManualNotificationConditionRuleService;
 use app\service\ManualNotificationScheduleService;
 use app\service\ManualNotificationService;
 use app\service\OperatingDailyReportPayloadService;
@@ -69,6 +70,9 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             effective_to VARCHAR(10) NULL,
             hourly_start_time VARCHAR(8) NOT NULL DEFAULT "09:00:00",
             hourly_end_time VARCHAR(8) NOT NULL DEFAULT "22:00:00",
+            condition_type VARCHAR(32) NOT NULL DEFAULT "always",
+            condition_threshold REAL NULL,
+            condition_step REAL NULL,
             enabled INTEGER NOT NULL,
             schedule_status VARCHAR(32) NOT NULL,
             last_test_status VARCHAR(32) NOT NULL,
@@ -92,6 +96,9 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             business_date VARCHAR(10) NULL,
             payload_fingerprint VARCHAR(64) NULL,
             tested_plan_fingerprint VARCHAR(64) NULL,
+            condition_rule_fingerprint VARCHAR(64) NULL,
+            condition_trigger_bucket REAL NULL,
+            condition_observed_value REAL NULL,
             source_snapshot_refs_json TEXT NULL,
             source_snapshot_fingerprint VARCHAR(64) NULL,
             operating_target_record_id INTEGER NULL,
@@ -113,6 +120,26 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             create_time DATETIME NOT NULL,
             update_time DATETIME NOT NULL,
             UNIQUE(notification_id, dispatch_window, delivery_mode)
+        )');
+        Db::execute('CREATE TABLE IF NOT EXISTS manual_notification_rule_states (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            notification_id INTEGER NOT NULL,
+            tenant_id INTEGER NOT NULL,
+            hotel_id INTEGER NOT NULL,
+            business_date VARCHAR(10) NOT NULL,
+            condition_type VARCHAR(32) NOT NULL,
+            rule_fingerprint VARCHAR(64) NOT NULL,
+            highest_triggered_bucket REAL NULL,
+            pending_trigger_bucket REAL NULL,
+            pending_dispatch_id INTEGER NULL,
+            pending_claimed_at DATETIME NULL,
+            last_observed_value REAL NULL,
+            last_observed_at DATETIME NULL,
+            last_triggered_at DATETIME NULL,
+            last_dispatch_id INTEGER NULL,
+            create_time DATETIME NOT NULL,
+            update_time DATETIME NOT NULL,
+            UNIQUE(notification_id, business_date, rule_fingerprint)
         )');
         Db::execute('CREATE TABLE IF NOT EXISTS manual_notification_dispatch_attempts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -184,6 +211,7 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             name VARCHAR(120) NOT NULL
         )');
         Db::name('manual_notification_dispatch_attempts')->delete(true);
+        Db::name('manual_notification_rule_states')->delete(true);
         Db::name('manual_notification_schedule_dispatches')->delete(true);
         Db::name('manual_notification_schedule_run_scopes')->delete(true);
         Db::name('manual_notification_schedule_runs')->delete(true);
@@ -325,7 +353,7 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         );
     }
 
-    public function testCombinedOperatingDailyPreparesAllThreeSourcesInOneWindow(): void
+    public function testStrictThirtyMinuteCombinedOperatingDailyPreparesAllThreeSourcesInOneWindow(): void
     {
         $notificationId = $this->insertRecord([
             'notification_type' =>
@@ -334,7 +362,13 @@ final class ManualNotificationScheduleServiceTest extends TestCase
                 ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
             'source_scope' => 'combined',
             'content_sections' =>
-                'pms_summary,ctrip_traffic,meituan_traffic',
+                'pms_summary,pms_efficiency,ctrip_traffic,meituan_traffic',
+            'send_method' => 'wecom_formal',
+            'trigger_type' => 'interval_minutes',
+            'interval_minutes' => 30,
+            'planned_send_at' => null,
+            'hourly_start_time' => '00:00:00',
+            'hourly_end_time' => '23:59:00',
         ]);
         $this->seedBusinessContractTest(
             $notificationId,
@@ -397,8 +431,9 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         );
 
         $result = $service->runDue(
-            $this->time('2026-07-26 18:01:00'),
-            true
+            $this->time('2026-07-26 18:00:20'),
+            true,
+            ManualNotificationScheduleService::MODE_FORMAL
         );
 
         self::assertSame(
@@ -450,6 +485,654 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             'meituan:trace-64381',
             $sourceRefs['meituan_traffic']['source_trace_id']
         );
+    }
+
+    public function testOccupancyRuleSkipsBelowThresholdWithoutCallingSender(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'source_scope' => 'combined',
+            'content_sections' =>
+                'pms_summary,pms_efficiency,ctrip_traffic,meituan_traffic',
+            'send_method' => 'wecom_formal',
+            'trigger_type' => 'interval_minutes',
+            'interval_minutes' => 30,
+            'planned_send_at' => null,
+            'hourly_start_time' => '00:00:00',
+            'hourly_end_time' => '23:59:00',
+            'condition_type' => 'occupancy_ladder',
+            'condition_threshold' => 80,
+            'condition_step' => 5,
+        ]);
+        $this->seedBusinessContractTest(
+            $notificationId,
+            OperatingDailyReportPayloadService::RENDER_CONTRACT_VERSION
+        );
+        $sendCalls = 0;
+        $service = new ManualNotificationScheduleService(
+            sender: static function () use (&$sendCalls): array {
+                $sendCalls++;
+                return ['delivery_status' => 'sent'];
+            },
+            operatingDailyPayloads: $this->operatingDailyThreeSourcePayloads(60),
+            meituanTemporalRefresher: static fn(
+                array $row,
+                string $businessDate
+            ): array => [
+                'status' => 'ready',
+                'target_date' => $businessDate,
+                'sync_task_id' => 22,
+                'saved_count' => 2,
+                'readback_verified' => true,
+            ],
+            ctripTemporalRefresher: static fn(
+                array $row,
+                string $businessDate
+            ): array => [
+                'status' => 'ready',
+                'target_date' => $businessDate,
+                'sync_task_id' => 21,
+                'saved_count' => 3,
+                'readback_verified' => true,
+            ],
+            pmsSourceRefresher: static fn(
+                array $row,
+                string $businessDate
+            ): array => [
+                'status' => 'ready',
+                'target_date' => $businessDate,
+                'capture_id' => 301,
+                'saved_count' => 1,
+                'readback_verified' => true,
+            ]
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 18:00:20'),
+            true,
+            ManualNotificationScheduleService::MODE_FORMAL
+        );
+
+        self::assertSame(0, $sendCalls);
+        self::assertSame('skipped', $result['results'][0]['status']);
+        self::assertSame(
+            'manual_notification_condition_threshold_not_reached',
+            $result['results'][0]['reason_code']
+        );
+        self::assertFalse($result['results'][0]['delivery_attempted']);
+        self::assertSame(60.0, $result['results'][0]['condition_evaluation']['observed_value']);
+        $state = Db::name('manual_notification_rule_states')
+            ->where('notification_id', $notificationId)
+            ->find();
+        self::assertIsArray($state);
+        self::assertSame(60.0, (float)$state['last_observed_value']);
+        self::assertNull($state['highest_triggered_bucket']);
+        self::assertSame(
+            'skipped',
+            Db::name('manual_notification_schedule_dispatches')
+                ->where('notification_id', $notificationId)
+                ->where('request_kind', 'scheduled')
+                ->value('status')
+        );
+    }
+
+    public function testOccupancyRuleCommitsOnlyAfterSuccessAndSuppressesSameBucket(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'source_scope' => 'combined',
+            'content_sections' =>
+                'pms_summary,pms_efficiency,ctrip_traffic,meituan_traffic',
+            'send_method' => 'wecom_formal',
+            'trigger_type' => 'interval_minutes',
+            'interval_minutes' => 30,
+            'planned_send_at' => null,
+            'hourly_start_time' => '00:00:00',
+            'hourly_end_time' => '23:59:00',
+            'condition_type' => 'occupancy_ladder',
+            'condition_threshold' => 90,
+            'condition_step' => 5,
+        ]);
+        $this->seedBusinessContractTest(
+            $notificationId,
+            OperatingDailyReportPayloadService::RENDER_CONTRACT_VERSION
+        );
+        $sendCalls = 0;
+        $sentPayloads = [];
+        $service = new ManualNotificationScheduleService(
+            sender: static function (
+                int $hotelId,
+                int $robotId,
+                array $payload
+            ) use (&$sendCalls, &$sentPayloads): array {
+                $sendCalls++;
+                $sentPayloads[] = $payload;
+                return $sendCalls === 1
+                    ? ['delivery_status' => 'failed', 'error' => 'network_down']
+                    : ['delivery_status' => 'sent'];
+            },
+            operatingDailyPayloads: $this->operatingDailyThreeSourcePayloads(),
+            meituanTemporalRefresher: static fn(
+                array $row,
+                string $businessDate
+            ): array => [
+                'status' => 'ready',
+                'target_date' => $businessDate,
+                'sync_task_id' => 22,
+                'saved_count' => 2,
+                'readback_verified' => true,
+            ],
+            ctripTemporalRefresher: static fn(
+                array $row,
+                string $businessDate
+            ): array => [
+                'status' => 'ready',
+                'target_date' => $businessDate,
+                'sync_task_id' => 21,
+                'saved_count' => 3,
+                'readback_verified' => true,
+            ],
+            pmsSourceRefresher: static fn(
+                array $row,
+                string $businessDate
+            ): array => [
+                'status' => 'ready',
+                'target_date' => $businessDate,
+                'capture_id' => 301,
+                'saved_count' => 1,
+                'readback_verified' => true,
+            ]
+        );
+
+        $failed = $service->runDue(
+            $this->time('2026-07-26 18:00:20'),
+            true,
+            ManualNotificationScheduleService::MODE_FORMAL
+        );
+        self::assertSame('failed', $failed['results'][0]['status']);
+        $stateAfterFailure = Db::name('manual_notification_rule_states')
+            ->where('notification_id', $notificationId)
+            ->find();
+        self::assertIsArray($stateAfterFailure);
+        self::assertNull($stateAfterFailure['highest_triggered_bucket']);
+
+        $sent = $service->runDue(
+            $this->time('2026-07-26 18:30:20'),
+            true,
+            ManualNotificationScheduleService::MODE_FORMAL
+        );
+        self::assertSame('sent', $sent['results'][0]['status']);
+        self::assertTrue($sent['results'][0]['condition_state_committed']);
+        self::assertStringContainsString(
+            '自动规则',
+            (string)json_encode(
+                $sentPayloads[1],
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            )
+        );
+        $stateAfterSuccess = Db::name('manual_notification_rule_states')
+            ->where('notification_id', $notificationId)
+            ->find();
+        self::assertSame(100.0, (float)$stateAfterSuccess['highest_triggered_bucket']);
+        self::assertSame(
+            (int)$sent['results'][0]['dispatch_id'],
+            (int)$stateAfterSuccess['last_dispatch_id']
+        );
+
+        $sameBucket = $service->runDue(
+            $this->time('2026-07-26 19:00:20'),
+            true,
+            ManualNotificationScheduleService::MODE_FORMAL
+        );
+        self::assertSame(2, $sendCalls);
+        self::assertSame('skipped', $sameBucket['results'][0]['status']);
+        self::assertSame(
+            'manual_notification_condition_level_already_sent',
+            $sameBucket['results'][0]['reason_code']
+        );
+        self::assertSame(100.0, (float)Db::name(
+            'manual_notification_schedule_dispatches'
+        )->where('id', (int)$sent['results'][0]['dispatch_id'])
+            ->value('condition_trigger_bucket'));
+    }
+
+    public function testFullHouseRuleIsCommittedPerBusinessDateOnlyAfterSuccess(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'condition_type' => ManualNotificationConditionRuleService::FULL_HOUSE,
+        ]);
+        $plan = Db::name('manual_notifications')->where('id', $notificationId)->find();
+        self::assertIsArray($plan);
+        $candidate = [
+            'facts' => [
+                'pms_occupancy' => 100.0,
+                'pms_sellable_room_nights' => 25,
+                'pms_sold_room_nights' => 25,
+            ],
+        ];
+        $rules = new ManualNotificationConditionRuleService();
+        $observedAt = $this->time('2026-07-26 18:00:20');
+
+        $first = $rules->evaluate($plan, $candidate, '2026-07-26', $observedAt);
+        self::assertTrue($first['matched']);
+        self::assertSame(
+            'manual_notification_condition_full_house_reached',
+            $first['reason_code']
+        );
+        $rules->recordObservation($plan, $first, $observedAt);
+        self::assertNull(Db::name('manual_notification_rule_states')
+            ->where('notification_id', $notificationId)
+            ->where('business_date', '2026-07-26')
+            ->value('highest_triggered_bucket'));
+
+        $fullHouseDispatch = (new ManualNotificationDispatchLedgerService())
+            ->claim(
+                $notificationId,
+                9,
+                80,
+                'i:full-house-' . $notificationId,
+                ManualNotificationScheduleService::MODE_FORMAL,
+                'interval_minutes',
+                'scheduled',
+                ManualNotificationService::TEST_ROBOT_ID,
+                ManualNotificationService::TEST_ROBOT_NAME,
+                '2026-07-26',
+                [],
+                $observedAt
+            );
+        $fullHouseDispatchId = (int)$fullHouseDispatch['dispatch']['id'];
+        self::assertTrue($rules->claimTrigger(
+            $plan,
+            $first,
+            $fullHouseDispatchId,
+            $observedAt
+        )['allowed']);
+        $rules->commitSuccessfulDelivery(
+            $plan,
+            $first,
+            $fullHouseDispatchId,
+            $observedAt
+        );
+        $repeat = $rules->evaluate(
+            $plan,
+            $candidate,
+            '2026-07-26',
+            $this->time('2026-07-26 18:30:20')
+        );
+        self::assertFalse($repeat['matched']);
+        self::assertSame(
+            'manual_notification_condition_full_house_already_sent',
+            $repeat['reason_code']
+        );
+        self::assertSame(1.0, (float)Db::name('manual_notification_rule_states')
+            ->where('notification_id', $notificationId)
+            ->where('business_date', '2026-07-26')
+            ->value('highest_triggered_bucket'));
+
+        $nextDate = $rules->evaluate(
+            $plan,
+            $candidate,
+            '2026-07-27',
+            $this->time('2026-07-27 18:00:20')
+        );
+        self::assertTrue($nextDate['matched']);
+    }
+
+    public function testFullHouseRuleBlocksWhenOnlyOccupancyIsAvailable(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'condition_type' => ManualNotificationConditionRuleService::FULL_HOUSE,
+        ]);
+        $plan = Db::name('manual_notifications')->where('id', $notificationId)->find();
+        self::assertIsArray($plan);
+
+        $evaluation = (new ManualNotificationConditionRuleService())->evaluate(
+            $plan,
+            ['facts' => ['pms_occupancy' => 100.0]],
+            '2026-07-26',
+            $this->time('2026-07-26 18:00:20')
+        );
+
+        self::assertSame('blocked', $evaluation['status']);
+        self::assertFalse($evaluation['matched']);
+        self::assertSame(
+            'manual_notification_condition_fact_missing',
+            $evaluation['reason_code']
+        );
+    }
+
+    public function testRuleBucketClaimSerializesWindowsAndOldRetryAfterSuccess(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'condition_type' =>
+                ManualNotificationConditionRuleService::OCCUPANCY_LADDER,
+            'condition_threshold' => 20,
+            'condition_step' => 5,
+        ]);
+        $plan = Db::name('manual_notifications')->where('id', $notificationId)->find();
+        self::assertIsArray($plan);
+        $at = $this->time('2026-07-26 18:00:20');
+        $rules = new ManualNotificationConditionRuleService();
+        $evaluation = $rules->evaluate(
+            $plan,
+            ['facts' => ['pms_occupancy' => 27.0]],
+            '2026-07-26',
+            $at
+        );
+        self::assertSame(25.0, $evaluation['trigger_bucket']);
+
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $first = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            'i:rule-claim-a-' . $notificationId,
+            ManualNotificationScheduleService::MODE_FORMAL,
+            'interval_minutes',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [],
+            $at
+        );
+        $second = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            'i:rule-claim-b-' . $notificationId,
+            ManualNotificationScheduleService::MODE_FORMAL,
+            'interval_minutes',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [],
+            $at->modify('+1 minute')
+        );
+        $firstId = (int)$first['dispatch']['id'];
+        $secondId = (int)$second['dispatch']['id'];
+
+        $firstClaim = $rules->claimTrigger($plan, $evaluation, $firstId, $at);
+        self::assertTrue($firstClaim['allowed']);
+        $overlap = $rules->claimTrigger(
+            $plan,
+            $evaluation,
+            $secondId,
+            $at->modify('+1 minute')
+        );
+        self::assertFalse($overlap['allowed']);
+        self::assertSame(
+            'manual_notification_condition_trigger_in_flight',
+            $overlap['reason_code']
+        );
+
+        Db::name('manual_notification_schedule_dispatches')
+            ->where('id', $firstId)
+            ->update(['status' => 'failed']);
+        $rules->releaseTriggerClaim($plan, $evaluation, $firstId, $at);
+        $replacement = $rules->claimTrigger(
+            $plan,
+            $evaluation,
+            $secondId,
+            $at->modify('+1 minute')
+        );
+        self::assertTrue($replacement['allowed']);
+        $rules->commitSuccessfulDelivery(
+            $plan,
+            $evaluation,
+            $secondId,
+            $at->modify('+1 minute')
+        );
+
+        $oldRetry = $rules->claimTrigger(
+            $plan,
+            $evaluation,
+            $firstId,
+            $at->modify('+2 minutes')
+        );
+        self::assertFalse($oldRetry['allowed']);
+        self::assertSame(
+            'manual_notification_condition_level_already_sent',
+            $oldRetry['reason_code']
+        );
+        $state = Db::name('manual_notification_rule_states')
+            ->where('notification_id', $notificationId)
+            ->find();
+        self::assertSame(25.0, (float)$state['highest_triggered_bucket']);
+        self::assertNull($state['pending_dispatch_id']);
+    }
+
+    public function testExpiredRuleClaimFencesOldWorkerBeforeExternalSend(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'condition_type' =>
+                ManualNotificationConditionRuleService::OCCUPANCY_LADDER,
+            'condition_threshold' => 20,
+            'condition_step' => 5,
+        ]);
+        $plan = Db::name('manual_notifications')->where('id', $notificationId)->find();
+        self::assertIsArray($plan);
+        $at = $this->time('2026-07-26 18:00:00');
+        $rules = new ManualNotificationConditionRuleService();
+        $evaluation = $rules->evaluate(
+            $plan,
+            ['facts' => ['pms_occupancy' => 27.0]],
+            '2026-07-26',
+            $at
+        );
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $old = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            'i:expired-claim-old-' . $notificationId,
+            ManualNotificationScheduleService::MODE_FORMAL,
+            'interval_minutes',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [],
+            $at
+        );
+        $newAt = $at->modify('+4 minutes');
+        $new = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            'i:expired-claim-new-' . $notificationId,
+            ManualNotificationScheduleService::MODE_FORMAL,
+            'interval_minutes',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [],
+            $newAt
+        );
+        $oldId = (int)$old['dispatch']['id'];
+        $newId = (int)$new['dispatch']['id'];
+        self::assertTrue($rules->claimTrigger(
+            $plan,
+            $evaluation,
+            $oldId,
+            $at
+        )['allowed']);
+        self::assertTrue($rules->claimTrigger(
+            $plan,
+            $evaluation,
+            $newId,
+            $newAt
+        )['allowed']);
+
+        $oldAttached = $ledger->attachCandidateToClaim(
+            $oldId,
+            (string)$old['dispatch']['claimed_at'],
+            [
+                'business_date' => '2026-07-26',
+                'payload' => [
+                    'msgtype' => 'text',
+                    'text' => ['content' => 'old worker must be fenced'],
+                ],
+                'condition_evaluation' => $evaluation,
+            ],
+            $newAt
+        );
+        self::assertTrue($oldAttached['allowed']);
+        $oldAttempt = $ledger->beginAttempt($oldId, $newAt);
+        self::assertTrue($oldAttempt['allowed']);
+        $oldConfirmation = $rules->confirmTriggerClaim(
+            $plan,
+            $evaluation,
+            $oldId,
+            $newAt
+        );
+        self::assertFalse($oldConfirmation['allowed']);
+        self::assertSame(
+            'manual_notification_condition_trigger_claim_fenced',
+            $oldConfirmation['reason_code']
+        );
+        $cancelled = $ledger->cancelAttemptBeforeSend(
+            $oldId,
+            (int)$oldAttempt['attempt_id'],
+            $newAt,
+            (string)$oldConfirmation['reason_code'],
+            'old worker fenced before sender'
+        );
+        self::assertSame('skipped', $cancelled['status']);
+        self::assertSame(
+            'skipped',
+            Db::name('manual_notification_dispatch_attempts')
+                ->where('id', (int)$oldAttempt['attempt_id'])
+                ->value('status')
+        );
+
+        $newAttached = $ledger->attachCandidateToClaim(
+            $newId,
+            (string)$new['dispatch']['claimed_at'],
+            [
+                'business_date' => '2026-07-26',
+                'payload' => [
+                    'msgtype' => 'text',
+                    'text' => ['content' => 'new worker owns claim'],
+                ],
+                'condition_evaluation' => $evaluation,
+            ],
+            $newAt
+        );
+        self::assertTrue($newAttached['allowed']);
+        $newAttempt = $ledger->beginAttempt($newId, $newAt);
+        self::assertTrue($newAttempt['allowed']);
+        self::assertTrue($rules->confirmTriggerClaim(
+            $plan,
+            $evaluation,
+            $newId,
+            $newAt
+        )['allowed']);
+    }
+
+    public function testSentReceiptSuppressesRepeatWhenRuleStateCommitWasMissed(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'condition_type' =>
+                ManualNotificationConditionRuleService::OCCUPANCY_LADDER,
+            'condition_threshold' => 20,
+            'condition_step' => 5,
+        ]);
+        $plan = Db::name('manual_notifications')->where('id', $notificationId)->find();
+        self::assertIsArray($plan);
+        $candidate = ['facts' => ['pms_occupancy' => 27.0]];
+        $rules = new ManualNotificationConditionRuleService();
+        $observedAt = $this->time('2026-07-26 18:00:20');
+        $first = $rules->evaluate($plan, $candidate, '2026-07-26', $observedAt);
+        self::assertTrue($first['matched']);
+        self::assertSame(25.0, $first['trigger_bucket']);
+
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $claim = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            'i:receipt-recovery-' . $notificationId,
+            ManualNotificationScheduleService::MODE_FORMAL,
+            'interval_minutes',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [],
+            $observedAt
+        );
+        $dispatch = $claim['dispatch'];
+        $attached = $ledger->attachCandidateToClaim(
+            (int)$dispatch['id'],
+            (string)$dispatch['claimed_at'],
+            [
+                'business_date' => '2026-07-26',
+                'payload' => [
+                    'msgtype' => 'text',
+                    'text' => ['content' => 'receipt recovery'],
+                ],
+                'condition_evaluation' => $first,
+            ],
+            $observedAt
+        );
+        self::assertTrue($attached['allowed']);
+        Db::name('manual_notification_schedule_dispatches')
+            ->where('id', (int)$dispatch['id'])
+            ->update([
+                'status' => 'sent',
+                'result_code' => 'wecom_business_success',
+                'dispatched_at' => '2026-07-26 18:00:21',
+                'update_time' => '2026-07-26 18:00:21',
+            ]);
+        self::assertSame(0, Db::name('manual_notification_rule_states')
+            ->where('notification_id', $notificationId)
+            ->count());
+
+        $repeat = $rules->evaluate(
+            $plan,
+            $candidate,
+            '2026-07-26',
+            $this->time('2026-07-26 18:30:20')
+        );
+        self::assertFalse($repeat['matched']);
+        self::assertSame(
+            'manual_notification_condition_level_already_sent',
+            $repeat['reason_code']
+        );
+        self::assertSame(25.0, $repeat['previous_triggered_bucket']);
+        $latest = $rules->latestStateForPlan($plan);
+        self::assertIsArray($latest);
+        self::assertSame(25.0, $latest['highest_triggered_bucket']);
+        self::assertSame((int)$dispatch['id'], $latest['last_dispatch_id']);
     }
 
     public function testPreparedSnapshotMismatchBlocksScheduledDelivery(): void
@@ -591,6 +1274,39 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             $result['results'][0]['reason_code']
         );
         self::assertNull($result['results'][0]['payload']);
+    }
+
+    public function testDefaultAlwaysPlanAcceptsLegacyFingerprintAfterRuleMigration(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' => 'future_room_status',
+            'template_type' => 'future_room_status',
+        ]);
+        $this->seedBusinessContractTest(
+            $notificationId,
+            ManualNotificationBusinessPayloadService::RENDER_CONTRACT_VERSIONS[
+                'future_room_status'
+            ],
+            true
+        );
+        $service = new ManualNotificationScheduleService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->businessPayloads()
+        );
+
+        $result = $service->runDue($this->time('2026-07-26 18:01:00'));
+
+        self::assertSame('preview', $result['status']);
+        self::assertSame('preview', $result['results'][0]['status']);
+        self::assertSame(
+            'dispatch_not_requested',
+            $result['results'][0]['reason_code']
+        );
     }
 
     public function testLegacyOperatingDailyContractRequiresRetestBeforeSchedule(): void
@@ -1907,6 +2623,9 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             'effective_to' => null,
             'hourly_start_time' => '09:00:00',
             'hourly_end_time' => '22:00:00',
+            'condition_type' => 'always',
+            'condition_threshold' => null,
+            'condition_step' => null,
             'enabled' => 1,
             'schedule_status' => 'schedule_enabled',
             'last_test_status' => 'sent',
@@ -1929,7 +2648,8 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         string $contractVersion =
             ManualNotificationBusinessPayloadService::RENDER_CONTRACT_VERSIONS[
                 'future_room_status'
-            ]
+            ],
+        bool $legacyPlanFingerprint = false
     ): void {
         $plan = Db::name('manual_notifications')
             ->where('id', $notificationId)
@@ -1982,7 +2702,9 @@ final class ManualNotificationScheduleServiceTest extends TestCase
                     'text' => ['content' => 'verified contract'],
                 ],
                 'tested_plan_fingerprint' =>
-                    ManualNotificationService::planFingerprint($plan),
+                    $legacyPlanFingerprint
+                        ? ManualNotificationService::legacyPlanFingerprint($plan)
+                        : ManualNotificationService::planFingerprint($plan),
                 'source_snapshot_refs' => $sourceRefs,
                 'render_contract_version' => $contractVersion,
             ],
@@ -2001,13 +2723,15 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             ]);
     }
 
-    private function operatingDailyThreeSourcePayloads(): OperatingDailyReportPayloadService
+    private function operatingDailyThreeSourcePayloads(
+        float $occupancyRate = 100.0
+    ): OperatingDailyReportPayloadService
     {
         $pmsResolver = static function (
             int $tenantId,
             int $hotelId,
             string $date
-        ): array {
+        ) use ($occupancyRate): array {
             if ($tenantId !== 9 || $hotelId !== 80 || $date !== '2026-07-26') {
                 return [];
             }
@@ -2056,8 +2780,10 @@ final class ManualNotificationScheduleServiceTest extends TestCase
                     'total_room_fee' => 8745.66,
                     'sold_room_nights' => 15,
                     'average_daily_room_nights' => 15.0,
-                    'derived_sellable_room_nights' => 15,
-                    'occupancy_rate_percent' => 100.0,
+                    'derived_sellable_room_nights' => $occupancyRate > 0
+                        ? (int)round(15 / ($occupancyRate / 100))
+                        : 0,
+                    'occupancy_rate_percent' => $occupancyRate,
                     'adr' => 583.04,
                     'revpar' => 583.04,
                 ],

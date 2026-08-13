@@ -7,6 +7,11 @@ import {
   requireFreshOtaPageNetwork,
 } from './lib/cloakbrowser_launcher.mjs';
 import {
+  liveProfilePageCandidates,
+  resolveProfileLoginPage,
+  waitForProfileLoginPoll,
+} from './lib/ota_profile_page_handoff.mjs';
+import {
   buildCtripEndpointCandidates,
   buildCtripStandardRowsFromFacts,
   buildCtripPageUrls,
@@ -270,27 +275,36 @@ const sessionProbeResponseDiagnostics = {
   candidate_route_samples: [],
   candidate_reason_ids: [],
 };
+const sessionProbeObservedPages = new WeakSet();
+const authPageNetworkPreparations = new WeakMap();
 
 const browser = await launchOtaPersistentContext(storageDir, args);
 await grantCtripBrowserPermissions(browser);
 payload.cookie_injection = sessionProbeOnly
   ? { attempted: false, injected_count: 0, domains: [], reason: 'session_probe_only' }
   : await injectBrowserCookies(browser, args, 'ctrip');
-const page = await browser.newPage();
+let page = await browser.newPage();
 await bringLoginPageToFront(page);
 if (authOnly) {
-  registerSessionProbeResponseObserver(page);
+  browser.on('page', nextPage => {
+    registerSessionProbeResponseObserver(nextPage);
+    void prepareCtripAuthPage(nextPage).catch(() => null);
+  });
 }
 
 try {
-  payload.network_freshness = await requireFreshOtaPageNetwork(browser, page);
-  const loginStatus = await ensureLoggedIn(page, { interactive: !sessionProbeOnly });
+  payload.network_freshness = authOnly
+    ? await prepareCtripAuthPage(page)
+    : await requireFreshOtaPageNetwork(browser, page);
+  const loginResolution = await ensureLoggedIn(browser, page, { interactive: !sessionProbeOnly });
+  page = loginResolution.page || page;
+  const { page: _resolvedLoginPage, ...loginStatus } = loginResolution;
   payload.auth_status = loginStatus;
   if (!loginStatus.ok) {
     payload.pages.push({
       name: 'auth',
       label: '登录状态',
-      url: loginStatus.url || page.url(),
+      url: loginStatus.url || safeCtripPageUrl(page),
       configured_url: sanitizeObservedPageUrl(ctripLoginEntryUrl()),
       ok: false,
       auth_status: loginStatus.status,
@@ -298,9 +312,10 @@ try {
     });
     process.exitCode = 2;
   } else if (authOnly) {
+    await prepareCtripAuthPage(page);
     await probeTrustedCtripBusinessPageIdentity(page);
     if (loginOnly) {
-      await holdInteractiveLoginWindow(page, 'Ctrip');
+      page = await holdInteractiveLoginWindow(browser, page, 'Ctrip');
     }
   } else {
     await probeTrustedCtripBusinessPageIdentity(page);
@@ -377,21 +392,31 @@ try {
   await browser.close();
 }
 
-async function ensureLoggedIn(page, options = {}) {
-  await page.goto(ctripLoginEntryUrl(), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
-  await bringLoginPageToFront(page);
-  await page.waitForTimeout(2000);
-  await dismissBlockingOverlays(page);
-  if (await looksLoggedIn(page)) {
-    return { ok: true, status: 'logged_in', url: sanitizeObservedPageUrl(page.url()), message: 'Ctrip profile is logged in.' };
+async function ensureLoggedIn(context, initialPage, options = {}) {
+  let activePage = initialPage;
+  await activePage.goto(ctripLoginEntryUrl(), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
+  await bringLoginPageToFront(activePage);
+  await waitForProfileLoginPoll(2000);
+  await dismissBlockingOverlays(activePage).catch(() => null);
+  let resolved = await resolveCtripLoginPage(context, activePage);
+  activePage = resolved.page || activePage;
+  if (resolved.loggedIn) {
+    return {
+      ok: true,
+      status: 'logged_in',
+      url: sanitizeObservedPageUrl(safeCtripPageUrl(activePage)),
+      message: 'Ctrip profile is logged in.',
+      page: activePage,
+    };
   }
 
   if (options.interactive === false) {
     return {
       ok: false,
       status: 'login_required',
-      url: sanitizeObservedPageUrl(page.url()),
+      url: sanitizeObservedPageUrl(safeCtripPageUrl(activePage)),
       message: 'Ctrip existing Profile session is not ready for collection.',
+      page: activePage,
     };
   }
 
@@ -399,18 +424,62 @@ async function ensureLoggedIn(page, options = {}) {
   const timeoutMs = Number(args.loginTimeoutMs || 300000);
   const deadline = Date.now() + Math.max(timeoutMs, 30000);
   while (Date.now() < deadline) {
-    await page.waitForTimeout(3000);
-    if (await looksLoggedIn(page)) {
-      return { ok: true, status: 'logged_in', url: sanitizeObservedPageUrl(page.url()), message: 'Ctrip profile is logged in.' };
+    await waitForProfileLoginPoll(3000);
+    resolved = await resolveCtripLoginPage(context, activePage);
+    activePage = resolved.page || activePage;
+    if (resolved.page) {
+      await prepareCtripAuthPage(resolved.page);
+      await bringLoginPageToFront(resolved.page);
+    }
+    if (resolved.loggedIn) {
+      return {
+        ok: true,
+        status: 'logged_in',
+        url: sanitizeObservedPageUrl(safeCtripPageUrl(activePage)),
+        message: 'Ctrip profile is logged in.',
+        page: activePage,
+      };
     }
   }
   return {
     ok: false,
     status: 'login_required',
-    url: sanitizeObservedPageUrl(page.url()),
+    url: sanitizeObservedPageUrl(safeCtripPageUrl(activePage)),
     timeout_ms: timeoutMs,
     message: `Ctrip login timeout after ${Math.round(timeoutMs / 1000)} seconds`,
+    page: activePage,
   };
+}
+
+async function resolveCtripLoginPage(context, preferredPage) {
+  return resolveProfileLoginPage(
+    context,
+    preferredPage,
+    looksLoggedIn,
+    url => isCtripCaptureUrl(url),
+  );
+}
+
+async function prepareCtripAuthPage(targetPage) {
+  if (!targetPage) {
+    throw new Error('ctrip_profile_page_unavailable');
+  }
+  registerSessionProbeResponseObserver(targetPage);
+  if (!authPageNetworkPreparations.has(targetPage)) {
+    authPageNetworkPreparations.set(
+      targetPage,
+      requireFreshOtaPageNetwork(browser, targetPage),
+    );
+  }
+  return authPageNetworkPreparations.get(targetPage);
+}
+
+function safeCtripPageUrl(targetPage) {
+  try {
+    return typeof targetPage?.url === 'function' ? String(targetPage.url() || '') : '';
+  } catch {
+    return '';
+  }
 }
 
 async function bringLoginPageToFront(page) {
@@ -551,7 +620,7 @@ async function probeTrustedCtripBusinessPageIdentity(page) {
   return stateObserved && (!platformHotelName || headerObserved);
 }
 
-async function holdInteractiveLoginWindow(page, platformName) {
+async function holdInteractiveLoginWindow(context, currentPage, platformName) {
   const waitMs = Math.max(0, Math.min(600000, numberValue(
     args.postLoginWaitMs || args.keepOpenMs || args.interactiveHoldMs,
     0,
@@ -564,11 +633,18 @@ async function holdInteractiveLoginWindow(page, platformName) {
   console.log(`${platformName} login session is ready. Keeping browser open for ${Math.round(effectiveWaitMs / 1000)} seconds.`);
   const deadline = Date.now() + effectiveWaitMs;
   while (Date.now() < deadline) {
-    if (typeof page.isClosed === 'function' && page.isClosed()) {
-      return;
+    const livePages = liveProfilePageCandidates(
+      context,
+      currentPage,
+      url => isCtripCaptureUrl(url),
+    );
+    if (livePages.length === 0) {
+      return currentPage;
     }
-    await page.waitForTimeout(Math.min(3000, Math.max(250, deadline - Date.now()))).catch(() => null);
+    currentPage = livePages[0];
+    await waitForProfileLoginPoll(Math.min(3000, Math.max(250, deadline - Date.now())));
   }
+  return currentPage;
 }
 
 async function finalizePayload() {
@@ -1566,6 +1642,10 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
 }
 
 function registerSessionProbeResponseObserver(page) {
+  if (!page || sessionProbeObservedPages.has(page)) {
+    return;
+  }
+  sessionProbeObservedPages.add(page);
   page.on('response', response => {
     const requestType = response.request().resourceType();
     const status = Number(response.status() || 0);

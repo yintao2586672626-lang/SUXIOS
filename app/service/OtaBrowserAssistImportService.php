@@ -506,6 +506,7 @@ final class OtaBrowserAssistImportService
         }
 
         $sourcePath = 'meituan_stats.metrics';
+        $identityEvidence = $this->browserAssistIdentityEvidence($section, $context);
         $row = $this->compact([
             'source' => 'meituan',
             'platform' => 'meituan',
@@ -517,6 +518,7 @@ final class OtaBrowserAssistImportService
             'system_hotel_id' => (int)($section['system_hotel_id'] ?? $section['systemHotelId'] ?? $context['system_hotel_id'] ?? 0),
             'hotel_id' => $this->cleanText($section['hotel_id'] ?? $section['hotelId'] ?? $context['hotel_id'] ?? ''),
             'hotel_name' => $this->cleanText($section['hotelName'] ?? $section['hotel_name'] ?? $context['hotel_name'] ?? ''),
+            'browser_assist_identity' => $identityEvidence,
             'dimension' => 'realtime:meituan',
             'list_exposure' => $exposure,
             'detail_exposure' => $browse,
@@ -530,6 +532,7 @@ final class OtaBrowserAssistImportService
                 'source_contract' => self::CONTRACT_VERSION,
                 'module' => 'meituan_stats',
                 'snapshot_time_source' => $snapshot['source'],
+                'browser_assist_identity' => $identityEvidence,
                 'metrics' => [
                     'exposure_users' => $this->metricRawValue($metrics, ['exposureUsers', 'listExposure', 'impressions', 'exposure_count']),
                     'browse_users' => $this->metricRawValue($metrics, ['browseUsers', 'detailExposure', 'visitors', 'uv', 'clicks']),

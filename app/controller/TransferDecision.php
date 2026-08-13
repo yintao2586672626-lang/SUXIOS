@@ -26,7 +26,7 @@ class TransferDecision extends Base
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
-            $date = $this->normalizeDate((string)$this->request->param('date', date('Y-m-d')));
+            $date = $this->normalizeDate((string)$this->request->param('date', $this->currentBusinessDate()));
 
             return $this->success($this->service->buildSourcePayload($hotelIds, $hotelId, $date));
         } catch (InvalidArgumentException $e) {
@@ -51,7 +51,7 @@ class TransferDecision extends Base
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
             $snapshot = $this->payloadSnapshot($input);
             $recordHotelId = $this->recordHotelId($input, $snapshot, $hotelIds, $hotelId);
-            unset($input['snapshot']);
+            unset($input['snapshot'], $input['data_snapshot']);
 
             $result = $this->service->calculateAssetPricing($input);
             if (($result['status'] ?? '') === 'insufficient_data') {
@@ -79,7 +79,7 @@ class TransferDecision extends Base
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
             $snapshot = $this->payloadSnapshot($input);
             $recordHotelId = $this->recordHotelId($input, $snapshot, $hotelIds, $hotelId);
-            unset($input['snapshot']);
+            unset($input['snapshot'], $input['data_snapshot']);
 
             $result = $this->service->calculateTransferTiming($input);
             if (($result['status'] ?? '') === 'insufficient_data') {
@@ -159,23 +159,51 @@ class TransferDecision extends Base
 
             [$hotelIds] = $this->resolveHotelScope();
             $record = $this->service->detail($id, $hotelIds, (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
-            if ((int)($record['result']['operation_execution_intent_id'] ?? 0) > 0) {
-                return $this->error('transfer record already linked to execution intent', 409);
+            $hotelId = (int)($record['hotel_id'] ?? 0);
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'operation.execute',
+                'operation.execute permission is required for this hotel'
+            )) !== null) {
+                return $denied;
             }
-
             $userId = (int)($this->currentUser->id ?? 0);
-            $result = Db::transaction(function () use ($record, $id, $hotelIds, $userId): array {
+            $dateOverrides = [];
+            foreach (['date_start', 'date_end'] as $dateField) {
+                if ($this->request->has($dateField)) {
+                    $dateOverrides[$dateField] = $this->request->param($dateField);
+                }
+            }
+            $result = Db::transaction(function () use ($record, $id, $hotelIds, $userId, $dateOverrides): array {
                 $operationService = new OperationManagementService();
-                $input = $this->service->buildExecutionIntentInput($record, [
-                    'date_start' => (string)$this->request->param('date_start', ''),
-                    'date_end' => (string)$this->request->param('date_end', ''),
-                ]);
-                $intent = $operationService->createExecutionIntent($hotelIds, (int)$record['hotel_id'], $input, $userId);
-                $updatedRecord = $this->service->attachExecutionTracking($id, $hotelIds, $userId, $this->currentUser->isSuperAdmin(), [
-                    'execution_intent_id' => (int)($intent['id'] ?? 0),
-                    'hotel_id' => (int)$record['hotel_id'],
-                    'status' => (string)($intent['status'] ?? ''),
-                ]);
+                // Preflight detail is UX-only. Re-authorize and lock the current
+                // hotel/tenant/source identity before deriving or writing an intent.
+                $record = $this->service->lockExecutionTrackingSource(
+                    $id,
+                    $hotelIds,
+                    (int)$record['hotel_id']
+                );
+                $input = $this->service->buildExecutionIntentInput($record, $dateOverrides);
+                $intent = $operationService->createExecutionIntent(
+                    $hotelIds,
+                    (int)$record['hotel_id'],
+                    $input,
+                    $userId,
+                    false,
+                    null,
+                    true
+                );
+                $updatedRecord = $this->service->attachExecutionTracking(
+                    $id,
+                    $hotelIds,
+                    $userId,
+                    $this->currentUser->isSuperAdmin(),
+                    [
+                        'execution_intent_id' => (int)($intent['id'] ?? 0),
+                        'hotel_id' => (int)$record['hotel_id'],
+                        'status' => (string)($intent['status'] ?? ''),
+                    ]
+                );
 
                 return [
                     'execution_intent' => $intent,
@@ -236,13 +264,31 @@ class TransferDecision extends Base
 
     private function payloadSnapshot(array $input): array
     {
-        $snapshot = $input['snapshot'] ?? $input['data_snapshot'] ?? [];
-        return is_array($snapshot) ? $snapshot : [];
+        $hasSnapshot = array_key_exists('snapshot', $input);
+        $hasDataSnapshot = array_key_exists('data_snapshot', $input);
+        if ($hasSnapshot && !is_array($input['snapshot'])) {
+            throw new InvalidArgumentException('transfer snapshot identity scope mismatch');
+        }
+        if ($hasDataSnapshot && !is_array($input['data_snapshot'])) {
+            throw new InvalidArgumentException('transfer snapshot identity scope mismatch');
+        }
+        if ($hasSnapshot && $hasDataSnapshot && $input['snapshot'] !== $input['data_snapshot']) {
+            throw new InvalidArgumentException('transfer snapshot identity scope mismatch');
+        }
+
+        return $hasSnapshot
+            ? $input['snapshot']
+            : ($hasDataSnapshot ? $input['data_snapshot'] : []);
     }
 
     private function recordHotelId(array $input, array $snapshot, array $hotelIds, ?int $hotelId): int
     {
-        $candidate = (int)($input['hotel_id'] ?? $snapshot['hotel_id'] ?? 0);
+        $inputHotelId = (int)($input['hotel_id'] ?? 0);
+        $snapshotHotelId = (int)($snapshot['hotel_id'] ?? 0);
+        if ($inputHotelId > 0 && $snapshotHotelId > 0 && $inputHotelId !== $snapshotHotelId) {
+            throw new InvalidArgumentException('transfer hotel scope mismatch');
+        }
+        $candidate = $inputHotelId > 0 ? $inputHotelId : $snapshotHotelId;
         if ($candidate > 0 && in_array($candidate, $hotelIds, true)) {
             return $candidate;
         }
@@ -256,12 +302,26 @@ class TransferDecision extends Base
 
     private function normalizeDate(string $date): string
     {
-        $timestamp = strtotime($date);
-        if ($timestamp === false) {
+        $timezone = new \DateTimeZone('Asia/Shanghai');
+        $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, $timezone);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if (
+            $parsed === false
+            || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+            || $parsed->format('Y-m-d') !== $date
+        ) {
             throw new InvalidArgumentException('日期格式不正确');
         }
 
-        return date('Y-m-d', $timestamp);
+        return $date;
+    }
+
+    private function currentBusinessDate(?\DateTimeInterface $now = null): string
+    {
+        $timestamp = $now?->getTimestamp() ?? time();
+        return (new \DateTimeImmutable('@' . $timestamp))
+            ->setTimezone(new \DateTimeZone('Asia/Shanghai'))
+            ->format('Y-m-d');
     }
 
     private function safeErrorMessage(Throwable $e, string $fallback): string

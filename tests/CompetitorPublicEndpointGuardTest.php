@@ -73,7 +73,7 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
         }
     }
 
-    public function testCompletedReportAllowsOnlyAnIdenticalIdempotentRetry(): void
+    public function testCompletedReportRequiresAStoredReadbackRatherThanCacheAlone(): void
     {
         $controller = $this->controller();
         $deviceId = 'test-device-' . bin2hex(random_bytes(6));
@@ -104,7 +104,7 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
                 $tokenVersion,
             ]);
 
-            $completed = $this->invokeNonPublic($controller, 'completedReport', [
+            self::assertNull($this->invokeNonPublic($controller, 'completedReport', [
                 $deviceId,
                 $platform,
                 $storeId,
@@ -112,8 +112,7 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
                 $fingerprint,
                 $bindingId,
                 $tokenVersion,
-            ]);
-            self::assertSame(801, $completed['id']);
+            ]));
             self::assertNull($this->invokeNonPublic($controller, 'completedReport', [
                 $deviceId,
                 $platform,
@@ -134,6 +133,145 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
             ]));
         } finally {
             cache($completedKey, null);
+        }
+    }
+
+    public function testReplayReceiptPreservesReadbackAndFailureTruth(): void
+    {
+        $controller = $this->controller();
+        $valid = new \app\model\CompetitorPriceLog();
+        $valid->id = 801;
+        $valid->validation_status = 'valid';
+        $valid->readback_verified = 1;
+        $valid->failure_reason = '';
+        self::assertSame([
+            'id' => 801,
+            'idempotent_replay' => true,
+            'validation_status' => 'valid',
+            'readback_verified' => true,
+            'collection_status' => 'collected',
+            'failure_reason' => '',
+        ], $this->invokeNonPublic($controller, 'replayReceiptFromLog', [$valid]));
+
+        $failed = new \app\model\CompetitorPriceLog();
+        $failed->id = 802;
+        $failed->validation_status = 'failed';
+        $failed->readback_verified = 1;
+        $failed->failure_reason = 'collector_verification_required:ctrip_public_room_response_blocked';
+        $receipt = $this->invokeNonPublic($controller, 'replayReceiptFromLog', [$failed]);
+        self::assertSame('verification_required', $receipt['collection_status']);
+        self::assertSame('failed', $receipt['validation_status']);
+        self::assertTrue($receipt['readback_verified']);
+
+        $failed->readback_verified = 0;
+        self::assertFalse($this->invokeNonPublic($controller, 'replayReceiptFromLog', [$failed])['readback_verified']);
+    }
+
+    public function testTaskAssignmentBindsTaskIdAndExactCaptureScope(): void
+    {
+        $controller = $this->controller();
+        $deviceId = 'test-device-' . bin2hex(random_bytes(6));
+        $platform = 'xc';
+        $storeId = random_int(100000, 999999);
+        $hotelId = random_int(1000000, 9999999);
+        $bindingId = random_int(1000, 9999);
+        $tokenVersion = 4;
+        $taskId = bin2hex(random_bytes(16));
+        $captureScope = [
+            'ota_hotel_id' => '1056408',
+            'check_in_date' => '2026-08-13',
+            'check_out_date' => '2026-08-14',
+            'adults' => 2,
+            'children' => 0,
+            'currency' => 'CNY',
+            'price_basis' => 'per_room_per_night',
+        ];
+        $scope = [$deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion];
+        $assignmentKey = $this->invokeNonPublic($controller, 'taskAssignmentCacheKey', $scope);
+        $ownerKey = $this->invokeNonPublic($controller, 'taskOwnershipCacheKey', [$platform, $storeId, $hotelId]);
+        $completedKey = $this->invokeNonPublic($controller, 'completedReportCacheKey', $scope);
+
+        try {
+            self::assertTrue($this->invokeNonPublic(
+                $controller,
+                'rememberTaskAssignment',
+                [...$scope, $taskId, $captureScope]
+            ));
+            $assignment = $this->invokeNonPublic($controller, 'taskAssignment', $scope);
+            self::assertIsArray($assignment);
+            self::assertSame($taskId, $assignment['task_id']);
+            self::assertSame($captureScope, $assignment['capture_scope']);
+            $reusable = $this->invokeNonPublic($controller, 'reusableTaskAssignment', [
+                ...$scope,
+                $captureScope,
+            ]);
+            self::assertIsArray($reusable);
+            self::assertSame($taskId, $reusable['task_id']);
+            self::assertNull($this->invokeNonPublic($controller, 'reusableTaskAssignment', [
+                ...$scope,
+                [...$captureScope, 'check_in_date' => '2026-08-14', 'check_out_date' => '2026-08-15'],
+            ]));
+
+            $rateContext = [
+                'check_in_date' => '2026-08-13',
+                'check_out_date' => '2026-08-14',
+                'adults' => 2,
+                'children' => 0,
+                'currency' => 'CNY',
+                'price_basis' => 'per_room_per_night',
+            ];
+            self::assertTrue($this->invokeNonPublic($controller, 'reportMatchesTaskAssignment', [
+                $assignment,
+                $taskId,
+                '1056408',
+                $rateContext,
+            ]));
+            self::assertFalse($this->invokeNonPublic($controller, 'reportMatchesTaskAssignment', [
+                $assignment,
+                $taskId,
+                '1056408',
+                [...$rateContext, 'check_in_date' => '2026-08-14', 'check_out_date' => '2026-08-15'],
+            ]));
+            self::assertFalse($this->invokeNonPublic($controller, 'reportMatchesTaskAssignment', [
+                $assignment,
+                bin2hex(random_bytes(16)),
+                '1056408',
+                $rateContext,
+            ]));
+            self::assertFalse($this->invokeNonPublic($controller, 'reportMatchesTaskAssignment', [
+                $assignment,
+                $taskId,
+                '9999999',
+                $rateContext,
+            ]));
+        } finally {
+            cache($assignmentKey, null);
+            cache($ownerKey, null);
+            cache($completedKey, null);
+        }
+    }
+
+    public function testTaskStayDateDefaultsToTomorrowAndRejectsOutOfWindowDates(): void
+    {
+        $controller = $this->controller();
+        $today = new \DateTimeImmutable('today');
+
+        self::assertSame(
+            $today->modify('+1 day')->format('Y-m-d'),
+            $this->invokeNonPublic($controller, 'resolveTaskStayDate', [''])
+        );
+        self::assertSame(
+            $today->format('Y-m-d'),
+            $this->invokeNonPublic($controller, 'resolveTaskStayDate', [$today->format('Y-m-d')])
+        );
+
+        foreach (['not-a-date', $today->modify('-1 day')->format('Y-m-d'), $today->modify('+91 days')->format('Y-m-d')] as $invalid) {
+            try {
+                $this->invokeNonPublic($controller, 'resolveTaskStayDate', [$invalid]);
+                self::fail('Invalid stay date must be rejected: ' . $invalid);
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringContainsString('stay_date', $exception->getMessage());
+            }
         }
     }
 
@@ -164,6 +302,13 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
         self::assertStringContainsString('report_fingerprint', $reportFingerprintMigration);
         self::assertStringContainsString('ADD UNIQUE INDEX IF NOT EXISTS', $reportFingerprintMigration);
         self::assertStringContainsString('taskOwnershipCacheKey', $competitor);
+        self::assertStringContainsString("post('stay_date', '')", $competitor);
+        self::assertStringContainsString("post('task_id', '')", $competitor);
+        self::assertStringContainsString("post('collection_status', '')", $competitor);
+        self::assertStringContainsString("'verification_required'", $competitor);
+        self::assertStringContainsString("'zero_rows'", $competitor);
+        self::assertStringContainsString("'task_scope_mismatch'", $competitor);
+        self::assertStringContainsString("where('competitor_price_log.check_in_date', \$stayDate)", $competitor);
         self::assertStringContainsString("'device_not_active'", $competitor);
         self::assertStringContainsString("'target_competitor_hotel_ids'", $competitor);
         self::assertStringContainsString("'competitor_hotel_id'", $competitor);

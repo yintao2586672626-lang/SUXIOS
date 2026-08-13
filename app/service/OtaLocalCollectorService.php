@@ -4,8 +4,10 @@ declare(strict_types=1);
 namespace app\service;
 
 use app\exception\OtaLocalCollectorLeaseConflict;
+use app\model\base\BaseTenantModel;
 use app\model\User;
 use app\service\concern\OtaLocalCollectorLeaseConcern;
+use app\service\concern\OtaLocalCollectorManualLoginConcern;
 use RuntimeException;
 use think\facade\Cache;
 use think\facade\Db;
@@ -19,11 +21,13 @@ use Throwable;
 final class OtaLocalCollectorService
 {
     use OtaLocalCollectorLeaseConcern;
+    use OtaLocalCollectorManualLoginConcern;
 
     private const CONTRACT_VERSION = 'ota_local_collector.v1';
     private const PAIR_TTL_SECONDS = 600;
     private const DEVICE_ONLINE_SECONDS = 120;
     private const LEASE_SECONDS = 900;
+    private const LOGIN_HANDOFF_RECOVERY_SECONDS = 3600;
     private const GAP_LOOKBACK_DAYS = 3;
     private const MAX_GAP_TASKS_PER_HEARTBEAT = 5;
     private const YESTERDAY_WINDOW_START = '08:30';
@@ -81,17 +85,22 @@ final class OtaLocalCollectorService
     /** @var callable|null */
     private $downstreamGateResolver;
 
+    /** @var callable|null */
+    private $autopilotKickEnqueuer;
+
     public function __construct(
         ?callable $collectionImporter = null,
         private readonly ?OtaFailureNotificationService $failureNotifier = null,
         ?callable $trustResolver = null,
         ?callable $authorityVerifier = null,
-        ?callable $downstreamGateResolver = null
+        ?callable $downstreamGateResolver = null,
+        ?callable $autopilotKickEnqueuer = null
     ) {
         $this->collectionImporter = $collectionImporter;
         $this->trustResolver = $trustResolver;
         $this->authorityVerifier = $authorityVerifier;
         $this->downstreamGateResolver = $downstreamGateResolver;
+        $this->autopilotKickEnqueuer = $autopilotKickEnqueuer;
     }
 
     /** @return array<string, mixed> */
@@ -946,6 +955,21 @@ final class OtaLocalCollectorService
         $requestedAt = date('Y-m-d H:i:s');
         $reason = $this->safeText((string)($input['reason'] ?? ''), 180);
         $request = ['sections' => [], 'reason' => $reason, 'requested_at' => $requestedAt];
+        if ($taskType === 'login') {
+            $manualResume = $this->manualLoginResumeContext(
+                (int)$account['tenant_id'],
+                (int)$account['user_id'],
+                (int)$account['device_id'],
+                (int)$account['id'],
+                (int)$mapping['system_hotel_id'],
+                (string)$account['platform']
+            );
+            if ($manualResume !== null) {
+                $request['manual_resume_probe_task_id'] = $manualResume['probe_task_id'];
+                $request['recovery_trigger'] = 'manual_interactive_login';
+                $request['resume_collections'] = $manualResume['resume_collections'];
+            }
+        }
         if (in_array($taskType, ['collect', 'backfill'], true)) {
             $missingFieldKeys = $this->sanitizeFieldKeys($input['missing_field_keys'] ?? []);
             if ($taskType === 'backfill' && $missingFieldKeys === []) {
@@ -1609,7 +1633,12 @@ final class OtaLocalCollectorService
                     $this->safeText((string)($input['message'] ?? '平台当前会话未通过验证。'), 500)
                 );
             }
-            return $this->finishLoginTask($task, $account, $device, $input);
+            $result = $this->finishLoginTask($task, $account, $device, $input);
+            $result['autopilot_kick'] = $this->enqueueHotelAutopilotAfterVerifiedLogin($task);
+            $result['next_action'] = $result['autopilot_kick']['status'] === 'queued'
+                ? '登录状态已验证，宿析已接管后续计划、采集和分析，无需手动发起采集。'
+                : '登录状态已验证；后台协调器会自动重试后续流程，无需重复提交登录结果。';
+            return $result;
         }
 
         $captureSummary = $this->sanitizeCaptureSummary($input['capture_summary'] ?? []);
@@ -1672,22 +1701,46 @@ final class OtaLocalCollectorService
             if (!is_array($account)) {
                 throw new RuntimeException('本机采集账户在导入前已不可用。', 409);
             }
-            $owner = User::find((int)$device['user_id']);
-            if (!$owner || (int)($owner->status ?? 0) !== 1) {
-                throw new RuntimeException('设备所属账号已停用。', 403);
-            }
-            $importResult = $this->collectionImporter !== null
-                ? (array)call_user_func($this->collectionImporter, $owner, $task, $account, $mapping, $device, $rows)
-                : $this->importCollectionRows(
-                    $owner,
+            $importResult = BaseTenantModel::runInTenantScope(
+                (int)$task['tenant_id'],
+                function () use (
+                    $device,
                     $task,
                     $account,
                     $mapping,
-                    $device,
                     $rows,
                     $captureSummary,
                     $orderedPlan
-                );
+                ): array {
+                    $owner = User::where('id', (int)$device['user_id'])
+                        ->where('tenant_id', (int)$task['tenant_id'])
+                        ->where('status', 1)
+                        ->find();
+                    if (!$owner instanceof User) {
+                        throw new RuntimeException('设备所属账号已停用。', 403);
+                    }
+                    return $this->collectionImporter !== null
+                        ? (array)call_user_func(
+                            $this->collectionImporter,
+                            $owner,
+                            $task,
+                            $account,
+                            $mapping,
+                            $device,
+                            $rows
+                        )
+                        : $this->importCollectionRows(
+                            $owner,
+                            $task,
+                            $account,
+                            $mapping,
+                            $device,
+                            $rows,
+                            $captureSummary,
+                            $orderedPlan
+                        );
+                }
+            );
 
             $deterministicReadback = $this->sanitizeDeterministicReadbackSet(
             $importResult['deterministic_readback'] ?? []
@@ -1994,15 +2047,40 @@ final class OtaLocalCollectorService
     {
         $now = date('Y-m-d H:i:s');
         $verifiedAt = $this->normalizeDateTime((string)($input['session_verified_at'] ?? '')) ?: $now;
+        $request = $this->decodeJson($task['request_json'] ?? null);
+        $resumeCollections = is_array($request['resume_collections'] ?? null)
+            ? array_values($request['resume_collections'])
+            : (is_array($request['resume_collection'] ?? null) ? [$request['resume_collection']] : []);
+        if ($resumeCollections === []) {
+            $manualResume = $this->manualLoginResumeContext(
+                (int)$task['tenant_id'],
+                (int)$task['user_id'],
+                (int)$task['device_id'],
+                (int)$task['account_id'],
+                (int)$task['system_hotel_id'],
+                (string)$task['platform'],
+                (int)$task['id']
+            );
+            if ($manualResume !== null) {
+                $request['manual_resume_probe_task_id'] = $manualResume['probe_task_id'];
+                $request['recovery_trigger'] = 'manual_interactive_login';
+                $request['resume_collections'] = $manualResume['resume_collections'];
+                $resumeCollections = $manualResume['resume_collections'];
+            }
+        }
         $summary = [
             'source_method' => 'local_account_profile',
             'session_status' => 'current_session_verified',
             'session_verified_at' => $verifiedAt,
             'sensitive_values_received' => false,
         ];
-        Db::transaction(function () use ($task, $account, $summary, $verifiedAt, $now): void {
+        if ((int)($request['manual_resume_probe_task_id'] ?? 0) > 0) {
+            $summary['manual_resume_probe_task_id'] = (int)$request['manual_resume_probe_task_id'];
+        }
+        Db::transaction(function () use ($task, $account, $request, $summary, $verifiedAt, $now): void {
             $this->requireLeasedTaskWrite($task, [
                 'status' => 'success',
+                'request_json' => json_encode($request, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 'error_code' => '',
                 'error_summary' => '',
@@ -2027,10 +2105,6 @@ final class OtaLocalCollectorService
                 '登录任务账号回写后精确回读失败。'
             );
         });
-        $request = $this->decodeJson($task['request_json'] ?? null);
-        $resumeCollections = is_array($request['resume_collections'] ?? null)
-            ? array_values($request['resume_collections'])
-            : (is_array($request['resume_collection'] ?? null) ? [$request['resume_collection']] : []);
         $resumedTaskIds = [];
         $resumeError = '';
         $verifiedAccount = array_merge($account, [
@@ -2049,11 +2123,10 @@ final class OtaLocalCollectorService
                     continue;
                 }
                 $resumeHotelId = $this->strictPositiveInt($resume['system_hotel_id'] ?? $task['system_hotel_id']);
-                $resumeUser = User::find((int)$task['user_id']);
-                if (!$resumeUser || (int)($resumeUser->tenant_id ?? 0) !== (int)$task['tenant_id']) {
-                    throw new RuntimeException('resume_user_scope_invalid', 403);
-                }
-                $resumeActor = $this->actorContext($resumeUser);
+                $resumeActor = $this->taskOwnerActor(
+                    $task,
+                    'resume_user_scope_invalid'
+                );
                 $this->assertHotelPermission($resumeActor, $resumeHotelId);
                 $mapping = $this->mappingForAccountHotel(
                     (int)$task['tenant_id'],
@@ -2105,6 +2178,71 @@ final class OtaLocalCollectorService
                 ? '账户登录态与目标门店已验证，原目标日期采集已自动进入有序队列。'
                 : '账户登录态已在本机验证，可选择门店执行昨日采集或补抓。',
         ];
+    }
+
+    /** @param array<string,mixed> $task @return array<string,mixed> */
+    private function enqueueHotelAutopilotAfterVerifiedLogin(array $task): array
+    {
+        $tenantId = (int)($task['tenant_id'] ?? 0);
+        $hotelId = (int)($task['system_hotel_id'] ?? 0);
+        $safeDeferred = [
+            'status' => 'deferred',
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'failure_code' => 'hotel_lifecycle_login_kick_deferred',
+            'readback_verified' => false,
+            'external_action_triggered' => false,
+            'auto_write_ota' => false,
+        ];
+
+        try {
+            if ($tenantId <= 0 || $hotelId <= 0) {
+                return $safeDeferred;
+            }
+            $actor = $this->taskOwnerActor($task, 'hotel_lifecycle_login_kick_actor_invalid');
+            $this->assertHotelPermission($actor, $hotelId);
+            $hotel = Db::name('hotels')
+                ->where('id', $hotelId)
+                ->where('tenant_id', $tenantId)
+                ->find();
+            if (!is_array($hotel)) {
+                return $safeDeferred;
+            }
+            $actorId = (int)($actor['user_id'] ?? 0);
+            $queued = $this->autopilotKickEnqueuer !== null
+                ? ($this->autopilotKickEnqueuer)($tenantId, $hotelId, $actorId, (int)($task['id'] ?? 0))
+                : (new HotelAutopilotKickQueueService())->enqueueVerifiedLogin(
+                    $tenantId,
+                    $hotelId,
+                    $actorId,
+                    (int)($task['id'] ?? 0)
+                );
+            if (!is_array($queued)
+                || (string)($queued['status'] ?? '') !== 'queued'
+                || ($queued['readback_verified'] ?? false) !== true
+                || (int)($queued['tenant_id'] ?? 0) !== $tenantId
+                || (int)($queued['hotel_id'] ?? 0) !== $hotelId
+            ) {
+                $safeDeferred['failure_code'] = $this->safeIdentifier(
+                    (string)($queued['failure_code'] ?? 'hotel_lifecycle_login_kick_readback_unverified'),
+                    100
+                ) ?: 'hotel_lifecycle_login_kick_readback_unverified';
+                return $safeDeferred;
+            }
+
+            return [
+                'status' => 'queued',
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'queue_id' => max(0, (int)($queued['queue_id'] ?? 0)),
+                'failure_code' => '',
+                'readback_verified' => true,
+                'external_action_triggered' => false,
+                'auto_write_ota' => false,
+            ];
+        } catch (Throwable) {
+            return $safeDeferred;
+        }
     }
 
     /** @return array<string, mixed> */
@@ -2186,6 +2324,25 @@ final class OtaLocalCollectorService
                     ) ?: 'recovery_probe_not_queued',
                 ];
             }
+        } elseif (!$retryable
+            && in_array($taskStatus, ['login_required', 'verification_required'], true)
+            && (string)($task['task_type'] ?? '') === 'session_probe'
+        ) {
+            try {
+                $recoveryProbe = $this->scheduleInteractiveLoginRecovery(
+                    $task,
+                    $account,
+                    $device
+                );
+            } catch (Throwable $error) {
+                $recoveryProbe = [
+                    'status' => 'interactive_login_not_queued',
+                    'failure_reason' => $this->safeIdentifier(
+                        strtolower($error->getMessage()),
+                        120
+                    ) ?: 'interactive_login_not_queued',
+                ];
+            }
         }
         $this->touchDevice($device);
         if (!$retryable) {
@@ -2239,14 +2396,7 @@ final class OtaLocalCollectorService
         if ($dispatcherRunId === '') {
             return null;
         }
-        $user = User::find((int)($task['user_id'] ?? 0));
-        if (!$user
-            || (int)($user->status ?? 0) !== 1
-            || (int)($user->tenant_id ?? 0) !== (int)($task['tenant_id'] ?? 0)
-        ) {
-            throw new RuntimeException('recovery_user_scope_invalid', 403);
-        }
-        $actor = $this->actorContext($user);
+        $actor = $this->taskOwnerActor($task, 'recovery_user_scope_invalid');
         $hotelId = (int)($task['system_hotel_id'] ?? 0);
         $this->assertHotelPermission($actor, $hotelId);
         $mapping = $this->mappingForAccountHotel(
@@ -2296,6 +2446,93 @@ final class OtaLocalCollectorService
             throw new RuntimeException('recovery_probe_identity_mismatch', 409);
         }
         return $probe;
+    }
+
+    /**
+     * A failed scheduled session probe may open one interactive login task on
+     * the same immutable account/device/hotel scope. It carries the original
+     * dispatcher and resume set; a timed-out login never selects a substitute
+     * device or creates an unscoped collection.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function scheduleInteractiveLoginRecovery(
+        array $task,
+        array $account,
+        array $device
+    ): ?array {
+        $request = $this->decodeJson($task['request_json'] ?? null);
+        $dispatcherRunId = $this->normalizeDispatcherRunId((string)(
+            $request['dispatcher_run_id'] ?? ''
+        ));
+        if ($dispatcherRunId === '') {
+            return null;
+        }
+
+        $resumeCollections = is_array($request['resume_collections'] ?? null)
+            ? array_values($request['resume_collections'])
+            : [];
+        if ($resumeCollections === []) {
+            throw new RuntimeException('interactive_login_resume_missing', 409);
+        }
+        foreach ($resumeCollections as $resume) {
+            if (!is_array($resume)
+                || !in_array((string)($resume['task_type'] ?? ''), ['collect', 'backfill'], true)
+                || (int)($resume['account_id'] ?? 0) !== (int)$task['account_id']
+                || (int)($resume['device_id'] ?? 0) !== (int)$task['device_id']
+                || (int)($resume['system_hotel_id'] ?? 0) !== (int)$task['system_hotel_id']
+                || $this->normalizeDispatcherRunId((string)(
+                    $resume['request']['dispatcher_run_id'] ?? ''
+                )) !== $dispatcherRunId
+            ) {
+                throw new RuntimeException('interactive_login_resume_scope_mismatch', 409);
+            }
+        }
+
+        $actor = $this->taskOwnerActor($task, 'interactive_login_user_scope_invalid');
+        $hotelId = (int)$task['system_hotel_id'];
+        $this->assertHotelPermission($actor, $hotelId);
+        $mapping = $this->mappingForAccountHotel(
+            (int)$task['tenant_id'],
+            (int)$task['account_id'],
+            $hotelId,
+            (string)$task['platform']
+        );
+        $login = $this->enqueueTask(
+            $actor,
+            $account,
+            $mapping,
+            'login',
+            null,
+            'session',
+            [
+                'dispatcher_run_id' => $dispatcherRunId,
+                'trigger_type' => 'scheduler',
+                'sections' => [],
+                'reason' => 'scheduled_session_probe_interactive_login',
+                'requested_at' => date('Y-m-d H:i:s'),
+                'recovery_of_task_id' => (int)$task['id'],
+                'recovery_trigger' => 'interactive_login',
+                'resume_collections' => $resumeCollections,
+            ],
+            true,
+            100,
+            false
+        );
+        if ((int)($login['device_id'] ?? 0) !== (int)($device['id'] ?? 0)
+            || (int)($login['account_id'] ?? 0) !== (int)($account['id'] ?? 0)
+            || (int)($login['system_hotel_id'] ?? 0) !== $hotelId
+        ) {
+            throw new RuntimeException('interactive_login_identity_mismatch', 409);
+        }
+        $loginRequest = $this->decodeJson($login['request_json'] ?? null);
+        if ($this->normalizeDispatcherRunId((string)(
+            $loginRequest['dispatcher_run_id'] ?? ''
+        )) !== $dispatcherRunId) {
+            throw new RuntimeException('interactive_login_dispatcher_mismatch', 409);
+        }
+
+        return $login;
     }
 
     /** @return array<string, mixed> */
@@ -2701,17 +2938,26 @@ final class OtaLocalCollectorService
         $scheduledDispatcherRunId = ($collectionTask || $sessionTask)
             ? $this->normalizeDispatcherRunId((string)($request['dispatcher_run_id'] ?? ''))
             : '';
-        $recoveryOfTaskId = $collectionTask
+        $recoveryOfTaskId = ($collectionTask || $sessionTask)
             ? $this->strictPositiveInt($request['recovery_of_task_id'] ?? null)
             : 0;
         $taskFamily = $sessionTask ? 'session' : ($collectionTask ? 'collection' : $taskType);
         $scopeKey = implode('|', [
             (int)$account['id'],
-            $sessionTask ? 'account' : (int)$mapping['system_hotel_id'],
+            (int)$mapping['system_hotel_id'],
             $taskFamily,
             $dataDate ?: 'session',
             $collectionTask ? 'ota_yesterday_core' : $dataType,
         ]);
+        if ($sessionTask && $recoveryOfTaskId > 0) {
+            $this->assertSessionRecoveryTarget(
+                $account,
+                $mapping,
+                $taskType,
+                $recoveryOfTaskId,
+                $scheduledDispatcherRunId
+            );
+        }
 
         $activeQuery = Db::name('ota_local_collector_tasks')
             ->where('tenant_id', (int)$account['tenant_id'])
@@ -2736,16 +2982,30 @@ final class OtaLocalCollectorService
         if (is_array($active)) {
             $active = $this->reusableTaskReadback($active, $account, $mapping, true);
             if (is_array($active)) {
-                if ($scheduledDispatcherRunId !== '') {
-                    $activeRequest = $this->decodeJson($active['request_json'] ?? null);
-                    if ($this->normalizeDispatcherRunId((string)(
-                        $activeRequest['dispatcher_run_id'] ?? ''
-                    )) !== $scheduledDispatcherRunId) {
-                        throw new RuntimeException(
-                            'local_collector_plan_dispatcher_task_in_progress',
-                            409
-                        );
-                    }
+                $activeRequest = $this->decodeJson($active['request_json'] ?? null);
+                $activeDispatcherRunId = $this->normalizeDispatcherRunId((string)(
+                    $activeRequest['dispatcher_run_id'] ?? ''
+                ));
+                if (($sessionTask && $activeDispatcherRunId !== $scheduledDispatcherRunId)
+                    || (!$sessionTask
+                        && $scheduledDispatcherRunId !== ''
+                        && $activeDispatcherRunId !== $scheduledDispatcherRunId)
+                ) {
+                    throw new RuntimeException(
+                        'local_collector_plan_dispatcher_task_in_progress',
+                        409
+                    );
+                }
+                if ($sessionTask && $recoveryOfTaskId > 0
+                    && ((string)($active['task_type'] ?? '') !== $taskType
+                        || $this->strictPositiveInt(
+                            $activeRequest['recovery_of_task_id'] ?? null
+                        ) !== $recoveryOfTaskId)
+                ) {
+                    throw new RuntimeException(
+                        'local_collector_session_recovery_task_in_progress',
+                        409
+                    );
                 }
                 $active['_created'] = false;
                 return $active;
@@ -2753,6 +3013,7 @@ final class OtaLocalCollectorService
         }
 
         $manualRetryOfTaskId = 0;
+        $sessionRetryOfTaskId = 0;
         $latest = $this->latestTaskForScope(
             (int)$account['tenant_id'],
             (int)$account['user_id'],
@@ -2774,7 +3035,33 @@ final class OtaLocalCollectorService
                 $latestRequest['dispatcher_run_id'] ?? ''
             ));
             $newSessionAttempt = $sessionTask
+                && $recoveryOfTaskId === 0
                 && ($manualRequest || $force);
+            $newSameDispatcherSessionRetry = $sessionTask
+                && $recoveryOfTaskId === 0
+                && !$manualRequest
+                && !$force
+                && $scheduledDispatcherRunId !== ''
+                && $latestDispatcherRunId === $scheduledDispatcherRunId
+                && in_array(
+                    $latestStatus,
+                    ['login_required', 'verification_required'],
+                    true
+                )
+                && trim((string)($latest['finished_at'] ?? '')) !== '';
+            $sameSessionRecoveryAttempt = $sessionTask
+                && $recoveryOfTaskId > 0
+                && (string)($latest['task_type'] ?? '') === $taskType
+                && $this->strictPositiveInt(
+                    $latestRequest['recovery_of_task_id'] ?? null
+                ) === $recoveryOfTaskId
+                && $latestDispatcherRunId === $scheduledDispatcherRunId;
+            if ($sameSessionRecoveryAttempt) {
+                $latest['_created'] = false;
+                return $latest;
+            }
+            $newSessionRecoveryAttempt = $sessionTask
+                && $recoveryOfTaskId > 0;
             $newCollectionAttempt = $collectionTask
                 && $manualRequest
                 && in_array($latestStatus, self::MANUAL_RETRYABLE_TASK_STATUSES, true);
@@ -2795,13 +3082,15 @@ final class OtaLocalCollectorService
                 && $latestDispatcherRunId === $scheduledDispatcherRunId
                 && in_array($latestStatus, ['login_required', 'verification_required'], true)
                 && (string)($account['session_status'] ?? '') === 'current_session_verified';
-            if ($recoveryOfTaskId > 0 && !$newRecoveryAttempt) {
+            if ($collectionTask && $recoveryOfTaskId > 0 && !$newRecoveryAttempt) {
                 throw new RuntimeException('local_collector_recovery_scope_invalid', 409);
             }
             $newScheduledAttempt = ($collectionTask || $sessionTask)
                 && $scheduledDispatcherRunId !== ''
                 && $latestDispatcherRunId !== $scheduledDispatcherRunId;
             if (!$newSessionAttempt
+                && !$newSessionRecoveryAttempt
+                && !$newSameDispatcherSessionRetry
                 && !$newCollectionAttempt
                 && !$newRecoveryAttempt
                 && !$newScheduledAttempt
@@ -2813,6 +3102,15 @@ final class OtaLocalCollectorService
             if ($newRecoveryAttempt) {
                 $request['retry_trigger'] = 'session_recovery';
                 $request['recovery_of_task_id'] = $recoveryOfTaskId;
+            } elseif ($newSessionRecoveryAttempt) {
+                $request['recovery_of_task_id'] = $recoveryOfTaskId;
+                $request['retry_trigger'] = (string)(
+                    $request['recovery_trigger'] ?? 'session_recovery'
+                );
+            } elseif ($newSameDispatcherSessionRetry) {
+                $sessionRetryOfTaskId = (int)$latest['id'];
+                $request['retry_trigger'] = 'same_dispatcher_session_retry';
+                $request['retry_of_task_id'] = $sessionRetryOfTaskId;
             } elseif (!$newScheduledAttempt) {
                 $manualRetryOfTaskId = (int)$latest['id'];
                 $request['retry_trigger'] = 'manual';
@@ -2822,7 +3120,8 @@ final class OtaLocalCollectorService
             }
         }
 
-        $randomizeKey = $manualRetryOfTaskId > 0 || ($sessionTask && ($force || $manualRequest));
+        $randomizeKey = $manualRetryOfTaskId > 0
+            || ($sessionTask && $recoveryOfTaskId === 0 && ($force || $manualRequest));
         $idempotencyKey = hash(
             'sha256',
             $scopeKey
@@ -2831,6 +3130,7 @@ final class OtaLocalCollectorService
                     : '')
                 . ($manualRetryOfTaskId > 0 ? '|manual_retry|' . $manualRetryOfTaskId : '')
                 . ($recoveryOfTaskId > 0 ? '|session_recovery|' . $recoveryOfTaskId : '')
+                . ($sessionRetryOfTaskId > 0 ? '|session_retry|' . $sessionRetryOfTaskId : '')
                 . ($randomizeKey ? '|' . bin2hex(random_bytes(8)) : '')
         );
         $now = date('Y-m-d H:i:s');
@@ -2960,6 +3260,45 @@ final class OtaLocalCollectorService
             && $idempotencyConstraint;
     }
     /** @return array<string, mixed>|null */
+    private function assertSessionRecoveryTarget(
+        array $account,
+        array $mapping,
+        string $taskType,
+        int $recoveryOfTaskId,
+        string $dispatcherRunId
+    ): void {
+        $expectedTargetTypes = $taskType === 'login'
+            ? ['session_probe']
+            : ['collect', 'backfill'];
+        $target = Db::name('ota_local_collector_tasks')
+            ->where('id', $recoveryOfTaskId)
+            ->where('tenant_id', (int)$account['tenant_id'])
+            ->where('user_id', (int)$account['user_id'])
+            ->where('device_id', (int)$account['device_id'])
+            ->where('account_id', (int)$account['id'])
+            ->where('system_hotel_id', (int)$mapping['system_hotel_id'])
+            ->where('platform', (string)$account['platform'])
+            ->find();
+        if (!is_array($target)
+            || !in_array((string)($target['task_type'] ?? ''), $expectedTargetTypes, true)
+            || !in_array(
+                strtolower(trim((string)($target['status'] ?? ''))),
+                ['login_required', 'verification_required'],
+                true
+            )
+            || trim((string)($target['finished_at'] ?? '')) === ''
+            || $dispatcherRunId === ''
+        ) {
+            throw new RuntimeException('local_collector_session_recovery_scope_invalid', 409);
+        }
+        $targetRequest = $this->decodeJson($target['request_json'] ?? null);
+        if ($this->normalizeDispatcherRunId((string)(
+            $targetRequest['dispatcher_run_id'] ?? ''
+        )) !== $dispatcherRunId) {
+            throw new RuntimeException('local_collector_session_recovery_scope_invalid', 409);
+        }
+    }
+
     private function latestTaskForScope(
         int $tenantId,
         int $userId,
@@ -3044,6 +3383,10 @@ final class OtaLocalCollectorService
                 'profile_corrupted',
             ]
         )));
+        $terminalStatuses = array_values(array_unique(array_merge(
+            array_values(array_diff($allowedStatuses, self::ACTIVE_TASK_STATUSES)),
+            ['verification_required']
+        )));
         $status = strtolower(trim((string)($task['status'] ?? '')));
         if (!in_array($status, $allowedStatuses, true)) {
             return null;
@@ -3053,7 +3396,7 @@ final class OtaLocalCollectorService
             if (!in_array($status, self::ACTIVE_TASK_STATUSES, true) || $finishedAt !== '') {
                 return null;
             }
-        } elseif (in_array($status, self::ACTIVE_TASK_STATUSES, true) ? $finishedAt !== '' : $finishedAt === '') {
+        } elseif (!in_array($status, $terminalStatuses, true) || $finishedAt === '') {
             return null;
         }
 
@@ -3104,9 +3447,7 @@ final class OtaLocalCollectorService
             if (!in_array($rowStatus, $allowedStatuses, true)
                 || ($activeOnly
                     ? (!in_array($rowStatus, self::ACTIVE_TASK_STATUSES, true) || $rowFinishedAt !== '')
-                    : (in_array($rowStatus, self::ACTIVE_TASK_STATUSES, true)
-                        ? $rowFinishedAt !== ''
-                        : $rowFinishedAt === ''))
+                    : (!in_array($rowStatus, $terminalStatuses, true) || $rowFinishedAt === ''))
             ) {
                 return null;
             }
@@ -3643,6 +3984,33 @@ final class OtaLocalCollectorService
         return $task;
     }
 
+    /** @return array<string, mixed> */
+    private function taskOwnerActor(array $task, string $scopeFailure): array
+    {
+        $tenantId = (int)($task['tenant_id'] ?? 0);
+        $userId = (int)($task['user_id'] ?? 0);
+        if ($tenantId <= 0 || $userId <= 0) {
+            throw new RuntimeException($scopeFailure, 403);
+        }
+
+        return BaseTenantModel::runInTenantScope(
+            $tenantId,
+            function () use ($tenantId, $userId, $scopeFailure): array {
+                $user = User::where('id', $userId)
+                    ->where('tenant_id', $tenantId)
+                    ->where('status', 1)
+                    ->find();
+                if (!$user instanceof User
+                    || (int)($user->tenant_id ?? 0) !== $tenantId
+                ) {
+                    throw new RuntimeException($scopeFailure, 403);
+                }
+
+                return $this->actorContext($user);
+            }
+        );
+    }
+
     /** @return array<int, int> */
     private function devicePermittedHotelIds(array $device): array
     {
@@ -3656,11 +4024,25 @@ final class OtaLocalCollectorService
         // web application and fail closed. A removed/expired/inactive grant
         // must never fall back to every hotel in the tenant for a device.
         if ($this->tableReadable('user_hotel_permissions')) {
-            $user = User::find($userId);
-            if (!$user instanceof User || (int)($user->tenant_id ?? 0) !== $tenantId) {
-                return [];
-            }
-            return array_values(array_map('intval', (new HotelScopeService())->accessibleHotelIds($user)));
+            return BaseTenantModel::runInTenantScope(
+                $tenantId,
+                static function () use ($tenantId, $userId): array {
+                    $user = User::where('id', $userId)
+                        ->where('tenant_id', $tenantId)
+                        ->where('status', 1)
+                        ->find();
+                    if (!$user instanceof User
+                        || (int)($user->tenant_id ?? 0) !== $tenantId
+                    ) {
+                        return [];
+                    }
+
+                    return array_values(array_map(
+                        'intval',
+                        (new HotelScopeService())->accessibleHotelIds($user)
+                    ));
+                }
+            );
         }
 
         return array_values(array_map('intval', Db::name('hotels')
@@ -3996,6 +4378,7 @@ final class OtaLocalCollectorService
             ],
             'retry_trigger' => (string)($request['retry_trigger'] ?? ''),
             'retry_of_task_id' => (int)($request['retry_of_task_id'] ?? 0),
+            'manual_resume_probe_task_id' => (int)($request['manual_resume_probe_task_id'] ?? 0),
             'resume_collection_count' => count(
                 is_array($request['resume_collections'] ?? null) ? $request['resume_collections'] : []
             ),

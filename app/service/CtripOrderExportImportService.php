@@ -12,6 +12,10 @@ use RuntimeException;
 
 final class CtripOrderExportImportService
 {
+    private const IMPORT_CONTRACT = 'ctrip_order_aggregate_v2';
+    private const CLASSIFICATION_POLICY_VERSION = 'ctrip_order_classification_v2';
+    private const EXCLUSION_POLICY_VERSION = 'ctrip_order_exclusion_v1_unverified_not_applied';
+    private const MAX_ROOM_TYPE_METRICS = 100;
     private const ACTIVE_STATUSES = ['已入住', '已接单', '已改订', '部分入住', '已确认'];
     private const CANCELLED_STATUSES = ['已取消', '已撤销', '已作废'];
     private const REQUIRED_HEADERS = ['订单号', '订单状态', '入住日期', '离店日期'];
@@ -184,15 +188,24 @@ final class CtripOrderExportImportService
         $isTestFixture = !empty($context['test_fixture']);
         $this->assertHotelScope($rows, $targetHotelName, $isTestFixture);
 
+        $rawRowCount = 0;
+        $rowsWithOrderId = 0;
+        $missingOrderIdCount = 0;
+        $datasetSourceFileIds = [];
         $orders = [];
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
+            $rawRowCount++;
+            $sourceFileId = max(1, (int)($row['_source_file_index'] ?? 1));
+            $datasetSourceFileIds[$sourceFileId] = true;
             $orderId = $this->text($row['订单号'] ?? '');
             if ($orderId === '') {
+                $missingOrderIdCount++;
                 continue;
             }
+            $rowsWithOrderId++;
             $fingerprint = hash('sha256', $orderId);
             $candidateTime = $this->dateTime($row['通知时间'] ?? $row['预订时间'] ?? null);
             if (!isset($orders[$fingerprint]) || $candidateTime >= (string)$orders[$fingerprint]['_candidate_time']) {
@@ -202,18 +215,47 @@ final class CtripOrderExportImportService
             }
         }
 
+        $datasetStatusFamilyCounts = $this->emptyStatusFamilyCounts();
+        $datasetStatusLabelCounts = [];
+        $datasetOrderTypeCounts = [];
+        $datasetFactFingerprints = [];
+        $datasetDates = [];
+        $missingBusinessDateCount = 0;
         $groups = [];
         foreach ($orders as $row) {
             $status = $this->text($row['订单状态'] ?? '');
             $orderType = $this->text($row['订单类型'] ?? '');
             $state = $this->orderState($status, $orderType);
+            $statusFamily = $this->statusFamily($status, $state);
+            $statusLabel = $status !== '' ? mb_substr($status, 0, 40, 'UTF-8') : '未填写';
+            $orderTypeLabel = $orderType !== '' ? mb_substr($orderType, 0, 40, 'UTF-8') : '未填写';
+            $datasetStatusFamilyCounts[$statusFamily]++;
+            $datasetStatusLabelCounts[$statusLabel] = ($datasetStatusLabelCounts[$statusLabel] ?? 0) + 1;
+            $datasetOrderTypeCounts[$orderTypeLabel] = ($datasetOrderTypeCounts[$orderTypeLabel] ?? 0) + 1;
             $stayDate = $this->date($row['入住日期'] ?? null);
             $bookingDate = $this->date($row['预订时间'] ?? null);
             $dataDate = $stayDate ?: $bookingDate;
             $dateSource = $stayDate !== '' ? 'stay_date' : 'booking_date_fallback';
+            $datasetFactFingerprints[] = hash('sha256', json_encode([
+                'order' => (string)$row['_order_fingerprint'],
+                'state' => $state,
+                'status_family' => $statusFamily,
+                'status_label' => $statusLabel,
+                'order_type' => $orderTypeLabel,
+                'candidate_time' => (string)($row['_candidate_time'] ?? ''),
+                'stay_date' => $stayDate,
+                'departure_date' => $this->date($row['离店日期'] ?? null),
+                'booking_date' => $bookingDate,
+                'nights' => $this->text($row['晚数'] ?? ''),
+                'rooms' => $this->text($row['房间数'] ?? ''),
+                'bottom_price' => $this->text($row['底价'] ?? ''),
+                'channel' => $this->channel($row['预订网站'] ?? '')[0],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
             if ($dataDate === '') {
+                $missingBusinessDateCount++;
                 continue;
             }
+            $datasetDates[$dataDate] = true;
 
             [$channelKey, $channelLabel] = $this->channel($row['预订网站'] ?? '');
             $groupKey = $systemHotelId . '|' . $channelKey . '|' . $dataDate;
@@ -246,6 +288,17 @@ final class CtripOrderExportImportService
                     'lead_days_sum' => 0.0,
                     'lead_days_count' => 0,
                     'single_night_orders' => 0,
+                    'los_valid_order_count' => 0,
+                    'los_missing_or_invalid_order_count' => 0,
+                    'los_buckets' => $this->emptyLosBuckets(),
+                    'lead_days_missing_count' => 0,
+                    'lead_days_invalid_negative_count' => 0,
+                    'lead_time_buckets' => $this->emptyLeadTimeBuckets(),
+                    'stayed_orders' => 0,
+                    'active_not_stayed_orders' => 0,
+                    'status_family_counts' => $this->emptyStatusFamilyCounts(),
+                    'status_label_counts' => [],
+                    'order_type_counts' => [],
                     'room_types' => [],
                     'order_fact_fingerprints' => [],
                     'source_formats' => [],
@@ -255,6 +308,9 @@ final class CtripOrderExportImportService
             }
             $group =& $groups[$groupKey];
             $group['gross_orders']++;
+            $group['status_family_counts'][$statusFamily]++;
+            $group['status_label_counts'][$statusLabel] = ($group['status_label_counts'][$statusLabel] ?? 0) + 1;
+            $group['order_type_counts'][$orderTypeLabel] = ($group['order_type_counts'][$orderTypeLabel] ?? 0) + 1;
             $sourceFormat = $this->text($row['_source_format'] ?? '');
             if (in_array($sourceFormat, ['biff_xls', 'html_table_xls'], true)) {
                 $group['source_formats'][$sourceFormat] = true;
@@ -294,7 +350,26 @@ final class CtripOrderExportImportService
             }
 
             $group['active_orders']++;
+            if ($status === '已入住') {
+                $group['stayed_orders']++;
+            } else {
+                $group['active_not_stayed_orders']++;
+            }
             $group['room_nights'] += $orderRoomNights;
+            $roomType = mb_substr($this->text($row['房型名称'] ?? ''), 0, 120, 'UTF-8');
+            if ($roomType !== '') {
+                if (!isset($group['room_types'][$roomType])) {
+                    $group['room_types'][$roomType] = [
+                        'active_orders' => 0,
+                        'room_nights' => 0.0,
+                        'bottom_price_sum' => 0.0,
+                        'bottom_price_room_nights' => 0.0,
+                        'bottom_price_valid_orders' => 0,
+                    ];
+                }
+                $group['room_types'][$roomType]['active_orders']++;
+                $group['room_types'][$roomType]['room_nights'] += $orderRoomNights;
+            }
             $bottomPriceText = $this->text($row['底价'] ?? '');
             $bottomPrice = $this->number($bottomPriceText);
             if ($bottomPriceText === '') {
@@ -305,6 +380,11 @@ final class CtripOrderExportImportService
                 $group['bottom_price_sum'] += $bottomPrice;
                 $group['bottom_price_room_nights'] += $orderRoomNights;
                 $group['bottom_price_valid_orders']++;
+                if ($roomType !== '') {
+                    $group['room_types'][$roomType]['bottom_price_sum'] += $bottomPrice;
+                    $group['room_types'][$roomType]['bottom_price_room_nights'] += $orderRoomNights;
+                    $group['room_types'][$roomType]['bottom_price_valid_orders']++;
+                }
             }
             $sellPriceText = $this->text($row['卖价'] ?? '');
             $sellPrice = $this->number($sellPriceText);
@@ -316,28 +396,85 @@ final class CtripOrderExportImportService
                 $group['sell_price_sum'] += $sellPrice;
                 $group['sell_price_valid_orders']++;
             }
-            $group['los_sum'] += $nights;
-            if ($nights === 1.0) {
-                $group['single_night_orders']++;
+            $losBucket = $this->losBucket($nights);
+            if ($losBucket === null) {
+                $group['los_missing_or_invalid_order_count']++;
+            } else {
+                $group['los_sum'] += $nights;
+                $group['los_valid_order_count']++;
+                $group['los_buckets'][$losBucket]++;
+                if ($nights === 1.0) {
+                    $group['single_night_orders']++;
+                }
             }
             if ($bookingDate !== '' && $stayDate !== '') {
-                $leadDays = max(0, (int)((strtotime($stayDate) - strtotime($bookingDate)) / 86400));
-                $group['lead_days_sum'] += $leadDays;
-                $group['lead_days_count']++;
-            }
-            $roomType = $this->text($row['房型名称'] ?? '');
-            if ($roomType !== '') {
-                $group['room_types'][$roomType] = ($group['room_types'][$roomType] ?? 0) + 1;
+                $leadDays = (int)((strtotime($stayDate) - strtotime($bookingDate)) / 86400);
+                if ($leadDays < 0) {
+                    $group['lead_days_invalid_negative_count']++;
+                } else {
+                    $group['lead_days_sum'] += $leadDays;
+                    $group['lead_days_count']++;
+                    $group['lead_time_buckets'][$this->leadTimeBucket($leadDays)]++;
+                }
+            } else {
+                $group['lead_days_missing_count']++;
             }
             unset($group);
         }
 
+        sort($datasetFactFingerprints);
+        ksort($datasetStatusLabelCounts);
+        ksort($datasetOrderTypeCounts);
+        $datasetDateList = array_keys($datasetDates);
+        sort($datasetDateList);
+        $datasetReceipt = [
+            'dataset_hash' => hash('sha256', implode('|', $datasetFactFingerprints)),
+            'raw_row_count' => $rawRowCount,
+            'rows_with_order_id_count' => $rowsWithOrderId,
+            'distinct_order_count' => count($orders),
+            'duplicate_version_count' => max(0, $rowsWithOrderId - count($orders)),
+            'missing_order_id_count' => $missingOrderIdCount,
+            'missing_business_date_count' => $missingBusinessDateCount,
+            'accepted_aggregate_order_count' => max(0, count($orders) - $missingBusinessDateCount),
+            'excluded_order_count' => 0,
+            'exclusion_reason_counts' => [],
+            'exclusion_policy_status' => 'unverified_not_applied',
+            'exclusion_policy_version' => self::EXCLUSION_POLICY_VERSION,
+            'classification_policy_version' => self::CLASSIFICATION_POLICY_VERSION,
+            'status_family_counts' => $datasetStatusFamilyCounts,
+            'status_label_counts' => $datasetStatusLabelCounts,
+            'order_type_counts' => $datasetOrderTypeCounts,
+            'source_file_count' => count($datasetSourceFileIds),
+            'date_from' => $datasetDateList[0] ?? null,
+            'date_to' => $datasetDateList !== [] ? $datasetDateList[count($datasetDateList) - 1] : null,
+        ];
+
         $normalized = [];
         foreach ($groups as $group) {
-            arsort($group['room_types']);
+            uasort($group['room_types'], static function (array $left, array $right): int {
+                return ((int)$right['active_orders'] <=> (int)$left['active_orders'])
+                    ?: ((float)$right['room_nights'] <=> (float)$left['room_nights']);
+            });
+            $roomTypeMetricCount = count($group['room_types']);
+            $roomTypeMetrics = [];
+            foreach (array_slice($group['room_types'], 0, self::MAX_ROOM_TYPE_METRICS, true) as $roomType => $metric) {
+                $roomTypeMetrics[] = [
+                    'name' => $roomType,
+                    'active_orders' => (int)$metric['active_orders'],
+                    'room_nights' => (float)$metric['room_nights'],
+                    'reference_bottom_price_total' => (int)$metric['bottom_price_valid_orders'] > 0
+                        ? (float)$metric['bottom_price_sum']
+                        : null,
+                    'reference_bottom_price_adr' => (float)$metric['bottom_price_room_nights'] > 0
+                        ? (float)$metric['bottom_price_sum'] / (float)$metric['bottom_price_room_nights']
+                        : null,
+                    'bottom_price_room_nights' => (float)$metric['bottom_price_room_nights'],
+                    'bottom_price_valid_order_count' => (int)$metric['bottom_price_valid_orders'],
+                ];
+            }
             $topRoomTypes = [];
-            foreach (array_slice($group['room_types'], 0, 5, true) as $roomType => $count) {
-                $topRoomTypes[] = ['name' => $roomType, 'orders' => $count];
+            foreach (array_slice($roomTypeMetrics, 0, 5) as $metric) {
+                $topRoomTypes[] = ['name' => $metric['name'], 'orders' => $metric['active_orders']];
             }
             sort($group['order_fact_fingerprints']);
             $snapshotHash = hash('sha256', implode('|', $group['order_fact_fingerprints']));
@@ -349,11 +486,11 @@ final class CtripOrderExportImportService
             $cancelRate = $group['gross_orders'] > 0 && $group['unknown_status_orders'] === 0
                 ? $group['cancelled_orders'] / $group['gross_orders']
                 : null;
-            $averageLos = $group['active_orders'] > 0
-                ? $group['los_sum'] / $group['active_orders']
+            $averageLos = $group['los_valid_order_count'] > 0
+                ? $group['los_sum'] / $group['los_valid_order_count']
                 : null;
-            $singleNightRate = $group['active_orders'] > 0
-                ? $group['single_night_orders'] / $group['active_orders']
+            $singleNightRate = $group['los_valid_order_count'] > 0
+                ? $group['single_night_orders'] / $group['los_valid_order_count']
                 : null;
             $averageLeadDays = $group['lead_days_count'] > 0
                 ? $group['lead_days_sum'] / $group['lead_days_count']
@@ -380,6 +517,27 @@ final class CtripOrderExportImportService
             $fileLayoutAcceptance = $sourceLayout === 'ctrip_order_export_25_columns'
                 ? 'verified_25_column_layout'
                 : 'recognized_compatible_layout';
+            ksort($group['status_label_counts']);
+            ksort($group['order_type_counts']);
+            $losDistribution = [
+                'buckets' => $this->distributionRows($group['los_buckets'], $this->losBucketLabels()),
+                'valid_order_count' => $group['los_valid_order_count'],
+                'missing_or_invalid_order_count' => $group['los_missing_or_invalid_order_count'],
+                'coverage_rate' => $group['active_orders'] > 0
+                    ? $group['los_valid_order_count'] / $group['active_orders']
+                    : null,
+                'denominator' => 'active_orders_with_valid_positive_los',
+            ];
+            $leadTimeDistribution = [
+                'buckets' => $this->distributionRows($group['lead_time_buckets'], $this->leadTimeBucketLabels()),
+                'valid_order_count' => $group['lead_days_count'],
+                'missing_order_count' => $group['lead_days_missing_count'],
+                'invalid_negative_order_count' => $group['lead_days_invalid_negative_count'],
+                'coverage_rate' => $group['active_orders'] > 0
+                    ? $group['lead_days_count'] / $group['active_orders']
+                    : null,
+                'denominator' => 'active_orders_with_valid_booking_and_stay_dates',
+            ];
 
             $normalized[] = [
                 'system_hotel_id' => $systemHotelId,
@@ -444,11 +602,33 @@ final class CtripOrderExportImportService
                     'bottom_price_adr' => $bottomPriceAdr,
                     'amount_basis' => 'ctrip_export_bottom_price_sum',
                     'amount_semantics' => 'reference_bottom_price_not_confirmed_revenue',
-                    'import_contract' => 'ctrip_order_aggregate_v1',
+                    'record_kind' => 'channel_daily_aggregate',
+                    'import_contract' => self::IMPORT_CONTRACT,
                     'pii_policy' => 'aggregate_only_no_guest_staff_reservation_notes',
+                    'dataset_receipt' => $datasetReceipt,
+                    'classification_receipt' => [
+                        'policy_version' => self::CLASSIFICATION_POLICY_VERSION,
+                        'status_family_counts' => $group['status_family_counts'],
+                        'status_label_counts' => $group['status_label_counts'],
+                        'order_type_counts' => $group['order_type_counts'],
+                        'stayed_order_num' => $group['stayed_orders'],
+                        'active_not_stayed_order_num' => $group['active_not_stayed_orders'],
+                    ],
+                    'exclusion_receipt' => [
+                        'policy_version' => self::EXCLUSION_POLICY_VERSION,
+                        'status' => 'unverified_not_applied',
+                        'excluded_order_count' => 0,
+                        'reason_counts' => [],
+                        'note' => 'No scan-order or closed-room rule is applied without exact source-field evidence.',
+                    ],
                     'average_los' => $averageLos,
                     'single_night_rate' => $singleNightRate,
                     'average_booking_lead_days' => $averageLeadDays,
+                    'los_distribution' => $losDistribution,
+                    'lead_time_distribution' => $leadTimeDistribution,
+                    'room_type_metrics' => $roomTypeMetrics,
+                    'room_type_metric_count' => $roomTypeMetricCount,
+                    'room_type_metrics_truncated' => $roomTypeMetricCount > self::MAX_ROOM_TYPE_METRICS,
                     'top_room_types' => $topRoomTypes,
                     'city' => $group['city'],
                     'source_file_count' => count($group['source_file_ids']),
@@ -463,6 +643,116 @@ final class CtripOrderExportImportService
         }
 
         return $normalized;
+    }
+
+    /** @return array<string, int> */
+    private function emptyStatusFamilyCounts(): array
+    {
+        return [
+            'active_stayed' => 0,
+            'active_partial_stay' => 0,
+            'active_confirmed' => 0,
+            'cancelled' => 0,
+            'unknown' => 0,
+        ];
+    }
+
+    private function statusFamily(string $status, string $state): string
+    {
+        if ($state === 'cancelled') {
+            return 'cancelled';
+        }
+        if ($state !== 'active') {
+            return 'unknown';
+        }
+        return match ($status) {
+            '已入住' => 'active_stayed',
+            '部分入住' => 'active_partial_stay',
+            default => 'active_confirmed',
+        };
+    }
+
+    /** @return array<string, int> */
+    private function emptyLosBuckets(): array
+    {
+        return array_fill_keys(array_keys($this->losBucketLabels()), 0);
+    }
+
+    /** @return array<string, string> */
+    private function losBucketLabels(): array
+    {
+        return [
+            'one_night' => '1晚',
+            'two_nights' => '2晚',
+            'three_to_four_nights' => '3-4晚',
+            'five_plus_nights' => '5晚及以上',
+        ];
+    }
+
+    private function losBucket(float $nights): ?string
+    {
+        if ($nights <= 0) {
+            return null;
+        }
+        if ($nights === 1.0) {
+            return 'one_night';
+        }
+        if ($nights === 2.0) {
+            return 'two_nights';
+        }
+        if ($nights <= 4.0) {
+            return 'three_to_four_nights';
+        }
+        return 'five_plus_nights';
+    }
+
+    /** @return array<string, int> */
+    private function emptyLeadTimeBuckets(): array
+    {
+        return array_fill_keys(array_keys($this->leadTimeBucketLabels()), 0);
+    }
+
+    /** @return array<string, string> */
+    private function leadTimeBucketLabels(): array
+    {
+        return [
+            'same_day' => '当天',
+            'one_to_three_days' => '1-3天',
+            'four_to_seven_days' => '4-7天',
+            'eight_to_fourteen_days' => '8-14天',
+            'fifteen_to_thirty_days' => '15-30天',
+            'thirty_one_plus_days' => '31天及以上',
+        ];
+    }
+
+    private function leadTimeBucket(int $days): string
+    {
+        return match (true) {
+            $days === 0 => 'same_day',
+            $days <= 3 => 'one_to_three_days',
+            $days <= 7 => 'four_to_seven_days',
+            $days <= 14 => 'eight_to_fourteen_days',
+            $days <= 30 => 'fifteen_to_thirty_days',
+            default => 'thirty_one_plus_days',
+        };
+    }
+
+    /**
+     * @param array<string, int> $counts
+     * @param array<string, string> $labels
+     * @return array<int, array{key:string,label:string,orders:int}>
+     */
+    private function distributionRows(array $counts, array $labels): array
+    {
+        $rows = [];
+        foreach ($labels as $key => $label) {
+            $rows[] = [
+                'key' => $key,
+                'label' => $label,
+                'orders' => max(0, (int)($counts[$key] ?? 0)),
+            ];
+        }
+        return $rows;
     }
 
     /** @param array<int, string> $headers */

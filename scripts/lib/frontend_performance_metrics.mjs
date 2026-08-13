@@ -3,6 +3,12 @@ const finiteNumber = (value, fallback = 0) => Number.isFinite(Number(value))
   : fallback;
 
 const rounded = (value) => Math.round(finiteNumber(value));
+const isFiniteMeasurement = (value) => (
+  value !== null
+  && value !== undefined
+  && value !== ''
+  && Number.isFinite(Number(value))
+);
 
 const frontendNetworkProfiles = Object.freeze({
   none: null,
@@ -165,7 +171,7 @@ export function summarizeFrontendPerformance(snapshot = {}) {
   return {
     ttfb_ms: rounded(finiteNumber(navigation.responseStart) - finiteNumber(navigation.requestStart)),
     fcp_ms: fcp ? rounded(fcp.startTime) : null,
-    lcp_ms: Number.isFinite(Number(snapshot.lcp)) ? rounded(snapshot.lcp) : null,
+    lcp_ms: isFiniteMeasurement(snapshot.lcp) ? rounded(snapshot.lcp) : null,
     dom_interactive_ms: rounded(navigation.domInteractive),
     dom_complete_ms: rounded(navigation.domComplete),
     full_load_ms: rounded(navigation.loadEventEnd),
@@ -181,7 +187,7 @@ export function summarizeFrontendPerformance(snapshot = {}) {
     long_task_total_ms: rounded(longTasks.reduce((total, entry) => total + finiteNumber(entry?.duration), 0)),
     longest_task_ms: rounded(Math.max(0, ...longTasks.map((entry) => finiteNumber(entry?.duration)))),
     login_handoff_status: String(loginHandoff.status || '') || null,
-    auth_to_interactive_ms: Number.isFinite(Number(loginHandoff.auth_to_interactive_ms))
+    auth_to_interactive_ms: isFiniteMeasurement(loginHandoff.auth_to_interactive_ms)
       ? rounded(loginHandoff.auth_to_interactive_ms)
       : null,
   };

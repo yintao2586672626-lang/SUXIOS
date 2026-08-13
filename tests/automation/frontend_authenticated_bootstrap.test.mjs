@@ -33,10 +33,18 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.equal(scriptAssets.at(-2), 'app-render.min.js');
   assert.equal(scriptAssets.at(-1), 'app-main.min.js');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-render.min.js')?.phase, 'after-first-paint');
+  assert.equal(
+    entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-deferred-helpers.min.js')?.phase,
+    'startup',
+    'home OTA truth helpers must load before app-main mounts the authenticated landing page',
+  );
+  assert(
+    scriptAssets.indexOf('app-deferred-helpers.min.js') < scriptAssets.indexOf('app-startup-render.min.js'),
+    'home OTA truth helpers must precede the startup render',
+  );
   for (const deferredAsset of [
     'ctrip-search-opportunity-static.js',
     'user-admin-static.js',
-    'app-deferred-helpers.min.js',
   ]) {
     assert.equal(
       entries.find((entry) => stripFrontendAssetQuery(entry.src) === deferredAsset)?.phase,
@@ -165,6 +173,19 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.match(bootstrap, /await loadScript\(entry\);/);
   assert.match(bootstrap, /await waitForFirstAuthenticatedPaint\(\);/);
   assert.match(bootstrap, /suxi:full-render-ready/);
+  assert.match(bootstrap, /const resolvedSrc = resolveAssetUrl\(src\);/);
+  assert.match(
+    bootstrap,
+    /resolveAssetUrl\(script\.getAttribute\('src'\)\) === resolvedSrc/,
+    'script reuse must compare the full versioned URL instead of only the basename',
+  );
+  assert.doesNotMatch(
+    bootstrap,
+    /find\(\(script\) => assetBaseName\(script\.getAttribute\('src'\)\) === assetName\)/,
+  );
+  const deferredReadyMarker = bootstrap.indexOf("document.documentElement.dataset.suxiFullRenderReady = '1';");
+  const deferredReadyEvent = bootstrap.indexOf("window.dispatchEvent(new CustomEvent('suxi:full-render-ready'", deferredReadyMarker);
+  assert(deferredReadyMarker >= 0 && deferredReadyEvent > deferredReadyMarker, 'ready marker must follow all loads and precede the ready event');
   assert.match(bootstrap, /const loadDeferredAuthenticatedAssetManifest = \(\) => \{/);
   assert.match(bootstrap, /window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS = loadDeferredAuthenticatedAssetManifest;/);
   assert.match(
@@ -179,18 +200,29 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.match(appMain, /requestSuxiFullRenderForPage = \(page\) => \{[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS\(\)/);
   assert.match(
     appMain,
-    /const promoteSuxiFullRender = \(\) => \{[\s\S]*const deferredAssetsReady = document\.documentElement\.dataset\.suxiFullRenderReady === '1';[\s\S]*!deferredAssetsReady\) return false;/,
+    /const promoteSuxiFullRender = \(\) => \{[\s\S]*!fullRenderRuntimeReady\(\)\) return false;/,
     'full render must not mount while deferred helper namespaces are still loading',
   );
   assert.match(
     appMain,
-    /const handleSuxiFullRenderReady = \(\) => \{\s*document\.documentElement\.dataset\.suxiFullRenderReady = '1';[\s\S]*requestSuxiFullRenderForPage\(pendingFullRenderPage\)/,
+    /const handleSuxiFullRenderReady = \(\) => \{\s*if \(!fullRenderRuntimeReady\(\)\)[\s\S]*requestSuxiFullRenderForPage\(pendingFullRenderPage\)/,
     'the completed deferred-asset event must release the full-render barrier',
   );
+  assert.match(
+    appMain,
+    /const render = fullRenderRuntimeReady\(\)\s*\? window\.SUXI_APP_RENDER\s*:\s*window\.SUXI_APP_STARTUP_RENDER/,
+    'a stale full-render global must not replace the safe startup render',
+  );
+  assert.match(
+    appMain,
+    /if \(!fullRenderRuntimeReady\(\)[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS/,
+    'a stale full-render global must not suppress the deferred helper loader',
+  );
+  assert.doesNotMatch(appMain, /if \(window\.SUXI_APP_RENDER\) handleSuxiFullRenderReady\(\)/);
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
 });
 
-test('deferred data-health helpers are resolved lazily after the authenticated shell mounts', () => {
+test('data-health helper calls stay lazy while their namespace loads before the authenticated shell mounts', () => {
   assert.match(systemStatic, /const requireDeferredStaticFunction = \(namespace, key, missingMessage, onAccess = null\)/);
   assert.match(systemStatic, /const createLazyFactoryMethods = \(factory, methods = \[\]\)/);
   assert.match(
@@ -224,6 +256,8 @@ test('deferred data-health helpers are resolved lazily after the authenticated s
     appMain,
     /publishDataHealthStaticReady = \(\) => !!window\.SUXI_DATA_HEALTH_STATIC[\s\S]*dataHealthStaticVersion\.value \+= 1/,
   );
+  assert.match(appMain, /DATA_HEALTH_STATIC_CONTRACT_VERSION = '20260811-full-render-v1'/);
+  assert.match(appMain, /dataHealthStatic\?\.contractVersion === DATA_HEALTH_STATIC_CONTRACT_VERSION/);
   assert.match(appMain, /const handleSuxiFullRenderReady = \(\) => \{[\s\S]*publishDataHealthStaticReady\(\);/);
 });
 
@@ -250,7 +284,7 @@ test('authenticated login lands on the today operating dashboard through one ent
   const helperEnd = appMain.indexOf('\n            const isVisibleOnlineDataTab', helperStart);
   const helper = appMain.slice(helperStart, helperEnd);
   assert(helperStart >= 0 && helperEnd > helperStart, 'core-operations activation helper must exist');
-  assert.match(helper, /const landingPage = initialPageOverride \|\| 'ai-workbench';/);
+  assert.match(helper, /const landingPage = initialPageOverride \|\| 'compass';/);
   assert.match(helper, /currentPage\.value = landingPage;/);
   assert.match(helper, /const requestPolicy = currentCompassReadPolicy\(landingPage, 'current'\);/);
   assert.match(helper, /runPageLoadOnce\([\s\S]*landingPage,[\s\S]*'main',[\s\S]*loadCompassData\(\{ skipOtaBackground: true, requestPolicy \}\)[\s\S]*\{ ttlMs: DASHBOARD_PAGE_CACHE_TTL_MS, requestPolicy \}/);

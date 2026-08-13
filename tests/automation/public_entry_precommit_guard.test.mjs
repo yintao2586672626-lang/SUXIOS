@@ -6,13 +6,15 @@ import path from 'node:path';
 import test from 'node:test';
 
 const hook = readFileSync('hooks/pre-commit.ps1', 'utf8');
+const stagedVerifier = readFileSync('hooks/verify-staged-frontend-build.mjs', 'utf8');
 
-test('public index changes must run the startup entry guard before visual checks', () => {
-  const startupGuard = "if ($changed -contains 'public/index.html') {\n    Invoke-CheckedNative -FilePath 'npm.cmd' -ArgumentList @('run', 'verify:public-entry')\n}";
-  const visualGuard = "if ($changed -contains 'public/index.html' -or $changed -contains 'public/style.css') {";
-
-  assert.match(hook, new RegExp(startupGuard.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\n/g, '\\r?\\n')));
-  assert.ok(hook.indexOf("Invoke-CheckedNative -FilePath 'npm.cmd' -ArgumentList @('run', 'verify:public-entry')") < hook.indexOf(visualGuard));
+test('public index changes run startup and visual guards against the staged index snapshot', () => {
+  assert.match(hook, /hooks\/verify-staged-frontend-build\.mjs/u);
+  assert.match(hook, /--context-verifier/u);
+  assert.doesNotMatch(hook, /npm\.cmd/u);
+  assert.match(stagedVerifier, /const publicEntryChanged = changed\.includes\('public\/index\.html'\)/u);
+  assert.match(stagedVerifier, /const tasteChanged = publicEntryChanged \|\| changed\.includes\('public\/style\.css'\)/u);
+  assert.ok(stagedVerifier.indexOf("runNpmVerifier('verify:public-entry')") < stagedVerifier.indexOf("runNpmVerifier(fs.existsSync(tasteVerifier) ? 'verify:taste-coverage' : 'verify:p0-guards')"));
   assert.match(hook, /\$LASTEXITCODE/);
   assert.doesNotMatch(hook, /^\s*(?:node|npm\.cmd|git)\s+/m);
 });

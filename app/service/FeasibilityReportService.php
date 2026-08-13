@@ -10,12 +10,19 @@ class FeasibilityReportService
 {
     private LlmClient $client;
     private AiDecisionQualityService $decisionQualityService;
+    private SourceBackedExecutionBridgeProjectionService $executionBridgeProjection;
     private bool $tableEnsured = false;
 
-    public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
+    public function __construct(
+        ?LlmClient $client = null,
+        ?AiDecisionQualityService $decisionQualityService = null,
+        ?SourceBackedExecutionBridgeProjectionService $executionBridgeProjection = null
+    )
     {
         $this->client = $client ?: new LlmClient();
         $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
+        $this->executionBridgeProjection = $executionBridgeProjection
+            ?? new SourceBackedExecutionBridgeProjectionService();
     }
 
     public function generate(array $input, int $userId): array
@@ -88,9 +95,16 @@ class FeasibilityReportService
 
         $total = (clone $query)->count();
         $list = $query->page($page, $pageSize)->select()->toArray();
+        $projectionContext = $this->executionBridgeProjection->projectionContext(
+            'feasibility_report',
+            array_map(fn(array $row): array => $this->projectionSourceForRow($row), $list)
+        );
 
         return [
-            'list' => array_map(fn ($row) => $this->formatArrayRecord($row, false), $list),
+            'list' => array_map(
+                fn(array $row): array => $this->formatArrayRecord($row, false, $projectionContext),
+                $list
+            ),
             'pagination' => [
                 'total' => $total,
                 'page' => $page,
@@ -121,7 +135,6 @@ class FeasibilityReportService
         if ($hotelId <= 0) {
             throw new \InvalidArgumentException('hotel_id is required for feasibility execution tracking');
         }
-
         $input = $this->decodeJson($record['input'] ?? $record['input_json'] ?? []);
         $snapshot = $this->decodeJson($record['snapshot'] ?? $record['snapshot_json'] ?? []);
         $report = $this->decodeJson($record['report'] ?? $record['report_json'] ?? []);
@@ -132,6 +145,7 @@ class FeasibilityReportService
         if (($readiness['decision_ready'] ?? false) !== true) {
             throw new \InvalidArgumentException('核心投资输入未齐全，待评估报告不能转投后跟踪');
         }
+        $this->assertExecutionHotelMatches($record, $hotelId);
         $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
         $projectName = trim((string)($record['project_name'] ?? $summary['project_name'] ?? $input['project_name'] ?? ''));
         $date = date('Y-m-d');
@@ -163,6 +177,16 @@ class FeasibilityReportService
             ],
             'evidence' => [
                 'readiness_stage' => (string)($readiness['stage'] ?? ''),
+                'source_snapshot_digest' => SourceBackedExecutionIntentIdentityService::snapshotDigest('feasibility_report', [
+                    'id' => (int)($record['id'] ?? 0),
+                    'hotel_id' => $hotelId,
+                    'input' => $input,
+                    'snapshot' => $snapshot,
+                    'report' => $report,
+                    'conclusion_grade' => (string)($record['conclusion_grade'] ?? ''),
+                    'payback_months' => $record['payback_months'] ?? null,
+                    'total_investment' => $record['total_investment'] ?? null,
+                ]),
                 'readiness_score' => (int)($readiness['score'] ?? 0),
                 'source_scope' => (string)($readiness['source_scope'] ?? ''),
                 'missing_evidence' => array_values((array)($readiness['missing_evidence'] ?? [])),
@@ -176,6 +200,38 @@ class FeasibilityReportService
             'risk_level' => $this->executionRiskLevel($report),
             'status' => 'pending_approval',
         ];
+    }
+
+    public function executionHotelId(array $record): int
+    {
+        $input = $this->decodeJson($record['input'] ?? $record['input_json'] ?? []);
+        $snapshot = $this->decodeJson($record['snapshot'] ?? $record['snapshot_json'] ?? []);
+        $snapshotScope = is_array($snapshot['snapshot_scope'] ?? null) ? $snapshot['snapshot_scope'] : [];
+        $candidates = array_values(array_unique(array_filter([
+            (int)($input['hotel_id'] ?? 0),
+            (int)($input['system_hotel_id'] ?? 0),
+            (int)($snapshotScope['hotel_id'] ?? 0),
+            (int)($snapshotScope['system_hotel_id'] ?? 0),
+        ], static fn(int $hotelId): bool => $hotelId > 0)));
+
+        if ($candidates === []) {
+            throw new \InvalidArgumentException('feasibility report hotel scope missing');
+        }
+        if (count($candidates) !== 1) {
+            throw new \InvalidArgumentException('feasibility report hotel scope conflict');
+        }
+
+        return $candidates[0];
+    }
+
+    public function assertExecutionHotelMatches(array $record, int $hotelId): int
+    {
+        $persistedHotelId = $this->executionHotelId($record);
+        if ($hotelId <= 0 || $persistedHotelId !== $hotelId) {
+            throw new \InvalidArgumentException('feasibility report hotel scope mismatch');
+        }
+
+        return $persistedHotelId;
     }
 
     public function attachExecutionTracking(int $id, int $userId, bool $isSuperAdmin, array $tracking): ?array
@@ -218,6 +274,11 @@ class FeasibilityReportService
         }
         if ($existing !== [] && array_keys($existing) !== range(0, count($existing) - 1)) {
             $existing = [$existing];
+        }
+        foreach ($existing as $linked) {
+            if (is_array($linked) && (int)($linked['execution_intent_id'] ?? 0) === $intentId) {
+                return $this->formatRecord($record);
+            }
         }
         $existing[] = $trackingPayload;
 
@@ -339,14 +400,29 @@ class FeasibilityReportService
             'missing_evidence' => [],
         ];
 
+        $sources = array_values(array_map(
+            fn(array $row): array => $this->projectionSourceForRow($row),
+            array_filter($rows, 'is_array')
+        ));
+        $projectionContext = $this->executionBridgeProjection->projectionContext('feasibility_report', $sources);
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
+            $source = $this->projectionSourceForRow($row);
+            [$input, $snapshot, $report] = $this->executionBridgeProjection->trackingForResponses(
+                'feasibility_report',
+                [
+                    ['source' => $source, 'payload' => $this->decodeJson($row['input_json'] ?? [])],
+                    ['source' => $source, 'payload' => $this->decodeJson($row['snapshot_json'] ?? [])],
+                    ['source' => $source, 'payload' => $this->decodeJson($row['report_json'] ?? [])],
+                ],
+                $projectionContext
+            );
             $readiness = $this->buildFeasibilityReadiness(
-                $this->decodeJson($row['input_json'] ?? []),
-                $this->decodeJson($row['snapshot_json'] ?? []),
-                $this->decodeJson($row['report_json'] ?? [])
+                $input,
+                $snapshot,
+                $report
             );
             $summary['record_count']++;
             $stage = (string)$readiness['stage'];
@@ -1629,11 +1705,22 @@ class FeasibilityReportService
         return $this->formatArrayRecord($record->toArray(), true);
     }
 
-    private function formatArrayRecord(array $row, bool $full): array
+    /** @param array<string,mixed>|null $projectionContext */
+    private function formatArrayRecord(array $row, bool $full, ?array $projectionContext = null): array
     {
         $input = $this->decodeJson($row['input_json'] ?? []);
         $snapshot = $this->decodeJson($row['snapshot_json'] ?? []);
         $report = $this->decodeJson($row['report_json'] ?? []);
+        $sourceScope = $this->projectionSourceForRow($row, $input, $snapshot);
+        [$input, $snapshot, $report] = $this->executionBridgeProjection->trackingForResponses(
+            'feasibility_report',
+            [
+                ['source' => $sourceScope, 'payload' => $input],
+                ['source' => $sourceScope, 'payload' => $snapshot],
+                ['source' => $sourceScope, 'payload' => $report],
+            ],
+            $projectionContext
+        );
         $report = $this->normalizeReportFinancialScenarios($report, $input);
         $report = $this->enrichDecisionRecommendations($report, $input, $snapshot);
         $readiness = $this->buildFeasibilityReadiness($input, $snapshot, $report);
@@ -1703,6 +1790,19 @@ class FeasibilityReportService
             $data['report'] = $report;
         }
         return $data;
+    }
+
+    /** @return array<string,mixed> */
+    private function projectionSourceForRow(array $row, ?array $input = null, ?array $snapshot = null): array
+    {
+        $input ??= $this->decodeJson($row['input_json'] ?? []);
+        $snapshot ??= $this->decodeJson($row['snapshot_json'] ?? []);
+        try {
+            $row['hotel_id'] = $this->executionHotelId(['input' => $input, 'snapshot' => $snapshot]);
+        } catch (\InvalidArgumentException) {
+            $row['hotel_id'] = 0;
+        }
+        return $row;
     }
 
     /** @return array<string, mixed> */
@@ -2222,13 +2322,10 @@ class FeasibilityReportService
     private function hasPostDecisionTracking(array $payloads): bool
     {
         foreach ($payloads as $payload) {
-            if (!is_array($payload)) {
-                continue;
-            }
-            foreach (['post_decision_tracking', 'execution_tracking', 'tracking_records', 'operation_execution_intent_id', 'execution_intent_id', 'opening_project_id', 'investment_tracking_id'] as $key) {
-                if ($this->hasNonEmptyEvidenceValue($payload[$key] ?? null)) {
-                    return true;
-                }
+            if (is_array($payload)
+                && SourceBackedExecutionBridgeProjectionService::hasProjectedTracking($payload)
+            ) {
+                return true;
             }
         }
 

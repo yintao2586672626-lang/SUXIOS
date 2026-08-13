@@ -5,14 +5,39 @@ import test from 'node:test';
 const read = (path) => readFileSync(path, 'utf8');
 const migration = read('database/migrations/20260802_extend_operating_intelligence.sql');
 const questions = read('app/service/OperatingQuestionService.php');
+const aiAnswers = read('app/service/OperatingQuestionAiAnswerService.php');
+const knowledgeRetrieval = read('app/service/OperatingQuestionKnowledgeRetrievalService.php');
+const systemGuidance = read('app/service/SystemUsageAssistantService.php');
+const systemGuidanceController = read('app/controller/SystemGuidance.php');
+const llmClient = read('app/service/LlmClient.php');
 const agent = read('app/controller/Agent.php');
 const agentBuild = read('app/controller/concern/AgentOtaDiagnosisBuildConcern.php');
 const agentPersistence = read('app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php');
 const sops = read('app/service/OperatingSopService.php');
 const controller = read('app/controller/OperatingIntelligence.php');
 const routes = read('route/app.php');
-const frontend = read('public/app-main.js');
+const operatingIntelligenceComponents = read('public/components/system/operating-intelligence-components.js');
+const frontend = `${read('public/app-main.js')}\n${operatingIntelligenceComponents}`;
 const agentPage = read('resources/frontend/templates/fragments/27-page-agent-center.html');
+const globalShell = read('resources/frontend/templates/fragments/46-global-toast.html');
+const style = read('public/style.css');
+const sliceBetween = (source, startMarker, endMarker) => {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  assert.ok(start >= 0, `missing start marker: ${startMarker}`);
+  assert.ok(end > start, `missing end marker: ${endMarker}`);
+  return source.slice(start, end);
+};
+const systemUsageGuideHelpers = sliceBetween(
+  operatingIntelligenceComponents,
+  '// SYSTEM_USAGE_GUIDE_HELPERS_START',
+  '// SYSTEM_USAGE_GUIDE_HELPERS_END',
+);
+const systemUsageGuideComponent = sliceBetween(
+  operatingIntelligenceComponents,
+  "const operatingQuestionConsultant = {",
+  'return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant });',
+);
 
 test('unified Agent operating question saves and performs an exact second readback', () => {
   assert.match(routes, /agent[\s\S]*operating-questions/);
@@ -24,7 +49,7 @@ test('unified Agent operating question saves and performs an exact second readba
   assert.match(frontend, /operating-question-readback-error/);
   assert.match(frontend, /content_digest/);
   assert.match(agentPage, /<oq><\/oq>/);
-  assert.match(frontend, /data-testid="operating-question-entry"/);
+  assert.match(frontend, /['"]data-testid['"]:\s*['"]operating-question-entry['"]/);
 });
 
 test('question evidence keeps facts, memory, knowledge, Agent and execution references separate', () => {
@@ -41,6 +66,115 @@ test('question evidence keeps facts, memory, knowledge, Agent and execution refe
   assert.match(questions, /external_llm_called' => false/);
   assert.match(questions, /'ota_write' => false/);
   assert.match(questions, /'external_message' => false/);
+});
+
+test('professional operating questions remain evidence-gated while the global entry intelligently guides system use', () => {
+  assert.match(controller, /OperatingQuestionAiAnswerService/);
+  assert.match(questions, /grounded_ai_saved_evidence/);
+  assert.match(questions, /not_called_missing_facts/);
+  assert.match(aiAnswers, /allowed_evidence_refs/);
+  assert.match(aiAnswers, /knowledge_context/);
+  assert.match(aiAnswers, /knowledge_chunks/);
+  assert.match(aiAnswers, /createJsonResponseEnvelope/);
+  assert.match(knowledgeRetrieval, /KnowledgeDecisionGateService/);
+  assert.match(knowledgeRetrieval, /metadata_filtered_lexical_v1/);
+  assert.match(knowledgeRetrieval, /globalSystemOwned/);
+  assert.match(knowledgeRetrieval, /formalShared/);
+  assert.match(llmClient, /provider_fallback_enabled' => false/);
+  assert.match(llmClient, /response_cache_enabled' => false/);
+  assert.match(llmClient, /'type' => 'json_object'/);
+  assert.match(aiAnswers, /verified_ota_channel_only/);
+  assert.match(aiAnswers, /missing_substantive_fact_coverage/);
+  assert.match(aiAnswers, /metric_values/);
+  assert.match(aiAnswers, /metric_units/);
+  assert.match(aiAnswers, /isSubstantiveFact/);
+  assert.match(aiAnswers, /count\(\$dates\) \* count\(\$platforms\) > 40/);
+  assert.match(questions, /observedMetricFields/);
+  assert.match(questions, /\(float\)\$value === 0\.0/);
+  assert.match(aiAnswers, /unknown_after_client_attempt/);
+  assert.match(aiAnswers, /不得改价、改库存、创建任务、外发消息/);
+  assert.match(questions, /platform_date_fact_coverage_missing/);
+  assert.match(questions, /whereIn\('platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
+  assert.match(questions, /whereIn\('i\.platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
+  assert.match(questions, /where\('quality_status', 'verified'\)/);
+
+  assert.match(globalShell, /<operating-question-consultant v-if="isLoggedIn" :ctx="\$root"><\/operating-question-consultant>/);
+  assert.match(routes, /Route::post\('\/system-guidance', 'SystemGuidance\/guide'\)/);
+  assert.match(systemGuidanceController, /SystemUsageAssistantService/);
+  assert.match(systemGuidance, /createJsonResponseEnvelope/);
+  assert.match(systemGuidance, /server_owned_feature_catalog_only/);
+  assert.match(systemGuidance, /只能从 trusted_feature_catalog 选择 topic_key/);
+  assert.match(systemGuidance, /journey_topic_keys/);
+  assert.match(systemGuidance, /复合目标必须保留后续步骤/);
+  assert.match(systemGuidance, /success_marker/);
+  assert.match(systemGuidance, /fallbackResult/);
+  assert.match(systemUsageGuideComponent, /name: 'IntelligentSystemUsageAssistant'/);
+  assert.match(systemUsageGuideComponent, /system-guide-floating-launcher/);
+  assert.match(systemUsageGuideComponent, /system-guide-input/);
+  assert.match(systemUsageGuideComponent, /system-guide-submit/);
+  assert.match(systemUsageGuideComponent, /system-guide-result/);
+  assert.match(systemUsageGuideComponent, /教你使用 · 给出证据结论 · 生成行动草案/);
+  assert.match(frontend, /\/agent\/system-guidance/);
+  assert.match(systemUsageGuideComponent, /history: conversationHistory\(\)/);
+  assert.match(systemUsageGuideComponent, /visible_topic_keys: visibleTopicKeys\(\)/);
+  assert.match(systemUsageGuideComponent, /system-guide-journey-goal/);
+  assert.match(systemUsageGuideComponent, /system-guide-active-journey/);
+  assert.match(systemUsageGuideComponent, /仅到达页面不会被算作完成/);
+  assert.match(systemUsageGuideComponent, /suxios_system_usage_journey_v1/);
+  assert.match(systemUsageGuideComponent, /suxios_system_usage_widget_v1/);
+  assert.match(systemUsageGuideComponent, /system-guide-drag-handle/);
+  assert.match(systemUsageGuideComponent, /startWidgetDrag/);
+  assert.match(systemUsageGuideComponent, /clampWidgetPosition/);
+  assert.match(systemUsageGuideComponent, /收起宿析智能使用助手/);
+  assert.match(systemUsageGuideComponent, /打开宿析智能使用助手/);
+  assert.doesNotMatch(systemUsageGuideComponent, /fa-chevron-up/);
+  assert.match(systemUsageGuideComponent, /h\('span', '拖动'\)/);
+  assert.match(systemUsageGuideComponent, /h\('span', '收起'\)/);
+  assert.match(systemUsageGuideComponent, /DeepSeek直接生成 · 真实入口约束/);
+  assert.match(systemUsageGuideComponent, /SYSTEM_ASSISTANT_MODE_OPTIONS/);
+  assert.match(systemUsageGuideComponent, /system-guide-mode-switcher/);
+  assert.match(systemUsageGuideComponent, /runOperatingWorkflow/);
+  assert.match(systemUsageGuideComponent, /operating_result/);
+  assert.match(systemUsageGuideComponent, /system-guide-operating-result/);
+  assert.match(systemUsageGuideComponent, /在页面中指给我看/);
+  assert.match(systemUsageGuideComponent, /phase1EmployeeClosureSummary/);
+  assert.match(systemUsageGuideComponent, /autoFetchCanonicalOperationStatus/);
+  assert.match(systemUsageGuideComponent, /sx-system-guide-anchor-active/);
+  assert.match(systemUsageGuideComponent, /模型只负责理解和说明；导航目标来自系统白名单/);
+  assert.match(systemUsageGuideComponent, /openOnlineDataTab/);
+  assert.match(systemUsageGuideComponent, /openOnlinePlatformAutoTab/);
+  assert.doesNotMatch(systemUsageGuideComponent, /request\('\/agent\/operating-questions/);
+  assert.doesNotMatch(systemUsageGuideComponent, /operating-question-hotel|operating-question-platform/);
+  assert.doesNotMatch(frontend, /const operatingQuestionPanel = \{[\s\S]{0,300}template:/);
+  assert.match(style, /\.sx-ai-consultant-panel/);
+  assert.match(style, /\.sx-ai-consultant-journey-list/);
+  assert.match(style, /\.sx-ai-consultant-header[\s\S]*cursor: grab/);
+  assert.match(style, /\.sx-ai-consultant-launcher[\s\S]*touch-action: none/);
+  assert.match(style, /\.sx-ai-consultant-answer-summary[\s\S]*font-size: 15px/);
+  assert.match(style, /\.sx-ai-consultant-composer textarea[\s\S]*font-size: 14px/);
+  assert.match(style, /\.sx-ai-consultant-mode-switcher/);
+  assert.match(style, /\.sx-system-guide-coach/);
+  assert.match(style, /\.sx-system-guide-anchor-active/);
+  assert.match(style, /@media \(max-width: 640px\)/);
+});
+
+test('system usage assistant maps common work to a real page and falls back to task navigation', () => {
+  const { resolveSystemUsageGuideTopic, SYSTEM_USAGE_GUIDE_TOPICS, SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS } = new Function(
+    `${systemUsageGuideHelpers}\nreturn { resolveSystemUsageGuideTopic, SYSTEM_USAGE_GUIDE_TOPICS, SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS };`,
+  )();
+
+  assert.equal(SYSTEM_USAGE_GUIDE_TOPICS.length, 15);
+  assert.equal(Object.keys(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS).length, 15);
+  assert.match(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS['data-health'], /精确回读/);
+  assert.equal(resolveSystemUsageGuideTopic('我是第一次使用，今天应该先做什么').key, 'daily-workbench');
+  assert.equal(resolveSystemUsageGuideTopic('携程数据缺失去哪里处理').key, 'data-health');
+  assert.equal(resolveSystemUsageGuideTopic('在哪里看报告和经营结论').key, 'revenue-report');
+  assert.equal(resolveSystemUsageGuideTopic('怎么给员工安排任务并复盘').key, 'operations');
+  assert.equal(resolveSystemUsageGuideTopic('自动任务没运行').key, 'automation-monitor');
+  assert.equal(resolveSystemUsageGuideTopic('怎么给新员工开账号并分配酒店权限').key, 'team-permissions');
+  assert.equal(resolveSystemUsageGuideTopic('怎么生成今天的AI经营日报').key, 'ai-daily-report');
+  assert.equal(resolveSystemUsageGuideTopic('这是一个没有目录的陌生请求').key, 'task-navigation');
+  assert.equal(resolveSystemUsageGuideTopic('这是一个没有目录的陌生请求', 'compass').key, 'task-navigation');
 });
 
 test('all_ota diagnosis is explicit Ctrip plus Meituan current-date evidence and never whole-hotel fallback', () => {

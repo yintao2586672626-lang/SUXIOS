@@ -39,7 +39,7 @@ final class AgentClosureReadinessServiceTest extends TestCase
         self::assertSame(['retrieval_keywords'], array_column($readiness['missing_evidence'], 'code'));
     }
 
-    public function testUsedKnowledgeBecomesClosedLoopEvidence(): void
+    public function testUsedKnowledgeIsReadyButCannotDeclareOperatingLoopClosed(): void
     {
         $rows = (new AgentClosureReadinessService())->enrichKnowledgeRows([[
             'id' => 9,
@@ -54,7 +54,9 @@ final class AgentClosureReadinessServiceTest extends TestCase
 
         $readiness = $rows[0]['knowledge_readiness'];
         self::assertSame('knowledge_active_used', $readiness['stage']);
-        self::assertTrue($readiness['closed_loop']);
+        self::assertTrue($readiness['component_ready']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertSame('unverified', $readiness['authority_status']);
         self::assertSame(3, $readiness['conversation_count']);
         self::assertSame('2026-06-14 10:20:00', $readiness['latest_used_at']);
     }

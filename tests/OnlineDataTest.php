@@ -1510,7 +1510,10 @@ final class OnlineDataTest extends TestCase
             '2026-06-12',
         ]);
 
-        $chain = $row['workflow_chain'];
+        self::assertSame('unverified', $row['status']);
+        self::assertSame('hotel_operating_cycle_kernel_only', $row['source_policy']);
+        self::assertCount(8, $row['workflow_chain']);
+        $chain = $row['diagnostic_workflow_chain'];
         self::assertCount(5, $chain);
         self::assertSame([
             'today_ota_data',

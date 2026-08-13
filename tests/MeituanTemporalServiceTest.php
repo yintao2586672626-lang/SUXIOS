@@ -19,6 +19,22 @@ final class MeituanTemporalServiceTest extends TestCase
         self::assertSame(930, $method->invoke(null, ['timeout_seconds' => 1000]));
     }
 
+    public function testCurrentOnlyRefreshPlanSkipsFutureAndYesterdaySegments(): void
+    {
+        $method = new \ReflectionMethod(MeituanTemporalService::class, 'refreshPlan');
+
+        self::assertSame([
+            'today_scope' => 'today',
+            'include_yesterday' => false,
+            'refresh_scope' => 'current_only',
+        ], $method->invoke(null, true, false));
+        self::assertSame([
+            'today_scope' => 'today_future',
+            'include_yesterday' => true,
+            'refresh_scope' => 'temporal_complete',
+        ], $method->invoke(null, false, false));
+    }
+
     public function testRefreshReportsPartialWhenFutureModuleHasNotUpdated(): void
     {
         $method = new \ReflectionMethod(MeituanTemporalService::class, 'withFutureCaptureOutcome');

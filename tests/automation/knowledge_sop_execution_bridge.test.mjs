@@ -26,12 +26,15 @@ test('knowledge SOP bridge requires an explicit target and reads the persisted i
 
 test('knowledge SOP bridge is idempotent and remains approval-gated', () => {
   const service = read('app/service/OperationManagementService.php');
+  const executionTenantConcern = read('app/service/operation/OperationExecutionTenantConcern.php');
   const controller = read('app/controller/Knowledge.php');
   const route = read('route/app.php');
 
-  assert.match(service, /source_module'\] === 'knowledge_sop'/);
-  assert.match(service, /knowledgeSopExecutionIntentIdempotencyKey\(\$payload\)/);
-  assert.match(service, /replayTrustedExecutionIntent\(\$idempotencyKey, \$payload, \$hotelIds\)/);
+  assert.match(service, /persistExecutionIntentPayload/);
+  assert.match(executionTenantConcern, /source_module'\] === 'knowledge_sop'/);
+  assert.match(service, /function knowledgeSopExecutionIntentIdempotencyKey\(array \$payload\): string/);
+  assert.match(executionTenantConcern, /knowledgeSopExecutionIntentIdempotencyKey\(\$payload\)/);
+  assert.match(executionTenantConcern, /replayTrustedExecutionIntent\(\$idempotencyKey, \$payload, \$hotelIds\)/);
   assert.match(controller, /'status' => 'pending_approval'/);
   assert.match(controller, /'auto_write_ota' => false/);
   assert.match(controller, /KnowledgeSopExecutionProvenanceService/);

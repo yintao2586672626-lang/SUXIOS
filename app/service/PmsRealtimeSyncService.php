@@ -19,6 +19,12 @@ final class PmsRealtimeSyncService
 {
     private const LOCAL_CDP_URL = 'http://127.0.0.1:9223';
     private const MAX_PROCESS_OUTPUT_BYTES = 2_000_000;
+    private const SANDBOX_RECOVERY_REASONS = [
+        'capture_session_expired',
+        'capture_login_required',
+        'capture_session_unverified',
+        'capture_page_missing',
+    ];
 
     private string $projectRoot;
     private string $phpBinary;
@@ -26,6 +32,7 @@ final class PmsRealtimeSyncService
     private Closure $receiptLoader;
     private Closure $cdpProbe;
     private Closure $processRunner;
+    private Closure $loginHandoffRunner;
     private Closure $captureReader;
     private Closure $captureValidator;
     private Closure $clock;
@@ -39,7 +46,8 @@ final class PmsRealtimeSyncService
         ?callable $captureValidator = null,
         ?callable $clock = null,
         ?string $projectRoot = null,
-        ?string $phpBinary = null
+        ?string $phpBinary = null,
+        ?callable $loginHandoffRunner = null
     ) {
         $this->projectRoot = $projectRoot ?: dirname(__DIR__, 2);
         $this->phpBinary = $phpBinary ?: PHP_BINARY;
@@ -63,6 +71,10 @@ final class PmsRealtimeSyncService
         );
         $this->processRunner = Closure::fromCallable(
             $processRunner ?: fn(array $command): array => $this->runProcess($command)
+        );
+        $this->loginHandoffRunner = Closure::fromCallable(
+            $loginHandoffRunner ?: fn(string $sandboxId): array =>
+                $this->launchLoginHandoff($sandboxId)
         );
         $this->captureReader = Closure::fromCallable($captureReader ?: static fn(
             int $tenantId,
@@ -127,14 +139,16 @@ final class PmsRealtimeSyncService
             return $this->blocked(
                 'pms_target_date_invalid',
                 'PMS 业务日期格式无效，本次未启动采集。',
-                $targetDate
+                $targetDate,
+                hotelId: $hotelId
             );
         }
         if ($targetDate > $today) {
             return $this->blocked(
                 'pms_target_date_in_future',
                 '未来业务日尚不能形成 PMS 经营事实，本次未启动采集。',
-                $targetDate
+                $targetDate,
+                hotelId: $hotelId
             );
         }
         $historicalCollection = $targetDate < $today;
@@ -148,7 +162,8 @@ final class PmsRealtimeSyncService
             return $this->blocked(
                 (string)($blocker['code'] ?? 'hotel_pms_unconfigured'),
                 (string)($blocker['message'] ?? '当前门店尚未配置唯一 PMS。'),
-                $targetDate
+                $targetDate,
+                hotelId: $hotelId
             );
         }
 
@@ -159,7 +174,8 @@ final class PmsRealtimeSyncService
                 '当前 PMS 暂未接入页面实时同步，请读取已保存快照。',
                 $targetDate,
                 false,
-                $provider
+                $provider,
+                hotelId: $hotelId
             );
         }
 
@@ -170,16 +186,20 @@ final class PmsRealtimeSyncService
                 '当前门店未找到隔离的订单来了采集会话，不能连接任意浏览器代采。',
                 $targetDate,
                 true,
-                $provider
+                $provider,
+                hotelId: $hotelId
             );
         }
         if (!(($this->cdpProbe)(self::LOCAL_CDP_URL))) {
+            $loginHandoff = $this->loginHandoff($hotelId, $targetDate, $sandboxId);
             return $this->blocked(
                 'pms_live_session_unavailable',
-                '订单来了实时采集会话未连接，请重新登录后再同步。',
+                '订单来了专用采集会话未连接，请在本机已绑定的独立 Google Chrome 窗口登录并保持开启，然后再同步；不要复制 Cookie 或换设备代采。',
                 $targetDate,
                 true,
-                $provider
+                $provider,
+                $loginHandoff,
+                $hotelId
             );
         }
 
@@ -191,7 +211,8 @@ final class PmsRealtimeSyncService
                 '实时 PMS 采集程序不可用，本次未读取外部数据。',
                 $targetDate,
                 false,
-                $provider
+                $provider,
+                hotelId: $hotelId
             );
         }
 
@@ -234,6 +255,7 @@ final class PmsRealtimeSyncService
                 )) {
                     return [
                         'status' => 'partial',
+                        'system_hotel_id' => $hotelId,
                         'provider' => $provider,
                         'target_date' => $targetDate,
                         'capture_id' => $savedCaptureId,
@@ -257,12 +279,18 @@ final class PmsRealtimeSyncService
                     ];
                 }
             }
+            $requiresLogin = $this->requiresLogin($reason);
+            $loginHandoff = $requiresLogin
+                ? $this->loginHandoff($hotelId, $targetDate, $sandboxId)
+                : [];
             return $this->blocked(
                 $reason,
                 $this->reasonMessage($reason),
                 $targetDate,
-                $this->requiresLogin($reason),
-                $provider
+                $requiresLogin,
+                $provider,
+                $loginHandoff,
+                $hotelId
             );
         }
 
@@ -286,12 +314,14 @@ final class PmsRealtimeSyncService
                 'PMS 已返回数据，但保存回读未完整通过，本次不标记为实时同步成功。',
                 $targetDate,
                 false,
-                $provider
+                $provider,
+                hotelId: $hotelId
             );
         }
 
         return [
             'status' => 'synced',
+            'system_hotel_id' => $hotelId,
             'provider' => $provider,
             'target_date' => $targetDate,
             'capture_id' => $captureId,
@@ -339,7 +369,7 @@ final class PmsRealtimeSyncService
     private function sandboxId(int $hotelId, int $userId): string
     {
         $receipt = ($this->receiptLoader)($hotelId, $userId);
-        if (!$this->trustedLocalRunnerReceipt($receipt, $hotelId, $userId)) {
+        if (!$this->trustedSandboxBindingReceipt($receipt, $hotelId, $userId)) {
             return '';
         }
         $value = trim((string)($receipt['sandbox_id'] ?? ''));
@@ -383,7 +413,7 @@ final class PmsRealtimeSyncService
             $raw = @file_get_contents($path);
             $decoded = is_string($raw) ? json_decode($raw, true) : null;
             if (is_array($decoded)
-                && $this->trustedLocalRunnerReceipt($decoded, $hotelId, $userId)
+                && $this->trustedSandboxBindingReceipt($decoded, $hotelId, $userId)
             ) {
                 return $decoded;
             }
@@ -392,7 +422,48 @@ final class PmsRealtimeSyncService
     }
 
     /** @param array<string,mixed> $receipt */
-    private function trustedLocalRunnerReceipt(
+    private function trustedSandboxBindingReceipt(
+        array $receipt,
+        int $hotelId,
+        int $userId
+    ): bool {
+        if (!$this->trustedSandboxReceiptScope($receipt, $hotelId, $userId)) {
+            return false;
+        }
+        if ($this->trustedCollectionSuccessReceipt($receipt, $hotelId, $userId)) {
+            return true;
+        }
+
+        return (string)($receipt['status'] ?? '') === 'blocked'
+            && in_array(
+                (string)($receipt['reason'] ?? ''),
+                self::SANDBOX_RECOVERY_REASONS,
+                true
+            )
+            && ($receipt['collection_success'] ?? null) === false
+            && ($receipt['business_data_persisted'] ?? null) === false
+            && (int)($receipt['capture_id'] ?? -1) === 0;
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private function trustedCollectionSuccessReceipt(
+        array $receipt,
+        int $hotelId,
+        int $userId
+    ): bool {
+        return $this->trustedSandboxReceiptScope($receipt, $hotelId, $userId)
+            && in_array((string)($receipt['status'] ?? ''), ['success', 'partial'], true)
+            && ($receipt['collection_success'] ?? false) === true
+            && ($receipt['business_data_persisted'] ?? false) === true
+            && (int)($receipt['capture_id'] ?? 0) > 0
+            && (string)($receipt['identity_status'] ?? '') === 'matched'
+            && (string)($receipt['reconciliation_status'] ?? '') === 'matched'
+            && (string)($receipt['quality_status'] ?? '') === 'verified'
+            && (string)($receipt['readback_status'] ?? '') === 'readback_verified';
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private function trustedSandboxReceiptScope(
         array $receipt,
         int $hotelId,
         int $userId
@@ -403,7 +474,6 @@ final class PmsRealtimeSyncService
 
         return (int)($receipt['schema_version'] ?? 0) === 1
             && trim((string)($receipt['run_id'] ?? '')) !== ''
-            && in_array((string)($receipt['status'] ?? ''), ['success', 'partial'], true)
             && (string)($receipt['source'] ?? '') === 'dingdandao'
             && (string)($receipt['execution_mode'] ?? '')
                 === 'local_shared_browser_sandbox'
@@ -414,13 +484,10 @@ final class PmsRealtimeSyncService
             && (string)($receipt['sandbox_selection'] ?? '') === 'explicit_marker'
             && (string)($receipt['cdp_scope'] ?? '') === 'loopback'
             && (string)($receipt['browser_host_status'] ?? '') === 'ready'
-            && ($receipt['collection_success'] ?? false) === true
-            && ($receipt['business_data_persisted'] ?? false) === true
-            && (int)($receipt['capture_id'] ?? 0) > 0
-            && (string)($receipt['identity_status'] ?? '') === 'matched'
-            && (string)($receipt['reconciliation_status'] ?? '') === 'matched'
-            && (string)($receipt['quality_status'] ?? '') === 'verified'
-            && (string)($receipt['readback_status'] ?? '') === 'readback_verified'
+            && (
+                !array_key_exists('automatic_device_substitution', $receipt)
+                || $receipt['automatic_device_substitution'] === false
+            )
             && is_array($scopeMismatchCodes)
             && $scopeMismatchCodes === [];
     }
@@ -440,6 +507,171 @@ final class PmsRealtimeSyncService
             ? trim((string)($decoded['webSocketDebuggerUrl'] ?? ''))
             : '';
         return preg_match('#^ws://(?:127\.0\.0\.1|localhost):9223/#D', $webSocketUrl) === 1;
+    }
+
+    /** @return array<string,mixed> */
+    private function launchLoginHandoff(string $sandboxId): array
+    {
+        $launcher = $this->projectRoot . DIRECTORY_SEPARATOR
+            . 'scripts' . DIRECTORY_SEPARATOR . 'open_local_browser_sandbox.ps1';
+        if (!is_file($launcher)) {
+            return [
+                'status' => 'blocked',
+                'reason' => 'pms_login_handoff_launcher_missing',
+            ];
+        }
+        $systemRoot = rtrim(
+            (string)(getenv('SystemRoot') ?: 'C:\\Windows'),
+            '\\/'
+        );
+        $candidate = $systemRoot . DIRECTORY_SEPARATOR . 'System32'
+            . DIRECTORY_SEPARATOR . 'WindowsPowerShell'
+            . DIRECTORY_SEPARATOR . 'v1.0'
+            . DIRECTORY_SEPARATOR . 'powershell.exe';
+        $powershell = is_file($candidate) ? $candidate : 'powershell.exe';
+        $process = $this->runProcess([
+            $powershell,
+            '-NoLogo',
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            $launcher,
+            '-ProjectRoot',
+            $this->projectRoot,
+            '-Port',
+            '9223',
+            '-Platform',
+            'dingdandao',
+            '-SandboxId',
+            $sandboxId,
+            '-InteractiveLogin',
+            '-SwitchMode',
+        ]);
+        $payload = $this->lastJsonObject(
+            (string)($process['stdout'] ?? ''),
+            (string)($process['stderr'] ?? '')
+        );
+        if ((int)($process['exit_code'] ?? 1) !== 0 || $payload === []) {
+            return [
+                'status' => 'blocked',
+                'reason' => $this->reason(
+                    (string)($payload['reason'] ?? 'pms_login_handoff_runner_failed')
+                ),
+            ];
+        }
+        return $payload;
+    }
+
+    /** @return array<string,mixed> */
+    private function loginHandoff(
+        int $hotelId,
+        string $targetDate,
+        string $sandboxId
+    ): array {
+        $base = [
+            'system_hotel_id' => $hotelId,
+            'target_date' => $targetDate,
+            'sandbox_id' => $sandboxId,
+            'browser_label' => '订单来了 PMS 专用 Google Chrome',
+            'login_verified' => false,
+            'codex_iab_is_execution_browser' => false,
+            'recovery_device_policy' => 'same_bound_device_only',
+            'automatic_device_substitution' => false,
+            'profile_material_copied' => false,
+            'session_material_exposed' => false,
+        ];
+        try {
+            $payload = ($this->loginHandoffRunner)($sandboxId);
+        } catch (\Throwable) {
+            return [
+                ...$base,
+                'status' => 'unavailable',
+                'failure_code' => 'pms_login_handoff_runner_failed',
+            ];
+        }
+        if (!$this->trustedLoginHandoffReceipt($payload, $sandboxId)) {
+            $failureCode = (string)($payload['status'] ?? '') === 'blocked'
+                ? $this->reason(
+                    (string)($payload['reason'] ?? 'pms_login_handoff_unavailable')
+                )
+                : 'pms_login_handoff_receipt_invalid';
+            return [
+                ...$base,
+                'status' => 'unavailable',
+                'failure_code' => $failureCode,
+            ];
+        }
+        return [
+            ...$base,
+            'status' => 'ready',
+            'dedicated_browser_status' => 'ready',
+            'window_target_activated' => true,
+            'window_target_reused' => (bool)$payload['window_target_reused'],
+            'activated_target_scope' => (string)$payload['activated_target_scope'],
+            'window_foreground_requested' =>
+                (bool)$payload['window_foreground_requested'],
+            'next_action' => 'complete_login_then_retry_verified_collection',
+        ];
+    }
+
+    /** @param array<string,mixed> $payload */
+    private function trustedLoginHandoffReceipt(
+        array $payload,
+        string $sandboxId
+    ): bool {
+        return $this->validSandboxId($sandboxId)
+            && (string)($payload['status'] ?? '') === 'handoff_ready'
+            && (string)($payload['cdp_status'] ?? '') === 'ready'
+            && (string)($payload['cdp_scope'] ?? '') === 'loopback_only'
+            && (int)($payload['cdp_port'] ?? 0) === 9223
+            && is_bool($payload['browser_started'] ?? null)
+            && ($payload['headless'] ?? null) === false
+            && is_bool($payload['mode_switch_performed'] ?? null)
+            && (string)($payload['platform'] ?? '') === 'dingdandao'
+            && is_string($payload['sandbox_id'] ?? null)
+            && hash_equals($sandboxId, (string)$payload['sandbox_id'])
+            && (string)($payload['isolation'] ?? '') === 'process_profile'
+            && (string)($payload['start_url'] ?? '')
+                === 'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData'
+            && (string)($payload['session_status'] ?? '') === 'login_required'
+            && ($payload['login_required'] ?? null) === true
+            && ($payload['window_target_activated'] ?? null) === true
+            && is_bool($payload['window_target_reused'] ?? null)
+            && in_array(
+                (string)($payload['activated_target_scope'] ?? ''),
+                ['exact_start', 'pms_manage', 'login_entry'],
+                true
+            )
+            && is_bool($payload['window_foreground_requested'] ?? null)
+            && (string)($payload['next_action'] ?? '')
+                === 'complete_login_in_bound_browser_then_retry'
+            && ($payload['automatic_device_substitution'] ?? null) === false
+            && ($payload['profile_material_copied'] ?? null) === false
+            && ($payload['browser_process_exposed'] ?? null) === false
+            && ($payload['raw_response_exposed'] ?? null) === false
+            && ($payload['session_material_exposed'] ?? null) === false
+            && ($payload['sensitive_values_exposed'] ?? null) === false
+            && !$this->containsSensitiveHandoffField($payload);
+    }
+
+    /** @param array<string,mixed> $payload */
+    private function containsSensitiveHandoffField(array $payload): bool
+    {
+        foreach ($payload as $key => $value) {
+            $normalizedKey = strtolower((string)$key);
+            if (preg_match(
+                '/(?:cookie|password|secret|authorization|access_token|refresh_token|profile_path|process_id|target_id|browser_context|websocket)/',
+                $normalizedKey
+            ) === 1) {
+                return true;
+            }
+            if (is_array($value) && $this->containsSensitiveHandoffField($value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param array<int,string> $command @return array{exit_code:int,stdout:string,stderr:string} */
@@ -513,10 +745,10 @@ final class PmsRealtimeSyncService
     private function reasonMessage(string $reason): string
     {
         return match ($reason) {
-            'capture_session_expired' => '订单来了登录会话已过期，请重新登录后再同步。',
+            'capture_session_expired' => '订单来了专用采集会话已过期，请在本机已绑定的独立 Google Chrome 窗口登录并保持开启，然后再同步；不要复制 Cookie 或换设备代采。',
             'capture_login_required',
-            'capture_session_unverified' => '订单来了尚未完成登录验证，请登录后再同步。',
-            'capture_page_missing' => '实时采集会话中未找到订单来了经营数据页，请重新连接后再同步。',
+            'capture_session_unverified' => '订单来了专用采集会话尚未完成登录验证，请在本机已绑定的独立 Google Chrome 窗口登录并保持开启，然后再同步。',
+            'capture_page_missing' => '专用采集会话中未找到订单来了经营数据页，请在同一台已绑定设备的独立 Google Chrome 窗口打开订单来了，然后再同步。',
             'dingdandao_local_collection_already_running' => '订单来了实时同步正在执行，请稍后再试。',
             'dingdandao_hotel_identity_mismatch',
             'dingdandao_local_provider_identity_incomplete' => '订单来了门店身份与当前宿析OS门店不一致，已阻止写入。',
@@ -530,10 +762,13 @@ final class PmsRealtimeSyncService
         string $message,
         string $targetDate,
         bool $requiresLogin = false,
-        string $provider = HotelPmsBindingService::PROVIDER_DINGDANDAO
+        string $provider = HotelPmsBindingService::PROVIDER_DINGDANDAO,
+        array $loginHandoff = [],
+        int $hotelId = 0
     ): array {
-        return [
+        $result = [
             'status' => 'blocked',
+            'system_hotel_id' => $hotelId,
             'provider' => $provider,
             'target_date' => $targetDate,
             'live_read' => false,
@@ -541,7 +776,18 @@ final class PmsRealtimeSyncService
             'readback_verified' => false,
             'blocker_code' => $code,
             'requires_login' => $requiresLogin,
+            'recovery_action' => $requiresLogin
+                ? 'login_in_bound_local_sandbox'
+                : null,
+            'recovery_device_policy' => $requiresLogin
+                ? 'same_bound_device_only'
+                : null,
+            'automatic_device_substitution' => false,
             'message' => $message,
         ];
+        if ($requiresLogin && $loginHandoff !== []) {
+            $result['login_handoff'] = $loginHandoff;
+        }
+        return $result;
     }
 }

@@ -6,6 +6,8 @@ namespace Tests;
 use app\controller\Agent;
 use app\service\DailyWorkbenchPatrolService;
 use app\service\OperationManagementService;
+use app\service\QuantSimulationService;
+use app\service\SimulationExecutionBridgeService;
 use app\service\SimulationExecutionReadinessService;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
@@ -213,6 +215,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             ],
         ], 7, 3);
         Db::name('online_daily_data')->insert([
+            'tenant_id' => 42,
             'system_hotel_id' => 7,
             'data_source_id' => 11,
             'hotel_id' => '130079194',
@@ -326,6 +329,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             ],
         ], 7, 3);
         Db::name('online_daily_data')->insert([
+            'tenant_id' => 42,
             'system_hotel_id' => 7,
             'data_source_id' => 11,
             'hotel_id' => '130079194',
@@ -537,6 +541,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'project_name' => 'Scoped strategy source',
             'input_json' => json_encode([
                 'project_name' => 'Scoped strategy source',
+                'hotel_id' => 7,
                 'source_evidence' => ['site_visit' => 'verified'],
             ], JSON_UNESCAPED_UNICODE),
             'data_snapshot_json' => json_encode([
@@ -557,7 +562,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'id' => $recordId,
             'project_name' => 'Scoped strategy source',
             'total_score' => 82,
-            'input' => ['project_name' => 'Scoped strategy source', 'source_evidence' => ['site_visit' => 'verified']],
+            'input' => ['project_name' => 'Scoped strategy source', 'hotel_id' => 7, 'source_evidence' => ['site_visit' => 'verified']],
             'scores' => [],
             'recommendation' => ['decision' => 'proceed to review', 'decision_direction' => 'verify lease and competitor evidence'],
             'risk' => ['risk_level' => 'medium'],
@@ -572,10 +577,30 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         $approved = $service->approveExecutionIntent((int)$current['id'], true, 'source unchanged', 3, [7]);
         self::assertSame('approved', $approved['status']);
 
-        $second = $service->createExecutionIntent([7], 7, $input, 3, false, null, true);
+        $replay = $service->createExecutionIntent([7], 7, $input, 3, false, null, true);
+        self::assertSame((int)$current['id'], (int)$replay['id']);
+        self::assertSame('approved', $replay['status']);
+        self::assertTrue($replay['idempotent_replay']);
+
         Db::name('strategy_simulation_records')->where('id', $recordId)->update([
             'recommendation_json' => json_encode([
                 'decision' => 'pause',
+                'decision_direction' => 'review a changed source snapshot',
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+        $record['recommendation'] = [
+            'decision' => 'pause',
+            'decision_direction' => 'review a changed source snapshot',
+        ];
+        $staleInput = (new SimulationExecutionReadinessService())->buildStrategyExecutionIntentInput($record, [
+            'hotel_id' => 7,
+            'date_start' => '2026-07-17',
+            'date_end' => '2026-07-17',
+        ]);
+        $second = $service->createExecutionIntent([7], 7, $staleInput, 3, false, null, true);
+        Db::name('strategy_simulation_records')->where('id', $recordId)->update([
+            'recommendation_json' => json_encode([
+                'decision' => 'stop',
                 'decision_direction' => 'source changed after intent creation',
             ], JSON_UNESCAPED_UNICODE),
         ]);
@@ -586,6 +611,257 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             self::assertStringContainsString('changed', strtolower($exception->getMessage()));
         }
         self::assertSame('pending_approval', Db::name('operation_execution_intents')->where('id', (int)$second['id'])->value('status'));
+    }
+
+    public function testStrategyAndQuantSimulationRejectOldTenantIntentsAndCreateFreshTenantIdentity(): void
+    {
+        foreach (['strategy_simulation', 'quant_simulation'] as $sourceModule) {
+            $source = $this->insertReadySimulationSource($sourceModule, 42, 7);
+            $service = new OperationManagementService();
+            $input = $this->simulationExecutionInput($sourceModule, $source, 7);
+            $old = $service->createExecutionIntent([7], 7, $input, 3, false, null, true);
+            $oldKey = (string)Db::name('operation_execution_intents')
+                ->where('id', (int)$old['id'])
+                ->value('idempotency_key');
+
+            Db::name('hotels')->where('id', 7)->update(['tenant_id' => 43]);
+            Db::name($sourceModule . '_records')->where('id', (int)$source['id'])->update(['tenant_id' => 43]);
+            try {
+                $service->approveExecutionIntent((int)$old['id'], true, 'old tenant must fail', 3, [7]);
+                self::fail($sourceModule . ' old-tenant intent must not be approved.');
+            } catch (\InvalidArgumentException $e) {
+                self::assertStringContainsString('tenant scope', $e->getMessage(), $sourceModule);
+            }
+            self::assertSame(
+                0,
+                (int)Db::name('operation_execution_tasks')->where('intent_id', (int)$old['id'])->count(),
+                $sourceModule
+            );
+            self::assertSame([], $service->executionIntents([7], 7)['list'], $sourceModule . ' list scope');
+            try {
+                $service->readExecutionIntent((int)$old['id'], [7]);
+                self::fail($sourceModule . ' old-tenant intent detail must be hidden.');
+            } catch (\RuntimeException $e) {
+                self::assertStringContainsString('tenant scope', $e->getMessage(), $sourceModule);
+            }
+
+            $fresh = $service->createExecutionIntent([7], 7, $input, 3, false, null, true);
+            self::assertNotSame((int)$old['id'], (int)$fresh['id'], $sourceModule);
+            self::assertSame(43, (int)$fresh['tenant_id'], $sourceModule);
+            self::assertNotSame(
+                $oldKey,
+                (string)Db::name('operation_execution_intents')
+                    ->where('id', (int)$fresh['id'])
+                    ->value('idempotency_key'),
+                $sourceModule
+            );
+            self::assertNull($service->readExecutionIntentByIdempotencyKey($oldKey, [7]), $sourceModule);
+
+            $approved = $service->approveExecutionIntent((int)$fresh['id'], true, 'current tenant', 3, [7]);
+            self::assertSame('approved', $approved['status'], $sourceModule);
+            self::assertSame(1, count($approved['tasks']), $sourceModule);
+
+            Db::name('operation_execution_tasks')->delete(true);
+            Db::name('operation_execution_intents')->delete(true);
+            Db::name($sourceModule . '_records')->delete(true);
+            Db::name('hotels')->where('id', 7)->update(['tenant_id' => 42]);
+        }
+    }
+
+    public function testQuantTaskWritesRejectTenantTransferCommittedBySecondConnection(): void
+    {
+        $source = $this->insertReadySimulationSource('quant_simulation', 42, 7);
+        $service = new OperationManagementService();
+        $input = $this->simulationExecutionInput('quant_simulation', $source, 7);
+        $intent = $service->createExecutionIntent([7], 7, $input, 3, false, null, true);
+        $approved = $service->approveExecutionIntent((int)$intent['id'], true, 'current tenant', 3, [7]);
+        $taskId = (int)($approved['tasks'][0]['id'] ?? 0);
+        self::assertGreaterThan(0, $taskId);
+        $beforeTask = Db::name('operation_execution_tasks')->where('id', $taskId)->find();
+        self::assertIsArray($beforeTask);
+
+        $transferConnection = new \PDO('sqlite:' . self::$sqlitePath);
+        $transferConnection->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $transferConnection->beginTransaction();
+        $transferConnection->exec('UPDATE hotels SET tenant_id = 43 WHERE id = 7');
+        $transferConnection->exec(
+            'UPDATE quant_simulation_records SET tenant_id = 43 WHERE id = ' . (int)$source['id']
+        );
+        $transferConnection->commit();
+
+        foreach ([
+            fn(): array => $service->executeExecutionTask($taskId, [7], ['status' => 'executing'], 3),
+            fn(): array => $service->addExecutionEvidence($taskId, [7], [
+                'evidence_type' => 'manual_screenshot',
+                'attachment_path' => '/runtime/evidence/quant-after-transfer.png',
+            ], 3),
+        ] as $write) {
+            try {
+                $write();
+                self::fail('The transferred quant task must reject every old-tenant write.');
+            } catch (RuntimeException $exception) {
+                self::assertStringContainsString('current tenant scope', $exception->getMessage());
+            }
+        }
+
+        self::assertSame($beforeTask, Db::name('operation_execution_tasks')->where('id', $taskId)->find());
+        self::assertSame(0, (int)Db::name('operation_execution_evidence')->where('task_id', $taskId)->count());
+    }
+
+    public function testSimulationDetailBridgeReplaysIntentButPersistedBusinessChangeStillRejectsApproval(): void
+    {
+        $operation = new OperationManagementService();
+        $bridge = new SimulationExecutionBridgeService();
+
+        foreach (['strategy_simulation', 'quant_simulation'] as $sourceModule) {
+            $source = $this->insertReadySimulationSource($sourceModule, 42, 7);
+            $initialInput = $this->simulationExecutionInput($sourceModule, $source, 7);
+            $first = $operation->createExecutionIntent([7], 7, $initialInput, 3, false, null, true);
+
+            $bridgedDetail = $bridge->attachToRecord($source, $sourceModule, [7]);
+            self::assertSame((int)$first['id'], (int)$bridgedDetail['execution_intent_id'], $sourceModule);
+            $bridgedInput = $this->simulationExecutionInput($sourceModule, $bridgedDetail, 7);
+            self::assertSame(
+                $initialInput['evidence']['source_record_digest'],
+                $bridgedInput['evidence']['source_record_digest'],
+                $sourceModule . ' source digest must ignore bridge tracking'
+            );
+            self::assertSame(
+                $initialInput['evidence']['simulation_payload_digest'],
+                $bridgedInput['evidence']['simulation_payload_digest'],
+                $sourceModule . ' payload digest must ignore tracking-derived readiness'
+            );
+
+            $replay = $operation->createExecutionIntent([7], 7, $bridgedInput, 3, false, null, true);
+            self::assertSame((int)$first['id'], (int)$replay['id'], $sourceModule);
+            self::assertTrue($replay['idempotent_replay'], $sourceModule);
+            self::assertSame(1, (int)Db::name('operation_execution_intents')
+                ->where('source_module', $sourceModule)
+                ->where('source_record_id', (int)$source['id'])
+                ->count(), $sourceModule);
+
+            if ($sourceModule === 'strategy_simulation') {
+                $changedRecommendation = $source['recommendation'];
+                $changedRecommendation['decision_direction'] = 'persisted business decision changed';
+                Db::name('strategy_simulation_records')->where('id', (int)$source['id'])->update([
+                    'recommendation_json' => json_encode($changedRecommendation, JSON_UNESCAPED_UNICODE),
+                ]);
+            } else {
+                $changedResult = $source['result'];
+                $changedResult['monthlyNetCashflow'] = (float)$changedResult['monthlyNetCashflow'] + 10000;
+                Db::name('quant_simulation_records')->where('id', (int)$source['id'])->update([
+                    'result_json' => json_encode($changedResult, JSON_UNESCAPED_UNICODE),
+                ]);
+            }
+
+            try {
+                $operation->approveExecutionIntent((int)$first['id'], true, 'stale simulation source', 3, [7]);
+                self::fail($sourceModule . ' changed persisted business input must reject the old intent.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringContainsString('changed', strtolower($exception->getMessage()), $sourceModule);
+            }
+        }
+    }
+
+    public function testQuantRealDetailReplaysAndApprovesWithoutDigestingTruthProjections(): void
+    {
+        $source = $this->insertReadySimulationSource('quant_simulation', 42, 7);
+        $quant = new QuantSimulationService();
+        $readiness = new SimulationExecutionReadinessService();
+        $operation = new OperationManagementService();
+
+        $detail = $quant->detail((int)$source['id'], 3, true);
+        self::assertArrayHasKey('metric_truth', $detail['scenarios'][0]);
+        $initialInput = $readiness->buildQuantExecutionIntentInput($detail, [
+            'hotel_id' => 7,
+            'date_start' => '2026-08-13',
+            'date_end' => '2026-08-13',
+        ]);
+        $first = $operation->createExecutionIntent([7], 7, $initialInput, 3, false, null, true);
+
+        $bridgedDetail = $quant->detail((int)$source['id'], 3, true);
+        self::assertSame((int)$first['id'], (int)$bridgedDetail['execution_intent_id']);
+        $projectionOnlyChange = $bridgedDetail;
+        $projectionOnlyChange['scenarios'][0]['metric_truth']['monthlyNetCashflow']['display_value'] = 'projection changed';
+        $retryInput = $readiness->buildQuantExecutionIntentInput($projectionOnlyChange, [
+            'hotel_id' => 7,
+            'date_start' => '2026-08-13',
+            'date_end' => '2026-08-13',
+        ]);
+        self::assertSame(
+            $initialInput['evidence']['source_record_digest'],
+            $retryInput['evidence']['source_record_digest']
+        );
+        self::assertSame(
+            $initialInput['evidence']['simulation_payload_digest'],
+            $retryInput['evidence']['simulation_payload_digest']
+        );
+
+        $replay = $operation->createExecutionIntent([7], 7, $retryInput, 3, false, null, true);
+        self::assertSame((int)$first['id'], (int)$replay['id']);
+        self::assertTrue($replay['idempotent_replay']);
+        self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
+
+        $approved = $operation->approveExecutionIntent((int)$first['id'], true, 'real detail unchanged', 3, [7]);
+        self::assertSame('approved', $approved['status']);
+    }
+
+    public function testQuantPersistedScenarioBusinessChangeInvalidatesIntent(): void
+    {
+        $source = $this->insertReadySimulationSource('quant_simulation', 42, 7);
+        $quant = new QuantSimulationService();
+        $readiness = new SimulationExecutionReadinessService();
+        $operation = new OperationManagementService();
+        $detail = $quant->detail((int)$source['id'], 3, true);
+        $input = $readiness->buildQuantExecutionIntentInput($detail, [
+            'hotel_id' => 7,
+            'date_start' => '2026-08-13',
+            'date_end' => '2026-08-13',
+        ]);
+        $intent = $operation->createExecutionIntent([7], 7, $input, 3, false, null, true);
+
+        $scenarios = $source['scenarios'];
+        $scenarios[0]['adr'] = 288;
+        $scenarios[0]['occupancyRate'] = 66;
+        $scenarios[0]['monthlyNetCashflow'] = 88000;
+        Db::name('quant_simulation_records')->where('id', (int)$source['id'])->update([
+            'scenarios_json' => json_encode($scenarios, JSON_UNESCAPED_UNICODE),
+        ]);
+
+        try {
+            $operation->approveExecutionIntent((int)$intent['id'], true, 'changed scenario', 3, [7]);
+            self::fail('Changed persisted scenario ADR/OCC/cashflow must invalidate the old intent.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('changed', strtolower($exception->getMessage()));
+        }
+        self::assertSame('pending_approval', Db::name('operation_execution_intents')->where('id', (int)$intent['id'])->value('status'));
+    }
+
+    public function testQuantSimulationRejectsSameTenantRequestHotelAtCreationAndApproval(): void
+    {
+        Db::name('hotels')->insert(['id' => 8, 'tenant_id' => 42]);
+        $source = $this->insertReadySimulationSource('quant_simulation', 42, 7);
+        $input = $this->simulationExecutionInput('quant_simulation', $source, 7);
+        $service = new OperationManagementService();
+
+        $tampered = $input;
+        $tampered['hotel_id'] = 8;
+        try {
+            $service->createExecutionIntent([8], 8, $tampered, 3, false, null, true);
+            self::fail('The request hotel must not override the persisted quant source hotel.');
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString('hotel scope', $e->getMessage());
+        }
+
+        $intent = $service->createExecutionIntent([7], 7, $input, 3, false, null, true);
+        Db::name('operation_execution_intents')->where('id', (int)$intent['id'])->update(['hotel_id' => 8]);
+        try {
+            $service->approveExecutionIntent((int)$intent['id'], true, 'malicious same-tenant hotel', 3, [8]);
+            self::fail('Approval must independently recheck the persisted quant source hotel.');
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString('hotel scope', $e->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('operation_execution_tasks')->where('intent_id', (int)$intent['id'])->count());
     }
 
     public function testRefreshingDiagnosisRetainsAnyReferencedProvenance(): void
@@ -1302,6 +1578,137 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             ->value('result_status'));
     }
 
+    public function testMixedCaseReservedSourcesCannotBypassGenericCreationAndScopedCreationStoresCanonicalSource(): void
+    {
+        $service = new OperationManagementService();
+        foreach ([' Opening ', 'TRANSFER_DECISION', 'Feasibility_Report', 'Strategy_Simulation', 'Quant_Simulation'] as $sourceModule) {
+            try {
+                $service->createExecutionIntent([7], 7, [
+                    'source_module' => $sourceModule, 'source_record_id' => 91, 'hotel_id' => 7,
+                    'platform' => 'internal', 'object_type' => 'test', 'action_type' => 'track',
+                    'date_start' => '2026-08-13', 'date_end' => '2026-08-13',
+                    'current_value' => [], 'target_value' => [], 'evidence' => [],
+                    'expected_metric' => 'closure', 'status' => 'pending_approval',
+                ], 3);
+                self::fail($sourceModule . ' must not bypass its scoped source endpoint.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringContainsString('reserved execution source', $exception->getMessage());
+            }
+        }
+
+        $source = $this->insertReadySimulationSource('strategy_simulation', 42, 7);
+        $input = $this->simulationExecutionInput('strategy_simulation', $source, 7);
+        $input['source_module'] = ' Strategy_Simulation ';
+        $intent = $service->createExecutionIntent([7], 7, $input, 3, false, null, true);
+
+        self::assertSame('strategy_simulation', $intent['source_module']);
+        self::assertSame('strategy_simulation', Db::name('operation_execution_intents')->where('id', (int)$intent['id'])->value('source_module'));
+    }
+
+    public function testMixedCaseLegacySimulationIntentRevalidatesSourceBeforeApprovalAndTaskMutation(): void
+    {
+        $service = new OperationManagementService();
+        $staleApprovalSource = $this->insertReadySimulationSource('strategy_simulation', 42, 7);
+        $approvalIntent = $service->createExecutionIntent(
+            [7], 7, $this->simulationExecutionInput('strategy_simulation', $staleApprovalSource, 7), 3, false, null, true
+        );
+        Db::name('operation_execution_intents')->where('id', (int)$approvalIntent['id'])->update(['source_module' => ' Strategy_Simulation ']);
+        $changedRecommendation = $staleApprovalSource['recommendation'];
+        $changedRecommendation['decision_direction'] = 'changed after legacy write';
+        Db::name('strategy_simulation_records')->where('id', (int)$staleApprovalSource['id'])->update([
+            'recommendation_json' => json_encode($changedRecommendation, JSON_UNESCAPED_UNICODE),
+        ]);
+        try {
+            $service->approveExecutionIntent((int)$approvalIntent['id'], true, 'must reject drift', 3, [7]);
+            self::fail('Mixed-case legacy source must still reject approval after source drift.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('changed', strtolower($exception->getMessage()));
+        }
+        self::assertSame('pending_approval', Db::name('operation_execution_intents')->where('id', (int)$approvalIntent['id'])->value('status'));
+
+        $mutationSource = $this->insertReadySimulationSource('quant_simulation', 42, 7);
+        $mutationIntent = $service->createExecutionIntent(
+            [7], 7, $this->simulationExecutionInput('quant_simulation', $mutationSource, 7), 3, false, null, true
+        );
+        Db::name('operation_execution_intents')->where('id', (int)$mutationIntent['id'])->update(['source_module' => ' QUANT_SIMULATION ']);
+        $approved = $service->approveExecutionIntent((int)$mutationIntent['id'], true, 'legacy source unchanged', 3, [7]);
+        $taskId = (int)($approved['tasks'][0]['id'] ?? 0);
+        self::assertGreaterThan(0, $taskId);
+        $beforeTask = Db::name('operation_execution_tasks')->where('id', $taskId)->find();
+        $changedResult = $mutationSource['result'];
+        $changedResult['monthlyNetCashflow'] = (float)$changedResult['monthlyNetCashflow'] + 1;
+        Db::name('quant_simulation_records')->where('id', (int)$mutationSource['id'])->update([
+            'result_json' => json_encode($changedResult, JSON_UNESCAPED_UNICODE),
+        ]);
+        try {
+            $service->executeExecutionTask($taskId, [7], [], 3);
+            self::fail('Mixed-case legacy source must still reject task mutation after source drift.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('changed', strtolower($exception->getMessage()));
+        }
+        self::assertSame($beforeTask, Db::name('operation_execution_tasks')->where('id', $taskId)->find());
+    }
+
+    public function testLatestOtaAttemptScopesCurrentTenantBeforeOrderAndLimit(): void
+    {
+        $service = new OperationManagementService();
+        $baseKey = 'ota_diagnosis_action_' . str_repeat('b', 32);
+        $currentIntentId = $this->insertRawExecutionIntent(42, $baseKey . ':attempt:1000');
+        for ($attempt = 1; $attempt <= 105; $attempt++) {
+            $this->insertRawExecutionIntent(42, $baseKey . ':attempt:' . $attempt);
+        }
+        Db::name('hotels')->where('id', 7)->update(['tenant_id' => 99]);
+        $this->insertRawExecutionIntent(99, $baseKey . ':attempt:2000');
+        Db::name('hotels')->where('id', 7)->update(['tenant_id' => 42]);
+
+        $latest = $service->readLatestOtaDiagnosisExecutionIntentAttempt($baseKey, [7]);
+
+        self::assertIsArray($latest);
+        self::assertSame(1000, $latest['attempt']);
+        self::assertSame($currentIntentId, (int)$latest['intent']['id']);
+        self::assertSame(42, (int)$latest['intent']['tenant_id']);
+    }
+
+    public function testExecutionIntentListReportsCurrentTenantTruncation(): void
+    {
+        for ($row = 1; $row <= 105; $row++) {
+            $this->insertRawExecutionIntent(42, null, 'manual', 2000 + $row);
+        }
+
+        $result = (new OperationManagementService())->executionIntents([7], 7);
+
+        self::assertSame(105, $result['matched_total']);
+        self::assertSame(100, $result['returned_count']);
+        self::assertTrue($result['truncated']);
+        self::assertSame('partial', $result['data_status']);
+        self::assertFalse($result['statistics']['execution_total_loaded']);
+        self::assertSame('operation_execution_intents_truncated', $result['data_gaps'][0]['code']);
+    }
+
+    public function testExecutionReadsFailClosedWhenTenantScopeSchemaIsMissing(): void
+    {
+        $service = new OperationManagementService();
+        Db::execute('ALTER TABLE operation_execution_intents DROP COLUMN tenant_id');
+        try {
+            $list = $service->executionIntents([7], 7);
+            $flow = $service->executionFlow([7], 7);
+            foreach ([$list, $flow] as $result) {
+                self::assertSame([], $result['list']);
+                self::assertSame('migration_required', $result['data_status']);
+                self::assertSame(0, $result['matched_total']);
+                self::assertSame(0, $result['returned_count']);
+                self::assertFalse($result['truncated']);
+                self::assertFalse($result['statistics']['execution_total_loaded']);
+                self::assertSame('operation_execution_intents_tenant_id_missing', $result['data_gaps'][0]['code']);
+            }
+            self::assertFalse($flow['statistics']['task_status_loaded']);
+            self::assertFalse($flow['statistics']['evidence_loaded']);
+            self::assertFalse($flow['statistics']['roi_loaded']);
+        } finally {
+            Db::execute('ALTER TABLE operation_execution_intents ADD COLUMN tenant_id INTEGER NOT NULL DEFAULT 42');
+        }
+    }
+
     /** @return array<string, mixed> */
     private function doneInput(): array
     {
@@ -1344,6 +1751,24 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         ]);
     }
 
+    private function insertRawExecutionIntent(
+        int $tenantId,
+        ?string $idempotencyKey,
+        string $sourceModule = 'ota_diagnosis',
+        int $sourceRecordId = 91
+    ): int {
+        return (int)Db::name('operation_execution_intents')->insertGetId([
+            'tenant_id' => $tenantId, 'idempotency_key' => $idempotencyKey,
+            'source_module' => $sourceModule, 'source_record_id' => $sourceRecordId, 'hotel_id' => 7,
+            'platform' => 'ctrip', 'object_type' => 'data_collection', 'action_type' => 'collect',
+            'date_start' => '2026-08-13', 'date_end' => '2026-08-13',
+            'current_value_json' => '{}', 'target_value_json' => '{}', 'evidence_json' => '{}',
+            'expected_metric' => 'closure', 'expected_delta' => 0, 'risk_level' => 'medium',
+            'blocked_reason' => '', 'status' => 'pending_approval', 'created_by' => 3,
+            'created_at' => '2026-08-13 09:00:00', 'updated_at' => '2026-08-13 09:00:00',
+        ]);
+    }
+
     /** @return array<string, mixed> */
     private function writePatrolSnapshot(): array
     {
@@ -1378,6 +1803,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
     ): void
     {
         Db::name('online_daily_data')->insert([
+            'tenant_id' => 42,
             'system_hotel_id' => 7,
             'data_source_id' => 11,
             'hotel_id' => '130079194',
@@ -1411,6 +1837,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         string $compareType = 'self'
     ): int {
         return (int)Db::name('online_daily_data')->insertGetId([
+            'tenant_id' => 42,
             'system_hotel_id' => 7,
             'data_source_id' => 11,
             'hotel_id' => $compareType === 'self' ? '130079194' : 'competitor-average',
@@ -1437,6 +1864,128 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         ]);
     }
 
+    /** @return array<string, mixed> */
+    private function insertReadySimulationSource(string $sourceModule, int $tenantId, int $hotelId): array
+    {
+        if ($sourceModule === 'strategy_simulation') {
+            $id = (int)Db::name('strategy_simulation_records')->insertGetId([
+                'tenant_id' => $tenantId,
+                'project_name' => 'Tenant strategy source',
+                'input_json' => json_encode([
+                    'project_name' => 'Tenant strategy source',
+                    'hotel_id' => $hotelId,
+                    'system_hotel_id' => $hotelId,
+                    'source_evidence' => ['site_visit' => 'verified'],
+                    'review_status' => 'approved',
+                ], JSON_UNESCAPED_UNICODE),
+                'data_snapshot_json' => json_encode([
+                    'target_hotel_id' => $hotelId,
+                    'local_data_used' => true,
+                    'source_summary' => ['daily_reports'],
+                ], JSON_UNESCAPED_UNICODE),
+                'score_json' => json_encode(['total_score' => 82, 'items' => []], JSON_UNESCAPED_UNICODE),
+                'recommendation_json' => json_encode([
+                    'decision' => 'proceed',
+                    'decision_direction' => 'verify current source',
+                ], JSON_UNESCAPED_UNICODE),
+                'risk_json' => json_encode(['risk_level' => 'medium'], JSON_UNESCAPED_UNICODE),
+                'created_by' => 3,
+                'created_at' => '2026-08-13 09:00:00',
+                'updated_at' => '2026-08-13 09:00:00',
+            ]);
+
+            return [
+                'id' => $id,
+                'project_name' => 'Tenant strategy source',
+                'input' => [
+                    'project_name' => 'Tenant strategy source',
+                    'hotel_id' => $hotelId,
+                    'system_hotel_id' => $hotelId,
+                    'source_evidence' => ['site_visit' => 'verified'],
+                    'review_status' => 'approved',
+                ],
+                'scores' => ['total_score' => 82, 'items' => []],
+                'recommendation' => ['decision' => 'proceed', 'decision_direction' => 'verify current source'],
+                'risk' => ['risk_level' => 'medium'],
+                'data_snapshot' => [
+                    'target_hotel_id' => $hotelId,
+                    'local_data_used' => true,
+                    'source_summary' => ['daily_reports'],
+                ],
+            ];
+        }
+
+        $input = [
+            'hotel_id' => $hotelId,
+            'system_hotel_id' => $hotelId,
+            'roomCount' => 80,
+            'adr' => 320,
+            'occupancyRate' => 78,
+            'monthlyRent' => 120000,
+            'laborCost' => 45000,
+            'utilityCost' => 12000,
+            'otaCommissionRate' => 12,
+            'consumableCost' => 8000,
+            'maintenanceCost' => 6000,
+            'otherFixedCost' => 5000,
+            'decorationInvestment' => 3200000,
+            'furnitureInvestment' => 800000,
+            'openingCost' => 300000,
+            'otherInvestment' => 200000,
+            'source_evidence' => ['daily_report' => 'verified'],
+            'review_status' => 'approved',
+        ];
+        $result = [
+            'monthlyRevenue' => 620000,
+            'monthlyNetCashflow' => 210000,
+            'paybackMonths' => 22.1,
+            'riskLevel' => 'medium',
+        ];
+        $scenarios = [
+            ['name' => 'conservative'],
+            ['name' => 'base'],
+            ['name' => 'optimistic'],
+        ];
+        $id = (int)Db::name('quant_simulation_records')->insertGetId([
+            'tenant_id' => $tenantId,
+            'project_name' => 'Tenant quant source',
+            'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE),
+            'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
+            'scenarios_json' => json_encode($scenarios, JSON_UNESCAPED_UNICODE),
+            'risk_hints_json' => '[]',
+            'monthly_net_cashflow' => 210000,
+            'payback_months' => 22.1,
+            'risk_level' => 'medium',
+            'created_by' => 3,
+            'created_at' => '2026-08-13 09:00:00',
+            'updated_at' => '2026-08-13 09:00:00',
+        ]);
+
+        return [
+            'id' => $id,
+            'project_name' => 'Tenant quant source',
+            'input' => $input,
+            'result' => $result,
+            'scenarios' => $scenarios,
+            'risk_hints' => [],
+        ];
+    }
+
+    /** @param array<string, mixed> $source @return array<string, mixed> */
+    private function simulationExecutionInput(string $sourceModule, array $source, int $hotelId): array
+    {
+        $service = new SimulationExecutionReadinessService();
+        $overrides = [
+            'hotel_id' => $hotelId,
+            'date_start' => '2026-08-13',
+            'date_end' => '2026-08-13',
+        ];
+
+        return $sourceModule === 'strategy_simulation'
+            ? $service->buildStrategyExecutionIntentInput($source, $overrides)
+            : $service->buildQuantExecutionIntentInput($source, $overrides);
+    }
+
     private static function createSchema(): void
     {
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
@@ -1456,6 +2005,7 @@ CREATE TABLE operation_execution_intents (
     tenant_id INTEGER NOT NULL DEFAULT 42,
     source_module TEXT NOT NULL,
     source_record_id INTEGER NOT NULL,
+    idempotency_key TEXT UNIQUE,
     hotel_id INTEGER NOT NULL,
     platform TEXT NOT NULL DEFAULT '',
     object_type TEXT NOT NULL DEFAULT '',
@@ -1558,6 +2108,7 @@ SQL);
         Db::execute(<<<'SQL'
 CREATE TABLE online_daily_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
     system_hotel_id INTEGER NOT NULL,
     data_source_id INTEGER,
     hotel_id TEXT,

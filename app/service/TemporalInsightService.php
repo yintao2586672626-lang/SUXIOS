@@ -1123,6 +1123,21 @@ final class TemporalInsightService
         ];
     }
 
+    public function operationReviewHotelId(int $forecastPointId): int
+    {
+        if ($forecastPointId <= 0 || !$this->tableExists(self::FORECAST_TABLE)) {
+            throw new InvalidArgumentException('forecast point does not exist or forecast table is unavailable');
+        }
+        $hotelId = (int)Db::name(self::FORECAST_TABLE)
+            ->where('id', $forecastPointId)
+            ->value('system_hotel_id');
+        if ($hotelId <= 0) {
+            throw new RuntimeException('forecast point does not exist', 404);
+        }
+
+        return $hotelId;
+    }
+
     /**
      * Create only a pending human-review intent. OperationManagementService
      * creates the task later, inside its explicit approval transaction.

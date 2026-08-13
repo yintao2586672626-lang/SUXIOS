@@ -352,6 +352,200 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             boundary_text: '自然验收独立于“最近采集成功”；手工运行、旧回执和一次成功均不计入连续稳定天数。',
         };
     };
+    const buildWindowsOtaSchedulerStatus = (receipt) => {
+        if (!receipt || receipt.visible !== true) return { visible: false };
+        const scope = receipt.scope && typeof receipt.scope === 'object' ? receipt.scope : {};
+        const trigger = receipt.trigger && typeof receipt.trigger === 'object' ? receipt.trigger : {};
+        const sourceIds = Array.isArray(scope.source_ids) ? scope.source_ids.map(Number) : [];
+        const platforms = Array.isArray(scope.platforms)
+            ? scope.platforms.map(value => String(value || '').trim().toLowerCase())
+            : [];
+        const contractDigest = String(receipt.contract_digest || '').trim().toLowerCase();
+        const catchUpDisabled = typeof receipt.catch_up_disabled === 'boolean'
+            ? receipt.catch_up_disabled
+            : null;
+        const safeEnableTransitionRequired = typeof receipt.safe_enable_transition_required === 'boolean'
+            ? receipt.safe_enable_transition_required
+            : null;
+        const catchUpStateDeclared = typeof receipt.catch_up_disabled === 'boolean'
+            && typeof receipt.safe_enable_transition_required === 'boolean'
+            && receipt.safe_enable_transition_required === !receipt.catch_up_disabled;
+        const activeTaskStateText = ['running', 'queued']
+            .includes(String(receipt.task_state || '').trim().toLowerCase());
+        const taskStateActive = activeTaskStateText || receipt.task_state_active === true
+            ? true
+            : (receipt.task_state_active === false ? false : null);
+        const taskStarted = receipt.task_started === true || receipt.starts_task_immediately === true
+            ? true
+            : (receipt.task_started === false && receipt.starts_task_immediately === false ? false : null);
+        const controlStateVerified = receipt.control_state_verified === true;
+        const contractExact = String(receipt.schema_version || '') === 'suxios_windows_ota_dispatcher.v1'
+            && Number(receipt.hotel_id) === 80
+            && String(receipt.task_name || '') === 'SUXIOS OTA Dispatcher H80'
+            && Number(scope.hotel_id) === 80
+            && sourceIds.length === 2
+            && sourceIds[0] === 25
+            && sourceIds[1] === 68
+            && platforms.length === 2
+            && platforms[0] === 'ctrip'
+            && platforms[1] === 'meituan'
+            && String(scope.mode || '') === 'Daily'
+            && receipt.local_only === true
+            && receipt.production_ready === false
+            && controlStateVerified
+            && typeof receipt.enabled === 'boolean'
+            && typeof receipt.task_started === 'boolean'
+            && typeof receipt.starts_task_immediately === 'boolean'
+            && receipt.sensitive_values_exposed === false
+            && catchUpStateDeclared;
+        const exactScope = contractExact
+            && receipt.scope_verified === true
+            && receipt.action_verified === true
+            && receipt.trigger_verified === true
+            && receipt.principal_verified === true
+            && receipt.settings_verified === true
+            && Number(trigger.count) === 1
+            && String(trigger.retry_interval || '') === 'PT14M'
+            && String(trigger.retry_duration || '') === 'PT1H25M'
+            && /^[a-f0-9]{64}$/.test(contractDigest);
+        const bindingGate = receipt.binding_gate && typeof receipt.binding_gate === 'object'
+            ? receipt.binding_gate
+            : {};
+        const bindingReady = bindingGate.ready === true && String(bindingGate.status || '') === 'ready';
+        const enabled = typeof receipt.enabled === 'boolean' ? receipt.enabled : null;
+        const reasonCodes = Array.isArray(bindingGate.reason_codes)
+            ? bindingGate.reason_codes
+                .map(value => String(value || '').trim().toLowerCase())
+                .filter(value => /^[a-z0-9_.:-]{1,100}$/.test(value))
+            : [];
+        const schedulerReason = String(receipt.reason_code || '').trim().toLowerCase();
+        const controlUnavailable = ['scheduler_receipt_unavailable', 'scheduler_control_unavailable']
+            .includes(schedulerReason);
+        let reason = 'scheduler_ready';
+        if (controlUnavailable) {
+            reason = schedulerReason;
+        } else if (!exactScope) {
+            reason = 'scheduler_scope_mismatch';
+        } else if (taskStarted) {
+            reason = 'scheduler_enable_triggered_unexpected_run';
+        } else if (taskStateActive) {
+            reason = 'scheduler_task_active';
+        } else if (!enabled) {
+            reason = schedulerReason || 'scheduler_disabled';
+        } else if (!catchUpDisabled) {
+            reason = 'scheduler_catch_up_enabled';
+        } else if (String(receipt.status || '') !== 'ready') {
+            reason = schedulerReason || 'scheduler_control_unavailable';
+        } else if (!bindingReady) {
+            reason = reasonCodes[0] || 'scheduler_binding_not_ready';
+        }
+        const reasonTextMap = {
+            scheduler_disabled: 'Windows 计划任务当前已禁用',
+            scheduler_scope_mismatch: '计划任务 Action、单触发器或固定双平台范围不一致',
+            scheduler_task_active: '计划任务正在运行或排队，当前禁止变更',
+            scheduler_catch_up_enabled: '任务仍允许错过时间后补跑，不能承诺仅启用而不运行',
+            scheduler_enable_triggered_unexpected_run: '启用回读发现任务已运行或上次运行时间发生变化',
+            scheduler_safe_settings_readback_failed: '关闭补跑后的设置回读未通过',
+            scheduler_disabled_catch_up_enabled: '任务已禁用；启用时将先关闭补跑，再精确回读',
+            scheduler_binding_not_ready: '携程与美团的原设备绑定或登录状态尚未同时就绪',
+            scheduler_control_unavailable: '暂时无法读取本机 Windows 计划任务',
+            scheduler_receipt_unavailable: '计划任务回读凭据不可用',
+            scheduler_process_exit_nonzero: '计划任务控制进程异常退出，不能接受成功形状的回执',
+            scheduler_task_missing: '未找到酒店80的固定计划任务',
+            login_required: '平台登录已过期，需要在原设备重新登录',
+            session_expired: '平台登录已过期，需要在原设备重新登录',
+            ota_execution_device_binding_missing: '缺少原执行设备绑定',
+            ota_execution_owner_missing: '携程或美团缺少固定执行账号',
+            ota_execution_owner_conflict: '携程与美团绑定到了不同执行账号',
+            ota_platform_hotel_id_canonical_missing: '缺少正式平台门店身份',
+            scheduler_source_scope_mismatch: '固定数据源不是携程 #25 / 美团 #68',
+            scheduler_ready: '计划任务已启用，等待下一次自然运行',
+            scheduler_already_enabled_waiting_natural_run: '计划任务已启用，等待下一次自然运行',
+            scheduler_enabled_waiting_natural_run: '计划任务刚完成启用回读，等待下一次自然运行',
+        };
+        const formatTime = (value) => {
+            const raw = String(value || '').trim();
+            if (!raw) return '未返回';
+            const parsed = new Date(raw);
+            if (Number.isNaN(parsed.getTime())) return raw;
+            return new Intl.DateTimeFormat('zh-CN', {
+                timeZone: 'Asia/Shanghai',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+            }).format(parsed);
+        };
+        const operationalReady = exactScope
+            && controlStateVerified
+            && String(receipt.status || '') === 'ready'
+            && enabled === true
+            && catchUpDisabled === true
+            && taskStateActive === false
+            && taskStarted === false
+            && bindingReady;
+        const canEnable = exactScope
+            && controlStateVerified
+            && enabled === false
+            && taskStateActive === false
+            && taskStarted === false
+            && bindingReady
+            && receipt.can_enable === true
+            && /^[a-f0-9]{64}$/.test(contractDigest);
+        return {
+            visible: true,
+            enabled,
+            exact_scope: exactScope,
+            control_state_verified: controlStateVerified,
+            catch_up_disabled: catchUpDisabled,
+            safe_enable_transition_required: safeEnableTransitionRequired,
+            task_state_active: taskStateActive,
+            task_started: taskStarted,
+            status: operationalReady ? 'enabled_waiting_natural_run' : 'blocked',
+            status_text: operationalReady
+                ? '已启用·等待自然运行'
+                : (controlUnavailable
+                    ? 'blocked·状态未验证'
+                    : (!exactScope
+                    ? 'blocked·范围不匹配'
+                    : (taskStarted
+                        ? 'blocked·发生意外运行'
+                        : (taskStateActive
+                        ? 'blocked·任务运行中'
+                        : (!enabled
+                            ? 'blocked·Windows 已禁用'
+                            : (!catchUpDisabled
+                                ? 'blocked·补跑未关闭'
+                                : (String(receipt.status || '') !== 'ready'
+                                    ? 'blocked·任务回读失败'
+                                    : 'blocked·绑定未就绪'))))))),
+            status_class: operationalReady
+                ? 'border-blue-200 bg-blue-50 text-blue-800'
+                : 'border-rose-200 bg-rose-50 text-rose-800',
+            reason,
+            reason_text: reasonTextMap[reason] || reason,
+            binding_reason_text: [...new Set(reasonCodes)].map(code => reasonTextMap[code] || code).join('；'),
+            scope_text: exactScope
+                ? '系统酒店 #80 · 携程 source #25 · 美团 source #68 · Daily'
+                : '任务范围未通过精确回读',
+            trigger_text: exactScope
+                ? `单触发器 08:30 · 每14分钟有限重试 · 窗口 ${String(trigger.retry_duration || '未返回')}`
+                : '触发器未通过精确回读',
+            task_state_text: String(receipt.task_state || (enabled ? 'Enabled' : 'Disabled')),
+            last_run_text: formatTime(receipt.last_run_time),
+            last_result_text: Number.isInteger(Number(receipt.last_task_result))
+                ? String(Number(receipt.last_task_result))
+                : '未返回',
+            next_run_text: formatTime(receipt.next_run_time),
+            can_enable: canEnable,
+            contract_digest: canEnable ? contractDigest : '',
+            boundary_text: '启用时先关闭“错过时间后补跑”，再启用并延迟精确回读；不会手工启动 OTA，也不能替代自然回执或连续 3 日验收。',
+            local_only_text: '本机 development_fallback 验证，不代表生产就绪。',
+        };
+    };
     const autoFetchModuleLabel = (module) => ({
         business: '经营',
         traffic: '流量',
@@ -1080,6 +1274,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         autoFetchResultStatusClass,
         buildCanonicalDailyOperationStatus,
         buildNaturalDailyAcceptanceStatus,
+        buildWindowsOtaSchedulerStatus,
         autoFetchModuleLabel,
         platformProfileMachineText,
         platformProfileStatusLabel,

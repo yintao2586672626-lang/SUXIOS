@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readAppMainContractSource } from './helpers/frontend_source.mjs';
 
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 
@@ -11,7 +12,7 @@ const meituanStatic = read('public/meituan-static.js');
 const targetPage = read('resources/frontend/templates/fragments/15aa-page-operating-targets.html');
 const monitorPage = read('resources/frontend/templates/fragments/15aac-page-automation-monitor.html');
 const taskPage = read('resources/frontend/templates/fragments/17-page-ops-track.html');
-const appMain = read('public/app-main.js');
+const appMain = readAppMainContractSource();
 const monitorSummary = monitorPage.slice(
   monitorPage.indexOf('data-testid="automation-monitor-summary"'),
   monitorPage.indexOf('data-testid="automation-monitor-error"')
@@ -32,7 +33,7 @@ test('automation center keeps configuration, monitoring and execution pages focu
   assert.match(monitorPage, /今日数据与推送监控/);
   assert.match(targetPage, /每天目标、事实与剩余经营压力/);
   assert.doesNotMatch(targetPage, /运营自动化中心 · 第 3 步/);
-  assert.match(monitorPage, /每店只显示一个主 PMS/);
+  assert.equal((monitorPage.match(/<th[^>]*>主 PMS 来源<\/th>/g) || []).length, 1);
   assert.match(monitorPage, /:aria-pressed="automationMonitorStatusFilter === card\.filter/);
   assert.doesNotMatch(monitorPage, /data-testid="automation-monitor-filters"/);
   for (const label of [
@@ -105,18 +106,19 @@ test('notification center classifies channel, plans, records and template variab
   }
 });
 
-test('task execution page is explicitly hotel-scoped and labels manual task fields', () => {
+test('task execution page is explicitly hotel-scoped and exposes the goal-intervention loop', () => {
   assert.match(taskPage, /data-testid="operation-scope-hotel"/);
   assert.match(taskPage, /@change="loadOperationActions"/);
-  assert.match(taskPage, /人工新建运营任务/);
-  for (const label of ['任务名称', '任务类型', '执行门店', '开始日期', '结束日期', '目标指标', '目标变化', '执行说明']) {
+  assert.match(taskPage, /data-testid="operating-goal-intervention-learning"/);
+  for (const label of ['经营目标与干预学习', '建立目标合同', '发起经营干预', '风险偏好', '经营阶段', 'supported', 'contradicted', 'indeterminate']) {
     assert.match(taskPage, new RegExp(label));
   }
+  assert.doesNotMatch(taskPage, /人工新建运营任务/);
 });
 
 test('automation monitor includes permitted hotels and keeps missing WeCom setup visible', () => {
-  assert.match(monitorPage, /自动计划持续核验全部有权限的营业门店/);
-  assert.match(monitorPage, /缺失配置与企业微信回执仍保留为明确阻断/);
+  assert.match(monitorPage, /逐店核验携程、美团和主 PMS/);
+  assert.match(monitorPage, /缺失绑定、数据或企业微信回执始终明确阻断/);
   assert.doesNotMatch(monitorPage, /未绑定机器人门店不进入监控名单/);
   assert.match(monitorPage, /<button[\s\S]*v-for="card in automationMonitorSummaryCards"/);
   assert.match(monitorPage, /@click="automationMonitorStatusFilter = card\.filter"/);

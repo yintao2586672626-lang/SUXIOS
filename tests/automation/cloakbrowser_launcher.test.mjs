@@ -86,7 +86,10 @@ test('every Ctrip and Meituan capture page installs the fresh network gate', asy
   const ctrip = await readFile(new URL('../../scripts/ctrip_browser_capture.mjs', import.meta.url), 'utf8');
   const meituan = await readFile(new URL('../../scripts/meituan_browser_capture.mjs', import.meta.url), 'utf8');
 
-  assert.match(ctrip, /payload\.network_freshness = await requireFreshOtaPageNetwork\(browser, page\)/);
+  assert.match(
+    ctrip,
+    /payload\.network_freshness = authOnly\s*\?\s*await prepareCtripAuthPage\(page\)\s*:\s*await requireFreshOtaPageNetwork\(browser, page\)/,
+  );
   assert.match(ctrip, /networkFreshness = await requireFreshOtaPageNetwork\(context, sectionPage\)/);
   assert.match(ctrip, /retry_network_freshness = await requireFreshOtaPageNetwork\(context, retryPage\)/);
   assert.match(meituan, /payload\.network_freshness = await requireFreshOtaPageNetwork\(browser, page\)/);

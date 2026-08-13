@@ -8,8 +8,19 @@ date_default_timezone_set('Asia/Shanghai');
 // account, which must not make isolated tests fail before they reach their
 // assertions. Explicit test/CI paths still take precedence.
 if (trim((string)getenv('SUXIOS_CACHE_PATH')) === '') {
+    $testProjectRoot = realpath(dirname(__DIR__)) ?: dirname(__DIR__);
+    $testProjectIdentity = strtolower(str_replace('\\', '/', $testProjectRoot));
+    $testWorktreeHash = substr(hash('sha256', $testProjectIdentity), 0, 12);
+    $testRunId = trim((string)getenv('SUXIOS_PHPUNIT_RUN_ID'));
+    if ($testRunId === '') {
+        $testRunId = getmypid() . '-' . bin2hex(random_bytes(6));
+        putenv('SUXIOS_PHPUNIT_RUN_ID=' . $testRunId);
+        $_ENV['SUXIOS_PHPUNIT_RUN_ID'] = $testRunId;
+    }
     $testStateRoot = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR)
-        . DIRECTORY_SEPARATOR . 'suxios-phpunit-state';
+        . DIRECTORY_SEPARATOR . 'suxios-phpunit-state'
+        . DIRECTORY_SEPARATOR . $testWorktreeHash
+        . DIRECTORY_SEPARATOR . $testRunId;
     $testCachePath = $testStateRoot . DIRECTORY_SEPARATOR . 'cache';
     $testLockPath = $testStateRoot . DIRECTORY_SEPARATOR . 'locks';
     @mkdir($testCachePath, 0777, true);

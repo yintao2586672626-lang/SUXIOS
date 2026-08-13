@@ -46,13 +46,13 @@
                                 </details>
                                 <details class="suxi-evidence-fold suxi-work-fold" data-testid="revenue-ai-business-closure-fold">
                                     <summary>
-                                        <span>P1 收益分析闭环</span>
+                                        <span>P1 收益分析诊断</span>
                                         <span>{{ revenueAiBusinessClosure.scopeText }} · {{ revenueAiBusinessClosure.statusLabel }}</span>
                                     </summary>
                                 <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="revenue-ai-business-closure">
                                     <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                         <div>
-                                            <div class="text-sm font-semibold text-slate-900">P1 收益分析闭环</div>
+                                            <div class="text-sm font-semibold text-slate-900">P1 收益分析诊断（不决定权威闭环）</div>
                                             <div class="mt-1 text-xs text-slate-500">{{ revenueAiBusinessClosure.summary }}</div>
                                         </div>
                                         <div class="flex flex-wrap items-center gap-2">
@@ -113,7 +113,7 @@
                                                     <div v-if="item.affected" class="mt-0.5 text-[11px] text-amber-600">影响 {{ item.affected }}</div>
                                                 </div>
                                             </div>
-                                            <div v-else="" class="mt-2 text-xs text-amber-700">当前 P1 收益闭环未返回关键缺失项。</div>
+                                            <div v-else="" class="mt-2 text-xs text-amber-700">当前 P1 收益诊断未返回关键缺失项。</div>
                                         </div>
                                         <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                                             <div class="flex items-center justify-between gap-2">
@@ -154,7 +154,7 @@
                                 </details>
                                 <details class="suxi-evidence-fold suxi-work-fold" data-testid="revenue-ai-gap-closure-fold">
                                     <summary>
-                                        <span>数据缺口闭环</span>
+                                        <span>数据缺口诊断</span>
                                         <span>{{ revenueAiGapSummary.total &gt; 0 ? `${revenueAiGapSummary.total} 项待处理` : '未返回阻塞缺口' }}</span>
                                     </summary>
                                 <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="revenue-ai-gap-closure">

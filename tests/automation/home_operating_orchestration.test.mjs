@@ -148,5 +148,6 @@ test('home entry opens exact fact or intent and refreshes from execution readbac
   assert.match(appMain, /flow\.list\.find\(item => Number\(item\?\.hotel_id \|\| 0\) !== Number\(scopedHotelId\)\)/);
   assert.match(appMain, /loadOperationActions\(\{ focusIntentId: intentId \}\)/);
   assert.match(appMain, /applyHomeOperatingScheduleFlow\(operationExecutionFlow\.value, requestHotelId\)/);
-  assert.match(appMain, /const homeOperatingSchedulePromise = requestPage === 'compass' \? loadHomeOperatingSchedule\(\{ hotelId: compassHotelId \}\) : Promise\.resolve\(false\)/);
+  assert.match(appMain, /homeOperatingScheduleLoading\.value = true;[\s\S]*scheduleDelayedPageTask\(\(\) => \{[\s\S]*return loadHomeOperatingSchedule\(\{ hotelId: compassHotelId \}\);[\s\S]*\}, HOME_SECONDARY_PANEL_DELAY_MS\);/);
+  assert.doesNotMatch(appMain, /const homeOperatingSchedulePromise = requestPage === 'compass'/);
 });

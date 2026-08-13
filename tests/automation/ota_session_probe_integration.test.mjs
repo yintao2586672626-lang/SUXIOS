@@ -31,7 +31,7 @@ test('Ctrip and Meituan expose a non-interactive session-probe mode without cook
     assert.match(source, /const authOnly = sessionProbeOnly \|\| loginOnly/, `${name} must keep probe and login as explicit auth-only modes`);
     assert.match(source, /sessionProbeOnly \? 'session_probe_only'/, `${name} payload must identify probe-only mode`);
     assert.match(source, /sessionProbeOnly\s*\? \{ attempted: false, injected_count: 0, domains: \[\], reason: 'session_probe_only' \}/, `${name} probe must not inject cookies`);
-    assert.match(source, /ensureLoggedIn\(page, \{ interactive: !sessionProbeOnly \}\)/, `${name} probe must be non-interactive`);
+    assert.match(source, /ensureLoggedIn\((?:browser, )?page, \{ interactive: !sessionProbeOnly \}\)/, `${name} probe must be non-interactive`);
     assert.match(source, /evaluateOtaSessionProbe\(/, `${name} must use the shared evidence contract`);
   }
 });
@@ -53,16 +53,23 @@ test('Ctrip writes the probe result even when the preliminary auth heuristic fai
 });
 
 test('session probes observe only response metadata and never collect response bodies', () => {
+  const ctripAuthPreparation = extractFunction(ctrip, 'prepareCtripAuthPage');
+  assert.match(ctrip, /authOnly\s*\? await prepareCtripAuthPage\(page\)/, 'Ctrip auth-only mode must use the shared page preparation path');
+  assert.match(ctripAuthPreparation, /registerSessionProbeResponseObserver\(targetPage\)/, 'Ctrip page preparation must attach the metadata-only observer');
+  assert.ok(
+    ctripAuthPreparation.indexOf('registerSessionProbeResponseObserver(targetPage)')
+      < ctripAuthPreparation.indexOf('requireFreshOtaPageNetwork(browser, targetPage)'),
+    'Ctrip must attach its observer before forcing a fresh protected-page request',
+  );
+  assert.doesNotMatch(ctripAuthPreparation, /registerResponseCapture\(/, 'Ctrip auth-only page preparation must not attach the business response collector');
+
+  const meituanAuthObserverBranch = meituan.match(
+    /if \(authOnly\) \{\s*registerSessionProbeResponseObserver\(page\);[\s\S]*?\n\}/,
+  )?.[0] || '';
+  assert.match(meituanAuthObserverBranch, /registerSessionProbeResponseObserver\(page\)/, 'Meituan auth-only mode must attach the metadata-only observer');
+  assert.doesNotMatch(meituanAuthObserverBranch, /registerResponseCapture\(/, 'Meituan session probe branch must not attach the business response collector');
+
   for (const [name, source] of [['Ctrip', ctrip], ['Meituan', meituan]]) {
-    assert.match(source, /if \(authOnly\) \{\s*registerSessionProbeResponseObserver\(page\);/);
-    const authObserverBranch = source.match(
-      /if \(authOnly\) \{\s*registerSessionProbeResponseObserver\(page\);[\s\S]*?\n\}/,
-    )?.[0] || '';
-    assert.doesNotMatch(
-      authObserverBranch,
-      /registerResponseCapture\(/,
-      `${name} session probe branch must not attach the business response collector`,
-    );
     assert.match(
       source,
       /registerResponseCapture\((?:page|sectionPage|retryPage),/,

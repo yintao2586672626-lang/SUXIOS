@@ -1600,6 +1600,700 @@ final class OtaStandardModuleTest extends TestCase
         self::assertSame('order', $dataset['fact_ota_daily'][0]['source_trace']['data_type'] ?? null);
     }
 
+    public function testEtlFailsClosedForCommonOrderContextPiiWithoutDroppingBusinessFields(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 13,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'meituan',
+                'data_type' => 'order',
+                'data_date' => '2026-05-19',
+                'amount' => 888,
+                'quantity' => 2,
+                'raw_data' => json_encode([
+                    'orderId' => 'MT-ORDER-PII-001',
+                    'guestName' => 'Guest Secret',
+                    'clientName' => 'Client Secret',
+                    'person_name' => 'Person Secret',
+                    'linkMan' => 'Link Secret',
+                    'name' => 'Generic Order Secret',
+                    'phone' => '13800001234',
+                    'email' => 'guest-secret@example.test',
+                    'emailAddress' => 'client-secret@example.test',
+                    'wechat' => 'wechat-secret',
+                    'wechatId' => 'wxid-secret',
+                    'qqNumber' => '100200300',
+                    'imAccount' => 'im-secret',
+                    'socialAccount' => 'social-secret',
+                    'emails' => ['array-secret@example.test'],
+                    'guestNames' => ['Array Guest Secret'],
+                    'socialAccounts' => ['array-social-secret'],
+                    'contactAddress' => 'Sensitive Street 1',
+                    'idNumber' => 'ID-SECRET-001',
+                    'buyerMessage' => 'Private arrival message',
+                    'amount' => 888,
+                    'roomTypeName' => 'Deluxe King',
+                    'checkInDate' => '2026-05-20',
+                    'orderStatus' => 'confirmed',
+                    'bookedRooms' => 2,
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 14,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'meituan',
+                'data_type' => 'business',
+                'data_date' => '2026-05-20',
+                'amount' => 1200,
+                'quantity' => 3,
+                'book_order_num' => 4,
+                'raw_data' => json_encode([
+                    'name' => 'Market Overview',
+                    'roomTypeName' => 'All Room Types',
+                    'channelName' => 'Meituan',
+                    'orderStatusName' => 'Paid Aggregate',
+                    'amount' => 1200,
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+
+        $orderRaw = $dataset['fact_ota_daily'][0]['raw_data'];
+        $encoded = json_encode($orderRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        foreach ([
+            'MT-ORDER-PII-001', 'Guest Secret', 'Client Secret', 'Person Secret',
+            'Link Secret', '13800001234',
+            'guest-secret@example.test', 'client-secret@example.test', 'wechat-secret',
+            'wxid-secret', '100200300', 'im-secret', 'social-secret',
+            'array-secret@example.test', 'Array Guest Secret', 'array-social-secret',
+            'Sensitive Street 1', 'ID-SECRET-001', 'Private arrival message',
+        ] as $secret) {
+            self::assertStringNotContainsString($secret, (string)$encoded, $secret);
+        }
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string)($orderRaw['order_id_hash'] ?? ''));
+        self::assertSame('G***', $orderRaw['guest_name_masked'] ?? null);
+        self::assertSame('C***', $orderRaw['client_name_masked'] ?? null);
+        self::assertSame('P***', $orderRaw['person_name_masked'] ?? null);
+        self::assertSame('L***', $orderRaw['link_man_masked'] ?? null);
+        self::assertSame('Generic Order Secret', $orderRaw['name'] ?? null);
+        self::assertSame('*******1234', $orderRaw['phone_masked'] ?? null);
+        self::assertSame(888, $orderRaw['amount'] ?? null);
+        self::assertSame('Deluxe King', $orderRaw['roomTypeName'] ?? null);
+        self::assertSame('2026-05-20', $orderRaw['checkInDate'] ?? null);
+        self::assertSame('confirmed', $orderRaw['orderStatus'] ?? null);
+        self::assertSame(2, $orderRaw['bookedRooms'] ?? null);
+
+        $businessRaw = $dataset['fact_ota_daily'][1]['raw_data'];
+        self::assertSame('Market Overview', $businessRaw['name'] ?? null);
+        self::assertSame('All Room Types', $businessRaw['roomTypeName'] ?? null);
+        self::assertSame('Meituan', $businessRaw['channelName'] ?? null);
+        self::assertSame('Paid Aggregate', $businessRaw['orderStatusName'] ?? null);
+        self::assertSame(1200, $businessRaw['amount'] ?? null);
+    }
+
+    public function testEtlRedactsWrappedBookingAndReservationPiiWithoutDroppingOrderFactsOrBusinessLabels(): void
+    {
+        $bookingDataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 15,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'meituan',
+                'data_type' => 'booking',
+                'data_date' => '2026-05-21',
+                'amount' => 988,
+                'quantity' => 2,
+                'raw_data' => json_encode([
+                    'booking' => [
+                        'reservationId' => 'RESERVATION-SECRET-15',
+                        'contactInfo' => ['value' => 'wrapped-contact-secret@example.test'],
+                        'guests' => [
+                            'Scalar Guest Secret',
+                            ['firstName' => 'Nested First Secret', 'lastName' => 'Nested Last Secret'],
+                        ],
+                        'guest' => ['text' => 'Wrapped Guest Secret'],
+                        'firstName' => 'Root First Secret',
+                        'lastName' => 'Root Last Secret',
+                        'amount' => 988,
+                        'roomTypeName' => 'Executive Suite',
+                        'checkInDate' => '2026-05-22',
+                        'status' => 'confirmed',
+                        'quantity' => 2,
+                    ],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+            [
+                'id' => 16,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'meituan',
+                'data_type' => 'business',
+                'data_date' => '2026-05-21',
+                'raw_data' => json_encode([
+                    'competitorProfile' => [
+                        'firstName' => 'First-tier room label',
+                        'lastName' => 'Last-minute offer label',
+                        'contactInfo' => ['value' => 'Public comparison label'],
+                        'amount' => 1200,
+                    ],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+        ]);
+
+        $bookingFact = array_values(array_filter(
+            $bookingDataset['fact_ota_daily'],
+            static fn(array $fact): bool => ($fact['source_trace']['data_type'] ?? null) === 'order'
+        ))[0] ?? [];
+        $bookingRaw = is_array($bookingFact['raw_data'] ?? null) ? $bookingFact['raw_data'] : [];
+        $encoded = (string)json_encode($bookingRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        foreach ([
+            'RESERVATION-SECRET-15', 'wrapped-contact-secret@example.test', 'Scalar Guest Secret',
+            'Nested First Secret', 'Nested Last Secret', 'Wrapped Guest Secret',
+            'Root First Secret', 'Root Last Secret',
+        ] as $secret) {
+            self::assertStringNotContainsString($secret, $encoded, $secret);
+        }
+        self::assertMatchesRegularExpression(
+            '/^[a-f0-9]{64}$/',
+            (string)($bookingRaw['booking']['order_id_hash'] ?? '')
+        );
+        self::assertSame(988, $bookingRaw['booking']['amount'] ?? null);
+        self::assertSame('Executive Suite', $bookingRaw['booking']['roomTypeName'] ?? null);
+        self::assertSame('2026-05-22', $bookingRaw['booking']['checkInDate'] ?? null);
+        self::assertSame('confirmed', $bookingRaw['booking']['status'] ?? null);
+        self::assertSame(2, $bookingRaw['booking']['quantity'] ?? null);
+
+        $businessFact = array_values(array_filter(
+            $bookingDataset['fact_ota_daily'],
+            static fn(array $fact): bool => ($fact['source_trace']['data_type'] ?? null) === 'business'
+        ))[0] ?? [];
+        self::assertSame([
+            'firstName' => 'First-tier room label',
+            'lastName' => 'Last-minute offer label',
+            'contactInfo' => ['value' => 'Public comparison label'],
+            'amount' => 1200,
+        ], $businessFact['raw_data']['competitorProfile'] ?? null);
+
+        $reservationDataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+            'id' => 17,
+            'system_hotel_id' => 9,
+            'hotel_id' => 'poi-9',
+            'hotel_name' => 'Hotel Gamma',
+            'source' => 'ctrip',
+            'data_type' => 'reservation-data',
+            'data_date' => '2026-05-22',
+            'raw_data' => json_encode([
+                'reservationData' => [
+                    'guest' => ['text' => 'Reservation Guest Secret'],
+                    'amount' => 588,
+                ],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]]);
+        $reservationFact = $reservationDataset['fact_ota_daily'][0] ?? [];
+        self::assertSame('order', $reservationFact['source_trace']['data_type'] ?? null);
+        self::assertStringNotContainsString(
+            'Reservation Guest Secret',
+            (string)json_encode($reservationFact['raw_data'] ?? [], JSON_UNESCAPED_UNICODE)
+        );
+        self::assertSame(588, $reservationFact['raw_data']['reservationData']['amount'] ?? null);
+    }
+
+    public function testEtlUsesPathSegmentsToSeparateOrderIdentityFromBusinessDescriptors(): void
+    {
+        foreach (['order', 'booking', 'reservation'] as $index => $container) {
+            $secretPrefix = strtoupper($container);
+            $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+                'id' => 30 + $index,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'ctrip',
+                'data_type' => $container,
+                'data_date' => '2026-05-' . (23 + $index),
+                'raw_data' => json_encode([
+                    $container => [
+                        $container . 'Id' => $secretPrefix . '-ID-SECRET',
+                        'primaryGuestName' => $secretPrefix . ' Primary Guest Secret',
+                        'leadGuestName' => $secretPrefix . ' Lead Guest Secret',
+                        'guestFullName' => $secretPrefix . ' Full Guest Secret',
+                        'contactPhoneNumber' => '1380000100' . $index,
+                        'primaryGuestPhone' => '1390000200' . $index,
+                        'passengers' => [
+                            $secretPrefix . ' Scalar Passenger Secret',
+                            ['name' => $secretPrefix . ' Object Passenger Secret', 'phone' => '1360000300' . $index],
+                        ],
+                        'travellers' => [
+                            $secretPrefix . ' Scalar Traveller Secret',
+                            ['fullName' => $secretPrefix . ' Object Traveller Secret'],
+                        ],
+                        'occupants' => [
+                            $secretPrefix . ' Scalar Occupant Secret',
+                            ['guestName' => $secretPrefix . ' Object Occupant Secret'],
+                        ],
+                        'contactInfo' => [
+                            'value' => $secretPrefix . ' Contact Value Secret',
+                            'text' => $secretPrefix . ' Contact Text Secret',
+                        ],
+                        'guest' => [
+                            'name' => $secretPrefix . ' Nested Guest Secret',
+                            'phone' => '1350000400' . $index,
+                        ],
+                        'roomType' => ['name' => $secretPrefix . ' Suite'],
+                        'ratePlan' => ['name' => $secretPrefix . ' Breakfast Plan'],
+                        'channel' => ['name' => $secretPrefix . ' Direct Channel'],
+                        'product' => ['name' => $secretPrefix . ' Hotel Product'],
+                        'roomTypeName' => $secretPrefix . ' Flat Room Type',
+                    ],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ]]);
+
+            $raw = $dataset['fact_ota_daily'][0]['raw_data'][$container] ?? [];
+            $encoded = (string)json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            foreach ([
+                $secretPrefix . '-ID-SECRET',
+                $secretPrefix . ' Primary Guest Secret',
+                $secretPrefix . ' Lead Guest Secret',
+                $secretPrefix . ' Full Guest Secret',
+                '1380000100' . $index,
+                '1390000200' . $index,
+                $secretPrefix . ' Scalar Passenger Secret',
+                $secretPrefix . ' Object Passenger Secret',
+                '1360000300' . $index,
+                $secretPrefix . ' Scalar Traveller Secret',
+                $secretPrefix . ' Object Traveller Secret',
+                $secretPrefix . ' Scalar Occupant Secret',
+                $secretPrefix . ' Object Occupant Secret',
+                $secretPrefix . ' Contact Value Secret',
+                $secretPrefix . ' Contact Text Secret',
+                $secretPrefix . ' Nested Guest Secret',
+                '1350000400' . $index,
+            ] as $secret) {
+                self::assertStringNotContainsString($secret, $encoded, $container . ':' . $secret);
+            }
+            self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string)($raw['order_id_hash'] ?? ''));
+            self::assertSame($secretPrefix . ' Suite', $raw['roomType']['name'] ?? null);
+            self::assertSame($secretPrefix . ' Breakfast Plan', $raw['ratePlan']['name'] ?? null);
+            self::assertSame($secretPrefix . ' Direct Channel', $raw['channel']['name'] ?? null);
+            self::assertSame($secretPrefix . ' Hotel Product', $raw['product']['name'] ?? null);
+            self::assertSame($secretPrefix . ' Flat Room Type', $raw['roomTypeName'] ?? null);
+        }
+
+        $businessDataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+            'id' => 40,
+            'system_hotel_id' => 9,
+            'hotel_id' => 'poi-9',
+            'hotel_name' => 'Hotel Gamma',
+            'source' => 'meituan',
+            'data_type' => 'business',
+            'data_date' => '2026-05-26',
+            'raw_data' => json_encode([
+                'orderStatusSummary' => [
+                    'name' => 'Confirmed order aggregate',
+                    'contactInfo' => ['value' => 'Business support coverage', 'text' => 'Aggregate label'],
+                ],
+                'preordersTrend' => [
+                    'name' => 'Advance demand trend',
+                    'contactInfo' => ['value' => 'Preorder metric descriptor'],
+                ],
+                'competitorProfile' => [
+                    'name' => 'Competitor Alpha',
+                    'contactInfo' => ['value' => 'Public comparison dimension'],
+                    'roomTypeName' => 'Comparable King',
+                ],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]]);
+
+        $businessRaw = $businessDataset['fact_ota_daily'][0]['raw_data'] ?? [];
+        self::assertSame('Confirmed order aggregate', $businessRaw['orderStatusSummary']['name'] ?? null);
+        self::assertSame(
+            ['value' => 'Business support coverage', 'text' => 'Aggregate label'],
+            $businessRaw['orderStatusSummary']['contactInfo'] ?? null
+        );
+        self::assertSame('Advance demand trend', $businessRaw['preordersTrend']['name'] ?? null);
+        self::assertSame(
+            ['value' => 'Preorder metric descriptor'],
+            $businessRaw['preordersTrend']['contactInfo'] ?? null
+        );
+        self::assertSame([
+            'name' => 'Competitor Alpha',
+            'contactInfo' => ['value' => 'Public comparison dimension'],
+            'roomTypeName' => 'Comparable King',
+        ], $businessRaw['competitorProfile'] ?? null);
+    }
+
+    public function testEtlFailsClosedForIdentityFreeTextAndValueLevelPiiWithoutDroppingBusinessDescriptors(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 41,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'ctrip',
+                'data_type' => 'order',
+                'data_date' => '2026-05-27',
+                'book_order_num' => 1,
+                'raw_data' => json_encode([
+                    'orderId' => 'ORDER-41',
+                    'guest' => [
+                        'name' => 'Identity Guest',
+                        'description' => 'Identity description secret',
+                        'note' => 'Identity note secret',
+                        'details' => ['custom' => 'Identity custom secret'],
+                        'summary' => 'Identity summary secret',
+                        'freeText' => 'Identity free text secret',
+                        'raw' => 'Identity raw secret',
+                    ],
+                    'customer' => ['description' => 'Customer description secret'],
+                    'client' => ['details' => 'Client details secret'],
+                    'contact' => ['summary' => 'Contact summary secret'],
+                    'person' => ['custom' => 'Person custom secret'],
+                    'passenger' => ['freeText' => 'Passenger free text secret'],
+                    'traveller' => ['raw' => 'Traveller raw secret'],
+                    'occupant' => ['description' => 'Occupant description secret'],
+                    'roomType' => [
+                        'name' => 'Executive Suite',
+                        'description' => 'Breakfast Included',
+                    ],
+                    'ratePlan' => ['name' => 'Flexible Breakfast Plan'],
+                    'channel' => ['name' => 'Ctrip'],
+                    'product' => ['name' => 'Executive Suite Package'],
+                    'roomTypeDescription' => 'Call 13700001234 for guest',
+                    'productValue' => 'wechat: private_order_42',
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+            [
+                'id' => 42,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'meituan',
+                'data_type' => 'business',
+                'data_date' => '2026-05-27',
+                'raw_data' => json_encode([
+                    'orderStatusSummary' => [
+                        'name' => 'Pending',
+                        'description' => 'conversion summary',
+                        'value' => '13800001234',
+                    ],
+                    'preordersTrend' => [
+                        'name' => 'Advance demand trend',
+                        'details' => ['text' => 'analyst@example.test', 'numericPhone' => 13600001234],
+                    ],
+                    'competitorProfile' => [
+                        'name' => 'Competitor Alpha',
+                        'summary' => ['safe' => 'Public market profile', 'private' => '身份证 11010519491231002X'],
+                        'guest' => ['description' => 'Competitor guest identity secret'],
+                    ],
+                    'roomType' => [
+                        'name' => 'Executive Suite',
+                        'description' => 'Call 13900001234 for guest',
+                    ],
+                    'ratePlan' => ['name' => 'Breakfast Included'],
+                    'channel' => ['name' => 'Meituan'],
+                    'product' => [
+                        'name' => 'Executive Suite Package',
+                        'labels' => ['conversion summary', '微信 wxid_private_42'],
+                    ],
+                    'unknownBusinessObject' => [
+                        'label' => 'Demand forecast',
+                        'nested' => ['description' => 'QQ: 12345678'],
+                        'externalBusinessId' => '123456789012345678',
+                    ],
+                    'guest' => [
+                        'name' => '王小明',
+                        'description' => '中文姓名无法在值级可靠识别，但身份路径必须关闭',
+                    ],
+                    'hotelProfile' => ['name' => '王府酒店'],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+        ]);
+
+        $orderRaw = $dataset['fact_ota_daily'][0]['raw_data'] ?? [];
+        $orderEncoded = (string)json_encode($orderRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        foreach ([
+            'Identity description secret', 'Identity note secret', 'Identity custom secret',
+            'Identity summary secret', 'Identity free text secret', 'Identity raw secret',
+            'Customer description secret', 'Client details secret', 'Contact summary secret',
+            'Person custom secret', 'Passenger free text secret', 'Traveller raw secret',
+            'Occupant description secret', '13700001234', 'private_order_42',
+        ] as $secret) {
+            self::assertStringNotContainsString($secret, $orderEncoded, $secret);
+        }
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string)($orderRaw['order_id_hash'] ?? ''));
+        self::assertSame(1, $dataset['fact_ota_daily'][0]['order_count'] ?? null);
+        self::assertSame('I***', $orderRaw['guest']['name_masked'] ?? null);
+        self::assertSame('Executive Suite', $orderRaw['roomType']['name'] ?? null);
+        self::assertSame('Breakfast Included', $orderRaw['roomType']['description'] ?? null);
+        self::assertSame('Flexible Breakfast Plan', $orderRaw['ratePlan']['name'] ?? null);
+        self::assertSame('Ctrip', $orderRaw['channel']['name'] ?? null);
+        self::assertSame('Executive Suite Package', $orderRaw['product']['name'] ?? null);
+
+        $businessRaw = $dataset['fact_ota_daily'][1]['raw_data'] ?? [];
+        $businessEncoded = (string)json_encode($businessRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        foreach ([
+            '13800001234', 'analyst@example.test', '11010519491231002X',
+            '13900001234', '13600001234', 'wxid_private_42', 'QQ: 12345678', '王小明',
+            'Competitor guest identity secret',
+        ] as $secret) {
+            self::assertStringNotContainsString($secret, $businessEncoded, $secret);
+        }
+        self::assertSame('Pending', $businessRaw['orderStatusSummary']['name'] ?? null);
+        self::assertSame('conversion summary', $businessRaw['orderStatusSummary']['description'] ?? null);
+        self::assertSame('Advance demand trend', $businessRaw['preordersTrend']['name'] ?? null);
+        self::assertSame('Competitor Alpha', $businessRaw['competitorProfile']['name'] ?? null);
+        self::assertSame('Public market profile', $businessRaw['competitorProfile']['summary']['safe'] ?? null);
+        self::assertSame('Executive Suite', $businessRaw['roomType']['name'] ?? null);
+        self::assertSame('Breakfast Included', $businessRaw['ratePlan']['name'] ?? null);
+        self::assertSame('Meituan', $businessRaw['channel']['name'] ?? null);
+        self::assertSame('Executive Suite Package', $businessRaw['product']['name'] ?? null);
+        self::assertContains('conversion summary', $businessRaw['product']['labels'] ?? []);
+        self::assertSame('Demand forecast', $businessRaw['unknownBusinessObject']['label'] ?? null);
+        self::assertSame([], $businessRaw['unknownBusinessObject']['nested'] ?? null);
+        self::assertSame(
+            '123456789012345678',
+            $businessRaw['unknownBusinessObject']['externalBusinessId'] ?? null
+        );
+        self::assertSame('王***', $businessRaw['guest']['name_masked'] ?? null);
+        self::assertArrayNotHasKey('description', $businessRaw['guest'] ?? []);
+        self::assertSame('王府酒店', $businessRaw['hotelProfile']['name'] ?? null);
+    }
+
+    public function testEtlValueGatesEveryOrderBranchAndUsesIdentityAncestorsForBareNames(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+            'id' => 43,
+            'system_hotel_id' => 9,
+            'hotel_id' => 'poi-9',
+            'hotel_name' => 'Hotel Gamma',
+            'source' => 'ctrip',
+            'data_type' => 'order',
+            'data_date' => '2026-05-28',
+            'book_order_num' => 2,
+            'raw_data' => json_encode([
+                'orderId' => 'ORDER-ROOT-43',
+                'status' => 'Pending; call 13800004300',
+                'custom' => [
+                    'safe' => 'Late arrival aggregate',
+                    'email' => 'reach guest@example.test',
+                    'list' => ['Executive Suite', '微信: private_wx_43'],
+                    'object' => ['text' => 'QQ: 87654321'],
+                ],
+                'orderList' => [[
+                    'orderId' => 'ORDER-LIST-43',
+                    'status' => ['name' => 'Pending', 'details' => '13900004300'],
+                    'custom' => 'support@example.test',
+                    'mealPlan' => [
+                        'name' => 'Breakfast Included',
+                        'description' => 'Executive lounge access',
+                    ],
+                    'hotelPackage' => ['name' => 'Executive Suite Package'],
+                    'travellerProfile' => [
+                        'name' => '张三',
+                        'description' => 'unknown identity descendant',
+                        'preferences' => ['custom' => 'identity free text'],
+                        'phone' => '13700004300',
+                    ],
+                ]],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]]);
+
+        $raw = $dataset['fact_ota_daily'][0]['raw_data'] ?? [];
+        $encoded = (string)json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        foreach ([
+            '13800004300', 'guest@example.test', 'private_wx_43', '87654321',
+            '13900004300', 'support@example.test', '张三',
+            'unknown identity descendant', 'identity free text', '13700004300',
+        ] as $secret) {
+            self::assertStringNotContainsString($secret, $encoded, $secret);
+        }
+
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string)($raw['order_id_hash'] ?? ''));
+        self::assertMatchesRegularExpression(
+            '/^[a-f0-9]{64}$/',
+            (string)($raw['orderList'][0]['order_id_hash'] ?? '')
+        );
+        self::assertSame('Late arrival aggregate', $raw['custom']['safe'] ?? null);
+        self::assertContains('Executive Suite', $raw['custom']['list'] ?? []);
+        self::assertSame('Pending', $raw['orderList'][0]['status']['name'] ?? null);
+        self::assertSame('Breakfast Included', $raw['orderList'][0]['mealPlan']['name'] ?? null);
+        self::assertSame(
+            'Executive lounge access',
+            $raw['orderList'][0]['mealPlan']['description'] ?? null
+        );
+        self::assertSame(
+            'Executive Suite Package',
+            $raw['orderList'][0]['hotelPackage']['name'] ?? null
+        );
+        self::assertSame('张***', $raw['orderList'][0]['travellerProfile']['name_masked'] ?? null);
+        self::assertSame('*******4300', $raw['orderList'][0]['travellerProfile']['phone_masked'] ?? null);
+        self::assertSame(2, $dataset['fact_ota_daily'][0]['order_count'] ?? null);
+    }
+
+    public function testEtlTreatsExplicitIdentitySemanticContainersAsFailClosedWithoutGuessingInfoSuffixes(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+            'id' => 44,
+            'system_hotel_id' => 9,
+            'hotel_id' => 'poi-9',
+            'hotel_name' => 'Hotel Gamma',
+            'source' => 'ctrip',
+            'data_type' => 'order',
+            'data_date' => '2026-05-29',
+            'raw_data' => json_encode([
+                'orderId' => 'ORDER-44',
+                'identity' => [
+                    'name' => '张三',
+                    'description' => 'identity private text',
+                    'custom' => ['summary' => 'identity nested secret'],
+                ],
+                'personalInfo' => [
+                    'name' => '李四',
+                    'description' => 'personal private text',
+                ],
+                'personalIdentity' => [
+                    'name' => '王五',
+                    'details' => 'personal identity details',
+                ],
+                'mealPlan' => ['name' => 'Breakfast Included'],
+                'hotelPackage' => ['name' => 'Executive Suite Package'],
+                'unknownBusiness' => ['name' => 'Conversion Summary'],
+                'marketInfo' => ['name' => 'Market Demand Overview'],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]]);
+
+        $raw = $dataset['fact_ota_daily'][0]['raw_data'] ?? [];
+        $encoded = (string)json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        foreach ([
+            '张三', 'identity private text', 'identity nested secret',
+            '李四', 'personal private text', '王五', 'personal identity details',
+        ] as $secret) {
+            self::assertStringNotContainsString($secret, $encoded, $secret);
+        }
+        self::assertSame('张***', $raw['identity']['name_masked'] ?? null);
+        self::assertSame('李***', $raw['personalInfo']['name_masked'] ?? null);
+        self::assertSame('王***', $raw['personalIdentity']['name_masked'] ?? null);
+        self::assertSame('Breakfast Included', $raw['mealPlan']['name'] ?? null);
+        self::assertSame('Executive Suite Package', $raw['hotelPackage']['name'] ?? null);
+        self::assertSame('Conversion Summary', $raw['unknownBusiness']['name'] ?? null);
+        self::assertSame('Market Demand Overview', $raw['marketInfo']['name'] ?? null);
+    }
+
+    public function testEtlTreatsOrderRoomingListsAsIdentityButPreservesBusinessRoomingDescriptors(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 45,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'ctrip',
+                'data_type' => 'order',
+                'data_date' => '2026-05-30',
+                'raw_data' => json_encode([
+                    'orderId' => 'ORDER-45',
+                    'roomingList' => [
+                        '张三',
+                        ['name' => '李四', 'note' => 'rooming private note'],
+                        ['guestName' => '王五', 'roomNo' => '801'],
+                    ],
+                    'rooming' => '赵六',
+                    'room' => ['name' => 'Executive Suite', 'description' => 'Lake View'],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+            [
+                'id' => 46,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-05-30',
+                'raw_data' => json_encode([
+                    'rooming' => ['name' => 'Group Rooming Forecast', 'description' => '12 rooms'],
+                    'room' => ['name' => 'Executive Suite', 'description' => 'Lake View'],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+        ]);
+
+        $orderRaw = $dataset['fact_ota_daily'][0]['raw_data'] ?? [];
+        $orderEncoded = (string)json_encode($orderRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        foreach (['张三', '李四', '王五', '赵六', 'rooming private note', '801'] as $secret) {
+            self::assertStringNotContainsString($secret, $orderEncoded, $secret);
+        }
+        self::assertSame('李***', $orderRaw['roomingList'][0]['name_masked'] ?? null);
+        self::assertSame('王***', $orderRaw['roomingList'][1]['guest_name_masked'] ?? null);
+        self::assertSame('Executive Suite', $orderRaw['room']['name'] ?? null);
+        self::assertSame('Lake View', $orderRaw['room']['description'] ?? null);
+
+        $businessRaw = $dataset['fact_ota_daily'][1]['raw_data'] ?? [];
+        self::assertSame('Group Rooming Forecast', $businessRaw['rooming']['name'] ?? null);
+        self::assertSame('12 rooms', $businessRaw['rooming']['description'] ?? null);
+        self::assertSame('Executive Suite', $businessRaw['room']['name'] ?? null);
+        self::assertSame('Lake View', $businessRaw['room']['description'] ?? null);
+    }
+
+    public function testEtlTreatsBoundedOrderRoomingProviderWrappersAsIdentityOnlyInOrderContext(): void
+    {
+        $privateWrappers = [
+            'roomingInfo' => ['name' => 'Alice Private', 'note' => 'info private'],
+            'roomingData' => [['guestName' => 'Bob Private', 'roomNo' => '8801']],
+            'roomingDetails' => ['occupantName' => 'Carol Private', 'phone' => '13700004300'],
+            'roomingInformation' => ['value' => 'opaque identity value'],
+        ];
+        $businessWrappers = [
+            'roomingInfo' => ['name' => 'Group Rooming Plan', 'description' => 'Tour allocation'],
+            'roomingData' => ['name' => 'Rooming Forecast', 'description' => '12 rooms'],
+            'roomingDetails' => ['name' => 'Block Summary', 'description' => 'West wing'],
+            'groomingDetails' => ['name' => 'Unrelated Business Descriptor'],
+        ];
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 47,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'ctrip',
+                'data_type' => 'order',
+                'data_date' => '2026-05-31',
+                'raw_data' => json_encode(['orderId' => 'ORDER-47'] + $privateWrappers + [
+                    'groomingDetails' => ['name' => 'Unrelated Order Descriptor'],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+            [
+                'id' => 48,
+                'system_hotel_id' => 9,
+                'hotel_id' => 'poi-9',
+                'hotel_name' => 'Hotel Gamma',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-05-31',
+                'raw_data' => json_encode($businessWrappers, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+        ]);
+
+        $orderRaw = $dataset['fact_ota_daily'][0]['raw_data'] ?? [];
+        $orderEncoded = (string)json_encode($orderRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        foreach ([
+            'Alice Private', 'info private', 'Bob Private', '8801',
+            'Carol Private', '13700004300', 'opaque identity value',
+        ] as $secret) {
+            self::assertStringNotContainsString($secret, $orderEncoded, $secret);
+        }
+        self::assertSame('Unrelated Order Descriptor', $orderRaw['groomingDetails']['name'] ?? null);
+
+        $businessRaw = $dataset['fact_ota_daily'][1]['raw_data'] ?? [];
+        foreach ($businessWrappers as $key => $value) {
+            self::assertSame($value, $businessRaw[$key] ?? null, $key);
+        }
+    }
+
     public function testEtlRejectsInvalidDateFiltersInsteadOfWideningScope(): void
     {
         $method = new ReflectionMethod(OtaStandardEtlService::class, 'filterDateValue');
@@ -1622,6 +2316,26 @@ final class OtaStandardModuleTest extends TestCase
         self::assertContains('meituan_rank', $values);
         self::assertContains('meituan_business', $values);
         self::assertContains('meituan_browser_profile', $values);
+    }
+
+    public function testCanonicalPlatformKeyCoversPersistedEtlAliasFamilies(): void
+    {
+        foreach ([
+            'ctrip' => 'ctrip',
+            'ctrip_business' => 'ctrip',
+            'ctrip_manual_overview' => 'ctrip',
+            'ctrip_browser_profile' => 'ctrip',
+            'trip.com' => 'ctrip',
+            'meituan' => 'meituan',
+            'meituan_rank' => 'meituan',
+            'meituan_business' => 'meituan',
+            'meituan_browser_profile' => 'meituan',
+            'dianping_business' => 'meituan',
+            'qunar' => 'qunar',
+            'qunar.com' => 'qunar',
+        ] as $alias => $canonical) {
+            self::assertSame($canonical, OtaStandardEtlService::canonicalPlatformKey($alias), $alias);
+        }
     }
 
     public function testInsightAnalysisPrioritizesAdrCancellationTrafficAndCompetitorPriceWithoutLstm(): void

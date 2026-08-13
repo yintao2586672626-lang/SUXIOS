@@ -455,12 +455,19 @@ function business_chain_source_evidence_status(array $dataset): string
 /**
  * @param array<string, mixed> $revenue
  * @param array<string, mixed> $closure
+ * @param array<string, mixed> $p0Gate
  * @return array<int, array<string, mixed>>
  */
-function business_chain_stage_rows(array $referenceDataset, array $revenue, array $closure, bool $skipP0): array
+function business_chain_stage_rows(
+    array $referenceDataset,
+    array $revenue,
+    array $closure,
+    bool $skipP0,
+    array $p0Gate
+): array
 {
     $counts = business_chain_fact_counts($referenceDataset);
-    $p0Blocked = (string)($closure['summary']['status'] ?? '') === 'blocked_by_p0_ota_gate';
+    $p0Blocked = (string)($p0Gate['status'] ?? '') !== 'ready';
     $otaClaimAllowed = !$skipP0 && !$p0Blocked && $counts['accepted'] > 0;
     $revenueStatus = (string)(
         $revenue['revenue_analysis_status']
@@ -2749,7 +2756,7 @@ function business_chain_report(array $options): array
     }
     $downstreamReferenceWorkflow = business_chain_downstream_reference_workflow($revenue, $closure, $skipActive, $downstreamReferenceScope, $p0Ready);
     $focusedChain = business_chain_focused_ota_revenue_ai_chain($p0Gate, $downstreamReferenceWorkflow, $sources);
-    $stages = business_chain_stage_rows($referenceDataset, $revenue, $closure, $skipActive);
+    $stages = business_chain_stage_rows($referenceDataset, $revenue, $closure, $skipActive, $p0Gate);
     $nextRequiredGate = business_chain_next_required_gate(
         $p0Gate,
         $revenueFactLayer,

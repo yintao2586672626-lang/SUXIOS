@@ -91,7 +91,8 @@ final class KnowledgeCenterReadinessServiceTest extends TestCase
 
         self::assertSame('unit_global_reference', $readiness['stage']);
         self::assertSame('通用知识可检索', $readiness['status_label']);
-        self::assertTrue($readiness['closed_loop']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertTrue($readiness['component_closed_loop']);
         self::assertSame(100, $readiness['score']);
         self::assertSame([], $readiness['missing_evidence']);
         self::assertStringContainsString('不绑定为任何单店事实', $readiness['next_action']);
@@ -133,7 +134,8 @@ final class KnowledgeCenterReadinessServiceTest extends TestCase
         ], 2);
 
         self::assertSame('unit_ready', $readiness['stage']);
-        self::assertTrue($readiness['closed_loop']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertTrue($readiness['component_closed_loop']);
         self::assertSame(100, $readiness['score']);
         self::assertSame('active', $readiness['lifecycle_status']);
         self::assertSame('mapped', $readiness['truth_profile_status']);
@@ -271,7 +273,8 @@ final class KnowledgeCenterReadinessServiceTest extends TestCase
         ], 2);
 
         self::assertSame('unit_ready', $readiness['stage']);
-        self::assertTrue($readiness['closed_loop']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertTrue($readiness['component_closed_loop']);
         self::assertSame(2, $readiness['chunk_gate_summary']['decision_safe_count']);
     }
 }

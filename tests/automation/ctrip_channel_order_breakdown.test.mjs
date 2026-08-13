@@ -308,7 +308,8 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.doesNotMatch(ctripTemplate, /ctrip-sales-breakdown-(?:cell|grid|item|label|value|note)/);
   assert.equal((ctripTemplate.match(/ctripTrafficChannelCellTitle\(hotel, column\)/g) || []).length, 2);
   assert.equal((ctripTemplate.match(/class="ctrip-sales-state">缺来源/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/<div :title="hotel\.hotelName \+ ' · 酒店ID ' \+ hotel\.hotelId">\{\{ hotel\.hotelName \}\}<\/div>/g) || []).length, 2);
+  assert.equal((ctripTemplate.match(/<th>酒店名称<\/th>\s*<th>酒店ID<\/th>\s*<th v-for="column in ctripSalesMetricColumns"/g) || []).length, 2);
+  assert.equal((ctripTemplate.match(/<td>\{\{ hotel\.hotelId \|\| '未返回' \}\}<\/td>/g) || []).length, 2);
   assert.equal((ctripTemplate.match(/携程 eBooking 数据基石/g) || []).length, 1);
   assert.match(ctripTemplate, /class="ctrip-workspace-tabs[^\"]*flex-nowrap[^\"]*overflow-x-auto/);
   assert.match(ctripTemplate, /class="ctrip-workspace-status[^\"]*grid-cols-2[^\"]*xl:grid-cols-4/);
@@ -457,10 +458,12 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.doesNotMatch(appMain, /tongchengDistributionOrderEstimate/);
   assert.doesNotMatch(ctripStaticSource, /tongchengDistributionOrders/);
   assert.doesNotMatch(appMain, /`≈ \$\{formatOptionalNumber\(value\)\}`/);
-  assert.equal((ctripTemplate.match(/class="ctrip-sales-table[^\n]+style="width:100%;table-layout:fixed"/g) || []).length, 2);
+  assert.equal((ctripTemplate.match(/class="ctrip-sales-table w-full bg-white border text-sm table-striped">/g) || []).length, 2);
+  assert.doesNotMatch(ctripTemplate, /class="ctrip-sales-table[^\"]*" style=/);
   assert.equal((ctripTemplate.match(/class="ctrip-rank-table[^\n]+style="width:100%;table-layout:fixed"/g) || []).length, 2);
-  assert.doesNotMatch(ctripTemplate, />酒店ID<\/th>|>酒店ID<\/td>/);
-  assert.equal((ctripTemplate.match(/' · 酒店ID ' \+ hotel\.hotelId/g) || []).length, 2);
+  assert.equal((ctripTemplate.match(/<col class="ctrip-sales-col-hotel-id">/g) || []).length, 2);
+  assert.equal((ctripTemplate.match(/<th>酒店ID<\/th>/g) || []).length, 2);
+  assert.equal((ctripTemplate.match(/<td>\{\{ hotel\.hotelId \|\| '未返回' \}\}<\/td>/g) || []).length, 2);
   assert.doesNotMatch(ctripTemplate, /min-width:1470px/);
   assert.doesNotMatch(salesTable, /position:sticky|rowspan="2"|colspan=/);
   assert.equal((ctripTemplate.match(/hasDisplayValue\(hotel\.(?:amount|adr)\) \? Number\(hotel\.(?:amount|adr)\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\) : '-'/g) || []).length, 4);
@@ -470,15 +473,16 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.match(styleSource, /\.ctrip-sales-table :where\(th, td\)[\s\S]*?border-right: 1px solid #cfd9e5 !important/);
   assert.match(styleSource, /\.ctrip-sales-table tbody td \{[\s\S]*?text-align: center !important/);
   assert.doesNotMatch(styleSource, /\.ctrip-sales-groups|\.ctrip-sales-table \.ctrip-sales-head > th:nth-child\(5\)/);
-  assert.match(styleSource, /\.ctrip-sales-table \{[\s\S]*?width: 100% !important;[\s\S]*?min-width: 0;[\s\S]*?table-layout: fixed !important/);
+  assert.match(styleSource, /\.ctrip-sales-table \{[\s\S]*?width: 100% !important;[\s\S]*?min-width: 1180px;[\s\S]*?table-layout: fixed !important/);
   assert.doesNotMatch(styleSource, /\.ctrip-sales-table \{[\s\S]*?table-layout: auto !important/);
-  assert.match(styleSource, /\.ctrip-sales-col-hotel \{ width: auto; \}[\s\S]*?\.ctrip-sales-col-amount \{ width: 90px; \}[\s\S]*?\.ctrip-sales-col-ctripUndistributedOrderEstimate \{ width: 100px; \}/);
+  assert.match(styleSource, /\.ctrip-sales-col-hotel \{ width: 300px; \}[\s\S]*?\.ctrip-sales-col-hotel-id \{ width: 84px; \}[\s\S]*?\.ctrip-sales-col-amount \{ width: 90px; \}[\s\S]*?\.ctrip-sales-col-ctripUndistributedOrderEstimate \{ width: 100px; \}/);
   assert.doesNotMatch(styleSource, /\.ctrip-sales-breakdown-(?:grid|item|label|value|note)/);
   assert.match(styleSource, /\.ctrip-sales-flat-note \{[\s\S]*?white-space: normal/);
   assert.match(styleSource, /\.suxi-app-shell main \.ctrip-sales-head > th \{[\s\S]*?border-top: 3px solid #b9975b !important;[\s\S]*?font-size: 11px/);
   assert.match(styleSource, /@media \(max-width: 1100px\)[\s\S]*?\.ctrip-rank-table \{ min-width: 1040px; \}/);
-  assert.match(styleSource, /@media \(max-width: 940px\)[\s\S]*?\.ctrip-sales-table \{ min-width: 920px; \}/);
+  assert.match(styleSource, /@media \(max-width: 940px\)[\s\S]*?\.ctrip-sales-table \{ min-width: 1180px; \}/);
   assert.match(styleSource, /\.ctrip-sales-table tbody td:nth-child\(2\) > div[\s\S]*?-webkit-line-clamp: 2/);
+  assert.match(styleSource, /\.ctrip-sales-table tbody td:nth-child\(3\) \{[\s\S]*?font-variant-numeric: tabular-nums/);
 });
 
 test('one-click Ctrip fetch keeps the separate Qunar retry window and bounded retry policy', () => {

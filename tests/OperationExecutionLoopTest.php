@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\AiDecisionQualityService;
 use app\service\OperationManagementService;
+use app\service\PriceSuggestionOtaTargetMappingService;
 use app\service\RevenuePricingRecommendationService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
@@ -209,7 +210,7 @@ final class OperationExecutionLoopTest extends TestCase
         $service = $this->priceIntentService();
         $today = date('Y-m-d');
 
-        $input = $service->buildPriceSuggestionExecutionIntentInput([
+        $input = $service->buildPriceSuggestionExecutionIntentInput($this->confirmedPriceSuggestion([
             'id' => 77,
             'status' => \app\model\PriceSuggestion::STATUS_APPROVED,
             'hotel_id' => 7,
@@ -222,7 +223,7 @@ final class OperationExecutionLoopTest extends TestCase
             'reason' => 'competitor price higher',
             'factors' => ['high forecast occupancy'],
             'competitor_data' => ['avg_price' => 330],
-        ], [
+        ]), [
             'platform' => 'ctrip',
             'room_type_key' => 'RT-1001',
             'rate_plan_key' => 'BAR',
@@ -246,12 +247,46 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame($today, $input['evidence']['execution_date']);
     }
 
+    public function testPriceSuggestionRejectsUnconfirmedArbitraryOtaTargetKeys(): void
+    {
+        $service = $this->priceIntentServiceWithRecommendation([
+            'can_create_execution_intent' => true,
+            'blocked_reason' => '',
+            'decision_quality' => [
+                'contract_version' => AiDecisionQualityService::CONTRACT_VERSION,
+                'execution_ready' => true,
+            ],
+        ]);
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('confirmed OTA target mapping');
+
+        $service->buildPriceSuggestionExecutionIntentInput([
+            'id' => 177,
+            'tenant_id' => 7,
+            'status' => \app\model\PriceSuggestion::STATUS_APPROVED,
+            'hotel_id' => 7,
+            'room_type_id' => 3,
+            'suggestion_date' => '2026-06-01',
+            'current_price' => 280,
+            'suggested_price' => 318,
+            'min_price' => 220,
+            'max_price' => 380,
+            'reason' => 'approved source without a persisted OTA mapping',
+            'factors' => ['manual_review_versions' => [['action' => 'approve']]],
+            'competitor_data' => ['avg_price' => 330],
+        ], [
+            'platform' => 'ctrip',
+            'room_type_key' => 'attacker-controlled-room',
+            'rate_plan_key' => 'attacker-controlled-rate',
+        ]);
+    }
+
     public function testPriceSuggestionExecutionIntentUsesChosenExecutionDate(): void
     {
         $service = $this->priceIntentService();
         $executionDate = date('Y-m-d', strtotime('+1 day'));
 
-        $input = $service->buildPriceSuggestionExecutionIntentInput([
+        $input = $service->buildPriceSuggestionExecutionIntentInput($this->confirmedPriceSuggestion([
             'id' => 78,
             'status' => \app\model\PriceSuggestion::STATUS_APPROVED,
             'hotel_id' => 7,
@@ -264,7 +299,7 @@ final class OperationExecutionLoopTest extends TestCase
             'reason' => 'competitor price higher',
             'factors' => ['high forecast occupancy'],
             'competitor_data' => ['avg_price' => 330],
-        ], [
+        ]), [
             'platform' => 'ctrip',
             'room_type_key' => 'RT-1001',
             'rate_plan_key' => 'BAR',
@@ -309,7 +344,7 @@ final class OperationExecutionLoopTest extends TestCase
     {
         $service = $this->priceIntentService();
 
-        $input = $service->buildPriceSuggestionExecutionIntentInput([
+        $input = $service->buildPriceSuggestionExecutionIntentInput($this->confirmedPriceSuggestion([
             'id' => 77,
             'status' => \app\model\PriceSuggestion::STATUS_APPROVED,
             'hotel_id' => 7,
@@ -329,7 +364,7 @@ final class OperationExecutionLoopTest extends TestCase
                 ],
             ],
             'competitor_data' => ['avg_price' => 330],
-        ], [
+        ]), [
             'platform' => 'ctrip',
         ]);
 
@@ -1933,7 +1968,9 @@ final class OperationExecutionLoopTest extends TestCase
     private function priceIntentServiceWithRecommendation(array $recommendation): OperationManagementService
     {
         $pricingService = $this->createMock(RevenuePricingRecommendationService::class);
-        $pricingService->method('enrichSuggestionRows')->willReturnCallback(static function (array $rows) use ($recommendation): array {
+        $pricingService->method('enrichSuggestionRows')->willReturnCallback(static function (array $rows) use (
+            $recommendation
+        ): array {
             if (isset($rows[0]) && is_array($rows[0])) {
                 $rows[0]['decision_recommendation'] = $recommendation;
             }
@@ -1942,6 +1979,32 @@ final class OperationExecutionLoopTest extends TestCase
         });
 
         return new OperationManagementService($pricingService);
+    }
+
+    /** @param array<string,mixed> $suggestion @return array<string,mixed> */
+    private function confirmedPriceSuggestion(array $suggestion): array
+    {
+        $suggestion['tenant_id'] = (int)($suggestion['tenant_id'] ?? 7);
+        $suggestion['applied_by'] = (int)($suggestion['applied_by'] ?? 3);
+        $mapping = [
+            'mapping_record_id' => 'fixture-ctrip-room-' . (int)($suggestion['room_type_id'] ?? 0),
+            'mapping_version' => 'v1',
+            'status' => 'confirmed',
+            'tenant_id' => (int)$suggestion['tenant_id'],
+            'hotel_id' => (int)($suggestion['hotel_id'] ?? 0),
+            'platform' => 'ctrip',
+            'room_type_id' => (int)($suggestion['room_type_id'] ?? 0),
+            'room_type_key' => 'RT-1001',
+            'rate_plan_key' => 'BAR',
+            'confirmed_by' => (int)$suggestion['applied_by'],
+            'confirmed_at' => '2026-06-01 09:00:00',
+        ];
+        $mapping['mapping_digest'] = PriceSuggestionOtaTargetMappingService::mappingDigest($mapping);
+        $factors = is_array($suggestion['factors'] ?? null) ? $suggestion['factors'] : [];
+        $factors[PriceSuggestionOtaTargetMappingService::FACTOR_KEY] = $mapping;
+        $suggestion['factors'] = $factors;
+
+        return $suggestion;
     }
 
     private function sourceVerifiedPlatformResponse(

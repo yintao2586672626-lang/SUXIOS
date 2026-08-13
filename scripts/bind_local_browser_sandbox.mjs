@@ -51,6 +51,7 @@ function parseArguments(argv) {
     'bind-existing',
     'bind-process-profile',
     'close-process-profile',
+    'handoff',
   ].includes(mode)) {
     throw new Error('browser_sandbox_mode_invalid');
   }
@@ -88,6 +89,76 @@ function publicResult(options, status, isolation = 'browser_context') {
   };
 }
 
+function targetContextId(target) {
+  return typeof target?.browserContextId === 'string'
+    ? target.browserContextId.trim()
+    : '';
+}
+
+function handoffTargetScope(target, platform) {
+  if (target?.type !== 'page' || !String(target?.targetId || '').trim()) return '';
+  let url;
+  try {
+    url = new URL(String(target.url || ''));
+  } catch {
+    return '';
+  }
+  const config = BROWSER_SANDBOX_PLATFORMS[platform];
+  if (!config.origins.includes(url.origin)) return '';
+  if (url.toString() === config.startUrl) return 'exact_start';
+  if (platform === 'dingdandao') {
+    if (url.pathname.startsWith('/pmsManage/')) return 'pms_manage';
+    return url.pathname === '/' ? 'login_entry' : '';
+  }
+  return 'platform_page';
+}
+
+function handoffTargetScore(target, platform) {
+  const scope = handoffTargetScope(target, platform);
+  if (scope === 'exact_start') return 3;
+  if (scope === 'pms_manage') return 2;
+  if (scope === 'login_entry') return 1;
+  if (scope === 'platform_page') return 1;
+  return -1;
+}
+
+async function activateSandboxPlatformTarget(connection, state, options, binding) {
+  const contextKey = String(binding.contextKey || '');
+  const candidates = state.targetInfos
+    .filter((target) => targetContextId(target) === contextKey)
+    .map((target) => ({
+      target,
+      score: handoffTargetScore(target, options.platform),
+      scope: handoffTargetScope(target, options.platform),
+    }))
+    .filter((candidate) => candidate.score >= 0)
+    .sort((left, right) => right.score - left.score);
+
+  let targetId = String(candidates[0]?.target?.targetId || '').trim();
+  let targetReused = targetId !== '';
+  let activatedTargetScope = String(candidates[0]?.scope || '');
+  if (!targetReused) {
+    const params = {
+      url: BROWSER_SANDBOX_PLATFORMS[options.platform].startUrl,
+      background: false,
+    };
+    if (binding.isolation === 'browser_context' && binding.browserContextId) {
+      params.browserContextId = binding.browserContextId;
+    }
+    const created = await connection.send('Target.createTarget', params);
+    targetId = String(created?.targetId || '').trim();
+    if (!targetId) throw new Error('browser_sandbox_target_create_failed');
+    activatedTargetScope = 'exact_start';
+  }
+
+  await connection.send('Target.activateTarget', { targetId });
+  return {
+    target_activated: true,
+    target_reused: targetReused,
+    activated_target_scope: activatedTargetScope,
+  };
+}
+
 export async function bindLocalBrowserSandbox(options, dependencies = {}) {
   const connect = dependencies.connect || connectLoopbackCdp;
   const connection = await connect(options.cdpUrl, dependencies.fetchImpl);
@@ -107,12 +178,29 @@ export async function bindLocalBrowserSandbox(options, dependencies = {}) {
         await connection.send('Browser.close');
         return publicResult(options, 'closed', existing.isolation);
       }
+      if (options.mode === 'handoff') {
+        assertContextHasNoDifferentSandbox({
+          targetInfos: state.targetInfos,
+          browserContextId: existing.contextKey,
+          sandboxId: options.sandboxId,
+        });
+        const handoff = await activateSandboxPlatformTarget(
+          connection,
+          state,
+          options,
+          existing,
+        );
+        return {
+          ...publicResult(options, 'handoff_ready', existing.isolation),
+          ...handoff,
+        };
+      }
       return publicResult(options, 'bound', existing.isolation);
     } catch (error) {
       if (safeReason(error) !== 'browser_sandbox_not_bound') throw error;
     }
 
-    if (options.mode === 'inspect') {
+    if (options.mode === 'inspect' || options.mode === 'handoff') {
       throw new Error('browser_sandbox_not_bound');
     }
 

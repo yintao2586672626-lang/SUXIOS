@@ -140,6 +140,7 @@ function createBackendPool(backends, {
     backend,
     healthy: false,
     consecutiveHealthFailures: 0,
+    activeProxyRequests: 0,
     checking: null,
     agent: new http.Agent({ keepAlive: true, maxSockets: 32 }),
   }));
@@ -150,6 +151,12 @@ function createBackendPool(backends, {
       worker.healthy = true;
       worker.consecutiveHealthFailures = 0;
       return true;
+    }
+    // The built-in PHP development server handles one request per worker.
+    // A health probe can therefore time out behind a valid in-flight request;
+    // keep the last verified state until that request has finished.
+    if (worker.healthy && worker.activeProxyRequests > 0) {
+      return false;
     }
     worker.consecutiveHealthFailures += 1;
     if (!worker.healthy || worker.consecutiveHealthFailures >= healthFailureThreshold) {
@@ -431,6 +438,13 @@ function proxyToBackend(request, response, worker, backendPool, retriesRemaining
   const retryableRead = canRetryReadRequest(request);
   const headers = copyProxyHeaders(request.headers);
   headers.host = request.headers.host || backend.host;
+  worker.activeProxyRequests += 1;
+  let workerRequestReleased = false;
+  const releaseWorkerRequest = () => {
+    if (workerRequestReleased) return;
+    workerRequestReleased = true;
+    worker.activeProxyRequests = Math.max(0, worker.activeProxyRequests - 1);
+  };
 
   const upstream = http.request({
     protocol: backend.protocol,
@@ -441,6 +455,8 @@ function proxyToBackend(request, response, worker, backendPool, retriesRemaining
     headers,
     agent,
   }, (upstreamResponse) => {
+    upstreamResponse.once('end', releaseWorkerRequest);
+    upstreamResponse.once('close', releaseWorkerRequest);
     const responseHeaders = copyProxyHeaders(upstreamResponse.headers);
     responseHeaders['X-SUXIOS-Backend-Pool-Size'] = String(backendPool.size);
     response.writeHead(
@@ -452,6 +468,7 @@ function proxyToBackend(request, response, worker, backendPool, retriesRemaining
   });
 
   upstream.on('error', (error) => {
+    releaseWorkerRequest();
     backendPool.markUnhealthy(worker);
     if (response.headersSent) {
       response.destroy(error);

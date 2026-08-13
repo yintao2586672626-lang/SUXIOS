@@ -3,11 +3,14 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\service\concern\AiDailyReportReadinessConcern;
 use think\facade\Db;
 use Throwable;
 
 class AiDailyReportService
 {
+    use AiDailyReportReadinessConcern;
+
     private const TABLE = 'ai_daily_reports';
     private const DATA_OK = 'ok';
     private const DATA_PENDING = 'pending';
@@ -947,7 +950,7 @@ class AiDailyReportService
         ];
     }
 
-    public function buildReportReadiness(array $report, array $executionItems = []): array
+    public function buildReportReadiness(array $report, array $executionItems = [], ?array $kernelSummary = null): array
     {
         $actions = is_array($report['recommended_actions'] ?? null) ? $report['recommended_actions'] : [];
         $dataGaps = is_array($report['data_gaps'] ?? null) ? $report['data_gaps'] : [];
@@ -1108,12 +1111,39 @@ class AiDailyReportService
             $nextAction = '先解决异常、证据或动作定义缺口';
         }
 
+        $kernelSummary ??= $this->reportKernelSummary($report);
+        $authorityState = trim((string)($kernelSummary['authoritative_state'] ?? 'not_started')) ?: 'not_started';
+        $authorityReadback = ($kernelSummary['readback_verified'] ?? false) === true;
+        $kernelClosed = $authorityState === 'completed' && $authorityReadback;
+        $authorityStage = $kernelClosed
+            ? 'operating_loop_completed'
+            : (in_array($authorityState, ['active', 'blocked'], true) ? $authorityState : 'unverified');
+        if (!$kernelClosed) {
+            $missing[] = $this->readinessMissing(
+                'operating_cycle_kernel',
+                '权威经营闭环',
+                (string)($kernelSummary['next_action']['action'] ?? '在同酒店、同业务日权威内核中完成证据链')
+            );
+        }
+
         return $this->withReadinessNotice([
-            'stage' => $stage,
-            'status_label' => $this->reportReadinessLabel($stage),
-            'score' => $score,
-            'closed_loop' => $closedLoop,
-            'next_action' => $nextAction,
+            'stage' => $authorityStage,
+            'component_stage' => $stage,
+            'status_label' => $kernelClosed ? '权威经营闭环完成' : '权威经营闭环未完成',
+            'component_status_label' => $this->reportReadinessLabel($stage),
+            'score' => $kernelClosed ? 100 : 0,
+            'component_score' => $score,
+            'closed_loop' => $kernelClosed,
+            'component_closed_loop' => $closedLoop,
+            'authority_status' => $authorityStage,
+            'authoritative_state' => $authorityState,
+            'readback_verified' => $authorityReadback,
+            'kernel_id' => $kernelSummary['kernel_id'] ?? null,
+            'revision' => (int)($kernelSummary['revision'] ?? 0),
+            'next_action' => $kernelClosed
+                ? '进入下一业务日身份与口径确认'
+                : (string)($kernelSummary['next_action']['action'] ?? '建立并推进权威经营闭环'),
+            'component_next_action' => $nextAction,
             'missing_evidence' => $missing,
             'action_count' => $actionCount,
             'transferable_count' => $transferable,
@@ -1127,42 +1157,10 @@ class AiDailyReportService
             'investigation_count' => $investigation,
             'execution_action_count' => $executionActionCount,
             'decision_status' => $stage === 'no_action_required' ? 'no_action' : ($stage === 'blocked' || $stage === 'data_recheck_required' ? 'blocked_by_data' : 'action_required'),
-            'source_scope' => 'ai_daily_report_to_operation_execution_loop',
+            'source_scope' => 'ai_daily_report_component_drilldown',
+            'source_policy' => 'hotel_operating_cycle_kernel_only',
+            'operating_loop' => $kernelSummary,
         ]);
-    }
-
-    public function readinessSummaryFromRows(array $rows, array $hotelIds = [], ?int $hotelId = null): array
-    {
-        $reports = $this->enrichReportRows($rows, $hotelIds, $hotelId);
-        $summary = [
-            'record_count' => count($reports),
-            'best_score' => 0,
-            'best_status_label' => '',
-            'closed_loop_count' => 0,
-            'transferred_count' => 0,
-            'evidence_ready_count' => 0,
-            'reviewed_count' => 0,
-            'roi_ready_count' => 0,
-            'missing_evidence' => [],
-        ];
-
-        foreach ($reports as $report) {
-            $readiness = is_array($report['report_readiness'] ?? null) ? $report['report_readiness'] : [];
-            if (($readiness['closed_loop'] ?? false) === true) {
-                $summary['closed_loop_count']++;
-            }
-            $summary['transferred_count'] += (int)($readiness['transferred_count'] ?? 0);
-            $summary['evidence_ready_count'] += (int)($readiness['evidence_ready_count'] ?? 0);
-            $summary['reviewed_count'] += (int)($readiness['reviewed_count'] ?? 0);
-            $summary['roi_ready_count'] += (int)($readiness['roi_ready_count'] ?? 0);
-            if ((int)($readiness['score'] ?? 0) >= (int)$summary['best_score']) {
-                $summary['best_score'] = (int)($readiness['score'] ?? 0);
-                $summary['best_status_label'] = (string)($readiness['status_label'] ?? '');
-                $summary['missing_evidence'] = array_slice((array)($readiness['missing_evidence'] ?? []), 0, 4);
-            }
-        }
-
-        return $summary;
     }
 
     private function executionItemsByReportId(array $hotelIds, ?int $hotelId, array $reportIds): array

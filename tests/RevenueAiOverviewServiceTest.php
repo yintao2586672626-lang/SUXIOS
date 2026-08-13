@@ -513,6 +513,26 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('html_table_xls', $htmlItem['source_format']);
         self::assertSame('test_fixture_only', $htmlItem['real_file_acceptance']);
         self::assertSame(900.0, $htmlItem['reference_bottom_price_total']);
+        self::assertSame('ctrip_order_aggregate_v1', $htmlItem['import_contract']);
+
+        $v2Canonical = $baseCanonical;
+        $v2Canonical['raw_data']['import_contract'] = 'ctrip_order_aggregate_v2';
+        $v2Canonical['raw_data']['record_kind'] = 'channel_daily_aggregate';
+        $v2Item = $method->invoke($service, [
+            'id' => 102,
+            'source' => 'ctrip',
+            'data_date' => '2026-08-08',
+            'raw_data' => ['row' => $v2Canonical],
+        ], '2026-08-08');
+        self::assertSame('ctrip_order_aggregate_v2', $v2Item['import_contract']);
+        $invalidV2Canonical = $v2Canonical;
+        unset($invalidV2Canonical['raw_data']['record_kind']);
+        self::assertNull($method->invoke($service, [
+            'id' => 103,
+            'source' => 'ctrip',
+            'data_date' => '2026-08-08',
+            'raw_data' => ['row' => $invalidV2Canonical],
+        ], '2026-08-08'));
 
         self::assertNull($method->invoke($service, [
             'id' => 105,

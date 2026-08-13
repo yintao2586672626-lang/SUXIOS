@@ -134,6 +134,20 @@
                                             </div>
                                         </div>
                                     </div>
+                                    <section data-testid="ctrip-channel-order-upload" class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-sm">
+                                        <b>门店渠道订单</b> · 自动绑定 {{ platformHotelSelectedName || '当前酒店' }} <button type="button" @click="ctripChannelOrderUploadOpen = !ctripChannelOrderUploadOpen" class="ml-2 rounded-lg bg-[#65502f] px-4 py-2 font-semibold text-white">{{ ctripChannelOrderUploadOpen ? '收起上传' : '上传渠道订单' }}</button>
+                                        <div v-if="ctripChannelOrderUploadOpen" class="mt-3 border-t border-emerald-100 pt-3">
+                                            <input type="file" accept=".xls,.xlsx,.csv,.json" multiple @change="handleCtripChannelOrderFileChange" class="block w-full rounded-lg border bg-white p-2">
+                                            <p class="mt-2 text-xs text-gray-500">支持同门店多份携程旧版 XLS 先合并去重；单文件也支持 XLSX、CSV、JSON。参考底价不是确认收入。</p>
+                                            <p v-if="ctripChannelOrderUploadFile" class="mt-2 text-xs font-medium text-emerald-800">已选择 {{ ctripChannelOrderUploadFile.length }} 份文件；请确认顶部酒店与文件内门店一致。</p>
+                                            <button type="button" @click="uploadCtripChannelOrders" :disabled="ctripChannelOrderUploading || !ctripChannelOrderUploadFile || !platformHotelSelectedId" class="mt-2 rounded bg-emerald-700 px-4 py-2 font-semibold text-white disabled:bg-gray-300">{{ ctripChannelOrderUploading ? '正在保存并回读' : '确认上传' }}</button>
+                                            <p v-if="ctripChannelOrderUploadError" class="mt-2 rounded bg-red-50 p-2 text-red-700">{{ ctripChannelOrderUploadError }}</p>
+                                            <p v-if="ctripChannelOrderUploadResult" class="mt-2 rounded bg-white p-2 text-emerald-800">上传完成 · {{ ctripChannelOrderUploadReceiptText }}</p>
+                                        </div>
+                                    </section>
+
+                                    <ctrip-order-analysis-panel :ctx="$root"></ctrip-order-analysis-panel>
+
                                     <div v-if="collectionReliabilityRefreshNotice" data-testid="ctrip-health-refresh-state" :class="collectionReliabilityRefreshNotice.className">{{ collectionReliabilityRefreshNotice.text }}</div>
                                     <template v-if="collectionReliabilityHasCurrentSnapshot">
                                         <div v-if="ctripEbookingSecondaryPanelsReady" class="space-y-4">
@@ -221,18 +235,6 @@
                                                     </div>
                                                 </div>
                                             </div>
-
-                                            <section data-testid="ctrip-channel-order-upload" class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-sm">
-                                                <b>门店渠道订单</b> · 自动绑定 {{ platformHotelSelectedName || '当前酒店' }} <button type="button" @click="ctripChannelOrderUploadOpen = !ctripChannelOrderUploadOpen" class="ml-2 rounded-lg bg-[#65502f] px-4 py-2 font-semibold text-white">{{ ctripChannelOrderUploadOpen ? '收起上传' : '上传渠道订单' }}</button>
-                                                <div v-if="ctripChannelOrderUploadOpen" class="mt-3 border-t border-emerald-100 pt-3">
-                                                    <input type="file" accept=".xls,.xlsx,.csv,.json" multiple @change="handleCtripChannelOrderFileChange" class="block w-full rounded-lg border bg-white p-2">
-                                                    <p class="mt-2 text-xs text-gray-500">可一次选择多份同一门店的携程旧版 <code>.xls</code>，系统会先合并去重，再按渠道和入住日聚合，避免同日期文件互相覆盖；单文件仍支持 XLS、XLSX、CSV、JSON。参考底价只作参考，不是确认收入。</p>
-                                                    <p v-if="ctripChannelOrderUploadFile" class="mt-2 text-xs font-medium text-emerald-800">已选择 {{ ctripChannelOrderUploadFile.length }} 份文件；请确认顶部酒店与文件内门店一致。</p>
-                                                    <button type="button" @click="uploadCtripChannelOrders" :disabled="ctripChannelOrderUploading || !ctripChannelOrderUploadFile || !platformHotelSelectedId" class="mt-2 rounded bg-emerald-700 px-4 py-2 font-semibold text-white disabled:bg-gray-300">{{ ctripChannelOrderUploading ? '正在保存并回读' : '确认上传' }}</button>
-                                                    <p v-if="ctripChannelOrderUploadError" class="mt-2 rounded bg-red-50 p-2 text-red-700">{{ ctripChannelOrderUploadError }}</p>
-                                                    <p v-if="ctripChannelOrderUploadResult" class="mt-2 rounded bg-white p-2 text-emerald-800">上传完成 · {{ ctripChannelOrderUploadReceiptText }}</p>
-                                                </div>
-                                            </section>
 
                                             <div v-if="ctripEbookingBusinessDetailsReady" data-testid="ctrip-store-overview-business-details" class="space-y-4">
                                                 <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -549,16 +551,18 @@
 
                                         <!-- 销售与订单表格 -->
                                         <div v-if="ctripTableTab === 'sales'" class="ctrip-sales-table-wrap table-container">
-                                            <table class="ctrip-sales-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
+                                            <table class="ctrip-sales-table w-full bg-white border text-sm table-striped">
                                                 <colgroup>
                                                     <col class="ctrip-sales-col-rank">
                                                     <col class="ctrip-sales-col-hotel">
+                                                    <col class="ctrip-sales-col-hotel-id">
                                                     <col v-for="column in ctripSalesMetricColumns" :key="`sales-col-${column.field}`" :class="'ctrip-sales-col-' + column.field">
                                                 </colgroup>
                                                 <thead>
                                                     <tr class="ctrip-sales-head">
                                                         <th>排名</th>
                                                         <th>酒店名称</th>
+                                                        <th>酒店ID</th>
                                                         <th v-for="column in ctripSalesMetricColumns" :key="column.field" :title="column.title || column.label" @click="sortCtripTable(column.field)">
                                                             <term-help v-if="column.help" :term="column.help" :label="column.tableLabel || column.label" />
                                                             <span v-else>{{ column.tableLabel || column.label }}</span>
@@ -574,8 +578,9 @@
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-left font-medium">
-                                                            <div :title="hotel.hotelName + ' · 酒店ID ' + hotel.hotelId">{{ hotel.hotelName }}</div>
+                                                            <div>{{ hotel.hotelName }}</div>
                                                         </td>
+                                                        <td>{{ hotel.hotelId || '未返回' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-green-600">{{ hasDisplayValue(hotel.amount) ? Number(hotel.amount).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-yellow-600">{{ formatOptionalNumber(hotel.quantity) }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? Number(hotel.adr).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
@@ -1896,16 +1901,18 @@
 
                                         <!-- 销售与订单表格 -->
                                         <div v-if="ctripTableTab === 'sales'" class="ctrip-sales-table-wrap table-container">
-                                            <table class="ctrip-sales-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
+                                            <table class="ctrip-sales-table w-full bg-white border text-sm table-striped">
                                                 <colgroup>
                                                     <col class="ctrip-sales-col-rank">
                                                     <col class="ctrip-sales-col-hotel">
+                                                    <col class="ctrip-sales-col-hotel-id">
                                                     <col v-for="column in ctripSalesMetricColumns" :key="`sales-col-${column.field}`" :class="'ctrip-sales-col-' + column.field">
                                                 </colgroup>
                                                 <thead>
                                                     <tr class="ctrip-sales-head">
                                                         <th>排名</th>
                                                         <th>酒店名称</th>
+                                                        <th>酒店ID</th>
                                                         <th v-for="column in ctripSalesMetricColumns" :key="column.field" :title="column.title || column.label" @click="sortCtripTable(column.field)">
                                                             <term-help v-if="column.help" :term="column.help" :label="column.tableLabel || column.label" />
                                                             <span v-else>{{ column.tableLabel || column.label }}</span>
@@ -1921,8 +1928,9 @@
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-left font-medium">
-                                                            <div :title="hotel.hotelName + ' · 酒店ID ' + hotel.hotelId">{{ hotel.hotelName }}</div>
+                                                            <div>{{ hotel.hotelName }}</div>
                                                         </td>
+                                                        <td>{{ hotel.hotelId || '未返回' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-green-600">{{ hasDisplayValue(hotel.amount) ? Number(hotel.amount).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-yellow-600">{{ formatOptionalNumber(hotel.quantity) }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? Number(hotel.adr).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>

@@ -782,6 +782,10 @@ final class MeituanCloudPmsCaptureService
         if ($optional !== null) {
             $result['sale_order_count'] = $optional;
         }
+        $identity = $this->textOrNull($trace['provider_hotel_identity'] ?? null, 255);
+        if ($identity !== null) {
+            $result['provider_hotel_identity'] = $identity;
+        }
         return $result;
     }
 
