@@ -47,6 +47,30 @@ final class CloudBrowserProfileService
     }
 
     /**
+     * Ensure the exact hotel/user/platform Profile exists without issuing a
+     * login ticket or starting any browser work.
+     *
+     * @return array<string,mixed>
+     */
+    public function ensureProfile(int $hotelId, int $ownerUserId, string $platform): array
+    {
+        if ($ownerUserId <= 0) {
+            throw new RuntimeException('cloud_browser_owner_scope_missing');
+        }
+        $scope = $this->hotelScope($hotelId);
+        $platform = $this->platform($platform);
+
+        return Db::transaction(function () use ($scope, $hotelId, $ownerUserId, $platform): array {
+            return $this->publicProfile($this->ensureProfileLocked(
+                $scope['tenant_id'],
+                $hotelId,
+                $ownerUserId,
+                $platform
+            ));
+        });
+    }
+
+    /**
      * Returns an opaque, one-time entry ticket. A browser gateway may consume
      * it later; issuing this ticket does not start a browser or login session.
      *
@@ -54,41 +78,42 @@ final class CloudBrowserProfileService
      */
     public function requestLoginEntry(int $hotelId, int $ownerUserId, string $platform): array
     {
+        if ($ownerUserId <= 0) {
+            throw new RuntimeException('cloud_browser_owner_scope_missing');
+        }
         $scope = $this->hotelScope($hotelId);
         $platform = $this->platform($platform);
 
         return Db::transaction(function () use ($scope, $hotelId, $ownerUserId, $platform): array {
-            $profile = $this->findProfile($scope['tenant_id'], $hotelId, $ownerUserId, $platform, true);
+            $profile = $this->ensureProfileLocked(
+                $scope['tenant_id'],
+                $hotelId,
+                $ownerUserId,
+                $platform
+            );
             $now = date('Y-m-d H:i:s');
-            if ($profile === null) {
-                $profileId = (int)Db::name('cloud_browser_profiles')->insertGetId([
-                    'tenant_id' => $scope['tenant_id'],
-                    'system_hotel_id' => $hotelId,
-                    'owner_user_id' => $ownerUserId,
-                    'platform' => $platform,
-                    'profile_public_id' => $this->publicId('cbp'),
-                    'authorization_status' => self::UNAUTHORIZED,
-                    'status_reason' => '',
-                    'last_state_change_at' => $now,
-                    'create_time' => $now,
+
+            $issuedSessions = Db::name('cloud_browser_login_sessions')
+                ->where('profile_id', (int)$profile['id'])
+                ->where('session_status', 'issued')
+                ->lock(true)
+                ->select()
+                ->toArray();
+            foreach ($issuedSessions as $issuedSession) {
+                if (strtotime((string)($issuedSession['expires_at'] ?? '')) >= time()) {
+                    throw new RuntimeException('cloud_browser_login_session_active');
+                }
+                Db::name('cloud_browser_login_sessions')->where('id', (int)$issuedSession['id'])->update([
+                    'session_status' => 'expired',
                     'update_time' => $now,
                 ]);
-                $profile = Db::name('cloud_browser_profiles')->where('id', $profileId)->lock(true)->find();
-            }
-            if (!is_array($profile)) {
-                throw new RuntimeException('cloud_browser_profile_create_failed');
             }
 
             $from = strtolower((string)($profile['authorization_status'] ?? self::UNAUTHORIZED));
             $next = in_array($from, [self::SESSION_EXPIRED, self::READY_TO_COLLECT, self::LOGIN_VERIFIED, self::AWAITING_RELOGIN], true)
                 ? self::AWAITING_RELOGIN
                 : self::AWAITING_LOGIN;
-            $profile = $this->transitionLocked($profile, $next, 'login_requested');
-
-            Db::name('cloud_browser_login_sessions')
-                ->where('profile_id', (int)$profile['id'])
-                ->where('session_status', 'issued')
-                ->update(['session_status' => 'superseded', 'update_time' => $now]);
+            $profile = $this->transitionLocked($profile, $next, 'login_requested_from_' . $from);
 
             $ticket = $this->ticket();
             $sessionId = $this->publicId('cbls');
@@ -116,6 +141,140 @@ final class CloudBrowserProfileService
                     'browser_started' => false,
                     'message' => '云端授权入口已创建；请在15分钟内通过受保护的本机网关完成登录。',
                 ],
+            ];
+        });
+    }
+
+    /**
+     * Compensates an exact gateway-open failure. It never cancels a verified
+     * session and restores the Profile state that existed before this ticket.
+     *
+     * @return array<string,mixed>
+     */
+    public function cancelLoginEntry(
+        string $profilePublicId,
+        string $sessionPublicId,
+        string $reason = 'gateway_open_failed'
+    ): array {
+        return Db::transaction(function () use ($profilePublicId, $sessionPublicId, $reason): array {
+            $profile = $this->profileByPublicId($profilePublicId, true);
+            $session = Db::name('cloud_browser_login_sessions')
+                ->where('profile_id', (int)$profile['id'])
+                ->where('session_public_id', trim($sessionPublicId))
+                ->lock(true)
+                ->find();
+            if (!is_array($session) || (string)($session['session_status'] ?? '') !== 'issued') {
+                throw new RuntimeException('cloud_browser_login_entry_not_cancellable');
+            }
+
+            $statusReason = strtolower(trim((string)($profile['status_reason'] ?? '')));
+            if (preg_match('/^login_requested_from_([a-z_]+)$/D', $statusReason, $match) !== 1) {
+                throw new RuntimeException('cloud_browser_login_rollback_state_missing');
+            }
+            $previous = (string)$match[1];
+            if (!in_array($previous, [
+                self::UNAUTHORIZED,
+                self::AWAITING_LOGIN,
+                self::LOGIN_VERIFIED,
+                self::READY_TO_COLLECT,
+                self::SESSION_EXPIRED,
+                self::AWAITING_RELOGIN,
+            ], true)) {
+                throw new RuntimeException('cloud_browser_login_rollback_state_invalid');
+            }
+            $expectedCurrent = in_array($previous, [self::UNAUTHORIZED, self::AWAITING_LOGIN], true)
+                ? self::AWAITING_LOGIN
+                : self::AWAITING_RELOGIN;
+            if ((string)($profile['authorization_status'] ?? '') !== $expectedCurrent) {
+                throw new RuntimeException('cloud_browser_login_rollback_state_changed');
+            }
+
+            $now = date('Y-m-d H:i:s');
+            Db::name('cloud_browser_login_sessions')->where('id', (int)$session['id'])->update([
+                'session_status' => 'cancelled',
+                'update_time' => $now,
+            ]);
+            $update = [
+                'authorization_status' => $previous,
+                'status_reason' => $this->reason($reason),
+                'last_state_change_at' => $now,
+                'update_time' => $now,
+            ];
+            Db::name('cloud_browser_profiles')->where('id', (int)$profile['id'])->update($update);
+            return $this->publicProfile(array_merge($profile, $update));
+        });
+    }
+
+    /**
+     * Reconciles an ambiguous /login/complete response only after the caller
+     * has independently verified that no exact gateway session remains.
+     *
+     * @return array{outcome:string,profile:array<string,mixed>}
+     */
+    public function reconcileLoginCompletionFailure(
+        string $profilePublicId,
+        string $sessionPublicId,
+        string $reason = 'gateway_complete_failed'
+    ): array {
+        return Db::transaction(function () use ($profilePublicId, $sessionPublicId, $reason): array {
+            $profile = $this->profileByPublicId($profilePublicId, true);
+            $session = Db::name('cloud_browser_login_sessions')
+                ->where('profile_id', (int)$profile['id'])
+                ->where('session_public_id', trim($sessionPublicId))
+                ->lock(true)
+                ->find();
+            if (!is_array($session)) {
+                throw new RuntimeException('cloud_browser_login_completion_session_missing');
+            }
+            $sessionStatus = strtolower(trim((string)($session['session_status'] ?? '')));
+            $profileStatus = strtolower(trim((string)($profile['authorization_status'] ?? '')));
+            if ($sessionStatus === 'verified' && $profileStatus === self::READY_TO_COLLECT) {
+                return ['outcome' => 'committed', 'profile' => $this->publicProfile($profile)];
+            }
+            if ($sessionStatus === 'cancelled') {
+                return ['outcome' => 'cancelled', 'profile' => $this->publicProfile($profile)];
+            }
+            if ($sessionStatus !== 'issued') {
+                throw new RuntimeException('cloud_browser_login_completion_state_ambiguous');
+            }
+
+            $statusReason = strtolower(trim((string)($profile['status_reason'] ?? '')));
+            if (preg_match('/^login_requested_from_([a-z_]+)$/D', $statusReason, $match) !== 1) {
+                throw new RuntimeException('cloud_browser_login_rollback_state_missing');
+            }
+            $previous = (string)$match[1];
+            if (!in_array($previous, [
+                self::UNAUTHORIZED,
+                self::AWAITING_LOGIN,
+                self::LOGIN_VERIFIED,
+                self::READY_TO_COLLECT,
+                self::SESSION_EXPIRED,
+                self::AWAITING_RELOGIN,
+            ], true)) {
+                throw new RuntimeException('cloud_browser_login_rollback_state_invalid');
+            }
+            $expectedCurrent = in_array($previous, [self::UNAUTHORIZED, self::AWAITING_LOGIN], true)
+                ? self::AWAITING_LOGIN
+                : self::AWAITING_RELOGIN;
+            if ($profileStatus !== $expectedCurrent) {
+                throw new RuntimeException('cloud_browser_login_rollback_state_changed');
+            }
+
+            $now = date('Y-m-d H:i:s');
+            Db::name('cloud_browser_login_sessions')->where('id', (int)$session['id'])->update([
+                'session_status' => 'cancelled',
+                'update_time' => $now,
+            ]);
+            $update = [
+                'authorization_status' => $previous,
+                'status_reason' => $this->reason($reason),
+                'last_state_change_at' => $now,
+                'update_time' => $now,
+            ];
+            Db::name('cloud_browser_profiles')->where('id', (int)$profile['id'])->update($update);
+            return [
+                'outcome' => 'cancelled',
+                'profile' => $this->publicProfile(array_merge($profile, $update)),
             ];
         });
     }
@@ -328,6 +487,143 @@ final class CloudBrowserProfileService
         ];
     }
 
+    /**
+     * Read-only preflight for a same-day OTA channel collection. This proves
+     * the encrypted Profile, data source and registered Profile binding all
+     * belong to the exact tenant/user/hotel/platform tuple. It does not prove
+     * the current page session or authorize persistence; the collector must
+     * establish those from fresh structured responses in the same run.
+     *
+     * @return array<string,mixed>
+     */
+    public function validateOtaCollectionProfile(
+        string $profilePublicId,
+        int $dataSourceId,
+        int $tenantId,
+        int $hotelId,
+        int $ownerUserId,
+        string $targetDate,
+        string $platform
+    ): array {
+        if ($dataSourceId <= 0 || $tenantId <= 0 || $hotelId <= 0 || $ownerUserId <= 0) {
+            throw new RuntimeException('cloud_browser_collection_scope_invalid');
+        }
+        $platform = $this->platform($platform);
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            throw new RuntimeException('cloud_browser_collection_platform_unsupported');
+        }
+
+        $timezone = new DateTimeZone('Asia/Shanghai');
+        $now = new DateTimeImmutable('now', $timezone);
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', trim($targetDate), $timezone);
+        if (!$date instanceof DateTimeImmutable
+            || $date->format('Y-m-d') !== trim($targetDate)
+            || $date->format('Y-m-d') !== $now->format('Y-m-d')
+        ) {
+            throw new RuntimeException('cloud_browser_collection_target_date_not_today');
+        }
+
+        $profile = $this->profileByPublicId($profilePublicId, false);
+        if ((int)$profile['tenant_id'] !== $tenantId
+            || (int)$profile['system_hotel_id'] !== $hotelId
+            || (int)$profile['owner_user_id'] !== $ownerUserId
+            || strtolower((string)$profile['platform']) !== $platform
+        ) {
+            throw new RuntimeException('cloud_browser_collection_scope_mismatch');
+        }
+        if (strtolower((string)$profile['authorization_status']) !== self::READY_TO_COLLECT) {
+            throw new RuntimeException('cloud_browser_collection_profile_not_ready');
+        }
+        $readyAt = $this->timestamp(
+            (string)($profile['ready_at'] ?? ''),
+            'cloud_browser_collection_ready_evidence_missing'
+        );
+        if ($readyAt > $now->getTimestamp()) {
+            throw new RuntimeException('cloud_browser_collection_ready_evidence_invalid');
+        }
+        $sessionExpiresAt = $this->timestamp(
+            (string)($profile['session_expires_at'] ?? ''),
+            'cloud_browser_collection_session_expiry_missing'
+        );
+        if ($sessionExpiresAt <= $now->getTimestamp()) {
+            throw new RuntimeException('cloud_browser_collection_session_expired');
+        }
+
+        $hotel = Db::name('hotels')
+            ->field('id,tenant_id,name,status')
+            ->where('id', $hotelId)
+            ->find();
+        if (!is_array($hotel)
+            || (int)($hotel['tenant_id'] ?? 0) !== $tenantId
+            || (int)($hotel['status'] ?? 0) !== 1
+            || trim((string)($hotel['name'] ?? '')) === ''
+        ) {
+            throw new RuntimeException('cloud_browser_collection_hotel_scope_invalid');
+        }
+
+        $source = Db::name('platform_data_sources')
+            ->field('id,tenant_id,user_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
+            ->where('id', $dataSourceId)
+            ->find();
+        if (!is_array($source)
+            || (int)($source['tenant_id'] ?? 0) !== $tenantId
+            || (int)($source['user_id'] ?? 0) !== $ownerUserId
+            || (int)($source['system_hotel_id'] ?? 0) !== $hotelId
+            || strtolower(trim((string)($source['platform'] ?? ''))) !== $platform
+            || !in_array(
+                strtolower(trim((string)($source['ingestion_method'] ?? ''))),
+                ['browser_profile', 'profile_browser'],
+                true
+            )
+            || (int)($source['enabled'] ?? 0) !== 1
+            || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled'
+        ) {
+            throw new RuntimeException('cloud_browser_ota_data_source_scope_mismatch');
+        }
+
+        try {
+            $config = json_decode((string)($source['config_json'] ?? ''), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $error) {
+            throw new RuntimeException('cloud_browser_ota_data_source_config_invalid', 0, $error);
+        }
+        if (!is_array($config)) {
+            throw new RuntimeException('cloud_browser_ota_data_source_config_invalid');
+        }
+        $platformHotelId = trim((string)($config['platform_hotel_id'] ?? ''));
+        if ($platformHotelId === '') {
+            throw new RuntimeException('cloud_browser_ota_platform_hotel_id_missing');
+        }
+        $profileBindingKey = $this->otaProfileBindingKey($platform, $config);
+        if ($profileBindingKey === '') {
+            throw new RuntimeException('cloud_browser_ota_profile_binding_key_missing');
+        }
+        if (!hash_equals(trim($profilePublicId), $profileBindingKey)) {
+            throw new RuntimeException('cloud_browser_ota_profile_id_mismatch');
+        }
+        (new OtaProfileBindingService())->assertBound($hotelId, $platform, $profileBindingKey);
+
+        $sourceUrl = $platform === 'ctrip'
+            ? 'https://ebooking.ctrip.com/home/mainland'
+            : 'https://me.meituan.com/ebooking/';
+
+        return [
+            'validated' => true,
+            'collection_kind' => 'ota_channel_profile',
+            'access_mode' => 'read_only',
+            'data_source_id' => $dataSourceId,
+            'platform' => $platform,
+            'source_scope' => 'ota_channel',
+            'source_url' => $sourceUrl,
+            'platform_hotel_id' => $platformHotelId,
+            'target_date' => $date->format('Y-m-d'),
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'owner_user_id' => $ownerUserId,
+            'expected_hotel_name' => (string)$hotel['name'],
+            'profile' => $this->publicProfile($profile),
+        ];
+    }
+
     /** @return array<string,mixed> */
     public function markReadyToCollect(string $profilePublicId, ?string $sessionExpiresAt = null): array
     {
@@ -417,6 +713,32 @@ final class CloudBrowserProfileService
         return $date->getTimestamp();
     }
 
+    /** @param array<string,mixed> $config */
+    private function otaProfileBindingKey(string $platform, array $config): string
+    {
+        $keys = [
+            'profile_binding_key',
+            'profileBindingKey',
+            'stable_profile_id',
+            'stableProfileId',
+            'profile_id',
+            'profileId',
+            'browser_profile_id',
+            'browserProfileId',
+        ];
+        $values = [];
+        foreach ($keys as $key) {
+            if (is_scalar($config[$key] ?? null) && trim((string)$config[$key]) !== '') {
+                $value = trim((string)$config[$key]);
+                $values[$value] = true;
+            }
+        }
+        if (count($values) > 1) {
+            throw new RuntimeException('cloud_browser_ota_profile_binding_key_conflict');
+        }
+        return count($values) === 1 ? (string)array_key_first($values) : '';
+    }
+
     /** @return array<string,mixed>|null */
     private function findProfile(int $tenantId, int $hotelId, int $ownerUserId, string $platform, bool $lock): ?array
     {
@@ -430,6 +752,45 @@ final class CloudBrowserProfileService
         }
         $row = $query->find();
         return is_array($row) ? $row : null;
+    }
+
+    /** @return array<string,mixed> */
+    private function ensureProfileLocked(
+        int $tenantId,
+        int $hotelId,
+        int $ownerUserId,
+        string $platform
+    ): array {
+        $profile = $this->findProfile($tenantId, $hotelId, $ownerUserId, $platform, true);
+        if (is_array($profile)) {
+            return $profile;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        try {
+            $profileId = (int)Db::name('cloud_browser_profiles')->insertGetId([
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $hotelId,
+                'owner_user_id' => $ownerUserId,
+                'platform' => $platform,
+                'profile_public_id' => $this->publicId('cbp'),
+                'authorization_status' => self::UNAUTHORIZED,
+                'status_reason' => '',
+                'last_state_change_at' => $now,
+                'create_time' => $now,
+                'update_time' => $now,
+            ]);
+            $profile = Db::name('cloud_browser_profiles')->where('id', $profileId)->lock(true)->find();
+        } catch (\Throwable $error) {
+            $profile = $this->findProfile($tenantId, $hotelId, $ownerUserId, $platform, true);
+            if (!is_array($profile)) {
+                throw new RuntimeException('cloud_browser_profile_create_failed', 0, $error);
+            }
+        }
+        if (!is_array($profile)) {
+            throw new RuntimeException('cloud_browser_profile_create_failed');
+        }
+        return $profile;
     }
 
     /** @return array<string,mixed> */

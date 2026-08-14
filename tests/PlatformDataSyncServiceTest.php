@@ -743,6 +743,44 @@ final class PlatformDataSyncServiceTest extends TestCase
         ]);
     }
 
+    public function testRequiredCurrentRunProfileSessionProbeKeepsNumericPlatformHotelIdsAsStrings(): void
+    {
+        $service = new PlatformDataSyncService();
+        $identifiersMethod = new \ReflectionMethod($service, 'requiredCurrentRunPlatformHotelIds');
+        $probeMethod = new \ReflectionMethod($service, 'assertRequiredCurrentRunProfileSessionProbe');
+        $source = [
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+            'config' => [
+                'platform_hotel_id' => '130079194',
+            ],
+        ];
+        $options = [
+            'require_current_run_session_probe' => true,
+            'required_platform_hotel_id' => '130079194',
+        ];
+
+        self::assertSame(
+            ['130079194'],
+            $identifiersMethod->invoke($service, $source, $options)
+        );
+        self::assertNull($probeMethod->invoke($service, $source, $options, [
+            'status' => 'success',
+            'payload' => [
+                'network_freshness' => $this->readyNetworkFreshness(),
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'platform_identity_validation' => [
+                    'schema_version' => 1,
+                    'status' => 'matched',
+                    'source_validation' => true,
+                    'evidence_source' => 'trusted_ota_page_state',
+                    'validated_identifier' => '130079194',
+                    'sensitive_values_exposed' => false,
+                ],
+            ],
+        ]));
+    }
+
     public function testRequiredCurrentRunProfileSessionProbeRejectsEveryMissingOrDriftedFact(): void
     {
         $service = new PlatformDataSyncService();

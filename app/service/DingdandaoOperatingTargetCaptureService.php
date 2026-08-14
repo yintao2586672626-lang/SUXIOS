@@ -433,7 +433,8 @@ final class DingdandaoOperatingTargetCaptureService
         string $expectedHotelName,
         array $input,
         bool $verifiedOnly = false,
-        ?string $expectedProviderHotelId = null
+        ?string $expectedProviderHotelId = null,
+        bool $freshObservation = false
     ): array {
         if ($tenantId <= 0 || $hotelId <= 0 || $userId <= 0 || trim($expectedHotelName) === '') {
             throw new \InvalidArgumentException('dingdandao_capture_scope_invalid');
@@ -626,12 +627,14 @@ final class DingdandaoOperatingTargetCaptureService
             $snapshot,
             $fingerprint,
             $now,
-            $verifiedOnly
+            $verifiedOnly,
+            $freshObservation
         ): array {
-            if ($verifiedOnly) {
+            if ($verifiedOnly && !$freshObservation) {
                 $existing = Db::name('dingdandao_operating_target_captures')
                     ->where('tenant_id', $tenantId)
                     ->where('hotel_id', $hotelId)
+                    ->where('captured_by', $userId)
                     ->where('business_date', $businessDate)
                     ->where('source_scope', $sourceScope)
                     ->where('source_fingerprint', $fingerprint)
@@ -963,6 +966,31 @@ final class DingdandaoOperatingTargetCaptureService
         return $this->present($row, true);
     }
 
+    /** @return array<string, mixed> */
+    public function latestForActor(
+        int $tenantId,
+        int $hotelId,
+        int $actorId,
+        string $businessDate
+    ): array {
+        if ($tenantId <= 0 || $hotelId <= 0 || $actorId <= 0) {
+            throw new \InvalidArgumentException('dingdandao_capture_scope_invalid');
+        }
+        $businessDate = $this->date($businessDate);
+        if (!$this->tableExists('dingdandao_operating_target_captures')) {
+            return [];
+        }
+        $row = Db::name('dingdandao_operating_target_captures')
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('captured_by', $actorId)
+            ->where('business_date', $businessDate)
+            ->order('captured_at', 'desc')
+            ->order('id', 'desc')
+            ->find();
+        return is_array($row) ? $this->present($row, true) : [];
+    }
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -1173,6 +1201,7 @@ final class DingdandaoOperatingTargetCaptureService
             'source_url_hash' => (string)($snapshot['capture_evidence']['source_url_hash'] ?? ''),
             'source_fingerprint' => (string)$row['source_fingerprint'],
             'captured_at' => (string)$row['captured_at'],
+            'captured_by' => (int)($row['captured_by'] ?? 0),
             'readback_status' => (string)$row['readback_status'],
             'readback_verified_at' => $row['readback_verified_at'] ?? null,
             'created_at' => $row['create_time'] ?? null,

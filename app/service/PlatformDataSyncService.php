@@ -1827,6 +1827,48 @@ final class PlatformDataSyncService
     }
 
     /**
+     * Hotel-onboarding write path for public store identity and an opaque Cloud
+     * Profile id only. This never accepts OTA credentials and does not claim a
+     * successful collection; the first collector run must still prove the
+     * platform store identity before any facts are saved.
+     */
+    public function saveOperatorConfirmedBrowserProfileDataSource($user, array $payload): array
+    {
+        $platform = strtolower(trim((string)($payload['platform'] ?? '')));
+        $ingestionMethod = strtolower(trim((string)($payload['ingestion_method'] ?? '')));
+        $config = is_array($payload['config'] ?? null) ? $payload['config'] : [];
+        $platformHotelId = trim((string)($config['platform_hotel_id'] ?? ''));
+        $hotelName = trim((string)($config['hotel_name'] ?? ''));
+        $profileId = trim((string)($config['profile_binding_key'] ?? ''));
+        $identitySource = trim((string)($config['platform_hotel_identity_source'] ?? ''));
+        $identityCheckedAt = trim((string)($config['platform_hotel_identity_checked_at'] ?? ''));
+        $identityTimestamp = $identityCheckedAt !== '' ? strtotime($identityCheckedAt) : false;
+        if (!in_array($platform, ['ctrip', 'meituan'], true)
+            || !in_array($ingestionMethod, ['browser_profile', 'profile_browser'], true)
+            || $platformHotelId === ''
+            || $hotelName === ''
+            || preg_match('/^cbp_[A-Za-z0-9_-]{16,64}$/D', $profileId) !== 1
+            || $identitySource !== 'operator_confirmed_onboarding'
+            || $identityTimestamp === false
+            || abs(time() - $identityTimestamp) > 300
+            || $this->credentialPayloadHasValue($payload['secret'] ?? [])
+        ) {
+            throw new RuntimeException('Operator-confirmed browser Profile binding is invalid.', 422);
+        }
+        foreach (['stable_profile_id', 'profile_id'] as $profileKey) {
+            if (!hash_equals($profileId, trim((string)($config[$profileKey] ?? '')))) {
+                throw new RuntimeException('Operator-confirmed browser Profile aliases disagree.', 422);
+            }
+        }
+
+        if (strtolower(trim((string)($config['source_method'] ?? ''))) !== 'cloud_browser_profile') {
+            throw new RuntimeException('Operator-confirmed browser Profile source method is invalid.', 422);
+        }
+
+        return $this->saveDataSourceInternal($user, $payload, true, true);
+    }
+
+    /**
      * Internal collector-only write path. The public data-source API must not
      * be able to promote user-supplied metadata into verified hotel identity
      * evidence.
@@ -1849,7 +1891,12 @@ final class PlatformDataSyncService
         return $this->saveDataSourceInternal($user, $payload, true);
     }
 
-    private function saveDataSourceInternal($user, array $payload, bool $allowManagedLocalIdentityEvidence): array
+    private function saveDataSourceInternal(
+        $user,
+        array $payload,
+        bool $allowManagedLocalIdentityEvidence,
+        bool $replaceManagedBrowserBinding = false
+    ): array
     {
         $id = (int)($payload['id'] ?? 0);
         $existing = null;
@@ -1873,7 +1920,8 @@ final class PlatformDataSyncService
                 $source,
                 $existing,
                 $id,
-                $allowManagedLocalIdentityEvidence
+                $allowManagedLocalIdentityEvidence,
+                $replaceManagedBrowserBinding
             );
         }
 
@@ -1927,7 +1975,8 @@ final class PlatformDataSyncService
         array $source,
         ?array $existing,
         int $id,
-        bool $allowManagedLocalIdentityEvidence = false
+        bool $allowManagedLocalIdentityEvidence = false,
+        bool $replaceManagedBrowserBinding = false
     ): array
     {
         $hotelId = (int)$source['system_hotel_id'];
@@ -2045,6 +2094,7 @@ final class PlatformDataSyncService
             $configId,
             $actorId,
             $now,
+            $replaceManagedBrowserBinding,
             &$id
         ): array {
             if ($isBrowserProfile && $id <= 0) {
@@ -2140,7 +2190,7 @@ final class PlatformDataSyncService
                     'has_cookies' => $hasCookies,
                 ]);
             }
-            if ($isBrowserProfile && $id > 0) {
+            if ($isBrowserProfile && $id > 0 && !$replaceManagedBrowserBinding) {
                 $config = array_merge(
                     $config,
                     $this->managedCloudCollectorBindingConfig($lockedConfig)

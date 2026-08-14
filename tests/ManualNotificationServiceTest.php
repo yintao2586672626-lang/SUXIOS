@@ -636,6 +636,137 @@ final class ManualNotificationServiceTest extends TestCase
         );
     }
 
+    public function testAnyBoundHotelCanUseStrictThreeSourceHourlyCloudPlan(): void
+    {
+        $plan = [
+            'hotel_id' => 5,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'source_scope' => 'combined',
+            'content_sections' => [
+                'pms_summary',
+                'pms_efficiency',
+                'ctrip_traffic',
+                'meituan_traffic',
+            ],
+            'business_date_rule' => 'today',
+            'send_method' => 'wecom_formal',
+            'trigger_type' => 'hourly_on_the_hour',
+            'target_robot_id' => 2,
+            'target_robot_name' => '宿析OS云端日报',
+        ];
+
+        self::assertTrue(
+            ManualNotificationService::isStrictThreeSourceHourlyPlan($plan)
+        );
+        self::assertFalse(
+            ManualNotificationService::isStrictThreeSourceHourlyPlan([
+                ...$plan,
+                'business_date_rule' => 'yesterday',
+            ])
+        );
+        self::assertFalse(
+            ManualNotificationService::isStrictThreeSourceHourlyPlan([
+                ...$plan,
+                'target_robot_id' => 0,
+                'target_robot_name' => '',
+            ])
+        );
+    }
+
+    public function testThreeSourceHourlyCloudPlanStartsAfterBusinessDayRollover(): void
+    {
+        Db::name('competitor_wechat_robot')->insert([
+            'id' => 32,
+            'store_id' => 80,
+            'name' => '整点三源群',
+            'webhook' => 'not-read-by-service-test',
+            'status' => 1,
+            'owner_user_id' => null,
+            'notification_scope' => 'admin_shared',
+        ]);
+        $input = $this->validInput([
+            'template_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'notification_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'title' => '三源整点经营快报',
+            'body' => '订单来了 PMS、携程、美团同店同日云端数据。',
+            'source_scope' => 'combined',
+            'content_sections' => [
+                'pms_summary',
+                'pms_efficiency',
+                'ctrip_traffic',
+                'meituan_traffic',
+            ],
+            'business_date_rule' => 'today',
+            'send_method' => 'wecom_formal',
+            'trigger_type' => 'hourly_on_the_hour',
+            'hourly_start_time' => '01:00',
+            'hourly_end_time' => '23:00',
+            'enabled' => true,
+            'target_robot_id' => 32,
+            'target_robot_name' => '整点三源群',
+        ]);
+
+        $saved = (new ManualNotificationService())->save(
+            9,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $input
+        );
+        self::assertSame('01:00', $saved['record']['hourly_start_time']);
+        self::assertSame('awaiting_test', $saved['record']['schedule_status']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(
+            'manual_notification_midnight_current_day_unavailable'
+        );
+        (new ManualNotificationService())->save(
+            9,
+            80,
+            7,
+            '敦煌漠蓝新',
+            [...$input, 'hourly_start_time' => '00:00']
+        );
+    }
+
+    public function testOneAmHourlyPlanAcceptsOnlyItsMidnightWindowMigrationFingerprint(): void
+    {
+        $plan = [
+            'hotel_id' => 80,
+            'notification_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'source_scope' => 'combined',
+            'content_sections' => 'pms_summary,pms_efficiency,ctrip_traffic,meituan_traffic',
+            'business_date' => '2026-08-14',
+            'business_date_rule' => 'today',
+            'title' => '三源整点经营快报',
+            'body' => '订单来了 PMS、携程、美团同店同日云端数据。',
+            'send_method' => 'wecom_formal',
+            'trigger_type' => 'hourly_on_the_hour',
+            'active_weekdays' => '1,2,3,4,5,6,7',
+            'hourly_start_time' => '01:00:00',
+            'hourly_end_time' => '23:00:00',
+            'condition_type' => 'always',
+            'target_robot_id' => 32,
+            'target_robot_name' => '整点三源群',
+        ];
+        $midnightVersion = [...$plan, 'hourly_start_time' => '00:00:00'];
+        $fingerprints = ManualNotificationService::acceptedPlanFingerprints($plan);
+
+        self::assertContains(
+            ManualNotificationService::planFingerprint($midnightVersion),
+            $fingerprints
+        );
+        self::assertNotContains(
+            ManualNotificationService::planFingerprint([
+                ...$midnightVersion,
+                'target_robot_id' => 99,
+            ]),
+            $fingerprints
+        );
+    }
+
     public function testOperatingDailyCustomPlanRejectsHourlyLoop(): void
     {
         $this->expectException(\InvalidArgumentException::class);

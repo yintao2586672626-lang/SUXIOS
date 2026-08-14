@@ -4,9 +4,62 @@ import test from 'node:test';
 
 import {
   buildOtaPersistentContextOptions,
+  connectOtaCdpContext,
   requireFreshOtaPageNetwork,
   resolveOtaBrowserBinaryPath,
+  resolveOtaCdpUrl,
 } from '../../scripts/lib/cloakbrowser_launcher.mjs';
+
+test('OTA CDP URL accepts only an explicit IPv4 loopback endpoint', () => {
+  assert.equal(resolveOtaCdpUrl({ cdpUrl: 'http://127.0.0.1:9223/' }), 'http://127.0.0.1:9223');
+  assert.equal(resolveOtaCdpUrl({}), '');
+  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://localhost:9223' }), /ota_browser_cdp_url_invalid/);
+  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://127.0.0.1:65536' }), /ota_browser_cdp_url_invalid/);
+  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://user:secret@127.0.0.1:9223' }), /ota_browser_cdp_url_invalid/);
+});
+
+test('CDP attach returns the unique context and its close shuts down the owning browser', async () => {
+  const context = { pages: () => [] };
+  let closeCount = 0;
+  const browser = {
+    contexts: () => [context],
+    async close() {
+      closeCount += 1;
+    },
+  };
+  const chromiumClient = {
+    async connectOverCDP(url) {
+      assert.equal(url, 'http://127.0.0.1:9223');
+      return browser;
+    },
+  };
+
+  const attached = await connectOtaCdpContext('http://127.0.0.1:9223', chromiumClient);
+  assert.equal(attached, context);
+  await attached.close();
+  await attached.close();
+  assert.equal(closeCount, 1);
+});
+
+test('CDP attach fails closed and closes the browser unless exactly one context exists', async () => {
+  let closed = false;
+  const chromiumClient = {
+    async connectOverCDP() {
+      return {
+        contexts: () => [{}, {}],
+        async close() {
+          closed = true;
+        },
+      };
+    },
+  };
+
+  await assert.rejects(
+    () => connectOtaCdpContext('http://127.0.0.1:9223', chromiumClient),
+    /ota_browser_cdp_context_count_invalid/,
+  );
+  assert.equal(closed, true);
+});
 
 test('configured browser binary takes precedence over a request path', () => {
   const previous = process.env.CLOAKBROWSER_BINARY_PATH;

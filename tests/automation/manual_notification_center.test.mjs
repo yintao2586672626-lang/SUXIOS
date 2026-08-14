@@ -254,7 +254,7 @@ test('operating daily keeps custom compatibility while common templates choose a
   );
 });
 
-test('operating daily keeps fixed-time default and exposes hotel-80 strict three-source interval', () => {
+test('operating daily keeps fixed-time default and exposes strict cloud three-source schedules', () => {
   assert.match(
     serviceSource,
     /OPERATING_DAILY_TRIGGER_TYPES\s*=\s*\[\s*'manual_test',\s*'daily_fixed_time'/,
@@ -281,7 +281,7 @@ test('operating daily keeps fixed-time default and exposes hotel-80 strict three
   );
   assert.match(
     appMainSource,
-    /经营日报不支持循环发送，请选择每日固定时间/,
+    /普通经营日报不支持循环发送，请选择每日固定时间/,
   );
   assert.match(serviceSource, /isStrictThreeSourceIntervalPlan/);
   assert.match(
@@ -300,7 +300,108 @@ test('operating daily keeps fixed-time default and exposes hotel-80 strict three
     schedulePanelSource,
     /strictThreeSourceIntervalAvailable[\s\S]*每 30 分钟（三源严格计划）/,
   );
-  assert.match(schedulePanelSource, /严格计划配置待修正/);
+  assert.match(schedulePanelSource, /三源计划配置待修正/);
+  assert.match(serviceSource, /isStrictThreeSourceHourlyPlan/);
+  assert.match(
+    appMainSource,
+    /manualNotificationCanConfigureStrictThreeSourceHourly/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /strictThreeSourceHourlyAvailable[\s\S]*每小时整点（三源云端推送）/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /默认 01:00–23:00 整点发送；云端会在整点前刷新三源/,
+  );
+  assert.match(appMainSource, /hourly_start_time: '01:00'/);
+  assert.match(
+    serviceSource,
+    /manual_notification_midnight_current_day_unavailable/,
+  );
+});
+
+test('three-source hourly setup exposes one-click guided fields and truthful source actions', () => {
+  assert.match(
+    schedulePanelSource,
+    /data-testid': 'manual-notification-hourly-preset'[\s\S]*一键三源整点推送/,
+  );
+  assert.match(
+    appMainSource,
+    /data-manual-notification-create-hourly="1">一键三源整点推送/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /emit\('apply-hourly-preset'\)/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-hourly-primary-controls[\s\S]*开始整点[\s\S]*结束整点/,
+  );
+  assert.match(schedulePanelSource, /const channelControl = field\('推送通道'/);
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-hourly-contract-summary[\s\S]*当前酒店[\s\S]*当天数据[\s\S]*PMS＋携程＋美团/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-hourly-advanced-settings[\s\S]*数据来源（只读）[\s\S]*发送方式（只读）/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-exit-hourly-guided[\s\S]*改为普通每日计划/,
+  );
+  assert.match(
+    appMainSource,
+    /applyManualNotificationThreeSourceHourlyPreset[\s\S]*hourly_start_time: '01:00'[\s\S]*hourly_end_time: '23:00'/,
+  );
+  assert.match(
+    appMainSource,
+    /applyHourlyPreset: applyManualNotificationThreeSourceHourlyPreset/,
+  );
+  assert.match(
+    appMainSource,
+    /data-manual-notification-create-hourly[\s\S]*selectManualNotificationTemplate\(template\)[\s\S]*applyManualNotificationThreeSourceHourlyPreset\(\)/,
+  );
+
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-runtime-overview[\s\S]*三源运行状态[\s\S]*上次成功[\s\S]*下次运行[\s\S]*最近阻断/,
+  );
+  for (const source of ['pms', 'ctrip', 'meituan']) {
+    assert.match(appMainSource, new RegExp(`key: '${source}'`));
+  }
+  for (const actionKey of [
+    'recollect_source',
+    'relogin_source',
+    'check_source_binding',
+    'check_source_status',
+  ]) {
+    assert.match(appMainSource, new RegExp(`action_key: '${actionKey}'`));
+  }
+  assert.match(
+    schedulePanelSource,
+    /emit\('source-action'[\s\S]*action_key: source\.action_key/,
+  );
+  assert.match(
+    appMainSource,
+    /handleManualNotificationSourceAction[\s\S]*openHotelManualFetchConfig[\s\S]*openPlatformSourcesTab[\s\S]*openHotelManualFetch/,
+  );
+  assert.match(
+    appMainSource,
+    /最近记录未提供该来源的独立状态/,
+    'missing evidence must remain unknown instead of being rendered ready',
+  );
+});
+
+test('three-source runtime prefers formal source readiness and exposes expiry recovery', () => {
+  assert.match(
+    appMainSource,
+    /three_source_hourly_status[\s\S]*cloud_three_source_hourly_status\.v1/,
+    'source readiness must prefer the hotel-scoped readback status contract',
+  );
+  assert.match(appMainSource, /source\.profile\?\.expiring_soon === true/);
+  assert.match(appMainSource, /request_login: \['relogin_source'/);
 });
 
 test('PMS operating data page owns unified PMS deltas without duplicating source configuration', () => {

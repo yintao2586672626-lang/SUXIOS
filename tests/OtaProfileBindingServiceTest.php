@@ -168,6 +168,37 @@ final class OtaProfileBindingServiceTest extends TestCase
         self::assertSame(1, (int)Db::name('ota_profile_bindings')->where('binding_status', 'active')->count());
     }
 
+    public function testExplicitCloudRotationRevokesLegacyBindingWithinTheSameHotelScope(): void
+    {
+        $legacyKey = '130079194';
+        $cloudKey = 'cbp_0123456789abcdef';
+        $this->insertSource(10, 1, 'ctrip', ['profile_id' => $legacyKey]);
+        $service = $this->service();
+        $legacy = $service->claim(10, 'ctrip', $legacyKey, 91);
+
+        $rotated = $service->rotateLegacyToCloudProfile(10, 'ctrip', $legacyKey, $cloudKey, 92);
+
+        self::assertSame('active', $rotated['binding_status']);
+        self::assertSame(hash('sha256', $cloudKey), $rotated['profile_key_hash']);
+        self::assertSame(
+            'revoked',
+            Db::name('ota_profile_bindings')->where('id', (int)$legacy['id'])->value('binding_status')
+        );
+        self::assertSame(1, (int)Db::name('ota_profile_bindings')->where('binding_status', 'active')->count());
+        self::assertSame('active', $service->assertBound(10, 'ctrip', $cloudKey)['binding_status']);
+    }
+
+    public function testCloudRotationCannotTakeAProfileBoundToAnotherHotelScope(): void
+    {
+        $cloudKey = 'cbp_abcdef0123456789';
+        $this->insertSource(20, 2, 'meituan', ['profile_binding_key' => $cloudKey]);
+        $this->service()->claim(20, 'meituan', $cloudKey, 91);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('another tenant or hotel');
+        $this->service()->rotateLegacyToCloudProfile(10, 'meituan', '123456789', $cloudKey, 92);
+    }
+
     public function testBindingMigrationUsesHashedKeysAndIsRegistered(): void
     {
         $root = dirname(__DIR__);

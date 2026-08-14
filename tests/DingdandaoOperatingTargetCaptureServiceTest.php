@@ -411,6 +411,93 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         self::assertSame(17, (int)Db::name('dingdandao_room_fee_capture_details')->count());
     }
 
+    public function testFreshObservationPersistsSameFactsAsNewActorScopedEvidence(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $firstInput = $this->validInput();
+        $firstInput['captured_at'] = '2026-07-27 08:05:00';
+        $first = $service->save(
+            8,
+            5,
+            7,
+            (string)$firstInput['provider_hotel_name'],
+            $firstInput,
+            true,
+            'provider-hotel-5',
+            true
+        );
+        $secondInput = $this->validInput();
+        $secondInput['captured_at'] = '2026-07-27 08:09:00';
+        $second = $service->save(
+            8,
+            5,
+            7,
+            (string)$secondInput['provider_hotel_name'],
+            $secondInput,
+            true,
+            'provider-hotel-5',
+            true
+        );
+
+        self::assertNotSame($first['id'], $second['id']);
+        self::assertSame('2026-07-27 08:05:00', $first['captured_at']);
+        self::assertSame('2026-07-27 08:09:00', $second['captured_at']);
+        self::assertSame(7, $first['captured_by']);
+        self::assertSame(7, $second['captured_by']);
+        self::assertSame(2, (int)Db::name('dingdandao_operating_target_captures')->count());
+        self::assertSame(
+            $second['id'],
+            $service->latestForActor(8, 5, 7, '2026-07-27')['id']
+        );
+    }
+
+    public function testVerifiedReuseAndLatestReadbackAreIsolatedByActor(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $actorSeven = $service->save(
+            8,
+            5,
+            7,
+            (string)$input['provider_hotel_name'],
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+        $actorEight = $service->save(
+            8,
+            5,
+            8,
+            (string)$input['provider_hotel_name'],
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+        $reusedInput = $this->validInput();
+        $reusedInput['captured_at'] = '2026-07-27 08:09:00';
+        $actorSevenReused = $service->save(
+            8,
+            5,
+            7,
+            (string)$reusedInput['provider_hotel_name'],
+            $reusedInput,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertNotSame($actorSeven['id'], $actorEight['id']);
+        self::assertSame($actorSeven['id'], $actorSevenReused['id']);
+        self::assertSame('2026-07-27 08:05:00', $actorSevenReused['captured_at']);
+        self::assertSame(7, $service->latestForActor(8, 5, 7, '2026-07-27')['captured_by']);
+        self::assertSame(8, $service->latestForActor(8, 5, 8, '2026-07-27')['captured_by']);
+        self::assertSame([], $service->latestForActor(8, 5, 9, '2026-07-27'));
+        self::assertSame(2, (int)Db::name('dingdandao_operating_target_captures')->count());
+    }
+
     public function testTrustedHistoricalSingleDateCaptureSavesAndReadsBack(): void
     {
         $service = new DingdandaoOperatingTargetCaptureService(

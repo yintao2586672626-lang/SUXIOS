@@ -1,0 +1,23 @@
+[Unit]
+Description=SUXIOS DB-driven global serial PMS, Ctrip and Meituan collection queue
+After=network-online.target mariadb.service php8.3-fpm.service suxios-cloud-browser-gateway.service
+Wants=network-online.target
+Requires=suxios-cloud-browser-gateway.service
+ConditionPathExists=/var/www/suxios/current/scripts/run_cloud_three_source_collection_queue.php
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+ExecStart=/usr/bin/php -d memory_limit=512M scripts/run_cloud_three_source_collection_queue.php --child-timeout-seconds=540 --deadline-seconds=1500
+LoadCredential=control-token:/etc/suxios-cloud-browser/control-token
+RuntimeDirectory=suxios-cloud-three-source-queue suxios-dingdandao-collection suxios-meituan-cloud-pms-collection
+RuntimeDirectoryMode=0750
+Nice=10
+CPUQuota=70%
+MemoryMax=768M
+TasksMax=64
+TimeoutStartSec=30min
+UMask=0027

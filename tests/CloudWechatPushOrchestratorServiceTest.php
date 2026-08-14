@@ -141,6 +141,58 @@ final class CloudWechatPushOrchestratorServiceTest extends TestCase
 
         $test = $delivery->resolvePlanRobot(9, 80, 1, $robotName, 7, 'test');
         self::assertTrue($test['eligible']);
+
+        $formalTest = $delivery->resolvePlanRobot(
+            9,
+            80,
+            1,
+            $robotName,
+            7,
+            'formal_test'
+        );
+        self::assertTrue($formalTest['eligible']);
+        self::assertSame('account_onboarding', $formalTest['notification_scope']);
+    }
+
+    public function testSuccessfulFormalPlanTestPersistsRobotVerification(): void
+    {
+        $robotName = (string)Db::name('competitor_wechat_robot')
+            ->where('id', 1)
+            ->value('name');
+        Db::name('competitor_wechat_robot')->where('id', 1)->update([
+            'last_tested_at' => null,
+            'last_test_status' => 'pending',
+        ]);
+        $delivery = new WechatRobotDeliveryService(
+            static fn(): array => [
+                'success' => true,
+                'response_reference' => 'wecom:errcode=0',
+            ]
+        );
+
+        $result = $delivery->deliverToPlanRobot(
+            9,
+            80,
+            1,
+            $robotName,
+            7,
+            'formal_test',
+            ['msgtype' => 'markdown', 'markdown' => ['content' => 'verified facts']]
+        );
+
+        self::assertSame('sent', $result['delivery_status']);
+        self::assertTrue($result['binding_test_state_persisted']);
+        self::assertSame(
+            'sent',
+            Db::name('competitor_wechat_robot')->where('id', 1)->value('last_test_status')
+        );
+        self::assertNotSame(
+            '',
+            (string)Db::name('competitor_wechat_robot')->where('id', 1)->value('last_tested_at')
+        );
+        self::assertTrue(
+            $delivery->resolvePlanRobot(9, 80, 1, $robotName, 7, 'formal')['eligible']
+        );
     }
 
     public function testHourlyPolicyPreviewsThenDispatchesOneMessageAndOneVisualCardPerWindow(): void

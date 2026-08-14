@@ -44,6 +44,20 @@ const run = (command, args, options = {}) => {
   return options.capture ? result.stdout : '';
 };
 
+const resolveOuterAgentsPath = () => {
+  const commonGitDir = run('git', [
+    'rev-parse', '--path-format=absolute', '--git-common-dir',
+  ], { capture: true }).trim();
+  const commonRepoRoot = path.basename(commonGitDir).toLowerCase() === '.git'
+    ? path.dirname(commonGitDir)
+    : repoRoot;
+  const candidates = [
+    path.resolve(commonRepoRoot, '..', 'AGENTS.md'),
+    path.resolve(repoRoot, '..', 'AGENTS.md'),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || '';
+};
+
 const changed = run('git', [
   'diff', '--name-only', '--cached', '--no-renames', '--diff-filter=ACMRD',
 ], { capture: true })
@@ -82,8 +96,8 @@ try {
   // The project context verifier deliberately reads the workspace-level
   // AGENTS.md outside the nested HOTEL repository. Mirror that read-only
   // boundary while every repository-owned file still comes from the index.
-  const outerAgents = path.resolve(repoRoot, '..', 'AGENTS.md');
-  if (fs.existsSync(outerAgents)) fs.copyFileSync(outerAgents, path.join(snapshotRoot, 'AGENTS.md'));
+  const outerAgents = resolveOuterAgentsPath();
+  if (outerAgents) fs.copyFileSync(outerAgents, path.join(snapshotRoot, 'AGENTS.md'));
 
   const dependencyRoot = path.join(repoRoot, 'node_modules');
   if (fs.existsSync(dependencyRoot) && !fs.existsSync(dependencyLink)) {

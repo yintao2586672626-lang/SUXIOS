@@ -22,6 +22,8 @@ $options = getopt('', [
     'cdp-url::',
     'control-token-file::',
     'node-binary::',
+    'no-push',
+    'fresh-observation',
 ]);
 $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
     ->format('Y-m-d');
@@ -34,6 +36,8 @@ $cdpUrl = rtrim(trim((string)($options['cdp-url'] ?? 'http://127.0.0.1:9223')), 
 $tokenFile = trim((string)($options['control-token-file']
     ?? '/run/credentials/suxios-dingdandao-collection.service/control-token'));
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
+$noPush = array_key_exists('no-push', $options);
+$freshObservation = array_key_exists('fresh-observation', $options);
 
 if (!validDate($targetDate)
     || $targetDate !== $today
@@ -41,6 +45,7 @@ if (!validDate($targetDate)
     || !preg_match('#^http://127\.0\.0\.1:[1-9][0-9]{1,4}$#D', $cdpUrl)
     || !in_array($tokenFile, [
         '/run/credentials/suxios-dingdandao-collection.service/control-token',
+        '/run/credentials/suxios-cloud-three-source-queue.service/control-token',
         '/etc/suxios-cloud-browser/control-token',
     ], true)
     || $nodeBinary !== '/usr/bin/node'
@@ -133,16 +138,25 @@ try {
         throw new RuntimeException('dingdandao_collection_payload_invalid');
     }
     $captureInput = $collector['capture'];
-    $capture = (new DingdandaoOperatingTargetCaptureService())->save(
+    $captureService = new DingdandaoOperatingTargetCaptureService();
+    $capture = $captureService->save(
         $tenantId,
         $hotelId,
         $ownerUserId,
         $expectedProviderHotelName,
         $captureInput,
         true,
-        $expectedProviderHotelId
+        $expectedProviderHotelId,
+        $freshObservation
     );
     $businessDataPersisted = true;
+    $actorReadback = $captureService->latestForActor(
+        $tenantId,
+        $hotelId,
+        $ownerUserId,
+        $targetDate
+    );
+    $roundCapturedAt = normalizeCapturedAt((string)($captureInput['captured_at'] ?? ''));
     if (($capture['quality_status'] ?? '') !== 'verified'
         || ($capture['capture_status'] ?? '') !== 'verified'
         || ($capture['readback_status'] ?? '') !== 'readback_verified'
@@ -150,6 +164,13 @@ try {
         || ($capture['reconciliation_status'] ?? '') !== 'matched'
         || (string)($capture['business_date'] ?? '') !== $targetDate
         || (int)($capture['hotel_id'] ?? 0) !== $hotelId
+        || (int)($capture['captured_by'] ?? 0) !== $ownerUserId
+        || (int)($actorReadback['id'] ?? 0) !== (int)($capture['id'] ?? 0)
+        || (int)($actorReadback['captured_by'] ?? 0) !== $ownerUserId
+        || (string)($actorReadback['captured_at'] ?? '')
+            !== (string)($capture['captured_at'] ?? '')
+        || ($freshObservation
+            && (string)($actorReadback['captured_at'] ?? '') !== $roundCapturedAt)
     ) {
         throw new RuntimeException('dingdandao_collection_readback_not_verified');
     }
@@ -175,21 +196,28 @@ try {
         throw new RuntimeException('dingdandao_collection_target_sync_blocked');
     }
 
-    try {
-        $push = $integrationService->dispatchVerifiedCapture(
-            $tenantId,
-            $hotelId,
-            $ownerUserId,
-            $hotelName,
-            $capture,
-            'capture'
-        );
-    } catch (Throwable $pushError) {
-        $push = [
-            'delivery_status' => 'orchestration_failed',
-            'delivery_attempted' => false,
-            'error_summary' => safeReason($pushError->getMessage()),
-        ];
+    $push = [
+        'delivery_status' => 'skipped_no_push',
+        'delivery_attempted' => false,
+        'error_summary' => null,
+    ];
+    if (!$noPush) {
+        try {
+            $push = $integrationService->dispatchVerifiedCapture(
+                $tenantId,
+                $hotelId,
+                $ownerUserId,
+                $hotelName,
+                $capture,
+                'capture'
+            );
+        } catch (Throwable $pushError) {
+            $push = [
+                'delivery_status' => 'orchestration_failed',
+                'delivery_attempted' => false,
+                'error_summary' => safeReason($pushError->getMessage()),
+            ];
+        }
     }
     $closeOutcome = 'completed';
     $result = [
@@ -197,6 +225,9 @@ try {
         'hotel_id' => $hotelId,
         'target_date' => $targetDate,
         'capture_id' => (int)$capture['id'],
+        'captured_by' => (int)$capture['captured_by'],
+        'captured_at' => (string)$capture['captured_at'],
+        'fresh_observation' => $freshObservation,
         'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
         'identity_status' => 'matched',
         'reconciliation_status' => 'matched',
@@ -218,6 +249,7 @@ try {
             true
         ),
         'push_orchestration' => [
+            'disabled_by_invocation' => $noPush,
             'delivery_status' => (string)($push['delivery_status'] ?? 'blocked'),
             'delivery_attempted' => ($push['delivery_attempted'] ?? false) === true,
             'dispatch_id' => (int)($push['id'] ?? 0),
@@ -302,6 +334,7 @@ function runCollector(
 ): array {
     $command = [
         $nodeBinary,
+        '--experimental-websocket',
         $script,
         '--cdp-url=' . $cdpUrl,
         '--target-date=' . $targetDate,
@@ -379,6 +412,21 @@ function validDate(string $value): bool
 {
     $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
     return $date instanceof DateTimeImmutable && $date->format('Y-m-d') === $value;
+}
+
+function normalizeCapturedAt(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        throw new RuntimeException('dingdandao_collection_capture_time_invalid');
+    }
+    try {
+        return (new DateTimeImmutable($value, new DateTimeZone('Asia/Shanghai')))
+            ->setTimezone(new DateTimeZone('Asia/Shanghai'))
+            ->format('Y-m-d H:i:s');
+    } catch (Throwable) {
+        throw new RuntimeException('dingdandao_collection_capture_time_invalid');
+    }
 }
 
 function safeReason(string $reason): string

@@ -71,10 +71,22 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
+        $requestedCdpUrl = $this->firstString($options, [], ['cdp_url', 'cdpUrl']);
+        $cdpUrl = $this->normalizeCdpUrl($requestedCdpUrl);
+        if ($requestedCdpUrl !== '' && $cdpUrl === '') {
+            return [
+                'status' => 'waiting_config',
+                'status_code' => 'invalid_cdp_url',
+                'error_code' => 'invalid_cdp_url',
+                'message' => 'Ctrip CDP URL must use http://127.0.0.1:<port>.',
+                'payload' => [],
+            ];
+        }
+
         $interactive = $this->truthy($options['interactive_browser'] ?? $options['interactiveBrowser'] ?? false);
         $profileDir = $this->projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $this->safeName($profileId);
         $profilePrepared = is_dir($profileDir);
-        if (!$profilePrepared && !$interactive) {
+        if (!$profilePrepared && !$interactive && $cdpUrl === '') {
             return [
                 'status' => 'waiting_config',
                 'message' => 'Ctrip browser Profile is not prepared: storage/ctrip_profile_' . $this->safeName($profileId),
@@ -156,10 +168,13 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $hotelName = $this->firstString($options, $config, ['hotel_name', 'hotelName', 'name']);
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
         $sectionConcurrency = $this->resolveCtripSectionConcurrency($options, $config);
+        if ($cdpUrl !== '') {
+            $sectionConcurrency = 1;
+        }
         $capturePlan = $this->resolveCtripCapturePlan($options, $config);
 
         try {
-            if ($this->shouldCaptureSectionsSequentially($options, $sectionList)) {
+            if ($cdpUrl === '' && $this->shouldCaptureSectionsSequentially($options, $sectionList)) {
                 return $this->runSequentialCaptureSections(
                     $source,
                     $scriptPath,
@@ -174,7 +189,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     $timeoutSeconds,
                     $fieldConfigPayload,
                     $notApplicableSectionList,
-                    $capturePlan
+                    $capturePlan,
+                    $cdpUrl
                 );
             }
 
@@ -197,9 +213,10 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     'parallel_fallback' => true,
                     'not_applicable_sections' => $notApplicableSectionList,
                     'capture_plan' => $capturePlan,
+                    'cdp_url' => $cdpUrl,
                 ]
             );
-            if ($this->shouldFallbackToSequentialAfterParallel($result, $sectionList, $sectionConcurrency, $options)) {
+            if ($cdpUrl === '' && $this->shouldFallbackToSequentialAfterParallel($result, $sectionList, $sectionConcurrency, $options)) {
                 $fallback = $this->runSequentialCaptureSections(
                     $source,
                     $scriptPath,
@@ -214,7 +231,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     $timeoutSeconds,
                     $fieldConfigPayload,
                     $notApplicableSectionList,
-                    $capturePlan
+                    $capturePlan,
+                    $cdpUrl
                 );
                 if (is_array($fallback['payload'] ?? null)) {
                     $fallback['payload']['parallel_capture_fallback'] = [
@@ -578,7 +596,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         int $timeoutSeconds,
         array $fieldConfigPayload,
         array $notApplicableSectionList = [],
-        string $capturePlan = 'full'
+        string $capturePlan = 'full',
+        string $cdpUrl = ''
     ): array {
         $payloads = [];
         $moduleResults = [];
@@ -603,6 +622,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 [
                     'not_applicable_sections' => $notApplicableSectionList,
                     'capture_plan' => $capturePlan,
+                    'cdp_url' => $cdpUrl,
                 ]
             );
             if (($result['status'] ?? '') === 'success') {
@@ -734,6 +754,13 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if ($identityReference['valid'] && $identityReference['name'] !== '') {
             $args[] = '--platform-hotel-name=' . $identityReference['name'];
+        }
+        $cdpUrl = $this->normalizeCdpUrl((string)($captureOptions['cdp_url'] ?? ''));
+        if ($cdpUrl !== '') {
+            $args[] = '--cdp-url=' . $cdpUrl;
+            $cdpRuntimeDir = dirname($outputPath);
+            $args[] = '--report-dir=' . $cdpRuntimeDir;
+            $args[] = '--profile-dir=' . $cdpRuntimeDir . DIRECTORY_SEPARATOR . 'ctrip_cdp_profile_stub';
         }
 
         $fieldConfigPath = '';
@@ -1828,6 +1855,19 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         $timestamp = strtotime($value);
         return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    }
+
+    private function normalizeCdpUrl(string $value): string
+    {
+        $value = trim($value);
+        if (preg_match('#^http://127\.0\.0\.1:([1-9][0-9]{0,4})/?$#D', $value, $matches) !== 1) {
+            return '';
+        }
+        $port = (int)$matches[1];
+        if ($port < 1 || $port > 65535) {
+            return '';
+        }
+        return 'http://127.0.0.1:' . $port;
     }
 
     private function truthy(mixed $value): bool

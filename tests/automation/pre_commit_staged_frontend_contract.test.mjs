@@ -82,8 +82,11 @@ function writeEntryFixtureState(root, value) {
   write(root, 'public/index.html', `<script defer src="app-main.min.js?v=fixture-h${version}"></script><meta data-contract="base">`);
 }
 
-function createFixtureRepository() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'suxios-hook-contract-'));
+function createFixtureRepository(parentRoot = '') {
+  const root = parentRoot
+    ? path.join(parentRoot, 'HOTEL')
+    : fs.mkdtempSync(path.join(os.tmpdir(), 'suxios-hook-contract-'));
+  if (parentRoot) fs.mkdirSync(root, { recursive: true });
   write(root, 'package.json', JSON.stringify({
     private: true,
     scripts: {
@@ -394,5 +397,34 @@ test('a complete consistent frontend stage passes the index contract', () => {
     assert.match(result.stdout, /Staged project index verification passed/u);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a linked worktree resolves the workspace AGENTS.md from the common repository', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'suxios-hook-worktree-'));
+  const primary = createFixtureRepository(workspace);
+  const linked = path.join(workspace, '.codex-worktrees', 'review');
+  try {
+    write(workspace, 'AGENTS.md', 'workspace-outer');
+    write(primary, 'verify-outer-context.mjs', `
+      import assert from 'node:assert/strict';
+      import fs from 'node:fs';
+      assert.equal(fs.readFileSync('../AGENTS.md', 'utf8'), 'workspace-outer');
+    `);
+    run(primary, 'git', ['add', 'verify-outer-context.mjs']);
+    run(primary, 'git', ['commit', '--quiet', '-m', 'add outer verifier']);
+    fs.mkdirSync(path.dirname(linked), { recursive: true });
+    run(primary, 'git', ['worktree', 'add', '--quiet', '-b', 'fixture-linked', linked]);
+
+    write(linked, 'AGENTS.md', 'linked-change');
+    run(linked, 'git', ['add', 'AGENTS.md']);
+    const result = runHelper(linked, 0, [
+      '--context-verifier',
+      'verify-outer-context.mjs',
+      '--context-only',
+    ]);
+    assert.match(result.stdout, /Staged project index verification passed/u);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
   }
 });

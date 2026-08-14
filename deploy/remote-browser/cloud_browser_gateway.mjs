@@ -6,7 +6,13 @@ import {
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
-import { createReadStream, createWriteStream, existsSync } from 'node:fs';
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  readFileSync,
+  realpathSync,
+} from 'node:fs';
 import {
   appendFile,
   chmod,
@@ -17,6 +23,7 @@ import {
   stat,
 } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { connect as connectTcp } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -32,6 +39,7 @@ const TICKET_PATTERN = /^[A-Za-z0-9_-]{32,96}$/;
 const LOGIN_PLATFORM_PATTERN = /^(ctrip|meituan|dingdandao|meituan_cloud_pms)$/;
 const OTA_RECEIPT_PLATFORM_PATTERN = /^(ctrip|meituan)$/;
 const PMS_PLATFORM_PATTERN = /^(dingdandao|meituan_cloud_pms)$/;
+const COLLECTION_PLATFORM_PATTERN = /^(ctrip|meituan|dingdandao|meituan_cloud_pms)$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DINGDANDAO_SOURCE_URL =
   'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
@@ -43,6 +51,23 @@ const MEITUAN_CLOUD_PMS_READ_ONLY_POST_PATHS = new Set([
 const SENSITIVE_KEY_PATTERN =
   /(cookie|password|authorization(?!_status)|(^|_)(token|secret|headers?|raw|html|har)(_|$)|profile[_-]?path|localstorage|sessionstorage)/i;
 
+export function isUnsupportedSnapBrowserExecutable(value) {
+  const executable = String(value || '').trim();
+  if (executable === '' || executable.startsWith('/snap/')) return executable !== '';
+  try {
+    if (realpathSync(executable) === '/usr/bin/snap') return true;
+  } catch {
+    return false;
+  }
+  try {
+    const prefix = readFileSync(executable).subarray(0, 8192).toString('utf8');
+    return /(?:^|[\s/])snap(?:\s+run)?\s+chromium\b/m.test(prefix)
+      || /\/snap\/bin\/chromium\b/.test(prefix);
+  } catch {
+    return false;
+  }
+}
+
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -53,6 +78,12 @@ function canonical(value) {
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function viewerScopeDigestMatches(value, opaqueId) {
+  const digest = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!/^[a-f0-9]{64}$/.test(digest)) return false;
+  return timingSafeEqual(Buffer.from(digest, 'ascii'), Buffer.from(sha256(opaqueId), 'ascii'));
 }
 
 function safeReason(value, fallback = 'gateway_operation_failed') {
@@ -149,6 +180,7 @@ async function runProcess(command, args, options = {}) {
       stdio: options.stdio || [options.input !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       windowsHide: true,
       shell: false,
+      ...(options.signal ? { signal: options.signal } : {}),
     });
     let stdout = '';
     let stderr = '';
@@ -305,6 +337,18 @@ function loadConfig(env = process.env) {
   const projectRoot = resolve(moduleDir, '..', '..');
   const bindAddress = String(env.SUXIOS_CLOUD_BROWSER_BIND || '127.0.0.1').trim();
   if (bindAddress !== '127.0.0.1') throw new Error('gateway_bind_must_be_loopback');
+  const configuredBrowser = String(env.SUXIOS_CLOUD_BROWSER_EXECUTABLE || '').trim();
+  const browserCandidates = [
+    '/usr/bin/google-chrome-stable',
+    '/opt/google/chrome/google-chrome',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+  ];
+  const detectedBrowser = browserCandidates.find((candidate) => (
+    existsSync(candidate) && !isUnsupportedSnapBrowserExecutable(candidate)
+  ));
   return {
     projectRoot,
     bindAddress,
@@ -316,16 +360,16 @@ function loadConfig(env = process.env) {
     controlTokenFile: env.SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE || '/run/credentials/suxios-cloud-browser-gateway.service/control-token',
     phpBinary: env.SUXIOS_CLOUD_BROWSER_PHP_BINARY || '/usr/bin/php',
     bridgeScript: env.SUXIOS_CLOUD_BROWSER_BRIDGE_SCRIPT || join(projectRoot, 'scripts', 'cloud_browser_gateway_bridge.php'),
-    browserExecutable: env.SUXIOS_CLOUD_BROWSER_EXECUTABLE
-      || ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium'].find(existsSync)
-      || '/usr/bin/chromium',
+    browserExecutable: configuredBrowser || detectedBrowser || '/usr/bin/chromium',
     display: env.SUXIOS_CLOUD_BROWSER_DISPLAY || ':99',
     cdpPort: Number.parseInt(env.SUXIOS_CLOUD_BROWSER_CDP_PORT || '9223', 10),
+    noVncPort: Number.parseInt(env.SUXIOS_CLOUD_BROWSER_NOVNC_PORT || '6080', 10),
     viewerUrl: env.SUXIOS_CLOUD_BROWSER_VIEWER_URL || 'http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale',
     loginTtlSeconds: Math.min(900, Math.max(60, Number.parseInt(env.SUXIOS_CLOUD_BROWSER_LOGIN_TTL_SECONDS || '900', 10))),
     collectionTtlSeconds: Math.min(
-      600,
-      Math.max(60, Number.parseInt(env.SUXIOS_CLOUD_BROWSER_COLLECTION_TTL_SECONDS || '300', 10)),
+      1800,
+      // Queue children are capped at 900 seconds; the gateway must never expire first.
+      Math.max(900, Number.parseInt(env.SUXIOS_CLOUD_BROWSER_COLLECTION_TTL_SECONDS || '1200', 10)),
     ),
     profileSessionTtlSeconds: Math.min(
       30 * 86400,
@@ -391,6 +435,17 @@ function validateLoginCompletionRequest(body) {
   };
 }
 
+function validateLoginCancelRequest(body) {
+  if (Object.keys(body).some((key) => !['profile_id', 'session_id', 'platform'].includes(key))) {
+    throw new Error('login_cancel_scope_invalid');
+  }
+  return {
+    profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
+    sessionId: assertOpaque(body.session_id, SESSION_ID_PATTERN, 'session_id_invalid'),
+    platform: assertOpaque(body.platform, LOGIN_PLATFORM_PATTERN, 'platform_invalid'),
+  };
+}
+
 function positiveInteger(value, reason) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed <= 0 || String(parsed) !== String(value).trim()) {
@@ -400,18 +455,30 @@ function positiveInteger(value, reason) {
 }
 
 function validateCollectionOpenRequest(body) {
+  const platform = assertOpaque(body.platform, COLLECTION_PLATFORM_PATTERN, 'platform_invalid');
+  const collectionKind = assertOpaque(
+    body.collection_kind,
+    /^(operating_target_today|ota_channel_profile)$/,
+    'collection_kind_invalid',
+  );
+  const dataSourceId = body.data_source_id == null || String(body.data_source_id).trim() === ''
+    ? 0
+    : positiveInteger(body.data_source_id, 'data_source_id_invalid');
+  const isOta = OTA_RECEIPT_PLATFORM_PATTERN.test(platform);
+  if ((isOta && (collectionKind !== 'ota_channel_profile' || dataSourceId <= 0))
+    || (!isOta && (collectionKind !== 'operating_target_today' || dataSourceId !== 0))
+  ) {
+    throw new Error('collection_scope_invalid');
+  }
   return {
     profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
-    platform: assertOpaque(body.platform, PMS_PLATFORM_PATTERN, 'platform_invalid'),
+    platform,
+    dataSourceId,
     tenantId: positiveInteger(body.tenant_id, 'tenant_id_invalid'),
     hotelId: positiveInteger(body.hotel_id, 'hotel_id_invalid'),
     ownerUserId: positiveInteger(body.owner_user_id, 'owner_user_id_invalid'),
     targetDate: assertOpaque(body.target_date, DATE_PATTERN, 'target_date_invalid'),
-    collectionKind: assertOpaque(
-      body.collection_kind,
-      /^operating_target_today$/,
-      'collection_kind_invalid',
-    ),
+    collectionKind,
     accessMode: assertOpaque(body.access_mode, /^read_only$/, 'access_mode_invalid'),
   };
 }
@@ -424,7 +491,7 @@ function validateCollectionCloseRequest(body) {
       'collection_session_id_invalid',
     ),
     profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
-    platform: assertOpaque(body.platform, PMS_PLATFORM_PATTERN, 'platform_invalid'),
+    platform: assertOpaque(body.platform, COLLECTION_PLATFORM_PATTERN, 'platform_invalid'),
     outcome: assertOpaque(
       body.outcome,
       /^(completed|cancelled|session_expired|policy_blocked)$/,
@@ -433,12 +500,25 @@ function validateCollectionCloseRequest(body) {
   };
 }
 
-async function bridge(config, action, payload) {
+function validateCollectionAbortRequest(body) {
+  if (Object.keys(body).some((key) => key !== 'profile_public_id')) {
+    throw new Error('collection_abort_scope_invalid');
+  }
+  return {
+    profilePublicId: assertOpaque(
+      body.profile_public_id,
+      PROFILE_ID_PATTERN,
+      'profile_public_id_invalid',
+    ),
+  };
+}
+
+async function bridge(config, action, payload, options = {}) {
   const input = JSON.stringify({ action, ...payload });
   const result = await runProcess(
     config.phpBinary,
     [config.bridgeScript],
-    { cwd: config.projectRoot, input },
+    { cwd: config.projectRoot, input, signal: options.signal },
   );
   const parsed = JSON.parse(result.stdout);
   if (parsed?.status !== 'ok') throw new Error('gateway_state_bridge_failed');
@@ -457,7 +537,29 @@ function platformStartUrl(platform) {
   return url;
 }
 
+function trustedCollectionPageLocation(value, platform) {
+  let location;
+  let source;
+  try {
+    location = new URL(String(value || ''));
+    source = new URL(platformStartUrl(platform));
+  } catch {
+    return false;
+  }
+  if (location.protocol !== 'https:'
+    || location.origin !== source.origin
+    || location.username !== ''
+    || location.password !== ''
+  ) return false;
+  if (platform === 'ctrip') return location.pathname.startsWith('/home/');
+  if (platform === 'meituan') return location.pathname.startsWith('/ebooking/');
+  return location.pathname === source.pathname;
+}
+
 async function startBrowser(config, profilePath, platform, startUrl = null) {
+  if (isUnsupportedSnapBrowserExecutable(config.browserExecutable)) {
+    throw new Error('snap_chromium_runtime_profile_unsupported');
+  }
   const loginUrl = startUrl || platformStartUrl(platform);
   const child = spawn(config.browserExecutable, [
     '--disable-dev-shm-usage',
@@ -575,6 +677,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
   const pending = new Map();
   let nextId = 1;
   let closed = false;
+  const requestPolicyEnforced = PMS_PLATFORM_PATTERN.test(platform);
 
   await new Promise((resolvePromise, reject) => {
     const timer = setTimeout(() => reject(new Error('read_only_policy_connect_timeout')), 5000);
@@ -615,7 +718,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
       }
       return;
     }
-    if (message.method !== 'Fetch.requestPaused') return;
+    if (!requestPolicyEnforced || message.method !== 'Fetch.requestPaused') return;
     const paused = message.params || {};
     const allowed = isPmsReadOnlyRequestAllowed({
       url: paused.request?.url,
@@ -640,13 +743,34 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
   try {
     await send('Network.enable');
     await send('Network.setCacheDisabled', { cacheDisabled: true });
+    await send('Network.setBypassServiceWorker', { bypass: true });
     await send('Page.enable');
-    await send('Fetch.enable', {
-      patterns: [{ urlPattern: '*', requestStage: 'Request' }],
-    });
+    if (requestPolicyEnforced) {
+      await send('Fetch.enable', {
+        patterns: [{ urlPattern: '*', requestStage: 'Request' }],
+      });
+    }
     await send('Browser.setDownloadBehavior', { behavior: 'deny' });
     const navigation = await send('Page.navigate', { url: platformStartUrl(platform) });
     if (navigation.errorText) throw new Error('read_only_navigation_failed');
+    const navigationDeadline = Date.now() + 12000;
+    let sourcePageReady = false;
+    while (Date.now() < navigationDeadline) {
+      try {
+        const evaluated = await send('Runtime.evaluate', {
+          expression: '({ href: location.href, readyState: document.readyState })',
+          returnByValue: true,
+        });
+        const value = evaluated?.result?.value || {};
+        sourcePageReady = trustedCollectionPageLocation(value.href, platform)
+          && ['interactive', 'complete'].includes(String(value.readyState || ''));
+        if (sourcePageReady) break;
+      } catch {
+        sourcePageReady = false;
+      }
+      await delay(100);
+    }
+    if (!sourcePageReady) throw new Error('read_only_navigation_not_ready');
   } catch (error) {
     closed = true;
     socket.close();
@@ -654,6 +778,9 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
   }
 
   return {
+    requestPolicyEnforced,
+    httpCacheDisabled: true,
+    serviceWorkerBypassed: true,
     close() {
       if (closed) return;
       closed = true;
@@ -676,9 +803,10 @@ class GatewayError extends Error {
 export async function createGateway(env = process.env, dependencies = {}) {
   const config = loadConfig(env);
   const bridgeCall = dependencies.bridge
-    || ((action, payload) => bridge(config, action, payload));
+    || ((action, payload, options) => bridge(config, action, payload, options));
   const startBrowserCall = dependencies.startBrowser || startBrowser;
   const stopBrowserCall = dependencies.stopBrowser || stopBrowser;
+  const waitForBrowserPageCall = dependencies.waitForBrowserPage || waitForBrowserPage;
   const installReadOnlyPolicyCall = dependencies.installReadOnlyPolicy
     || installPmsReadOnlyPolicy;
   const [key, controlToken] = await Promise.all([
@@ -693,23 +821,77 @@ export async function createGateway(env = process.env, dependencies = {}) {
   const receipts = new ReceiptChain(config.receiptPath);
   if (!(await receipts.verify())) throw new Error('receipt_chain_integrity_failed');
   const sessions = new Map();
+  let capacitySlot = null;
+
+  function claimCapacity(session, busyReason) {
+    if (capacitySlot !== null) {
+      throw new GatewayError(busyReason, 409);
+    }
+    capacitySlot = session;
+  }
+
+  function releaseCapacity(session) {
+    if (capacitySlot === session) capacitySlot = null;
+  }
+
+  function throwIfCollectionAbortRequested(session) {
+    if (session.abortRequested === true) {
+      throw new GatewayError('collection_open_aborted', 409);
+    }
+  }
+
+  function disconnectViewerConnections(session) {
+    for (const connection of session.viewerConnections || []) {
+      connection.client?.destroy();
+      connection.upstream?.destroy();
+    }
+    session.viewerConnections?.clear();
+  }
 
   async function closeSession(session, { seal = true } = {}) {
+    if (session.closePromise) return await session.closePromise;
+    session.state = 'closing';
     clearTimeout(session.timeout);
-    session.guard?.close();
-    await stopBrowserCall(session.browser);
-    if (seal) await vault.seal(session.profileId);
-    sessions.delete(session.key);
+    disconnectViewerConnections(session);
+    session.closePromise = (async () => {
+      let failure = null;
+      try {
+        try {
+          session.guard?.close();
+        } catch (error) {
+          failure = error;
+        }
+        try {
+          await stopBrowserCall(session.browser);
+        } catch (error) {
+          failure ||= error;
+        }
+        if (seal && session.profileRestored) {
+          try {
+            await vault.seal(session.profileId);
+          } catch (error) {
+            failure ||= new GatewayError('profile_seal_failed', 500);
+            await rm(vault.runtimePath(session.profileId), { recursive: true, force: true });
+          }
+        } else if (session.runtimeTouched) {
+          await rm(vault.runtimePath(session.profileId), { recursive: true, force: true });
+        }
+      } finally {
+        sessions.delete(session.key);
+        releaseCapacity(session);
+        session.state = 'closed';
+      }
+      if (failure) throw failure;
+    })();
+    return await session.closePromise;
   }
 
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || '/', `http://${config.bindAddress}:${config.port}`);
     try {
       if (request.method === 'GET' && url.pathname === '/health') {
-        const activeLoginSessions = [...sessions.values()]
-          .filter((session) => session.kind === 'login').length;
-        const activeCollectionSessions = [...sessions.values()]
-          .filter((session) => session.kind === 'pms_collection').length;
+        const activeLoginSessions = capacitySlot?.kind === 'login' ? 1 : 0;
+        const activeCollectionSessions = capacitySlot?.kind === 'collection' ? 1 : 0;
         jsonResponse(response, 200, {
           status: 'ok',
           bind: config.bindAddress,
@@ -717,7 +899,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
           receipt_chain_valid: await receipts.verify(),
           active_login_sessions: activeLoginSessions,
           active_collection_sessions: activeCollectionSessions,
-          active_browser_sessions: sessions.size,
+          active_browser_sessions: capacitySlot === null ? 0 : 1,
           browser_autostart: false,
           read_only_policy_runtime: typeof WebSocket === 'function',
         });
@@ -726,28 +908,61 @@ export async function createGateway(env = process.env, dependencies = {}) {
 
       if (request.method === 'POST' && url.pathname === '/v1/login/open') {
         const login = validateLoginRequest(await jsonBody(request));
-        if (sessions.size > 0) {
-          throw new GatewayError('gateway_login_capacity_busy', 409);
-        }
-        const validated = await bridgeCall('validate_login', {
-          profile_id: login.profileId,
-          session_id: login.sessionId,
-          ticket: login.ticket,
-        });
-        if (validated?.profile?.platform !== login.platform || validated?.login_entry?.validated !== true) {
-          throw new Error('login_entry_scope_mismatch');
-        }
-        const profilePath = await vault.restore(login.profileId);
-        const browser = await startBrowserCall(config, profilePath, login.platform);
         const session = {
           ...login,
           kind: 'login',
           key: login.sessionId,
           ticketHash: sha256(login.ticket),
-          browser,
+          state: 'opening',
+          browser: null,
+          guard: null,
+          runtimeTouched: false,
+          profileRestored: false,
+          viewerConnections: new Set(),
+          cancelRequested: false,
+          abortController: new AbortController(),
           openedAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + config.loginTtlSeconds * 1000).toISOString(),
         };
+        let settleOpening;
+        session.openingSettled = new Promise((resolvePromise) => {
+          settleOpening = resolvePromise;
+        });
+        claimCapacity(session, 'gateway_login_capacity_busy');
+        try {
+          const validated = await bridgeCall('validate_login', {
+            profile_id: login.profileId,
+            session_id: login.sessionId,
+            ticket: login.ticket,
+          }, { signal: session.abortController.signal });
+          if (session.cancelRequested) throw new GatewayError('login_open_cancelled', 409);
+          if (validated?.profile?.platform !== login.platform || validated?.login_entry?.validated !== true) {
+            throw new Error('login_entry_scope_mismatch');
+          }
+          session.runtimeTouched = true;
+          const profilePath = await vault.restore(login.profileId);
+          session.profileRestored = true;
+          if (session.cancelRequested) throw new GatewayError('login_open_cancelled', 409);
+          session.browser = await startBrowserCall(config, profilePath, login.platform);
+          if (session.cancelRequested) throw new GatewayError('login_open_cancelled', 409);
+          await waitForBrowserPageCall(config, session.browser);
+          if (session.cancelRequested) throw new GatewayError('login_open_cancelled', 409);
+          session.state = 'active';
+          sessions.set(login.sessionId, session);
+        } catch (error) {
+          try {
+            await closeSession(session, { seal: session.profileRestored });
+          } catch (cleanupError) {
+            throw cleanupError;
+          }
+          if (session.cancelRequested) throw new GatewayError('login_open_cancelled', 409);
+          throw error;
+        } finally {
+          settleOpening();
+        }
+        if (session.cancelRequested || session.state !== 'active' || capacitySlot !== session) {
+          throw new GatewayError('login_open_cancelled', 409);
+        }
         session.timeout = setTimeout(async () => {
           try {
             await closeSession(session);
@@ -758,11 +973,10 @@ export async function createGateway(env = process.env, dependencies = {}) {
               status: 'expired',
             });
           } catch {
-            // Keep capacity fail-closed if the Profile could not be sealed.
+            // The close path has already removed runtime material and released capacity.
           }
         }, config.loginTtlSeconds * 1000);
         session.timeout.unref();
-        sessions.set(login.sessionId, session);
         jsonResponse(response, 201, {
           status: 'awaiting_login',
           profile_id: login.profileId,
@@ -783,22 +997,36 @@ export async function createGateway(env = process.env, dependencies = {}) {
         const session = sessions.get(login.sessionId);
         if (!session
           || session.kind !== 'login'
+          || session.state !== 'active'
           || session.profileId !== login.profileId
           || session.platform !== login.platform
           || (login.ticket !== null && session.ticketHash !== sha256(login.ticket))) {
           throw new GatewayError('active_login_session_not_found', 404);
         }
+        session.state = 'completing';
         await closeSession(session);
         const sessionExpiresAt = new Date(Date.now() + config.profileSessionTtlSeconds * 1000)
-          .toISOString()
-          .slice(0, 19)
-          .replace('T', ' ');
-        const profile = await bridgeCall('complete_login', {
-          profile_id: login.profileId,
-          session_id: login.sessionId,
-          ticket: session.ticket,
-          session_expires_at: sessionExpiresAt,
-        });
+          .toISOString();
+        let profile;
+        try {
+          profile = await bridgeCall('complete_login', {
+            profile_id: login.profileId,
+            session_id: login.sessionId,
+            ticket: session.ticket,
+            session_expires_at: sessionExpiresAt,
+          });
+        } catch (error) {
+          try {
+            await bridgeCall('cancel_login_entry', {
+              profile_id: login.profileId,
+              session_id: login.sessionId,
+              reason: 'gateway_complete_failed',
+            });
+          } catch {
+            throw new GatewayError('login_complete_compensation_failed', 500);
+          }
+          throw error;
+        }
         const receipt = await receipts.append('login_profile_ready', {
           profile_id: login.profileId,
           session_id: login.sessionId,
@@ -817,68 +1045,156 @@ export async function createGateway(env = process.env, dependencies = {}) {
         return;
       }
 
+      if (request.method === 'POST' && url.pathname === '/v1/login/cancel') {
+        if (!authorized(request, controlToken)) {
+          jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
+          return;
+        }
+        const login = validateLoginCancelRequest(await jsonBody(request));
+        const session = capacitySlot;
+        if (!session
+          || session.kind !== 'login'
+          || !['opening', 'active'].includes(session.state)
+          || session.profileId !== login.profileId
+          || session.sessionId !== login.sessionId
+          || session.platform !== login.platform
+        ) {
+          jsonResponse(response, 200, {
+            status: 'no_active_login',
+            profile_id: login.profileId,
+            session_id: login.sessionId,
+            platform: login.platform,
+            cancelled: false,
+            cleanup_verified: true,
+          });
+          return;
+        }
+        session.cancelRequested = true;
+        session.abortController.abort();
+        await session.openingSettled;
+        await closeSession(session);
+        const receipt = await receipts.append('login_cancelled', {
+          profile_id: login.profileId,
+          session_id: login.sessionId,
+          platform: login.platform,
+          status: 'cancelled',
+        });
+        jsonResponse(response, 200, {
+          status: 'cancelled',
+          profile_id: login.profileId,
+          session_id: login.sessionId,
+          platform: login.platform,
+          cancelled: true,
+          cleanup_verified: capacitySlot !== session && session.state === 'closed',
+          browser_started: false,
+          profile_sealed: true,
+          receipt_id: receipt.receipt_id,
+          receipt_hash: receipt.receipt_hash,
+        });
+        return;
+      }
+
       if (request.method === 'POST' && url.pathname === '/v1/collection/open') {
         if (!authorized(request, controlToken)) {
           jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
           return;
         }
         const collection = validateCollectionOpenRequest(await jsonBody(request));
-        if (sessions.size > 0) {
-          throw new GatewayError('gateway_collection_capacity_busy', 409);
-        }
-        const validationAction = collection.platform === 'dingdandao'
-          ? 'validate_dingdandao_collection'
-          : 'validate_pms_collection';
-        const validated = await bridgeCall(validationAction, {
-          profile_id: collection.profileId,
-          platform: collection.platform,
-          tenant_id: collection.tenantId,
-          hotel_id: collection.hotelId,
-          owner_user_id: collection.ownerUserId,
-          target_date: collection.targetDate,
-        });
-        if (validated?.validated !== true
-          || validated?.profile?.profile_id !== collection.profileId
-          || validated?.profile?.platform !== collection.platform
-          || (validated?.platform != null && validated.platform !== collection.platform)
-          || validated?.tenant_id !== collection.tenantId
-          || validated?.hotel_id !== collection.hotelId
-          || validated?.owner_user_id !== collection.ownerUserId
-          || validated?.target_date !== collection.targetDate
-          || validated?.collection_kind !== collection.collectionKind
-          || validated?.access_mode !== collection.accessMode
-        ) {
-          throw new Error('collection_scope_mismatch');
-        }
-
         const collectionSessionId = `cbcs_${randomBytes(18).toString('base64url')}`;
-        const profilePath = await vault.restore(collection.profileId);
-        let browser;
-        let guard;
-        try {
-          browser = await startBrowserCall(config, profilePath, collection.platform, 'about:blank');
-          guard = await installReadOnlyPolicyCall(config, browser, collection.platform);
-        } catch {
-          guard?.close();
-          await stopBrowserCall(browser);
-          try {
-            await vault.seal(collection.profileId);
-          } catch {
-            throw new GatewayError('profile_seal_failed', 500);
-          }
-          throw new GatewayError('read_only_policy_setup_failed', 500);
-        }
-
         const session = {
           ...collection,
-          kind: 'pms_collection',
+          kind: 'collection',
           key: collectionSessionId,
           collectionSessionId,
-          browser,
-          guard,
+          state: 'opening',
+          browser: null,
+          guard: null,
+          runtimeTouched: false,
+          profileRestored: false,
+          viewerConnections: new Set(),
+          abortRequested: false,
+          abortController: new AbortController(),
           openedAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + config.collectionTtlSeconds * 1000).toISOString(),
         };
+        let settleOpening;
+        session.openingSettled = new Promise((resolvePromise) => {
+          settleOpening = resolvePromise;
+        });
+        claimCapacity(session, 'gateway_collection_capacity_busy');
+        let validated;
+        try {
+          const validationAction = OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform)
+            ? 'validate_ota_collection'
+            : (collection.platform === 'dingdandao'
+              ? 'validate_dingdandao_collection'
+              : 'validate_pms_collection');
+          validated = await bridgeCall(validationAction, {
+            profile_id: collection.profileId,
+            platform: collection.platform,
+            ...(collection.dataSourceId > 0 ? { data_source_id: collection.dataSourceId } : {}),
+            tenant_id: collection.tenantId,
+            hotel_id: collection.hotelId,
+            owner_user_id: collection.ownerUserId,
+            target_date: collection.targetDate,
+          }, { signal: session.abortController.signal });
+          throwIfCollectionAbortRequested(session);
+          if (validated?.validated !== true
+            || validated?.profile?.profile_id !== collection.profileId
+            || validated?.profile?.platform !== collection.platform
+            || (validated?.platform != null && validated.platform !== collection.platform)
+            || validated?.tenant_id !== collection.tenantId
+            || validated?.hotel_id !== collection.hotelId
+            || validated?.owner_user_id !== collection.ownerUserId
+            || validated?.target_date !== collection.targetDate
+            || validated?.collection_kind !== collection.collectionKind
+            || validated?.access_mode !== collection.accessMode
+            || (collection.dataSourceId > 0
+              && validated?.data_source_id !== collection.dataSourceId)
+          ) {
+            throw new Error('collection_scope_mismatch');
+          }
+          session.runtimeTouched = true;
+          const profilePath = await vault.restore(collection.profileId);
+          session.profileRestored = true;
+          throwIfCollectionAbortRequested(session);
+          session.browser = await startBrowserCall(config, profilePath, collection.platform, 'about:blank');
+          throwIfCollectionAbortRequested(session);
+          await waitForBrowserPageCall(config, session.browser);
+          throwIfCollectionAbortRequested(session);
+          session.guard = await installReadOnlyPolicyCall(config, session.browser, collection.platform);
+          throwIfCollectionAbortRequested(session);
+          const isOtaCollection = OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform);
+          if (session.guard?.httpCacheDisabled !== true
+            || session.guard?.serviceWorkerBypassed !== true
+            || (isOtaCollection && session.guard?.requestPolicyEnforced !== false)
+            || (!isOtaCollection && session.guard?.requestPolicyEnforced !== true)
+          ) {
+            throw new Error('collection_browser_policy_unverified');
+          }
+          session.state = 'active';
+          sessions.set(collectionSessionId, session);
+        } catch (error) {
+          try {
+            await closeSession(session, { seal: session.profileRestored });
+          } catch (cleanupError) {
+            throw cleanupError;
+          }
+          if (session.abortRequested === true) {
+            throw new GatewayError('collection_open_aborted', 409);
+          }
+          if (publicError(error).startsWith('collection_')
+            || publicError(error).startsWith('profile_')
+            || publicError(error).startsWith('gateway_')) {
+            throw error;
+          }
+          throw new GatewayError('read_only_policy_setup_failed', 500);
+        } finally {
+          settleOpening();
+        }
+        if (session.abortRequested || session.state !== 'active' || capacitySlot !== session) {
+          throw new GatewayError('collection_open_aborted', 409);
+        }
         session.timeout = setTimeout(async () => {
           try {
             await closeSession(session);
@@ -889,16 +1205,16 @@ export async function createGateway(env = process.env, dependencies = {}) {
               tenant_id: session.tenantId,
               hotel_id: session.hotelId,
               owner_user_id: session.ownerUserId,
+              ...(session.dataSourceId > 0 ? { data_source_id: session.dataSourceId } : {}),
               target_date: session.targetDate,
               access_mode: session.accessMode,
               status: 'expired',
             });
           } catch {
-            // Keep capacity fail-closed if the Profile could not be sealed.
+            // The close path has already removed runtime material and released capacity.
           }
         }, config.collectionTtlSeconds * 1000);
         session.timeout.unref();
-        sessions.set(collectionSessionId, session);
         jsonResponse(response, 201, {
           status: 'collection_open',
           collection_session_id: collectionSessionId,
@@ -907,6 +1223,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
           tenant_id: collection.tenantId,
           hotel_id: collection.hotelId,
           owner_user_id: collection.ownerUserId,
+          ...(collection.dataSourceId > 0 ? { data_source_id: collection.dataSourceId } : {}),
           target_date: collection.targetDate,
           collection_kind: collection.collectionKind,
           source_url: validated.source_url || platformStartUrl(collection.platform),
@@ -916,9 +1233,67 @@ export async function createGateway(env = process.env, dependencies = {}) {
               : 'today_realtime_accommodation'
           ),
           access_mode: 'read_only',
-          read_only_enforced: true,
+          read_only_enforced: session.guard.requestPolicyEnforced === true,
+          collector_read_only_contract: OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform),
+          network_freshness_control: {
+            http_cache_disabled: session.guard.httpCacheDisabled === true,
+            service_worker_bypassed: session.guard.serviceWorkerBypassed === true,
+          },
           expires_at: session.expiresAt,
           browser_started: true,
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/collection/abort') {
+        if (!authorized(request, controlToken)) {
+          jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
+          return;
+        }
+        const abort = validateCollectionAbortRequest(await jsonBody(request));
+        const session = capacitySlot;
+        if (!session
+          || session.kind !== 'collection'
+          || session.profileId !== abort.profilePublicId
+        ) {
+          jsonResponse(response, 200, {
+            status: 'no_active_collection',
+            profile_public_id: abort.profilePublicId,
+            aborted: false,
+            collection_session_id: null,
+            cleanup_verified: true,
+          });
+          return;
+        }
+        session.abortRequested = true;
+        session.abortController.abort();
+        await session.openingSettled;
+        await closeSession(session);
+        const receipt = await receipts.append('collection_profile_aborted', {
+          collection_session_id: session.collectionSessionId,
+          profile_id: session.profileId,
+          platform: session.platform,
+          tenant_id: session.tenantId,
+          hotel_id: session.hotelId,
+          owner_user_id: session.ownerUserId,
+          ...(session.dataSourceId > 0 ? { data_source_id: session.dataSourceId } : {}),
+          target_date: session.targetDate,
+          access_mode: session.accessMode,
+          outcome: 'aborted_by_supervisor',
+          profile_sealed: true,
+          data_status: 'unverified',
+        });
+        jsonResponse(response, 200, {
+          status: 'aborted',
+          profile_public_id: abort.profilePublicId,
+          aborted: true,
+          collection_session_id: session.collectionSessionId,
+          cleanup_verified: capacitySlot !== session && session.state === 'closed',
+          browser_started: false,
+          profile_sealed: true,
+          data_status: 'unverified',
+          receipt_id: receipt.receipt_id,
+          receipt_hash: receipt.receipt_hash,
         });
         return;
       }
@@ -931,7 +1306,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
         const collection = validateCollectionCloseRequest(await jsonBody(request));
         const session = sessions.get(collection.collectionSessionId);
         if (!session
-          || session.kind !== 'pms_collection'
+          || session.kind !== 'collection'
           || session.profileId !== collection.profileId
           || session.platform !== collection.platform
         ) {
@@ -955,6 +1330,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
           tenant_id: session.tenantId,
           hotel_id: session.hotelId,
           owner_user_id: session.ownerUserId,
+          ...(session.dataSourceId > 0 ? { data_source_id: session.dataSourceId } : {}),
           target_date: session.targetDate,
           access_mode: session.accessMode,
           outcome: collection.outcome,
@@ -1034,6 +1410,69 @@ export async function createGateway(env = process.env, dependencies = {}) {
         { status: 'failed', reason: publicError(error) },
       );
     }
+  });
+
+  server.on('upgrade', (request, clientSocket, head) => {
+    const url = new URL(request.url || '/', `http://${config.bindAddress}:${config.port}`);
+    const session = capacitySlot;
+    if (url.pathname !== '/v1/viewer/websockify') {
+      clientSocket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+      return;
+    }
+    if (!session
+      || session.kind !== 'login'
+      || session.state !== 'active'
+    ) {
+      clientSocket.end('HTTP/1.1 409 Conflict\r\nConnection: close\r\n\r\n');
+      return;
+    }
+    if (!viewerScopeDigestMatches(
+      request.headers['x-suxios-viewer-profile-scope'],
+      session.profileId,
+    ) || !viewerScopeDigestMatches(
+      request.headers['x-suxios-viewer-session-scope'],
+      session.sessionId,
+    )) {
+      clientSocket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+      return;
+    }
+
+    const connection = { client: clientSocket, upstream: null };
+    session.viewerConnections.add(connection);
+    const upstreamSocket = connectTcp({ host: '127.0.0.1', port: config.noVncPort });
+    connection.upstream = upstreamSocket;
+    const detach = () => session.viewerConnections.delete(connection);
+    clientSocket.once('close', detach);
+    upstreamSocket.once('close', detach);
+    clientSocket.once('error', () => upstreamSocket.destroy());
+    upstreamSocket.once('error', () => clientSocket.destroy());
+    upstreamSocket.once('connect', () => {
+      if (session.state !== 'active' || capacitySlot !== session) {
+        clientSocket.destroy();
+        upstreamSocket.destroy();
+        return;
+      }
+      const forwarded = [
+        `GET /websockify${url.search} HTTP/1.1`,
+        `Host: 127.0.0.1:${config.noVncPort}`,
+      ];
+      for (const name of [
+        'upgrade',
+        'connection',
+        'sec-websocket-key',
+        'sec-websocket-version',
+        'sec-websocket-protocol',
+        'sec-websocket-extensions',
+        'origin',
+      ]) {
+        const value = request.headers[name];
+        if (typeof value === 'string' && value !== '') forwarded.push(`${name}: ${value}`);
+      }
+      upstreamSocket.write(`${forwarded.join('\r\n')}\r\n\r\n`);
+      if (head.length > 0) upstreamSocket.write(head);
+      clientSocket.pipe(upstreamSocket);
+      upstreamSocket.pipe(clientSocket);
+    });
   });
 
   return { server, config, vault, receipts };
