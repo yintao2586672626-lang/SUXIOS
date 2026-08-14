@@ -377,8 +377,8 @@ final class OperatingIntelligenceServiceTest extends TestCase
                     ],
                     'meta' => [
                         'provider' => 'deepseek',
-                        'model_key' => 'deepseek_chat',
-                        'model' => 'deepseek-v4-flash',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
                         'finish_reason' => 'stop',
                         'fallback_used' => false,
                         'cache_hit' => false,
@@ -473,7 +473,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertSame(['knowledge_chunks#91'], $saved['question']['knowledge_refs']);
         self::assertSame('matched', $saved['question']['answer']['knowledge_retrieval']['status']);
         self::assertSame('deepseek', $saved['question']['answer']['ai_runtime']['provider']);
-        self::assertSame('deepseek-v4-flash', $saved['question']['answer']['ai_runtime']['model']);
+        self::assertSame('deepseek-v4-pro', $saved['question']['answer']['ai_runtime']['model']);
         self::assertSame('stop', $saved['question']['answer']['ai_runtime']['finish_reason']);
         self::assertCount(1, $saved['question']['answer']['action_drafts']);
         self::assertSame('ready_for_human_review', $saved['question']['answer']['action_drafts'][0]['status']);
@@ -698,8 +698,8 @@ final class OperatingIntelligenceServiceTest extends TestCase
                     ],
                     'meta' => [
                         'provider' => 'deepseek',
-                        'model_key' => 'deepseek_chat',
-                        'model' => 'deepseek-v4-flash',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
                         'finish_reason' => 'stop',
                         'fallback_used' => false,
                         'cache_hit' => false,

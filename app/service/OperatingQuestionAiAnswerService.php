@@ -15,7 +15,8 @@ final class OperatingQuestionAiAnswerService
 {
     public const PROMPT_VERSION = 'operating_question_grounded_ai.zh-CN.v3';
     public const ACTION_DRAFT_CONTRACT_VERSION = 'operating_question_action_draft.v1';
-    private const DEFAULT_MODEL_KEY = 'deepseek_v4_default';
+    private const DEFAULT_MODEL_KEY = 'deepseek_v4_pro';
+    private const DEEPSEEK_V4_PRO_MODEL = 'deepseek-v4-pro';
 
     public function __construct(private readonly ?LlmClient $llmClient = null)
     {
@@ -163,7 +164,11 @@ final class OperatingQuestionAiAnswerService
             $envelope = ($this->llmClient ?? new LlmClient())->createJsonResponseEnvelope($messages, $schema, $modelKey);
             $result = is_array($envelope['data'] ?? null) ? $envelope['data'] : [];
             $meta = is_array($envelope['meta'] ?? null) ? $envelope['meta'] : [];
-            if (strtolower(trim((string)($meta['provider'] ?? ''))) !== 'deepseek'
+            $providerConfirmed = strtolower(trim((string)($meta['provider'] ?? ''))) === 'deepseek';
+            $proModelConfirmed = !$this->isDeepSeekV4ProKey($modelKey)
+                || strtolower(trim((string)($meta['model'] ?? ''))) === self::DEEPSEEK_V4_PRO_MODEL;
+            if (!$providerConfirmed
+                || !$proModelConfirmed
                 || ($meta['fallback_used'] ?? false) === true
                 || ($meta['cache_hit'] ?? false) === true
                 || ($meta['degraded'] ?? false) === true
@@ -172,8 +177,12 @@ final class OperatingQuestionAiAnswerService
                 return [
                     'ok' => false,
                     'status' => 'model_unavailable',
-                    'reason' => 'deepseek_provider_not_confirmed',
-                    'message' => '本次回答未由当前 DeepSeek 直接生成，已拒绝展示并保留严格回读的证据摘要。',
+                    'reason' => !$providerConfirmed
+                        ? 'deepseek_provider_not_confirmed'
+                        : (!$proModelConfirmed ? 'deepseek_v4_pro_not_confirmed' : 'deepseek_direct_response_not_confirmed'),
+                    'message' => !$proModelConfirmed
+                        ? '本次回答未由 DeepSeek V4 Pro 正式版生成，已拒绝展示并保留严格回读的证据摘要。'
+                        : '本次回答未由当前 DeepSeek 直接生成，已拒绝展示并保留严格回读的证据摘要。',
                     'model_key' => (string)($meta['model_key'] ?? $modelKey),
                     'provider' => (string)($meta['provider'] ?? ''),
                     'model' => (string)($meta['model'] ?? ''),
@@ -181,13 +190,17 @@ final class OperatingQuestionAiAnswerService
                     'fallback_used' => ($meta['fallback_used'] ?? false) === true,
                     'cache_hit' => $cacheHit,
                     'degraded' => ($meta['degraded'] ?? false) === true,
+                    'thinking_mode' => (string)($meta['thinking_mode'] ?? ''),
+                    'reasoning_effort' => (string)($meta['reasoning_effort'] ?? ''),
                     'prompt_version' => self::PROMPT_VERSION,
                     'model_attempted' => true,
                     'llm_client_invoked' => true,
                     'external_llm_called' => $cacheHit ? false : true,
                     'external_llm_call_status' => $cacheHit
                         ? 'cache_replay_rejected'
-                        : 'confirmed_non_deepseek_rejected',
+                        : (!$providerConfirmed
+                            ? 'confirmed_non_deepseek_rejected'
+                            : (!$proModelConfirmed ? 'confirmed_wrong_deepseek_model_rejected' : 'direct_response_rejected')),
                 ];
             }
             if (!$this->completeAnswerShape($result)) {
@@ -234,6 +247,8 @@ final class OperatingQuestionAiAnswerService
                 'fallback_used' => false,
                 'cache_hit' => false,
                 'degraded' => false,
+                'thinking_mode' => (string)($meta['thinking_mode'] ?? ''),
+                'reasoning_effort' => (string)($meta['reasoning_effort'] ?? ''),
                 'prompt_version' => self::PROMPT_VERSION,
                 'model_attempted' => true,
                 'llm_client_invoked' => true,
@@ -252,6 +267,8 @@ final class OperatingQuestionAiAnswerService
                 'fallback_used' => false,
                 'cache_hit' => false,
                 'degraded' => false,
+                'thinking_mode' => '',
+                'reasoning_effort' => '',
                 'prompt_version' => self::PROMPT_VERSION,
                 'model_attempted' => true,
                 'llm_client_invoked' => true,
@@ -746,6 +763,16 @@ final class OperatingQuestionAiAnswerService
             return self::DEFAULT_MODEL_KEY;
         }
         return $value;
+    }
+
+    private function isDeepSeekV4ProKey(string $value): bool
+    {
+        return in_array(strtolower(trim($value)), [
+            'deepseek_v4_pro',
+            'deepseek_reasoner',
+            'deepseek-v4-pro',
+            'deepseek-reasoner',
+        ], true);
     }
 
     /** @param array<string,mixed> $result */

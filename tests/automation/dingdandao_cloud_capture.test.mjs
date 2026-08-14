@@ -19,6 +19,7 @@ import {
   probeDingdandaoIdentity,
   readDingdandaoSessionMaterial,
   shanghaiToday,
+  SOURCE_URL,
 } from '../../scripts/dingdandao_cloud_capture.mjs';
 
 const providerHotelName = '\u6566\u714c\u6f20\u84dd';
@@ -322,6 +323,46 @@ test('session material accepts only the verified localStorage mapping and same-o
     userAgent: 'Mozilla/5.0 test-current-browser',
   });
 
+  const currentSchemaMaterial = dingdandaoSessionMaterialFromStorage({
+    now,
+    userAgent: 'Mozilla/5.0 test-current-browser',
+    entries: [
+      ['networkInfo', JSON.stringify({
+        ntwNum: 'network_123',
+        ntwInviteCode: 'network_123',
+      })],
+      ['token', 'local-storage-token-value'],
+    ],
+    cookies: [{
+      name: 'sid',
+      value: 'cookie-value',
+      domain: '.dingdandao.com',
+      path: '/',
+      expires: -1,
+    }],
+  });
+  assert.equal(currentSchemaMaterial.ntwNum, 'network_123');
+
+  assert.throws(() => dingdandaoSessionMaterialFromStorage({
+    now,
+    userAgent: 'Mozilla/5.0 test-current-browser',
+    entries: [
+      ['networkInfo', JSON.stringify({
+        ntwNum: 'network_123',
+        ntwInviteCode: 'network_123',
+      })],
+      ['networkNumNew', 'different_network'],
+      ['token', 'local-storage-token-value'],
+    ],
+    cookies: [{
+      name: 'sid',
+      value: 'cookie-value',
+      domain: '.dingdandao.com',
+      path: '/',
+      expires: -1,
+    }],
+  }), /capture_session_expired/);
+
   assert.throws(() => dingdandaoSessionMaterialFromStorage({
     now,
     userAgent: 'Mozilla/5.0 test-current-browser',
@@ -540,7 +581,7 @@ test('closed Dingdandao page uses and cleans only a collector-owned same-origin 
   assert.equal(material.ntwNum, 'network_123');
   assert.equal(
     calls.find((call) => call.method === 'Target.createTarget')?.params.url,
-    'https://www.dingdandao.com/',
+    SOURCE_URL,
   );
   assert.equal(
     calls.find((call) => call.method === 'Target.createTarget')?.params.background,

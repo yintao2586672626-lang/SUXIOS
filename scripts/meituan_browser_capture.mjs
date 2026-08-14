@@ -61,6 +61,7 @@ import {
 } from './lib/ota_read_fallback.mjs';
 import { readOtaResponseTextWithTimeout } from './lib/ota_response_body.mjs';
 import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
+import { isMeituanLoggedInPageState } from './lib/meituan_login_state.mjs';
 
 const URLS = {
   login: 'https://me.meituan.com/ebooking/',
@@ -499,6 +500,9 @@ async function buildLoginOnlySessionProbe(platformIdentityValidation) {
 async function looksLoggedIn(page) {
   const url = page.url();
   const text = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+  if (isMeituanLoggedInPageState(url, text)) {
+    return true;
+  }
   if (/login|passport|account/i.test(url)) {
     return false;
   }
@@ -1714,6 +1718,7 @@ async function waitForPendingResponseCaptures(page, timeoutMs = 6000) {
   }
   return pendingResponseCaptures.size === 0;
 }
+
 
 function normalizeCaptureSections(value) {
   return new Set(normalizeStandardCaptureSections('meituan', value));

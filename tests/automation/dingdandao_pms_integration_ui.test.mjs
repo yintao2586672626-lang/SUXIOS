@@ -12,6 +12,9 @@ const routes = read('route/app.php');
 const service = read('app/service/DingdandaoPmsIntegrationService.php');
 const targetSyncService = read('app/service/DingdandaoOperatingTargetSyncService.php');
 const runner = read('scripts/run_dingdandao_cloud_collection.php');
+const cloudCollectionUnit = read('deploy/systemd/suxios-dingdandao-collection.service');
+const cloudCollectionTimer = read('deploy/systemd/suxios-dingdandao-collection.timer');
+const cloudCollectionEnvExample = read('deploy/systemd/dingdandao-collector.env.example');
 const controller = read('app/controller/OperatingTarget.php');
 
 test('PMS operating data page shows only the hotel-selected PMS while binding lives in hotel management', () => {
@@ -109,6 +112,28 @@ test('cloud collection attempts orchestration only after verified save and datab
   assert.match(runner, /\$integrationService->prefill\(/);
   assert.match(runner, /push_orchestration/);
   assert.match(runner, /message_sent/);
+});
+
+test('cloud collection can formally save and read back while push is disabled by invocation', () => {
+  assert.match(runner, /'no-push'/);
+  assert.match(runner, /array_key_exists\('no-push', \$options\)/);
+  assert.match(runner, /'delivery_status'\s*=>\s*'skipped_no_push'/);
+  assert.match(runner, /if \(!\$noPush\)\s*\{[\s\S]*dispatchVerifiedCapture/);
+  assert.match(runner, /'disabled_by_invocation'\s*=>\s*\$noPush/);
+  assert.match(runner, /'delivery_attempted'\s*=>\s*false/);
+  assert.match(runner, /\$nodeBinary,\s*'--experimental-websocket',\s*\$script/);
+});
+
+test('Dingdandao cloud timer uses the bound Profile and cannot push externally', () => {
+  assert.match(cloudCollectionUnit, /Requires=suxios-cloud-browser-gateway\.service/);
+  assert.match(cloudCollectionUnit, /LoadCredential=control-token:/);
+  assert.match(cloudCollectionUnit, /RuntimeDirectory=suxios-dingdandao-collection/);
+  assert.match(cloudCollectionUnit, /--profile-id=\$\{SUXIOS_DINGDANDAO_PROFILE_ID\}/);
+  assert.match(cloudCollectionUnit, /--no-push/);
+  assert.match(cloudCollectionTimer, /OnCalendar=\*-\*-\* \*:35:00 Asia\/Shanghai/);
+  assert.match(cloudCollectionTimer, /Persistent=false/);
+  assert.doesNotMatch(cloudCollectionEnvExample, /^SUXIOS_DINGDANDAO_(?:HOTEL_ID|OWNER_USER_ID)=\d+$/mu);
+  assert.match(cloudCollectionEnvExample, /SUXIOS_DINGDANDAO_HOTEL_ID=REPLACE_WITH_SYSTEM_HOTEL_ID/);
 });
 
 test('Dingdandao prefill and target sync stay behind the current PMS identity binding', () => {

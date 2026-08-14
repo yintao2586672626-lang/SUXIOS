@@ -600,7 +600,7 @@
             title: '检查数据为什么不能用',
             category: '数据与采集',
             example: '数据为什么不可用？',
-            keywords: ['数据不可用', '数据缺失', '缺数', '数据健康', '采集失败', '未验证', 'partial', 'cookie', '登录过期', '携程数据', '美团数据'],
+            keywords: ['数据不可用', '数据是否可用', '数据缺失', '缺数', '数据健康', '采集失败', '未验证', 'partial', 'cookie', '登录过期', '携程数据', '美团数据'],
             context_pages: ['online-data', 'ctrip-ebooking', 'meituan-ebooking', 'compass'],
             target_page: 'online-data',
             action_key: 'data-health',
@@ -630,6 +630,34 @@
                 '运行一次并检查保存数量、失败阶段和精确回读。',
             ],
             boundary: '计划已启用不代表采集成功；登录、验证码和平台授权仍必须在原会话完成。',
+        },
+        {
+            key: 'ctrip-data',
+            title: '查看携程经营数据',
+            category: 'OTA 渠道经营',
+            example: '携程的排名、流量和订单在哪里看？',
+            keywords: ['携程', '携程数据', '携程排名', '携程流量', '携程订单', '携程点评', '生意通', 'ebooking'],
+            context_pages: ['ctrip-ebooking', 'online-data', 'compass'],
+            target_page: 'ctrip-ebooking',
+            action_key: 'page',
+            action_label: '打开携程数据',
+            summary: '在携程数据页查看排名、流量、订单、点评和对应日期的渠道经营状态。',
+            steps: ['选择系统酒店和目标业务日期。', '进入需要的排名、流量、订单或点评视图。', '核对来源状态、采集时间和保存回读结果。'],
+            boundary: '携程数据只代表携程渠道，不能直接当作全酒店营收或全部客源。',
+        },
+        {
+            key: 'meituan-data',
+            title: '查看美团经营数据',
+            category: 'OTA 渠道经营',
+            example: '美团的排名、流量和订单在哪里看？',
+            keywords: ['美团', '美团数据', '美团排名', '美团流量', '美团订单', '美团推广', '酒店管家'],
+            context_pages: ['meituan-ebooking', 'online-data', 'compass'],
+            target_page: 'meituan-ebooking',
+            action_key: 'page',
+            action_label: '打开美团数据',
+            summary: '在美团数据页查看排名、流量、订单、推广和对应日期的渠道经营状态。',
+            steps: ['选择系统酒店和目标业务日期。', '进入需要的排名、流量、订单或推广视图。', '核对来源状态、采集时间和保存回读结果。'],
+            boundary: '美团数据只代表美团渠道，缺失字段不能用携程、PMS 或历史值补齐。',
         },
         {
             key: 'pms-data',
@@ -666,6 +694,20 @@
                 '对建议进行人工判断后，再进入任务执行。',
             ],
             boundary: '报告结论必须引用已验证事实；建议不等于已执行，也不能证明原因或 ROI。',
+        },
+        {
+            key: 'operation-optimizer',
+            title: '把诊断建议转成运营方案',
+            category: '运营优化',
+            example: '诊断完成后，怎么形成可执行的运营方案？',
+            keywords: ['运营优化', '优化方案', '怎么改善', '方案比较', '经营策略', '落地方案', '运营优化台'],
+            context_pages: ['operation-optimizer', 'revenue-research-center', 'ops-track', 'compass'],
+            target_page: 'operation-optimizer',
+            action_key: 'page',
+            action_label: '打开运营优化台',
+            summary: '基于已保存的事实和诊断，比较可执行方案、负责人、风险和观察窗口。',
+            steps: ['确认当前诊断引用的是同范围可信事实。', '比较候选方案、风险、负责人和观察窗口。', '人工确认后再转为运营任务。'],
+            boundary: '方案是待判断材料，不会自动改价、改库存、创建任务或证明收益。',
         },
         {
             key: 'operations',
@@ -764,6 +806,20 @@
             boundary: '一次结果或相关变化不能直接升级为可复制经验，跨店使用还需重新验证。',
         },
         {
+            key: 'knowledge-search',
+            title: '查找制度、经验和操作知识',
+            category: '知识与经验',
+            example: '制度、SOP 和以前的经营经验在哪里查？',
+            keywords: ['知识库', '知识中心', '操作手册', '功能说明', '使用说明', '怎么用系统', '制度', 'sop', '经验', '以前怎么做', '案例'],
+            context_pages: ['knowledge-center', 'operating-growth-archive', 'ops-track'],
+            target_page: 'knowledge-center',
+            action_key: 'knowledge-search',
+            action_label: '打开知识与经验',
+            summary: '按业务问题查找制度、SOP、历史经验和适用边界，再进入对应功能处理。',
+            steps: ['输入业务问题或操作关键词。', '核对知识来源、适用酒店和有效期。', '把知识作为参考并进入真实业务页面执行。'],
+            boundary: '知识和历史案例是参考材料，不能替代当前酒店、平台和日期的来源事实。',
+        },
+        {
             key: 'team-permissions',
             title: '管理员工账号和角色权限',
             category: '团队管理',
@@ -775,7 +831,91 @@
             action_label: '打开员工管理',
             summary: '新增或维护员工账号，并按角色分配可见酒店和可操作功能。',
             steps: ['建立或选择员工账号。', '分配角色、酒店范围和功能权限。', '用目标账号核对实际可见入口。'],
-            boundary: '页面可见范围必须服从服务端权限，不能通过导航或模型绕过授权。',
+            boundary: '页面可见范围必须服从服务端权限，不能通过助手导航绕过授权。',
+        },
+        {
+            key: 'role-permissions',
+            title: '配置岗位角色和功能权限',
+            category: '团队管理',
+            example: '怎么配置岗位角色和菜单权限？',
+            keywords: ['角色管理', '岗位权限', '功能权限', '菜单权限', '角色配置', '员工看不到'],
+            context_pages: ['roles', 'users', 'hotels'],
+            target_page: 'roles',
+            action_key: 'page',
+            action_label: '打开角色权限',
+            summary: '维护岗位角色的功能权限，再把角色分配给对应员工账号。',
+            steps: ['选择或建立岗位角色。', '配置该角色允许使用的功能。', '分配给员工并用目标账号核对实际入口。'],
+            boundary: '角色配置不能扩大账号所属租户或酒店范围，实际访问仍由服务端鉴权决定。',
+        },
+        {
+            key: 'system-settings',
+            title: '调整系统名称、菜单和通知设置',
+            category: '系统管理',
+            example: '系统名称、菜单或功能开关在哪里设置？',
+            keywords: ['系统设置', '系统名称', '菜单配置', '显示设置', '功能开关', '通知设置', 'logo'],
+            context_pages: ['system-config'],
+            target_page: 'system-config',
+            action_key: 'page',
+            action_label: '打开系统设置',
+            summary: '维护系统基础信息、显示设置、功能开关和通知选项。',
+            steps: ['进入对应设置分区。', '修改必要配置并保存。', '刷新后核对实际显示或功能状态。'],
+            boundary: '设置页面只对有权限的管理员开放，配置保存不等于外部服务已经可用。',
+        },
+        {
+            key: 'data-settings',
+            title: '管理数据配置和采集设备',
+            category: '系统管理',
+            example: '数据源或采集设备在哪里维护？',
+            keywords: ['数据配置', '采集设备', '竞对设备', '数据源配置', '设备管理', '来源配置'],
+            context_pages: ['data-config', 'online-data', 'automation-monitor'],
+            target_page: 'data-config',
+            action_key: 'page',
+            action_label: '打开数据配置',
+            summary: '维护数据源、平台配置和竞对采集设备的可用状态。',
+            steps: ['锁定需要维护的数据源或设备。', '完成配置并保存。', '回到数据健康或运行监控核对真实回执。'],
+            boundary: '配置存在不代表采集成功，仍须以来源请求、保存和精确回读为准。',
+        },
+        {
+            key: 'operation-audit',
+            title: '查看系统操作记录',
+            category: '系统审计',
+            example: '怎么查是谁在什么时候做了这次操作？',
+            keywords: ['操作日志', '操作记录', '谁操作的', '审计日志', '系统日志', '历史操作'],
+            context_pages: ['operation-logs'],
+            target_page: 'operation-logs',
+            action_key: 'page',
+            action_label: '打开操作记录',
+            summary: '按账号、时间和操作类型检查系统内的重要操作记录。',
+            steps: ['选择时间范围和目标账号。', '定位具体操作与结果状态。', '回到对应业务页面复核当前真实状态。'],
+            boundary: '操作记录证明发生过请求或操作，不自动证明外部平台最终成功。',
+        },
+        {
+            key: 'decision-audit',
+            title: '复核智能建议和人工确认记录',
+            category: '决策审计',
+            example: '在哪里复核建议来源、低置信和待确认记录？',
+            keywords: ['决策审计', '建议审计', '人工确认', '低置信', '失败记录', '治理状态'],
+            context_pages: ['ai-governance', 'agent-center', 'revenue-research-center'],
+            target_page: 'ai-governance',
+            action_key: 'page',
+            action_label: '打开决策审计',
+            summary: '查看建议来源、置信状态、人工确认队列和失败或阻断记录。',
+            steps: ['选择需要复核的建议或调用记录。', '核对来源、范围、状态和人工确认要求。', '回到业务页面处理缺口或完成确认。'],
+            boundary: '审计记录用于追踪和复核，不会替代来源事实或自动批准执行。',
+        },
+        {
+            key: 'ai-capability-settings',
+            title: '配置智能能力与调用状态',
+            category: '系统管理',
+            example: '智能功能不可用时去哪里检查配置？',
+            keywords: ['智能能力配置', 'ai配置', '调用失败', '连接测试', '智能功能不可用', '能力开关'],
+            context_pages: ['ai-model-config', 'ai-governance'],
+            target_page: 'ai-model-config',
+            action_key: 'page',
+            action_label: '打开智能能力配置',
+            summary: '由管理员维护系统智能能力的启用状态、用途和连接测试。',
+            steps: ['选择需要维护的智能能力。', '核对用途、启用状态和连接配置。', '运行测试并回到实际功能验证结果。'],
+            boundary: '连接测试通过只证明当前配置可调用，不代表具体业务回答或经营结论已经正确。',
         },
         {
             key: 'agent-toolbox',
@@ -832,15 +972,25 @@
         'daily-workbench': '已确认当前酒店、业务日期和今天最优先处理的阻塞项。',
         'data-health': '已明确数据停在身份、采集、保存还是精确回读阶段；证据不足时仍显示未确定。',
         'auto-collect': '已核对酒店、平台、账号与计划，并取得一次真实运行或明确失败回执。',
+        'ctrip-data': '已确认目标酒店、业务日期、携程来源和需要查看的数据视图。',
+        'meituan-data': '已确认目标酒店、业务日期、美团来源和需要查看的数据视图。',
         'pms-data': '已确认目标酒店、业务日期、PMS 来源和可用事实状态。',
         'revenue-report': '报告明确区分已验证事实、证据缺口和人工建议，没有把缺数写成结论。',
+        'operation-optimizer': '已形成带来源、负责人、风险和观察窗口的待确认运营方案。',
         operations: '任务已明确负责人、截止时间和复盘口径；未执行时仍保持待执行。',
         'automation-monitor': '已定位本次计划的运行阶段、失败原因和对应恢复入口。',
         'hotel-settings': '系统酒店、平台门店身份和账号可见范围已经逐项核对。',
         'operating-targets': '目标、指标口径、保底线、负责人和版本均已保存并回显。',
         'ai-daily-report': '日报草稿已基于当前可用证据生成并预览；是否外发仍由人工确认。',
         'growth-archive': '已看到动作、执行和结果证据，并明确经验是否具备复用条件。',
+        'knowledge-search': '已找到有来源和适用边界的知识，并明确应进入哪个真实业务功能。',
         'team-permissions': '目标账号的角色、酒店范围和实际可见入口已经核对。',
+        'role-permissions': '岗位角色、功能权限和目标账号的实际入口已经核对。',
+        'system-settings': '配置已经保存，并在刷新后的实际页面完成回显核对。',
+        'data-settings': '数据源或设备配置已保存，并取得对应健康检查或运行回执。',
+        'operation-audit': '已定位具体操作记录，并回到业务页面复核当前结果。',
+        'decision-audit': '已核对建议来源、状态、人工确认要求和当前阻断。',
+        'ai-capability-settings': '智能能力配置已保存并通过实际功能调用验证。',
         'agent-toolbox': '专业工具已锁定酒店、平台、日期和证据范围，并明确输出边界。',
         notifications: '接收方、内容和发送时间已核对；真实送达仍以发送回执为准。',
         'task-navigation': '已找到与业务目标对应的真实页面和进入前需要满足的条件。',
@@ -861,15 +1011,25 @@
         'daily-workbench': ['[data-testid="page-compass"]'],
         'data-health': ['[data-testid="phase1-employee-closure-summary"]', '[data-testid="online-data-health-panel"]'],
         'auto-collect': ['[data-testid="canonical-daily-operation-status"]', '[data-testid="platform-auto-settings-panels"]'],
+        'ctrip-data': ['[data-testid="page-ctrip-ebooking"]'],
+        'meituan-data': ['[data-testid="page-meituan-ebooking"]'],
         'pms-data': ['[data-testid="page-pms-operating-data"]'],
         'revenue-report': ['[data-testid="operating-question-entry"]', '[data-testid="page-revenue-research-center"]'],
+        'operation-optimizer': ['[data-testid="page-operation-optimizer"]'],
         operations: ['[data-testid="page-ops-track"]'],
         'automation-monitor': ['[data-testid="page-automation-monitor"]'],
         'hotel-settings': ['[data-testid="page-hotels"]'],
         'operating-targets': ['[data-testid="page-operating-targets"]'],
         'ai-daily-report': ['[data-testid="ai-daily-fact-gate"]', '[data-testid="page-ai-daily-report"]'],
         'growth-archive': ['[data-testid="page-operating-growth-archive"]'],
+        'knowledge-search': ['[data-testid="page-knowledge-center"]'],
         'team-permissions': ['[data-testid="page-users"]'],
+        'role-permissions': ['[data-testid="page-roles"]'],
+        'system-settings': ['[data-testid="page-system-config"]'],
+        'data-settings': ['[data-testid="page-data-config"]'],
+        'operation-audit': ['[data-testid="page-operation-logs"]'],
+        'decision-audit': ['[data-testid="page-ai-governance"]'],
+        'ai-capability-settings': ['[data-testid="page-ai-model-config"]'],
         'agent-toolbox': ['[data-testid="operating-question-entry"]', '[data-testid="page-agent-center"]'],
         notifications: ['[data-testid="page-wechat-notification"]'],
         'task-navigation': ['[data-testid="page-knowledge-center"]'],
@@ -898,6 +1058,23 @@
         if (!normalizedQuery) {
             return { ...fallback, match_status: 'empty', original_query: originalQuery };
         }
+        const topicByKey = (key) => SYSTEM_USAGE_GUIDE_TOPICS.find((topic) => topic.key === key);
+        const directTopic = (
+            ['没进来', '未进来', '数据缺失', '缺数', '不可用', '采集失败', '登录过期']
+                .some((keyword) => normalizedQuery.includes(normalizeSystemUsageGuideText(keyword)))
+                ? topicByKey('data-health')
+                : (normalizedQuery.includes('携程')
+                    ? topicByKey('ctrip-data')
+                    : (normalizedQuery.includes('美团')
+                        ? topicByKey('meituan-data')
+                        : (['pms', '全酒店', '入住率', '间夜', '房费']
+                            .some((keyword) => normalizedQuery.includes(normalizeSystemUsageGuideText(keyword)))
+                            ? topicByKey('pms-data')
+                            : null)))
+        );
+        if (directTopic) {
+            return { ...directTopic, match_status: 'matched', original_query: originalQuery };
+        }
         let bestTopic = fallback;
         let bestScore = 0;
         for (const topic of SYSTEM_USAGE_GUIDE_TOPICS) {
@@ -924,6 +1101,20 @@
             match_status: bestScore > 0 ? 'matched' : 'fallback',
             original_query: originalQuery,
         };
+    };
+    const resolveSystemUsageGuideJourney = (query, primaryTopic) => {
+        const normalized = normalizeSystemUsageGuideText(query);
+        const keys = [String(primaryTopic?.key || 'task-navigation')];
+        const hasAny = (keywords) => keywords.some((keyword) => normalized.includes(normalizeSystemUsageGuideText(keyword)));
+        const append = (key) => {
+            if (!keys.includes(key) && SYSTEM_USAGE_GUIDE_TOPICS.some((topic) => topic.key === key) && keys.length < 4) {
+                keys.push(key);
+            }
+        };
+        if (keys[0] !== 'revenue-report' && hasAny(['分析', '报告', '结论', '方案', '优化', '建议'])) append('revenue-report');
+        if (hasAny(['运营方案', '优化方案', '形成方案', '经营方案', '运营优化'])) append('operation-optimizer');
+        if (hasAny(['安排任务', '创建任务', '执行任务', '跟进任务', '复盘任务'])) append('operations');
+        return keys;
     };
     // SYSTEM_USAGE_GUIDE_HELPERS_END
 
@@ -1188,6 +1379,7 @@
             });
             const journeyStorageVersion = 1;
             const widgetStorageVersion = 1;
+            const pendingCoachStorageVersion = 1;
             const widgetRoot = ref(null);
             const widgetOpen = ref(false);
             const widgetDragging = ref(false);
@@ -1238,6 +1430,44 @@
             const widgetStorageKey = () => {
                 const userId = Number(props.ctx?.user?.id || 0);
                 return `suxios_system_usage_widget_v1:${userId > 0 ? userId : 'session'}`;
+            };
+            const pendingCoachStorageKey = () => {
+                const userId = Number(props.ctx?.user?.id || 0);
+                return `suxios_system_usage_pending_coach_v1:${userId > 0 ? userId : 'session'}`;
+            };
+            const savePendingCoach = (topic) => {
+                try {
+                    sessionStorage.setItem(pendingCoachStorageKey(), JSON.stringify({
+                        version: pendingCoachStorageVersion,
+                        topic_key: String(topic?.key || ''),
+                        target_page: String(topic?.target_page || ''),
+                        saved_at: Date.now(),
+                    }));
+                } catch (error) {
+                    // Page navigation still works when temporary coaching continuity is unavailable.
+                }
+            };
+            const clearPendingCoach = () => {
+                try {
+                    sessionStorage.removeItem(pendingCoachStorageKey());
+                } catch (error) {
+                    // Nothing else depends on the temporary coaching marker.
+                }
+            };
+            const readPendingCoach = () => {
+                try {
+                    const raw = JSON.parse(sessionStorage.getItem(pendingCoachStorageKey()) || 'null');
+                    if (!raw
+                        || Number(raw.version || 0) !== pendingCoachStorageVersion
+                        || Date.now() - Number(raw.saved_at || 0) > 60_000) {
+                        clearPendingCoach();
+                        return null;
+                    }
+                    return raw;
+                } catch (error) {
+                    clearPendingCoach();
+                    return null;
+                }
             };
             const widgetStyle = computed(() => {
                 const position = widgetPosition.value || {};
@@ -1635,6 +1865,7 @@
                         target_found: false,
                         checking: false,
                     };
+                    setTimeout(clearPendingCoach, 5000);
                     return false;
                 }
                 coachTarget = target;
@@ -1645,21 +1876,76 @@
                     target_found: true,
                     checking: false,
                 };
+                setTimeout(clearPendingCoach, 5000);
                 return true;
             };
+            const resumePendingCoach = async () => {
+                const pendingCoach = readPendingCoach();
+                const topic = topicByKey(pendingCoach?.topic_key);
+                if (!topic) return false;
+                for (const delay of [0, 100, 300, 700, 1200]) {
+                    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+                    if (String(topic.target_page || '') === String(props.ctx?.currentPage || '')) {
+                        return focusTopicAnchor(topic);
+                    }
+                }
+                return false;
+            };
             const currentPageText = () => String(props.ctx?.pageTitle || props.ctx?.currentPage || '当前页面');
-            const suggestionTopics = () => {
+            const suggestionItems = () => {
                 const currentPage = String(props.ctx?.currentPage || '');
-                const contextKeys = SYSTEM_USAGE_GUIDE_TOPICS
+                const contextTopics = SYSTEM_USAGE_GUIDE_TOPICS
                     .filter((topic) => topic.key !== 'task-navigation'
                         && canOpenTopic(topic)
                         && (topic.context_pages || []).includes(currentPage))
-                    .map((topic) => topic.key);
-                const preferred = [...contextKeys, 'data-health', 'revenue-report', 'operations', 'task-navigation'];
-                return Array.from(new Set(preferred))
-                    .map(topicByKey)
-                    .filter((topic) => topic && canOpenTopic(topic))
-                    .slice(0, 4);
+                    .slice(0, 2);
+                const items = [{
+                    key: 'current-page',
+                    label: '这个页面怎么用？',
+                    query: `我现在在“${currentPageText()}”，这里主要能完成什么，第一步该做什么？`,
+                }];
+                const activeGoal = String(state.value.active_journey?.goal || '').trim();
+                if (activeGoal) {
+                    items.push({
+                        key: 'continue-task',
+                        label: '继续当前任务',
+                        query: `继续“${activeGoal}”，我现在下一步该做什么？`,
+                    });
+                }
+                const preferredTopics = [
+                    ...contextTopics,
+                    ...['data-health', 'revenue-report', 'operations', 'task-navigation']
+                        .map(topicByKey)
+                        .filter((topic) => topic && canOpenTopic(topic)),
+                ];
+                const usedKeys = new Set();
+                for (const topic of preferredTopics) {
+                    if (!topic || usedKeys.has(topic.key)) continue;
+                    usedKeys.add(topic.key);
+                    items.push({
+                        key: `topic-${topic.key}`,
+                        label: String(topic.title || '查看功能'),
+                        query: String(topic.example || topic.title || ''),
+                    });
+                    if (items.length >= 4) break;
+                }
+                return items.slice(0, 4);
+            };
+            const activeJourneyContext = () => {
+                const activeJourney = state.value.active_journey;
+                const journey = Array.isArray(activeJourney?.journey) ? activeJourney.journey : [];
+                if (!journey.length) return null;
+                const activeKey = journey.some((step) => step?.key === activeJourney.active_key)
+                    ? String(activeJourney.active_key)
+                    : String(journey[0]?.key || '');
+                const activeTopic = topicByKey(activeKey);
+                const stepStatus = activeTopic ? guideStepStatus(activeTopic) : { key: 'pending' };
+                return {
+                    goal: String(activeJourney.goal || '').slice(0, 240),
+                    active_key: activeKey,
+                    journey_keys: journey.map((step) => String(step?.key || '')).filter(Boolean).slice(0, 4),
+                    current_step_status: String(stepStatus?.key || 'pending'),
+                };
             };
             const conversationHistory = () => state.value.turns
                 .slice(-4)
@@ -1702,6 +1988,7 @@
                 ctx.ensureOperatingQuestionScope?.();
                 const inferredPlatform = operatingPlatformFromQuery(query);
                 if (inferredPlatform) form.platform = inferredPlatform;
+                form.model_key = 'deepseek_v4_pro';
                 questionState.question = query;
                 const exact = await ctx.askOperatingQuestion();
                 const operatingResult = exact || questionState.result || null;
@@ -1712,21 +1999,33 @@
                 };
             };
             const localFallbackResult = (query, reason = 'client_request_failed', requestedMode = state.value.selected_mode) => {
-                const topic = resolveSystemUsageGuideTopic(query, props.ctx?.currentPage);
+                const continuing = ['继续', '下一步', '然后呢', '接着', '还要做什么']
+                    .some((keyword) => normalizeSystemUsageGuideText(query).includes(normalizeSystemUsageGuideText(keyword)));
+                const activeJourney = state.value.active_journey;
+                const activeTopic = continuing ? topicByKey(activeJourney?.active_key) : null;
+                const topic = activeTopic || resolveSystemUsageGuideTopic(query, props.ctx?.currentPage);
+                const journeyKeys = activeTopic && Array.isArray(activeJourney?.journey)
+                    ? activeJourney.journey.map((step) => String(step?.key || '')).filter(Boolean)
+                    : resolveSystemUsageGuideJourney(query, topic);
+                const goal = activeTopic && String(activeJourney?.goal || '').trim()
+                    ? String(activeJourney.goal)
+                    : (journeyKeys.length > 1 ? query : String(topic.title || ''));
                 return {
                     status: 'ready',
                     mode: 'fallback',
                     assistant_mode: resolveSystemAssistantMode(query, requestedMode),
-                    assistant_message: `智能理解暂时不可用，我先按“${String(topic.title || '任务导航')}”带你进入最接近的功能。`,
+                    assistant_message: activeTopic
+                        ? `智能理解暂时不可用，我继续按已保留的任务路线，先带你处理“${String(topic.title || '任务导航')}”。`
+                        : `智能理解暂时不可用，我先按“${String(topic.title || '任务导航')}”带你进入最接近的功能。`,
                     intent_summary: String(topic.title || ''),
-                    goal: String(topic.title || ''),
+                    goal,
                     topic_key: String(topic.key || 'task-navigation'),
                     topic: {
                         key: String(topic.key || 'task-navigation'),
                         title: String(topic.title || '查找项目功能入口'),
                         category: String(topic.category || '使用帮助'),
                     },
-                    journey: normalizeJourney([topic.key], topic),
+                    journey: normalizeJourney(journeyKeys, topic),
                     steps: Array.isArray(topic.steps) ? topic.steps.slice(0, 4) : [],
                     clarifying_question: '',
                     follow_up_questions: [],
@@ -1785,8 +2084,8 @@
                     original_query: query,
                 };
             };
-            const applySuggestion = (topic) => {
-                state.value.query = String(topic?.example || topic?.title || '');
+            const applySuggestion = (item) => {
+                state.value.query = String(item?.query || item?.example || item?.title || '');
                 state.value.error = '';
             };
             const applyFollowUp = (question) => {
@@ -1811,7 +2110,20 @@
                         requested_mode: requestedMode,
                         current_page: String(props.ctx?.currentPage || ''),
                         page_title: currentPageText(),
+                        current_scope: {
+                            hotel_id: Number(
+                                props.ctx?.operatingQuestionForm?.hotel_id
+                                || props.ctx?.filterReportHotel
+                                || props.ctx?.user?.hotel_id
+                                || 0
+                            ),
+                            hotel_name: String(props.ctx?.operatingQuestionSelectedHotel?.name || ''),
+                            platform: String(props.ctx?.operatingQuestionForm?.platform || ''),
+                            date_start: String(props.ctx?.operatingQuestionForm?.date_start || ''),
+                            date_end: String(props.ctx?.operatingQuestionForm?.date_end || ''),
+                        },
                         visible_topic_keys: visibleTopicKeys(),
+                        active_journey: activeJourneyContext(),
                         history: conversationHistory(),
                     }), query);
                     result = await runOperatingWorkflow(result, query);
@@ -1844,6 +2156,7 @@
                 state.value.opening_key = String(topic.key || 'page');
                 try {
                     const ctx = props.ctx || {};
+                    savePendingCoach(topic);
                     if (topic.action_key === 'data-health') {
                         ctx.currentPage = 'online-data';
                         ctx.onlineDataTab = 'data-health';
@@ -1852,7 +2165,7 @@
                         await Promise.resolve(ctx.openOnlinePlatformAutoTab?.({ force: true }));
                     } else {
                         ctx.currentPage = String(topic.target_page || '');
-                        if (topic.action_key === 'task-navigation' && ctx.knowledgeCenterFilter) {
+                        if (['task-navigation', 'knowledge-search'].includes(topic.action_key) && ctx.knowledgeCenterFilter) {
                             ctx.knowledgeCenterFilter.keyword = String(turn?.query || '').trim();
                         }
                     }
@@ -1871,10 +2184,9 @@
                 }
             };
             const runtimeText = (result) => {
-                if (result?.mode !== 'intelligent') return '基础导航模式';
-                if (result?.status === 'clarification_required') return '智能追问';
-                const model = String(result?.runtime?.model || '').trim();
-                return model ? `智能引导 · ${model}` : '智能引导';
+                if (result?.mode !== 'intelligent') return '基础引导';
+                if (result?.status === 'clarification_required') return '需要确认目标';
+                return '已理解目标';
             };
             const openOperatingWorkspace = async () => {
                 const ctx = props.ctx || {};
@@ -1983,7 +2295,7 @@
                 children.push(h('div', { class: 'sx-ai-consultant-evidence' }, [
                     h('span', `事实 ${Number(evidence.facts || 0)} · 知识 ${Number(evidence.knowledge_chunks || 0)} · 记忆 ${Number(evidence.operating_memories || 0)} · 复盘 ${Number(evidence.execution_reviews || 0)}`),
                     h('span', `已保存并严格回读 #${Number(exact.id || 0)}`),
-                ]));
+                ].filter(Boolean)));
                 children.push(h('div', { class: 'sx-ai-consultant-recovery-actions' }, [
                     blocked
                         ? h('button', {
@@ -2081,7 +2393,7 @@
                             ]),
                         ]);
                     })),
-                    h('p', { class: 'sx-ai-consultant-journey-note' }, '进度来自当前页面的可读状态与严格回读；仅到达页面不会被算作完成。模型不能创造页面或在这里写入业务数据。'),
+                    h('p', { class: 'sx-ai-consultant-journey-note' }, '进度来自当前页面的可读状态与严格回读；仅到达页面不会被算作完成。助手不会虚构页面或在这里写入业务数据。'),
                 ]);
             };
 
@@ -2089,7 +2401,10 @@
                 state.value.active_journey = readActiveJourney();
                 readWidgetState();
                 window.addEventListener('resize', handleWidgetViewportResize, { passive: true });
-                nextTick(() => clampWidgetPosition(false));
+                nextTick(() => {
+                    clampWidgetPosition(false);
+                    resumePendingCoach();
+                });
             });
             onUnmounted(() => {
                 window.removeEventListener('resize', handleWidgetViewportResize);
@@ -2189,7 +2504,7 @@
                                     h('span', available ? String(topic.action_label || '打开页面') : '请联系管理员授权'),
                                 ]),
                             ]),
-                            h('small', '模型只负责理解和说明；导航目标来自系统白名单，不会在这里写入业务数据。'),
+                            h('small', '导航目标来自当前账号可用的系统功能；这里只带路，不会写入业务数据。'),
                         ]));
                     }
                     const followUps = Array.isArray(result.follow_up_questions)
@@ -2208,8 +2523,8 @@
                     answerChildren.push(h('div', { class: 'sx-ai-consultant-evidence' }, [
                         h('span', `当前页面：${currentPageText()}`),
                         h('span', result.mode === 'intelligent'
-                            ? (assistantMode === 'guide' ? 'DeepSeek直接生成 · 真实入口约束' : 'DeepSeek识别意图 · 结论由严格证据回读生成')
-                            : '智能模型不可用 · 基础规则兜底'),
+                            ? (assistantMode === 'guide' ? '已按目标生成系统路径 · 入口权限已核对' : '目标已识别 · 结论使用严格证据回读')
+                            : '智能理解暂时不可用 · 已切换基础引导'),
                     ]));
                     conversation.push(h('article', {
                         key: `${turn.id}-answer`,
@@ -2224,7 +2539,7 @@
                         'data-testid': 'system-guide-loading',
                     }, [
                         icon('fa-spinner fa-spin'),
-                        h('span', '正在理解你的目标并核对可用入口…'),
+                        h('span', '正在理解目标并核对可用入口…'),
                     ]));
                 }
 
@@ -2245,12 +2560,12 @@
                 const suggestions = h('div', {
                     class: 'sx-ai-consultant-suggestions',
                     'aria-label': '常用系统任务',
-                }, suggestionTopics().map((topic) => h('button', {
-                    key: topic.key,
+                }, suggestionItems().map((item) => h('button', {
+                    key: item.key,
                     type: 'button',
                     disabled: state.value.loading,
-                    onClick: () => applySuggestion(topic),
-                }, String(topic.example || topic.title))));
+                    onClick: () => applySuggestion(item),
+                }, String(item.label || item.query))));
                 const composer = h('form', {
                     class: 'sx-ai-consultant-composer',
                     onSubmit: (event) => {
@@ -2368,7 +2683,7 @@
                             h('div', { class: 'sx-ai-consultant-header-avatar', 'aria-hidden': 'true' }, [icon('fa-sparkles')]),
                             h('div', { class: 'sx-ai-consultant-header-copy' }, [
                                 h('div', { class: 'sx-ai-consultant-title' }, '宿析智能使用助手'),
-                                h('p', '教你使用 · 给出证据结论 · 生成行动草案'),
+                                h('p', '说出目标，我带你找到入口并核对是否完成'),
                             ]),
                             h('span', { class: 'sx-ai-consultant-drag-hint', 'aria-hidden': 'true' }, [
                                 icon('fa-grip-lines'),
@@ -2376,7 +2691,18 @@
                             ]),
                         ]),
                         h('div', { class: 'sx-ai-consultant-body' }, [
-                            h('p', { class: 'sx-ai-consultant-boundary' }, '只使用当前账号可见的真实功能。报告提问会保存并严格回读；行动草案不会自动执行，执行或外发仍需到专业页面人工确认。'),
+                            h('div', {
+                                class: 'sx-ai-consultant-context',
+                                'data-testid': 'system-guide-context',
+                            }, [
+                                icon('fa-location-dot'),
+                                h('span', [
+                                    h('small', '当前页面'),
+                                    h('strong', currentPageText()),
+                                ]),
+                                h('em', state.value.active_journey ? '任务路线已保留' : `可引导 ${visibleTopicKeys().length} 项功能`),
+                            ]),
+                            h('p', { class: 'sx-ai-consultant-boundary' }, '只引导当前账号可用的真实功能，并跨页面保留任务路线。涉及结论、执行或外发时，仍以严格回读和人工确认为准。'),
                             modeSwitcher,
                             state.value.turns.length === 0 && state.value.active_journey
                                 ? renderJourney(state.value.active_journey, null, true)

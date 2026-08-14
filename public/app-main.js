@@ -41417,7 +41417,7 @@
                 platform: 'ctrip',
                 date_start: toLocalIsoDate(),
                 date_end: toLocalIsoDate(),
-                model_key: '',
+                model_key: 'deepseek_v4_pro',
             });
             const createOperatingQuestionState = () => ({
                 question: '',

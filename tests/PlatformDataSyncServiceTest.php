@@ -708,7 +708,9 @@ final class PlatformDataSyncServiceTest extends TestCase
         ];
         $options = [
             'require_current_run_session_probe' => true,
-            'required_platform_hotel_id' => 'hotel-80',
+            // Production OTA hotel identifiers are commonly numeric strings;
+            // PHP must not turn the dedupe key into an int before hash_equals.
+            'required_platform_hotel_id' => '130079194',
         ];
 
         self::assertNull($method->invoke($service, $source, $options, [
@@ -720,7 +722,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     'schema_version' => 1,
                     'status' => 'matched',
                     'source_validation' => true,
-                    'validated_identifier' => 'hotel-80',
+                    'validated_identifier' => '130079194',
                     'sensitive_values_exposed' => false,
                 ],
             ],

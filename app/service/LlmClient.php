@@ -750,6 +750,7 @@ class LlmClient
         array $schema,
         string $modelKey = 'deepseek_v4_default'
     ): array {
+        $useDeepSeekProThinking = $this->isDeepSeekV4ProKey($modelKey);
         $governanceMeta = $this->schemaGovernanceMeta($schema);
         $schemaForPrompt = $this->schemaWithoutGovernance($schema);
         $prompt = $this->messagesToPrompt($messages, $schemaForPrompt);
@@ -774,7 +775,8 @@ class LlmClient
             'max_provider_fallbacks' => 0,
             'response_cache_enabled' => false,
             'idempotency_enabled' => false,
-            'deepseek_thinking' => 'disabled',
+            'deepseek_thinking' => $useDeepSeekProThinking ? 'enabled' : 'disabled',
+            'reasoning_effort' => $useDeepSeekProThinking ? 'high' : 'none',
             'user_id' => $anonymousUserId,
         ]);
         if (($result['ok'] ?? false) !== true
@@ -807,8 +809,20 @@ class LlmClient
                 'fallback_used' => false,
                 'cache_hit' => false,
                 'degraded' => false,
+                'thinking_mode' => $useDeepSeekProThinking ? 'enabled' : 'disabled',
+                'reasoning_effort' => $useDeepSeekProThinking ? 'high' : 'none',
             ],
         ];
+    }
+
+    private function isDeepSeekV4ProKey(string $modelKey): bool
+    {
+        return in_array(strtolower(trim($modelKey)), [
+            'deepseek_v4_pro',
+            'deepseek_reasoner',
+            'deepseek-v4-pro',
+            'deepseek-reasoner',
+        ], true);
     }
 
     public function isConfiguredModelKey(string $modelKey): bool
@@ -1477,11 +1491,16 @@ class LlmClient
         }
         $provider = strtolower(trim((string)($config['provider'] ?? '')));
         if ($provider === 'deepseek') {
-            $payload['thinking'] = [
-                'type' => strtolower(trim((string)($options['deepseek_thinking'] ?? 'disabled'))) === 'enabled'
-                    ? 'enabled'
-                    : 'disabled',
-            ];
+            $thinkingType = strtolower(trim((string)($options['deepseek_thinking'] ?? 'disabled'))) === 'enabled'
+                ? 'enabled'
+                : 'disabled';
+            $payload['thinking'] = ['type' => $thinkingType];
+            if ($thinkingType === 'enabled') {
+                $reasoningEffort = strtolower(trim((string)($options['reasoning_effort'] ?? 'high')));
+                $payload['reasoning_effort'] = in_array($reasoningEffort, ['high', 'max'], true)
+                    ? $reasoningEffort
+                    : 'high';
+            }
             $userId = trim((string)($options['user_id'] ?? ''));
             if ($userId !== '' && preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $userId) === 1) {
                 $payload['user_id'] = $userId;

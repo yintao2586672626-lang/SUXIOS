@@ -75,7 +75,7 @@ final class OperatingQuestionService
         string $dateStart,
         string $dateEnd,
         int $createdBy,
-        string $modelKey = 'deepseek_v4_default'
+        string $modelKey = 'deepseek_v4_pro'
     ): array {
         $this->assertTableReady();
         $this->assertHotelIdentity($tenantId, $hotelId);
@@ -953,6 +953,8 @@ final class OperatingQuestionService
             'fallback_used' => false,
             'cache_hit' => false,
             'degraded' => false,
+            'thinking_mode' => '',
+            'reasoning_effort' => '',
             'reason' => '',
             'message' => $this->answerGenerator === null
                 ? '当前使用严格回读的证据摘要。'
@@ -1003,6 +1005,8 @@ final class OperatingQuestionService
                 'fallback_used' => false,
                 'cache_hit' => false,
                 'degraded' => false,
+                'thinking_mode' => '',
+                'reasoning_effort' => '',
             ];
         }
 
@@ -1025,6 +1029,8 @@ final class OperatingQuestionService
             'fallback_used' => ($result['fallback_used'] ?? false) === true,
             'cache_hit' => ($result['cache_hit'] ?? false) === true,
             'degraded' => ($result['degraded'] ?? false) === true,
+            'thinking_mode' => mb_substr(trim((string)($result['thinking_mode'] ?? '')), 0, 20),
+            'reasoning_effort' => mb_substr(trim((string)($result['reasoning_effort'] ?? '')), 0, 20),
             'reason' => mb_substr(trim((string)($result['reason'] ?? '')), 0, 120),
             'message' => mb_substr(trim((string)($result['message'] ?? '')), 0, 300),
         ];
@@ -1087,7 +1093,7 @@ final class OperatingQuestionService
     {
         $value = trim($value);
         if ($value === '' || preg_match('/^[a-zA-Z0-9_.:-]{1,100}$/', $value) !== 1) {
-            return 'deepseek_v4_default';
+            return 'deepseek_v4_pro';
         }
         return $value;
     }

@@ -416,8 +416,8 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
                     ],
                     'meta' => [
                         'provider' => 'deepseek',
-                        'model_key' => 'deepseek_v4_default',
-                        'model' => 'deepseek-v4-flash',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
                         'finish_reason' => 'stop',
                         'fallback_used' => false,
                         'cache_hit' => false,
