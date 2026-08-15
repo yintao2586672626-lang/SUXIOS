@@ -80,23 +80,34 @@ Profile 并启动一个 Chromium；票据错误、过期或范围不一致时不
 ```json
 {
   "task_id": "cct_opaque-id",
-  "profile_id": "cbp_opaque-id",
+  "profile_id": "cbp_abcdefghijklmnop",
+  "collection_session_id": "cbcs_abcdefghijklmnop",
   "platform": "ctrip",
   "tenant_id": 8,
   "hotel_id": 80,
+  "owner_user_id": 42,
+  "data_source_id": 7,
   "target_date": "2026-07-25",
   "source_method": "cloud_browser_profile",
   "status": "saved",
   "identity_verified": true,
   "saved_count": 12,
   "readback_count": 12,
-  "field_facts_sha256": "64-lowercase-hex",
+  "field_facts_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "close_receipt_id": "cbr_abcdefghijklmnop",
+  "close_receipt_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "failure_stage": null
 }
 ```
 
-`saved` 必须同时满足身份已验证且保存数等于回读数，否则回执门禁拒绝。
+这些会话、归属、数据源和关闭回执字段必须与刚完成的
+`collection_profile_closed` 回执逐项一致；每个关闭回执只能写入一次结果，重复提交返回
+`409`。`data_source_id` 必须大于 `0`。`saved` 必须同时满足身份已验证、保存数大于
+`0` 且保存数等于回读数，否则回执门禁拒绝。
 `partial`、`failed`、`blocked` 必须保持真实状态，不会被转换为成功。
+POST 成功响应只返回状态、回执 ID 与链哈希。随后读取
+`GET /v1/receipts/:receipt_id` 时，上述业务字段位于回执记录的 `payload` 对象中，调用方
+必须从 `payload` 逐项回读校验。
 
 ## 获得云端授权后的部署步骤
 

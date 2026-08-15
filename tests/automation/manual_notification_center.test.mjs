@@ -7,6 +7,14 @@ import vm from 'node:vm';
 const systemStaticSource = fs.readFileSync('public/system-static.js', 'utf8');
 const appMainSource = fs.readFileSync('public/app-main.js', 'utf8');
 const serviceSource = fs.readFileSync('app/service/ManualNotificationService.php', 'utf8');
+const scheduleRuleSource = fs.readFileSync(
+  'app/service/ManualNotificationScheduleRuleService.php',
+  'utf8',
+);
+const hourlyPayloadSource = fs.readFileSync(
+  'app/service/CloudThreeSourceHourlyPayloadService.php',
+  'utf8',
+);
 const conditionRuleSource = fs.readFileSync(
   'app/service/ManualNotificationConditionRuleService.php',
   'utf8',
@@ -315,10 +323,17 @@ test('operating daily keeps fixed-time default and exposes strict cloud three-so
     /默认 01:00–23:00 整点发送；云端会在整点前刷新三源/,
   );
   assert.match(appMainSource, /hourly_start_time: '01:00'/);
+  assert.match(scheduleRuleSource, /\$now->format\('H'\) === '00'/);
   assert.match(
-    serviceSource,
-    /manual_notification_midnight_current_day_unavailable/,
+    scheduleRuleSource,
+    /return \$now->modify\('-1 day'\)->format\('Y-m-d'\);/,
   );
+  assert.match(hourlyPayloadSource, /\$midnightCloseout/);
+  assert.match(
+    hourlyPayloadSource,
+    /00:00 仅允许前一天的最新收口回读/,
+  );
+  assert.match(serviceSource, /previous day's fresh 23:30 closeout batch/);
 });
 
 test('three-source hourly setup exposes one-click guided fields and truthful source actions', () => {

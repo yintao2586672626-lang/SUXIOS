@@ -32,9 +32,13 @@ export const FRONTEND_ENTRY_MINIFY_OPTIONS = Object.freeze({
 });
 
 export async function buildFrontendEntry(source) {
+  const options = structuredClone(FRONTEND_ENTRY_MINIFY_OPTIONS);
+  options.toplevel = true;
+  options.compress.toplevel = true;
+  options.mangle.toplevel = true;
   const result = await minify(
     { 'app-main.js': String(source || '') },
-    structuredClone(FRONTEND_ENTRY_MINIFY_OPTIONS)
+    options
   );
   if (!result.code) throw new Error('Terser returned an empty frontend entry artifact.');
   return `${result.code}\n`;

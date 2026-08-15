@@ -349,6 +349,57 @@ export class ReceiptChain {
     return await pending;
   }
 
+  async appendCollectionResult(payload) {
+    const pending = this.appendQueue.then(async () => {
+      const records = await this.records();
+      let previousHash = null;
+      for (const record of records) {
+        const { receipt_hash: receiptHash, ...unsigned } = record;
+        if (unsigned.prev_hash !== previousHash || sha256(canonical(unsigned)) !== receiptHash) {
+          throw new Error('receipt_chain_invalid');
+        }
+        previousHash = receiptHash;
+      }
+
+      const closeReceipt = records.find(
+        (record) => record.receipt_id === payload.close_receipt_id,
+      );
+      if (!closeReceipt
+        || closeReceipt.kind !== 'collection_profile_closed'
+        || closeReceipt.receipt_hash !== payload.close_receipt_hash
+      ) {
+        throw new Error('collection_close_receipt_invalid');
+      }
+      if (records.some(
+        (record) => record.kind === 'collection_result'
+          && record.payload?.close_receipt_id === payload.close_receipt_id,
+      )) {
+        throw new GatewayError('collection_result_replay_blocked', 409);
+      }
+
+      const closePayload = closeReceipt.payload || {};
+      const scopedFields = [
+        'collection_session_id',
+        'profile_id',
+        'platform',
+        'tenant_id',
+        'hotel_id',
+        'owner_user_id',
+        'target_date',
+      ];
+      if (scopedFields.some((field) => closePayload[field] !== payload[field])
+        || Number(closePayload.data_source_id || 0) !== payload.data_source_id
+        || closePayload.profile_sealed !== true
+        || (payload.status === 'saved' && closePayload.outcome !== 'completed')
+      ) {
+        throw new Error('collection_result_scope_mismatch');
+      }
+      return await this.appendNow('collection_result', payload);
+    });
+    this.appendQueue = pending.catch(() => undefined);
+    return await pending;
+  }
+
   async appendNow(kind, payload) {
     assertNoSensitiveMaterial(payload);
     const records = await this.records();
@@ -678,9 +729,11 @@ async function waitForBrowserPage(config, child, timeoutMs = 12000) {
     try {
       const response = await fetch(endpoint, { signal: AbortSignal.timeout(1000) });
       const targets = response.ok ? await response.json() : [];
-      const page = Array.isArray(targets)
-        ? targets.find((target) => target?.type === 'page' && typeof target.webSocketDebuggerUrl === 'string')
-        : null;
+      const pages = Array.isArray(targets)
+        ? targets.map(normalizeBrowserPageTarget).filter(Boolean)
+        : [];
+      if (pages.length > 1) throw new Error('browser_page_count_invalid');
+      const [page] = pages;
       if (page) return page;
     } catch {
       // Chromium may need a short startup interval before the loopback CDP port exists.
@@ -688,6 +741,17 @@ async function waitForBrowserPage(config, child, timeoutMs = 12000) {
     await delay(100);
   }
   throw new Error('browser_cdp_not_ready');
+}
+
+export function normalizeBrowserPageTarget(target) {
+  const targetId = String(target?.targetId || target?.id || '').trim();
+  if (target?.type !== 'page'
+    || !targetId
+    || typeof target.webSocketDebuggerUrl !== 'string'
+  ) {
+    return null;
+  }
+  return { ...target, targetId };
 }
 
 export function isDingdandaoReadOnlyRequestAllowed({ url, method, resourceType }) {
@@ -773,7 +837,20 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
   const pending = new Map();
   let nextId = 1;
   let closed = false;
-  const requestPolicyEnforced = PMS_PLATFORM_PATTERN.test(platform);
+  let intentionalClose = false;
+  let policyViolation = false;
+  const autoAttachPolicy = {
+    autoAttach: true,
+    waitForDebuggerOnStart: true,
+    flatten: true,
+  };
+  const markPolicyViolation = () => {
+    policyViolation = true;
+    child?.kill?.('SIGTERM');
+  };
+  const requestPolicyEnforced = COLLECTION_PLATFORM_PATTERN.test(
+    String(platform || '').toLowerCase(),
+  );
 
   await new Promise((resolvePromise, reject) => {
     const timer = setTimeout(() => reject(new Error('read_only_policy_connect_timeout')), 5000);
@@ -783,19 +860,53 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     }, { once: true });
     socket.addEventListener('error', () => {
       clearTimeout(timer);
+      if (!intentionalClose) markPolicyViolation();
       reject(new Error('read_only_policy_connect_failed'));
     }, { once: true });
   });
 
-  const send = (method, params = {}) => new Promise((resolvePromise, reject) => {
+  const send = (method, params = {}, sessionId = '') => new Promise((resolvePromise, reject) => {
     if (closed || socket.readyState !== WebSocket.OPEN) {
       reject(new Error('read_only_policy_connection_closed'));
       return;
     }
     const id = nextId++;
     pending.set(id, { resolvePromise, reject });
-    socket.send(JSON.stringify({ id, method, params }));
+    socket.send(JSON.stringify({
+      id,
+      method,
+      params,
+      ...(sessionId ? { sessionId } : {}),
+    }));
   });
+
+  const failClosedForTarget = (targetId = '') => {
+    markPolicyViolation();
+    if (targetId) send('Target.closeTarget', { targetId }).catch(() => undefined);
+  };
+
+  const protectAttachedTarget = async ({ sessionId = '', targetInfo = {} } = {}) => {
+    if (!sessionId) {
+      failClosedForTarget(targetInfo.targetId);
+      return;
+    }
+    if (targetInfo.type === 'page' && targetInfo.targetId !== target.targetId) {
+      failClosedForTarget(targetInfo.targetId);
+      return;
+    }
+    try {
+      await send('Network.enable', {}, sessionId);
+      await send('Network.setCacheDisabled', { cacheDisabled: true }, sessionId);
+      await send('Network.setBypassServiceWorker', { bypass: true }, sessionId);
+      await send('Fetch.enable', {
+        patterns: [{ urlPattern: '*', requestStage: 'Request' }],
+      }, sessionId);
+      await send('Target.setAutoAttach', autoAttachPolicy, sessionId);
+      await send('Runtime.runIfWaitingForDebugger', {}, sessionId);
+    } catch {
+      failClosedForTarget(targetInfo.targetId);
+    }
+  };
 
   socket.addEventListener('message', (event) => {
     let message;
@@ -814,6 +925,17 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
       }
       return;
     }
+    if (message.method === 'Target.attachedToTarget') {
+      void protectAttachedTarget(message.params);
+      return;
+    }
+    if (message.method === 'Target.targetCreated') {
+      const targetInfo = message.params?.targetInfo || {};
+      if (targetInfo.type === 'page' && targetInfo.targetId !== target.targetId) {
+        failClosedForTarget(targetInfo.targetId);
+      }
+      return;
+    }
     if (!requestPolicyEnforced || message.method !== 'Fetch.requestPaused') return;
     const paused = message.params || {};
     const allowed = isCloudProfileReadOnlyRequestAllowed({
@@ -826,10 +948,13 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     const params = allowed
       ? { requestId: paused.requestId }
       : { requestId: paused.requestId, errorReason: 'BlockedByClient' };
-    send(command, params).catch(() => undefined);
+    send(command, params, message.sessionId || '').catch(() => undefined);
   });
 
   socket.addEventListener('close', () => {
+    if (!intentionalClose) {
+      markPolicyViolation();
+    }
     closed = true;
     for (const request of pending.values()) {
       request.reject(new Error('read_only_policy_connection_closed'));
@@ -842,6 +967,8 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     await send('Network.setCacheDisabled', { cacheDisabled: true });
     await send('Network.setBypassServiceWorker', { bypass: true });
     await send('Page.enable');
+    await send('Target.setAutoAttach', autoAttachPolicy);
+    await send('Target.setDiscoverTargets', { discover: true });
     if (requestPolicyEnforced) {
       await send('Fetch.enable', {
         patterns: [{ urlPattern: '*', requestStage: 'Request' }],
@@ -880,11 +1007,17 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
   }
 
   return {
-    requestPolicyEnforced,
+    get requestPolicyEnforced() {
+      return requestPolicyEnforced
+        && !policyViolation
+        && !closed
+        && socket.readyState === WebSocket.OPEN;
+    },
     httpCacheDisabled: true,
     serviceWorkerBypassed: true,
     close() {
       if (closed) return;
+      intentionalClose = true;
       closed = true;
       socket.close();
     },
@@ -1266,11 +1399,9 @@ export async function createGateway(env = process.env, dependencies = {}) {
           throwIfCollectionAbortRequested(session);
           session.guard = await installReadOnlyPolicyCall(config, session.browser, collection.platform);
           throwIfCollectionAbortRequested(session);
-          const isOtaCollection = OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform);
           if (session.guard?.httpCacheDisabled !== true
             || session.guard?.serviceWorkerBypassed !== true
-            || (isOtaCollection && session.guard?.requestPolicyEnforced !== false)
-            || (!isOtaCollection && session.guard?.requestPolicyEnforced !== true)
+            || session.guard?.requestPolicyEnforced !== true
           ) {
             throw new Error('collection_browser_policy_unverified');
           }
@@ -1418,10 +1549,14 @@ export async function createGateway(env = process.env, dependencies = {}) {
         ) {
           throw new GatewayError('active_collection_session_not_found', 404);
         }
+        const collectionPolicyStillEnforced = session.guard?.requestPolicyEnforced === true;
         try {
           await closeSession(session);
         } catch {
           throw new GatewayError('profile_seal_failed', 500);
+        }
+        if (!collectionPolicyStillEnforced) {
+          throw new GatewayError('collection_browser_policy_breached', 409);
         }
         if (collection.outcome === 'session_expired') {
           await bridgeCall('expire_profile', {
@@ -1466,11 +1601,30 @@ export async function createGateway(env = process.env, dependencies = {}) {
         assertNoSensitiveMaterial(body);
         const payload = {
           task_id: assertOpaque(body.task_id, /^cct_[A-Za-z0-9_-]{8,96}$/, 'task_id_invalid'),
+          collection_session_id: assertOpaque(
+            body.collection_session_id,
+            COLLECTION_SESSION_ID_PATTERN,
+            'collection_session_id_invalid',
+          ),
           profile_id: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
           platform: assertOpaque(body.platform, OTA_RECEIPT_PLATFORM_PATTERN, 'platform_invalid'),
           tenant_id: Number.parseInt(body.tenant_id, 10),
           hotel_id: Number.parseInt(body.hotel_id, 10),
+          owner_user_id: Number.parseInt(body.owner_user_id, 10),
+          data_source_id: body.data_source_id == null || String(body.data_source_id).trim() === ''
+            ? 0
+            : Number.parseInt(body.data_source_id, 10),
           target_date: assertOpaque(body.target_date, /^\d{4}-\d{2}-\d{2}$/, 'target_date_invalid'),
+          close_receipt_id: assertOpaque(
+            body.close_receipt_id,
+            /^cbr_[A-Za-z0-9_-]{16,64}$/,
+            'close_receipt_id_invalid',
+          ),
+          close_receipt_hash: assertOpaque(
+            body.close_receipt_hash,
+            /^[a-f0-9]{64}$/,
+            'close_receipt_hash_invalid',
+          ),
           source_method: assertOpaque(body.source_method, /^cloud_browser_profile$/, 'source_method_invalid'),
           status: assertOpaque(body.status, /^(saved|partial|failed|blocked)$/, 'receipt_status_invalid'),
           identity_verified: body.identity_verified === true,
@@ -1480,16 +1634,20 @@ export async function createGateway(env = process.env, dependencies = {}) {
           failure_stage: body.failure_stage ? safeReason(body.failure_stage, 'collection_failed') : null,
         };
         if (!Number.isInteger(payload.tenant_id) || !Number.isInteger(payload.hotel_id)
+          || !Number.isInteger(payload.owner_user_id) || !Number.isInteger(payload.data_source_id)
           || !Number.isInteger(payload.saved_count) || !Number.isInteger(payload.readback_count)
-          || payload.tenant_id <= 0 || payload.hotel_id <= 0
+          || payload.tenant_id <= 0 || payload.hotel_id <= 0 || payload.owner_user_id <= 0
+          || payload.data_source_id <= 0
           || payload.saved_count < 0 || payload.readback_count < 0) {
           throw new Error('receipt_numeric_scope_invalid');
         }
         if (payload.status === 'saved'
-          && (!payload.identity_verified || payload.saved_count !== payload.readback_count)) {
+          && (!payload.identity_verified
+            || payload.saved_count <= 0
+            || payload.saved_count !== payload.readback_count)) {
           throw new Error('receipt_truth_gate_failed');
         }
-        const receipt = await receipts.append('collection_result', payload);
+        const receipt = await receipts.appendCollectionResult(payload);
         jsonResponse(response, 201, {
           status: 'accepted',
           receipt_id: receipt.receipt_id,

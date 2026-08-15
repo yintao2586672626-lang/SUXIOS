@@ -264,6 +264,34 @@ final class CloudThreeSourceHourlyPayloadServiceTest extends TestCase
         self::assertNotEmpty($candidate['payload']['markdown']['content']);
     }
 
+    public function testTaskRowsBoundToAnotherDataSourceCannotEnterPayload(): void
+    {
+        $this->createBindingTables();
+        $this->createTaskTable();
+        $this->createPayloadEvidenceTables();
+        $this->insertReadyPayloadFixture();
+        Db::name('online_daily_data')->where('id', 701)->update(['data_source_id' => 68]);
+
+        $candidate = (new CloudThreeSourceHourlyPayloadService())->build(
+            8,
+            80,
+            'Actor scoped hotel',
+            '2026-08-14',
+            7,
+            new DateTimeImmutable(
+                '2026-08-14 11:00:00',
+                new DateTimeZone('Asia/Shanghai')
+            )
+        );
+
+        self::assertSame('blocked', $candidate['status']);
+        self::assertSame(
+            'ctrip_formal_readback_rows_missing_or_stale',
+            $candidate['reason_code']
+        );
+        self::assertFalse($candidate['formal_send_gate']['allowed']);
+    }
+
     public function testMidnightCanUsePreviousDayFreshCloseoutRows(): void
     {
         $this->createBindingTables();

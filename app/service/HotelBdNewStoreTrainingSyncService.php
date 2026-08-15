@@ -63,6 +63,17 @@ final class HotelBdNewStoreTrainingSyncService
             throw new RuntimeException('hotel_bd_training_source_verification_required');
         }
 
+        $readback = $this->persistValidatedPack($pack, $validation);
+
+        $result['status'] = 'success';
+        $result['persisted'] = true;
+        $result['readback'] = $readback;
+        return $result;
+    }
+
+    /** @param array<string, mixed> $pack @param array<string, mixed> $validation @return array<string, mixed> */
+    private function persistValidatedPack(array $pack, array $validation): array
+    {
         foreach (['knowledge_units', 'knowledge_chunks'] as $table) {
             if (!$this->tableExists($table)) {
                 throw new RuntimeException('required_knowledge_table_missing:' . $table);
@@ -82,7 +93,7 @@ final class HotelBdNewStoreTrainingSyncService
             }
         }
 
-        $readback = Db::transaction(function () use ($pack, $validation): array {
+        return Db::transaction(function () use ($pack, $validation): array {
             $unitId = $this->upsertUnit($pack, $validation);
             $chunkIds = $this->upsertChunks($unitId, $pack, $validation);
             $currentChunkId = (int)($chunkIds[self::CURRENT_ENTRY_KEY] ?? 0);
@@ -101,11 +112,6 @@ final class HotelBdNewStoreTrainingSyncService
             }
             return $verified;
         });
-
-        $result['status'] = 'success';
-        $result['persisted'] = true;
-        $result['readback'] = $readback;
-        return $result;
     }
 
     /** @return array<string, mixed> */
@@ -831,7 +837,11 @@ final class HotelBdNewStoreTrainingSyncService
         try {
             return Db::query("SHOW TABLES LIKE '" . $table . "'") !== [];
         } catch (\Throwable) {
-            return false;
+            try {
+                return Db::query('PRAGMA table_info(`' . $table . '`)') !== [];
+            } catch (\Throwable) {
+                return false;
+            }
         }
     }
 
@@ -846,9 +856,14 @@ final class HotelBdNewStoreTrainingSyncService
         if (!preg_match('/^[a-z0-9_]+$/', $table)) {
             throw new RuntimeException('invalid_knowledge_table_identifier');
         }
+        try {
+            $rows = Db::query('SHOW COLUMNS FROM `' . $table . '`');
+        } catch (\Throwable) {
+            $rows = Db::query('PRAGMA table_info(`' . $table . '`)');
+        }
         $columns = [];
-        foreach (Db::query('SHOW COLUMNS FROM `' . $table . '`') as $row) {
-            $field = trim((string)($row['Field'] ?? $row['field'] ?? ''));
+        foreach ($rows as $row) {
+            $field = trim((string)($row['Field'] ?? $row['field'] ?? $row['name'] ?? ''));
             if ($field !== '') {
                 $columns[] = $field;
             }

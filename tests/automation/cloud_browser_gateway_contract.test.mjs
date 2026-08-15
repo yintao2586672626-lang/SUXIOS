@@ -14,6 +14,7 @@ import {
   encryptArchive,
   isCloudProfileReadOnlyRequestAllowed,
   isDingdandaoReadOnlyRequestAllowed,
+  normalizeBrowserPageTarget,
   isUnsupportedSnapBrowserExecutable,
 } from '../../deploy/remote-browser/cloud_browser_gateway.mjs';
 
@@ -667,6 +668,20 @@ test('OTA Profile policy allows reads only inside the selected platform scope', 
   }
 });
 
+test('Chromium json/list page identifiers normalize before target policy comparison', () => {
+  assert.equal(normalizeBrowserPageTarget({ type: 'page' }), null);
+  assert.deepEqual(normalizeBrowserPageTarget({
+    id: 'A1B2C3',
+    type: 'page',
+    webSocketDebuggerUrl: 'ws://127.0.0.1:9223/devtools/page/A1B2C3',
+  }), {
+    id: 'A1B2C3',
+    targetId: 'A1B2C3',
+    type: 'page',
+    webSocketDebuggerUrl: 'ws://127.0.0.1:9223/devtools/page/A1B2C3',
+  });
+});
+
 test('browser executable guard rejects Snap without misclassifying an explicit system Chrome', () => {
   assert.equal(isUnsupportedSnapBrowserExecutable('/snap/bin/chromium'), true);
   assert.equal(isUnsupportedSnapBrowserExecutable('/usr/bin/google-chrome-stable'), false);
@@ -817,6 +832,7 @@ test('protected Dingdandao collection window validates scope, stays read-only, a
       },
       body: JSON.stringify({
         task_id: 'cct_abcdefgh',
+        collection_session_id: opened.collection_session_id,
         profile_id: body.profile_id,
         platform: 'dingdandao',
         tenant_id: 8,
@@ -878,7 +894,7 @@ test('OTA collection window requires an exact data source and exposes only contr
       stopBrowser: async () => calls.push(['stop']),
       waitForBrowserPage: async () => ({ targetId: 'test-page' }),
       installReadOnlyPolicy: async () => ({
-        requestPolicyEnforced: false,
+        requestPolicyEnforced: true,
         httpCacheDisabled: true,
         serviceWorkerBypassed: true,
         close: () => calls.push(['guard_close']),
@@ -918,7 +934,7 @@ test('OTA collection window requires an exact data source and exposes only contr
     assert.equal(openedResponse.status, 201);
     const opened = await openedResponse.json();
     assert.equal(opened.data_source_id, 25);
-    assert.equal(opened.read_only_enforced, false);
+    assert.equal(opened.read_only_enforced, true);
     assert.equal(opened.collector_read_only_contract, true);
     assert.deepEqual(opened.network_freshness_control, {
       http_cache_disabled: true,
@@ -940,7 +956,50 @@ test('OTA collection window requires an exact data source and exposes only contr
       }),
     });
     assert.equal(closed.status, 200);
-    assert.equal((await closed.json()).profile_sealed, true);
+    const closedPayload = await closed.json();
+    assert.equal(closedPayload.profile_sealed, true);
+
+    const resultBody = {
+      task_id: 'cct_abcdefgh',
+      collection_session_id: opened.collection_session_id,
+      profile_id: body.profile_id,
+      platform: body.platform,
+      tenant_id: body.tenant_id,
+      hotel_id: body.hotel_id,
+      owner_user_id: body.owner_user_id,
+      data_source_id: body.data_source_id,
+      target_date: body.target_date,
+      close_receipt_id: closedPayload.receipt_id,
+      close_receipt_hash: closedPayload.receipt_hash,
+      source_method: 'cloud_browser_profile',
+      status: 'saved',
+      identity_verified: true,
+      saved_count: 2,
+      readback_count: 2,
+      field_facts_sha256: 'a'.repeat(64),
+    };
+    const receiptResponse = await fetch(`${base}/v1/collection/receipt`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(resultBody),
+    });
+    assert.equal(receiptResponse.status, 201);
+    const acceptedReceipt = await receiptResponse.json();
+    const readbackResponse = await fetch(`${base}/v1/receipts/${acceptedReceipt.receipt_id}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(readbackResponse.status, 200);
+    const readback = await readbackResponse.json();
+    assert.equal(readback.kind, 'collection_result');
+    assert.deepEqual(readback.payload, { ...resultBody, failure_stage: null });
+
+    const replayResponse = await fetch(`${base}/v1/collection/receipt`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(resultBody),
+    });
+    assert.equal(replayResponse.status, 409);
+    assert.equal((await replayResponse.json()).reason, 'collection_result_replay_blocked');
   } finally {
     if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
     await rm(root, { recursive: true, force: true });
@@ -987,7 +1046,7 @@ test('legacy OTA target-date lease remains profile scoped without a data source 
       waitForBrowserPage: async () => ({ targetId: 'test-page' }),
       stopBrowser: async () => calls.push(['stop']),
       installReadOnlyPolicy: async () => ({
-        requestPolicyEnforced: false,
+        requestPolicyEnforced: true,
         httpCacheDisabled: true,
         serviceWorkerBypassed: true,
         close: () => calls.push(['guard_close']),
@@ -1144,6 +1203,18 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /validate_dingdandao_collection/);
   assert.match(gateway, /read_only_enforced: session\.guard\.requestPolicyEnforced === true/);
   assert.match(gateway, /collection_browser_policy_unverified/);
+  assert.match(gateway, /Target\.setDiscoverTargets/);
+  assert.match(gateway, /Target\.setAutoAttach/);
+  assert.match(gateway, /waitForDebuggerOnStart: true/);
+  assert.match(gateway, /message\.sessionId \|\| ''/);
+  assert.match(gateway, /targetInfo\.type === 'page'/);
+  assert.match(gateway, /policyViolation = true/);
+  assert.match(gateway, /const markPolicyViolation = \(\) => \{\s*policyViolation = true;\s*child\?\.kill\?\.\('SIGTERM'\)/);
+  assert.match(gateway, /if \(!intentionalClose\) \{\s*markPolicyViolation\(\)/);
+  assert.match(gateway, /requestPolicyEnforced\s*&& !policyViolation\s*&& !closed\s*&& socket\.readyState === WebSocket\.OPEN/);
+  assert.match(gateway, /pages\.length > 1/);
+  assert.match(gateway, /collectionPolicyStillEnforced/);
+  assert.match(gateway, /collection_browser_policy_breached/);
   assert.match(gateway, /collector_read_only_contract: OTA_RECEIPT_PLATFORM_PATTERN\.test/);
   assert.match(gateway, /Runtime\.evaluate/);
   assert.match(gateway, /read_only_navigation_not_ready/);

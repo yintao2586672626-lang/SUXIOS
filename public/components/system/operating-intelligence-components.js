@@ -2398,5 +2398,9 @@
         return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant });
     };
 
-    window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object.freeze({ create });
+    const exportedFactory = Object.freeze({ create });
+    window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL = exportedFactory;
+    if (!window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS) {
+        window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = exportedFactory;
+    }
 })();

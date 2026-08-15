@@ -64,7 +64,10 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
   const inspection = await inspectFrontendStartupHelpers(repoRoot);
   assert.deepEqual(inspection.failures, []);
   assert.ok(inspection.metrics.gzip_savings_bytes >= 50_000);
-  assert.equal(inspection.metrics.request_savings, 7);
+  assert.equal(
+    inspection.metrics.request_savings,
+    FRONTEND_STARTUP_HELPER_SOURCES.length + FRONTEND_DEFERRED_HELPER_SOURCES.length - 2,
+  );
 
   const sourceEntries = FRONTEND_STARTUP_HELPER_SOURCES.map((name) => ({
     name,
@@ -126,6 +129,7 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
     'SUXI_HOME_STATIC',
     'SUXI_DUAL_OTA_HOME',
     'SUXI_DATA_HEALTH_STATIC',
+    'SUXI_AI_DAILY_REPORT_STATIC',
     'SUXI_MEITUAN_FUTURE_FLOW',
   ]) {
     assert.deepEqual(
@@ -134,6 +138,95 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
       `${exportName} exports must be preserved by the startup bundle`,
     );
   }
+
+  const aiDailyReportStatic = artifactSandbox.window.SUXI_AI_DAILY_REPORT_STATIC;
+  const competitionExportInput = {
+    reportId: 23,
+    fallbackReportDate: '2026-08-16',
+    qualityText: '可信',
+    editionText: '旗舰版',
+    bundle: { bundle_id: 'bundle_abcdefghijklmnop', source_fingerprint: 'fingerprint-a' },
+    report: {
+      schema_version: 1,
+      title: '<可信报告>',
+      render_contract: {
+        bundle_id: 'bundle_abcdefghijklmnop',
+        source_fingerprint: 'fingerprint-a',
+      },
+      actions: JSON.stringify([null, { title: '<复核>', action: '人工确认' }]),
+      data_gaps: JSON.stringify([null, 'legacy gap']),
+    },
+    platforms: [],
+    groups: [],
+  };
+  const competitionExport = aiDailyReportStatic.buildAiDailyCompetitionReportExport(
+    competitionExportInput,
+  );
+  assert.equal(competitionExport.ok, true);
+  assert.equal(
+    competitionExport.filename,
+    'suxios-ota-competition-2026-08-16-r23-efghijklmnop.html',
+  );
+  assert.match(competitionExport.html, /&lt;可信报告&gt;/);
+  assert.match(competitionExport.html, /legacy gap/);
+  assert.equal(
+    aiDailyReportStatic.buildAiDailyCompetitionReportExport({
+      ...competitionExportInput,
+      bundle: { ...competitionExportInput.bundle, source_fingerprint: 'fingerprint-b' },
+    }).code,
+    'competition_report_identity_mismatch',
+  );
+
+  const sourceAiDailyReportStatic = sourceSandbox.window.SUXI_AI_DAILY_REPORT_STATIC;
+  const metricTruthInput = {
+    metric: {
+      key: 'revenue',
+      value: 1888,
+      metric_scope: 'ota_channel',
+      source_ref: 'online_daily_data#41',
+    },
+    report: {
+      hotel_id: 80,
+      report_date: '2026-08-15',
+      source_refs: [{
+        ref: 'online_daily_data#41',
+        source: 'online_daily_data',
+        platform: 'ctrip',
+        metric_keys: ['revenue'],
+        data_date: '2026-08-15',
+        quality_status: 'normal',
+        persistence_status: 'stored',
+        readback_verified: true,
+      }],
+    },
+    permittedHotels: [{ id: 80, name: '宿析测试酒店' }],
+  };
+  const shareInput = {
+    audience: 'training',
+    report: { report_date: '2026-08-15', summary: '脱敏摘要' },
+    contract: { result_version: 'caseversion123456789', contract_version: 'v1' },
+    resultLayers: {
+      source_facts: '[{"key":"revenue","value":1888,"source_ref":"online_daily_data#41"}]',
+      derived_metrics: '[{"key":"adr","value":320}]',
+    },
+    humanJudgments: [{ decision: 'accepted', actor_user_id: 9 }],
+  };
+  const normalizeVmValue = value => JSON.parse(JSON.stringify(value));
+  assert.deepEqual(
+    normalizeVmValue(aiDailyReportStatic.list('{"first":"a","second":"b"}')),
+    normalizeVmValue(sourceAiDailyReportStatic.list('{"first":"a","second":"b"}')),
+  );
+  assert.deepEqual(
+    normalizeVmValue(aiDailyReportStatic.buildMetricTruth(metricTruthInput)),
+    normalizeVmValue(sourceAiDailyReportStatic.buildMetricTruth(metricTruthInput)),
+  );
+  assert.deepEqual(
+    normalizeVmValue(aiDailyReportStatic.buildSharePackage(shareInput)),
+    normalizeVmValue(sourceAiDailyReportStatic.buildSharePackage(shareInput)),
+  );
+  const trainingShare = aiDailyReportStatic.buildSharePackage(shareInput);
+  assert.equal(trainingShare.source_facts[0].result_layer, 'source_fact');
+  assert.equal(trainingShare.derived_metrics[0].result_layer, 'derived_metric');
 
   const appMain = fs.readFileSync(path.join(publicRoot, 'app-main.js'), 'utf8');
   const requiredDataHealthFunctions = new Set([

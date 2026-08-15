@@ -7,9 +7,48 @@ use app\service\HotelBdNewStoreTrainingSyncService;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 use RuntimeException;
+use think\App;
+use think\facade\Config;
+use think\facade\Db;
 
 final class HotelBdNewStoreTrainingSyncServiceTest extends TestCase
 {
+    private static array $databaseConfig;
+    private static string $databasePath;
+
+    public static function setUpBeforeClass(): void
+    {
+        $app = new App();
+        $app->initialize();
+        self::$databaseConfig = Config::get('database');
+        self::$databasePath = sys_get_temp_dir()
+            . '/hotel_bd_training_sync_' . getmypid() . '.sqlite';
+        @unlink(self::$databasePath);
+        $config = self::$databaseConfig;
+        $config['default'] = 'sqlite';
+        $config['connections']['sqlite'] = [
+            'type' => 'sqlite',
+            'database' => self::$databasePath,
+            'prefix' => '',
+            'fields_strict' => false,
+        ];
+        Config::set($config, 'database');
+        Db::connect(null, true);
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        try {
+            Db::connect('sqlite')->close();
+        } catch (\Throwable) {
+        }
+        Config::set(self::$databaseConfig, 'database');
+        Db::connect(null, true);
+        if (is_file(self::$databasePath) && !@unlink(self::$databasePath)) {
+            throw new RuntimeException('hotel_bd_training_test_database_cleanup_failed');
+        }
+    }
+
     public function testGeneratedPackValidatesWithoutDatabaseWrite(): void
     {
         $result = (new HotelBdNewStoreTrainingSyncService())->sync(false);
@@ -96,6 +135,82 @@ final class HotelBdNewStoreTrainingSyncServiceTest extends TestCase
         $this->expectExceptionMessage('hotel_bd_training_source_verification_required');
 
         (new HotelBdNewStoreTrainingSyncService())->sync(true);
+    }
+
+    public function testValidatedPackPersistsIdempotentlyAndSupersedesRemovedEntries(): void
+    {
+        $this->createPersistenceTables();
+        $service = new HotelBdNewStoreTrainingSyncService();
+        $pack = $this->loadPack();
+        $validation = $this->invokePrivate($service, 'validate', [$pack]);
+
+        $first = $this->invokePrivate($service, 'persistValidatedPack', [$pack, $validation]);
+        self::assertTrue($first['readback_verified']);
+        self::assertSame(6, $first['readback_active_chunk_count']);
+        self::assertCount(6, $first['chunk_readback']);
+        foreach ($first['chunk_readback'] as $chunk) {
+            self::assertTrue($chunk['content_match']);
+            self::assertFalse($chunk['decision_safe']);
+            self::assertFalse($chunk['task_draft_safe']);
+            self::assertFalse($chunk['external_write_authorized']);
+        }
+
+        $firstIds = array_column($first['chunk_readback'], 'chunk_id');
+        sort($firstIds);
+        $second = $this->invokePrivate($service, 'persistValidatedPack', [$pack, $validation]);
+        $secondIds = array_column($second['chunk_readback'], 'chunk_id');
+        sort($secondIds);
+        self::assertTrue($second['readback_verified']);
+        self::assertSame($first['unit_id'], $second['unit_id']);
+        self::assertSame($firstIds, $secondIds);
+        self::assertSame(6, Db::name('knowledge_chunks')->where('lifecycle_status', 'active')->count());
+
+        $removedContent = [
+            'schema_version' => '1.0',
+            'seed_owner' => 'suxios.hotel_bd_new_store_training',
+            'seed_key' => 'removed_training_entry',
+            'seed_version' => 'legacy',
+            'lifecycle_status' => 'active',
+            'scope' => 'industry_training_reference_only',
+            'decision_safe' => false,
+            'task_draft_safe' => false,
+            'external_write_authorized' => false,
+        ];
+        $removedId = (int)Db::name('knowledge_chunks')->insertGetId([
+            'unit_id' => $first['unit_id'],
+            'version_no' => 1,
+            'lifecycle_status' => 'active',
+            'content_digest' => $this->invokePrivate($service, 'canonicalHash', [$removedContent]),
+            'superseded_by_chunk_id' => null,
+            'published_at' => '2026-07-01 00:00:00',
+            'retired_at' => null,
+            'type' => 'hotel_bd_new_store_training_reference',
+            'content' => json_encode($removedContent, JSON_THROW_ON_ERROR),
+            'created_by' => 0,
+            'created_at' => '2026-07-01 00:00:00',
+        ]);
+
+        $third = $this->invokePrivate($service, 'persistValidatedPack', [$pack, $validation]);
+        $removed = Db::name('knowledge_chunks')->where('chunk_id', $removedId)->find();
+        $removedReadback = json_decode((string)($removed['content'] ?? ''), true, 512, JSON_THROW_ON_ERROR);
+        self::assertTrue($third['readback_verified']);
+        self::assertSame(6, $third['readback_active_chunk_count']);
+        self::assertSame('superseded', $removed['lifecycle_status']);
+        self::assertNotEmpty($removed['retired_at']);
+        self::assertSame('superseded', $removedReadback['lifecycle_status']);
+        self::assertFalse($removedReadback['decision_safe']);
+        self::assertFalse($removedReadback['task_draft_safe']);
+        self::assertFalse($removedReadback['external_write_authorized']);
+
+        $activeRows = Db::name('knowledge_chunks')->where('lifecycle_status', 'active')->select()->toArray();
+        self::assertCount(6, $activeRows);
+        foreach ($activeRows as $row) {
+            $content = json_decode((string)$row['content'], true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame('industry_training_reference_only', $content['scope']);
+            self::assertFalse($content['decision_safe']);
+            self::assertFalse($content['task_draft_safe']);
+            self::assertFalse($content['external_write_authorized']);
+        }
     }
 
     public function testCustomPackCannotBePersisted(): void
@@ -216,5 +331,51 @@ final class HotelBdNewStoreTrainingSyncServiceTest extends TestCase
             json_encode($pack, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
         );
         return $temporary;
+    }
+
+    private function createPersistenceTables(): void
+    {
+        Db::execute('DROP TABLE IF EXISTS knowledge_chunks');
+        Db::execute('DROP TABLE IF EXISTS knowledge_units');
+        Db::execute('CREATE TABLE knowledge_units (
+            unit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hotel_id INTEGER NOT NULL,
+            stable_key TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            description TEXT NOT NULL,
+            tags TEXT NOT NULL,
+            created_by INTEGER NOT NULL,
+            lifecycle_status TEXT NOT NULL,
+            lifecycle_reason TEXT NOT NULL,
+            known_knowns TEXT NOT NULL,
+            known_unknowns TEXT NOT NULL,
+            truth_profile_version TEXT NOT NULL,
+            reviewed_at TEXT NOT NULL,
+            review_due_at TEXT NOT NULL,
+            current_chunk_id INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )');
+        Db::execute('CREATE TABLE knowledge_chunks (
+            chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            unit_id INTEGER NOT NULL,
+            version_no INTEGER NOT NULL,
+            lifecycle_status TEXT NOT NULL,
+            content_digest TEXT NOT NULL,
+            superseded_by_chunk_id INTEGER,
+            published_at TEXT NOT NULL,
+            retired_at TEXT,
+            type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        )');
+    }
+
+    private function invokePrivate(object $target, string $method, array $arguments): mixed
+    {
+        return (new ReflectionMethod($target, $method))->invokeArgs($target, $arguments);
     }
 }

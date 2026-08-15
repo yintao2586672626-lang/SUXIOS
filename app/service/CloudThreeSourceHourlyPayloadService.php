@@ -158,6 +158,7 @@ final class CloudThreeSourceHourlyPayloadService
             $ctripRows = $this->taskRows(
                 $tenantId,
                 $hotelId,
+                (int)$ctripSource['id'],
                 (int)$ctripTask['id'],
                 'ctrip',
                 $businessDate,
@@ -173,6 +174,7 @@ final class CloudThreeSourceHourlyPayloadService
             $meituanRows = $this->taskRows(
                 $tenantId,
                 $hotelId,
+                (int)$meituanSource['id'],
                 (int)$meituanTask['id'],
                 'meituan',
                 $businessDate,
@@ -572,6 +574,7 @@ final class CloudThreeSourceHourlyPayloadService
     private function taskRows(
         int $tenantId,
         int $hotelId,
+        int $sourceId,
         int $taskId,
         string $platform,
         string $businessDate,
@@ -580,6 +583,7 @@ final class CloudThreeSourceHourlyPayloadService
         $rows = Db::name('online_daily_data')
             ->where('tenant_id', $tenantId)
             ->where('system_hotel_id', $hotelId)
+            ->where('data_source_id', $sourceId)
             ->where('source', $platform)
             ->where('platform', $platform)
             ->where('sync_task_id', $taskId)

@@ -11,9 +11,14 @@ vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context,
 vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context, {
   filename: 'public/data-health-static.js',
 });
+const aiDailyReportStatic = readFileSync('public/ai-daily-report-static.js', 'utf8');
+vm.runInNewContext(aiDailyReportStatic, context, {
+  filename: 'public/ai-daily-report-static.js',
+});
 
 const helpers = context.window.SUXI_REVENUE_AI_STATIC;
 const dataHealthHelpers = context.window.SUXI_DATA_HEALTH_STATIC;
+const aiDailyReportHelpers = context.window.SUXI_AI_DAILY_REPORT_STATIC;
 const indexHtml = readFileSync('public/index.html', 'utf8');
 const appMain = `${readFileSync('public/components/system/app-main-components.js', 'utf8')}\n${readFileSync('public/app-main.js', 'utf8')}`;
 const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
@@ -250,13 +255,18 @@ test('AI daily explanation stays optional and separate from the rule summary', (
 });
 
 test('AI daily report metric cards bind per-metric truth without global OTA promotion', () => {
-  const truthStart = appMain.indexOf('const aiDailyReportTruthStatusLabel');
-  const truthEnd = appMain.indexOf('const aiDailyReportActions', truthStart);
-  assert.ok(truthStart >= 0 && truthEnd > truthStart, 'AI daily metric truth block must exist');
-  const truthBlock = appMain.slice(truthStart, truthEnd);
+  const truthStart = aiDailyReportStatic.indexOf('const truthStatusLabel');
+  const truthEnd = aiDailyReportStatic.indexOf('const metricCalculation', truthStart);
+  const wrapperStart = appMain.indexOf('const buildAiDailyReportMetricTruth');
+  const wrapperEnd = appMain.indexOf('const aiDailyReportActions', wrapperStart);
+  assert.ok(truthStart >= 0 && truthEnd > truthStart, 'extracted AI daily metric truth helper must exist');
+  assert.ok(wrapperStart >= 0 && wrapperEnd > wrapperStart, 'AI daily metric truth runtime wrapper must exist');
+  const wrapperBlock = appMain.slice(wrapperStart, wrapperEnd);
+  const truthBlock = `${aiDailyReportStatic.slice(truthStart, truthEnd)}\n${wrapperBlock}`;
 
   assert.match(truthBlock, /metric\.truth[\s\S]*metric\.truth_context/);
-  assert.match(truthBlock, /aiDailyReport\.value\?\.source_refs/);
+  assert.match(truthBlock, /report\.source_refs/);
+  assert.match(truthBlock, /report:\s*aiDailyReport\.value\s*\|\|\s*\{\}/);
   assert.match(truthBlock, /metric_keys/);
   assert.match(truthBlock, /metric\.metric_scopes/);
   assert.match(truthBlock, /daily_reports#\\d\+/);
@@ -271,7 +281,7 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
     assert.match(truthBlock, new RegExp(scope));
   }
   assert.match(appMain, /const onlineTruthDetailText = requireDataHealthStatic\('onlineTruthDetailText'\);/);
-  assert.match(truthBlock, /truthDetailText: onlineTruthDetailText\(truth\)/);
+  assert.match(truthBlock, /truthDetailText: onlineTruthDetailText\(result\.truth\)/);
   assert.match(appMain, /const aiDailyReportMetricValue = \(metric\) => \{[\s\S]*?return '—';/);
   assert.doesNotMatch(truthBlock, /\|\|\s*0/);
 
@@ -292,10 +302,11 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
     const aiDailyReportList = (value) => Array.isArray(value) ? value : [];
     const aiDailyReportObjectList = (value) => aiDailyReportList(value)
       .filter(item => item && typeof item === 'object' && !Array.isArray(item));
-    ${truthBlock}
+    ${wrapperBlock}
     return { aiDailyReport, aiDailyReportMetricTruth, aiDailyReportMetricCards };
   })()`, {
     onlineTruthDetailText: dataHealthHelpers.onlineTruthDetailText,
+    requireAiDailyReportStatic: key => aiDailyReportHelpers[key],
   }, { filename: 'ai-daily-report-metric-truth.js' });
   metricHelpers.aiDailyReport.value = {
     hotel_id: 7,

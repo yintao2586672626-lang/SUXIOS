@@ -72,6 +72,22 @@ test('CDP attach fails closed and closes the browser unless exactly one context 
   assert.equal(closed, true);
 });
 
+test('CDP attach fails closed when the context contains more than the guarded page', async () => {
+  const guardedPage = { evaluate: async () => 'suxios_profile_lease_guarded' };
+  const extraPage = { evaluate: async () => '' };
+  let closed = false;
+  await assert.rejects(
+    () => connectOtaCdpContext('http://127.0.0.1:9223', {
+      connectOverCDP: async () => ({
+        contexts: () => [{ pages: () => [guardedPage, extraPage] }],
+        close: async () => { closed = true; },
+      }),
+    }),
+    /ota_browser_cdp_guarded_page_missing/,
+  );
+  assert.equal(closed, true);
+});
+
 test('configured browser binary takes precedence over a request path', () => {
   const previous = process.env.CLOAKBROWSER_BINARY_PATH;
   process.env.CLOAKBROWSER_BINARY_PATH = '/opt/suxios/chrome';
@@ -173,7 +189,7 @@ test('cloud Profile CDP accepts only the protected loopback endpoint', () => {
   }
 });
 
-test('connected context reuses the guarded page and closes only pages it creates', async () => {
+test('connected context reuses only the guarded page and rejects additional pages', async () => {
   const calls = [];
   const guardedPage = {
     isClosed: () => false,
@@ -197,27 +213,22 @@ test('connected context reuses the guarded page and closes only pages it creates
   const facade = createConnectedContextFacade(context, browser);
 
   assert.equal(await facade.newPage(), guardedPage);
-  assert.equal(await facade.newPage(), createdPage);
+  await assert.rejects(() => facade.newPage(), /ota_browser_cdp_additional_page_blocked/);
   assert.equal(await facade.grantPermissions(), 'ok');
   await facade.close();
   await facade.close();
 
-  assert.deepEqual(calls, ['created_close', 'disconnect']);
+  assert.deepEqual(calls, ['disconnect']);
 });
 
 test('launcher connects to the gateway CDP instead of launching a persistent profile', async () => {
-  const restoredPage = {
-    isClosed: () => false,
-    close: async () => undefined,
-    evaluate: async () => '',
-  };
   const guardedPage = {
     isClosed: () => false,
     close: async () => undefined,
     evaluate: async () => 'suxios_profile_lease_guarded',
   };
   const context = {
-    pages: () => [guardedPage, restoredPage],
+    pages: () => [guardedPage],
     newPage: async () => {
       throw new Error('must reuse guarded page');
     },

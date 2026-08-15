@@ -1072,8 +1072,10 @@ class CompetitorApi extends Base
             ->update(['last_time' => date('Y-m-d H:i:s')]);
 
         $comparabilityReady = $this->competitorRateComparabilitySchemaReady();
-        $readbackVerified = !$comparabilityReady || (int)($log->readback_verified ?? 0) === 1;
-        $auditError = $readbackVerified ? null : 'saved_row_readback_mismatch';
+        $readbackVerified = $comparabilityReady && (int)($log->readback_verified ?? 0) === 1;
+        $auditError = !$comparabilityReady
+            ? 'competitor_comparability_schema_pending'
+            : ($readbackVerified ? null : 'saved_row_readback_mismatch');
         OperationLog::record('competitor', $auditError === null ? 'report' : 'report_failed', '上报竞对价格/可售事件: ' . $hotelId, null, $storeId, $auditError, [
             'audit_type' => 'operation',
             'outcome' => $auditError === null ? 'success' : 'failed',

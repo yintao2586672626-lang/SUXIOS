@@ -35,12 +35,12 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-render.min.js')?.phase, 'after-first-paint');
   assert.equal(
     entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-deferred-helpers.min.js')?.phase,
-    'startup',
-    'home OTA truth helpers must load before app-main mounts the authenticated landing page',
+    'after-first-paint',
+    'non-startup domain helpers must stay off the authenticated first paint',
   );
   assert(
-    scriptAssets.indexOf('app-deferred-helpers.min.js') < scriptAssets.indexOf('app-startup-render.min.js'),
-    'home OTA truth helpers must precede the startup render',
+    scriptAssets.indexOf('app-deferred-helpers.min.js') < scriptAssets.indexOf('app-render.min.js'),
+    'deferred domain helpers must load before the full render artifact',
   );
   for (const deferredAsset of [
     'ctrip-search-opportunity-static.js',
@@ -60,6 +60,7 @@ test('public login shell defers the authenticated application asset chain', () =
     'ctrip-static.js',
     'meituan-static.js',
     'data-health-static.js',
+    'ai-daily-report-static.js',
     'system-static.js',
     'compass-static.js',
     'home-static.js',
@@ -172,6 +173,7 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.match(bootstrap, /await Promise\.all\(prerequisites\.map\(\(src\) => loadScript\(src\)\)\);/);
   assert.match(bootstrap, /await loadScript\(entry\);/);
   assert.match(bootstrap, /await waitForFirstAuthenticatedPaint\(\);/);
+  assert.match(bootstrap, /await Promise\.all\(assets\.map\(\(asset\) => loadAuthenticatedAsset\(asset\)\)\);/);
   assert.match(bootstrap, /suxi:full-render-ready/);
   assert.match(bootstrap, /const resolvedSrc = resolveAssetUrl\(src\);/);
   assert.match(
@@ -202,6 +204,16 @@ test('authenticated startup keeps the full render off the network until a non-st
     appMain,
     /const promoteSuxiFullRender = \(\) => \{[\s\S]*!fullRenderRuntimeReady\(\)\) return false;/,
     'full render must not mount while deferred helper namespaces are still loading',
+  );
+  assert.match(appMain, /\['createMeituanRankingForm',[\s\S]*'getMeituanOrderFlowPeriods'\]\.every\(key => typeof meituanStatic\?\.\[key\] === 'function'\)/);
+  const fullRenderPromotionStart = appMain.indexOf('const promoteSuxiFullRender = () => {');
+  const fullRenderPromotionEnd = appMain.indexOf('\n    requestSuxiFullRenderForPage =', fullRenderPromotionStart);
+  const fullRenderPromotion = appMain.slice(fullRenderPromotionStart, fullRenderPromotionEnd);
+  const unmountOffset = fullRenderPromotion.indexOf('suxiApp?.unmount();');
+  const remountOffset = fullRenderPromotion.indexOf('mountSuxiApp();');
+  assert(
+    unmountOffset >= 0 && remountOffset > unmountOffset,
+    'full-render promotion must remount setup after every deferred helper is ready',
   );
   assert.match(
     appMain,

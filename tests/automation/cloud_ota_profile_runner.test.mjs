@@ -14,6 +14,7 @@ test('cloud OTA runner binds one source/Profile/date and persists only after cur
   assert.match(runner, /set_exception_handler/);
   assert.match(runner, /'collection_kind'\s*=>\s*'ota_channel_profile'/);
   assert.match(runner, /'data_source_id'\s*=>\s*\$sourceId/);
+  assert.match(runner, /\(\$opened\['read_only_enforced'\] \?\? null\) !== true/);
   assert.match(runner, /'cdp_url'\s*=>\s*\$cdpUrl/);
   const capture = runner.indexOf('$captureAdapter->fetch(');
   const proof = runner.indexOf('recordCollectionPreflightVerified(');
@@ -27,6 +28,8 @@ test('cloud OTA runner binds one source/Profile/date and persists only after cur
   assert.match(runner, /\['capture_sections'\]\s*=\s*'traffic'/);
   assert.match(runner, /\['capture_mode'\]\s*=\s*'temporal_summary'/);
   assert.match(runner, /'require_current_run_session_probe'\s*=>\s*true/);
+  assert.match(runner, /'ctrip_section_concurrency'\]\s*=\s*1/);
+  assert.match(runner, /'sequential_sections'\]\s*=\s*true/);
   assert.match(runner, /'dispatcher-run-id::'/);
   assert.match(runner, /'daily_profile_reuse'/);
   assert.match(runner, /\$captureOptions\['dispatcher_run_id'\]\s*=\s*\$dispatcherRunId/);
@@ -54,6 +57,12 @@ test('cloud OTA runner binds one source/Profile/date and persists only after cur
   assert.ok(gatewayReceipt > close);
   assert.ok(gatewayReceiptReadback > gatewayReceipt);
   assert.ok(finalOutput > gatewayReceiptReadback);
+  assert.match(runner, /\$gatewayReceiptPayload\s*=\s*\$gatewayReceiptReadback\['payload'\] \?\? null/);
+  assert.match(runner, /'collection_session_id'\s*=>\s*\$collectionSessionId/);
+  assert.match(runner, /'data_source_id'\s*=>\s*\$sourceId/);
+  assert.match(runner, /'owner_user_id'\s*=>\s*\$ownerUserId/);
+  assert.match(runner, /'close_receipt_id'\s*=>\s*\$closeReceiptId/);
+  assert.match(runner, /'close_receipt_hash'\s*=>\s*\$closeReceiptHash/);
   assert.match(runner, /\$result\['gateway_receipt_readback_verified'\]\s*=\s*true/);
   assert.match(runner, /'message_sent'\s*=>\s*false/);
   assert.doesNotMatch(runner, /dispatchVerifiedCapture|WeCom|webhook/i);

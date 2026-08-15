@@ -894,5 +894,9 @@
         return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, OperatingLoopAuthority });
     };
 
-    window.SUXI_APP_MAIN_COMPONENTS = Object.freeze({ create });
+    const exportedFactory = Object.freeze({ create });
+    window.SUXI_APP_MAIN_COMPONENTS_FULL = exportedFactory;
+    if (!window.SUXI_APP_MAIN_COMPONENTS) {
+        window.SUXI_APP_MAIN_COMPONENTS = exportedFactory;
+    }
 })();

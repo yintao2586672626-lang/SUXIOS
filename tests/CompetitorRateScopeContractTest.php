@@ -81,4 +81,24 @@ final class CompetitorRateScopeContractTest extends TestCase
         self::assertStringContainsString("['meituan.com', 'dianping.com']", $controller);
         self::assertStringContainsString("(string)\$rateContext['content_hash']", $controller);
     }
+
+    public function testSchemaPendingReportCannotBeAuditedAsReadbackVerifiedSuccess(): void
+    {
+        $controller = (string)file_get_contents(
+            dirname(__DIR__) . '/app/controller/CompetitorApi.php'
+        );
+
+        self::assertStringContainsString(
+            '$readbackVerified = $comparabilityReady &&',
+            $controller
+        );
+        self::assertStringContainsString(
+            "'competitor_comparability_schema_pending'",
+            $controller
+        );
+        self::assertStringNotContainsString(
+            '$readbackVerified = !$comparabilityReady ||',
+            $controller
+        );
+    }
 }

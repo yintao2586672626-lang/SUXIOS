@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { readAppMainContractSource } from './helpers/frontend_source.mjs';
 
@@ -13,6 +14,13 @@ const contentHash = (source) => crypto.createHash('sha256').update(source).diges
 const indexHtml = read('public/index.html');
 const loader = read('public/components/online-data/ctrip-order-analysis-loader.js');
 const panel = read('public/components/online-data/ctrip-order-analysis-panel.js');
+const appMainComponentsLoader = read('public/components/system/app-main-components-loader.js');
+const appMainComponents = read('public/components/system/app-main-components.js');
+const operatingIntelligenceLoader = read('public/components/system/operating-intelligence-loader.js');
+const operatingIntelligenceComponents = read('public/components/system/operating-intelligence-components.js');
+const startupHelperBuild = read('scripts/lib/frontend_startup_helpers_build.mjs');
+const startupHelperBundle = read('public/app-startup-helpers.min.js');
+const appBootstrap = read('public/app-bootstrap.js');
 const appMain = readAppMainContractSource();
 const ctripPage = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
 const routes = read('route/app.php');
@@ -52,10 +60,249 @@ test('authenticated runtime loads the hashed lazy order-analysis component betwe
   assert.equal(bodyReference[1], contentHash(panel), 'lazy body hash must match panel contents');
   assert.ok(panel.length > 1_000, 'lazy panel body must not be an empty placeholder');
 
+  for (const [asset, source] of [
+    ['components/system/app-main-components.js', appMainComponents],
+    ['components/system/operating-intelligence-components.js', operatingIntelligenceComponents],
+  ]) {
+    const reference = indexHtml.match(new RegExp(`${asset.replaceAll('.', '\\.') }\\?v=[^"']*-h([a-f0-9]{10})`));
+    assert.ok(reference, `${asset} must be present in the authenticated runtime manifest`);
+    assert.equal(reference[1], contentHash(source), `${asset} content hash must match its manifest URL`);
+  }
+  assert.match(indexHtml, /"src": "components\/system\/app-main-components\.js\?v=[^"]+"[\s\S]*?"phase": "after-first-paint"/);
+  assert.match(indexHtml, /"src": "components\/system\/operating-intelligence-components\.js\?v=[^"]+"[\s\S]*?"phase": "after-first-paint"/);
+  assert.match(startupHelperBuild, /'components\/system\/app-main-components-loader\.js'/);
+  assert.match(startupHelperBuild, /'components\/system\/operating-intelligence-loader\.js'/);
+  assert.match(startupHelperBundle, /SUXI_APP_MAIN_COMPONENTS/);
+  assert.match(startupHelperBundle, /SUXI_OPERATING_INTELLIGENCE_COMPONENTS/);
+  assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS\s*=\s*Object\.freeze/);
+  assert.match(appMainComponents, /window\.SUXI_APP_MAIN_COMPONENTS_FULL\s*=\s*exportedFactory/);
+  assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS\s*=\s*Object\.freeze/);
+  assert.match(operatingIntelligenceComponents, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL\s*=\s*exportedFactory/);
+  assert.match(appMainComponentsLoader, /script\.dataset\.suxiAssetLoaded = '1'/);
+  assert.match(operatingIntelligenceLoader, /script\.dataset\.suxiAssetLoaded = '1'/);
+  assert.match(
+    appMain,
+    /SUXI_OPERATING_INTELLIGENCE_COMPONENTS\?\.create\?\.\(\{\s*Vue,\s*computed,\s*inject,\s*h,\s*nextTick,\s*onMounted,\s*onUnmounted,/,
+    'app-main must pass the Vue runtime required by the operating-intelligence startup bridge',
+  );
+
   assert.match(appMain, /const CtripOrderAnalysisPanel = systemComponents\.CtripOrderAnalysisPanel \|\| Vue\.defineAsyncComponent\s*\(/);
   assert.match(appMain, /loader:\s*loadCtripOrderAnalysisPanelBody/);
   assert.equal((appMain.match(/inheritAttrs:\s*false/g) || []).length >= 2, true, 'entry fallback cards must not forward the ctx object to DOM attributes');
   assert.match(appMain, /DataConfigDialogs,\s*\.\.\.systemComponents,\s*CtripOrderAnalysisPanel/);
+});
+
+test('a dynamically loaded component script remains reusable by the deferred manifest loader', async () => {
+  const scripts = [];
+  const createScript = () => {
+    const handlers = new Map();
+    return {
+      dataset: {},
+      src: '',
+      async: false,
+      addEventListener: (name, handler) => handlers.set(name, handler),
+      remove: () => {},
+      dispatch: name => handlers.get(name)?.(),
+    };
+  };
+  const document = {
+    baseURI: 'https://hotel.example.test/',
+    scripts,
+    head: { appendChild: script => scripts.push(script) },
+    createElement: createScript,
+  };
+  const window = {};
+  vm.runInNewContext(appMainComponentsLoader, { window, document, URL }, {
+    filename: 'app-main-components-loader.js',
+  });
+  const Vue = {
+    defineAsyncComponent: definition => (
+      typeof definition === 'function' ? { loader: definition } : definition
+    ),
+  };
+  const components = window.SUXI_APP_MAIN_COMPONENTS.create({ Vue, h: () => null });
+  const componentPromise = components.AiDecisionQualityDetails.loader();
+  assert.equal(scripts.length, 1, 'dynamic component request must create one full-script element');
+  window.SUXI_APP_MAIN_COMPONENTS_FULL = {
+    create: () => ({ AiDecisionQualityDetails: { name: 'AiDecisionQualityDetails' } }),
+  };
+  scripts[0].dispatch('load');
+  assert.equal((await componentPromise).name, 'AiDecisionQualityDetails');
+  assert.equal(scripts[0].dataset.suxiAssetLoaded, '1');
+  assert.match(appBootstrap, /if \(existing\.dataset\.suxiAssetLoaded === '1'\) \{\s*resolve\(\);/);
+
+  const deferredManifestReuse = new Promise((resolve, reject) => {
+    if (scripts[0].dataset.suxiAssetLoaded === '1') {
+      resolve();
+      return;
+    }
+    scripts[0].addEventListener('load', resolve, { once: true });
+    scripts[0].addEventListener('error', reject, { once: true });
+  });
+  await deferredManifestReuse;
+});
+
+test('deferred component bridges replace a completed script that did not register its factory', async () => {
+  for (const contract of [
+    {
+      filename: 'app-main-components-loader.js',
+      source: appMainComponentsLoader,
+      bridgeKey: 'SUXI_APP_MAIN_COMPONENTS',
+      fullKey: 'SUXI_APP_MAIN_COMPONENTS_FULL',
+      componentKey: 'AiDecisionQualityDetails',
+      expectedError: /主应用完整领域组件未完成注册/,
+    },
+    {
+      filename: 'operating-intelligence-loader.js',
+      source: operatingIntelligenceLoader,
+      bridgeKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS',
+      fullKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL',
+      componentKey: 'operatingQuestionPanel',
+      expectedError: /经营问答完整组件未完成注册/,
+    },
+  ]) {
+    const scripts = [];
+    const createScript = () => {
+      const handlers = new Map();
+      const script = {
+        dataset: {},
+        src: '',
+        async: false,
+        addEventListener: (name, handler) => handlers.set(name, handler),
+        remove: () => {
+          const index = scripts.indexOf(script);
+          if (index >= 0) scripts.splice(index, 1);
+        },
+        dispatch: name => handlers.get(name)?.(),
+      };
+      return script;
+    };
+    const document = {
+      baseURI: 'https://hotel.example.test/',
+      documentElement: { dataset: { suxiFullRenderReady: '1' } },
+      scripts,
+      head: { appendChild: script => scripts.push(script) },
+      createElement: createScript,
+    };
+    const window = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => {},
+    };
+    const CustomEvent = class {
+      constructor(type) { this.type = type; }
+    };
+    vm.runInNewContext(contract.source, { window, document, URL, CustomEvent }, {
+      filename: contract.filename,
+    });
+    const Vue = {
+      defineAsyncComponent: definition => (
+        typeof definition === 'function' ? { loader: definition } : definition
+      ),
+    };
+    const components = window[contract.bridgeKey].create({ Vue, h: () => null });
+
+    const firstAttempt = components[contract.componentKey].loader();
+    await Promise.resolve();
+    assert.equal(scripts.length, 1, `${contract.filename} must create its first full-script node`);
+    scripts[0].dispatch('load');
+    await assert.rejects(firstAttempt, contract.expectedError);
+    assert.equal(scripts.length, 0, `${contract.filename} must remove a completed unregistered script`);
+
+    const retry = components[contract.componentKey].loader();
+    await Promise.resolve();
+    assert.equal(scripts.length, 1, `${contract.filename} retry must create a fresh full-script node`);
+    window[contract.fullKey] = {
+      create: () => ({ [contract.componentKey]: { name: contract.componentKey } }),
+    };
+    scripts[0].dispatch('load');
+    assert.equal((await retry).name, contract.componentKey);
+    assert.equal(scripts[0].dataset.suxiAssetLoaded, '1');
+  }
+});
+
+test('deferred component bridges discard a failed manifest script before retrying', async () => {
+  for (const contract of [
+    {
+      filename: 'app-main-components-loader.js',
+      source: appMainComponentsLoader,
+      fullScript: 'components/system/app-main-components.js?v=20260816-runtime-closure-h69f30ff2c7',
+      bridgeKey: 'SUXI_APP_MAIN_COMPONENTS',
+      fullKey: 'SUXI_APP_MAIN_COMPONENTS_FULL',
+      componentKey: 'AiDecisionQualityDetails',
+      expectedError: /主应用完整领域组件加载失败/,
+    },
+    {
+      filename: 'operating-intelligence-loader.js',
+      source: operatingIntelligenceLoader,
+      fullScript: 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h33d4563d1b',
+      bridgeKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS',
+      fullKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL',
+      componentKey: 'operatingQuestionPanel',
+      expectedError: /经营问答完整组件加载失败/,
+    },
+  ]) {
+    const scripts = [];
+    const createScript = () => {
+      const handlers = new Map();
+      const script = {
+        dataset: {},
+        src: '',
+        async: false,
+        addEventListener: (name, handler) => handlers.set(name, handler),
+        remove: () => {
+          const index = scripts.indexOf(script);
+          if (index >= 0) scripts.splice(index, 1);
+        },
+        dispatch: name => handlers.get(name)?.(),
+      };
+      return script;
+    };
+    const document = {
+      baseURI: 'https://hotel.example.test/',
+      documentElement: { dataset: { suxiFullRenderReady: '1' } },
+      scripts,
+      head: { appendChild: script => scripts.push(script) },
+      createElement: createScript,
+    };
+    const manifestScript = createScript();
+    manifestScript.src = new URL(contract.fullScript, document.baseURI).href;
+    scripts.push(manifestScript);
+    const window = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => {},
+    };
+    const CustomEvent = class {
+      constructor(type) { this.type = type; }
+    };
+    vm.runInNewContext(contract.source, { window, document, URL, CustomEvent }, {
+      filename: contract.filename,
+    });
+    const Vue = {
+      defineAsyncComponent: definition => (
+        typeof definition === 'function' ? { loader: definition } : definition
+      ),
+    };
+    const components = window[contract.bridgeKey].create({ Vue, h: () => null });
+
+    const firstAttempt = components[contract.componentKey].loader();
+    await Promise.resolve();
+    assert.equal(scripts.length, 1, `${contract.filename} must reuse the manifest-created script`);
+    manifestScript.dispatch('error');
+    await assert.rejects(firstAttempt, contract.expectedError);
+    assert.equal(scripts.length, 0, `${contract.filename} must remove the failed manifest-created script`);
+
+    const retry = components[contract.componentKey].loader();
+    await Promise.resolve();
+    assert.equal(scripts.length, 1, `${contract.filename} retry must create a fresh script after manifest failure`);
+    window[contract.fullKey] = {
+      create: () => ({ [contract.componentKey]: { name: contract.componentKey } }),
+    };
+    scripts[0].dispatch('load');
+    assert.equal((await retry).name, contract.componentKey);
+    assert.equal(scripts[0].dataset.suxiAssetLoaded, '1');
+  }
 });
 
 test('Ctrip upload page renders immediate import preview and the persisted range-analysis panel', () => {

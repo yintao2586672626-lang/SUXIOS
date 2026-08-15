@@ -30,16 +30,6 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     public function fetch(array $source, array $options = []): array
     {
         $config = is_array($source['config'] ?? null) ? $source['config'] : [];
-        $cdpUrl = trim((string)($options['cdp_url'] ?? $options['cdpUrl'] ?? ''));
-        if ($cdpUrl !== '' && $cdpUrl !== 'http://127.0.0.1:9223') {
-            return [
-                'status' => 'failed',
-                'status_code' => 'cloud_browser_cdp_url_invalid',
-                'error_code' => 'cloud_browser_cdp_url_invalid',
-                'message' => 'Cloud browser CDP endpoint is invalid.',
-                'payload' => [],
-            ];
-        }
         $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
         $storeId = $this->firstString($options, $config, ['platform_hotel_id', 'store_id', 'storeId', 'poi_id', 'poiId']);
         if ($storeId === '') {
@@ -52,12 +42,12 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
         $requestedCdpUrl = $this->firstString($options, [], ['cdp_url', 'cdpUrl']);
         $cdpUrl = $this->normalizeCdpUrl($requestedCdpUrl);
-        if ($requestedCdpUrl !== '' && $cdpUrl === '') {
+        if ($requestedCdpUrl !== '' && $cdpUrl !== 'http://127.0.0.1:9223') {
             return [
-                'status' => 'waiting_config',
-                'status_code' => 'invalid_cdp_url',
-                'error_code' => 'invalid_cdp_url',
-                'message' => 'Meituan CDP URL must use http://127.0.0.1:<port>.',
+                'status' => 'failed',
+                'status_code' => 'cloud_browser_cdp_url_invalid',
+                'error_code' => 'cloud_browser_cdp_url_invalid',
+                'message' => 'Meituan CDP URL must use the protected http://127.0.0.1:9223 endpoint.',
                 'payload' => [],
             ];
         }

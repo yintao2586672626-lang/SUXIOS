@@ -6446,6 +6446,7 @@ aside.sidebar:not(.collapsed) {
 }
 
 .suxi-app-shell main[data-current-page="operation-optimizer"],
+.suxi-app-shell main[data-current-page="operating-growth-archive"],
 .suxi-app-shell main[data-current-page="ops-source"],
 .suxi-app-shell main[data-current-page="ops-analysis"],
 .suxi-app-shell main[data-current-page="ops-insight"],

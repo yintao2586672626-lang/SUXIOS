@@ -13,8 +13,8 @@ test('three-source collectors finish before the exact-hour formal dispatch', () 
   const installer = read('deploy/systemd/install_cloud_three_source_hourly.sh');
   const formalVerifier = read('deploy/systemd/verify_manual_notification_formal_dispatch.php');
 
-  assert.match(ding, /OnCalendar=\*-\*-\* \*:35:00 Asia\/Shanghai/);
-  assert.match(ota, /OnCalendar=\*-\*-\* \*:40:00 Asia\/Shanghai/);
+  assert.match(ding, /OnCalendar=\*-\*-\* \*:20:00 Asia\/Shanghai/);
+  assert.match(ota, /OnCalendar=\*-\*-\* \*:35:00 Asia\/Shanghai/);
   assert.match(formal, /OnCalendar=\*-\*-\* \*:\*:00/);
   assert.match(ding, /Persistent=false/);
   assert.match(ota, /Persistent=false/);

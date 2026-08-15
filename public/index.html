@@ -47,7 +47,9 @@
     <script>
         (() => {
             const fontAwesomeStylesheet = 'font-awesome.min.css?v=20260628-static-router-fix';
-            const loadFontAwesomeStylesheet = () => {
+            const FONT_AWESOME_FALLBACK_MS = 8000;
+            const loadFontAwesomeStylesheet = ({ force = false } = {}) => {
+                if (!force && document.documentElement.dataset.suxiAuthenticatedInteractiveReady !== '1') return;
                 if (document.querySelector('link[data-suxi-fontawesome="1"]')) return;
                 const link = document.createElement('link');
                 link.rel = 'stylesheet';
@@ -56,7 +58,18 @@
                 document.head.appendChild(link);
             };
             const scheduleFontAwesomeStylesheetLoad = () => {
-                const run = () => window.setTimeout(loadFontAwesomeStylesheet, 1600);
+                const run = () => {
+                    const loadAfterInteractiveReady = () => window.setTimeout(loadFontAwesomeStylesheet, 1600);
+                    if (document.documentElement.dataset.suxiAuthenticatedInteractiveReady !== '1') {
+                        window.addEventListener('suxi:authenticated-interactive-ready', loadAfterInteractiveReady, { once: true });
+                    } else {
+                        loadAfterInteractiveReady();
+                    }
+                    window.setTimeout(
+                        () => loadFontAwesomeStylesheet({ force: true }),
+                        FONT_AWESOME_FALLBACK_MS,
+                    );
+                };
                 if (document.readyState === 'loading') {
                     document.addEventListener('DOMContentLoaded', run, { once: true });
                     return;
@@ -99,11 +112,11 @@
     <script type="application/json" id="suxi-authenticated-assets">
         [
             {
-                "src": "tailwind.min.css?v=20260717-login-usability-hafa2553672",
+                "src": "tailwind.min.css?v=20260717-login-usability-h940549cd4b",
                 "type": "style"
             },
             {
-                "src": "style.min.css?v=20260804-authenticated-style-h6c7c9954fe",
+                "src": "style.min.css?v=20260804-authenticated-style-he7794c0ea7",
                 "type": "style"
             },
             {
@@ -111,8 +124,17 @@
                 "type": "style"
             },
             "vue.runtime.global.prod.js?v=20260713-runtime-h039d03af6b",
-            "app-startup-helpers.min.js?v=20260725-startup-bundle-h0c29d869e1",
+            "app-startup-helpers.min.js?v=20260725-startup-bundle-hc5f272740a",
             "components/system/business-closure-loader.js?v=20260803-business-closure-loader-h8ee6775901",
+            "components/online-data/ctrip-order-analysis-loader.js?v=20260816-runtime-closure-h4259b4e1fe",
+            {
+                "src": "components/system/app-main-components.js?v=20260816-runtime-closure-h69f30ff2c7",
+                "phase": "after-first-paint"
+            },
+            {
+                "src": "components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h33d4563d1b",
+                "phase": "after-first-paint"
+            },
             {
                 "src": "ctrip-search-opportunity-static.js?v=20260713-percentage-points-h4247608158",
                 "phase": "after-first-paint"
@@ -122,15 +144,15 @@
                 "phase": "after-first-paint"
             },
             {
-                "src": "app-deferred-helpers.min.js?v=20260731-deferred-domain-hda4458b206",
+                "src": "app-deferred-helpers.min.js?v=20260731-deferred-domain-hbce26db683",
                 "phase": "after-first-paint"
             },
-            "app-startup-render.min.js?v=20260717-home-first-hd89d3d9979",
+            "app-startup-render.min.js?v=20260717-home-first-h4d1c24ead5",
             {
-                "src": "app-render.min.js?v=20260717-ai-daily-result-hdf3c0f4cf3",
+                "src": "app-render.min.js?v=20260717-ai-daily-result-ha6dd31a0a7",
                 "phase": "after-first-paint"
             },
-            "app-main.min.js?v=20260716-login-flow-h446a3ec8bb"
+            "app-main.min.js?v=20260716-login-flow-hb042884d9c"
         ]
     </script>
     <script defer src="app-bootstrap.min.js?v=20260717-login-warmup-h5cbcd7a631" data-suxi-critical-asset="app-bootstrap.js"></script>

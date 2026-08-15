@@ -61,16 +61,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
         $options = $workflow->applyFlowOptions($options, $config);
-        $cdpUrl = trim((string)($options['cdp_url'] ?? $options['cdpUrl'] ?? ''));
-        if ($cdpUrl !== '' && $cdpUrl !== 'http://127.0.0.1:9223') {
-            return [
-                'status' => 'failed',
-                'status_code' => 'cloud_browser_cdp_url_invalid',
-                'error_code' => 'cloud_browser_cdp_url_invalid',
-                'message' => 'Cloud browser CDP endpoint is invalid.',
-                'payload' => [],
-            ];
-        }
         $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
         $profileId = $this->firstString($options, $config, ['profile_id', 'profileId', 'browser_profile_id', 'browserProfileId']);
         if ($profileId === '') {
@@ -83,12 +73,12 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
         $requestedCdpUrl = $this->firstString($options, [], ['cdp_url', 'cdpUrl']);
         $cdpUrl = $this->normalizeCdpUrl($requestedCdpUrl);
-        if ($requestedCdpUrl !== '' && $cdpUrl === '') {
+        if ($requestedCdpUrl !== '' && $cdpUrl !== 'http://127.0.0.1:9223') {
             return [
-                'status' => 'waiting_config',
-                'status_code' => 'invalid_cdp_url',
-                'error_code' => 'invalid_cdp_url',
-                'message' => 'Ctrip CDP URL must use http://127.0.0.1:<port>.',
+                'status' => 'failed',
+                'status_code' => 'cloud_browser_cdp_url_invalid',
+                'error_code' => 'cloud_browser_cdp_url_invalid',
+                'message' => 'Ctrip CDP URL must use the protected http://127.0.0.1:9223 endpoint.',
                 'payload' => [],
             ];
         }

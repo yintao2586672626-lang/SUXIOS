@@ -8,7 +8,12 @@ test('cloud browser bridge exposes the exact OTA collection validation action', 
     'utf8',
   );
 
-  assert.match(bridge, /'validate_ota_collection'\s*=>\s*\$service->validateOtaCollectionProfile\(/);
+  assert.match(
+    bridge,
+    /'validate_ota_collection'\s*=>\s*array_key_exists\('data_source_id', \$input\)/,
+  );
+  assert.match(bridge, /\? \$service->validateOtaDataSourceCollectionProfile\(/);
+  assert.match(bridge, /: \$service->validateOtaCollectionProfile\(/);
   assert.match(bridge, /requiredPositiveInt\(\$input, 'data_source_id'\)/);
   assert.match(bridge, /function requiredOtaPlatform\(array \$input\): string/);
   assert.match(bridge, /\['ctrip', 'meituan'\]/);

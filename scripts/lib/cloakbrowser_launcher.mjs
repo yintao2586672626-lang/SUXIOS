@@ -125,8 +125,8 @@ export function createConnectedContextFacade(context, connectedBrowser, guardedP
 
   const existingPages = new Set(context.pages());
   const reservedPage = guardedPage || [...existingPages].at(-1) || null;
-  if (reservedPage && !existingPages.has(reservedPage)) {
-    throw new TypeError('Guarded page must belong to the connected context.');
+  if (existingPages.size !== 1 || !reservedPage || !existingPages.has(reservedPage)) {
+    throw new TypeError('Connected browser context must contain exactly one guarded page.');
   }
   let reservedPageClaimed = false;
   let closed = false;
@@ -142,7 +142,7 @@ export function createConnectedContextFacade(context, connectedBrowser, guardedP
             reservedPageClaimed = true;
             return reservedPage;
           }
-          return target.newPage(...args);
+          throw new Error('ota_browser_cdp_additional_page_blocked');
         };
       }
       if (property === 'close') {
@@ -162,12 +162,9 @@ export function createConnectedContextFacade(context, connectedBrowser, guardedP
 
 async function findGuardedConnectedPage(context) {
   const pages = context.pages();
-  for (const page of [...pages].reverse()) {
-    if (typeof page?.evaluate !== 'function') continue;
-    const marker = await page.evaluate(() => window.name).catch(() => '');
-    if (marker === GUARDED_PAGE_MARKER) return page;
-  }
-  return pages.length === 1 ? pages[0] : null;
+  if (pages.length !== 1 || typeof pages[0]?.evaluate !== 'function') return null;
+  const marker = await pages[0].evaluate(() => window.name).catch(() => '');
+  return marker === GUARDED_PAGE_MARKER ? pages[0] : null;
 }
 
 export function resolveOtaBrowserBinaryPath(parsedArgs = {}) {

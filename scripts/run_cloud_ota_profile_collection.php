@@ -78,6 +78,8 @@ $syncTaskRecorded = false;
 $postSyncFailure = false;
 $failureReason = null;
 $result = null;
+$closeReceiptId = null;
+$closeReceiptHash = null;
 $controlToken = '';
 $failureOptions = [
     'data_date' => validDate($targetDate) ? $targetDate : '',
@@ -142,6 +144,7 @@ try {
     ]);
     if (($opened['status'] ?? '') !== 'collection_open'
         || ($opened['collector_read_only_contract'] ?? null) !== true
+        || ($opened['read_only_enforced'] ?? null) !== true
         || ($opened['network_freshness_control']['http_cache_disabled'] ?? null) !== true
         || ($opened['network_freshness_control']['service_worker_bypassed'] ?? null) !== true
         || (int)($opened['data_source_id'] ?? 0) !== $sourceId
@@ -180,7 +183,11 @@ try {
         $captureOptions['capture_plan'] = 'realtime';
         $captureOptions['capture_sections'] = 'business_overview,traffic_report';
         $captureOptions['bounded_capture_sections'] = 'business_overview,traffic_report';
-        $captureOptions['ctrip_section_concurrency'] = 2;
+        // The cloud gateway guards exactly one page target. Keep formal cloud
+        // collection on that page so no unguarded popup/parallel target can
+        // issue a request outside the gateway Fetch policy.
+        $captureOptions['ctrip_section_concurrency'] = 1;
+        $captureOptions['sequential_sections'] = true;
         $captureAdapter = new CtripBrowserProfileDataSourceAdapter($root);
     } else {
         // Match the product's existing current-day Meituan temporal contract:
@@ -321,10 +328,20 @@ try {
                 'outcome' => $closeOutcome,
             ]);
             if (($closed['status'] ?? '') !== 'collection_closed'
+                || (string)($closed['collection_session_id'] ?? '') !== $collectionSessionId
                 || ($closed['profile_sealed'] ?? null) !== true
                 || ($closed['browser_started'] ?? null) !== false
             ) {
                 throw new RuntimeException('cloud_ota_collection_profile_close_unverified');
+            }
+            $closeReceiptId = opaqueId(
+                (string)($closed['receipt_id'] ?? ''),
+                'cbr_',
+                'cloud_ota_collection_close_receipt_id_invalid'
+            );
+            $closeReceiptHash = strtolower(trim((string)($closed['receipt_hash'] ?? '')));
+            if (preg_match('/^[a-f0-9]{64}$/D', $closeReceiptHash) !== 1) {
+                throw new RuntimeException('cloud_ota_collection_close_receipt_hash_invalid');
             }
         } catch (Throwable $closeError) {
             $failureReason = $failureReason ?? safeReason($closeError->getMessage());
@@ -352,11 +369,16 @@ $taskPublicId = 'cct_task_' . str_pad((string)$result['task_id'], 8, '0', STR_PA
 try {
     $gatewayReceipt = gatewayRequest($gatewayUrl, $controlToken, '/v1/collection/receipt', [
         'task_id' => $taskPublicId,
+        'collection_session_id' => $collectionSessionId,
         'profile_id' => $profileId,
         'platform' => $platform,
         'tenant_id' => $tenantId,
         'hotel_id' => $hotelId,
+        'owner_user_id' => $ownerUserId,
+        'data_source_id' => $sourceId,
         'target_date' => $targetDate,
+        'close_receipt_id' => $closeReceiptId,
+        'close_receipt_hash' => $closeReceiptHash,
         'source_method' => 'cloud_browser_profile',
         'status' => 'saved',
         'identity_verified' => true,
@@ -375,23 +397,30 @@ try {
         $controlToken,
         $gatewayReceiptId
     );
+    $gatewayReceiptPayload = $gatewayReceiptReadback['payload'] ?? null;
     if (($gatewayReceipt['status'] ?? '') !== 'accepted'
         || preg_match('/^[a-f0-9]{64}$/D', $gatewayReceiptHash) !== 1
         || !hash_equals($gatewayReceiptHash, strtolower(trim((string)($gatewayReceiptReadback['receipt_hash'] ?? ''))))
         || (string)($gatewayReceiptReadback['kind'] ?? '') !== 'collection_result'
-        || (string)($gatewayReceiptReadback['task_id'] ?? '') !== $taskPublicId
-        || (string)($gatewayReceiptReadback['profile_id'] ?? '') !== $profileId
-        || (string)($gatewayReceiptReadback['platform'] ?? '') !== $platform
-        || (int)($gatewayReceiptReadback['tenant_id'] ?? 0) !== $tenantId
-        || (int)($gatewayReceiptReadback['hotel_id'] ?? 0) !== $hotelId
-        || (string)($gatewayReceiptReadback['target_date'] ?? '') !== $targetDate
-        || (string)($gatewayReceiptReadback['status'] ?? '') !== 'saved'
-        || ($gatewayReceiptReadback['identity_verified'] ?? null) !== true
-        || (int)($gatewayReceiptReadback['saved_count'] ?? -1) !== (int)$result['saved_count']
-        || (int)($gatewayReceiptReadback['readback_count'] ?? -1) !== (int)$result['readback_count']
+        || !is_array($gatewayReceiptPayload)
+        || (string)($gatewayReceiptPayload['task_id'] ?? '') !== $taskPublicId
+        || (string)($gatewayReceiptPayload['collection_session_id'] ?? '') !== $collectionSessionId
+        || (string)($gatewayReceiptPayload['profile_id'] ?? '') !== $profileId
+        || (string)($gatewayReceiptPayload['platform'] ?? '') !== $platform
+        || (int)($gatewayReceiptPayload['tenant_id'] ?? 0) !== $tenantId
+        || (int)($gatewayReceiptPayload['hotel_id'] ?? 0) !== $hotelId
+        || (int)($gatewayReceiptPayload['owner_user_id'] ?? 0) !== $ownerUserId
+        || (int)($gatewayReceiptPayload['data_source_id'] ?? 0) !== $sourceId
+        || (string)($gatewayReceiptPayload['target_date'] ?? '') !== $targetDate
+        || (string)($gatewayReceiptPayload['close_receipt_id'] ?? '') !== $closeReceiptId
+        || !hash_equals($closeReceiptHash, strtolower(trim((string)($gatewayReceiptPayload['close_receipt_hash'] ?? ''))))
+        || (string)($gatewayReceiptPayload['status'] ?? '') !== 'saved'
+        || ($gatewayReceiptPayload['identity_verified'] ?? null) !== true
+        || (int)($gatewayReceiptPayload['saved_count'] ?? -1) !== (int)$result['saved_count']
+        || (int)($gatewayReceiptPayload['readback_count'] ?? -1) !== (int)$result['readback_count']
         || !hash_equals(
             (string)$result['field_facts_sha256'],
-            strtolower(trim((string)($gatewayReceiptReadback['field_facts_sha256'] ?? '')))
+            strtolower(trim((string)($gatewayReceiptPayload['field_facts_sha256'] ?? '')))
         )
     ) {
         throw new RuntimeException('cloud_ota_gateway_receipt_readback_unverified');

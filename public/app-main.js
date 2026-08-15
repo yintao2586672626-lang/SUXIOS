@@ -1,15 +1,15 @@
     const { createApp, ref, shallowRef, computed, onMounted, onUnmounted, watch, nextTick, markRaw, h, provide, inject } = Vue;
-
     const API_BASE = '/api';
     const DATA_HEALTH_STATIC_CONTRACT_VERSION = '20260811-full-render-v1';
     const fullRenderRuntimeReady = () => {
-        const dataHealthStatic = window.SUXI_DATA_HEALTH_STATIC;
+        const dataHealthStatic = window.SUXI_DATA_HEALTH_STATIC, meituanStatic = window.SUXI_MEITUAN_STATIC;
         return document.documentElement.dataset.suxiFullRenderReady === '1'
             && typeof window.SUXI_APP_RENDER === 'function'
             && dataHealthStatic?.contractVersion === DATA_HEALTH_STATIC_CONTRACT_VERSION
             && typeof dataHealthStatic.buildCollectionHealthAuthorizationRowsReadable === 'function'
             && typeof dataHealthStatic.buildCollectionHealthCtripPersistedRows === 'function'
             && typeof dataHealthStatic.collectionHealthCtripIdentityBlocked === 'function'
+            && ['createMeituanRankingForm', 'createMeituanTrafficForm', 'createMeituanOrderForm', 'createMeituanAdsForm', 'createMeituanBrowserCaptureForm', 'getMeituanOrderFlowPeriods'].every(key => typeof meituanStatic?.[key] === 'function')
             && typeof window.SUXI_MEITUAN_FUTURE_FLOW === 'object';
     };
     const normalizeSuxiDomAttributeText = (value) => {
@@ -2975,9 +2975,11 @@
             const showCtripCommentSpidertoken = ref(false);
             const showCtripCommentCookies = ref(false);
             const showCtripCommentPayload = ref(false);
-            const meituanStatic = window.SUXI_MEITUAN_STATIC && typeof window.SUXI_MEITUAN_STATIC === 'object'
-                ? window.SUXI_MEITUAN_STATIC
-                : {};
+            const currentMeituanStatic = () => (
+                window.SUXI_MEITUAN_STATIC && typeof window.SUXI_MEITUAN_STATIC === 'object'
+                    ? window.SUXI_MEITUAN_STATIC
+                    : {}
+            );
             const missingMeituanStaticHelpers = [];
             window.SUXI_MISSING_MEITUAN_STATIC_HELPERS = missingMeituanStaticHelpers;
             const meituanConfigSaveHelperKeys = Object.freeze([
@@ -2989,7 +2991,8 @@
                 'buildMeituanConfigSaveFailureState',
             ]);
             const resolveMeituanStaticHelperAvailability = (keys = []) => {
-                const missing = keys.filter((key) => typeof meituanStatic[key] !== 'function');
+                const owner = currentMeituanStatic();
+                const missing = keys.filter((key) => typeof owner[key] !== 'function');
                 return { available: missing.length === 0, missing };
             };
             const meituanStaticUnavailableResult = (key) => ({
@@ -3220,16 +3223,25 @@
                 if (key.startsWith('runMeituan')) return async () => unavailable();
                 return unavailable;
             };
+            const resolveMeituanStaticFallback = (key) => {
+                return meituanStaticFallbackFor(key);
+            };
             const requireMeituanStatic = (key) => {
-                const value = meituanStatic[key];
-                if (typeof value !== 'function') {
-                    if (!missingMeituanStaticHelpers.includes(key)) {
-                        missingMeituanStaticHelpers.push(key);
+                const fallback = resolveMeituanStaticFallback(key);
+                return (...args) => {
+                    const owner = currentMeituanStatic();
+                    const value = owner[key];
+                    if (typeof value !== 'function') {
+                        if (!missingMeituanStaticHelpers.includes(key)) {
+                            missingMeituanStaticHelpers.push(key);
+                        }
+                        console.warn(`[meituan-static] 缺少静态展示工具项：${key}；系统入口继续加载，相关美团功能将提示不可用。`);
+                        return fallback(...args);
                     }
-                    console.warn(`[meituan-static] 缺少静态展示工具项：${key}；系统入口继续加载，相关美团功能将提示不可用。`);
-                    return meituanStaticFallbackFor(key);
-                }
-                return value;
+                    const missingIndex = missingMeituanStaticHelpers.indexOf(key);
+                    if (missingIndex >= 0) missingMeituanStaticHelpers.splice(missingIndex, 1);
+                    return value.apply(owner, args);
+                };
             };
             const OTA_BROWSER_ASSIST_STATIC_ASSET = 'ota-browser-assist-static.js?v=20260723-browser-assist-safety-h82e9900cd3';
             let otaBrowserAssistStaticLoadPromise = null;
@@ -25082,40 +25094,14 @@
                 if (!gaps.length) return '';
                 return gaps.slice(0, 2).map(item => item.message || item.code).filter(Boolean).join('；');
             });
-            const aiDailyReportParsedValue = (value) => {
-                if (typeof value !== 'string') return value;
-                const text = value.trim();
-                if (!text || !/^[\[{]/.test(text)) return value;
-                try {
-                    return JSON.parse(text);
-                } catch (error) {
-                    return value;
-                }
-            };
-            const aiDailyReportList = (value) => {
-                const parsed = aiDailyReportParsedValue(value);
-                if (Array.isArray(parsed)) return parsed;
-                if (parsed && typeof parsed === 'object') return Object.values(parsed);
-                return [];
-            };
-            const aiDailyReportObjectList = (value, textKey = 'message') => aiDailyReportList(value).map((item, index) => {
-                const parsed = aiDailyReportParsedValue(item);
-                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
-                if (parsed === null || parsed === undefined || parsed === '') return null;
-                return { code: `raw_${index}`, [textKey]: String(parsed), label: String(parsed), data_status: '结构待核验' };
-            }).filter(Boolean);
-            const aiDailyReportActionList = (value) => aiDailyReportList(value).map((item, index) => {
-                const parsed = aiDailyReportParsedValue(item);
-                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
-                if (parsed === null || parsed === undefined || parsed === '') return null;
-                return {
-                    title: `建议${index + 1}`,
-                    action: String(parsed),
-                    reason: '建议结构不完整，需核验来源字段',
-                    can_create_execution_intent: false,
-                    blocked_reason: '建议结构不完整',
-                };
-            }).filter(Boolean);
+            const requireAiDailyReportStatic = key => requireDeferredStaticFunction(
+                'SUXI_AI_DAILY_REPORT_STATIC',
+                key,
+                '缺少AI日报延后静态工具项',
+            );
+            const aiDailyReportList = requireAiDailyReportStatic('list');
+            const aiDailyReportObjectList = requireAiDailyReportStatic('objectList');
+            const aiDailyReportActionList = requireAiDailyReportStatic('actionList');
             const aiDailyReportGenerationOutcome = computed(() => aiDailyReportGenerationTask.value
                 ? resolveAiDailyReportGenerationOutcome(aiDailyReportGenerationTask.value)
                 : { kind: 'idle', limited: false, message: '' });
@@ -25170,283 +25156,20 @@
                 const value = aiDailyReport.value?.ai_interpretation || aiDailyReport.value?.result_layers?.ai_assistance;
                 return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
             });
-            const aiDailyReportTruthStatusLabel = (status) => ({
-                verified: '已验证',
-                partial: '部分数据',
-                unverified: '未验证',
-                collection_failed: '采集失败',
-            }[String(status || '').trim().toLowerCase()] || '未验证');
-            const aiDailyReportExpandScope = (scope) => {
-                const value = String(scope || '').trim().toLowerCase();
-                if (!value || value === 'unknown') return [];
-                if (value === 'mixed_whole_hotel_and_ota_channel') return ['whole_hotel_daily_report', 'ota_channel'];
-                if (['whole_hotel', 'whole_hotel_daily_report'].includes(value) || value.includes('whole_hotel')) {
-                    return ['whole_hotel_daily_report'];
-                }
-                if (value === 'ota' || value === 'ota_channel' || value.includes('ota channel')) return ['ota_channel'];
-                if (['manual_input', 'user_input'].includes(value) || value.includes('manual')) return ['manual_input'];
-                if (value === 'local_operating_source' || value.includes('local_operating')) return ['local_operating_source'];
-                if (value === 'derived' || value === 'derived_metric') return ['derived'];
-                return [value];
-            };
-            const aiDailyReportMetricScopeMembers = (metric = {}) => {
-                const rawScopes = Array.isArray(metric.metric_scopes)
-                    ? metric.metric_scopes
-                    : [metric.metric_scope];
-                return Array.from(new Set(rawScopes.flatMap(aiDailyReportExpandScope)));
-            };
-            const aiDailyReportSourceRefKey = (source = {}) => String(
-                source.ref || source.key || source.source_ref || source.source || ''
-            ).trim();
-            const aiDailyReportSourceScope = (source = {}) => {
-                const key = aiDailyReportSourceRefKey(source).toLowerCase();
-                const sourceName = String(source.source || '').trim().toLowerCase();
-                const dataType = String(source.data_type || '').trim().toLowerCase();
-                const ingestionMethod = String(source.ingestion_method || '').trim().toLowerCase();
-                if (/^online_daily_data#\d+$/.test(key) || sourceName === 'online_daily_data') return 'ota_channel';
-                if (/^daily_reports#\d+$/.test(key) || sourceName === 'daily_reports' || dataType === 'whole_hotel_daily_report') {
-                    return 'whole_hotel_daily_report';
-                }
-                if (sourceName.includes('manual') || ingestionMethod.includes('manual')) return 'manual_input';
-                if (sourceName.includes('local') || ingestionMethod.includes('local')) return 'local_operating_source';
-                const explicit = aiDailyReportExpandScope(source.metric_scope || source.scope);
-                if (explicit.length === 1) return explicit[0];
-                if (explicit.includes('ota_channel') && explicit.includes('whole_hotel_daily_report')) {
-                    return 'mixed_whole_hotel_and_ota_channel';
-                }
-                const platform = String(source.platform || sourceName).trim().toLowerCase();
-                if (['ctrip', 'meituan', 'qunar'].includes(platform)) return 'ota_channel';
-                return explicit[0] || 'unknown';
-            };
-            const aiDailyReportMetricSourceAliases = {
-                revenue: ['revenue', 'amount'],
-                orders: ['orders', 'book_order_num', 'order_submit_num'],
-                room_nights: ['room_nights', 'quantity'],
-                adr: ['revenue', 'amount', 'room_nights', 'quantity'],
-                exposure: ['exposure', 'list_exposure'],
-                visitors: ['visitors', 'detail_exposure'],
-                flow_rate: ['flow_rate', 'list_exposure', 'detail_exposure'],
-                order_filling: ['order_filling', 'order_filling_num'],
-                order_submit: ['order_submit', 'order_submit_num', 'book_order_num'],
-                fill_submit_rate: ['fill_submit_rate', 'order_filling', 'order_filling_num', 'order_submit', 'order_submit_num', 'book_order_num'],
-            };
-            const aiDailyReportMetricSourceRefs = (metric = {}) => {
-                const providedTruth = metric.truth && typeof metric.truth === 'object'
-                    ? metric.truth
-                    : (metric.truth_context && typeof metric.truth_context === 'object' ? metric.truth_context : {});
-                const candidates = [
-                    ...aiDailyReportObjectList(aiDailyReport.value?.source_refs, 'label'),
-                    ...aiDailyReportObjectList(providedTruth.evidence_sources, 'label'),
-                ];
-                const sourcesByKey = new Map();
-                candidates.forEach((source, index) => {
-                    const normalized = source && typeof source === 'object' ? source : {};
-                    const key = aiDailyReportSourceRefKey(normalized) || `source-${index}`;
-                    const previous = sourcesByKey.get(key) || {};
-                    sourcesByKey.set(key, {
-                        ...previous,
-                        ...normalized,
-                        metric_keys: Array.from(new Set([
-                            ...(Array.isArray(previous.metric_keys) ? previous.metric_keys : []),
-                            ...(Array.isArray(normalized.metric_keys) ? normalized.metric_keys : []),
-                        ].map(item => String(item || '').trim()).filter(Boolean))),
-                    });
-                });
-                const metricKey = String(metric.key || '').trim();
-                const aliases = new Set((aiDailyReportMetricSourceAliases[metricKey] || [metricKey]).filter(Boolean));
-                const metricScopes = aiDailyReportMetricScopeMembers(metric);
-                const metricSourceRefs = Array.isArray(metric.source_refs)
-                    ? metric.source_refs
-                    : (metric.source_refs ? [metric.source_refs] : []);
-                const explicitRefs = new Set(metricSourceRefs.map(item => (
-                    typeof item === 'string' ? item : aiDailyReportSourceRefKey(item)
-                )).map(item => String(item || '').trim()).filter(Boolean));
-                const singularSourceRef = String(metric.source_ref || '').trim();
-                if (sourcesByKey.has(singularSourceRef)) explicitRefs.add(singularSourceRef);
-                return Array.from(sourcesByKey.values()).filter((source) => {
-                    const sourceKey = aiDailyReportSourceRefKey(source);
-                    if (explicitRefs.size) return explicitRefs.has(sourceKey);
-                    const sourceMetricKeys = Array.isArray(source.metric_keys)
-                        ? source.metric_keys.map(item => String(item || '').trim())
-                        : [];
-                    if (!sourceMetricKeys.some(key => aliases.has(key))) return false;
-                    if (!metricScopes.length) return true;
-                    const sourceScopes = aiDailyReportExpandScope(aiDailyReportSourceScope(source));
-                    return sourceScopes.some(scope => metricScopes.includes(scope));
-                });
-            };
-            const aiDailyReportSourceReadbackVerified = (source = {}) => {
-                const persistence = source.persistence && typeof source.persistence === 'object' ? source.persistence : {};
-                const value = source.readback_verified ?? persistence.readback_verified;
-                return value === true || value === 1 || value === '1';
-            };
-            const aiDailyReportSourceTruthStatus = (source = {}) => {
-                const rawStatus = String(
-                    source.quality_status
-                    || source.persistence_status
-                    || source.verification_status
-                    || source.validation_status
-                    || source.data_status
-                    || source.status
-                    || ''
-                ).trim().toLowerCase();
-                if (['collection_failed', 'failed', 'error'].includes(rawStatus)) return 'collection_failed';
-                if (['partial', 'stale', 'incomplete'].includes(rawStatus)) return 'partial';
-                const trustedValidation = ['normal', 'available', 'verified', 'ok', 'success', 'complete', 'completed', 'readback_verified'];
-                if (aiDailyReportSourceReadbackVerified(source) && trustedValidation.includes(rawStatus)) return 'verified';
-                return 'unverified';
-            };
-            const aiDailyReportMetricScopeContext = (metric = {}, sources = []) => {
-                const members = aiDailyReportMetricScopeMembers(metric);
-                if (!members.length) {
-                    sources.forEach(source => members.push(...aiDailyReportExpandScope(aiDailyReportSourceScope(source))));
-                }
-                const unique = Array.from(new Set(members));
-                const hasWholeHotel = unique.includes('whole_hotel_daily_report');
-                const hasOta = unique.includes('ota_channel');
-                const hasUserInput = unique.includes('manual_input');
-                const hasLocal = unique.includes('local_operating_source');
-                if (hasWholeHotel && hasOta) {
-                    return { code: 'mixed', text: '混合来源', label: '混合口径：全酒店经营日报 + OTA渠道，不可按单一口径解读' };
-                }
-                if (hasWholeHotel) return { code: 'whole_hotel', text: '全酒店', label: '全酒店经营日报口径' };
-                if (hasOta) return { code: 'ota_channel', text: 'OTA渠道', label: 'OTA渠道指标，不代表全酒店经营' };
-                if (hasUserInput) return { code: 'user_input', text: '用户输入', label: '用户/人工输入口径，不代表已通过外部来源验证' };
-                if (hasLocal) return { code: 'local_operating_source', text: '本地经营来源', label: '本地经营来源，验证范围以当前来源记录为准' };
-                return { code: 'unprovided', text: '口径未提供', label: '指标口径未提供' };
-            };
+            const buildAiDailyReportMetricTruth = requireAiDailyReportStatic('buildMetricTruth');
             const aiDailyReportMetricTruth = (metric = {}) => {
-                const sources = aiDailyReportMetricSourceRefs(metric);
-                const scope = aiDailyReportMetricScopeContext(metric, sources);
-                const hasValue = metric.value !== null && metric.value !== undefined && metric.value !== ''
-                    && Number.isFinite(Number(metric.value));
-                const sourceStatuses = sources.map(aiDailyReportSourceTruthStatus);
-                let status = 'unverified';
-                if (sourceStatuses.length && sourceStatuses.every(item => item === 'verified')) {
-                    status = 'verified';
-                } else if (sourceStatuses.length && sourceStatuses.every(item => item === 'collection_failed')) {
-                    status = 'collection_failed';
-                } else if (sourceStatuses.some(item => ['verified', 'partial', 'collection_failed'].includes(item))) {
-                    status = 'partial';
-                }
-                const providedTruth = metric.truth && typeof metric.truth === 'object'
-                    ? metric.truth
-                    : (metric.truth_context && typeof metric.truth_context === 'object' ? metric.truth_context : {});
-                const providedStatus = String(providedTruth.status || '').trim().toLowerCase();
-                if (!sources.length && ['verified', 'partial', 'unverified', 'collection_failed'].includes(providedStatus)) {
-                    const persistence = providedTruth.persistence && typeof providedTruth.persistence === 'object'
-                        ? providedTruth.persistence
-                        : {};
-                    const total = Number(persistence.record_count);
-                    const verified = Number(persistence.readback_verified_count);
-                    const exactReadback = persistence.readback_verified === true
-                        || (Number.isFinite(total) && total > 0 && Number.isFinite(verified) && verified === total);
-                    status = providedStatus === 'verified' && !exactReadback ? 'unverified' : providedStatus;
-                }
-                const metricDataStatus = String(metric.data_status || '').trim().toLowerCase();
-                if (!hasValue && status === 'verified') status = 'partial';
-                if (!hasValue && ['collection_failed', 'failed', 'error'].includes(metricDataStatus)) status = 'collection_failed';
-
-                const reportHotelId = aiDailyReport.value?.hotel_id ?? aiDailyReport.value?.report_scope?.hotel_id;
-                const hotelId = Number(reportHotelId);
-                const hotel = [...(Array.isArray(permittedHotels.value) ? permittedHotels.value : []), ...(Array.isArray(hotels.value) ? hotels.value : [])]
-                    .find(item => Number(item?.id) === hotelId);
-                const dates = Array.from(new Set(sources.map(source => String(source.data_date || source.date || '').trim()).filter(Boolean))).sort();
-                const reportDate = String(aiDailyReport.value?.report_date || aiDailyReport.value?.report_scope?.report_date || '').trim();
-                if (!dates.length && reportDate) dates.push(reportDate);
-                const platforms = Array.from(new Set(sources.map((source) => {
-                    const platform = String(source.platform || '').trim().toLowerCase();
-                    if (platform) return platform;
-                    const sourceName = String(source.source || '').trim().toLowerCase();
-                    return ['ctrip', 'meituan', 'qunar'].includes(sourceName) ? sourceName : '';
-                }).filter(Boolean)));
-                const sourceRefs = Array.from(new Set(sources.map(aiDailyReportSourceRefKey).filter(Boolean)));
-                const sourceTables = Array.from(new Set(sourceRefs.map(ref => {
-                    const value = String(ref);
-                    return /^[a-z_][a-z0-9_]*#\d+$/i.test(value) ? value.split('#')[0] : '';
-                }).filter(Boolean)));
-                const sourceMethods = Array.from(new Set(sources.map(source => String(source.ingestion_method || '').trim()).filter(Boolean)));
-                const collectedTimes = Array.from(new Set(sources.map(source => String(
-                    source.collected_at || source.snapshot_time || source.fetched_at || source.updated_at || ''
-                ).trim()).filter(Boolean))).sort();
-                const directStoredCount = sources.filter(source => {
-                    const ref = aiDailyReportSourceRefKey(source);
-                    const persistence = source.persistence && typeof source.persistence === 'object' ? source.persistence : {};
-                    return /^[a-z_][a-z0-9_]*#\d+$/i.test(ref)
-                        || persistence.stored === true
-                        || ['stored', 'persisted', 'success'].includes(String(source.persistence_status || '').trim().toLowerCase());
-                }).length;
-                const readbackCount = sources.filter(aiDailyReportSourceReadbackVerified).length;
-                const sourceFailureReasons = sources.map(source => String(
-                    source.failure_reason || source.error || source.error_message || ''
-                ).trim()).filter(Boolean);
-                let failureReason = String(providedTruth.failure_reason || sourceFailureReasons.join('；')).trim();
-                if (!failureReason && !hasValue) failureReason = '指标值未提供';
-                if (!failureReason && !sources.length) failureReason = '指标来源证据未提供';
-                if (!failureReason && status === 'partial') failureReason = '部分来源未通过逐来源验证';
-                if (!failureReason && status === 'unverified') failureReason = '来源未提供逐来源验证或入库回读证据';
-                if (!failureReason && status === 'collection_failed') failureReason = '来源采集失败';
-                if (!failureReason) failureReason = '无';
-                const platformLabels = platforms.map(platform => ({ ctrip: '携程', meituan: '美团', qunar: '去哪儿' }[platform] || platform));
-                const platformText = platformLabels.length
-                    ? (scope.code === 'mixed'
-                        ? `${platformLabels.join('、')}（OTA部分）；全酒店日报部分不适用`
-                        : platformLabels.join('、'))
-                    : (scope.code === 'ota_channel' || scope.code === 'mixed' ? '未提供' : '不适用');
-                const sourceText = sourceRefs.length
-                    ? `${sourceTables.join('、') || '来源表未提供'}${sourceMethods.length ? ` / ${sourceMethods.join('、')}` : ' / 采集方式未提供'}（${sourceRefs.join('、')}）`
-                    : `未提供（逻辑引用 ${String(metric.source_ref || '未提供')}）`;
-                const dateText = dates.length > 1 ? `${dates[0]} 至 ${dates[dates.length - 1]}` : (dates[0] || '未提供');
-                const collectedAtText = collectedTimes.length > 1
-                    ? `${collectedTimes[0]} 至 ${collectedTimes[collectedTimes.length - 1]}`
-                    : (collectedTimes[0] || '未提供');
-                const hotelText = hotelId > 0
-                    ? `${String(hotel?.name || hotel?.hotel_name || '').trim() || '门店'}（ID ${hotelId}）`
-                    : '未提供';
-                const persistenceText = sources.length
-                    ? `已入库 ${directStoredCount}/${sources.length}；回读 ${readbackCount}/${sources.length}`
-                    : '未提供来源记录';
-                const truth = {
-                    ...providedTruth,
-                    status,
-                    status_label: aiDailyReportTruthStatusLabel(status),
-                    metric_scope: scope.code,
-                    scope_label: scope.label,
-                    hotels: hotelId > 0 ? [{ system_hotel_id: hotelId, name: String(hotel?.name || hotel?.hotel_name || '').trim() }] : [],
-                    platforms: platforms.length ? platforms : [platformText],
-                    date_range: { start: dates[0] || '', end: dates[dates.length - 1] || '' },
-                    source: { table: sourceTables.join('、') || '未提供', methods: sourceMethods.length ? sourceMethods : ['未提供'] },
-                    collected_at_range: { start: collectedTimes[0] || '', end: collectedTimes[collectedTimes.length - 1] || '' },
-                    persistence: { record_count: sources.length, stored_count: directStoredCount, readback_verified_count: readbackCount },
-                    failure_reason: failureReason,
-                    source_refs: sourceRefs,
-                };
+                const result = buildAiDailyReportMetricTruth({
+                    metric,
+                    report: aiDailyReport.value || {},
+                    permittedHotels: permittedHotels.value || [],
+                    hotels: hotels.value || [],
+                });
                 return {
-                    truth,
-                    truth_context: truth,
-                    sources,
-                    sourceRefsText: sourceRefs.join('、') || String(metric.source_ref || '未提供'),
-                    scopeCode: scope.code,
-                    scopeText: scope.text,
-                    resultTypeCode: String(metric.result_layer || '').trim() === 'derived_metric' ? 'derived' : 'source_fact',
-                    truthDetailText: onlineTruthDetailText(truth),
+                    ...result,
+                    truthDetailText: onlineTruthDetailText(result.truth),
                 };
             };
-            const aiDailyReportMetricCalculation = (metric = {}) => {
-                const hasValue = metric.value !== null && metric.value !== undefined && metric.value !== ''
-                    && Number.isFinite(Number(metric.value));
-                const dataStatus = String(metric.data_status || '').trim().toLowerCase();
-                const derived = String(metric.result_layer || '').trim() === 'derived_metric';
-                if (['not_applicable', 'n/a'].includes(dataStatus)) {
-                    return { code: 'not_applicable', text: '计算：不适用', className: 'border-slate-200 bg-slate-50 text-slate-600' };
-                }
-                if (!hasValue) {
-                    return { code: 'missing', text: derived ? '计算：不可计算' : '计算：未提供', className: 'border-amber-200 bg-amber-50 text-amber-700' };
-                }
-                return derived
-                    ? { code: 'calculated', text: '计算：已计算', className: 'border-blue-200 bg-blue-50 text-blue-700' }
-                    : { code: 'available', text: '计算：来源值', className: 'border-slate-200 bg-white text-slate-600' };
-            };
+            const aiDailyReportMetricCalculation = requireAiDailyReportStatic('metricCalculation');
             const aiDailyReportMetricCards = computed(() => {
                 const metrics = aiDailyReportObjectList(aiDailyReport.value?.yesterday_result?.metrics);
                 return metrics.filter(Boolean).slice(0, 10).map((metric) => {
@@ -25470,118 +25193,19 @@
                 || aiDailyReport.value?.snapshot?.competition_circle_bundle
                 || {}
             ));
-            const aiDailyReportCompetitionPlatforms = computed(() => {
-                const bundle = aiDailyReportCompetitionBundle.value || {};
-                const labels = { ctrip: '携程', meituan: '美团' };
-                return ['ctrip', 'meituan'].map(platform => {
-                    const facts = bundle.facts?.[platform] || {};
-                    const analysis = bundle.analysis?.[platform] || {};
-                    const platformGaps = aiDailyReportObjectList(bundle.quality?.data_gaps)
-                        .filter(gap => String(gap.code || '').startsWith(`${platform}_`));
-                    const factText = platform === 'ctrip'
-                        ? `本店ADR ${facts.self?.adr ?? '—'} / 竞品均值 ${facts.competitor_average?.adr ?? '—'} / 竞品 ${facts.competitor_count ?? '—'} 家`
-                        : `本店 ${facts.self_position_text || '未返回'} / TOP1 ${facts.top_hotel_name || '未返回'} / ${facts.top1_gap_text || '差距未返回'}`;
-                    return {
-                        platform,
-                        label: labels[platform],
-                        facts,
-                        analysis,
-                        factText,
-                        decisionEligible: analysis.status === 'available',
-                        gapText: platformGaps.map(gap => gap.message || gap.code).join('；'),
-                    };
-                });
-            });
-            const aiDailyReportCompetitionGroups = computed(() => {
-                const bundle = aiDailyReportCompetitionBundle.value || {};
-                const groupLabels = {
-                    direct: '直接竞品',
-                    attack_benchmark: '进攻标杆',
-                    traffic_benchmark: '流量标杆',
-                    conversion_benchmark: '转化标杆',
-                };
-                const platformLabels = { ctrip: '携程', meituan: '美团' };
-                const rows = [];
-                Object.entries(bundle.candidate_competitors || {}).forEach(([platform, groups]) => {
-                    Object.entries(groups || {}).forEach(([key, items]) => {
-                        const normalizedItems = aiDailyReportObjectList(items);
-                        if (!normalizedItems.length) return;
-                        rows.push({
-                            key: `${platform}-${key}`,
-                            label: `${platformLabels[platform] || platform} · ${groupLabels[key] || key}`,
-                            items: normalizedItems,
-                            namesText: normalizedItems.slice(0, 3)
-                                .map(item => item.hotel_name || item.ota_hotel_id || '未命名酒店')
-                                .join('、'),
-                        });
-                    });
-                });
-                return rows;
-            });
-            const aiDailyReportCompetitionEditionText = computed(() => ({
-                lite: '简版',
-                flagship: '旗舰版',
-                both: '双版',
-            }[String(aiDailyReportCompetitionBundle.value?.render_contract?.requested_edition || 'lite')] || '简版'));
-            const aiDailyReportCompetitionQualityText = computed(() => ({
-                available: '可进入人工确认',
-                partial: '部分可用',
-                blocked: '已阻断',
-                synthetic: '模拟测试',
-            }[String(aiDailyReportCompetitionBundle.value?.quality?.status || '')] || '待生成'));
-            const aiDailyReportCompetitionSummaryText = computed(() => {
-                const bundle = aiDailyReportCompetitionBundle.value || {};
-                if (!bundle.schema_version) return '';
-                const lines = [`竞对变化 · ${aiDailyReportCompetitionEditionText.value} · ${aiDailyReportCompetitionQualityText.value}`];
-                if (bundle.source?.dataset_kind === 'synthetic') {
-                    lines.push('synthetic 模拟测试：仅核对页面、权限和契约，不输出角色、矛盾、实验或执行建议。');
-                }
-                aiDailyReportCompetitionPlatforms.value.forEach(platform => {
-                    lines.push(`${platform.label}｜${platform.factText}｜角色：${platform.analysis.channel_role || '不输出'}｜矛盾：${platform.analysis.first_conflict || '不输出'}`);
-                    if (platform.gapText) lines.push(`${platform.label}缺口｜${platform.gapText}`);
-                });
-                aiDailyReportCompetitionGroups.value.forEach(group => lines.push(`${group.label}｜${group.namesText}`));
-                lines.push(`行动门槛｜${bundle.quality?.decision_eligible ? '通过，仍需人工确认' : '未通过，不生成执行建议'}｜最多3项｜auto_write_ota=false`);
-                return lines.join('\n');
-            });
-            const aiDailyReportCompetitionReportDocument = computed(() => (
-                aiDailyReportCompetitionBundle.value?.report_document || {}
+            const buildAiDailyReportCompetitionPresentation = requireAiDailyReportStatic('buildCompetitionPresentation');
+            const aiDailyReportCompetitionPresentation = computed(() => (
+                buildAiDailyReportCompetitionPresentation(aiDailyReportCompetitionBundle.value || {})
             ));
-            const aiDailyReportCompetitionReportReady = computed(() => (
-                aiDailyReportCompetitionReportDocument.value?.status === 'ready_for_review'
-            ));
-            const aiDailyReportCompetitionXiaohongshuDraft = computed(() => (
-                aiDailyReportCompetitionBundle.value?.content_drafts?.xiaohongshu || {}
-            ));
-            const aiDailyReportCompetitionXiaohongshuDraftText = computed(() => {
-                const draft = aiDailyReportCompetitionXiaohongshuDraft.value || {};
-                if (draft.status !== 'ready_for_human_review') return '';
-                const lines = [
-                    `选题：${draft.topic || '未命名选题'}`,
-                    '',
-                    '【标题10选1】',
-                    ...aiDailyReportList(draft.titles_10).map((title, index) => `${index + 1}. ${title}`),
-                    '',
-                    '【封面标题5选1】',
-                    ...aiDailyReportList(draft.cover_titles_5).map((title, index) => `${index + 1}. ${title}`),
-                    '',
-                    '【8页图文】',
-                    ...aiDailyReportObjectList(draft.pages_8).map(page => `P${page.page || '—'} ${page.title || ''}｜${page.points || ''}`),
-                    '',
-                    '【发布文案】',
-                    draft.post_text || '',
-                    '',
-                    '【话题标签】',
-                    aiDailyReportList(draft.tags_10).join(' '),
-                    '',
-                    '【置顶评论】',
-                    ...aiDailyReportList(draft.comments_3).map((comment, index) => `${index + 1}. ${comment}`),
-                    '',
-                    '【人工审核】',
-                    ...aiDailyReportList(draft.human_review_checklist).map((item, index) => `${index + 1}. ${item}`),
-                ];
-                return lines.join('\n').trim();
-            });
+            const aiDailyReportCompetitionPlatforms = computed(() => aiDailyReportCompetitionPresentation.value.platforms);
+            const aiDailyReportCompetitionGroups = computed(() => aiDailyReportCompetitionPresentation.value.groups);
+            const aiDailyReportCompetitionEditionText = computed(() => aiDailyReportCompetitionPresentation.value.editionText);
+            const aiDailyReportCompetitionQualityText = computed(() => aiDailyReportCompetitionPresentation.value.qualityText);
+            const aiDailyReportCompetitionSummaryText = computed(() => aiDailyReportCompetitionPresentation.value.summaryText);
+            const aiDailyReportCompetitionReportDocument = computed(() => aiDailyReportCompetitionPresentation.value.reportDocument);
+            const aiDailyReportCompetitionReportReady = computed(() => aiDailyReportCompetitionPresentation.value.reportReady);
+            const aiDailyReportCompetitionXiaohongshuDraft = computed(() => aiDailyReportCompetitionPresentation.value.xiaohongshuDraft);
+            const aiDailyReportCompetitionXiaohongshuDraftText = computed(() => aiDailyReportCompetitionPresentation.value.xiaohongshuDraftText);
             const aiDailyReportSourceCount = computed(() => aiDailyReportList(aiDailyReport.value?.source_refs).length);
             const aiDailyReportTransferableCount = computed(() => aiDailyReportActions.value.filter(action => action && !action.execution_intent_id && revenueAiDailyReportActionExecutionReady(action)).length);
             const aiDailyReportResultReadiness = computed(() => aiDailyReport.value?.result_readiness || aiDailyReport.value?.result_status || null);
@@ -25697,176 +25321,72 @@
                 }
                 await createAiDailyExecutionIntent(action, index);
             };
-            const aiDailyReportReadinessClass = (stage) => {
-                if (stage === 'available') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                if (stage === 'partial') return 'bg-blue-50 text-blue-700 border-blue-200';
-                if (['unavailable', 'unverified'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
-                if (['daily_loop_closed', 'action_closed_loop'].includes(stage)) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                if (['partial_roi_ready', 'reviewed_no_roi', 'evidence_pending_review'].includes(stage)) return 'bg-blue-50 text-blue-700 border-blue-200';
-                if (['executed_missing_evidence', 'execution_in_progress', 'pending_execution_transfer', 'approved_pending_execution', 'intent_pending_approval', 'pending_transfer'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
-                if (['data_recheck_required', 'blocked', 'blocked_by_data_gap', 'rejected', 'failed'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
-                if (stage === 'investigation_only') return 'bg-slate-100 text-slate-700 border-slate-200';
-                return 'bg-gray-50 text-gray-600 border-gray-200';
-            };
-            const aiDailyReportReferenceText = (item = {}) => {
-                const basis = item?.reference_basis && typeof item.reference_basis === 'object'
-                    ? item.reference_basis
-                    : {};
-                if (basis.status !== 'available') {
-                    return basis.note || '未提供同口径参考；当前仅作为待关注信号，不判定为已证实异常。';
-                }
-                const details = basis.details && typeof basis.details === 'object'
-                    ? Object.entries(basis.details)
-                        .slice(0, 3)
-                        .map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
-                        .join(' / ')
-                    : '';
-                return `参考依据：${basis.type || '已声明参考'}${details ? ` / ${details}` : ''}`;
-            };
-            const aiDailyReportJudgmentTargetText = (value) => ({
-                overall: '整份结果',
-                ai_interpretation: 'AI辅助解读',
-                anomaly_signal: '待关注信号',
-                reference_set: '参考依据',
-                report_usefulness: '结果是否有用',
-            }[String(value || '')] || '整份结果');
-            const aiDailyReportJudgmentDecisionText = (value) => ({
-                accepted: '接受',
-                rejected: '驳回',
-                corrected: '修正',
-                needs_more_evidence: '需补证据',
-            }[String(value || '')] || '待判断');
-            const buildAiDailyReportSharePackage = (audience = 'owner') => {
-                const report = aiDailyReport.value || {};
-                const contract = aiDailyReportResultContract.value || {};
-                const common = {
-                    package_version: 'ai_daily_share.v1',
-                    audience,
-                    report_date: report.report_date || '',
-                    summary: report.summary || '',
-                    result_status: aiDailyReportResultReadiness.value || {},
-                    result_contract: contract,
-                    ai_boundary: aiDailyReportAiInterpretation.value?.boundary || 'AI辅助解读，不替代酒店老板或行业专家判断。',
-                    generated_from_result_version: contract.result_version || '',
-                    trial_validation: report.trial_validation || {},
-                };
-                if (audience === 'expert') {
-                    return {
-                        ...common,
-                        result_layers: aiDailyReportResultLayers.value,
-                        source_refs: aiDailyReportObjectList(report.source_refs),
-                        competitor_changes: aiDailyReportCompetitorChanges.value,
-                        data_gaps: aiDailyReportDataGaps.value,
-                        workflow_gaps: aiDailyReportObjectList(report.workflow_gaps),
-                        workflow_status: aiDailyReportWorkflowReadiness.value || {},
-                        human_judgments: aiDailyReportHumanJudgments.value,
-                    };
-                }
-                if (audience === 'training') {
-                    const sanitizeMetric = (item = {}) => ({
-                        key: item.key || '', label: item.label || '', value: item.value ?? null,
-                        unit: item.unit || '', data_status: item.data_status || '', result_layer: item.result_layer || '',
-                    });
-                    return {
-                        ...common,
-                        report_date: '',
-                        case_id: String(contract.result_version || 'unversioned').slice(0, 12),
-                        anonymization: '已移除酒店ID、来源行标识、精确日期、操作者和人工判断记录。',
-                        result_contract: {
-                            contract_version: contract.contract_version || '',
-                            metric_version: contract.metric_version || '',
-                            reference_version: contract.reference_version || '',
-                            boundary: contract.boundary || '',
-                        },
-                        source_facts: aiDailyReportObjectList(aiDailyReportResultLayers.value?.source_facts).map(sanitizeMetric),
-                        derived_metrics: aiDailyReportObjectList(aiDailyReportResultLayers.value?.derived_metrics).map(sanitizeMetric),
-                        anomaly_signals: aiDailyReportAbnormalMetrics.value.map(item => ({
-                            type: item.type || '', label: item.label || '', level: item.level || '',
-                            evidence: item.evidence || '', signal_status: item.signal_status || '',
-                            reference_status: item.reference_basis?.status || 'missing',
-                        })),
-                        ai_assistance: aiDailyReportAiInterpretation.value,
-                        data_gaps: aiDailyReportDataGaps.value.map(gap => ({ code: gap.code || '', message: gap.message || '' })),
-                    };
-                }
-                return {
-                    ...common,
-                    key_metrics: aiDailyReportMetricCards.value.slice(0, 6),
-                    key_signals: aiDailyReportAbnormalMetrics.value.slice(0, 3),
-                    data_gaps: aiDailyReportDataGaps.value,
-                    ai_assistance: aiDailyReportAiInterpretation.value,
-                    latest_human_judgment: aiDailyReportHumanJudgments.value.slice(-1)[0] || null,
-                };
-            };
+            const aiDailyReportReadinessClass = requireAiDailyReportStatic('readinessClass');
+            const aiDailyReportReferenceText = requireAiDailyReportStatic('referenceText');
+            const aiDailyReportJudgmentTargetText = requireAiDailyReportStatic('judgmentTargetText');
+            const aiDailyReportJudgmentDecisionText = requireAiDailyReportStatic('judgmentDecisionText');
+            const buildAiDailyReportSharePackageStatic = requireAiDailyReportStatic('buildSharePackage');
+            const buildAiDailyReportSharePackage = (audience = 'owner') => buildAiDailyReportSharePackageStatic({
+                audience,
+                report: aiDailyReport.value || {},
+                contract: aiDailyReportResultContract.value || {},
+                resultReadiness: aiDailyReportResultReadiness.value || {},
+                aiInterpretation: aiDailyReportAiInterpretation.value || {},
+                resultLayers: aiDailyReportResultLayers.value || {},
+                competitorChanges: aiDailyReportCompetitorChanges.value || [],
+                dataGaps: aiDailyReportDataGaps.value || [],
+                workflowReadiness: aiDailyReportWorkflowReadiness.value || {},
+                humanJudgments: aiDailyReportHumanJudgments.value || [],
+                metricCards: aiDailyReportMetricCards.value || [],
+                abnormalMetrics: aiDailyReportAbnormalMetrics.value || [],
+            });
             const downloadAiDailyReportPackage = () => {
                 if (!aiDailyReport.value) return;
-                const hasCompetitionReport = Boolean(aiDailyReportCompetitionReportDocument.value?.schema_version);
-                if (hasCompetitionReport && !downloadAiDailyCompetitionReportHtml()) return;
                 const audience = String(aiDailyReportAudience.value || 'owner');
+                const includeCompetition = audience !== 'training' && Boolean(aiDailyReportCompetitionReportDocument.value?.schema_version);
+                if (includeCompetition && !downloadAiDailyCompetitionReportHtml()) return;
                 const payload = buildAiDailyReportSharePackage(audience);
                 const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
                 link.href = url;
-                link.download = `suxios-ai-daily-${audience}-${aiDailyReport.value.report_date || 'result'}.json`;
+                const deliveryKey = audience === 'training' ? `case-${payload.case_id || 'unversioned'}` : (aiDailyReport.value.report_date || 'result');
+                link.download = `suxios-ai-daily-${audience}-${deliveryKey}.json`;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
                 showToast('结果交付件已生成', 'success');
-                if (hasCompetitionReport) {
-                    if (aiDailyReportCompetitionXiaohongshuDraftText.value) {
-                        copyAiDailyCompetitionXiaohongshuDraft();
-                    }
-                }
+                if (includeCompetition && aiDailyReportCompetitionXiaohongshuDraftText.value) copyAiDailyCompetitionXiaohongshuDraft();
             };
-            const escapeAiDailyCompetitionReportHtml = (value) => String(value ?? '')
-                .replaceAll('&', '&amp;')
-                .replaceAll('<', '&lt;')
-                .replaceAll('>', '&gt;')
-                .replaceAll('"', '&quot;')
-                .replaceAll("'", '&#039;');
+            const buildAiDailyCompetitionReportExport = requireDeferredStaticFunction(
+                'SUXI_AI_DAILY_REPORT_STATIC',
+                'buildAiDailyCompetitionReportExport',
+                '缺少AI日报竞争报告导出工具项',
+            );
             const downloadAiDailyCompetitionReportHtml = () => {
                 const report = aiDailyReportCompetitionReportDocument.value || {};
-                if (!report.schema_version) {
-                    showToast('当前日报没有可导出的竞争商圈报告', 'warning');
-                    return false;
-                }
                 const bundle = aiDailyReportCompetitionBundle.value || {};
                 const reportId = Number(aiDailyReport.value?.id || 0);
-                const bundleId = String(bundle.bundle_id || '').trim();
-                const reportBundleId = String(report.render_contract?.bundle_id || '').trim();
-                const bundleFingerprint = String(bundle.source_fingerprint || '').trim();
-                const fingerprint = String(report.render_contract?.source_fingerprint || '').trim();
-                if (!Number.isInteger(reportId) || reportId <= 0
-                    || !bundleId || reportBundleId !== bundleId
-                    || !bundleFingerprint || fingerprint !== bundleFingerprint) {
-                    showToast('报告身份校验失败：日报ID、Bundle ID或来源指纹不一致，已阻断导出', 'error');
+                const exportResult = buildAiDailyCompetitionReportExport({
+                    report,
+                    bundle,
+                    reportId,
+                    fallbackReportDate: aiDailyReport.value?.report_date || '',
+                    qualityText: aiDailyReportCompetitionQualityText.value,
+                    editionText: aiDailyReportCompetitionEditionText.value,
+                    platforms: aiDailyReportCompetitionPlatforms.value,
+                    groups: aiDailyReportCompetitionGroups.value,
+                });
+                if (exportResult?.ok !== true) {
+                    showToast(exportResult?.message || '竞争商圈报告导出失败', exportResult?.level || 'error');
                     return false;
                 }
-                const qualityText = aiDailyReportCompetitionQualityText.value;
-                const platformRows = aiDailyReportCompetitionPlatforms.value.map(platform => {
-                    const section = report.platform_sections?.[platform.platform] || {};
-                    const status = section.status === 'ready_for_review' ? '可人工研判' : '证据不足';
-                    return `<section><h2>${escapeAiDailyCompetitionReportHtml(platform.label)}</h2><p class="status">${escapeAiDailyCompetitionReportHtml(status)}</p><p>${escapeAiDailyCompetitionReportHtml(platform.factText)}</p><p><strong>渠道角色：</strong>${escapeAiDailyCompetitionReportHtml(section.channel_role || '不输出')}</p><p><strong>第一矛盾：</strong>${escapeAiDailyCompetitionReportHtml(section.first_conflict || '不输出')}</p>${platform.gapText ? `<p class="gap"><strong>数据缺口：</strong>${escapeAiDailyCompetitionReportHtml(platform.gapText)}</p>` : ''}</section>`;
-                }).join('');
-                const groupRows = aiDailyReportCompetitionGroups.value.map(group => (
-                    `<tr><td>${escapeAiDailyCompetitionReportHtml(group.label)}</td><td>${escapeAiDailyCompetitionReportHtml(group.namesText)}</td></tr>`
-                )).join('');
-                const actionRows = aiDailyReportObjectList(report.actions).map(action => (
-                    `<tr><td>${escapeAiDailyCompetitionReportHtml(action.platform || '')}</td><td>${escapeAiDailyCompetitionReportHtml(action.title || '')}</td><td>${escapeAiDailyCompetitionReportHtml(action.action || '')}</td><td>${escapeAiDailyCompetitionReportHtml(action.rollback_condition || '需人工设定')}</td></tr>`
-                )).join('');
-                const gapRows = aiDailyReportObjectList(report.data_gaps).map(gap => (
-                    `<li><strong>${escapeAiDailyCompetitionReportHtml(gap.code || 'data_gap')}</strong>：${escapeAiDailyCompetitionReportHtml(gap.message || '')}<small>${escapeAiDailyCompetitionReportHtml(gap.source_ref || '')}</small></li>`
-                )).join('');
-                const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeAiDailyCompetitionReportHtml(report.title || 'OTA竞争商圈经营报告')}</title><style>
-                    :root{color-scheme:light;--ink:#10231d;--muted:#64748b;--gold:#9a7b43;--line:#e5e7eb;--soft:#f7f7f4;--gap:#92400e}*{box-sizing:border-box}body{margin:0;background:#eef1ed;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;line-height:1.65}main{max-width:980px;margin:32px auto;background:#fff;padding:44px;border-radius:18px;box-shadow:0 18px 45px rgba(6,17,13,.12)}header{border-bottom:2px solid var(--gold);padding-bottom:22px;margin-bottom:26px}.eyebrow{color:var(--gold);font-size:12px;font-weight:700;letter-spacing:.12em}h1{margin:6px 0 4px;font-size:30px}h2{font-size:19px;margin:0 0 8px}h3{font-size:16px;margin-top:28px}p{margin:7px 0}.meta,.limit,small{color:var(--muted);font-size:12px}.identity{word-break:break-all}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.grid section{border:1px solid var(--line);border-radius:12px;padding:18px;background:var(--soft)}.status{display:inline-block;border:1px solid #d6c59e;border-radius:999px;padding:2px 9px;color:#6f572f;font-size:12px}.gap{color:var(--gap)}table{width:100%;border-collapse:collapse;margin:10px 0 22px}th,td{border:1px solid var(--line);padding:9px;text-align:left;vertical-align:top;font-size:13px}th{background:var(--soft)}li{margin:7px 0}li small{display:block}.limit{margin-top:30px;border-top:1px solid var(--line);padding-top:16px}@media(max-width:720px){main{margin:0;padding:24px;border-radius:0}.grid{grid-template-columns:1fr}}@media print{body{background:#fff}main{margin:0;max-width:none;box-shadow:none}}
-                </style></head><body><main data-report-id="${escapeAiDailyCompetitionReportHtml(reportId)}" data-bundle-id="${escapeAiDailyCompetitionReportHtml(bundleId)}" data-source-fingerprint="${escapeAiDailyCompetitionReportHtml(fingerprint)}"><header><div class="eyebrow">SUXIOS · OTA CHANNEL REPORT</div><h1>${escapeAiDailyCompetitionReportHtml(report.title || 'OTA竞争商圈经营报告')}</h1><div class="meta">业务日期：${escapeAiDailyCompetitionReportHtml(report.scope?.data_date || aiDailyReport.value?.report_date || '未返回')}　质量：${escapeAiDailyCompetitionReportHtml(qualityText)}　版本：${escapeAiDailyCompetitionReportHtml(aiDailyReportCompetitionEditionText.value)}</div><div class="meta identity">日报记录 ID：${escapeAiDailyCompetitionReportHtml(reportId)}<br>Bundle ID：${escapeAiDailyCompetitionReportHtml(bundleId)}<br>来源指纹：${escapeAiDailyCompetitionReportHtml(fingerprint)}</div></header><h3>管理层快照</h3><p>可研判平台 ${escapeAiDailyCompetitionReportHtml(report.management_snapshot?.platforms_ready ?? 0)} / ${escapeAiDailyCompetitionReportHtml(report.management_snapshot?.platforms_total ?? 2)}；人工确认动作 ${escapeAiDailyCompetitionReportHtml(report.management_snapshot?.action_count ?? 0)} 项。</p><div class="grid">${platformRows}</div><h3>竞品分组</h3>${groupRows ? `<table><thead><tr><th>分组</th><th>候选酒店</th></tr></thead><tbody>${groupRows}</tbody></table>` : '<p class="gap">当前没有达到展示门槛的竞品分组。</p>'}<h3>人工确认动作</h3>${actionRows ? `<table><thead><tr><th>平台</th><th>事项</th><th>动作</th><th>回滚</th></tr></thead><tbody>${actionRows}</tbody></table>` : '<p class="gap">行动门槛未通过，不输出执行建议。</p>'}<h3>数据缺口</h3>${gapRows ? `<ul>${gapRows}</ul>` : '<p>未发现显式数据缺口。</p>'}<p class="limit">${escapeAiDailyCompetitionReportHtml(report.render_contract?.commercial_boundary || '')}<br>本文件是从已保存并回读的同一 competition bundle 本地导出的界面版；不触发 OTA、飞书或小红书写入，auto_write_ota=false。</p></main></body></html>`;
-                const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+                const blob = new Blob([exportResult.html], { type: 'text/html;charset=utf-8' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
                 link.href = url;
-                link.download = `suxios-ota-competition-${report.scope?.data_date || aiDailyReport.value?.report_date || 'report'}-r${reportId}-${bundleId.slice(-12)}.html`;
+                link.download = exportResult.filename;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
@@ -25912,15 +25432,7 @@
                     || aiDailyReportCompetitionBundle.value?.source_fingerprint
                     || '').slice(0, 16)
             ));
-            const aiDailyReportWecomPartStatusText = (part = {}) => {
-                const status = String(part?.delivery_status || '');
-                if (status === 'sent') {
-                    return part?.idempotent_replay === true ? '已送达（重复请求已拦截）' : '已送达';
-                }
-                if (status === 'not_attempted') return '未尝试';
-                if (status === 'render_failed') return '图卡生成失败';
-                return status ? `未送达（${status}）` : '未返回';
-            };
+            const aiDailyReportWecomPartStatusText = requireAiDailyReportStatic('wecomPartStatusText');
             const sendAiDailyReportToWecom = () => {
                 const reportId = Number(aiDailyReport.value?.id || 0);
                 if (!reportId || aiDailyReportWecomSending.value) return;
@@ -55707,7 +55219,7 @@
         }, 0);
     };
     const operatingIntelligenceComponents = window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS?.create?.({
-        computed, inject, h, nextTick, onMounted, onUnmounted,
+        Vue, computed, inject, h, nextTick, onMounted, onUnmounted,
     });
     if (!operatingIntelligenceComponents) {
         throw new Error('缺少经营问答与系统使用助手组件：operating-intelligence-components.js 未加载');
