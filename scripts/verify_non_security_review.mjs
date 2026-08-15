@@ -13,10 +13,14 @@ if (!existsSync(join(root, servicePath))) {
 } else {
   const serviceContent = readText(servicePath, root);
   const recordsBody = extractPhpMethod(serviceContent, 'records');
-  if (!/->whereIn\(\s*'hotel_id'\s*,\s*\$hotelIds\s*\)/.test(recordsBody)) {
+  const scopedQueryBody = extractPhpMethod(serviceContent, 'currentTenantTransferRecordQuery');
+  if (!/\$this->currentTenantTransferRecordQuery\(\s*\$hotelIds\s*\)/.test(recordsBody)
+    || !/->whereIn\(\s*'transfer_record\.hotel_id'\s*,\s*\$hotelIds\s*\)/.test(scopedQueryBody)
+    || !/transfer_hotel\.id = transfer_record\.hotel_id AND transfer_hotel\.tenant_id = transfer_record\.tenant_id/.test(scopedQueryBody)
+  ) {
     failures.push('Transfer records must apply the resolved hotel_id scope');
   }
-  if (/if\s*\(\s*!\$isSuperAdmin\s*\)\s*\{[^}]*->whereIn\(\s*'hotel_id'\s*,\s*\$hotelIds\s*\)/s.test(recordsBody)) {
+  if (/if\s*\(\s*!\$isSuperAdmin\s*\)\s*\{[^}]*currentTenantTransferRecordQuery\(\s*\$hotelIds\s*\)/s.test(recordsBody)) {
     failures.push('Transfer records must not skip hotel_id filtering for super admins');
   }
 }

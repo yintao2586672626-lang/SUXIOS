@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h33d4563d1b';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h2142faa592';
     const requestEvent = 'suxi:operating-intelligence-requested';
     let fullScriptPromise = null;
 

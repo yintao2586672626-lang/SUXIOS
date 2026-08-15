@@ -1127,11 +1127,11 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || onlineDataDataTabSource.includes('scheduleManualOnlineFetchConfigPrewarm')
     || !/if \(shouldPrewarmManualConfig\) \{\s*scheduleManualOnlineFetchConfigPrewarm\(newTab, options\.configPrewarmDelayMs\);\s*return undefined;\s*\}/.test(onlineDataTabSchedulerSource)
     || /ensureManualOnlineFetchConfigReady\(\);\s*refreshOnlineData\(\{ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS \}\);/.test(onlineDataTabSchedulerSource)
-    || !/item\.path === ['"]online-data['"][\s\S]*openOnlineDataTab\(targetTab\)/.test(content)) {
+    || !/item\.path === ['"]online-data['"][\s\S]*openOnlineDataEntryTab\(String\(item\.tab \|\| ['"]data-health['"]\)\)/.test(content)) {
     failures.push('public/index.html must keep saved platform config prewarm off the online-data data-records first paint and reserve it for manual fetch tabs.');
   }
   if (!content.includes("let pendingOnlineDataEntryTab = '';")
-    || !content.includes("pendingOnlineDataEntryTab = String(item.tab || '');")
+    || !content.includes("openOnlineDataEntryTab(String(item.tab || 'data-health'));")
     || !content.includes("if (requestedOnlineDataTab && requestedOnlineDataTab !== 'data-health') {\n                        return;\n                    }")) {
     failures.push('public/index.html must skip default data-health first-paint loading when menu navigation targets another online-data tab.');
   }
@@ -1141,7 +1141,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes("onlineDataTab.value = targetTab;\n                currentPage.value = 'online-data';")
     || !content.includes("const openOnlinePlatformAutoTab = (options = {}) => {\n                return openOnlineDataEntryTab('platform-auto', options);\n            };")
     || !content.includes("const openOnlineDataManualEntry = () => {\n                return openOnlineDataEntryTab('data-health');\n            };")
-    || !content.includes("if (item.path === 'online-data' && !item.tab) {\n                    openOnlineDataManualEntry();\n                    return;\n                }")) {
+    || !/if \(item\.path === 'online-data'\) \{\s*if \(item\.tab\) \{\s*openOnlineDataEntryTab\(String\(item\.tab \|\| 'data-health'\)\);\s*\} else \{\s*openOnlineDataManualEntry\(\);\s*\}\s*return;\s*\}/.test(content)) {
     failures.push('public/index.html online-data menu clicks without an explicit tab must return to the default data-health tab.');
   }
   if (!content.includes('@click="handleParentMenuClick(item)"')

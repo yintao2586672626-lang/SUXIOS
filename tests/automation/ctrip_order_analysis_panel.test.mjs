@@ -82,8 +82,13 @@ test('authenticated runtime loads the hashed lazy order-analysis component betwe
   assert.match(operatingIntelligenceLoader, /script\.dataset\.suxiAssetLoaded = '1'/);
   assert.match(
     appMain,
-    /SUXI_OPERATING_INTELLIGENCE_COMPONENTS\?\.create\?\.\(\{\s*Vue,\s*computed,\s*inject,\s*h,\s*nextTick,\s*onMounted,\s*onUnmounted,/,
-    'app-main must pass the Vue runtime required by the operating-intelligence startup bridge',
+    /SUXI_OPERATING_INTELLIGENCE_COMPONENTS\?\.create\?\.\(\{\s*Vue,\s*ref,\s*computed,\s*inject,\s*h,\s*nextTick,\s*onMounted,\s*onUnmounted,/,
+    'app-main must pass the Vue runtime APIs required by the operating-intelligence startup bridge',
+  );
+  assert.match(
+    operatingIntelligenceComponents,
+    /const create = \(\{ ref, computed, inject, h, nextTick, onMounted, onUnmounted \}\) =>/,
+    'the deferred operating-intelligence factory must receive every Vue API used by its setup functions',
   );
 
   assert.match(appMain, /const CtripOrderAnalysisPanel = systemComponents\.CtripOrderAnalysisPanel \|\| Vue\.defineAsyncComponent\s*\(/);
@@ -235,7 +240,7 @@ test('deferred component bridges discard a failed manifest script before retryin
     {
       filename: 'operating-intelligence-loader.js',
       source: operatingIntelligenceLoader,
-      fullScript: 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h33d4563d1b',
+      fullScript: 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h2142faa592',
       bridgeKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS',
       fullKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL',
       componentKey: 'operatingQuestionPanel',

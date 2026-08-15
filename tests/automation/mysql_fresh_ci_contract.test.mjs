@@ -98,6 +98,11 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /atomicWorkerCount\s*=\s*2/);
   assert.match(verifier, /unique_intent_ids/);
   assert.match(verifier, /database_rows/);
+  assert.match(verifier, /INSERT INTO expansion_records/);
+  assert.match(verifier, /seed tenant-bound expansion concurrency source/);
+  assert.match(verifier, /source_module = 'expansion'/);
+  assert.match(verifier, /deleted_at IS NULL/);
+  assert.match(verifier, /\^source_intent_\[a-f0-9\]\{32\}\$/);
   assert.match(verifier, /migration_files:\s*migrationPaths\.length/);
   assert.match(verifier, /idx_online_daily_history_date_id/);
   assert.match(verifier, /ai_report_generation_tasks/);
@@ -132,6 +137,14 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(databaseConfig, /'password'\s*=>\s*\$databaseConfigValue\('DB_PASS', ''\)/);
 
   assert.match(worker, /SUXI_E2E_DB_OVERRIDE/);
+  assert.match(worker, /SUXI_CI_TENANT_ID/);
+  assert.match(worker, /SUXI_CI_USER_ID/);
+  assert.match(worker, /Db::transaction\(/);
+  assert.match(worker, /Db::name\('hotels'\)[\s\S]*where\('tenant_id', \$tenantId\)[\s\S]*lock\(true\)/);
+  assert.match(worker, /Db::name\('expansion_records'\)/);
+  assert.match(worker, /Db::name\('expansion_records'\)[\s\S]*where\('tenant_id', \$tenantId\)[\s\S]*lock\(true\)/);
+  assert.match(worker, /new ExpansionService\(\)/);
+  assert.match(worker, /buildExecutionIntentInput\(/);
   assert.match(worker, /createExecutionIntent\(/);
   assert.match(worker, /trustedExpansionSource:\s*true/);
   assert.match(loginWorker, /SUXI_E2E_DB_OVERRIDE/);

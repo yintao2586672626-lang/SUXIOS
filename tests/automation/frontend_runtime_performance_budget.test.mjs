@@ -25,7 +25,7 @@ function passingReport(networkProfile = 'none') {
     verification_status: 'verified',
     attempt_count: 1,
     metrics: { total_requests: 29 },
-    api: { sample_count: 3, repeated_routes: [] },
+    api: { sample_count: 4, repeated_routes: [] },
   }));
   return {
     schema_version: 2,
@@ -58,6 +58,8 @@ test('verified five-run authenticated report passes the default local runtime bu
   assert.deepEqual(assessment.failures, []);
   assert.deepEqual(assessment.warnings, []);
   assert.equal(assessment.observed.max_total_requests_per_run, 29);
+  assert.equal(assessment.observed.max_api_samples_per_run, 4);
+  assert.equal(assessment.observed.max_repeated_api_requests_per_run, 0);
 });
 
 test('CI isolates static contracts from runtime performance and preserves authenticated evidence', () => {

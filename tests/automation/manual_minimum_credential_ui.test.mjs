@@ -4621,6 +4621,10 @@ test('Online data health tab returns the initial light refresh and schedules lat
     "const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {",
     '\n            const openOnlineDataManualEntry'
   );
+  const handleMenuClick = sliceFrom(
+    'const handleMenuClick = (item) => {',
+    '\n\n            const isStillOnRequestPage'
+  );
   const dataHealthSecondaryScheduler = sliceFrom(
     'const clearDataHealthSecondaryPanelsReadyTimer = () => {',
     '\n            const shouldRefreshAutoFetchStatusPanel'
@@ -4646,6 +4650,8 @@ test('Online data health tab returns the initial light refresh and schedules lat
   assert.match(openOnlineDataEntryTab, /clearPlatformAutoSettingsPanelsReadyTimer\(\);\s*platformAutoSettingsPanelsReady\.value = false;/);
   assert.match(openOnlineDataEntryTab, /clearPlatformAutoSecondaryPanelsReadyTimer\(\);\s*platformAutoSecondaryPanelsReady\.value = false;/);
   assert.match(openOnlineDataEntryTab, /onlineDataTab\.value = targetTab;\s*currentPage\.value = 'online-data';/);
+  assert.match(handleMenuClick, /if \(item\.path === 'online-data'\) \{[\s\S]*openOnlineDataEntryTab\(String\(item\.tab \|\| 'data-health'\)\);[\s\S]*return;/);
+  assert.doesNotMatch(handleMenuClick, /pendingOnlineDataEntryTab\s*=/);
   assert.match(html, /v-if="dataHealthFullDiagnosticsLoaded && dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"/);
   assert.match(html, /v-if="dataHealthFullDiagnosticsLoaded && dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"/);
   assert.doesNotMatch(html, /data-testid="hotel-data-cockpit-pending"/);

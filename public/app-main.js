@@ -16572,7 +16572,7 @@
                     children: [
                         { type: 'source', sourcePath: 'ctrip-ebooking', overrides: { name: '携程数据' } },
                         { type: 'source', sourcePath: 'meituan-ebooking', overrides: { name: '美团数据' } },
-                        { type: 'source', sourcePath: 'online-data', sourceTab: 'platform-auto', overrides: { name: '自动采集任务' } },
+                        { type: 'source', sourcePath: 'online-data', sourceTab: 'data-health', overrides: { name: '自动采集任务' } },
                     ],
                 },
                 {
@@ -16762,14 +16762,15 @@
             const handleMenuClick = (item) => {
                 const targetPath = normalizeCanonicalPage(item?.path);
                 if (targetPath && !guardSuperAdminPageAccess(targetPath)) return;
-                if (item.path === 'online-data' && !item.tab) {
-                    openOnlineDataManualEntry();
+                if (item.path === 'online-data') {
+                    if (item.tab) {
+                        openOnlineDataEntryTab(String(item.tab || 'data-health'));
+                    } else {
+                        openOnlineDataManualEntry();
+                    }
                     return;
                 }
                 if (targetPath) {
-                    if (item.path === 'online-data' && item.tab) {
-                        pendingOnlineDataEntryTab = String(item.tab || '');
-                    }
                     currentPage.value = targetPath;
                     if (item.path === 'wechat-notification') {
                         nextTick(() => loadWechatNotificationStatus());
@@ -16789,14 +16790,6 @@
                 }
                 if (item.tab) {
                     nextTick(() => {
-                        if (item.path === 'online-data') {
-                            const targetTab = String(item.tab || '');
-                            openOnlineDataTab(targetTab);
-                            if (pendingOnlineDataEntryTab === targetTab) {
-                                pendingOnlineDataEntryTab = '';
-                            }
-                            return;
-                        }
                         onlineDataTab.value = item.tab;
                     });
                 }
@@ -55219,7 +55212,7 @@
         }, 0);
     };
     const operatingIntelligenceComponents = window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS?.create?.({
-        Vue, computed, inject, h, nextTick, onMounted, onUnmounted,
+        Vue, ref, computed, inject, h, nextTick, onMounted, onUnmounted,
     });
     if (!operatingIntelligenceComponents) {
         throw new Error('缺少经营问答与系统使用助手组件：operating-intelligence-components.js 未加载');

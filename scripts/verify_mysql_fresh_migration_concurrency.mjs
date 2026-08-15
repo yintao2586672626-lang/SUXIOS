@@ -742,6 +742,51 @@ try {
   });
 
   const sourceRecordId = 900000000 + Number.parseInt(randomBytes(3).toString('hex'), 16);
+  const expansionSourceInput = JSON.stringify({
+    project_name: `CI expansion project ${sourceRecordId}`,
+    property_area: 3600,
+    estimated_rent: 120000,
+    target_room_count: 88,
+    lease_years: 10,
+    rent_free_months: 3,
+    fitout_budget: 420,
+    expected_adr: 328,
+    expected_occupancy_rate: 0.82,
+    source_evidence: { competitor_samples: 'field checked' },
+    market_result: {
+      market_heat_score: 82,
+      decision: 'advance to review',
+      investment_risk_level: 'medium',
+    },
+    benchmark_result: {
+      recommended_benchmarks: [{ hotel: 'Comparable A', adr: 320 }],
+      source: 'user_provided_competitor_sample',
+    },
+  });
+  const expansionSourceResult = JSON.stringify({
+    task_board: [{
+      name: 'Confirm lease evidence',
+      status: 'doing',
+      owner: `operator-${userId}`,
+      due_date: '2026-08-20',
+      risk_level: 'low',
+      is_observed: true,
+      source: 'human_confirmed',
+      evidence_status: 'confirmed',
+    }],
+    delay_risk: { level: 'low', points: [] },
+    business_fact: 'isolated concurrency fixture',
+  });
+  runMysql({
+    database: databaseName,
+    input: `INSERT INTO expansion_records
+      (id, tenant_id, record_type, project_name, city_area, input_json, result_json,
+       decision, risk_level, created_by, created_at, updated_at, deleted_at)
+      VALUES (${sourceRecordId}, ${tenantId}, 'collaboration', 'CI expansion project ${sourceRecordId}',
+       'Hangzhou', '${expansionSourceInput}', '${expansionSourceResult}',
+       'review_ready', 'medium', ${userId}, NOW(), NOW(), NULL);\n`,
+    label: 'seed tenant-bound expansion concurrency source',
+  });
   barrierDirectory = mkdtempSync(join(tmpdir(), 'suxi-mysql-concurrency-'));
   const workerEnvironment = {
     APP_ENV: 'testing',
@@ -756,6 +801,8 @@ try {
     SUXI_E2E_DB_OVERRIDE: '1',
     SUXI_E2E_DB_NAME: databaseName,
     SUXI_CI_HOTEL_ID: String(hotelId),
+    SUXI_CI_TENANT_ID: String(tenantId),
+    SUXI_CI_USER_ID: String(userId),
     SUXI_CI_SOURCE_RECORD_ID: String(sourceRecordId),
     SUXI_CI_BARRIER_DIR: barrierDirectory,
   };
@@ -774,16 +821,33 @@ try {
 
   const intentIds = workerResults.map(result => Number(result.intent_id));
   const uniqueIntentIds = new Set(intentIds);
+  const concurrentIntentScope = `tenant_id = ${tenantId}
+      AND source_module = 'expansion'
+      AND source_record_id = ${sourceRecordId}
+      AND hotel_id = ${hotelId}
+      AND deleted_at IS NULL`;
   const databaseRows = queryScalar(
-    `SELECT COUNT(*) FROM operation_execution_intents WHERE idempotency_key = 'expansion:v1:${sourceRecordId}';`,
+    `SELECT COUNT(*) FROM operation_execution_intents WHERE ${concurrentIntentScope};`,
     'concurrent database row count',
   );
   const storedIntentId = queryScalar(
-    `SELECT MIN(id) FROM operation_execution_intents WHERE idempotency_key = 'expansion:v1:${sourceRecordId}';`,
+    `SELECT MIN(id) FROM operation_execution_intents WHERE ${concurrentIntentScope};`,
     'concurrent stored intent id',
   );
-  if (workerResults.length !== workerCount || uniqueIntentIds.size !== 1 || databaseRows !== 1 || !uniqueIntentIds.has(storedIntentId)) {
-    throw new Error(`Concurrency contract mismatch: workers=${workerResults.length}, unique_intent_ids=${uniqueIntentIds.size}, database_rows=${databaseRows}`);
+  const storedIntentKey = runMysql({
+    database: databaseName,
+    input: `SELECT idempotency_key FROM operation_execution_intents WHERE ${concurrentIntentScope};\n`,
+    label: 'concurrent stored intent idempotency key',
+  });
+  if (workerResults.length !== workerCount
+      || uniqueIntentIds.size !== 1
+      || databaseRows !== 1
+      || !uniqueIntentIds.has(storedIntentId)
+      || !/^source_intent_[a-f0-9]{32}$/.test(storedIntentKey)
+  ) {
+    throw new Error(
+      `Concurrency contract mismatch: workers=${workerResults.length}, unique_intent_ids=${uniqueIntentIds.size}, database_rows=${databaseRows}, idempotency_key=${storedIntentKey}`,
+    );
   }
 
   atomicCacheDirectory = mkdtempSync(join(tmpdir(), 'suxi-atomic-cache-'));
@@ -1190,6 +1254,7 @@ try {
     unique_intent_ids: uniqueIntentIds.size,
     database_rows: databaseRows,
     intent_id: storedIntentId,
+    intent_idempotency_key: storedIntentKey,
     atomic_evidence_workers: evidenceResults.length,
     atomic_evidence_rows: evidenceRows,
     atomic_evidence_id: storedEvidenceId,

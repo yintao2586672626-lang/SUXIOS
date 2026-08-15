@@ -73,7 +73,7 @@ test('five focus pages paint their heading within 300ms on first switch and revi
     const expectedHeadings = {
       '今日经营看板': '今日经营看板',
       '门店管理': '酒店管理',
-      '自动采集任务': '昨日经营闭环',
+      '自动采集任务': '线上数据与采集',
       '员工管理': '员工管理',
       '系统配置': '系统配置',
     };

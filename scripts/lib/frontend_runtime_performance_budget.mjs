@@ -15,7 +15,8 @@ export const DEFAULT_FRONTEND_RUNTIME_BUDGETS = Object.freeze({
     target_api_p95_ms: 500,
     max_api_p95_ms: 750,
     max_total_requests_per_run: 30,
-    max_api_samples_per_run: 3,
+    // Login, identity, scoped revenue facts, and compass are four distinct startup reads.
+    max_api_samples_per_run: 4,
     max_repeated_api_requests_per_run: 0,
   }),
   'slow-4g': Object.freeze({
@@ -30,7 +31,7 @@ export const DEFAULT_FRONTEND_RUNTIME_BUDGETS = Object.freeze({
     target_api_p95_ms: 800,
     max_api_p95_ms: 1_600,
     max_total_requests_per_run: 30,
-    max_api_samples_per_run: 3,
+    max_api_samples_per_run: 4,
     max_repeated_api_requests_per_run: 0,
   }),
 });

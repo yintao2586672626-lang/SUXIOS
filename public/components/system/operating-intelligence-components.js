@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const create = ({ computed, inject, h, nextTick, onMounted, onUnmounted }) => {
+    const create = ({ ref, computed, inject, h, nextTick, onMounted, onUnmounted }) => {
     const operatingQuestionPanel = {
         setup() {
             const ui = inject('operatingQuestionUi');
