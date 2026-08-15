@@ -1,8 +1,8 @@
 [Unit]
-Description=Start SUXIOS Ctrip and Meituan Profile collection before each hourly message
+Description=Start SUXIOS Ctrip and Meituan cloud Profile collection every hour
 
 [Timer]
-OnCalendar=*-*-* *:40:00 Asia/Shanghai
+OnCalendar=*-*-* *:35:00 Asia/Shanghai
 RandomizedDelaySec=0
 Persistent=false
 Unit=suxios-cloud-ota-profile-collection.service

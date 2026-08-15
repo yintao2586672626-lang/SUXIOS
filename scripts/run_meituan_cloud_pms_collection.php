@@ -246,15 +246,31 @@ function gatewayRequest(string $baseUrl, string $token, string $path, array $bod
             'ignore_errors' => true,
         ],
     ]);
-    $raw = file_get_contents($baseUrl . $path, false, $context);
+    error_clear_last();
+    $raw = @file_get_contents($baseUrl . $path, false, $context);
     $decoded = is_string($raw) ? json_decode($raw, true) : null;
     if (!is_array($decoded) || ($decoded['status'] ?? '') === 'failed') {
         $reason = is_array($decoded) ? (string)($decoded['reason'] ?? '') : '';
         throw new RuntimeException(
-            $reason !== '' ? $reason : 'meituan_cloud_collection_gateway_failed'
+            $reason !== ''
+                ? $reason
+                : gatewayTransportFailureCode('meituan_cloud_collection_gateway_failed')
         );
     }
     return $decoded;
+}
+
+function gatewayTransportFailureCode(string $fallback): string
+{
+    $lastError = error_get_last();
+    $message = is_array($lastError) ? (string)($lastError['message'] ?? '') : '';
+    if (preg_match('/(?:connection\s+refused|actively\s+refused)/i', $message) === 1) {
+        return 'gateway_connection_refused';
+    }
+    if (preg_match('/(?:connection\s+timed\s*out|operation\s+timed\s*out|read\s+timed\s*out)/i', $message) === 1) {
+        return 'gateway_connection_timeout';
+    }
+    return $fallback;
 }
 
 /** @return array<string,mixed> */

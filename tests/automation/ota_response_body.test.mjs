@@ -15,7 +15,6 @@ test('OTA response text reader returns a completed structured response body', as
   assert.equal(body, '{"ok":true}');
   assert.equal(calls, 1);
 });
-
 test('OTA response text reader rejects a non-terminating body within the requested bound', async () => {
   const startedAt = Date.now();
   await assert.rejects(

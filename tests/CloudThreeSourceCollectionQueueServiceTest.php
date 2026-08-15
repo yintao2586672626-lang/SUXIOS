@@ -44,6 +44,20 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
             );
             self::assertSame(300, $call['timeout_seconds']);
         }
+        $dispatcherIds = [];
+        foreach (array_filter($calls, static fn(array $call): bool => $call['source'] !== 'pms') as $call) {
+            $argument = current(array_values(array_filter(
+                $call['command'],
+                static fn(string $part): bool => str_starts_with($part, '--dispatcher-run-id=')
+            )));
+            self::assertIsString($argument);
+            $dispatcherIds[(int)$call['hotel_id']][] = substr((string)$argument, 20);
+        }
+        self::assertCount(1, array_unique($dispatcherIds[80]));
+        self::assertCount(1, array_unique($dispatcherIds[81]));
+        self::assertSame('collected', $receipt['hotels'][0]['run_receipt_status']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_structure_verified']);
+        self::assertFalse($receipt['hotels'][0]['run_receipt_readback_verified']);
         self::assertFalse($receipt['message_sent']);
         $encoded = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         self::assertStringNotContainsString('cbp_', $encoded);
@@ -95,6 +109,8 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         $ctrip = $receipt['hotels'][0]['sources'][1];
         self::assertSame('blocked', $ctrip['status']);
         self::assertSame('capture_session_expired', $ctrip['reason']);
+        self::assertSame('partial', $receipt['hotels'][0]['run_receipt_status']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_structure_verified']);
         self::assertFalse($receipt['message_sent']);
     }
 
@@ -160,6 +176,57 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         self::assertFalse($receipt['message_sent']);
     }
 
+    public function testBlockedAuthorizationPersistsATerminalRunReceiptBeforeStartingChildren(): void
+    {
+        $plan = $this->plan(1, 80, 21, 22);
+        $calls = [];
+        $authorization = static function (
+            array $hotel,
+            string $targetDate,
+            array $sourceIds,
+            array $platforms,
+            string $runMode
+        ) use ($plan): array {
+            return [
+                'status' => 'blocked',
+                'collection_allowed' => false,
+                'tenant_id' => (int)$hotel['tenant_id'],
+                'system_hotel_id' => (int)$hotel['id'],
+                'business_date' => $targetDate,
+                'run_mode' => $runMode,
+                'plan_id' => (int)$plan['id'],
+                'plan_hash' => (string)$plan['plan_hash'],
+                'plan_readback_verified' => true,
+                'binding_digest_matches' => false,
+                'execution_owner_user_id' => (int)$plan['execution_owner_user_id'],
+                'actual_source_ids' => $sourceIds,
+                'actual_platforms' => $platforms,
+                'failure_reasons' => [[
+                    'code' => 'hotel_collection_binding_readback_unverified',
+                    'platform' => '',
+                ]],
+            ];
+        };
+
+        $receipt = $this->service(
+            [$plan],
+            $calls,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $authorization
+        )->run(['target_date' => '2026-08-14']);
+
+        self::assertSame([], $calls);
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertSame('collection_plan_authorization_blocked', $receipt['hotels'][0]['reason']);
+        self::assertSame('blocked', $receipt['hotels'][0]['run_receipt_status']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_structure_verified']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_readback_verified']);
+    }
+
     public function testUnverifiedTimeoutCleanupStopsTheSharedGatewayQueue(): void
     {
         $plans = [
@@ -201,6 +268,258 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         self::assertFalse($receipt['message_sent']);
     }
 
+    public function testTransientGatewayFailureRetriesOnceThenRecoversWithoutRepeatingOtherSources(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $delays = [];
+        $pmsAttempts = 0;
+        $child = function (
+            string $source,
+            array $command,
+            int $timeoutSeconds,
+            array $context
+        ) use (&$calls, &$pmsAttempts): array {
+            $calls[] = $source;
+            if ($source === 'pms' && ++$pmsAttempts === 1) {
+                return [
+                    'exit_code' => 1,
+                    'timed_out' => false,
+                    'receipt' => [
+                        'status' => 'blocked',
+                        'reason' => 'gateway_collection_capacity_busy',
+                        'business_data_persisted' => false,
+                        'message_sent' => false,
+                        'sensitive_values_exposed' => false,
+                    ],
+                ];
+            }
+            return $this->successChild($source);
+        };
+        $sleeper = static function (int $seconds) use (&$delays): void {
+            $delays[] = $seconds;
+        };
+
+        $receipt = $this->service($plans, $calls, $child, null, null, $sleeper)->run([
+            'target_date' => '2026-08-14',
+        ]);
+
+        self::assertSame('all_hotels_saved_and_readback_verified', $receipt['status']);
+        self::assertSame(['pms', 'pms', 'ctrip', 'meituan'], $calls);
+        self::assertSame([30], $delays);
+        $pms = $receipt['hotels'][0]['sources'][0];
+        self::assertSame(2, $pms['attempt_count']);
+        self::assertSame(1, $pms['retry_count']);
+        self::assertTrue($pms['recovered_after_retry']);
+        self::assertFalse($pms['transient_retry_exhausted']);
+        self::assertSame('gateway_collection_capacity_busy', $pms['last_transient_reason']);
+        self::assertSame('verified', $pms['retry_stop_reason']);
+    }
+
+    public function testTransientFailureExhaustsExactlyTwoRetriesThenContinuesOtherSources(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $delays = [];
+        $child = function (string $source) use (&$calls): array {
+            $calls[] = $source;
+            if ($source === 'ctrip') {
+                return [
+                    'exit_code' => 1,
+                    'timed_out' => false,
+                    'receipt' => [
+                        'status' => 'blocked',
+                        'reason' => 'gateway_temporarily_unavailable',
+                        'business_data_persisted' => false,
+                        'message_sent' => false,
+                        'sensitive_values_exposed' => false,
+                    ],
+                ];
+            }
+            return $this->successChild($source);
+        };
+        $sleeper = static function (int $seconds) use (&$delays): void {
+            $delays[] = $seconds;
+        };
+
+        $receipt = $this->service($plans, $calls, $child, null, null, $sleeper)->run([
+            'target_date' => '2026-08-14',
+        ]);
+
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertSame(['pms', 'ctrip', 'ctrip', 'ctrip', 'meituan'], $calls);
+        self::assertSame([30, 90], $delays);
+        $ctrip = $receipt['hotels'][0]['sources'][1];
+        self::assertSame(3, $ctrip['attempt_count']);
+        self::assertSame(2, $ctrip['retry_count']);
+        self::assertTrue($ctrip['transient_retry_exhausted']);
+        self::assertSame('transient_retry_exhausted', $ctrip['retry_stop_reason']);
+    }
+
+    public function testTransientCodeNeverRetriesWhenBusinessDataMayAlreadyBePersisted(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $delays = [];
+        $child = function (string $source) use (&$calls): array {
+            $calls[] = $source;
+            if ($source === 'ctrip') {
+                return [
+                    'exit_code' => 1,
+                    'timed_out' => false,
+                    'receipt' => [
+                        'status' => 'blocked',
+                        'reason' => 'gateway_connection_timeout',
+                        'business_data_persisted' => true,
+                        'message_sent' => false,
+                        'sensitive_values_exposed' => false,
+                    ],
+                ];
+            }
+            return $this->successChild($source);
+        };
+
+        $receipt = $this->service(
+            $plans,
+            $calls,
+            $child,
+            null,
+            null,
+            static function (int $seconds) use (&$delays): void { $delays[] = $seconds; }
+        )->run(['target_date' => '2026-08-14']);
+
+        self::assertSame(['pms', 'ctrip', 'meituan'], $calls);
+        self::assertSame([], $delays);
+        $ctrip = $receipt['hotels'][0]['sources'][1];
+        self::assertSame(1, $ctrip['attempt_count']);
+        self::assertSame('business_data_persisted', $ctrip['retry_stop_reason']);
+    }
+
+    public function testTransientCodeNeverRetriesWhenPersistenceOutcomeIsMissing(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $delays = [];
+        $child = function (string $source) use (&$calls): array {
+            $calls[] = $source;
+            if ($source === 'meituan') {
+                return [
+                    'exit_code' => 1,
+                    'timed_out' => false,
+                    'receipt' => [
+                        'status' => 'blocked',
+                        'reason' => 'gateway_connection_refused',
+                        'message_sent' => false,
+                        'sensitive_values_exposed' => false,
+                    ],
+                ];
+            }
+            return $this->successChild($source);
+        };
+
+        $receipt = $this->service(
+            $plans,
+            $calls,
+            $child,
+            null,
+            null,
+            static function (int $seconds) use (&$delays): void { $delays[] = $seconds; }
+        )->run(['target_date' => '2026-08-14']);
+
+        self::assertSame(['pms', 'ctrip', 'meituan'], $calls);
+        self::assertSame([], $delays);
+        $meituan = $receipt['hotels'][0]['sources'][2];
+        self::assertNull($meituan['business_data_persisted']);
+        self::assertSame(1, $meituan['attempt_count']);
+        self::assertSame('persistence_outcome_unknown', $meituan['retry_stop_reason']);
+    }
+
+    public function testTimeoutAbortExceptionFreezesSharedQueueAndDoesNotRetry(): void
+    {
+        $plans = [
+            $this->plan(1, 80, 21, 22),
+            $this->plan(2, 81, 31, 32),
+        ];
+        $calls = [];
+        $delays = [];
+        $child = function (string $source, array $command, int $timeout, array $context) use (&$calls): array {
+            $calls[] = [$source, (int)$context['system_hotel_id']];
+            return [
+                'exit_code' => 124,
+                'timed_out' => true,
+                'process_group_cleanup_verified' => true,
+                'receipt' => [
+                    'status' => 'blocked',
+                    'business_data_persisted' => false,
+                    'message_sent' => false,
+                    'sensitive_values_exposed' => false,
+                ],
+            ];
+        };
+        $aborter = static function (): bool {
+            throw new \RuntimeException('abort unavailable');
+        };
+
+        $receipt = $this->service(
+            $plans,
+            $calls,
+            $child,
+            null,
+            $aborter,
+            static function (int $seconds) use (&$delays): void { $delays[] = $seconds; }
+        )->run(['target_date' => '2026-08-14']);
+
+        self::assertSame([['pms', 80]], $calls);
+        self::assertSame([], $delays);
+        self::assertFalse($receipt['gateway_cleanup_verified']);
+        $pms = $receipt['hotels'][0]['sources'][0];
+        self::assertTrue($pms['process_group_cleanup_verified']);
+        self::assertFalse($pms['gateway_abort_verified']);
+        self::assertFalse($pms['timeout_cleanup_verified']);
+        self::assertSame('terminal_failure', $pms['retry_stop_reason']);
+        self::assertSame('previous_timeout_cleanup_unverified', $receipt['hotels'][1]['reason']);
+    }
+
+    public function testTimeoutRetriesOnlyAfterProcessAndGatewayCleanupAreBothVerified(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $delays = [];
+        $attempt = 0;
+        $child = function (string $source) use (&$calls, &$attempt): array {
+            $calls[] = $source;
+            if ($source === 'pms' && ++$attempt === 1) {
+                return [
+                    'exit_code' => 124,
+                    'timed_out' => true,
+                    'process_group_cleanup_verified' => true,
+                    'receipt' => [
+                        'status' => 'blocked',
+                        'business_data_persisted' => false,
+                        'message_sent' => false,
+                        'sensitive_values_exposed' => false,
+                    ],
+                ];
+            }
+            return $this->successChild($source);
+        };
+
+        $receipt = $this->service(
+            $plans,
+            $calls,
+            $child,
+            null,
+            static fn(): bool => true,
+            static function (int $seconds) use (&$delays): void { $delays[] = $seconds; }
+        )->run(['target_date' => '2026-08-14']);
+
+        self::assertSame('all_hotels_saved_and_readback_verified', $receipt['status']);
+        self::assertSame(['pms', 'pms', 'ctrip', 'meituan'], $calls);
+        self::assertSame([30], $delays);
+        self::assertTrue($receipt['hotels'][0]['gateway_cleanup_verified']);
+        self::assertTrue($receipt['hotels'][0]['sources'][0]['recovered_after_retry']);
+    }
+
     /**
      * @param array<int,array<string,mixed>> $plans
      * @param array<int,array<string,mixed>> $calls
@@ -210,7 +529,10 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         array &$calls,
         ?callable $childRunner = null,
         ?callable $profileLoader = null,
-        ?callable $collectionAborter = null
+        ?callable $collectionAborter = null,
+        ?callable $sleeper = null,
+        ?callable $runReceiptWriter = null,
+        ?callable $authorizationLoader = null
     ): CloudThreeSourceCollectionQueueService {
         $planByHotel = [];
         foreach ($plans as $plan) {
@@ -232,6 +554,139 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
             ];
             return $this->successChild($source);
         };
+        if ($runReceiptWriter === null) {
+            $ledger = [];
+            $runReceiptWriter = static function (string $action, array $context) use (&$ledger): array {
+                if ($action === 'begin') {
+                    $gate = (array)($context['gate'] ?? []);
+                    $runId = (string)($gate['dispatcher_run_id'] ?? '');
+                    $ledger[$runId] = [
+                        'dispatcher_run_id' => $runId,
+                        'tenant_id' => (int)($gate['tenant_id'] ?? 0),
+                        'system_hotel_id' => (int)($gate['system_hotel_id'] ?? 0),
+                        'business_date' => (string)($gate['business_date'] ?? ''),
+                        'status' => ($gate['collection_allowed'] ?? false) === true
+                            ? 'started'
+                            : 'blocked',
+                        'pms_provider' => (string)($gate['sources']['pms']['provider'] ?? ''),
+                        'pms_receipt' => [
+                            'provider' => (string)($gate['sources']['pms']['provider'] ?? ''),
+                            'status' => 'not_run',
+                            'capture_id' => null,
+                            'readback_verified' => false,
+                        ],
+                        'sources' => [
+                            'ctrip' => [
+                                'platform' => 'ctrip',
+                                'data_source_id' => (int)($gate['sources']['ctrip']['data_source_id'] ?? 0),
+                                'status' => ($gate['collection_allowed'] ?? false) === true
+                                    ? 'declared'
+                                    : 'blocked',
+                                'platform_sync_task_id' => null,
+                                'readback_verified' => false,
+                            ],
+                            'meituan' => [
+                                'platform' => 'meituan',
+                                'data_source_id' => (int)($gate['sources']['meituan']['data_source_id'] ?? 0),
+                                'status' => ($gate['collection_allowed'] ?? false) === true
+                                    ? 'declared'
+                                    : 'blocked',
+                                'platform_sync_task_id' => null,
+                                'readback_verified' => false,
+                            ],
+                        ],
+                    ];
+                } else {
+                    $runId = (string)($context['dispatcher_run_id'] ?? '');
+                    if (!isset($ledger[$runId])) {
+                        throw new \RuntimeException('test_run_receipt_missing');
+                    }
+                    if ($action === 'pms_success') {
+                        $ledger[$runId]['pms_receipt'] = [
+                            'provider' => (string)($context['provider'] ?? ''),
+                            'status' => 'verified',
+                            'capture_id' => (string)((int)($context['capture_id'] ?? 0)),
+                            'readback_verified' => true,
+                        ];
+                    } elseif ($action === 'pms_failure') {
+                        $outcome = (array)($context['outcome'] ?? []);
+                        $ledger[$runId]['pms_receipt'] = [
+                            'provider' => (string)($context['provider'] ?? ''),
+                            'status' => 'failed',
+                            'capture_id' => null,
+                            'readback_verified' => false,
+                            'reason_code' => (string)($outcome['reason'] ?? ''),
+                        ];
+                    } elseif ($action === 'platform_results') {
+                        foreach ((array)($context['results'] ?? []) as $result) {
+                            $platform = (string)($result['platform'] ?? '');
+                            $success = ($result['success'] ?? false) === true;
+                            $ledger[$runId]['sources'][$platform] = [
+                                'platform' => $platform,
+                                'data_source_id' => (int)($result['data_source_id'] ?? 0),
+                                'status' => $success ? 'success' : 'failed',
+                                'platform_sync_task_id' => $success
+                                    ? max(1, (int)($result['task_id'] ?? 0))
+                                    : null,
+                                'readback_verified' => $success,
+                            ];
+                        }
+                        $statuses = array_column($ledger[$runId]['sources'], 'status');
+                        if (in_array('declared', $statuses, true)) {
+                            $ledger[$runId]['status'] = 'in_progress';
+                        } elseif (count(array_filter($statuses, static fn(string $status): bool => $status === 'success')) === 2) {
+                            $ledger[$runId]['status'] = 'collected';
+                        } elseif (in_array('success', $statuses, true)) {
+                            $ledger[$runId]['status'] = 'partial';
+                        } else {
+                            $ledger[$runId]['status'] = 'failed';
+                        }
+                    } elseif ($action !== 'read') {
+                        throw new \RuntimeException('test_run_receipt_action_invalid');
+                    }
+                }
+
+                $runId = $action === 'begin'
+                    ? (string)($context['gate']['dispatcher_run_id'] ?? '')
+                    : (string)($context['dispatcher_run_id'] ?? '');
+                $state = $ledger[$runId];
+                return [
+                    'dispatcher_run_id' => $runId,
+                    'tenant_id' => $state['tenant_id'],
+                    'system_hotel_id' => $state['system_hotel_id'],
+                    'business_date' => $state['business_date'],
+                    'status' => $state['status'],
+                    'pms_receipt' => $state['pms_receipt'],
+                    'source_receipts' => array_values($state['sources']),
+                    'ledger_structure_verified' => true,
+                    'readback_verified' => in_array($state['status'], ['blocked', 'partial', 'failed'], true),
+                ];
+            };
+        }
+        $authorizationLoader ??= static function (
+            array $hotel,
+            string $targetDate,
+            array $sourceIds,
+            array $platforms,
+            string $runMode
+        ) use ($planByHotel): array {
+            $plan = $planByHotel[(int)$hotel['id']];
+            return [
+                'status' => 'ready',
+                'collection_allowed' => true,
+                'tenant_id' => (int)$hotel['tenant_id'],
+                'system_hotel_id' => (int)$hotel['id'],
+                'business_date' => $targetDate,
+                'run_mode' => $runMode,
+                'plan_id' => (int)$plan['id'],
+                'plan_hash' => (string)$plan['plan_hash'],
+                'plan_readback_verified' => true,
+                'binding_digest_matches' => true,
+                'execution_owner_user_id' => (int)$plan['execution_owner_user_id'],
+                'actual_source_ids' => $sourceIds,
+                'actual_platforms' => $platforms,
+            ];
+        };
 
         return new CloudThreeSourceCollectionQueueService(
             static fn(): array => $plans,
@@ -241,36 +696,15 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                 'name' => 'Hotel ' . $hotelId,
                 'status' => 1,
             ],
-            static function (
-                array $hotel,
-                string $targetDate,
-                array $sourceIds,
-                array $platforms,
-                string $runMode
-            ) use ($planByHotel): array {
-                $plan = $planByHotel[(int)$hotel['id']];
-                return [
-                    'status' => 'ready',
-                    'collection_allowed' => true,
-                    'tenant_id' => (int)$hotel['tenant_id'],
-                    'system_hotel_id' => (int)$hotel['id'],
-                    'business_date' => $targetDate,
-                    'run_mode' => $runMode,
-                    'plan_id' => (int)$plan['id'],
-                    'plan_hash' => (string)$plan['plan_hash'],
-                    'plan_readback_verified' => true,
-                    'binding_digest_matches' => true,
-                    'execution_owner_user_id' => (int)$plan['execution_owner_user_id'],
-                    'actual_source_ids' => $sourceIds,
-                    'actual_platforms' => $platforms,
-                ];
-            },
+            $authorizationLoader,
             $profileLoader,
             $childRunner,
             static fn(): \DateTimeImmutable => new \DateTimeImmutable('2026-08-14 10:30:00'),
             static fn(): float => 1000.0,
             'D:/suxios',
-            $collectionAborter
+            $collectionAborter,
+            $sleeper,
+            $runReceiptWriter
         );
     }
 
@@ -357,6 +791,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                 'readback_count' => 3,
                 'readback_verified' => true,
                 'business_data_persisted' => true,
+                'gateway_receipt_readback_verified' => true,
                 'message_sent' => false,
             ],
         ];

@@ -36,6 +36,19 @@ final class CloudThreeSourceCollectionQueueService
     private const GATEWAY_URL = 'http://127.0.0.1:8787';
     private const SETSID_BINARY = '/usr/bin/setsid';
     private const MAX_CAPTURED_PROCESS_OUTPUT_BYTES = 262_144;
+    private const MAX_TRANSIENT_RETRIES = 2;
+    private const RETRY_BACKOFF_SECONDS = [30, 90];
+    private const CLEANUP_RESERVE_SECONDS = 15;
+    private const MIN_CHILD_WINDOW_SECONDS = 60;
+    private const TRANSIENT_FAILURE_CODES = [
+        'gateway_collection_capacity_busy',
+        'gateway_temporarily_unavailable',
+        'gateway_connection_timeout',
+        'gateway_connection_refused',
+        'cloud_ota_gateway_temporarily_unavailable',
+        'cloud_ota_gateway_connection_timeout',
+        'cloud_ota_gateway_connection_refused',
+    ];
 
     /** @var callable|null */
     private $planLoader;
@@ -61,6 +74,12 @@ final class CloudThreeSourceCollectionQueueService
     /** @var callable|null */
     private $collectionAborter;
 
+    /** @var callable|null */
+    private $sleeper;
+
+    /** @var callable|null */
+    private $runReceiptWriter;
+
     private string $applicationRoot;
 
     public function __construct(
@@ -72,7 +91,9 @@ final class CloudThreeSourceCollectionQueueService
         ?callable $clock = null,
         ?callable $monotonicClock = null,
         ?string $applicationRoot = null,
-        ?callable $collectionAborter = null
+        ?callable $collectionAborter = null,
+        ?callable $sleeper = null,
+        ?callable $runReceiptWriter = null
     ) {
         $this->planLoader = $planLoader;
         $this->hotelLoader = $hotelLoader;
@@ -83,6 +104,8 @@ final class CloudThreeSourceCollectionQueueService
         $this->monotonicClock = $monotonicClock;
         $this->applicationRoot = rtrim($applicationRoot ?? dirname(__DIR__, 2), '/\\');
         $this->collectionAborter = $collectionAborter;
+        $this->sleeper = $sleeper;
+        $this->runReceiptWriter = $runReceiptWriter;
     }
 
     /** @param array<string,mixed> $options @return array<string,mixed> */
@@ -123,6 +146,7 @@ final class CloudThreeSourceCollectionQueueService
                 'status' => 'no_eligible_plans',
                 'execution_mode' => 'global_serial',
                 'source_order' => self::SOURCE_ORDER,
+                'retry_policy' => $this->retryPolicy(),
                 'target_date' => $targetDate,
                 'eligible_plan_count' => 0,
                 'verified_hotel_count' => 0,
@@ -191,6 +215,7 @@ final class CloudThreeSourceCollectionQueueService
                 : 'partial_or_blocked',
             'execution_mode' => 'global_serial',
             'source_order' => self::SOURCE_ORDER,
+            'retry_policy' => $this->retryPolicy(),
             'target_date' => $targetDate,
             'eligible_plan_count' => count($plans),
             'verified_hotel_count' => $verifiedHotelCount,
@@ -280,20 +305,90 @@ final class CloudThreeSourceCollectionQueueService
             (array)($authorization['actual_source_ids'] ?? [])
         ))));
         sort($authorizedSourceIds, SORT_NUMERIC);
-        if (($authorization['collection_allowed'] ?? false) !== true
-            || (int)($authorization['tenant_id'] ?? 0) !== $tenantId
-            || (int)($authorization['system_hotel_id'] ?? 0) !== $hotelId
-            || (int)($authorization['execution_owner_user_id'] ?? 0) !== $ownerUserId
-            || (int)($authorization['plan_id'] ?? 0) !== $planId
-            || !hash_equals(
+        $authorizationVerified = ($authorization['collection_allowed'] ?? false) === true
+            && (int)($authorization['tenant_id'] ?? 0) === $tenantId
+            && (int)($authorization['system_hotel_id'] ?? 0) === $hotelId
+            && (int)($authorization['execution_owner_user_id'] ?? 0) === $ownerUserId
+            && (int)($authorization['plan_id'] ?? 0) === $planId
+            && hash_equals(
                 $planHash,
                 strtolower(trim((string)($authorization['plan_hash'] ?? '')))
             )
-            || $authorizedSourceIds !== $expectedSourceIds
-            || ($authorization['plan_readback_verified'] ?? false) !== true
-            || ($authorization['binding_digest_matches'] ?? false) !== true
-        ) {
-            return $this->blockedHotelReceipt($plan, $targetDate, 'collection_plan_authorization_blocked');
+            && $authorizedSourceIds === $expectedSourceIds
+            && ($authorization['plan_readback_verified'] ?? false) === true
+            && ($authorization['binding_digest_matches'] ?? false) === true;
+
+        $dispatcherRunId = $this->newDispatcherRunId();
+        $runGate = $authorization;
+        $runGate['dispatcher_run_id'] = $dispatcherRunId;
+        $runGate['tenant_id'] = $tenantId;
+        $runGate['system_hotel_id'] = $hotelId;
+        $runGate['business_date'] = $targetDate;
+        $runGate['run_mode'] = 'realtime';
+        $runGate['plan_id'] = $planId;
+        $runGate['plan_version'] = max(0, (int)($plan['plan_version'] ?? 0));
+        $runGate['plan_hash'] = $planHash;
+        $runGate['collection_allowed'] = $authorizationVerified;
+        $runGate['execution_owner_user_id'] = $ownerUserId;
+        $runGate['expected_source_ids'] = $expectedSourceIds;
+        $runGate['sources'] = [
+            'ctrip' => [
+                'platform' => 'ctrip',
+                'data_source_id' => $ctripSourceId,
+                'ingestion_method' => 'browser_profile',
+            ],
+            'meituan' => [
+                'platform' => 'meituan',
+                'data_source_id' => $meituanSourceId,
+                'ingestion_method' => 'browser_profile',
+            ],
+            'pms' => ['provider' => $pmsProvider],
+        ];
+        if (!$authorizationVerified) {
+            $failureReasons = is_array($runGate['failure_reasons'] ?? null)
+                ? $runGate['failure_reasons']
+                : [];
+            $failureReasons[] = [
+                'code' => 'collection_plan_authorization_blocked',
+                'platform' => '',
+            ];
+            $runGate['failure_reasons'] = $failureReasons;
+        }
+        try {
+            $beginReceipt = $this->writeRunReceipt('begin', ['gate' => $runGate]);
+            if (!$this->beginRunReceiptVerified(
+                $beginReceipt,
+                $dispatcherRunId,
+                $tenantId,
+                $hotelId,
+                $targetDate,
+                $expectedSourceIds,
+                $authorizationVerified ? 'started' : 'blocked'
+            )) {
+                throw new RuntimeException('collection_run_receipt_begin_readback_unverified');
+            }
+        } catch (\Throwable) {
+            $blocked = $this->blockedHotelReceipt(
+                $plan,
+                $targetDate,
+                'collection_run_receipt_begin_failed'
+            );
+            $blocked['dispatcher_run_id'] = $dispatcherRunId;
+            $blocked['run_receipt_structure_verified'] = false;
+            $blocked['run_receipt_status'] = 'unverified';
+            return $blocked;
+        }
+        if (!$authorizationVerified) {
+            $blocked = $this->blockedHotelReceipt(
+                $plan,
+                $targetDate,
+                'collection_plan_authorization_blocked'
+            );
+            $blocked['dispatcher_run_id'] = $dispatcherRunId;
+            $blocked['run_receipt_structure_verified'] = true;
+            $blocked['run_receipt_status'] = 'blocked';
+            $blocked['run_receipt_readback_verified'] = ($beginReceipt['readback_verified'] ?? false) === true;
+            return $blocked;
         }
 
         try {
@@ -306,11 +401,26 @@ final class CloudThreeSourceCollectionQueueService
                 $this->now()
             );
         } catch (\Throwable $error) {
-            return $this->blockedHotelReceipt(
+            $reason = $this->safeCode($error->getMessage()) ?: 'cloud_profile_scope_invalid';
+            $ledger = $this->recordPreflightFailure(
+                $dispatcherRunId,
+                $tenantId,
+                $hotelId,
+                $targetDate,
+                $pmsProvider,
+                $ctripSourceId,
+                $meituanSourceId,
+                $reason
+            );
+            $blocked = $this->blockedHotelReceipt(
                 $plan,
                 $targetDate,
-                $this->safeCode($error->getMessage()) ?: 'cloud_profile_scope_invalid'
+                $reason
             );
+            $blocked['dispatcher_run_id'] = $dispatcherRunId;
+            $blocked['run_receipt_structure_verified'] = $ledger;
+            $blocked['run_receipt_status'] = $ledger ? 'failed' : 'unverified';
+            return $blocked;
         }
 
         $pmsScript = $pmsProvider === HotelPmsBindingService::PROVIDER_DINGDANDAO
@@ -344,6 +454,7 @@ final class CloudThreeSourceCollectionQueueService
                 '--target-date=' . $targetDate,
                 '--control-token-file=' . $controlTokenFile,
                 '--timeout-seconds=' . $childTimeoutSeconds,
+                '--dispatcher-run-id=' . $dispatcherRunId,
             ],
             'meituan' => [
                 PHP_BINARY,
@@ -356,6 +467,7 @@ final class CloudThreeSourceCollectionQueueService
                 '--target-date=' . $targetDate,
                 '--control-token-file=' . $controlTokenFile,
                 '--timeout-seconds=' . $childTimeoutSeconds,
+                '--dispatcher-run-id=' . $dispatcherRunId,
             ],
         ];
         $sourceIds = ['pms' => 0, 'ctrip' => $ctripSourceId, 'meituan' => $meituanSourceId];
@@ -363,75 +475,197 @@ final class CloudThreeSourceCollectionQueueService
         $allVerified = true;
         $deadlineReached = false;
         $gatewayCleanupVerified = true;
+        $runReceiptWritesVerified = true;
+        $finalRunReceipt = [];
         $skipRemainingReason = null;
         foreach (self::SOURCE_ORDER as $sourceKey) {
             if (is_string($skipRemainingReason)) {
                 $allVerified = false;
-                $sourceReceipts[] = $this->blockedSourceReceipt(
+                $skippedReceipt = $this->blockedSourceReceipt(
                     $sourceKey,
                     $sourceIds[$sourceKey],
                     $skipRemainingReason
                 );
-                continue;
-            }
-            $remainingSeconds = (int)floor($deadlineAt - $this->monotonicNow());
-            if ($remainingSeconds < 60) {
-                $deadlineReached = true;
-                $allVerified = false;
-                $sourceReceipts[] = $this->blockedSourceReceipt(
-                    $sourceKey,
-                    $sourceIds[$sourceKey],
-                    'queue_deadline_reached'
-                );
-                continue;
-            }
-            $effectiveTimeout = min($childTimeoutSeconds, $remainingSeconds);
-            try {
-                $child = $this->runChild(
-                    $sourceKey,
-                    $commands[$sourceKey],
-                    $effectiveTimeout,
-                    [
-                        'tenant_id' => $tenantId,
-                        'system_hotel_id' => $hotelId,
-                        'owner_user_id' => $ownerUserId,
-                        'data_source_id' => $sourceIds[$sourceKey],
-                        'target_date' => $targetDate,
-                        'profile_public_id' => $profiles[$sourceKey]['profile_public_id'],
-                    ]
-                );
-                $receipt = $this->sanitizeChildReceipt(
-                    $sourceKey,
-                    $sourceIds[$sourceKey],
-                    $child
-                );
-                if (($receipt['timed_out'] ?? false) === true) {
-                    $processCleanupVerified = ($child['process_group_cleanup_verified'] ?? false) === true;
-                    $gatewayAbortVerified = $this->abortCollection(
-                        $profiles[$sourceKey]['profile_public_id'],
-                        $controlTokenFile
+                if ($runReceiptWritesVerified) {
+                    $runReceiptWritesVerified = $this->recordFinalSourceReceipt(
+                        $dispatcherRunId,
+                        $tenantId,
+                        $hotelId,
+                        $targetDate,
+                        $pmsProvider,
+                        $sourceKey,
+                        $skippedReceipt
                     );
-                    $cleanupVerified = $processCleanupVerified && $gatewayAbortVerified;
-                    $receipt['timeout_cleanup_verified'] = $cleanupVerified;
-                    if (!$cleanupVerified) {
-                        $gatewayCleanupVerified = false;
-                        $skipRemainingReason = 'previous_timeout_cleanup_unverified';
-                    }
+                    $skippedReceipt['run_receipt_recorded'] = $runReceiptWritesVerified;
+                } else {
+                    $skippedReceipt['run_receipt_recorded'] = false;
                 }
-            } catch (\Throwable $error) {
-                $receipt = $this->blockedSourceReceipt(
-                    $sourceKey,
-                    $sourceIds[$sourceKey],
-                    $this->safeCode($error->getMessage()) ?: 'collection_child_failed'
-                );
+                $sourceReceipts[] = $skippedReceipt;
+                continue;
             }
+            $attemptCount = 0;
+            $retryDelays = [];
+            $lastTransientReason = null;
+            $retryStopReason = 'terminal_failure';
+            $transientRetryExhausted = false;
+            $receipt = $this->blockedSourceReceipt(
+                $sourceKey,
+                $sourceIds[$sourceKey],
+                'collection_child_not_started'
+            );
+            while (true) {
+                $remainingSeconds = (int)floor($deadlineAt - $this->monotonicNow());
+                $minimumAttemptWindow = self::MIN_CHILD_WINDOW_SECONDS
+                    + self::CLEANUP_RESERVE_SECONDS;
+                if ($remainingSeconds < $minimumAttemptWindow) {
+                    if ($attemptCount === 0) {
+                        $deadlineReached = true;
+                        $receipt = $this->blockedSourceReceipt(
+                            $sourceKey,
+                            $sourceIds[$sourceKey],
+                            'queue_deadline_reached'
+                        );
+                    }
+                    $retryStopReason = $attemptCount === 0
+                        ? 'queue_deadline_reached'
+                        : 'queue_deadline_insufficient_for_retry';
+                    break;
+                }
+                $effectiveTimeout = min(
+                    $childTimeoutSeconds,
+                    $remainingSeconds - self::CLEANUP_RESERVE_SECONDS
+                );
+                $attemptCount++;
+                $child = [];
+                try {
+                    $child = $this->runChild(
+                        $sourceKey,
+                        $commands[$sourceKey],
+                        $effectiveTimeout,
+                        [
+                            'tenant_id' => $tenantId,
+                            'system_hotel_id' => $hotelId,
+                            'owner_user_id' => $ownerUserId,
+                            'data_source_id' => $sourceIds[$sourceKey],
+                            'target_date' => $targetDate,
+                            'profile_public_id' => $profiles[$sourceKey]['profile_public_id'],
+                            'attempt_count' => $attemptCount,
+                        ]
+                    );
+                    $receipt = $this->sanitizeChildReceipt(
+                        $sourceKey,
+                        $sourceIds[$sourceKey],
+                        $child
+                    );
+                    if (($receipt['timed_out'] ?? false) === true) {
+                        $processCleanupVerified = ($child['process_group_cleanup_verified'] ?? false) === true;
+                        try {
+                            $gatewayAbortVerified = $this->abortCollection(
+                                $profiles[$sourceKey]['profile_public_id'],
+                                $controlTokenFile
+                            );
+                        } catch (\Throwable) {
+                            $gatewayAbortVerified = false;
+                        }
+                        $cleanupVerified = $processCleanupVerified && $gatewayAbortVerified;
+                        $receipt['process_group_cleanup_verified'] = $processCleanupVerified;
+                        $receipt['gateway_abort_verified'] = $gatewayAbortVerified;
+                        $receipt['timeout_cleanup_verified'] = $cleanupVerified;
+                        if (!$cleanupVerified) {
+                            $gatewayCleanupVerified = false;
+                            $skipRemainingReason = 'previous_timeout_cleanup_unverified';
+                        }
+                    }
+                } catch (\Throwable $error) {
+                    $receipt = $this->blockedSourceReceipt(
+                        $sourceKey,
+                        $sourceIds[$sourceKey],
+                        $this->safeCode($error->getMessage()) ?: 'collection_child_failed'
+                    );
+                }
+
+                if (($receipt['verified'] ?? false) === true) {
+                    $retryStopReason = 'verified';
+                    break;
+                }
+                $retryDecision = $this->retryDecision(
+                    $receipt,
+                    $attemptCount,
+                    $deadlineAt
+                );
+                $retryStopReason = (string)$retryDecision['stop_reason'];
+                if (($retryDecision['transient'] ?? false) === true) {
+                    $lastTransientReason = (string)($receipt['reason'] ?? '');
+                }
+                if (($retryDecision['retry'] ?? false) !== true) {
+                    $transientRetryExhausted = ($retryDecision['exhausted'] ?? false) === true;
+                    break;
+                }
+                $delay = (int)$retryDecision['delay_seconds'];
+                $retryDelays[] = $delay;
+                $this->sleepFor($delay);
+            }
+            $receipt['attempt_count'] = $attemptCount;
+            $receipt['retry_count'] = max(0, $attemptCount - 1);
+            $receipt['retry_delays_seconds'] = $retryDelays;
+            $receipt['recovered_after_retry'] = ($receipt['verified'] ?? false) === true
+                && $attemptCount > 1;
+            $receipt['transient_retry_exhausted'] = $transientRetryExhausted;
+            $receipt['last_transient_reason'] = $lastTransientReason;
+            $receipt['retry_stop_reason'] = $retryStopReason;
             if (($receipt['verified'] ?? false) !== true) {
                 $allVerified = false;
             }
             if (($receipt['timed_out'] ?? false) === true) {
                 $deadlineReached = $deadlineReached || $this->monotonicNow() >= $deadlineAt;
             }
+            if ($runReceiptWritesVerified) {
+                $runReceiptWritesVerified = $this->recordFinalSourceReceipt(
+                    $dispatcherRunId,
+                    $tenantId,
+                    $hotelId,
+                    $targetDate,
+                    $pmsProvider,
+                    $sourceKey,
+                    $receipt
+                );
+            }
+            $receipt['run_receipt_recorded'] = $runReceiptWritesVerified;
+            if (!$runReceiptWritesVerified) {
+                $allVerified = false;
+                $receipt['source_result_verified_before_run_receipt'] = ($receipt['verified'] ?? false) === true;
+                $receipt['verified'] = false;
+                $receipt['status'] = 'blocked';
+                $receipt['reason'] = 'collection_run_receipt_write_failed';
+                $receipt['readback_verified'] = false;
+                $skipRemainingReason = 'collection_run_receipt_write_failed';
+            }
             $sourceReceipts[] = $receipt;
+        }
+
+        if ($runReceiptWritesVerified) {
+            try {
+                $finalRunReceipt = $this->writeRunReceipt('read', [
+                    'dispatcher_run_id' => $dispatcherRunId,
+                    'tenant_id' => $tenantId,
+                    'system_hotel_id' => $hotelId,
+                    'business_date' => $targetDate,
+                ]);
+                $runReceiptWritesVerified = $this->finalRunReceiptVerified(
+                    $finalRunReceipt,
+                    $dispatcherRunId,
+                    $tenantId,
+                    $hotelId,
+                    $targetDate,
+                    $pmsProvider,
+                    $sourceReceipts
+                );
+            } catch (\Throwable) {
+                $runReceiptWritesVerified = false;
+            }
+        }
+        if (!$runReceiptWritesVerified) {
+            $allVerified = false;
         }
 
         return [
@@ -442,11 +676,19 @@ final class CloudThreeSourceCollectionQueueService
             'tenant_id' => $tenantId,
             'system_hotel_id' => $hotelId,
             'target_date' => $targetDate,
+            'dispatcher_run_id' => $dispatcherRunId,
             'execution_mode' => 'serial',
             'source_order' => self::SOURCE_ORDER,
+            'retry_policy' => $this->retryPolicy(),
             'sources' => $sourceReceipts,
             'deadline_reached' => $deadlineReached,
             'gateway_cleanup_verified' => $gatewayCleanupVerified,
+            'run_receipt_structure_verified' => $runReceiptWritesVerified,
+            'run_receipt_status' => $runReceiptWritesVerified
+                ? (string)($finalRunReceipt['status'] ?? 'started')
+                : 'unverified',
+            'run_receipt_readback_verified' => $runReceiptWritesVerified
+                && ($finalRunReceipt['readback_verified'] ?? false) === true,
             'message_sent' => false,
             'sensitive_values_exposed' => false,
         ];
@@ -766,10 +1008,19 @@ final class CloudThreeSourceCollectionQueueService
             ? 'collection_child_timeout'
             : ($this->safeCode((string)($receipt['reason'] ?? '')) ?: null);
         $messagePolicyViolated = ($receipt['message_sent'] ?? false) === true;
+        $sensitivePolicyViolated = ($receipt['sensitive_values_exposed'] ?? false) === true;
+        $businessDataPersisted = array_key_exists('business_data_persisted', $receipt)
+            ? (($receipt['business_data_persisted'] ?? false) === true)
+            : null;
         $savedCount = max(0, (int)($receipt['saved_count'] ?? 0));
         $readbackCount = max(0, (int)($receipt['readback_count'] ?? 0));
+        $captureId = null;
+        $taskId = null;
+        $runReadback = [];
         if ($sourceKey === 'pms') {
-            $savedCount = (int)($receipt['capture_id'] ?? 0) > 0 ? 1 : 0;
+            $rawCaptureId = max(0, (int)($receipt['capture_id'] ?? 0));
+            $captureId = $rawCaptureId > 0 ? $rawCaptureId : null;
+            $savedCount = $captureId !== null ? 1 : 0;
             $readbackCount = ($receipt['readback_status'] ?? '') === 'readback_verified' ? $savedCount : 0;
             $verified = !$timedOut
                 && !$messagePolicyViolated
@@ -781,17 +1032,27 @@ final class CloudThreeSourceCollectionQueueService
                 && $savedCount === 1
                 && $readbackCount === 1;
         } else {
+            $rawTaskId = max(0, (int)($receipt['task_id'] ?? 0));
+            $taskId = $rawTaskId > 0 ? $rawTaskId : null;
+            $runReadback = $this->sanitizeRunReadback(
+                is_array($receipt['run_readback'] ?? null) ? $receipt['run_readback'] : []
+            );
             $verified = !$timedOut
                 && !$messagePolicyViolated
                 && $exitCode === 0
                 && $status === 'saved_and_readback_verified'
                 && ($receipt['business_data_persisted'] ?? false) === true
                 && ($receipt['readback_verified'] ?? false) === true
+                && ($receipt['gateway_receipt_readback_verified'] ?? false) === true
                 && $savedCount > 0
                 && $savedCount === $readbackCount;
         }
         if ($messagePolicyViolated) {
             $reason = 'message_send_policy_violated';
+        }
+        if ($sensitivePolicyViolated) {
+            $reason = 'sensitive_value_policy_violated';
+            $verified = false;
         }
         return [
             'source' => $sourceKey,
@@ -802,10 +1063,467 @@ final class CloudThreeSourceCollectionQueueService
             'timed_out' => $timedOut,
             'saved_count' => $savedCount,
             'readback_count' => $readbackCount,
+            'capture_id' => $captureId,
+            'task_id' => $taskId,
+            'run_readback' => $runReadback,
             'readback_verified' => $verified,
+            'gateway_receipt_readback_verified' => $sourceKey === 'pms'
+                ? null
+                : (($receipt['gateway_receipt_readback_verified'] ?? false) === true),
             'verified' => $verified,
+            'business_data_persisted' => $verified ? true : $businessDataPersisted,
             'message_sent' => false,
             'sensitive_values_exposed' => false,
+        ];
+    }
+
+    /** @param array<string,mixed> $context @return array<string,mixed> */
+    private function writeRunReceipt(string $action, array $context): array
+    {
+        if ($this->runReceiptWriter !== null) {
+            $result = call_user_func($this->runReceiptWriter, $action, $context);
+            if (!is_array($result)) {
+                throw new RuntimeException('collection_run_receipt_writer_invalid');
+            }
+            return $result;
+        }
+
+        $service = new HotelCollectionRunReceiptService();
+        return match ($action) {
+            'begin' => $service->begin((array)($context['gate'] ?? [])),
+            'pms_success' => $service->recordPmsCapture(
+                (string)($context['dispatcher_run_id'] ?? ''),
+                (int)($context['system_hotel_id'] ?? 0),
+                (string)($context['business_date'] ?? ''),
+                (string)($context['provider'] ?? ''),
+                (int)($context['capture_id'] ?? 0)
+            ),
+            'pms_failure' => $service->recordPmsFailure(
+                (string)($context['dispatcher_run_id'] ?? ''),
+                (int)($context['system_hotel_id'] ?? 0),
+                (string)($context['business_date'] ?? ''),
+                (string)($context['provider'] ?? ''),
+                (array)($context['outcome'] ?? [])
+            ),
+            'platform_results' => $service->recordPlatformResults(
+                (string)($context['dispatcher_run_id'] ?? ''),
+                (int)($context['system_hotel_id'] ?? 0),
+                (string)($context['business_date'] ?? ''),
+                (array)($context['results'] ?? [])
+            ),
+            'read' => $service->readGroup(
+                (string)($context['dispatcher_run_id'] ?? ''),
+                (int)($context['tenant_id'] ?? 0),
+                (int)($context['system_hotel_id'] ?? 0),
+                (string)($context['business_date'] ?? '')
+            ),
+            default => throw new RuntimeException('collection_run_receipt_action_invalid'),
+        };
+    }
+
+    /** @param array<int,int> $expectedSourceIds */
+    private function beginRunReceiptVerified(
+        array $receipt,
+        string $dispatcherRunId,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        array $expectedSourceIds,
+        string $expectedStatus = 'started'
+    ): bool {
+        $sourceIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): int => max(0, (int)($row['data_source_id'] ?? 0)),
+            is_array($receipt['source_receipts'] ?? null) ? $receipt['source_receipts'] : []
+        ))));
+        sort($sourceIds, SORT_NUMERIC);
+        sort($expectedSourceIds, SORT_NUMERIC);
+        return (string)($receipt['dispatcher_run_id'] ?? '') === $dispatcherRunId
+            && (int)($receipt['tenant_id'] ?? 0) === $tenantId
+            && (int)($receipt['system_hotel_id'] ?? 0) === $hotelId
+            && (string)($receipt['business_date'] ?? '') === $businessDate
+            && (string)($receipt['status'] ?? '') === $expectedStatus
+            && ($receipt['ledger_structure_verified'] ?? false) === true
+            && $sourceIds === $expectedSourceIds;
+    }
+
+    private function recordPreflightFailure(
+        string $dispatcherRunId,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        string $pmsProvider,
+        int $ctripSourceId,
+        int $meituanSourceId,
+        string $reason
+    ): bool {
+        $pmsReceipt = $this->blockedSourceReceipt('pms', 0, $reason);
+        $pmsReceipt['business_data_persisted'] = false;
+        $ctripReceipt = $this->blockedSourceReceipt('ctrip', $ctripSourceId, $reason);
+        $ctripReceipt['business_data_persisted'] = false;
+        $meituanReceipt = $this->blockedSourceReceipt('meituan', $meituanSourceId, $reason);
+        $meituanReceipt['business_data_persisted'] = false;
+        try {
+            if (!$this->recordFinalSourceReceipt(
+                $dispatcherRunId,
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                $pmsProvider,
+                'pms',
+                $pmsReceipt
+            )) {
+                return false;
+            }
+            $result = $this->writeRunReceipt('platform_results', [
+                'dispatcher_run_id' => $dispatcherRunId,
+                'system_hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+                'results' => [
+                    $this->platformRunResult('ctrip', $ctripSourceId, $dispatcherRunId, $hotelId, $businessDate, $ctripReceipt),
+                    $this->platformRunResult('meituan', $meituanSourceId, $dispatcherRunId, $hotelId, $businessDate, $meituanReceipt),
+                ],
+            ]);
+            if (!$this->platformReceiptRecorded($result, 'ctrip', $ctripSourceId, false)
+                || !$this->platformReceiptRecorded($result, 'meituan', $meituanSourceId, false)
+            ) {
+                return false;
+            }
+            $final = $this->writeRunReceipt('read', [
+                'dispatcher_run_id' => $dispatcherRunId,
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+            ]);
+            return $this->finalRunReceiptVerified(
+                $final,
+                $dispatcherRunId,
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                $pmsProvider,
+                [$pmsReceipt, $ctripReceipt, $meituanReceipt]
+            );
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private function recordFinalSourceReceipt(
+        string $dispatcherRunId,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        string $pmsProvider,
+        string $sourceKey,
+        array $receipt
+    ): bool {
+        try {
+            if ($sourceKey === 'pms') {
+                $verified = ($receipt['verified'] ?? false) === true;
+                $result = $this->writeRunReceipt($verified ? 'pms_success' : 'pms_failure', [
+                    'dispatcher_run_id' => $dispatcherRunId,
+                    'tenant_id' => $tenantId,
+                    'system_hotel_id' => $hotelId,
+                    'business_date' => $businessDate,
+                    'provider' => $pmsProvider,
+                    'capture_id' => (int)($receipt['capture_id'] ?? 0),
+                    'outcome' => $receipt,
+                ]);
+                $pms = is_array($result['pms_receipt'] ?? null)
+                    ? $result['pms_receipt']
+                    : [];
+                if ((string)($pms['provider'] ?? '') !== $pmsProvider) {
+                    return false;
+                }
+                return $verified
+                    ? (string)($pms['status'] ?? '') === 'verified'
+                        && (int)($pms['capture_id'] ?? 0) === (int)($receipt['capture_id'] ?? 0)
+                        && ($pms['readback_verified'] ?? false) === true
+                    : (string)($pms['status'] ?? '') === 'failed'
+                        && (string)($pms['reason_code'] ?? '') === (string)($receipt['reason'] ?? '')
+                        && ($pms['readback_verified'] ?? true) === false;
+            }
+
+            $sourceId = (int)($receipt['data_source_id'] ?? 0);
+            $verified = ($receipt['verified'] ?? false) === true;
+            $result = $this->writeRunReceipt('platform_results', [
+                'dispatcher_run_id' => $dispatcherRunId,
+                'system_hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+                'results' => [
+                    $this->platformRunResult(
+                        $sourceKey,
+                        $sourceId,
+                        $dispatcherRunId,
+                        $hotelId,
+                        $businessDate,
+                        $receipt
+                    ),
+                ],
+            ]);
+            return $this->platformReceiptRecorded($result, $sourceKey, $sourceId, $verified);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function platformRunResult(
+        string $platform,
+        int $sourceId,
+        string $dispatcherRunId,
+        int $hotelId,
+        string $businessDate,
+        array $receipt
+    ): array {
+        $verified = ($receipt['verified'] ?? false) === true;
+        return [
+            'platform' => $platform,
+            'success' => $verified,
+            'status' => $verified ? 'success' : 'failed',
+            'dispatcher_run_id' => $dispatcherRunId,
+            'system_hotel_id' => $hotelId,
+            'target_date' => $businessDate,
+            'data_source_id' => $sourceId,
+            'task_id' => max(0, (int)($receipt['task_id'] ?? 0)),
+            'saved_count' => max(0, (int)($receipt['saved_count'] ?? 0)),
+            'readback_count' => max(0, (int)($receipt['readback_count'] ?? 0)),
+            'readback_verified' => $verified && ($receipt['readback_verified'] ?? false) === true,
+            'run_readback' => is_array($receipt['run_readback'] ?? null)
+                ? $receipt['run_readback']
+                : [],
+            'failure_reason' => $verified ? '' : (string)($receipt['reason'] ?? 'collection_child_unverified'),
+        ];
+    }
+
+    private function platformReceiptRecorded(
+        array $receipt,
+        string $platform,
+        int $sourceId,
+        bool $verified
+    ): bool {
+        $matched = null;
+        foreach (is_array($receipt['source_receipts'] ?? null) ? $receipt['source_receipts'] : [] as $row) {
+            if (is_array($row) && (string)($row['platform'] ?? '') === $platform) {
+                $matched = $row;
+                break;
+            }
+        }
+        if (!is_array($matched) || (int)($matched['data_source_id'] ?? 0) !== $sourceId) {
+            return false;
+        }
+        return $verified
+            ? (string)($matched['status'] ?? '') === 'success'
+                && ($matched['readback_verified'] ?? false) === true
+                && (int)($matched['platform_sync_task_id'] ?? 0) > 0
+            : in_array((string)($matched['status'] ?? ''), ['failed', 'partial'], true)
+                && ($matched['readback_verified'] ?? true) === false;
+    }
+
+    /** @param array<int,array<string,mixed>> $sourceReceipts */
+    private function finalRunReceiptVerified(
+        array $receipt,
+        string $dispatcherRunId,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        string $pmsProvider,
+        array $sourceReceipts
+    ): bool {
+        if ((string)($receipt['dispatcher_run_id'] ?? '') !== $dispatcherRunId
+            || (int)($receipt['tenant_id'] ?? 0) !== $tenantId
+            || (int)($receipt['system_hotel_id'] ?? 0) !== $hotelId
+            || (string)($receipt['business_date'] ?? '') !== $businessDate
+            || ($receipt['ledger_structure_verified'] ?? false) !== true
+        ) {
+            return false;
+        }
+        $expectedPms = null;
+        $expectedPlatforms = [];
+        foreach ($sourceReceipts as $sourceReceipt) {
+            $sourceKey = (string)($sourceReceipt['source'] ?? '');
+            if ($sourceKey === 'pms') {
+                $expectedPms = $sourceReceipt;
+            } elseif (in_array($sourceKey, ['ctrip', 'meituan'], true)) {
+                $expectedPlatforms[$sourceKey] = $sourceReceipt;
+            }
+        }
+        if (!is_array($expectedPms) || count($expectedPlatforms) !== 2) {
+            return false;
+        }
+        $pms = is_array($receipt['pms_receipt'] ?? null) ? $receipt['pms_receipt'] : [];
+        if ((string)($pms['provider'] ?? '') !== $pmsProvider) {
+            return false;
+        }
+        if (($expectedPms['verified'] ?? false) === true) {
+            if ((string)($pms['status'] ?? '') !== 'verified'
+                || ($pms['readback_verified'] ?? false) !== true
+            ) {
+                return false;
+            }
+        } elseif ((string)($pms['status'] ?? '') !== 'failed'
+            || ($pms['readback_verified'] ?? true) !== false
+        ) {
+            return false;
+        }
+        foreach ($expectedPlatforms as $platform => $sourceReceipt) {
+            if (!$this->platformReceiptRecorded(
+                $receipt,
+                $platform,
+                (int)($sourceReceipt['data_source_id'] ?? 0),
+                ($sourceReceipt['verified'] ?? false) === true
+            )) {
+                return false;
+            }
+        }
+        return in_array((string)($receipt['status'] ?? ''), ['collected', 'partial', 'failed'], true);
+    }
+
+    /** @return array<string,mixed> */
+    private function sanitizeRunReadback(array $receipt): array
+    {
+        $dispatcherRunId = strtolower(trim((string)($receipt['dispatcher_run_id'] ?? '')));
+        if (preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/D', $dispatcherRunId) !== 1) {
+            $dispatcherRunId = '';
+        }
+        $targetDate = trim((string)($receipt['target_date'] ?? ''));
+        $platform = strtolower(trim((string)($receipt['platform'] ?? '')));
+        $triggerType = strtolower(trim((string)($receipt['trigger_type'] ?? '')));
+        $rowIds = array_values(array_unique(array_filter(array_map(
+            static fn($value): int => max(0, (int)$value),
+            is_array($receipt['row_ids'] ?? null) ? $receipt['row_ids'] : []
+        ))));
+        sort($rowIds, SORT_NUMERIC);
+        if ($dispatcherRunId === ''
+            || !$this->validDate($targetDate)
+            || !in_array($platform, ['ctrip', 'meituan'], true)
+            || $triggerType !== 'daily_profile_reuse'
+            || count($rowIds) > 500
+        ) {
+            return [];
+        }
+        return [
+            'dispatcher_run_id' => $dispatcherRunId,
+            'trigger_type' => $triggerType,
+            'sync_task_id' => max(0, (int)($receipt['sync_task_id'] ?? 0)),
+            'data_source_id' => max(0, (int)($receipt['data_source_id'] ?? 0)),
+            'system_hotel_id' => max(0, (int)($receipt['system_hotel_id'] ?? 0)),
+            'platform' => $platform,
+            'target_date' => $targetDate,
+            'readback_count' => max(0, (int)($receipt['readback_count'] ?? 0)),
+            'row_ids' => $rowIds,
+            'readback_verified' => ($receipt['readback_verified'] ?? false) === true,
+        ];
+    }
+
+    private function newDispatcherRunId(): string
+    {
+        $bytes = random_bytes(16);
+        $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+        $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+        $hex = bin2hex($bytes);
+        return substr($hex, 0, 8) . '-'
+            . substr($hex, 8, 4) . '-'
+            . substr($hex, 12, 4) . '-'
+            . substr($hex, 16, 4) . '-'
+            . substr($hex, 20, 12);
+    }
+
+    /**
+     * @param array<string,mixed> $receipt
+     * @return array{retry:bool,transient:bool,exhausted:bool,delay_seconds:int,stop_reason:string}
+     */
+    private function retryDecision(array $receipt, int $attemptCount, float $deadlineAt): array
+    {
+        $reason = $this->safeCode((string)($receipt['reason'] ?? ''));
+        $transient = in_array($reason, self::TRANSIENT_FAILURE_CODES, true)
+            || ($reason === 'collection_child_timeout'
+                && ($receipt['timeout_cleanup_verified'] ?? false) === true);
+        if (!$transient) {
+            return [
+                'retry' => false,
+                'transient' => false,
+                'exhausted' => false,
+                'delay_seconds' => 0,
+                'stop_reason' => 'terminal_failure',
+            ];
+        }
+        if (($receipt['business_data_persisted'] ?? null) !== false) {
+            return [
+                'retry' => false,
+                'transient' => true,
+                'exhausted' => false,
+                'delay_seconds' => 0,
+                'stop_reason' => ($receipt['business_data_persisted'] ?? null) === true
+                    ? 'business_data_persisted'
+                    : 'persistence_outcome_unknown',
+            ];
+        }
+        if (($receipt['message_sent'] ?? false) === true
+            || ($receipt['sensitive_values_exposed'] ?? false) === true
+        ) {
+            return [
+                'retry' => false,
+                'transient' => true,
+                'exhausted' => false,
+                'delay_seconds' => 0,
+                'stop_reason' => 'policy_violation',
+            ];
+        }
+        if ($attemptCount >= self::MAX_TRANSIENT_RETRIES + 1) {
+            return [
+                'retry' => false,
+                'transient' => true,
+                'exhausted' => true,
+                'delay_seconds' => 0,
+                'stop_reason' => 'transient_retry_exhausted',
+            ];
+        }
+
+        $delay = self::RETRY_BACKOFF_SECONDS[$attemptCount - 1] ?? 0;
+        $requiredSeconds = $delay
+            + self::MIN_CHILD_WINDOW_SECONDS
+            + self::CLEANUP_RESERVE_SECONDS;
+        if ((int)floor($deadlineAt - $this->monotonicNow()) < $requiredSeconds) {
+            return [
+                'retry' => false,
+                'transient' => true,
+                'exhausted' => false,
+                'delay_seconds' => 0,
+                'stop_reason' => 'queue_deadline_insufficient_for_retry',
+            ];
+        }
+        return [
+            'retry' => true,
+            'transient' => true,
+            'exhausted' => false,
+            'delay_seconds' => $delay,
+            'stop_reason' => 'transient_retry_scheduled',
+        ];
+    }
+
+    private function sleepFor(int $seconds): void
+    {
+        $seconds = max(0, $seconds);
+        if ($this->sleeper !== null) {
+            call_user_func($this->sleeper, $seconds);
+            return;
+        }
+        if ($seconds > 0) {
+            sleep($seconds);
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function retryPolicy(): array
+    {
+        return [
+            'max_transient_retries' => self::MAX_TRANSIENT_RETRIES,
+            'backoff_seconds' => self::RETRY_BACKOFF_SECONDS,
+            'explicit_transient_only' => true,
+            'requires_explicit_no_persistence' => true,
+            'timeout_requires_verified_cleanup' => true,
         ];
     }
 
@@ -821,6 +1539,7 @@ final class CloudThreeSourceCollectionQueueService
             'target_date' => $targetDate,
             'execution_mode' => 'serial',
             'source_order' => self::SOURCE_ORDER,
+            'retry_policy' => $this->retryPolicy(),
             'sources' => [],
             'deadline_reached' => $reason === 'queue_deadline_reached',
             'message_sent' => false,
@@ -842,6 +1561,14 @@ final class CloudThreeSourceCollectionQueueService
             'readback_count' => 0,
             'readback_verified' => false,
             'verified' => false,
+            'business_data_persisted' => null,
+            'attempt_count' => 0,
+            'retry_count' => 0,
+            'retry_delays_seconds' => [],
+            'recovered_after_retry' => false,
+            'transient_retry_exhausted' => false,
+            'last_transient_reason' => null,
+            'retry_stop_reason' => 'not_started',
             'message_sent' => false,
             'sensitive_values_exposed' => false,
         ];
@@ -855,6 +1582,7 @@ final class CloudThreeSourceCollectionQueueService
             'reason' => $this->safeCode($reason) ?: 'cloud_three_source_queue_failed',
             'execution_mode' => 'global_serial',
             'source_order' => self::SOURCE_ORDER,
+            'retry_policy' => $this->retryPolicy(),
             'eligible_plan_count' => 0,
             'verified_hotel_count' => 0,
             'blocked_hotel_count' => 0,

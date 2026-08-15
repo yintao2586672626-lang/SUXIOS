@@ -708,7 +708,9 @@ final class PlatformDataSyncServiceTest extends TestCase
         ];
         $options = [
             'require_current_run_session_probe' => true,
-            'required_platform_hotel_id' => 'hotel-80',
+            // Production OTA hotel identifiers are commonly numeric strings;
+            // PHP must not turn the dedupe key into an int before hash_equals.
+            'required_platform_hotel_id' => '130079194',
         ];
 
         self::assertNull($method->invoke($service, $source, $options, [
@@ -720,7 +722,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     'schema_version' => 1,
                     'status' => 'matched',
                     'source_validation' => true,
-                    'validated_identifier' => 'hotel-80',
+                    'validated_identifier' => '130079194',
                     'sensitive_values_exposed' => false,
                 ],
             ],
@@ -4282,6 +4284,68 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testCtripScheduledProfileCaptureRejectsRequestedDateUsedAsDefaultEvidence(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'standard_rows' => [[
+                    'hotel_id' => '24588',
+                    'data_date' => '2026-08-16',
+                    'date_source' => 'capture_context.default_data_date',
+                    'data_type' => 'business',
+                    'amount' => 100,
+                    'source_trace_id' => 'default-date-is-not-proof',
+                ]],
+            ]));
+
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'data_date' => '2026-08-16',
+                'require_current_run_session_probe' => true,
+            ]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertSame('ctrip_target_date_unverified', $result['status_code']);
+            self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripScheduledProfileCaptureRejectsAuthoritativeWrongDate(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'standard_rows' => [[
+                    'hotel_id' => '24588',
+                    'data_date' => '2026-08-15',
+                    'date_source' => 'response.businessDate',
+                    'data_type' => 'business',
+                    'amount' => 100,
+                    'source_trace_id' => 'wrong-date-response-row',
+                ]],
+            ]));
+
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'data_date' => '2026-08-16',
+                'require_current_run_session_probe' => true,
+            ]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertSame('ctrip_target_date_mismatch', $result['status_code']);
+            self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testCtripSequentialCaptureNeverMergesRowsWithoutFreshNetworkProof(): void
     {
         foreach ([
@@ -5702,6 +5766,12 @@ final class PlatformDataSyncServiceTest extends TestCase
                     'next_retry_at', 'requested_by', 'message', 'stats_json',
                     'create_time', 'update_time',
                 ], true),
+                'platform_data_sources' => array_fill_keys([
+                    'id', 'tenant_id', 'system_hotel_id', 'user_id', 'name',
+                    'platform', 'data_type', 'ingestion_method', 'status', 'enabled',
+                    'config_json', 'secret_json', 'last_sync_time', 'last_sync_status',
+                    'last_error', 'created_by', 'updated_by', 'create_time', 'update_time',
+                ], true),
             ]);
             $retry = $acquireTask->invoke(
                 $service,
@@ -5719,6 +5789,74 @@ final class PlatformDataSyncServiceTest extends TestCase
                 'running',
                 Db::name('platform_data_sync_tasks')->where('id', (int)$retry['task_id'])->value('status')
             );
+
+            Db::name('platform_data_sources')->insert([
+                'id' => 9902,
+                'tenant_id' => 1,
+                'system_hotel_id' => 7,
+                'user_id' => 91,
+                'name' => 'Cloud Profile failure receipt source',
+                'platform' => 'meituan',
+                'data_type' => 'traffic',
+                'ingestion_method' => 'browser_profile',
+                'status' => 'ready',
+                'enabled' => 1,
+                'config_json' => '{}',
+                'secret_json' => '{}',
+                'created_by' => 91,
+                'updated_by' => 91,
+                'create_time' => '2026-08-09 07:00:00',
+                'update_time' => '2026-08-09 07:00:00',
+            ]);
+            $failureReceipt = $service->recordCloudProfileCollectionFailure(
+                new class {
+                    public int $id = 91;
+                    public function isSuperAdmin(): bool { return true; }
+                },
+                9902,
+                'cloud_ota_target_date_mismatch',
+                ['target_date' => '2026-08-09']
+            );
+            self::assertSame('failed', $failureReceipt['status']);
+            self::assertSame(0, $failureReceipt['saved_count']);
+            self::assertFalse($failureReceipt['readback_verified']);
+            $failureTask = Db::name('platform_data_sync_tasks')
+                ->where('id', (int)$failureReceipt['task_id'])
+                ->find();
+            self::assertIsArray($failureTask);
+            self::assertSame('failed', $failureTask['status']);
+            self::assertSame('cloud_ota_target_date_mismatch', $failureTask['message']);
+            self::assertSame('failed', Db::name('platform_data_sources')->where('id', 9902)->value('last_sync_status'));
+            self::assertSame(
+                'cloud_ota_target_date_mismatch',
+                Db::name('platform_data_sources')->where('id', 9902)->value('last_error')
+            );
+
+            $dispatcherRunId = '9d000000-0000-4000-8000-000000000001';
+            $scheduledFailure = $service->recordCloudProfileCollectionFailure(
+                new class {
+                    public int $id = 91;
+                    public function isSuperAdmin(): bool { return true; }
+                },
+                9902,
+                'cloud_ota_collection_preflight_unverified',
+                [
+                    'target_date' => '2026-08-09',
+                    'dispatcher_run_id' => $dispatcherRunId,
+                ]
+            );
+            $scheduledFailureTask = Db::name('platform_data_sync_tasks')
+                ->where('id', (int)$scheduledFailure['task_id'])
+                ->find();
+            self::assertIsArray($scheduledFailureTask);
+            self::assertSame('daily_profile_reuse', $scheduledFailureTask['trigger_type']);
+            $scheduledFailureStats = json_decode(
+                (string)$scheduledFailureTask['stats_json'],
+                true,
+                512,
+                JSON_THROW_ON_ERROR
+            );
+            self::assertSame($dispatcherRunId, $scheduledFailureStats['dispatcher_run_id']);
 
             Db::execute(
                 "CREATE TRIGGER platform_source_update_fail "

@@ -138,17 +138,31 @@ final class CloudBrowserProfileServiceTest extends TestCase
 
         try {
             $service->requestLoginEntry(80, 7, 'meituan');
-            self::fail('an unexpired issued login session must not be superseded');
+            self::fail('an active login session must not be silently superseded');
         } catch (\RuntimeException $error) {
             self::assertSame('cloud_browser_login_session_active', $error->getMessage());
         }
+        Db::name('cloud_browser_login_sessions')
+            ->where('session_public_id', (string)$retry['login_entry']['session_id'])
+            ->update([
+                'session_status' => 'expired',
+                'expires_at' => date('Y-m-d H:i:s', time() - 1),
+            ]);
+        $replacement = $service->requestLoginEntry(80, 7, 'meituan');
+        self::assertSame(CloudBrowserProfileService::AWAITING_RELOGIN, $replacement['profile']['authorization_status']);
+        self::assertNotSame($retry['login_entry']['session_id'], $replacement['login_entry']['session_id']);
         self::assertSame(
-            'issued',
+            'expired',
             (string)Db::name('cloud_browser_login_sessions')
                 ->where('session_public_id', (string)$retry['login_entry']['session_id'])
                 ->value('session_status')
         );
-        self::assertSame(2, (int)Db::name('cloud_browser_login_sessions')->count());
+        self::assertSame(
+            'issued',
+            (string)Db::name('cloud_browser_login_sessions')
+                ->where('session_public_id', (string)$replacement['login_entry']['session_id'])
+                ->value('session_status')
+        );
     }
 
     public function testGatewayPreflightDoesNotConsumeTicketAndCompletionIsAtomic(): void
@@ -248,51 +262,12 @@ final class CloudBrowserProfileServiceTest extends TestCase
         }
     }
 
-    public function testOtaProfileRequiresExactPlatformHotelUserAndSameDayScope(): void
-    {
-        $service = new CloudBrowserProfileService();
-        $entry = $service->requestLoginEntry(80, 7, 'ctrip');
-        $service->completeGatewayLogin(
-            (string)$entry['profile']['profile_id'],
-            (string)$entry['login_entry']['session_id'],
-            (string)$entry['login_entry']['ticket'],
-            date('Y-m-d H:i:s', time() + 86400)
-        );
-
-        $validated = $service->validateOtaCollectionProfile(
-            (string)$entry['profile']['profile_id'],
-            8,
-            80,
-            7,
-            date('Y-m-d'),
-            'ctrip'
-        );
-        self::assertTrue($validated['validated']);
-        self::assertSame('ota_target_date', $validated['collection_kind']);
-        self::assertSame('target_date_only', $validated['source_scope']);
-        self::assertSame('ctrip', $validated['profile']['platform']);
-
-        try {
-            $service->validateOtaCollectionProfile(
-                (string)$entry['profile']['profile_id'],
-                8,
-                80,
-                7,
-                date('Y-m-d'),
-                'meituan'
-            );
-            self::fail('cross-platform Profile use must be rejected');
-        } catch (\RuntimeException $error) {
-            self::assertSame('cloud_browser_collection_scope_mismatch', $error->getMessage());
-        }
-    }
-
     public function testOtaProfileRequiresExactReadySourceAndRegisteredBinding(): void
     {
         $service = new CloudBrowserProfileService();
         $cases = [
-            ['source_id' => 25, 'platform' => 'ctrip', 'ingestion_method' => 'browser_profile', 'platform_hotel_id' => '130079194', 'source_url' => 'https://ebooking.ctrip.com/home/mainland'],
-            ['source_id' => 68, 'platform' => 'meituan', 'ingestion_method' => 'profile_browser', 'platform_hotel_id' => '1029642156589279', 'source_url' => 'https://me.meituan.com/ebooking/'],
+            ['source_id' => 25, 'platform' => 'ctrip', 'binding_key' => 'ctrip-profile-80', 'platform_hotel_id' => '130079194', 'source_url' => 'https://ebooking.ctrip.com/home/mainland'],
+            ['source_id' => 68, 'platform' => 'meituan', 'binding_key' => 'meituan-profile-80', 'platform_hotel_id' => '1029642156589279', 'source_url' => 'https://me.meituan.com/ebooking/'],
         ];
 
         foreach ($cases as $case) {
@@ -303,25 +278,24 @@ final class CloudBrowserProfileServiceTest extends TestCase
                 (string)$entry['login_entry']['ticket'],
                 date('Y-m-d H:i:s', time() + 86400)
             );
-            $bindingKey = (string)$entry['profile']['profile_id'];
             Db::name('platform_data_sources')->insert([
                 'id' => $case['source_id'],
                 'tenant_id' => 8,
                 'user_id' => 7,
                 'system_hotel_id' => 80,
                 'platform' => $case['platform'],
-                'ingestion_method' => $case['ingestion_method'],
+                'ingestion_method' => 'browser_profile',
                 'enabled' => 1,
                 'status' => 'ready',
                 'config_json' => json_encode([
-                    'profile_binding_key' => $bindingKey,
+                    'profile_binding_key' => (string)$entry['profile']['profile_id'],
                     'platform_hotel_id' => $case['platform_hotel_id'],
                 ], JSON_THROW_ON_ERROR),
             ]);
             (new OtaProfileBindingService())->claim(
                 80,
                 $case['platform'],
-                $bindingKey,
+                (string)$entry['profile']['profile_id'],
                 7,
                 true
             );
@@ -358,6 +332,45 @@ final class CloudBrowserProfileServiceTest extends TestCase
             self::fail('cross-platform data source must be rejected');
         } catch (\RuntimeException $error) {
             self::assertSame('cloud_browser_ota_data_source_scope_mismatch', $error->getMessage());
+        }
+    }
+
+    public function testOtaProfileRequiresExactPlatformHotelUserAndSameDayScope(): void
+    {
+        $service = new CloudBrowserProfileService();
+        $entry = $service->requestLoginEntry(80, 7, 'ctrip');
+        $service->completeGatewayLogin(
+            (string)$entry['profile']['profile_id'],
+            (string)$entry['login_entry']['session_id'],
+            (string)$entry['login_entry']['ticket'],
+            date('Y-m-d H:i:s', time() + 86400)
+        );
+
+        $validated = $service->validateOtaCollectionProfile(
+            (string)$entry['profile']['profile_id'],
+            8,
+            80,
+            7,
+            date('Y-m-d'),
+            'ctrip'
+        );
+        self::assertTrue($validated['validated']);
+        self::assertSame('ota_target_date', $validated['collection_kind']);
+        self::assertSame('target_date_only', $validated['source_scope']);
+        self::assertSame('ctrip', $validated['profile']['platform']);
+
+        try {
+            $service->validateOtaCollectionProfile(
+                (string)$entry['profile']['profile_id'],
+                8,
+                80,
+                7,
+                date('Y-m-d'),
+                'meituan'
+            );
+            self::fail('cross-platform Profile use must be rejected');
+        } catch (\RuntimeException $error) {
+            self::assertSame('cloud_browser_collection_scope_mismatch', $error->getMessage());
         }
     }
 

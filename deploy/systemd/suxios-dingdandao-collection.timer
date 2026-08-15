@@ -1,8 +1,8 @@
 [Unit]
-Description=Start SUXIOS Dingdandao PMS collection before each hourly message
+Description=Start SUXIOS Dingdandao PMS collection every hour
 
 [Timer]
-OnCalendar=*-*-* *:35:00 Asia/Shanghai
+OnCalendar=*-*-* *:20:00 Asia/Shanghai
 RandomizedDelaySec=0
 Persistent=false
 Unit=suxios-dingdandao-collection.service

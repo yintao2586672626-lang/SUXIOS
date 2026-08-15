@@ -5,6 +5,8 @@ declare(strict_types=1);
 const OTA_BATCH_TOKEN_FILE = '/run/credentials/suxios-cloud-ota-profile-collection.service/control-token';
 const OTA_BATCH_MAX_TRANSIENT_RETRIES = 2;
 const OTA_BATCH_RETRY_DELAYS_SECONDS = [30, 90];
+const OTA_BATCH_CHILD_DEADLINE_SECONDS = 660;
+const OTA_BATCH_MAX_OUTPUT_BYTES = 262144;
 const OTA_BATCH_TRANSIENT_REASON_CODES = [
     'gateway_collection_capacity_busy',
     'gateway_temporarily_unavailable',
@@ -90,6 +92,7 @@ echo json_encode([
         'max_transient_retries' => OTA_BATCH_MAX_TRANSIENT_RETRIES,
         'backoff_seconds' => OTA_BATCH_RETRY_DELAYS_SECONDS,
         'explicit_transient_only' => true,
+        'requires_explicit_no_persistence' => true,
     ],
     'sources' => $receipts,
     'message_sent' => false,
@@ -139,16 +142,56 @@ function runCollectionChild(string $root, array $scope, int $ownerUserId): array
         ];
     }
     fclose($pipes[0]);
-    $stdout = (string)stream_get_contents($pipes[1]);
-    $stderr = (string)stream_get_contents($pipes[2]);
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $stdout = '';
+    $stderr = '';
+    $deadlineAt = microtime(true) + OTA_BATCH_CHILD_DEADLINE_SECONDS;
+    $observedExitCode = null;
+    $timedOut = false;
+    while (true) {
+        $stdout = appendOutputTail($stdout, (string)stream_get_contents($pipes[1]));
+        $stderr = appendOutputTail($stderr, (string)stream_get_contents($pipes[2]));
+        $status = proc_get_status($process);
+        if (($status['running'] ?? false) !== true) {
+            $observedExitCode = is_int($status['exitcode'] ?? null)
+                ? (int)$status['exitcode']
+                : null;
+            break;
+        }
+        if (microtime(true) >= $deadlineAt) {
+            $timedOut = true;
+            proc_terminate($process);
+            usleep(250000);
+            $status = proc_get_status($process);
+            if (($status['running'] ?? false) === true) {
+                proc_terminate($process, 9);
+            }
+            break;
+        }
+        usleep(100000);
+    }
+    $stdout = appendOutputTail($stdout, (string)stream_get_contents($pipes[1]));
+    $stderr = appendOutputTail($stderr, (string)stream_get_contents($pipes[2]));
     fclose($pipes[1]);
     fclose($pipes[2]);
-    $exitCode = proc_close($process);
+    $closeExitCode = proc_close($process);
+    $exitCode = $timedOut
+        ? 124
+        : (($observedExitCode !== null && $observedExitCode >= 0)
+            ? $observedExitCode
+            : $closeExitCode);
     return [
         'exit_code' => $exitCode,
         'stdout' => $stdout,
         'stderr' => $stderr,
-        'child' => lastJsonObject($stdout . "\n" . $stderr),
+        'child' => $timedOut
+            ? blockedReceipt(
+                (string)$scope['platform'],
+                'cloud_ota_child_timeout',
+                null
+            )
+            : lastJsonObject($stdout . "\n" . $stderr),
     ];
 }
 
@@ -157,6 +200,7 @@ function collectionVerified(array $receipt, int $exitCode): bool
 {
     return ($receipt['status'] ?? '') === 'saved_and_readback_verified'
         && ($receipt['readback_verified'] ?? false) === true
+        && ($receipt['gateway_receipt_readback_verified'] ?? false) === true
         && ($receipt['business_data_persisted'] ?? false) === true
         && $exitCode === 0;
 }
@@ -172,7 +216,7 @@ function collectionVerified(array $receipt, int $exitCode): bool
  */
 function transientFailure(array $receipt, string $stdout, string $stderr): bool
 {
-    if (($receipt['business_data_persisted'] ?? false) === true) {
+    if (($receipt['business_data_persisted'] ?? null) !== false) {
         return false;
     }
     $reason = safeReason((string)($receipt['reason'] ?? ''));
@@ -226,6 +270,10 @@ function sanitizeChildReceipt(string $platform, int $exitCode, array $child): ar
 {
     $status = safeReason((string)($child['status'] ?? 'blocked'));
     $reason = safeReason((string)($child['reason'] ?? ''));
+    $businessDataPersisted = array_key_exists('business_data_persisted', $child)
+        && is_bool($child['business_data_persisted'])
+            ? $child['business_data_persisted']
+            : null;
     return [
         'platform' => $platform,
         'exit_code' => $exitCode,
@@ -239,14 +287,19 @@ function sanitizeChildReceipt(string $platform, int $exitCode, array $child): ar
         'saved_count' => max(0, (int)($child['saved_count'] ?? 0)),
         'readback_count' => max(0, (int)($child['readback_count'] ?? 0)),
         'readback_verified' => ($child['readback_verified'] ?? false) === true,
-        'business_data_persisted' => ($child['business_data_persisted'] ?? false) === true,
+        'gateway_receipt_readback_verified' => ($child['gateway_receipt_readback_verified'] ?? false) === true,
+        'business_data_persisted' => $businessDataPersisted,
         'message_sent' => false,
         'sensitive_values_exposed' => false,
     ];
 }
 
 /** @return array<string,mixed> */
-function blockedReceipt(string $platform, string $reason): array
+function blockedReceipt(
+    string $platform,
+    string $reason,
+    ?bool $businessDataPersisted = false
+): array
 {
     return [
         'platform' => $platform,
@@ -256,10 +309,23 @@ function blockedReceipt(string $platform, string $reason): array
         'saved_count' => 0,
         'readback_count' => 0,
         'readback_verified' => false,
-        'business_data_persisted' => false,
+        'gateway_receipt_readback_verified' => false,
+        'business_data_persisted' => $businessDataPersisted,
         'message_sent' => false,
         'sensitive_values_exposed' => false,
     ];
+}
+
+function appendOutputTail(string $current, string $chunk): string
+{
+    if ($chunk === '') {
+        return $current;
+    }
+    $combined = $current . $chunk;
+    if (strlen($combined) <= OTA_BATCH_MAX_OUTPUT_BYTES) {
+        return $combined;
+    }
+    return substr($combined, -OTA_BATCH_MAX_OUTPUT_BYTES);
 }
 
 function safeReason(string $value): string

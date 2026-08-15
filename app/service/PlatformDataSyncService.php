@@ -2630,6 +2630,93 @@ final class PlatformDataSyncService
         return false;
     }
 
+    /**
+     * Persist a cloud Profile collection failure that happened before an
+     * adapter result could enter syncDataSource(). This keeps a later failed
+     * attempt from being hidden by an earlier same-day success on the source
+     * and task status surfaces.
+     *
+     * The caller may supply only a bounded machine-readable failure code. Raw
+     * browser, gateway, account, or response details must never enter this
+     * receipt.
+     *
+     * @param array<string,mixed> $options
+     * @return array<string,mixed>
+     */
+    public function recordCloudProfileCollectionFailure(
+        $user,
+        int $id,
+        string $failureCode,
+        array $options = []
+    ): array {
+        $syncStartedAt = microtime(true);
+        $source = $this->loadSource($id, $user);
+        if (!$this->isOtaBrowserProfileSource($source)) {
+            throw new RuntimeException('cloud_profile_failure_receipt_source_invalid', 422);
+        }
+        if ((int)($source['enabled'] ?? 0) !== 1) {
+            throw new RuntimeException('cloud_profile_failure_receipt_source_disabled', 422);
+        }
+
+        $failureCode = strtolower(trim($failureCode));
+        if (preg_match('/^cloud_ota_[a-z0-9_]{1,100}$/D', $failureCode) !== 1) {
+            $failureCode = 'cloud_ota_collection_failed';
+        }
+        $dispatcherRunId = $this->normalizeSyncDispatcherRunId(
+            $options['dispatcher_run_id'] ?? $options['dispatcherRunId'] ?? ''
+        );
+        $triggerType = $dispatcherRunId !== ''
+            ? 'daily_profile_reuse'
+            : 'cloud_browser_profile';
+        $options['trigger_type'] = $triggerType;
+        if ($dispatcherRunId !== '') {
+            $options['dispatcher_run_id'] = $dispatcherRunId;
+        }
+        $taskAcquisition = $this->acquireSyncTask(
+            $source,
+            $user,
+            $triggerType,
+            $options
+        );
+        if (($taskAcquisition['reused_active_task'] ?? false) === true) {
+            return $this->reusedActiveSyncTaskResult(
+                $source,
+                is_array($taskAcquisition['task'] ?? null)
+                    ? $taskAcquisition['task']
+                    : []
+            );
+        }
+
+        $payload = [];
+        $targetDate = $this->normalizeDate(
+            $options['data_date'] ?? $options['target_date'] ?? null
+        );
+        if ($targetDate !== null) {
+            $payload['data_date'] = $targetDate;
+        }
+        $payload['sync_diagnostics'] = $this->buildSyncDiagnostics(
+            [],
+            0,
+            $source,
+            $options,
+            $payload,
+            'failed',
+            $failureCode
+        );
+
+        return $this->finishTask(
+            (int)$taskAcquisition['task_id'],
+            $source,
+            'failed',
+            $failureCode,
+            0,
+            0,
+            $payload,
+            $this->emptySyncTiming(),
+            $syncStartedAt
+        );
+    }
+
     public function syncDataSource($user, int $id, array $options = []): array
     {
         $syncStartedAt = microtime(true);
@@ -3634,6 +3721,9 @@ final class PlatformDataSyncService
     private function safeSyncTaskMessage(string $status, string $message): string
     {
         $message = strtolower(trim($message));
+        if (preg_match('/^cloud_ota_[a-z0-9_]{1,100}$/D', $message) === 1) {
+            return $message;
+        }
         $knownMessages = [
             'platform data synchronized.' => 'platform_data_synchronized',
             'platform_data_synchronized' => 'platform_data_synchronized',

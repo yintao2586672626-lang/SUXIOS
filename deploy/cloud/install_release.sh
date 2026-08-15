@@ -303,30 +303,26 @@ queue_installer_for_release() {
 
 restore_three_source_queue_lifecycle() {
   if [[ $THREE_SOURCE_QUEUE_WAS_ENABLED -eq 1 ]]; then
-    systemctl enable "$THREE_SOURCE_QUEUE_TIMER" >/dev/null
+    systemctl enable "$THREE_SOURCE_QUEUE_TIMER"
+    if ! systemctl is-enabled --quiet "$THREE_SOURCE_QUEUE_TIMER"; then
+      return 1
+    fi
+  elif systemctl is-enabled --quiet "$THREE_SOURCE_QUEUE_TIMER"; then
+    return 1
   else
-    systemctl disable "$THREE_SOURCE_QUEUE_TIMER" >/dev/null 2>&1 || true
+    systemctl disable "$THREE_SOURCE_QUEUE_TIMER"
   fi
 
   if [[ $THREE_SOURCE_QUEUE_WAS_ACTIVE -eq 1 ]]; then
     if ! systemctl is-active --quiet "$THREE_SOURCE_QUEUE_TIMER"; then
       systemctl start "$THREE_SOURCE_QUEUE_TIMER"
     fi
-  else
-    systemctl stop "$THREE_SOURCE_QUEUE_TIMER" >/dev/null 2>&1 || true
-  fi
-
-  if [[ $THREE_SOURCE_QUEUE_WAS_ENABLED -eq 1 ]]; then
-    systemctl is-enabled --quiet "$THREE_SOURCE_QUEUE_TIMER" || return 1
-  elif systemctl is-enabled --quiet "$THREE_SOURCE_QUEUE_TIMER"; then
-    return 1
-  fi
-  if [[ $THREE_SOURCE_QUEUE_WAS_ACTIVE -eq 1 ]]; then
     systemctl is-active --quiet "$THREE_SOURCE_QUEUE_TIMER" || return 1
   elif systemctl is-active --quiet "$THREE_SOURCE_QUEUE_TIMER"; then
     return 1
+  else
+    systemctl stop "$THREE_SOURCE_QUEUE_TIMER"
   fi
-  return 0
 }
 
 refresh_three_source_queue_for_release() {
@@ -375,10 +371,10 @@ rollback_and_verify() {
     return 1
   fi
   local formal_dispatch_restored=1
+  local three_source_queue_restored=1
   if ! restore_previous_formal_dispatch; then
     formal_dispatch_restored=0
   fi
-  local three_source_queue_restored=1
   if ! restore_previous_three_source_queue; then
     three_source_queue_restored=0
   fi

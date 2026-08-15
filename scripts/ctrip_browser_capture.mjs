@@ -74,6 +74,7 @@ import {
   normalizeObservedCtripTrafficMetrics,
   observedCtripTrafficMetricKeys,
 } from './lib/ctrip_observed_traffic_metrics.mjs';
+import { isCtripLoggedInPageState } from './lib/ctrip_login_state.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const PAGE_URLS = buildCtripPageUrls();
@@ -986,6 +987,9 @@ async function looksLoggedIn(page) {
     return false;
   }
   const text = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+  if (isCtripLoggedInPageState(url, text)) {
+    return true;
+  }
   if (/登录(?:状态|态|会话)?(?:已)?(?:过期|失效|无效)|(?:请|需要|必须|重新|立即|扫码|账号|密码|手机号).{0,8}登录|登录(?:页面|账号|密码)|(?:未|尚未)登录|login\s*(?:required|expired)|sign\s*in|password|captcha|verification/i.test(text)) {
     return false;
   }
@@ -1823,7 +1827,7 @@ function normalizeRows(value, section, sourceUrl, requestDateEvidence = {}, opti
     return [];
   }
   return normalizeGenericList(value, 'business')
-    .map(row => normalizeBusinessRow(row, sourceUrl))
+    .map(row => normalizeBusinessRow(row, sourceUrl, requestDateEvidence))
     .filter(Boolean);
 }
 
@@ -1948,7 +1952,7 @@ function looksLikeBusinessRow(row) {
   return keys.some(key => Object.prototype.hasOwnProperty.call(row, key));
 }
 
-function normalizeBusinessRow(row, sourceUrl) {
+function normalizeBusinessRow(row, sourceUrl, requestDateEvidence = {}) {
   const amount = numberValue(firstValue(row, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额']), 0);
   const quantity = numberValue(firstValue(row, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚']), 0);
   const bookOrderNum = numberValue(firstValue(row, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings', '成交订单数', '订单数']), 0);
@@ -1967,7 +1971,15 @@ function normalizeBusinessRow(row, sourceUrl) {
     return null;
   }
 
-  const dataDate = normalizeDate(firstValue(row, ['dataDate', 'date', 'data_date', 'statDate', 'stat_date', 'bizDate', 'businessDate', 'reportDate'])) || defaultDataDate;
+  const explicitDataDate = normalizeDate(firstValue(row, ['dataDate', 'date', 'data_date', 'statDate', 'stat_date', 'bizDate', 'businessDate', 'reportDate']));
+  const requestDataDate = normalizeDate(requestDateEvidence.date || '');
+  if (!explicitDataDate && !requestDataDate) {
+    return null;
+  }
+  const dataDate = explicitDataDate || requestDataDate;
+  const dateSource = explicitDataDate
+    ? 'row'
+    : (requestDateEvidence.date_source || 'request');
   const resolvedHotelId = ctripPlatformHotelId(row, hotelId);
   if (!resolvedHotelId) {
     return null;
@@ -1978,6 +1990,7 @@ function normalizeBusinessRow(row, sourceUrl) {
     hotelId: resolvedHotelId,
     hotelName: stringValue(firstValue(row, ['hotelName', 'hotel_name', 'HotelName', 'name'], args.hotelName || '')),
     dataDate,
+    date_source: dateSource,
     amount,
     quantity: Math.round(quantity),
     bookOrderNum: Math.round(bookOrderNum),

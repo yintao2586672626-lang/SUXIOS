@@ -13,6 +13,9 @@ Group=www-data
 WorkingDirectory=/var/www/suxios/current
 Environment=TZ=Asia/Shanghai
 EnvironmentFile=/etc/suxios/ota-cloud-profile.env
+# The batch runner serializes both browser-heavy channels on the 2-core/2-GB
+# host, continues to the second source after a first-source failure, and exits
+# non-zero unless both sources independently save and read back.
 ExecStart=/usr/bin/php -d memory_limit=512M scripts/run_cloud_ota_profile_collection_batch.php
 LoadCredential=control-token:/etc/suxios-cloud-browser/control-token
 RuntimeDirectory=suxios-cloud-ota-profile-collection

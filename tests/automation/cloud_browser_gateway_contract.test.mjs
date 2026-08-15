@@ -713,10 +713,10 @@ test('protected Dingdandao collection window validates scope, stays read-only, a
         calls.push(['start', platform, startUrl, profilePath.endsWith('cbp_abcdefghijklmnop')]);
         return { exitCode: null };
       },
-      waitForBrowserPage: async () => ({ type: 'page' }),
       stopBrowser: async () => {
         calls.push(['stop']);
       },
+      waitForBrowserPage: async () => ({ targetId: 'test-page' }),
       installReadOnlyPolicy: async () => {
         calls.push(['guard']);
         return {
@@ -875,8 +875,8 @@ test('OTA collection window requires an exact data source and exposes only contr
         };
       },
       startBrowser: async () => ({ exitCode: null }),
-      waitForBrowserPage: async () => ({ type: 'page' }),
       stopBrowser: async () => calls.push(['stop']),
+      waitForBrowserPage: async () => ({ targetId: 'test-page' }),
       installReadOnlyPolicy: async () => ({
         requestPolicyEnforced: false,
         httpCacheDisabled: true,
@@ -984,7 +984,7 @@ test('legacy OTA target-date lease remains profile scoped without a data source 
         };
       },
       startBrowser: async () => ({ exitCode: null }),
-      waitForBrowserPage: async () => ({ type: 'page' }),
+      waitForBrowserPage: async () => ({ targetId: 'test-page' }),
       stopBrowser: async () => calls.push(['stop']),
       installReadOnlyPolicy: async () => ({
         requestPolicyEnforced: false,

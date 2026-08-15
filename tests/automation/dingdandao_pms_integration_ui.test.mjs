@@ -12,6 +12,8 @@ const routes = read('route/app.php');
 const service = read('app/service/DingdandaoPmsIntegrationService.php');
 const targetSyncService = read('app/service/DingdandaoOperatingTargetSyncService.php');
 const runner = read('scripts/run_dingdandao_cloud_collection.php');
+const cloudCollectionUnit = read('deploy/systemd/suxios-dingdandao-collection.service');
+const cloudCollectionTimer = read('deploy/systemd/suxios-dingdandao-collection.timer');
 const controller = read('app/controller/OperatingTarget.php');
 
 test('PMS operating data page shows only the hotel-selected PMS while binding lives in hotel management', () => {
@@ -109,6 +111,52 @@ test('cloud collection attempts orchestration only after verified save and datab
   assert.match(runner, /\$integrationService->prefill\(/);
   assert.match(runner, /push_orchestration/);
   assert.match(runner, /message_sent/);
+});
+
+test('scheduled Dingdandao collection gates unique PMS identity before opening or saving', () => {
+  const bindingGate = runner.indexOf('new HotelPmsBindingService()');
+  const configuredGate = runner.indexOf("$captureExpectation['configured']");
+  const providerIdGate = runner.indexOf('dingdandao_collection_provider_hotel_id_unverified');
+  const gatewayOpen = runner.indexOf("'/v1/collection/open'");
+  const save = runner.indexOf('$captureService->save(');
+  assert.ok(bindingGate >= 0);
+  assert.ok(configuredGate > bindingGate);
+  assert.ok(providerIdGate > configuredGate);
+  assert.ok(gatewayOpen > providerIdGate);
+  assert.ok(save > gatewayOpen);
+  assert.match(runner, /HotelPmsBindingService::PROVIDER_DINGDANDAO/);
+  assert.doesNotMatch(runner, /latestProviderHotelId/);
+});
+
+test('Dingdandao collector drains both pipes with a bounded deadline', () => {
+  assert.match(runner, /stream_set_blocking\(\$pipes\[1\], false\)/);
+  assert.match(runner, /stream_set_blocking\(\$pipes\[2\], false\)/);
+  assert.match(runner, /COLLECTOR_DEADLINE_SECONDS/);
+  assert.match(runner, /dingdandao_collector_timeout/);
+  assert.match(runner, /MAX_COLLECTOR_OUTPUT_BYTES/);
+  assert.match(runner, /gatewayTransportFailureCode/);
+  assert.match(runner, /gateway_connection_refused/);
+  assert.match(runner, /gateway_connection_timeout/);
+});
+
+test('cloud collection can formally save and read back while push is disabled by invocation', () => {
+  assert.match(runner, /'no-push'/);
+  assert.match(runner, /array_key_exists\('no-push', \$options\)/);
+  assert.match(runner, /'delivery_status'\s*=>\s*'skipped_no_push'/);
+  assert.match(runner, /if \(!\$noPush\)\s*\{[\s\S]*dispatchVerifiedCapture/);
+  assert.match(runner, /'disabled_by_invocation'\s*=>\s*\$noPush/);
+  assert.match(runner, /'delivery_attempted'\s*=>\s*false/);
+  assert.match(runner, /\$nodeBinary,\s*'--experimental-websocket',\s*\$script/);
+});
+
+test('Dingdandao cloud timer uses the bound Profile and cannot push externally', () => {
+  assert.match(cloudCollectionUnit, /Requires=suxios-cloud-browser-gateway\.service/);
+  assert.match(cloudCollectionUnit, /LoadCredential=control-token:/);
+  assert.match(cloudCollectionUnit, /RuntimeDirectory=suxios-dingdandao-collection/);
+  assert.match(cloudCollectionUnit, /--profile-id=\$\{SUXIOS_DINGDANDAO_PROFILE_ID\}/);
+  assert.match(cloudCollectionUnit, /--no-push/);
+  assert.match(cloudCollectionTimer, /OnCalendar=\*-\*-\* \*:20:00 Asia\/Shanghai/);
+  assert.match(cloudCollectionTimer, /Persistent=false/);
 });
 
 test('Dingdandao prefill and target sync stay behind the current PMS identity binding', () => {
