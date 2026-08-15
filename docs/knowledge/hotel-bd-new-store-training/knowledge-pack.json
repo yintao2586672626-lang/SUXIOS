@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "pack_key": "suxios.hotel_bd_new_store_training.v1",
+  "seed_version": "2026-08-16.1",
+  "title": "酒店BD与新店运营实战培训｜受控参考知识包",
+  "source_document": {
+    "filename": "酒店行业BD与新店运营实战培训分享.docx",
+    "sha256": "e6a07ed97562862e06d9a58b228d658e2f8eec85299e948b121821dc9b5191e7",
+    "bytes": 19541,
+    "recording_date": "2026-08-15",
+    "document_created_at": "2026-08-15T11:37:00Z",
+    "document_page_count": 6,
+    "page_count_basis": "docProps/app.xml",
+    "paragraph_count": 124,
+    "table_count": 0,
+    "extraction_status": "structural_text_extracted",
+    "visual_render_status": "unavailable_soffice_missing",
+    "raw_document_retained": false,
+    "author_metadata_retained": false,
+    "signed_remote_asset_url_retained": false
+  },
+  "source_contract": {
+    "material_type": "user_provided_training_summary",
+    "original_recording_available": false,
+    "speaker_identity_verified": false,
+    "case_attribution_verified": false,
+    "platform_rule_currency_verified": false,
+    "claim_verification_status": "unverified",
+    "sensitive_content_policy": "retain_filename_hash_and_sanitized_methods_only"
+  },
+  "boundary": {
+    "scope": "industry_training_reference_only",
+    "evidence_level": "user_provided_unverified",
+    "evidence_grade": "D",
+    "reference_only": true,
+    "decision_safe": false,
+    "task_draft_safe": false,
+    "external_write_authorized": false,
+    "allowed_uses": [
+      "knowledge_search",
+      "manual_training_reference",
+      "human_reviewed_checklist_drafting",
+      "missing_input_identification"
+    ],
+    "blocked_uses": [
+      "current_hotel_fact",
+      "automatic_investment_decision",
+      "automatic_price_or_inventory_change",
+      "automatic_ota_profile_or_promotion_write",
+      "automatic_review_generation_or_submission",
+      "automatic_content_publish",
+      "credential_or_identity_document_retention"
+    ]
+  },
+  "known_knowns": [
+    "材料为2026-08-15约3.5小时培训录音的智能总结版，而非原始录音逐字稿。",
+    "材料覆盖投资测算、人力配置、BD沟通、OTA信息优化、新店上线、AI知识复用和复盘。",
+    "材料明确强调服务能力必须真实，酒店没有的服务不得勾选。",
+    "材料中的案例数字、平台规则、审核时长和转化阈值均未附独立数据或官方来源。"
+  ],
+  "known_unknowns": [
+    "录音原文、讲者身份、案例酒店数据和计算表未提供，无法核对总结是否遗漏或误转写。",
+    "投资示例缺少税费、佣金、能耗、折旧、融资结构、入住率爬坡和现金流口径。",
+    "美团地址修改材料要求、审核时长、流量归因和推广阈值是否仍适用于当前店铺与当前规则未知。",
+    "评价获取动作是否完全符合当前平台规则和消费者权益要求未知。",
+    "单店案例结果与所述动作之间没有可验证的因果证据。"
+  ],
+  "entries": [
+    {
+      "key": "bd_diagnosis_before_selling",
+      "title": "BD先诊断后提案的沟通合同",
+      "summary": "先固定酒店范围、事实、约束和商家目标，再给带假设的人工方案；关键输入不足时不承诺收益。",
+      "classification": "industry_training_reference",
+      "module_id": "knowledge_center",
+      "roles": ["bd", "owner", "operations_manager"],
+      "scenes": ["merchant_discovery", "new_store_assessment", "proposal_review"],
+      "platforms": [],
+      "source_sha256": "e6a07ed97562862e06d9a58b228d658e2f8eec85299e948b121821dc9b5191e7",
+      "body_markdown": "## 目标\n先识别门店真实问题、约束和期望，再讨论方案，不以平台KPI或单一产品替代商家结果。\n\n## 执行要点\n1. 固定酒店类型、房量、地段、物业性质、开业阶段和目标。\n2. 收集服务标准、交付能力、预算、人员、当前经营问题和可用证据。\n3. 把事实、商家目标、培训经验和未知项分开。\n4. 给出带假设和验证方法的方案，不承诺未验证收益。\n5. 记录商家选择、拒绝项、负责人和下一次复核条件。",
+      "contract": {
+        "role": "BD主责，酒店业主或运营负责人确认",
+        "trigger": "首次诊断、方案复核或上线前需求确认",
+        "required_inputs": ["酒店与项目范围", "物业及投资方式", "服务与人员能力", "当前问题证据", "商家目标与预算"],
+        "steps": ["确认范围", "记录事实与未知", "诊断主要矛盾", "给出带假设的备选方案", "取得人工确认"],
+        "completion_evidence": ["范围卡", "问题清单", "方案假设", "商家确认记录"],
+        "exception_paths": ["缺少关键输入时只返回补充清单", "商家目标与交付能力冲突时标记需调整"],
+        "status_feedback": ["collecting", "human_review_required", "blocked_missing_inputs", "completed_reference"],
+        "effect_review": ["实际采用了哪项建议", "后续结果使用何种口径", "是否出现新的约束"]
+      },
+      "decision_safe": false,
+      "task_draft_safe": false,
+      "external_write_authorized": false
+    },
+    {
+      "key": "investment_assumption_register",
+      "title": "新店投资与保本测算的假设登记合同",
+      "summary": "投资结论必须用当前项目输入重算；培训案例数字只能进入假设登记，不能成为默认参数。",
+      "classification": "calculation_method_reference",
+      "module_id": "knowledge_center",
+      "roles": ["owner", "investment_analyst", "operations_manager"],
+      "scenes": ["investment_precheck", "break_even_review"],
+      "platforms": [],
+      "source_sha256": "e6a07ed97562862e06d9a58b228d658e2f8eec85299e948b121821dc9b5191e7",
+      "body_markdown": "## 可复用原则\n任何回本结论都必须由当前项目输入重新计算。培训里的100间房、1200万元、租金、人工、房价和回报率只是案例假设，不能成为系统默认值。\n\n## 最低输入\n房量与可售房晚、开业爬坡、ADR/OCC情景、房租、人工、能耗、洗涤耗材、平台佣金、税费、折旧、维保、融资成本、品牌或加盟费、营运资金和残值。\n\n## 输出纪律\n同时展示输入来源、情景区间、现金流口径、不可计算项和敏感性；缺少分母或关键成本时输出not_computable，不填0。",
+      "contract": {
+        "role": "投资分析人员计算，业主人工审批",
+        "trigger": "新店投资评估、方案变更或成本重估",
+        "required_inputs": ["投资总额与资金结构", "固定成本", "变动成本", "可售房晚", "ADR与OCC情景", "税费佣金及开业爬坡"],
+        "steps": ["锁定口径", "登记每个输入及来源", "构建保守基准乐观情景", "计算现金流和敏感性", "人工复核假设"],
+        "completion_evidence": ["版本化输入表", "公式与分母", "情景结果", "审批意见"],
+        "exception_paths": ["关键输入缺失则not_computable", "案例数字与当前项目不一致时禁止套用"],
+        "status_feedback": ["inputs_incomplete", "computable_for_review", "human_approved", "rebaseline_required"],
+        "effect_review": ["实际开业成本与预算偏差", "实际ADR/OCC与情景偏差", "回本预测是否需要重算"]
+      },
+      "decision_safe": false,
+      "task_draft_safe": false,
+      "external_write_authorized": false
+    },
+    {
+      "key": "ota_information_truthfulness_check",
+      "title": "OTA门店与房型信息真实性检查",
+      "summary": "门店、房型和服务信息以真实可交付为先；平台提交规则需当前核验，身份材料不进入宿析OS。",
+      "classification": "ota_operations_reference",
+      "module_id": "knowledge_center",
+      "roles": ["bd", "ota_operator", "hotel_manager"],
+      "scenes": ["new_store_onboarding", "profile_quality_review", "room_type_review"],
+      "platforms": ["meituan"],
+      "source_sha256": "e6a07ed97562862e06d9a58b228d658e2f8eec85299e948b121821dc9b5191e7",
+      "body_markdown": "## 真值优先\n门店地址、商圈、联系电话、设施、停车、照片、视频、问答、房型名称和后缀必须与酒店可交付能力一致。信息优化用于提高可理解性，不得关键词堆砌、虚构地标距离或勾选不存在的服务。\n\n## 规则边界\n培训提到的材料清单和审核时长不是当前官方规则证明。每次提交前需在已授权门店内核对平台当前页面要求；身份证件等材料只能由用户在平台官方入口处理，宿析OS不得留存。",
+      "contract": {
+        "role": "OTA运营核对，酒店负责人确认真实性",
+        "trigger": "新店上线、资料变更或信息质量巡检",
+        "required_inputs": ["平台与门店绑定", "当前平台规则页面", "酒店官方地址与联系方式", "设施交付清单", "房型与图片证据"],
+        "steps": ["锁定平台门店", "逐项比对事实", "记录缺失与冲突", "生成待人工修改清单", "修改后回读页面"],
+        "completion_evidence": ["逐项核对表", "酒店负责人确认", "平台提交回执", "修改后页面回读"],
+        "exception_paths": ["缺绑定或官方规则时禁止生成提交动作", "没有服务证据时不得勾选", "涉及身份证件时仅提示用户在官方入口处理"],
+        "status_feedback": ["binding_missing", "evidence_incomplete", "ready_for_manual_submit", "submitted_unverified", "readback_verified"],
+        "effect_review": ["信息是否真实展示", "取消或投诉是否变化", "任何流量变化是否有可比口径"]
+      },
+      "decision_safe": false,
+      "task_draft_safe": false,
+      "external_write_authorized": false
+    },
+    {
+      "key": "bd_ai_knowledge_reuse",
+      "title": "BD高频问题与AI话术复用合同",
+      "summary": "按酒店类型和问题范围复用带来源草稿，由人工审核后使用，不自动发布、发送或承诺案例收益。",
+      "classification": "knowledge_reuse_reference",
+      "module_id": "knowledge_center",
+      "roles": ["bd", "knowledge_reviewer"],
+      "scenes": ["faq_answering", "training_reuse", "content_draft"],
+      "platforms": [],
+      "source_sha256": "e6a07ed97562862e06d9a58b228d658e2f8eec85299e948b121821dc9b5191e7",
+      "body_markdown": "## 复用方式\n按酒店类型、规模、开业阶段和问题类别沉淀高频问答。AI只生成带来源、适用范围和未知项的草稿，由BD人工复核后使用。培训内容、平台政策和单店案例不能混成同一证据等级。\n\n## 禁止项\n不得自动发布小红书、抖音或商家消息，不得把历史案例收益写成承诺，不得保留账号、Cookie、身份证件或个人联系方式。",
+      "contract": {
+        "role": "知识维护者整理，BD审核后使用",
+        "trigger": "出现重复商家问题或需要内容草稿",
+        "required_inputs": ["问题原文", "酒店类型与阶段", "已核验来源", "有效期", "禁止使用边界"],
+        "steps": ["分类问题", "检索同范围知识", "生成带引用草稿", "人工核对事实与措辞", "记录是否采用"],
+        "completion_evidence": ["问题分类", "来源引用", "人工审核记录", "采用或驳回结果"],
+        "exception_paths": ["来源过期时只返回待核验", "涉及酒店当前事实时转到真实数据链", "涉及发布或发送时要求单独授权"],
+        "status_feedback": ["reference_found", "verification_required", "human_approved_draft", "rejected"],
+        "effect_review": ["回答是否解决问题", "用户纠错内容", "是否需要更新知识版本"]
+      },
+      "decision_safe": false,
+      "task_draft_safe": false,
+      "external_write_authorized": false
+    },
+    {
+      "key": "training_claim_risk_register",
+      "title": "培训经验主张的验证与风险登记",
+      "summary": "把转化阈值、审核时长、评价流量、连锁判断和投资回报率保留为待验证主张，不直接执行。",
+      "classification": "claim_review_reference",
+      "module_id": "knowledge_center",
+      "roles": ["knowledge_reviewer", "revenue_manager", "ota_operator"],
+      "scenes": ["claim_review", "policy_check", "metric_definition_review"],
+      "platforms": ["meituan"],
+      "source_sha256": "e6a07ed97562862e06d9a58b228d658e2f8eec85299e948b121821dc9b5191e7",
+      "body_markdown": "## 不可直接执行的主张\n- 某绝对转化率阈值能够直接判断是否补曝光。\n- 某套证照照片清单和审核分钟数代表当前平台规则。\n- 评价数量或关键词动作必然带来标签、流量或业绩增长。\n- 某些连锁酒店缺乏运营能力。\n- 某组贷款或自持回报率是通用投资标准。\n\n这些内容均缺少当前官方规则、原始样本、分母、时间窗口、对照组或因果证据，只能作为待验证假设。",
+      "contract": {
+        "role": "知识审核者主责，业务专家复核",
+        "trigger": "培训经验拟进入指标、任务、投资或OTA操作",
+        "required_inputs": ["原主张", "来源与日期", "适用平台酒店和场景", "官方规则或原始数据", "分母时间窗和对照"],
+        "steps": ["登记原主张", "拆分事实与推断", "寻找权威或当前证据", "标记可用范围", "决定保留驳回或重验"],
+        "completion_evidence": ["主张卡", "证据引用", "适用边界", "审核结论"],
+        "exception_paths": ["无独立证据保持unverified", "涉及平台规则且已过期时标记stale", "涉及评价操控时禁止自动化"],
+        "status_feedback": ["unverified", "stale", "verified_for_scope", "rejected"],
+        "effect_review": ["后续证据是否推翻主张", "阈值在不同店型是否稳定", "是否需要回滚既有建议"]
+      },
+      "decision_safe": false,
+      "task_draft_safe": false,
+      "external_write_authorized": false
+    },
+    {
+      "key": "guarded_new_store_launch_workflow",
+      "title": "新店上线前后受控运营闭环",
+      "summary": "以范围绑定、假设登记、信息核验、人工上线、页面回读、漏斗观察和同口径复盘闭合新店流程。",
+      "classification": "guarded_workflow_reference",
+      "module_id": "knowledge_center",
+      "roles": ["owner", "bd", "ota_operator", "operations_manager", "revenue_manager"],
+      "scenes": ["new_store_prelaunch", "new_store_launch", "post_launch_review"],
+      "platforms": ["meituan"],
+      "source_sha256": "e6a07ed97562862e06d9a58b228d658e2f8eec85299e948b121821dc9b5191e7",
+      "body_markdown": "## 闭环\n范围与目标 -> 投资假设登记 -> 房型和套餐方案 -> OTA信息真实性核对 -> 人工上线 -> 保存/页面回读 -> 曝光到订单漏斗观察 -> 小步动作与审批 -> 同口径复盘。\n\n## 上线前\n锁定酒店、平台门店、开业日期和负责人；完成可售房、房型、价格、设施、图片、联系信息和服务交付核对；投资测算缺项保持不可计算；所有平台提交由授权人员完成。\n\n## 上线后\n只使用当前门店、明确日期和可回读的曝光、访问、订单、取消与评价证据。评价获取必须真实自愿并符合当前平台规则；任何推广阈值先做当前门店验证，不从培训案例直接下发。\n\n## 停止与回滚\n发现虚假信息、跨店数据、规则过期、关键分母缺失、投诉风险或平台写入未授权时立即停止，只输出缺失项和人工处理建议。",
+      "contract": {
+        "role": "运营负责人编排，业主和平台授权人员审批",
+        "trigger": "新店准备上线、上线后首轮运营或重大资料变更",
+        "required_inputs": ["系统酒店与平台门店绑定", "开业和业务日期", "投资及服务交付事实", "房型套餐与信息证据", "平台当前规则", "上线后漏斗数据"],
+        "steps": ["范围绑定", "投资假设登记", "产品方案人工确认", "信息真实性核对", "授权人员上线", "保存和页面回读", "观察漏斗", "审批小步动作", "同口径复盘"],
+        "completion_evidence": ["范围卡", "假设表", "产品方案确认", "信息核对表", "平台回执与页面回读", "漏斗证据", "复盘记录"],
+        "exception_paths": ["缺酒店平台日期则blocked", "缺当前规则则verification_required", "缺漏斗分母则not_computable", "外部写入未授权则manual_only", "评价合规不明则禁止相关动作"],
+        "status_feedback": ["scope_missing", "preflight_incomplete", "ready_for_human_launch", "submitted_unverified", "readback_verified", "observation_in_progress", "review_complete"],
+        "effect_review": ["使用同一酒店平台和日期窗口", "保留曝光访问订单取消的分母", "区分相关与因果", "记录停止条件和回滚"]
+      },
+      "decision_safe": false,
+      "task_draft_safe": false,
+      "external_write_authorized": false
+    }
+  ],
+  "golden_cases": [
+    {
+      "case_key": "complete_manual_preflight",
+      "input": {
+        "hotel_scope": "present",
+        "platform_store_binding": "present",
+        "business_date": "present",
+        "current_platform_rules": "present",
+        "service_evidence": "present",
+        "external_write_authorized": false
+      },
+      "expected": {
+        "status": "ready_for_human_launch",
+        "allowed_output": "internal_checklist_and_manual_submission_package",
+        "decision_safe": false,
+        "external_write_authorized": false
+      }
+    },
+    {
+      "case_key": "missing_scope_blocks_launch",
+      "input": {
+        "hotel_scope": "missing",
+        "platform_store_binding": "missing",
+        "business_date": "missing"
+      },
+      "expected": {
+        "status": "blocked",
+        "allowed_output": "missing_inputs_only",
+        "task_draft_safe": false,
+        "external_write_authorized": false
+      }
+    },
+    {
+      "case_key": "unverified_threshold_stays_hypothesis",
+      "input": {
+        "claim": "absolute_conversion_rate_over_1_5_percent_means_buy_exposure",
+        "current_hotel_data": "missing",
+        "official_rule": "missing"
+      },
+      "expected": {
+        "status": "unverified_reference_only",
+        "allowed_output": "verification_plan",
+        "automatic_promotion_action": false,
+        "causality_claimed": false
+      }
+    }
+  ]
+}
