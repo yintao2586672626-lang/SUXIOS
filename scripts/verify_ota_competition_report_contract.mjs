@@ -47,6 +47,11 @@ const scripts = packageJson.scripts ?? {};
   ["'ctrip_source_trace_unverified'", 'Ctrip source-trace gate'],
   ["'meituan_source_trace_unverified'", 'Meituan source-trace gate'],
   ["'competitor_count' => $competitorCount", 'missing competitor count remains null'],
+  ["'schema_version' => 'suxios.ota_competition_report.v1'", 'interactive report document contract'],
+  ["'schema_version' => 'suxios.xiaohongshu.content_draft.v1'", 'Xiaohongshu draft contract'],
+  ["'bundle_id' => $bundleId", 'interactive report bundle identity'],
+  ["'commercial_release_ready' => false", 'interactive report commercial boundary'],
+  ["'auto_publish' => false", 'Xiaohongshu manual publication boundary'],
 ].forEach(([needle, label]) => assertContains(bundleService, needle, label));
 
 [
@@ -104,6 +109,12 @@ const scripts = packageJson.scripts ?? {};
   ['delivery.delivery_parts || {}', 'text and visual delivery receipt binding'],
   ["aiDailyReportWecomEdition.value = 'lite'", 'non-admin WeCom edition reset'],
   ['aiDailyReportCompetitionBundle', 'competition bundle frontend binding'],
+  ['aiDailyReportCompetitionReportDocument', 'saved interactive report binding'],
+  ['downloadAiDailyCompetitionReportHtml', 'offline HTML report export'],
+  ['copyAiDailyCompetitionXiaohongshuDraft', 'Xiaohongshu draft copy action'],
+  ['hasCompetitionReport && !downloadAiDailyCompetitionReportHtml()', 'report delivery is bound to identity-checked result package action'],
+  ['report.render_contract?.bundle_id', 'report export bundle identity check'],
+  ['data-bundle-id=', 'report export embeds bundle identity'],
   ["facts.competitor_count ?? '—'", 'missing competitor count display boundary'],
   ['auto_write_ota=false', 'manual execution boundary copy'],
 ].forEach(([needle, label]) => assertContains(frontend, needle, label));
@@ -121,6 +132,7 @@ const scripts = packageJson.scripts ?? {};
   ["user?.is_super_admin && aiDailyReportWecomEdition === 'flagship'", 'non-admin send button label gate'],
   ['<strong>竞对变化（诊断参考）</strong>', 'always-visible diagnostic heading'],
   ['<pre v-if="aiDailyReportCompetitionSummaryText"', 'competition-circle report entry'],
+  ['>产出报告</button>', 'user-facing report output action'],
   ['v-else-if="!aiDailyReportCompetitorChanges.length"', 'truthful competition empty state'],
 ].forEach(([needle, label]) => assertContains(template, needle, label));
 

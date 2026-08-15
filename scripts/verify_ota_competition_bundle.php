@@ -4,6 +4,7 @@ declare(strict_types=1);
 use app\service\OtaCompetitionAnalysisBundleService;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
+require_once dirname(__DIR__) . '/app/service/OtaCompetitionAnalysisBundleService.php';
 
 function assertContract(bool $condition, string $message): void
 {
@@ -164,6 +165,15 @@ assertContract(
     'OTA auto write must stay disabled'
 );
 assertContract(
+    ($syntheticLite['report_document']['status'] ?? '') === 'blocked'
+        && ($syntheticLite['content_drafts']['xiaohongshu']['status'] ?? '') === 'withheld',
+    'synthetic evidence must not create a publishable report or content draft: '
+        . json_encode([
+            'report_status' => $syntheticLite['report_document']['status'] ?? null,
+            'draft_status' => $syntheticLite['content_drafts']['xiaohongshu']['status'] ?? null,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+);
+assertContract(
     ($syntheticLite['source_fingerprint'] ?? '') === ($syntheticFlagship['source_fingerprint'] ?? 'different'),
     'lite and flagship must read the same calculation fingerprint'
 );
@@ -193,6 +203,31 @@ assertContract(
 assertContract(
     count((array)($live['recommendations']['items'] ?? [])) === 2,
     'fully traced live inputs must produce at most one manual action per platform'
+);
+assertContract(
+    ($live['report_document']['status'] ?? '') === 'ready_for_review',
+    'verified live evidence must create one interactive report document'
+);
+assertContract(
+    ($live['report_document']['render_contract']['source_fingerprint'] ?? '')
+        === ($live['source_fingerprint'] ?? 'different'),
+    'report rendering must keep the shared bundle fingerprint'
+);
+assertContract(
+    ($live['report_document']['render_contract']['bundle_id'] ?? '')
+        === ($live['bundle_id'] ?? 'different'),
+    'report rendering must keep the shared bundle ID'
+);
+assertContract(
+    ($live['report_document']['render_contract']['commercial_release_ready'] ?? true) === false,
+    'interactive report must not claim the commercial DOCX/HTML page gates'
+);
+assertContract(
+    ($live['content_drafts']['xiaohongshu']['status'] ?? '') === 'ready_for_human_review'
+        && count((array)($live['content_drafts']['xiaohongshu']['titles_10'] ?? [])) === 10
+        && count((array)($live['content_drafts']['xiaohongshu']['pages_8'] ?? [])) === 8
+        && ($live['content_drafts']['xiaohongshu']['auto_publish'] ?? true) === false,
+    'verified report must create one complete draft-only Xiaohongshu content packet'
 );
 
 $missingCompetitorCount = $ctrip;
@@ -231,6 +266,12 @@ assertContract(
     ($blocked['quality']['decision_eligible'] ?? true) === false,
     'missing denominator and Meituan source must block executable advice'
 );
+assertContract(
+    ($blocked['report_document']['status'] ?? '') === 'blocked'
+        && ($blocked['content_drafts']['xiaohongshu']['status'] ?? '') === 'withheld'
+        && !array_key_exists('post_text', (array)($blocked['content_drafts']['xiaohongshu'] ?? [])),
+    'blocked evidence must withhold both report actions and Xiaohongshu copy'
+);
 
 echo json_encode([
     'status' => 'passed',
@@ -241,5 +282,9 @@ echo json_encode([
     'candidate_groups' => array_keys($syntheticLite['candidate_competitors']['ctrip']),
     'synthetic_actions' => count($syntheticLite['recommendations']['items']),
     'live_actions' => count($live['recommendations']['items']),
+    'live_report_status' => $live['report_document']['status'],
+    'live_xiaohongshu_status' => $live['content_drafts']['xiaohongshu']['status'],
+    'blocked_report_status' => $blocked['report_document']['status'],
+    'blocked_xiaohongshu_status' => $blocked['content_drafts']['xiaohongshu']['status'],
     'blocked_codes' => $blockedCodes,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . PHP_EOL;
