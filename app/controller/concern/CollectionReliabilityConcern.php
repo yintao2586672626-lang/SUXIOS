@@ -1518,6 +1518,46 @@ trait CollectionReliabilityConcern
             return $this->error('数据源状态加载失败: ' . $e->getMessage());
         }
     }
+    public function dashboardRevenueFacts(): Response
+    {
+        $this->checkPermission();
+
+        try {
+            $hotelInput = $this->request->get(
+                'hotel_id',
+                $this->request->get('system_hotel_id', '')
+            );
+            if (!is_scalar($hotelInput)
+                || preg_match('/^[1-9]\d*$/D', trim((string)$hotelInput)) !== 1
+            ) {
+                throw new \InvalidArgumentException('请选择有效酒店');
+            }
+            $hotelId = $this->resolveDashboardHotelId(
+                $hotelInput,
+                true
+            );
+            $businessDate = trim((string)$this->request->get('business_date', ''));
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $businessDate)) {
+                throw new \InvalidArgumentException('请选择有效业务日期，格式为 YYYY-MM-DD');
+            }
+            [$year, $month, $day] = array_map('intval', explode('-', $businessDate));
+            if (!checkdate($month, $day, $year)) {
+                throw new \InvalidArgumentException('请选择有效业务日期，格式为 YYYY-MM-DD');
+            }
+
+            return $this->success(
+                (new \app\service\RevenueFactLayerService())->build((int)$hotelId, $businessDate)
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('基础经营事实读取失败', 500, [
+                'reason' => 'revenue_fact_layer_read_failed',
+            ]);
+        }
+    }
     private function resolveDashboardDateRange(): array
     {
         $days = max(1, min(90, (int)$this->request->get('days', 30)));

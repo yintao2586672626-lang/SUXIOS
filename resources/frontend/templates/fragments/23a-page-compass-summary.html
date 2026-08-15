@@ -1,6 +1,5 @@
                                 <operating-loop-authority v-if="currentPage === 'compass'"></operating-loop-authority>
 
-                                <div v-if="currentPage === 'compass'" class="mb-3 text-xs font-semibold tracking-wide text-slate-400">专业下钻 · 以下内容不决定权威闭环状态</div>
                                 <section v-if="currentPage === 'compass'" class="compass-hero-bezel" data-testid="home-executive-answer">
                                     <div class="compass-hero-core">
                                         <home-yesterday-operating-facts
@@ -9,8 +8,9 @@
                                             :show-controls="true"
                                             :hotel-options="compassHotelOptions"
                                             :selected-hotel-id="filterReportHotel"
-                                            :refreshing="compassLoading || revenueAiOverviewLoading"
+                                            :refreshing="compassLoading||homeRevenueFactLayerLoading||revenueAiOverviewLoading"
                                             @update:selected-hotel-id="filterReportHotel = $event"
+                                            @update:selected-business-date="homeRevenueFactBusinessDate = $event"
                                             @refresh="refreshCompassDashboard">
                                         </home-yesterday-operating-facts>
 

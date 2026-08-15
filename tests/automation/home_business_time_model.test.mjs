@@ -808,6 +808,56 @@ test('competitor data is diagnostic reference and does not raise core fact readi
   assert.match(readiness.diagnosticText, /不计入核心事实就绪度/);
 });
 
+test('one upstream fact-layer error is grouped once instead of repeated across every metric card', () => {
+  const model = buildHomeBusinessTimeModel({
+    temporalData,
+    hotelName: '根因聚合酒店',
+    selectedHotelId: 80,
+    revenueFactLayer: null,
+    revenueFactLayerError: '基础经营事实接口暂时不可用',
+  });
+
+  assert.equal(model.yesterday.status, '读取失败');
+  assert.equal(model.yesterday.blockingIssues.length, 1);
+  assert.equal(model.yesterday.blockingIssues[0].key, 'fact-layer-request');
+  assert.match(model.yesterday.summary, /各指标暂不重复报错/);
+  assert.ok(model.yesterday.wholeHotelFacts.every((fact) => fact.status === '受上游阻断'));
+  assert.ok(model.yesterday.otaChannelFacts.every((fact) => fact.status === '受上游阻断'));
+  assert.ok(model.yesterday.otaPlatformRows.every((row) => row.status === '受上游阻断'));
+  assert.ok(model.yesterday.wholeHotelFacts.every((fact) => fact.value === '未读取'));
+});
+
+test('missing same-day sources are summarized as one primary blocker without inventing facts', () => {
+  const model = buildHomeBusinessTimeModel({
+    temporalData,
+    hotelName: '三源缺口酒店',
+    selectedHotelId: 80,
+    revenueFactLayer: null,
+  });
+
+  assert.equal(model.yesterday.blockingIssues.length, 1);
+  assert.equal(model.yesterday.blockingIssues[0].key, 'three-source-readback-incomplete');
+  assert.match(model.yesterday.blockingIssues[0].detail, /PMS实际业务日、携程实际业务日、美团实际业务日/);
+  assert.ok(model.yesterday.wholeHotelFacts.every((fact) => fact.ready === false));
+  assert.ok(model.yesterday.otaChannelFacts.every((fact) => fact.ready === false));
+});
+
+test('selected business date wins over a stale temporal range and old fact-layer date', () => {
+  const model = buildHomeBusinessTimeModel({
+    temporalData,
+    hotelName: '日期切换酒店',
+    selectedHotelId: 80,
+    selectedBusinessDate: '2026-07-22',
+    revenueFactLayer: buildRevenueFactLayer(),
+  });
+
+  assert.equal(model.yesterday.date, '2026-07-22');
+  assert.equal(model.yesterday.dualScopeReady, false);
+  assert.ok(model.yesterday.wholeHotelFacts.every((fact) => fact.ready === false));
+  assert.match(model.yesterday.summary, /当前回读日 2026-07-23 不用于替代/);
+  assert.equal(model.timeline[0].label, '业务日事实');
+});
+
 test('home static cache key matches the shipped business time model content', () => {
   const runtime = readFileSync('public/app-startup-helpers.min.js');
   const hash = createHash('sha256').update(runtime).digest('hex').slice(0, 10);

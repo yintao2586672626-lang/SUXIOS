@@ -869,6 +869,10 @@
                 revenueAiOverview.value = null;
                 revenueAiOverviewError.value = '';
                 revenueAiOverviewLoading.value = false;
+                homeRevenueFactLayer.value = null;
+                homeRevenueFactLayerError.value = '';
+                homeRevenueFactLayerLoading.value = false;
+                homeRevenueFactBusinessDate.value = formatDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
                 dualOtaWorkbenchFetchAttemptKeys.clear();
             };
             const clearActiveHotelDashboardSnapshots = () => {
@@ -880,12 +884,14 @@
                 macroSignalRequestSeq += 1;
                 holidayRevenueRequestSeq += 1;
                 revenueAiOverviewRequestSeq += 1;
+                homeRevenueFactLayerRequestSeq += 1;
                 competitorSummaryRequestSeq += 1;
                 ctripLatestRequestSeq += 1;
                 competitorSummaryRequestPromises.clear();
                 competitorSummaryResultCache.clear();
                 ctripLatestRequestPromises.clear();
                 revenueAiOverviewRequestPromises.clear();
+                homeRevenueFactLayerRequestPromises.clear();
 
                 compassDisplayedHotelId = '';
                 compassWeather.value = [];
@@ -924,6 +930,9 @@
                 revenueAiOverview.value = null;
                 revenueAiOverviewError.value = '';
                 revenueAiOverviewLoading.value = false;
+                homeRevenueFactLayer.value = null;
+                homeRevenueFactLayerError.value = '';
+                homeRevenueFactLayerLoading.value = false;
                 competitorSummary.value = null;
                 competitorSummaryLoading.value = false;
                 competitorSummaryLoadFailed.value = false;
@@ -8251,10 +8260,16 @@
             const revenueAiOverview = ref(null);
             const revenueAiOverviewLoading = ref(false);
             const revenueAiOverviewError = ref('');
+            const homeRevenueFactLayer = ref(null);
+            const homeRevenueFactLayerLoading = ref(false);
+            const homeRevenueFactLayerError = ref('');
+            const homeRevenueFactBusinessDate = ref(formatDate(new Date(Date.now() - 24 * 60 * 60 * 1000)));
             const revenueAiReviewActionLoading = ref({});
             const revenueAiExecutionFocus = ref(null);
             let revenueAiOverviewRequestSeq = 0;
             const revenueAiOverviewRequestPromises = new Map();
+            let homeRevenueFactLayerRequestSeq = 0;
+            const homeRevenueFactLayerRequestPromises = new Map();
             const revenueAiStaticScript = 'revenue-ai-static.js';
             const revenueAiStaticVersion = '20260812-future-price-ledger-h3683606368';
             const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
@@ -8709,10 +8724,11 @@
                 futureCard: homeTemporalCards.value.find(card => card?.key === 'future') || null,
                 revenueMetricCards: revenueAiMetricCards.value,
                 revenueOverviewScope: revenueAiOverview.value?.scope || '',
-                revenueFactLayer: revenueAiOverview.value?.three_source_fact_layer || null,
+                revenueFactLayer: homeRevenueFactLayer.value,
                 selectedHotelId: filterReportHotel.value,
-                revenueFactLayerLoading: revenueAiOverviewLoading.value,
-                revenueFactLayerError: revenueAiOverviewError.value,
+                selectedBusinessDate: homeRevenueFactBusinessDate.value,
+                revenueFactLayerLoading: homeRevenueFactLayerLoading.value,
+                revenueFactLayerError: homeRevenueFactLayerError.value,
                 loading: homeTemporalLoading.value,
                 error: homeTemporalError.value,
                 helpers: { formatNumber },
@@ -23275,28 +23291,54 @@
 
             const operationStaticScript = 'operation-static.js';
             const operationStaticScriptVersion = '20260813-operating-goal-contract-h9c22045e73';
+            const operationStaticIntegrityKeys = [
+                'operationAlertFilters',
+                'operationStrategyTypes',
+                'buildOperatingGoalContractPayload',
+                'buildOpeningAiOutputResult',
+            ];
+            const operationStaticMissingIntegrityKeys = staticConfig => operationStaticIntegrityKeys
+                .filter(key => staticConfig?.[key] === undefined || staticConfig?.[key] === null);
             let operationStaticLoadPromise = null;
             const loadOperationStatic = () => {
                 const currentStatic = window.SUXI_OPERATION_STATIC;
-                if (currentStatic && typeof currentStatic === 'object') {
+                if (currentStatic
+                    && typeof currentStatic === 'object'
+                    && operationStaticMissingIntegrityKeys(currentStatic).length === 0
+                ) {
                     return Promise.resolve(currentStatic);
                 }
                 if (operationStaticLoadPromise) {
                     return operationStaticLoadPromise;
                 }
                 operationStaticLoadPromise = new Promise((resolve, reject) => {
-                    const script = document.createElement('script');
-                    script.src = operationStaticScript + '?v=' + operationStaticScriptVersion;
-                    script.onload = () => {
-                        const loadedStatic = window.SUXI_OPERATION_STATIC;
-                        if (loadedStatic && typeof loadedStatic === 'object') {
-                            resolve(loadedStatic);
-                            return;
-                        }
-                        reject(new Error('缺少运营管理静态配置：operation-static.js 未加载'));
+                    const appendOperationStaticScript = (repair = false) => {
+                        const script = document.createElement('script');
+                        const repairQuery = repair ? `&repair=${Date.now()}` : '';
+                        script.src = operationStaticScript + '?v=' + operationStaticScriptVersion + repairQuery;
+                        script.onload = () => {
+                            const loadedStatic = window.SUXI_OPERATION_STATIC;
+                            const missingKeys = operationStaticMissingIntegrityKeys(loadedStatic);
+                            if (loadedStatic && typeof loadedStatic === 'object' && missingKeys.length === 0) {
+                                resolve(loadedStatic);
+                                return;
+                            }
+                            if (!repair) {
+                                appendOperationStaticScript(true);
+                                return;
+                            }
+                            reject(new Error(`运营管理静态配置缺失：${missingKeys.join('、') || 'operation-static.js 未加载'}`));
+                        };
+                        script.onerror = () => {
+                            if (!repair) {
+                                appendOperationStaticScript(true);
+                                return;
+                            }
+                            reject(new Error('缺少运营管理静态配置：operation-static.js 未加载'));
+                        };
+                        document.head.appendChild(script);
                     };
-                    script.onerror = () => reject(new Error('缺少运营管理静态配置：operation-static.js 未加载'));
-                    document.head.appendChild(script);
+                    appendOperationStaticScript(Boolean(currentStatic));
                 }).catch((error) => {
                     operationStaticLoadPromise = null;
                     throw error;
@@ -35855,7 +35897,6 @@
                     })
                     .filter(Boolean);
             });
-
             const platformConfigHotelId = (config = {}) => String(config.hotel_id || config.system_hotel_id || '').trim();
             const platformConfigHotelName = (config = {}, hotelId = '') => {
                 const id = String(hotelId || platformConfigHotelId(config) || '').trim();
@@ -45985,6 +46026,70 @@
                 return run;
             };
 
+            const loadHomeRevenueFactLayer = async (options = {}) => {
+                if (!token.value || !isCompassDataPage()) return null;
+                const requestSession = captureAuthSession();
+                const requestPage = currentPage.value;
+                const hotelId = String(filterReportHotel.value || '').trim();
+                const businessDate = String(homeRevenueFactBusinessDate.value || '').trim();
+                const force = options.force === true;
+                if (!hotelId || !/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
+                    homeRevenueFactLayerRequestSeq += 1;
+                    homeRevenueFactLayerRequestPromises.clear();
+                    homeRevenueFactLayer.value = null;
+                    homeRevenueFactLayerError.value = hotelId ? '目标业务日尚未确认' : '';
+                    homeRevenueFactLayerLoading.value = false;
+                    return null;
+                }
+                const requestScopeKey = `${authSessionEpoch}|${hotelId}|${businessDate}`;
+                if (!force && homeRevenueFactLayerRequestPromises.has(requestScopeKey)) {
+                    return homeRevenueFactLayerRequestPromises.get(requestScopeKey);
+                }
+                if (force) homeRevenueFactLayerRequestPromises.delete(requestScopeKey);
+
+                const requestSeq = ++homeRevenueFactLayerRequestSeq;
+                const isCurrentRequest = () => requestSeq === homeRevenueFactLayerRequestSeq
+                    && isAuthSessionCurrent(requestSession)
+                    && hotelId === String(filterReportHotel.value || '').trim()
+                    && businessDate === String(homeRevenueFactBusinessDate.value || '').trim()
+                    && currentPage.value === requestPage
+                    && isCompassDataPage();
+                const run = (async () => {
+                    homeRevenueFactLayerLoading.value = true;
+                    homeRevenueFactLayerError.value = '';
+                    try {
+                        const params = new URLSearchParams({
+                            hotel_id: hotelId,
+                            business_date: businessDate,
+                        });
+                        const res = await request(`/dashboard/revenue-facts?${params.toString()}`, {
+                            requestPolicy: currentPageReadPolicy(requestPage, force ? 'action' : 'current'),
+                        });
+                        if (!isCurrentRequest()) return homeRevenueFactLayer.value;
+                        if (res?.code !== 200 || !res?.data || typeof res.data !== 'object') {
+                            throw new Error(res?.message || '基础经营事实读取失败');
+                        }
+                        homeRevenueFactLayer.value = res.data;
+                        return res.data;
+                    } catch (error) {
+                        if (!isCurrentRequest()) return homeRevenueFactLayer.value;
+                        homeRevenueFactLayer.value = null;
+                        homeRevenueFactLayerError.value = error?.message || '基础经营事实读取失败';
+                        console.error('加载基础经营事实失败:', error);
+                        return null;
+                    } finally {
+                        if (isCurrentRequest()) homeRevenueFactLayerLoading.value = false;
+                    }
+                })();
+                homeRevenueFactLayerRequestPromises.set(requestScopeKey, run);
+                run.finally(() => {
+                    if (homeRevenueFactLayerRequestPromises.get(requestScopeKey) === run) {
+                        homeRevenueFactLayerRequestPromises.delete(requestScopeKey);
+                    }
+                });
+                return run;
+            };
+
             const loadRevenueAiOverview = async (options = {}) => {
                 if (!token.value) return null;
                 const force = options.force === true;
@@ -46081,6 +46186,7 @@
                     && compassHotelId === String(filterReportHotel.value || '').trim()
                     && currentPage.value === requestPage
                     && isCompassDataPage();
+                void loadHomeRevenueFactLayer({ force });
                 if (compassDisplayedHotelId !== compassHotelId) {
                     compassWeather.value = [];
                     compassTodos.value = [];
@@ -46181,6 +46287,18 @@
             const refreshCompassDashboard = async () => {
                 await loadCompassData({ notify: true, force: true });
             };
+
+            watch(homeRevenueFactBusinessDate, (businessDate, previousBusinessDate) => {
+                if (String(businessDate || '') === String(previousBusinessDate || '')) return;
+                homeRevenueFactLayerRequestSeq += 1;
+                homeRevenueFactLayerRequestPromises.clear();
+                homeRevenueFactLayer.value = null;
+                homeRevenueFactLayerError.value = '';
+                homeRevenueFactLayerLoading.value = false;
+                if (token.value && isCompassDataPage()) {
+                    void loadHomeRevenueFactLayer({ force: true });
+                }
+            }, { flush: 'sync' });
 
             const reconcileOperatingLoop = async () => {
                 const hotelId = String(filterReportHotel.value || '').trim();
@@ -54059,7 +54177,7 @@
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeBusinessTimeModel, homeOperatingScheduleModel, homeOperatingScheduleLoading, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
                 dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaPmsSelected, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaWorkbenchFetchInProgress, dualOtaWorkbenchReadInProgress, dualOtaSelectedHotelLabel, dualOtaConfiguredPms, dualOtaPmsTargetDate, dualOtaPmsRangeNote, dualOtaPmsMetricGroups, dualOtaPmsStatusText, dualOtaPmsStatusClass, dualOtaSelectedHotelHasCurrentData, dualOtaSelectedHotelDataGapText, dualOtaRangeText, dualOtaActiveLossNodes, dualOtaLossChainSubtitle, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueHasContribution,
                 dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, openDualOtaPms, openDualOtaPmsDetail, syncDualOtaPmsRealtime, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaModuleNavigationTarget, openDualOtaModule, openDualOtaSystemMetric, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
-                revenueAiStaticReady, revenueAiStaticLoading, revenueAiStaticError, revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiEvidenceWorkbenchRows, revenueAiEvidenceWorkbenchSummary, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
+                revenueAiStaticReady, revenueAiStaticLoading, revenueAiStaticError, revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, homeRevenueFactLayer, homeRevenueFactLayerLoading, homeRevenueFactLayerError, homeRevenueFactBusinessDate, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiEvidenceWorkbenchRows, revenueAiEvidenceWorkbenchSummary, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions, competitorSummaryLoading,
                 compassHotelOptions, dualOtaCurrentHotelOptions, dualOtaHotelOrderRows, dualOtaHotelOrderModeText, showDualOtaHotelOrderModal, openDualOtaHotelOrder, closeDualOtaHotelOrder, moveDualOtaHotelOrder, moveDualOtaHotelOrderToTop, saveDualOtaHotelOrder, resetDualOtaHotelOrder, compassLoading, compassLastSyncedAt, compassDataReadiness, homeSecondaryPanelsReady, homeClosedLoopStages, homeAiTraceRows, refreshCompassDashboard, loadHomeOperatingSchedule, openHomeOperatingScheduleItem, openHomeOperatingScheduleAll,

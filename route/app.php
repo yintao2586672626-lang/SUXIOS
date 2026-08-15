@@ -441,6 +441,7 @@ Route::group('api/dashboard', function () {
     Route::get('/account-overview', 'OnlineData/dashboardAccountOverview');
     Route::get('/hotel-portrait', 'OnlineData/dashboardHotelPortrait');
     Route::get('/data-sources', 'OnlineData/dashboardDataSources');
+    Route::get('/revenue-facts', 'OnlineData/dashboardRevenueFacts');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== 智能知识中枢 API ====================
