@@ -186,20 +186,31 @@ final class OtaCompetitionAnalysisBundleService
                 ],
             ],
         ]);
+        $bundleId = 'ota-competition-' . $hotelId . '-' . str_replace('-', '', $reportDate) . '-' . substr($sourceFingerprint, 0, 12);
         $recommendations = $this->buildRecommendations($platforms, $decisionEligible);
         $requestedEditions = $edition === 'both' ? ['lite', 'flagship'] : [$edition];
+        $quality = [
+            'status' => $qualityStatus,
+            'decision_eligible' => $decisionEligible,
+            'eligible_platforms' => $eligiblePlatforms,
+            'data_gaps' => $allGaps,
+        ];
+        $reportDocument = $this->buildReportDocument(
+            $platforms,
+            $quality,
+            $recommendations,
+            $source,
+            $bundleId,
+            $sourceFingerprint,
+            $edition
+        );
 
         return [
             'schema_version' => self::SCHEMA_VERSION,
-            'bundle_id' => 'ota-competition-' . $hotelId . '-' . str_replace('-', '', $reportDate) . '-' . substr($sourceFingerprint, 0, 12),
+            'bundle_id' => $bundleId,
             'source_fingerprint' => $sourceFingerprint,
             'source' => $source,
-            'quality' => [
-                'status' => $qualityStatus,
-                'decision_eligible' => $decisionEligible,
-                'eligible_platforms' => $eligiblePlatforms,
-                'data_gaps' => $allGaps,
-            ],
+            'quality' => $quality,
             'facts' => [
                 'ctrip' => $ctripResult['facts'],
                 'meituan' => $meituanResult['facts'],
@@ -217,6 +228,14 @@ final class OtaCompetitionAnalysisBundleService
                 'meituan' => $meituanResult['candidate_competitors'],
             ],
             'recommendations' => $recommendations,
+            'report_document' => $reportDocument,
+            'content_drafts' => [
+                'xiaohongshu' => $this->buildXiaohongshuDraft(
+                    $reportDocument,
+                    $quality,
+                    $sourceFingerprint
+                ),
+            ],
             'render_contract' => [
                 'requested_edition' => $edition,
                 'requested_editions' => $requestedEditions,
@@ -227,6 +246,204 @@ final class OtaCompetitionAnalysisBundleService
                 'lite_reads_same_bundle' => true,
                 'flagship_reads_same_bundle' => true,
             ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function buildReportDocument(
+        array $platforms,
+        array $quality,
+        array $recommendations,
+        array $source,
+        string $bundleId,
+        string $sourceFingerprint,
+        string $edition
+    ): array {
+        $eligiblePlatforms = array_values(array_filter(
+            (array)($quality['eligible_platforms'] ?? []),
+            static fn(mixed $platform): bool => in_array($platform, ['ctrip', 'meituan'], true)
+        ));
+        $decisionEligible = ($quality['decision_eligible'] ?? false) === true;
+        $platformLabels = ['ctrip' => '携程', 'meituan' => '美团'];
+        $platformSections = [];
+
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $result = is_array($platforms[$platform] ?? null) ? $platforms[$platform] : [];
+            $platformEligible = ($result['quality']['decision_eligible'] ?? false) === true;
+            $candidateGroups = [];
+            foreach ((array)($result['candidate_competitors'] ?? []) as $group => $items) {
+                $candidateGroups[(string)$group] = count(array_filter((array)$items, 'is_array'));
+            }
+            $platformSections[$platform] = [
+                'platform' => $platform,
+                'label' => $platformLabels[$platform],
+                'status' => $platformEligible ? 'ready_for_review' : 'blocked',
+                'quality_status' => (string)($result['quality']['status'] ?? 'blocked'),
+                'channel_role' => $platformEligible
+                    ? ($result['analysis']['channel_role'] ?? null)
+                    : null,
+                'first_conflict' => $platformEligible
+                    ? ($result['analysis']['first_conflict'] ?? null)
+                    : null,
+                'candidate_group_counts' => $candidateGroups,
+                'source_refs' => [
+                    'facts' => 'competition_circle_bundle.facts.' . $platform,
+                    'derived_metrics' => 'competition_circle_bundle.derived_metrics.' . $platform,
+                    'analysis' => 'competition_circle_bundle.analysis.' . $platform,
+                    'candidates' => 'competition_circle_bundle.candidate_competitors.' . $platform,
+                    'quality' => 'competition_circle_bundle.quality',
+                ],
+            ];
+        }
+
+        return [
+            'schema_version' => 'suxios.ota_competition_report.v1',
+            'status' => $decisionEligible ? 'ready_for_review' : 'blocked',
+            'artifact_kind' => 'interactive_decision_report',
+            'title' => 'OTA竞争商圈经营报告',
+            'scope' => [
+                'metric_scope' => 'ota_channel',
+                'whole_hotel_truth' => false,
+                'system_hotel_id' => (int)($source['system_hotel_id'] ?? 0),
+                'data_date' => (string)($source['data_date'] ?? ''),
+                'dataset_kind' => (string)($source['dataset_kind'] ?? ''),
+                'readback_verified' => ($source['readback_verified'] ?? false) === true,
+                'eligible_platforms' => $eligiblePlatforms,
+            ],
+            'management_snapshot' => [
+                'quality_status' => (string)($quality['status'] ?? 'blocked'),
+                'decision_eligible' => $decisionEligible,
+                'platforms_ready' => count($eligiblePlatforms),
+                'platforms_total' => 2,
+                'first_conflicts' => array_values(array_filter(array_map(
+                    static fn(string $platform): ?array => isset($platformSections[$platform])
+                        ? [
+                            'platform' => $platform,
+                            'label' => (string)$platformSections[$platform]['label'],
+                            'value' => $platformSections[$platform]['first_conflict'],
+                        ]
+                        : null,
+                    $eligiblePlatforms
+                ), 'is_array')),
+                'action_status' => (string)($recommendations['status'] ?? 'withheld'),
+                'action_count' => count(array_filter((array)($recommendations['items'] ?? []), 'is_array')),
+            ],
+            'platform_sections' => $platformSections,
+            'data_gaps' => array_values(array_filter((array)($quality['data_gaps'] ?? []), 'is_array')),
+            'actions' => array_values(array_filter((array)($recommendations['items'] ?? []), 'is_array')),
+            'render_contract' => [
+                'requested_edition' => $edition,
+                'single_calculation' => true,
+                'bundle_id' => $bundleId,
+                'source_fingerprint' => $sourceFingerprint,
+                'saved_with_daily_report' => true,
+                'exact_readback_required' => true,
+                'offline_html_export_allowed' => true,
+                'commercial_release_ready' => false,
+                'commercial_artifacts_generated' => [],
+                'commercial_boundary' => '界面版不是携程30—35/70—86页或美团40/66+页商业DOCX/HTML交付。',
+            ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function buildXiaohongshuDraft(
+        array $reportDocument,
+        array $quality,
+        string $sourceFingerprint
+    ): array {
+        $eligiblePlatforms = array_values((array)($quality['eligible_platforms'] ?? []));
+        if (($quality['decision_eligible'] ?? false) !== true || $eligiblePlatforms === []) {
+            return [
+                'schema_version' => 'suxios.xiaohongshu.content_draft.v1',
+                'status' => 'withheld',
+                'publication_status' => 'not_created',
+                'blocked_reason' => (string)(($quality['data_gaps'][0]['code'] ?? '') ?: 'verified_report_required'),
+                'source_fingerprint' => $sourceFingerprint,
+                'human_review_required' => true,
+                'auto_publish' => false,
+                'external_write' => false,
+            ];
+        }
+
+        $platformLabel = count($eligiblePlatforms) > 1
+            ? '携程和美团'
+            : ($eligiblePlatforms[0] === 'ctrip' ? '携程' : '美团');
+        $topic = count($eligiblePlatforms) > 1
+            ? '看双OTA竞争商圈，先分平台再下判断'
+            : '看' . $platformLabel . '竞争商圈，先分清证据再谈动作';
+        $coreLine = $eligiblePlatforms[0] === 'meituan' && count($eligiblePlatforms) === 1
+            ? '曝光、浏览、订单、销售和入住不是一个口径，先拆开看。'
+            : '流量、转化、价格和价值不是一个问题，先拆开看。';
+
+        return [
+            'schema_version' => 'suxios.xiaohongshu.content_draft.v1',
+            'status' => 'ready_for_human_review',
+            'publication_status' => 'draft_only',
+            'source_fingerprint' => $sourceFingerprint,
+            'source_report_schema' => (string)($reportDocument['schema_version'] ?? ''),
+            'source_summary' => '从本次已回读的OTA竞争商圈报告方法生成；未复制酒店、竞店或精确经营数值。',
+            'privacy' => [
+                'hotel_names_removed' => true,
+                'competitor_names_removed' => true,
+                'exact_business_values_removed' => true,
+                'promissory_claims_forbidden' => true,
+            ],
+            'topic' => $topic,
+            'titles_10' => [
+                $topic,
+                '竞争商圈报告，先别急着看谁价格低',
+                '酒店做竞对分析，最容易混错的4个口径',
+                '为什么有流量，订单还是接不住？',
+                '看竞店之前，先把本店数据身份对上',
+                'OTA商圈分析：事实、计算、判断要分层',
+                '别用一天数据，判断酒店长期趋势',
+                '低价高转化的竞店，为什么不能直接照抄？',
+                '一份能执行的商圈报告，要有这3道门槛',
+                '酒店竞对分析最后一步：保护线和回滚',
+            ],
+            'cover_titles_5' => [
+                '商圈报告别先看价格',
+                '先分清4个口径',
+                '有流量≠会成交',
+                '竞店不能直接抄',
+                '动作必须能回滚',
+            ],
+            'pages_8' => [
+                ['page' => 1, 'title' => '商圈报告别先看价格', 'points' => '先确认酒店、平台、日期和来源，数据身份错了，后面的结论都不成立。'],
+                ['page' => 2, 'title' => '为什么总会看偏', 'points' => $coreLine],
+                ['page' => 3, 'title' => '核心方法', 'points' => '把来源事实、可复算指标、经营判断和待验证假设分成四层。'],
+                ['page' => 4, 'title' => '第一步：对身份', 'points' => '确认本店唯一、平台门店绑定正确、业务日期一致，并完成保存回读。'],
+                ['page' => 5, 'title' => '第二步：分口径', 'points' => '平台字段保留平台定义，重算指标单列公式；没有分母就写缺失，不补0。'],
+                ['page' => 6, 'title' => '第三步：设动作门槛', 'points' => '一次只改一个变量，写清观察期、保护线、停止条件和回滚。'],
+                ['page' => 7, 'title' => '最容易踩的坑', 'points' => '不要把低价高转化竞店当价格标杆，也不要把单日快照写成长期趋势。'],
+                ['page' => 8, 'title' => '今天就做这件事', 'points' => '找一份已回读的商圈数据，按“身份—口径—门槛”重新检查一遍。'],
+            ],
+            'post_text' => "做酒店竞争商圈分析，最容易犯的错，是打开报告先找谁价格最低。\n\n真正的第一步，是先把酒店、平台、业务日期和来源对上。数据有没有保存？能不能按同一报告ID回读？如果这些还没确认，后面的排名、差距和动作都只能算待验证。\n\n第二步是分口径。{$coreLine} 平台直接给出的字段要保留原定义，自己重算的指标要单列公式；分母缺失时就明确写缺失，不能用0把问题藏起来。\n\n第三步才是动作。竞店低价、转化高，不代表本店照抄就有效。每次只测一个日期、一个房型或一个变量，同时写清观察期、保护线、停止条件和回滚。\n\n一份真正能用的商圈报告，不是结论越多越好，而是每个结论都能追到来源，每个动作都能停、能复盘。你看商圈报告时，最容易混淆的是流量、转化还是价格？",
+            'tags_10' => [
+                '#酒店收益管理', '#酒店运营', '#OTA运营', '#酒店店长', '#酒店业主',
+                '#携程运营', '#美团酒店', '#竞争商圈', '#酒店数据分析', '#酒店经营',
+            ],
+            'comments_3' => [
+                '先对酒店、平台、日期和来源，再看结论。',
+                '想要“商圈报告检查清单”，可以留言说说你最常看的平台。',
+                '本文只讲方法，不构成价格或收益承诺；实际动作要结合本店真实数据。',
+            ],
+            'image_spec' => [
+                'width' => 1080,
+                'height' => 1440,
+                'page_count' => 8,
+                'layout_rule' => '一页一个重点；封面短标题；正文保留充足留白。',
+            ],
+            'human_review_checklist' => [
+                '补充本人真实经验，但不得编造数据、案例、奖项或收益结果。',
+                '确认不含酒店名、竞店名、精确经营数值、客户信息或内部路径。',
+                '检查语言是否符合账号定位，并由人工选择最终标题和封面。',
+                '只通过小红书官方功能人工发布；系统不自动发布。',
+            ],
+            'human_review_required' => true,
+            'auto_publish' => false,
+            'external_write' => false,
         ];
     }
 

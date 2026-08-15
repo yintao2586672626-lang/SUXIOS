@@ -24736,6 +24736,44 @@
                 lines.push(`行动门槛｜${bundle.quality?.decision_eligible ? '通过，仍需人工确认' : '未通过，不生成执行建议'}｜最多3项｜auto_write_ota=false`);
                 return lines.join('\n');
             });
+            const aiDailyReportCompetitionReportDocument = computed(() => (
+                aiDailyReportCompetitionBundle.value?.report_document || {}
+            ));
+            const aiDailyReportCompetitionReportReady = computed(() => (
+                aiDailyReportCompetitionReportDocument.value?.status === 'ready_for_review'
+            ));
+            const aiDailyReportCompetitionXiaohongshuDraft = computed(() => (
+                aiDailyReportCompetitionBundle.value?.content_drafts?.xiaohongshu || {}
+            ));
+            const aiDailyReportCompetitionXiaohongshuDraftText = computed(() => {
+                const draft = aiDailyReportCompetitionXiaohongshuDraft.value || {};
+                if (draft.status !== 'ready_for_human_review') return '';
+                const lines = [
+                    `选题：${draft.topic || '未命名选题'}`,
+                    '',
+                    '【标题10选1】',
+                    ...aiDailyReportList(draft.titles_10).map((title, index) => `${index + 1}. ${title}`),
+                    '',
+                    '【封面标题5选1】',
+                    ...aiDailyReportList(draft.cover_titles_5).map((title, index) => `${index + 1}. ${title}`),
+                    '',
+                    '【8页图文】',
+                    ...aiDailyReportObjectList(draft.pages_8).map(page => `P${page.page || '—'} ${page.title || ''}｜${page.points || ''}`),
+                    '',
+                    '【发布文案】',
+                    draft.post_text || '',
+                    '',
+                    '【话题标签】',
+                    aiDailyReportList(draft.tags_10).join(' '),
+                    '',
+                    '【置顶评论】',
+                    ...aiDailyReportList(draft.comments_3).map((comment, index) => `${index + 1}. ${comment}`),
+                    '',
+                    '【人工审核】',
+                    ...aiDailyReportList(draft.human_review_checklist).map((item, index) => `${index + 1}. ${item}`),
+                ];
+                return lines.join('\n').trim();
+            });
             const aiDailyReportSourceCount = computed(() => aiDailyReportList(aiDailyReport.value?.source_refs).length);
             const aiDailyReportTransferableCount = computed(() => aiDailyReportActions.value.filter(action => action && !action.execution_intent_id && revenueAiDailyReportActionExecutionReady(action)).length);
             const aiDailyReportResultReadiness = computed(() => aiDailyReport.value?.result_readiness || aiDailyReport.value?.result_status || null);
@@ -24954,6 +24992,8 @@
             };
             const downloadAiDailyReportPackage = () => {
                 if (!aiDailyReport.value) return;
+                const hasCompetitionReport = Boolean(aiDailyReportCompetitionReportDocument.value?.schema_version);
+                if (hasCompetitionReport && !downloadAiDailyCompetitionReportHtml()) return;
                 const audience = String(aiDailyReportAudience.value || 'owner');
                 const payload = buildAiDailyReportSharePackage(audience);
                 const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -24966,6 +25006,90 @@
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
                 showToast('结果交付件已生成', 'success');
+                if (hasCompetitionReport) {
+                    if (aiDailyReportCompetitionXiaohongshuDraftText.value) {
+                        copyAiDailyCompetitionXiaohongshuDraft();
+                    }
+                }
+            };
+            const escapeAiDailyCompetitionReportHtml = (value) => String(value ?? '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+            const downloadAiDailyCompetitionReportHtml = () => {
+                const report = aiDailyReportCompetitionReportDocument.value || {};
+                if (!report.schema_version) {
+                    showToast('当前日报没有可导出的竞争商圈报告', 'warning');
+                    return false;
+                }
+                const bundle = aiDailyReportCompetitionBundle.value || {};
+                const reportId = Number(aiDailyReport.value?.id || 0);
+                const bundleId = String(bundle.bundle_id || '').trim();
+                const reportBundleId = String(report.render_contract?.bundle_id || '').trim();
+                const bundleFingerprint = String(bundle.source_fingerprint || '').trim();
+                const fingerprint = String(report.render_contract?.source_fingerprint || '').trim();
+                if (!Number.isInteger(reportId) || reportId <= 0
+                    || !bundleId || reportBundleId !== bundleId
+                    || !bundleFingerprint || fingerprint !== bundleFingerprint) {
+                    showToast('报告身份校验失败：日报ID、Bundle ID或来源指纹不一致，已阻断导出', 'error');
+                    return false;
+                }
+                const qualityText = aiDailyReportCompetitionQualityText.value;
+                const platformRows = aiDailyReportCompetitionPlatforms.value.map(platform => {
+                    const section = report.platform_sections?.[platform.platform] || {};
+                    const status = section.status === 'ready_for_review' ? '可人工研判' : '证据不足';
+                    return `<section><h2>${escapeAiDailyCompetitionReportHtml(platform.label)}</h2><p class="status">${escapeAiDailyCompetitionReportHtml(status)}</p><p>${escapeAiDailyCompetitionReportHtml(platform.factText)}</p><p><strong>渠道角色：</strong>${escapeAiDailyCompetitionReportHtml(section.channel_role || '不输出')}</p><p><strong>第一矛盾：</strong>${escapeAiDailyCompetitionReportHtml(section.first_conflict || '不输出')}</p>${platform.gapText ? `<p class="gap"><strong>数据缺口：</strong>${escapeAiDailyCompetitionReportHtml(platform.gapText)}</p>` : ''}</section>`;
+                }).join('');
+                const groupRows = aiDailyReportCompetitionGroups.value.map(group => (
+                    `<tr><td>${escapeAiDailyCompetitionReportHtml(group.label)}</td><td>${escapeAiDailyCompetitionReportHtml(group.namesText)}</td></tr>`
+                )).join('');
+                const actionRows = aiDailyReportObjectList(report.actions).map(action => (
+                    `<tr><td>${escapeAiDailyCompetitionReportHtml(action.platform || '')}</td><td>${escapeAiDailyCompetitionReportHtml(action.title || '')}</td><td>${escapeAiDailyCompetitionReportHtml(action.action || '')}</td><td>${escapeAiDailyCompetitionReportHtml(action.rollback_condition || '需人工设定')}</td></tr>`
+                )).join('');
+                const gapRows = aiDailyReportObjectList(report.data_gaps).map(gap => (
+                    `<li><strong>${escapeAiDailyCompetitionReportHtml(gap.code || 'data_gap')}</strong>：${escapeAiDailyCompetitionReportHtml(gap.message || '')}<small>${escapeAiDailyCompetitionReportHtml(gap.source_ref || '')}</small></li>`
+                )).join('');
+                const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeAiDailyCompetitionReportHtml(report.title || 'OTA竞争商圈经营报告')}</title><style>
+                    :root{color-scheme:light;--ink:#10231d;--muted:#64748b;--gold:#9a7b43;--line:#e5e7eb;--soft:#f7f7f4;--gap:#92400e}*{box-sizing:border-box}body{margin:0;background:#eef1ed;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;line-height:1.65}main{max-width:980px;margin:32px auto;background:#fff;padding:44px;border-radius:18px;box-shadow:0 18px 45px rgba(6,17,13,.12)}header{border-bottom:2px solid var(--gold);padding-bottom:22px;margin-bottom:26px}.eyebrow{color:var(--gold);font-size:12px;font-weight:700;letter-spacing:.12em}h1{margin:6px 0 4px;font-size:30px}h2{font-size:19px;margin:0 0 8px}h3{font-size:16px;margin-top:28px}p{margin:7px 0}.meta,.limit,small{color:var(--muted);font-size:12px}.identity{word-break:break-all}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.grid section{border:1px solid var(--line);border-radius:12px;padding:18px;background:var(--soft)}.status{display:inline-block;border:1px solid #d6c59e;border-radius:999px;padding:2px 9px;color:#6f572f;font-size:12px}.gap{color:var(--gap)}table{width:100%;border-collapse:collapse;margin:10px 0 22px}th,td{border:1px solid var(--line);padding:9px;text-align:left;vertical-align:top;font-size:13px}th{background:var(--soft)}li{margin:7px 0}li small{display:block}.limit{margin-top:30px;border-top:1px solid var(--line);padding-top:16px}@media(max-width:720px){main{margin:0;padding:24px;border-radius:0}.grid{grid-template-columns:1fr}}@media print{body{background:#fff}main{margin:0;max-width:none;box-shadow:none}}
+                </style></head><body><main data-report-id="${escapeAiDailyCompetitionReportHtml(reportId)}" data-bundle-id="${escapeAiDailyCompetitionReportHtml(bundleId)}" data-source-fingerprint="${escapeAiDailyCompetitionReportHtml(fingerprint)}"><header><div class="eyebrow">SUXIOS · OTA CHANNEL REPORT</div><h1>${escapeAiDailyCompetitionReportHtml(report.title || 'OTA竞争商圈经营报告')}</h1><div class="meta">业务日期：${escapeAiDailyCompetitionReportHtml(report.scope?.data_date || aiDailyReport.value?.report_date || '未返回')}　质量：${escapeAiDailyCompetitionReportHtml(qualityText)}　版本：${escapeAiDailyCompetitionReportHtml(aiDailyReportCompetitionEditionText.value)}</div><div class="meta identity">日报记录 ID：${escapeAiDailyCompetitionReportHtml(reportId)}<br>Bundle ID：${escapeAiDailyCompetitionReportHtml(bundleId)}<br>来源指纹：${escapeAiDailyCompetitionReportHtml(fingerprint)}</div></header><h3>管理层快照</h3><p>可研判平台 ${escapeAiDailyCompetitionReportHtml(report.management_snapshot?.platforms_ready ?? 0)} / ${escapeAiDailyCompetitionReportHtml(report.management_snapshot?.platforms_total ?? 2)}；人工确认动作 ${escapeAiDailyCompetitionReportHtml(report.management_snapshot?.action_count ?? 0)} 项。</p><div class="grid">${platformRows}</div><h3>竞品分组</h3>${groupRows ? `<table><thead><tr><th>分组</th><th>候选酒店</th></tr></thead><tbody>${groupRows}</tbody></table>` : '<p class="gap">当前没有达到展示门槛的竞品分组。</p>'}<h3>人工确认动作</h3>${actionRows ? `<table><thead><tr><th>平台</th><th>事项</th><th>动作</th><th>回滚</th></tr></thead><tbody>${actionRows}</tbody></table>` : '<p class="gap">行动门槛未通过，不输出执行建议。</p>'}<h3>数据缺口</h3>${gapRows ? `<ul>${gapRows}</ul>` : '<p>未发现显式数据缺口。</p>'}<p class="limit">${escapeAiDailyCompetitionReportHtml(report.render_contract?.commercial_boundary || '')}<br>本文件是从已保存并回读的同一 competition bundle 本地导出的界面版；不触发 OTA、飞书或小红书写入，auto_write_ota=false。</p></main></body></html>`;
+                const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `suxios-ota-competition-${report.scope?.data_date || aiDailyReport.value?.report_date || 'report'}-r${reportId}-${bundleId.slice(-12)}.html`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+                showToast('竞争商圈界面版HTML已生成', 'success');
+                return true;
+            };
+            const copyAiDailyCompetitionXiaohongshuDraft = async () => {
+                const text = aiDailyReportCompetitionXiaohongshuDraftText.value;
+                if (!text) {
+                    showToast('可信报告未就绪，暂不生成小红书草稿', 'warning');
+                    return;
+                }
+                try {
+                    if (navigator.clipboard?.writeText) {
+                        await navigator.clipboard.writeText(text);
+                    } else {
+                        const textarea = document.createElement('textarea');
+                        textarea.value = text;
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        const copied = document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        if (!copied) throw new Error('clipboard unavailable');
+                    }
+                    showToast('小红书待审核草稿已复制；请人工改稿后再通过官方功能发布', 'success');
+                } catch (error) {
+                    showToast('复制失败，请展开草稿后手动复制', 'warning');
+                }
             };
             const aiDailyReportWecomHotelName = computed(() => {
                 const hotelId = Number(aiDailyReport.value?.hotel_id || aiDailyReportForm.value?.hotel_id || 0);
@@ -53898,14 +54022,14 @@
                 operationSourceBrief, operationDecisionCards,
                 operationUnreadCount, operationCanMarkAlertsRead, filteredOperationAlerts, operationAlertTaskLoadingIds, isOperationAlertTaskLoading, loadOperationFullData, analyzeOperationRootCause, loadOperationAlerts,
                 markOperationAlertsRead, createOperationAlertTask, openOperationAlertTask, simulateOperationStrategy, createOperationAction, loadOperationActions, finishOperationAction,
-                aiDailyReport, aiDailyReportForm, aiDailyFactGate, aiDailyFactGateLoading, loadAiDailyFactGate, aiDailyReportAiExplanation, aiDailyReportAiInterpretation, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportCompetitionBundle, aiDailyReportCompetitionPlatforms, aiDailyReportCompetitionGroups, aiDailyReportCompetitionEditionText, aiDailyReportCompetitionQualityText, aiDailyReportCompetitionSummaryText, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportResultReadiness, aiDailyReportWorkflowReadiness, aiDailyReportReadiness, aiDailyReportResultContract, aiDailyReportResultLayers, aiDailyReportHumanJudgments, aiDailyReportConfidenceText, aiDailyReportLayerCards, aiDailyReportReadinessCards, aiDailyReportBlockingRows, aiDailyReportBlockingSummary, aiDailyReportEvidenceRows,
+                aiDailyReport, aiDailyReportForm, aiDailyFactGate, aiDailyFactGateLoading, loadAiDailyFactGate, aiDailyReportAiExplanation, aiDailyReportAiInterpretation, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportCompetitionBundle, aiDailyReportCompetitionPlatforms, aiDailyReportCompetitionGroups, aiDailyReportCompetitionEditionText, aiDailyReportCompetitionQualityText, aiDailyReportCompetitionSummaryText, aiDailyReportCompetitionReportDocument, aiDailyReportCompetitionReportReady, aiDailyReportCompetitionXiaohongshuDraft, aiDailyReportCompetitionXiaohongshuDraftText, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportResultReadiness, aiDailyReportWorkflowReadiness, aiDailyReportReadiness, aiDailyReportResultContract, aiDailyReportResultLayers, aiDailyReportHumanJudgments, aiDailyReportConfidenceText, aiDailyReportLayerCards, aiDailyReportReadinessCards, aiDailyReportBlockingRows, aiDailyReportBlockingSummary, aiDailyReportEvidenceRows,
                 aiDailyReportGenerationTask, aiDailyReportGenerationTaskPolling, aiDailyReportGenerationOutcome, aiDailyReportGenerationProgress, aiDailyReportGenerationRunning, aiDailyReportGenerationStageText, aiDailyReportGenerationStatusClass, aiDailyReportGenerationDetailText,
                 aiDailyReportModelText, aiDailyReportModelClass, aiDailyReportMetricValue, aiDailyReportActionSources, aiDailyReportActionIsInvestigationOnly, aiDailyReportActionStatusText, aiDailyReportActionStatusClass, aiDailyReportActionBlockedText, aiDailyReportActionButtonText,
                 aiDailyReportReadinessClass, aiDailyReportReferenceText, aiDailyReportJudgmentTargetText, aiDailyReportJudgmentDecisionText, aiDailyReportGapActionText, goAiDailyReportDataGap, openAiDailyReportEvidenceTarget,
                 aiDailyReportJudgmentForm, aiDailyReportJudgmentSaving, aiDailyReportAudience, aiDailyReportWecomSending, aiDailyReportWecomEdition, aiDailyReportWecomLastResult,
                 aiDailyReportWecomConfirmOpen, aiDailyReportWecomPendingEdition, aiDailyReportWecomHotelName, aiDailyReportWecomPendingEditionText, aiDailyReportWecomSourceFingerprintText,
                 aiDailyReportWecomPartStatusText, closeAiDailyReportWecomConfirm, confirmAiDailyReportWecomSend,
-                submitAiDailyReportJudgment, downloadAiDailyReportPackage, sendAiDailyReportToWecom,
+                submitAiDailyReportJudgment, downloadAiDailyReportPackage, downloadAiDailyCompetitionReportHtml, copyAiDailyCompetitionXiaohongshuDraft, sendAiDailyReportToWecom,
                 loadAiDailyReport, generateAiDailyReport, createAiDailyExecutionIntent, handleAiDailyReportActionPrimary,
                 operationValue, operationMoney, operationPercent, operationDataStatusText, operationProblemLevelLabel, operationAlertLevelLabel,
                 operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
