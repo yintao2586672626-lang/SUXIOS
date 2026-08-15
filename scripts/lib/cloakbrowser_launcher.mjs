@@ -1,4 +1,5 @@
 import { launchPersistentContext } from 'cloakbrowser';
+import { chromium } from 'playwright-core';
 
 const freshOtaNetworkSessions = new WeakMap();
 const GUARDED_PAGE_MARKER = 'suxios_profile_lease_guarded';
@@ -6,22 +7,7 @@ const GUARDED_PAGE_MARKER = 'suxios_profile_lease_guarded';
 export async function launchOtaPersistentContext(userDataDir, parsedArgs, defaults = {}) {
   const cdpUrl = resolveOtaCdpUrl(parsedArgs);
   if (cdpUrl) {
-    const connectOverCDP = defaults.connectOverCDP || (async (url) => {
-      const { chromium } = await import('playwright-core');
-      return chromium.connectOverCDP(url);
-    });
-    const browser = await connectOverCDP(cdpUrl);
-    const contexts = typeof browser?.contexts === 'function' ? browser.contexts() : [];
-    if (!Array.isArray(contexts) || contexts.length !== 1) {
-      await browser?.close?.().catch(() => undefined);
-      throw new Error('Cloud browser CDP must expose exactly one browser context.');
-    }
-    const guardedPage = await findGuardedConnectedPage(contexts[0]);
-    if (!guardedPage) {
-      await browser.close().catch(() => undefined);
-      throw new Error('Cloud browser guarded page was not found.');
-    }
-    return createConnectedContextFacade(contexts[0], browser, guardedPage);
+    return connectOtaCdpContext(cdpUrl, defaults.connectOverCDP || chromium);
   }
 
   const configuredBinary = stringValue(process.env.CLOAKBROWSER_BINARY_PATH);
@@ -42,6 +28,32 @@ export async function launchOtaPersistentContext(userDataDir, parsedArgs, defaul
       delete process.env.CLOAKBROWSER_BINARY_PATH;
     }
   }
+}
+
+export async function connectOtaCdpContext(cdpUrl, chromiumClient = chromium) {
+  const normalizedCdpUrl = normalizeOtaCdpUrl(cdpUrl);
+  if (!normalizedCdpUrl) {
+    throw new Error('ota_browser_cdp_url_invalid');
+  }
+
+  const connectOverCDP = typeof chromiumClient === 'function'
+    ? chromiumClient
+    : chromiumClient?.connectOverCDP?.bind(chromiumClient);
+  if (typeof connectOverCDP !== 'function') {
+    throw new Error('ota_browser_cdp_connector_invalid');
+  }
+  const browser = await connectOverCDP(normalizedCdpUrl);
+  const contexts = typeof browser?.contexts === 'function' ? browser.contexts() : [];
+  if (!Array.isArray(contexts) || contexts.length !== 1) {
+    await browser?.close?.().catch(() => undefined);
+    throw new Error('ota_browser_cdp_context_count_invalid');
+  }
+  const guardedPage = await findGuardedConnectedPage(contexts[0]);
+  if (!guardedPage) {
+    await browser.close().catch(() => undefined);
+    throw new Error('ota_browser_cdp_guarded_page_missing');
+  }
+  return createConnectedContextFacade(contexts[0], browser, guardedPage);
 }
 
 /**
@@ -209,4 +221,16 @@ function stringValue(value) {
     return '';
   }
   return String(value).trim();
+}
+
+function normalizeOtaCdpUrl(value) {
+  const match = /^http:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/u.exec(stringValue(value));
+  if (!match) {
+    return '';
+  }
+  const port = Number(match[1]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return '';
+  }
+  return `http://127.0.0.1:${port}`;
 }

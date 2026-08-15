@@ -9,6 +9,40 @@ use ReflectionMethod;
 
 final class HotelCollectionBindingReceiptServiceTest extends TestCase
 {
+    public function testNumericLegacyProfileAliasesRemainStrings(): void
+    {
+        $service = new HotelCollectionBindingReceiptService();
+        $method = new \ReflectionMethod($service, 'explicitProfileAliasValues');
+
+        self::assertSame(
+            ['130079194'],
+            $method->invoke($service, [
+                'profile_id' => 130079194,
+                'stable_profile_id' => '130079194',
+            ])
+        );
+    }
+
+    public function testOperatorConfirmedOnboardingIdentityIsTruthfullyLabeledAndCanBeScheduled(): void
+    {
+        $sources = $this->sources();
+        foreach ($sources as &$source) {
+            if (($source['platform'] ?? '') !== 'ctrip') {
+                continue;
+            }
+            $config = json_decode((string)$source['config_json'], true, 512, JSON_THROW_ON_ERROR);
+            $config['platform_hotel_identity_source'] = 'operator_confirmed_onboarding';
+            $source['config_json'] = json_encode($config, JSON_THROW_ON_ERROR);
+        }
+        unset($source);
+
+        $receipt = $this->service($sources)->receipt($this->hotel(), 7, '2026-08-09');
+
+        self::assertSame('ready', $receipt['status']);
+        self::assertTrue($receipt['binding_ready']);
+        self::assertSame('operator_confirmed', $receipt['bindings']['ctrip']['identity_evidence']['status']);
+    }
+
     public function testExactThreeSourceBindingIsReadyWithoutExposingExecutionSecrets(): void
     {
         $receipt = $this->service()->receipt($this->hotel(), 7, '2026-08-09');
@@ -80,6 +114,132 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
             'server-owner-device',
             json_encode($receipt, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)
         );
+    }
+
+    public function testExactReadyCloudBrowserProfileIsASecretFreeExecutionBinding(): void
+    {
+        $cloudProfiles = $this->cloudProfiles();
+        $receipt = $this->service(
+            sources: $this->cloudProfileSources(),
+            profiles: $this->cloudProfileBindings(),
+            local: [],
+            cloudProfiles: $cloudProfiles
+        )->receipt(
+            $this->hotel(),
+            7,
+            '2026-08-09',
+            ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        self::assertSame('ready', $receipt['status']);
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $execution = $receipt['bindings'][$platform]['execution_device_binding'];
+            self::assertSame('bound', $execution['status'], $platform);
+            self::assertSame('cloud_browser_profile', $execution['binding_kind'], $platform);
+            self::assertSame('ready_to_collect', $execution['session_status'], $platform);
+            self::assertSame('ready_to_collect', $execution['authorization_status'], $platform);
+            self::assertTrue($execution['ready_to_collect'], $platform);
+            self::assertSame(
+                'same_cloud_profile_owner_hotel_platform',
+                $execution['resume_scope'],
+                $platform
+            );
+            self::assertMatchesRegularExpression(
+                '/^[a-f0-9]{64}$/D',
+                (string)$execution['execution_binding_digest']
+            );
+        }
+        self::assertSame('profile_browser', $receipt['bindings']['meituan']['ingestion_method']);
+
+        $encoded = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        foreach ($cloudProfiles as $profile) {
+            self::assertStringNotContainsString((string)$profile['profile_public_id'], $encoded);
+        }
+        self::assertFalse($receipt['sensitive_values_exposed']);
+    }
+
+    public function testExpiredExactCloudProfileStaysBoundButMakesReceiptRecoverable(): void
+    {
+        $cloudProfiles = $this->cloudProfiles();
+        $cloudProfiles[0]['session_expires_at'] = '2026-08-09 08:00:00';
+
+        $receipt = $this->service(
+            sources: $this->cloudProfileSources(),
+            profiles: $this->cloudProfileBindings(),
+            local: [],
+            cloudProfiles: $cloudProfiles
+        )->receipt(
+            $this->hotel(),
+            7,
+            '2026-08-09',
+            ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        self::assertSame('recoverable', $receipt['status']);
+        self::assertSame([], $receipt['blockers']);
+        self::assertContains('session_expired', array_column($receipt['recovery_reasons'], 'code'));
+        self::assertSame('bound', $receipt['bindings']['ctrip']['execution_device_binding']['status']);
+        self::assertSame(
+            'session_expired',
+            $receipt['bindings']['ctrip']['execution_device_binding']['session_status']
+        );
+        self::assertFalse($receipt['bindings']['ctrip']['execution_device_binding']['ready_to_collect']);
+    }
+
+    public function testCloudProfileRotationMustAlsoUpdateTheExactSourceBinding(): void
+    {
+        $cloudProfiles = $this->cloudProfiles();
+        $sources = $this->cloudProfileSources();
+        $profiles = $this->cloudProfileBindings();
+        $baseline = $this->service(sources: $sources, profiles: $profiles, local: [], cloudProfiles: $cloudProfiles)->receipt(
+            $this->hotel(), 7, '2026-08-09', ['ctrip' => 25, 'meituan' => 68]
+        );
+        $renewed = $cloudProfiles;
+        $renewed[0]['session_expires_at'] = '2026-08-11 08:20:00';
+        $renewedReceipt = $this->service(sources: $sources, profiles: $profiles, local: [], cloudProfiles: $renewed)->receipt(
+            $this->hotel(), 7, '2026-08-09', ['ctrip' => 25, 'meituan' => 68]
+        );
+        $rotated = $cloudProfiles;
+        $rotated[0]['profile_public_id'] = 'cbp_ctrip_hotel80_replaced';
+        $rotatedReceipt = $this->service(sources: $sources, profiles: $profiles, local: [], cloudProfiles: $rotated)->receipt(
+            $this->hotel(), 7, '2026-08-09', ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        self::assertSame($baseline['binding_digest'], $renewedReceipt['binding_digest']);
+        self::assertSame('blocked', $rotatedReceipt['status']);
+        self::assertContains(
+            'ota_cloud_profile_source_binding_mismatch',
+            array_column($rotatedReceipt['blockers'], 'code')
+        );
+        self::assertSame('invalid', $rotatedReceipt['bindings']['ctrip']['execution_device_binding']['status']);
+    }
+
+    public function testCloudProfileOwnedByAnotherUserCannotBecomeExecutionBinding(): void
+    {
+        $cloudProfiles = $this->cloudProfiles();
+        foreach ($cloudProfiles as &$profile) {
+            $profile['owner_user_id'] = 99;
+        }
+        unset($profile);
+
+        $receipt = $this->service(
+            sources: $this->cloudProfileSources(),
+            profiles: $this->cloudProfileBindings(),
+            local: [],
+            cloudProfiles: $cloudProfiles
+        )->receipt(
+            $this->hotel(),
+            7,
+            '2026-08-09',
+            ['ctrip' => 25, 'meituan' => 68]
+        );
+
+        self::assertSame('blocked', $receipt['status']);
+        self::assertContains(
+            'ota_execution_device_binding_missing',
+            array_column($receipt['blockers'], 'code')
+        );
+        self::assertSame('missing', $receipt['bindings']['ctrip']['execution_device_binding']['status']);
     }
 
     public function testOrdinaryBrowserProfileDoesNotSilentlyBecomeASchedulerExecutionBinding(): void
@@ -558,7 +718,8 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
         ?callable $identityOwners = null,
         ?callable $clock = null,
         ?callable $executionOwnerPermission = null,
-        ?callable $profileSessionState = null
+        ?callable $profileSessionState = null,
+        ?array $cloudProfiles = null
     ): HotelCollectionBindingReceiptService {
         $sources ??= $this->sources();
         $profiles ??= $this->profiles();
@@ -581,6 +742,7 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
             'is_reusable' => true,
             'reason' => 'profile_proof_reusable',
         ];
+        $cloudProfiles ??= [];
 
         return new HotelCollectionBindingReceiptService(
             static fn(int $tenantId, int $hotelId): array => $sources,
@@ -590,7 +752,8 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
             $identityOwners,
             $clock,
             $executionOwnerPermission,
-            $profileSessionState
+            $profileSessionState,
+            static fn(int $tenantId, int $hotelId): array => $cloudProfiles
         );
     }
 
@@ -711,6 +874,81 @@ final class HotelCollectionBindingReceiptServiceTest extends TestCase
                 'system_hotel_id' => 80,
                 'platform' => 'meituan',
                 'profile_key_hash' => hash('sha256', 'MT-80'),
+                'binding_status' => 'active',
+            ],
+        ];
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function cloudProfiles(): array
+    {
+        return [
+            [
+                'id' => 31,
+                'tenant_id' => 8,
+                'system_hotel_id' => 80,
+                'owner_user_id' => 7,
+                'platform' => 'ctrip',
+                'profile_public_id' => 'cbp_ctrip_hotel80_abcdef',
+                'authorization_status' => 'ready_to_collect',
+                'ready_at' => '2026-08-09 08:20:00',
+                'session_expires_at' => '2026-08-10 08:20:00',
+            ],
+            [
+                'id' => 32,
+                'tenant_id' => 8,
+                'system_hotel_id' => 80,
+                'owner_user_id' => 7,
+                'platform' => 'meituan',
+                'profile_public_id' => 'cbp_meituan_hotel80_abcdef',
+                'authorization_status' => 'ready_to_collect',
+                'ready_at' => '2026-08-09 08:21:00',
+                'session_expires_at' => '2026-08-10 08:21:00',
+            ],
+        ];
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function cloudProfileSources(): array
+    {
+        $sources = $this->sources();
+        $profileIds = [
+            'ctrip' => 'cbp_ctrip_hotel80_abcdef',
+            'meituan' => 'cbp_meituan_hotel80_abcdef',
+        ];
+        foreach ($sources as &$source) {
+            $platform = (string)$source['platform'];
+            $config = json_decode((string)$source['config_json'], true, 512, JSON_THROW_ON_ERROR);
+            $config['profile_binding_key'] = $profileIds[$platform];
+            $config['stable_profile_id'] = $profileIds[$platform];
+            $config['profile_id'] = $profileIds[$platform];
+            $source['config_json'] = json_encode($config, JSON_THROW_ON_ERROR);
+            if ($platform === 'meituan') {
+                $source['ingestion_method'] = 'profile_browser';
+            }
+        }
+        unset($source);
+        return $sources;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function cloudProfileBindings(): array
+    {
+        return [
+            [
+                'id' => 31,
+                'tenant_id' => 8,
+                'system_hotel_id' => 80,
+                'platform' => 'ctrip',
+                'profile_key_hash' => hash('sha256', 'cbp_ctrip_hotel80_abcdef'),
+                'binding_status' => 'active',
+            ],
+            [
+                'id' => 32,
+                'tenant_id' => 8,
+                'system_hotel_id' => 80,
+                'platform' => 'meituan',
+                'profile_key_hash' => hash('sha256', 'cbp_meituan_hotel80_abcdef'),
                 'binding_status' => 'active',
             ],
         ];

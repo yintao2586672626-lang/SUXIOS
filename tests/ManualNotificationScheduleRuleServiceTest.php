@@ -60,6 +60,40 @@ final class ManualNotificationScheduleRuleServiceTest extends TestCase
         ));
     }
 
+    public function testStrictThreeSourceMidnightUsesPreviousDayCloseout(): void
+    {
+        $service = new ManualNotificationScheduleRuleService();
+        $row = [
+            'hotel_id' => 80,
+            'template_type' => 'operating_daily_report',
+            'source_scope' => 'combined',
+            'content_sections' =>
+                'pms_summary,pms_efficiency,ctrip_traffic,meituan_traffic',
+            'business_date_rule' => 'today',
+            'send_method' => 'wecom_formal',
+            'trigger_type' => 'hourly_on_the_hour',
+            'hourly_start_time' => '00:00:00',
+            'hourly_end_time' => '23:00:00',
+            'active_weekdays' => '1,2,3,4,5,6,7',
+            'test_robot_id' => 2,
+            'test_robot_name' => '宿析OS云端日报',
+        ];
+        $timezone = new DateTimeZone('Asia/Shanghai');
+
+        self::assertSame('2026-08-15 00:00', $service->dueWindow(
+            $row,
+            new DateTimeImmutable('2026-08-15 00:00:04', $timezone)
+        ));
+        self::assertSame('2026-08-14', $service->resolveBusinessDate(
+            $row,
+            new DateTimeImmutable('2026-08-15 00:00:04', $timezone)
+        ));
+        self::assertSame('2026-08-15', $service->resolveBusinessDate(
+            $row,
+            new DateTimeImmutable('2026-08-15 01:00:04', $timezone)
+        ));
+    }
+
     public function testExpiredScheduleHasNoNextRun(): void
     {
         $service = new ManualNotificationScheduleRuleService();

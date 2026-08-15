@@ -18,6 +18,18 @@ final class ManualNotificationScheduleRuleService
     public function resolveBusinessDate(array $row, DateTimeImmutable $observedAt): string
     {
         $now = $observedAt->setTimezone(new DateTimeZone(self::TIMEZONE));
+        if ($now->format('H') === '00'
+            && ManualNotificationService::isStrictThreeSourceHourlyPlan($row)
+            && preg_match(
+                '/^00:00(?::00)?$/D',
+                trim((string)($row['hourly_start_time'] ?? ''))
+            ) === 1
+        ) {
+            // The current calendar day has no :30 cloud capture before 00:00.
+            // Midnight therefore closes the previous business day with the
+            // still-fresh 23:30 batch; 01:00 onward returns to today's data.
+            return $now->modify('-1 day')->format('Y-m-d');
+        }
         return (string)($row['business_date_rule'] ?? 'today') === 'yesterday'
             ? $now->modify('-1 day')->format('Y-m-d')
             : $now->format('Y-m-d');

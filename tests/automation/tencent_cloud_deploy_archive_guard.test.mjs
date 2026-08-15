@@ -25,6 +25,27 @@ test('Tencent Cloud release archive excludes local sensitive and runtime paths',
   assert.doesNotMatch(source, /"--health-host", \$Server/);
 });
 
+test('release refuses an archive missing a component referenced by the public index', () => {
+  const installer = readFileSync('deploy/cloud/install_release.sh', 'utf8');
+  const guardDefinition = installer.indexOf('verify_public_component_assets()');
+  const guardCall = installer.indexOf('\nverify_public_component_assets\n');
+  const currentSwitch = installer.indexOf('mv -Tf "$ROLLBACK_LINK" "$CURRENT_LINK"');
+
+  assert.ok(guardDefinition >= 0);
+  assert.ok(guardCall > guardDefinition);
+  assert.ok(currentSwitch > guardCall);
+  assert.match(installer, /components\/\[A-Za-z0-9\._\/-\]\+\\\.js/);
+  assert.match(installer, /Release is missing index component asset/);
+
+  const index = readFileSync('public/index.html', 'utf8');
+  const referencedComponents = [...index.matchAll(/components\/[^"?\s]+\.js/g)]
+    .map((match) => match[0]);
+  assert.ok(referencedComponents.length > 0);
+  for (const component of referencedComponents) {
+    assert.doesNotThrow(() => readFileSync(`public/${component}`, 'utf8'));
+  }
+});
+
 test('git archive keeps ignored backups and runtime data out while retaining migrations', () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'suxios-cloud-archive-guard-'));
   const archivePath = join(fixtureRoot, 'release.tar.gz');

@@ -121,6 +121,18 @@ test('headless login check retries the neutral eBooking entry before reporting l
   assert.match(ensureBlock, /if \(await looksLoggedIn\(page\)\) \{[\s\S]*status: 'logged_in'/);
 });
 
+test('Meituan response body capture and pending-response drain are bounded', () => {
+  const source = readFileSync('scripts/meituan_browser_capture.mjs', 'utf8');
+  const waitBlock = source.slice(
+    source.indexOf('async function waitForPendingResponseCaptures'),
+    source.indexOf('function normalizeCaptureSections'),
+  );
+
+  assert.match(source, /readOtaResponseTextWithTimeout\(response\)/);
+  assert.match(waitBlock, /Date\.now\(\) - started < timeoutMs/);
+  assert.doesNotMatch(waitBlock, /Promise\.allSettled/);
+});
+
 test('drops untargeted event summaries while keeping target-date review evidence', () => {
   const payload = filterMeituanEventRowsByTargetDate({
     reviews: [

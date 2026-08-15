@@ -2090,7 +2090,7 @@
                                                         </div>
                                                         <p class="mt-2 text-xs leading-5 text-slate-600">{{ row.latestText }}</p>
                                                         <p class="mt-1 text-xs leading-5 text-amber-800">{{ row.gapText }}</p>
-                                                        <p v-if="cloudAuthorizationGuide === row.platform &amp;&amp; row.actionMode === 'request_login'" data-testid="cloud-browser-login-pending" class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">登录请求已登记。云端登录页准备好后请在受保护窗口完成验证；当前未出现平台页面时，请勿把此状态当作登录成功。</p>
+                                                        <p v-if="cloudAuthorizationGuide === row.platform &amp;&amp; row.actionMode === 'request_login'" data-testid="cloud-browser-login-pending" class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">请在刚打开的门店三源接入向导中启动受保护云端登录；只有平台页实际出现并完成登录后，才能继续确认。</p>
                                                     </div>
                                                     <button type="button" @click="openCloudAuthorizationGuide(row)" :disabled="cloudBrowserAuthorizationLoading" class="inline-flex shrink-0 items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">{{ row.actionText }}</button>
                                                 </div>

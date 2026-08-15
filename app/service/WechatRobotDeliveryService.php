@@ -39,9 +39,10 @@ final class WechatRobotDeliveryService
         if ($tenantId <= 0 || $hotelId <= 0 || $robotId <= 0 || $expectedRobotName === '') {
             return ['eligible' => false, 'reason_code' => 'target_binding_missing'];
         }
-        if (!in_array($mode, ['test', 'formal'], true)) {
+        if (!in_array($mode, ['test', 'formal_test', 'formal'], true)) {
             return ['eligible' => false, 'reason_code' => 'delivery_mode_invalid'];
         }
+        $formalScopeRequired = in_array($mode, ['formal_test', 'formal'], true);
         if (!$this->tableExists('competitor_wechat_robot')) {
             return ['eligible' => false, 'reason_code' => 'robot_table_missing'];
         }
@@ -59,10 +60,10 @@ final class WechatRobotDeliveryService
                 if ($persistedTenantId !== $tenantId) {
                     return ['eligible' => false, 'reason_code' => 'hotel_tenant_scope_mismatch'];
                 }
-            } elseif ($mode === 'formal') {
+            } elseif ($formalScopeRequired) {
                 return ['eligible' => false, 'reason_code' => 'hotel_tenant_scope_unavailable'];
             }
-        } elseif ($mode === 'formal') {
+        } elseif ($formalScopeRequired) {
             return ['eligible' => false, 'reason_code' => 'hotel_table_missing'];
         }
 
@@ -79,7 +80,7 @@ final class WechatRobotDeliveryService
             return ['eligible' => false, 'reason_code' => 'target_robot_identity_mismatch'];
         }
         $robotHasTenantScope = array_key_exists('tenant_id', $robot);
-        if ($mode === 'formal' && $robotHasTenantScope) {
+        if ($formalScopeRequired && $robotHasTenantScope) {
             $robotTenantId = (int)($robot['tenant_id'] ?? 0);
             if ($robotTenantId <= 0) {
                 return ['eligible' => false, 'reason_code' => 'target_robot_tenant_scope_missing'];
@@ -101,7 +102,7 @@ final class WechatRobotDeliveryService
 
         $hasOwnerScope = array_key_exists('owner_user_id', $robot)
             && array_key_exists('notification_scope', $robot);
-        if ($mode === 'formal' && !$hasOwnerScope) {
+        if ($formalScopeRequired && !$hasOwnerScope) {
             return ['eligible' => false, 'reason_code' => 'target_robot_scope_unavailable'];
         }
         $ownerUserId = (int)($robot['owner_user_id'] ?? 0);
@@ -182,10 +183,28 @@ final class WechatRobotDeliveryService
                     'target_robot_scope_mismatch'
                 );
             }
-            return $this->deliverToHotel($hotelId, $payload, [$robotId]) + [
+            $delivery = $this->deliverToHotel($hotelId, $payload, [$robotId]);
+            $bindingTestStatePersisted = null;
+            if ($mode === 'formal_test'
+                && (string)($delivery['delivery_status'] ?? '') === 'sent'
+                && $this->tableHasColumn('competitor_wechat_robot', 'last_test_status')
+                && $this->tableHasColumn('competitor_wechat_robot', 'last_tested_at')
+            ) {
+                $bindingTestStatePersisted = Db::name('competitor_wechat_robot')
+                    ->where('id', $robotId)
+                    ->where('store_id', $hotelId)
+                    ->where('name', $expectedRobotName)
+                    ->where('status', 1)
+                    ->update([
+                        'last_test_status' => 'sent',
+                        'last_tested_at' => date('Y-m-d H:i:s'),
+                    ]) === 1;
+            }
+            return $delivery + [
                 'validated_tenant_id' => $tenantId,
                 'validated_robot_id' => $robotId,
                 'validated_delivery_mode' => $mode,
+                'binding_test_state_persisted' => $bindingTestStatePersisted,
             ];
         });
     }
@@ -836,6 +855,20 @@ final class WechatRobotDeliveryService
         try {
             Db::query('SELECT 1 FROM `' . $table . '` WHERE 1 = 0');
             return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function tableHasColumn(string $table, string $column): bool
+    {
+        if (preg_match('/^[a-z0-9_]+$/i', $table) !== 1
+            || preg_match('/^[a-z0-9_]+$/i', $column) !== 1
+        ) {
+            return false;
+        }
+        try {
+            return array_key_exists($column, Db::getFields($table));
         } catch (\Throwable) {
             return false;
         }

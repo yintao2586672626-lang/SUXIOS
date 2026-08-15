@@ -236,8 +236,11 @@ assert.match(indexHtml, />采集阻塞<\/span>[\s\S]*登录\/门店\/采集/, 'b
 assert.doesNotMatch(indexHtml, />账号异常<\/span>/, 'capture failures must not be mislabeled as account errors');
 assert.match(indexHtml, /账号待补只统计已勾选的适用渠道；未勾选的平台不展示、不计入。这里只代表 OTA 渠道，不代表全酒店经营。/, 'hotel account filter should keep the exact OTA channel-scope boundary');
 assert.match(indexHtml, /const todo = activeHotels\.filter\(h => hotelAccountHealthKey\(h\) === 'todo'\)\.length;/, 'todo count should only reflect account collection readiness');
-assert.match(indexHtml, /适用平台（可多选）[\s\S]*hotelFormChannelSelected\('ctrip'\)[\s\S]*toggleHotelFormChannel\('ctrip'\)[\s\S]*携程[\s\S]*hotelFormChannelSelected\('meituan'\)[\s\S]*toggleHotelFormChannel\('meituan'\)[\s\S]*美团/, 'hotel form must expose independently selectable platforms');
-assert.match(indexHtml, /保存后系统会持续检查已选平台；绑定、原设备登录和可信数据齐备后，自动启用采集与分析。/, 'hotel form must explain the gated automation lifecycle without implying that applicability alone starts collection');
+assert.match(indexHtml, /适用平台（可多选）/, 'hotel form must name the independently selectable platform scope');
+assert.match(indexHtml, /\['ctrip', 'meituan'\]\.map\(platform/, 'hotel onboarding must render both OTA choices from a fixed dual-platform list');
+assert.match(indexHtml, /hotelFormChannelSelected\(platform\)[\s\S]*toggleHotelFormChannel\(platform\)/, 'each OTA choice must preserve independent selection and toggling');
+assert.match(indexHtml, /platform === 'ctrip' \? '携程' : '美团'/, 'the fixed OTA choices must retain their user-facing labels');
+assert.match(indexHtml, /创建、授权或保存身份不会自动采集，也不会向企业微信发送消息。/, 'hotel form must not imply that applicability, identity binding, or login starts collection or delivery');
 assert.equal((hotelManagementTemplate.match(/data-testid="hotel-pms-selection"/g) || []).length, 2, 'desktop and mobile hotel lists must echo the selected PMS');
 assert.equal((hotelManagementTemplate.match(/@click="openHotelModal\(hotel\)"[^>]*data-testid="hotel-pms-selection"/g) || []).length, 2, 'desktop and mobile PMS badges must open hotel editing');
 assert.match(hotelManagementTemplate, /\{\{ hotel\.pms_provider_label \|\| 'PMS 状态未取得' \}\}/, 'hotel list must show the selected PMS without falling back to OTA applicability');

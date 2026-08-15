@@ -87,6 +87,7 @@ test('formal preflight validates scope without reading webhooks or sending messa
   );
   assert.match(verifier, /isOperatingDailyTriggerAllowed/);
   assert.match(verifier, /isStrictThreeSourceIntervalPlan/);
+  assert.match(verifier, /isStrictThreeSourceHourlyPlan/);
   assert.match(verifier, /operating_daily_loop_schedule_forbidden/);
   assert.match(verifier, /'webhook_read' => false/);
   assert.match(verifier, /'message_sent' => false/);

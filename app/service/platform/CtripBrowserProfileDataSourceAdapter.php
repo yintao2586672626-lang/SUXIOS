@@ -81,6 +81,18 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
+        $requestedCdpUrl = $this->firstString($options, [], ['cdp_url', 'cdpUrl']);
+        $cdpUrl = $this->normalizeCdpUrl($requestedCdpUrl);
+        if ($requestedCdpUrl !== '' && $cdpUrl === '') {
+            return [
+                'status' => 'waiting_config',
+                'status_code' => 'invalid_cdp_url',
+                'error_code' => 'invalid_cdp_url',
+                'message' => 'Ctrip CDP URL must use http://127.0.0.1:<port>.',
+                'payload' => [],
+            ];
+        }
+
         $interactive = $this->truthy($options['interactive_browser'] ?? $options['interactiveBrowser'] ?? false);
         $profileDir = $this->projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $this->safeName($profileId);
         $profilePrepared = is_dir($profileDir);
@@ -171,7 +183,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $capturePlan = $this->resolveCtripCapturePlan($options, $config);
 
         try {
-            if ($this->shouldCaptureSectionsSequentially($options, $sectionList)) {
+            if ($cdpUrl === '' && $this->shouldCaptureSectionsSequentially($options, $sectionList)) {
                 return $this->runSequentialCaptureSections(
                     $source,
                     $scriptPath,
@@ -213,7 +225,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     'cdp_url' => $cdpUrl,
                 ]
             );
-            if ($this->shouldFallbackToSequentialAfterParallel($result, $sectionList, $sectionConcurrency, $options)) {
+            if ($cdpUrl === '' && $this->shouldFallbackToSequentialAfterParallel($result, $sectionList, $sectionConcurrency, $options)) {
                 $fallback = $this->runSequentialCaptureSections(
                     $source,
                     $scriptPath,
@@ -755,6 +767,13 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if ($identityReference['valid'] && $identityReference['name'] !== '') {
             $args[] = '--platform-hotel-name=' . $identityReference['name'];
+        }
+        $cdpUrl = $this->normalizeCdpUrl((string)($captureOptions['cdp_url'] ?? ''));
+        if ($cdpUrl !== '') {
+            $args[] = '--cdp-url=' . $cdpUrl;
+            $cdpRuntimeDir = dirname($outputPath);
+            $args[] = '--report-dir=' . $cdpRuntimeDir;
+            $args[] = '--profile-dir=' . $cdpRuntimeDir . DIRECTORY_SEPARATOR . 'ctrip_cdp_profile_stub';
         }
 
         $fieldConfigPath = '';
@@ -1849,6 +1868,19 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         $timestamp = strtotime($value);
         return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    }
+
+    private function normalizeCdpUrl(string $value): string
+    {
+        $value = trim($value);
+        if (preg_match('#^http://127\.0\.0\.1:([1-9][0-9]{0,4})/?$#D', $value, $matches) !== 1) {
+            return '';
+        }
+        $port = (int)$matches[1];
+        if ($port < 1 || $port > 65535) {
+            return '';
+        }
+        return 'http://127.0.0.1:' . $port;
     }
 
     private function truthy(mixed $value): bool

@@ -128,6 +128,8 @@ Route::group('api/hotels', function () {
     Route::post('/merge-execute', 'Hotel/mergeExecute');
     Route::get('/:id/pms-binding', 'Hotel/pmsBinding');
     Route::put('/:id/pms-binding', 'Hotel/updatePmsBinding');
+    Route::get('/:id/three-source-onboarding', 'Hotel/threeSourceOnboarding');
+    Route::put('/:id/platform-bindings/:platform', 'Hotel/updatePlatformBinding');
     Route::get('/:id/collection-binding-receipt', 'Hotel/collectionBindingReceipt');
     Route::get('/:id/ota-binding-onboarding', 'Hotel/otaBindingOnboarding');
     Route::put('/:id/ota-binding-onboarding', 'Hotel/confirmOtaBindingOnboarding');
@@ -735,7 +737,13 @@ Route::group('api/wechat-notification', function () {
 Route::group('api/cloud-browser-profiles', function () {
     Route::get('/status', 'CloudBrowserAuthorization/status');
     Route::post('/request-login', 'CloudBrowserAuthorization/requestLogin');
+    Route::post('/open-login', 'CloudBrowserAuthorization/openLogin');
+    Route::post('/complete-login', 'CloudBrowserAuthorization/completeLogin');
 })->middleware(\app\middleware\Auth::class);
+
+// Nginx auth_request endpoint for the loopback-only noVNC proxy. Its only
+// authority is a short-lived opaque HttpOnly cookie; it returns no data.
+Route::get('api/cloud-browser-viewer/authorize', 'CloudBrowserAuthorization/authorizeViewer');
 
 // 接收书签脚本的Cookies（不需要认证中间件，通过token参数验证）
 Route::rule('api/online-data/receive-cookies', 'ota.CredentialController/receiveCookies', 'POST|OPTIONS');

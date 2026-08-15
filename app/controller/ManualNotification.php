@@ -275,7 +275,7 @@ final class ManualNotification extends Base
             'manual_notification_send_method_invalid' => '请选择有效的发送方式',
             'manual_notification_trigger_invalid' => '请选择有效的发送触发方式',
             'manual_notification_operating_daily_fixed_time_required'
-                => '经营日报不支持间隔或整点循环，请选择每日固定时间',
+                => '普通经营日报仅支持每日固定时间；三源整点推送需选择三源、当天、正式机器人和指定内容',
             'manual_notification_source_scope_invalid' => '请选择携程、美团、订单来了或三源汇总',
             'manual_notification_content_section_invalid' => '所选发送内容不属于当前数据源',
             'manual_notification_content_sections_required' => '至少选择一项要发送的内容',
@@ -297,6 +297,8 @@ final class ManualNotification extends Base
             'manual_notification_weekdays_required' => '至少选择一个生效星期',
             'manual_notification_effective_range_invalid' => '生效结束日期不能早于开始日期',
             'manual_notification_hourly_window_invalid' => '小时播报必须设置有效的整点起止时段',
+            'manual_notification_midnight_current_day_unavailable'
+                => '三源当天快报从 01:00 开始；00:00 处于业务日切换，不能发送前一天数据',
             'manual_notification_test_confirmation_required' => '请明确确认本次测试推送',
             'manual_notification_test_target_forbidden' => '所选机器人未启用、作用域不匹配或不属于当前酒店',
             'manual_notification_test_method_forbidden' => '当前通知发送方式不是企业微信测试机器人',

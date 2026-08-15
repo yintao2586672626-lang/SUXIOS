@@ -22,14 +22,24 @@ final class ManualNotificationExecutionActorService
     /** @var callable|null */
     private $hotelTenantLoader;
 
+    /** @var callable|null */
+    private $collectionPlanOwnerLoader;
+
+    /** @var callable|null */
+    private $collectionPermissionLoader;
+
     public function __construct(
         ?callable $userLoader = null,
         ?callable $candidateIdLoader = null,
-        ?callable $hotelTenantLoader = null
+        ?callable $hotelTenantLoader = null,
+        ?callable $collectionPlanOwnerLoader = null,
+        ?callable $collectionPermissionLoader = null
     ) {
         $this->userLoader = $userLoader;
         $this->candidateIdLoader = $candidateIdLoader;
         $this->hotelTenantLoader = $hotelTenantLoader;
+        $this->collectionPlanOwnerLoader = $collectionPlanOwnerLoader;
+        $this->collectionPermissionLoader = $collectionPermissionLoader;
     }
 
     /**
@@ -54,6 +64,27 @@ final class ManualNotificationExecutionActorService
         if ($hotelTenantId <= 0 || $hotelTenantId !== $tenantId) {
             return $this->blocked(
                 'manual_notification_execution_hotel_tenant_mismatch',
+                $tenantId,
+                $hotelId,
+                $creatorId
+            );
+        }
+
+        $collectionPlanOwner = $this->collectionPlanOwner($tenantId, $hotelId);
+        if ($collectionPlanOwner['found']) {
+            $ownerId = $collectionPlanOwner['actor_id'];
+            $owner = $ownerId > 0 ? $this->loadUser($ownerId) : null;
+            if (!$this->eligible($owner, $tenantId, $hotelId)) {
+                return $this->blocked(
+                    'manual_notification_collection_plan_execution_actor_invalid',
+                    $tenantId,
+                    $hotelId,
+                    $creatorId
+                );
+            }
+            return $this->ready(
+                $owner,
+                'active_collection_plan_owner',
                 $tenantId,
                 $hotelId,
                 $creatorId
@@ -122,6 +153,54 @@ final class ManualNotificationExecutionActorService
         }
     }
 
+    /** @return array{found:bool,actor_id:int} */
+    private function collectionPlanOwner(int $tenantId, int $hotelId): array
+    {
+        try {
+            if ($this->collectionPlanOwnerLoader !== null) {
+                $loaded = call_user_func(
+                    $this->collectionPlanOwnerLoader,
+                    $tenantId,
+                    $hotelId
+                );
+                if ($loaded === null || $loaded === false) {
+                    return ['found' => false, 'actor_id' => 0];
+                }
+                if (is_array($loaded)) {
+                    return [
+                        'found' => (bool)($loaded['found'] ?? true),
+                        'actor_id' => (int)(
+                            $loaded['execution_owner_user_id']
+                                ?? $loaded['actor_id']
+                                ?? 0
+                        ),
+                    ];
+                }
+                return ['found' => true, 'actor_id' => (int)$loaded];
+            }
+
+            $row = Db::name('hotel_collection_plans')
+                ->field('id,execution_owner_user_id')
+                ->where('tenant_id', $tenantId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('enabled', 1)
+                ->where('active_slot', 1)
+                ->where('plan_status', 'active')
+                ->where('validation_status', 'ready')
+                ->order('id', 'desc')
+                ->find();
+            if (!is_array($row) || $row === []) {
+                return ['found' => false, 'actor_id' => 0];
+            }
+            return [
+                'found' => true,
+                'actor_id' => (int)($row['execution_owner_user_id'] ?? 0),
+            ];
+        } catch (\Throwable) {
+            return ['found' => false, 'actor_id' => 0];
+        }
+    }
+
     /** @return list<int> */
     private function candidateIds(int $tenantId, int $hotelId): array
     {
@@ -172,17 +251,57 @@ final class ManualNotificationExecutionActorService
     {
         if (!is_object($actor)
             || (int)($actor->id ?? 0) <= 0
-            || (int)($actor->tenant_id ?? 0) !== $tenantId
             || (int)($actor->status ?? 0) !== 1
             || !method_exists($actor, 'hasHotelPermission')
         ) {
             return false;
         }
         try {
+            $actorTenantId = $actor->tenant_id ?? null;
+            $tenantMatches = (int)$actorTenantId === $tenantId;
+            $globalSuperAdmin = $actorTenantId === null
+                && method_exists($actor, 'isSuperAdmin')
+                && $actor->isSuperAdmin() === true;
+            if (!$tenantMatches && !$globalSuperAdmin) {
+                return false;
+            }
+            if ($globalSuperAdmin) {
+                return $this->hasDirectCollectionPermission(
+                    (int)$actor->id,
+                    $tenantId,
+                    $hotelId
+                );
+            }
             return $actor->hasHotelPermission(
                 $hotelId,
                 'can_fetch_online_data'
             ) === true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function hasDirectCollectionPermission(
+        int $userId,
+        int $tenantId,
+        int $hotelId
+    ): bool {
+        try {
+            if ($this->collectionPermissionLoader !== null) {
+                return call_user_func(
+                    $this->collectionPermissionLoader,
+                    $userId,
+                    $tenantId,
+                    $hotelId
+                ) === true;
+            }
+            return Db::name('user_hotel_permissions')
+                ->where('user_id', $userId)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('status', 'active')
+                ->where('can_fetch_online_data', 1)
+                ->count() > 0;
         } catch (\Throwable) {
             return false;
         }

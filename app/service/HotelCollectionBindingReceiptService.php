@@ -46,6 +46,9 @@ final class HotelCollectionBindingReceiptService
     /** @var callable|null */
     private $profileSessionStateLoader;
 
+    /** @var callable|null */
+    private $cloudBrowserProfileLoader;
+
     public function __construct(
         ?callable $sourceLoader = null,
         ?callable $profileBindingLoader = null,
@@ -54,7 +57,8 @@ final class HotelCollectionBindingReceiptService
         ?callable $identityOwnerLoader = null,
         ?callable $clock = null,
         ?callable $executionOwnerPermissionLoader = null,
-        ?callable $profileSessionStateLoader = null
+        ?callable $profileSessionStateLoader = null,
+        ?callable $cloudBrowserProfileLoader = null
     ) {
         $this->sourceLoader = $sourceLoader;
         $this->profileBindingLoader = $profileBindingLoader;
@@ -64,6 +68,7 @@ final class HotelCollectionBindingReceiptService
         $this->clock = $clock;
         $this->executionOwnerPermissionLoader = $executionOwnerPermissionLoader;
         $this->profileSessionStateLoader = $profileSessionStateLoader;
+        $this->cloudBrowserProfileLoader = $cloudBrowserProfileLoader;
     }
 
     /**
@@ -94,6 +99,9 @@ final class HotelCollectionBindingReceiptService
         [$localRows, $localReadError] = $this->safeRows(
             fn(): array => $this->loadLocalExecutionBindings($tenantId, $hotelId)
         );
+        [$cloudProfileRows, $cloudProfileReadError] = $this->safeRows(
+            fn(): array => $this->loadCloudBrowserProfiles($tenantId, $hotelId)
+        );
 
         $bindings = [];
         foreach (self::PLATFORMS as $platform) {
@@ -104,9 +112,11 @@ final class HotelCollectionBindingReceiptService
                 $sourceRows,
                 $profileRows,
                 $localRows,
+                $cloudProfileRows,
                 $sourceReadError,
                 $profileReadError,
                 $localReadError,
+                $cloudProfileReadError,
                 (int)($designatedSourceIds[$platform] ?? 0)
             );
         }
@@ -199,6 +209,7 @@ final class HotelCollectionBindingReceiptService
      * @param array<int,array<string,mixed>> $sourceRows
      * @param array<int,array<string,mixed>> $profileRows
      * @param array<int,array<string,mixed>> $localRows
+     * @param array<int,array<string,mixed>> $cloudProfileRows
      * @return array<string,mixed>
      */
     private function otaBinding(
@@ -208,9 +219,11 @@ final class HotelCollectionBindingReceiptService
         array $sourceRows,
         array $profileRows,
         array $localRows,
+        array $cloudProfileRows,
         string $sourceReadError,
         string $profileReadError,
         string $localReadError,
+        string $cloudProfileReadError,
         int $designatedSourceId
     ): array {
         $blockers = [];
@@ -429,7 +442,110 @@ final class HotelCollectionBindingReceiptService
                 $sourceOwnerUserId
             )
             : ['declared' => false, 'complete' => false, 'device_binding_digest' => null, 'bound_at' => null];
-        $executionCandidates = ($singleUserLocalBinding['declared'] ?? false) === true
+        $singleUserLocalDeclared = ($singleUserLocalBinding['declared'] ?? false) === true;
+        $sourceCloudProfilePublicId = $this->sourceCloudProfilePublicId($config);
+        $scopedCloudProfiles = $isLocalCollector || $singleUserLocalDeclared
+            ? []
+            : array_values(array_filter(
+                $cloudProfileRows,
+                static fn(array $row): bool => (int)($row['tenant_id'] ?? 0) === $tenantId
+                    && (int)($row['system_hotel_id'] ?? 0) === $hotelId
+                    && (int)($row['owner_user_id'] ?? 0) === $sourceOwnerUserId
+                    && strtolower(trim((string)($row['platform'] ?? ''))) === $platform
+            ));
+        $cloudProfileCandidates = $sourceCloudProfilePublicId === ''
+            ? []
+            : array_values(array_filter(
+                $scopedCloudProfiles,
+                static fn(array $row): bool => hash_equals(
+                    $sourceCloudProfilePublicId,
+                    trim((string)($row['profile_public_id'] ?? ''))
+                )
+            ));
+        $cloudProfileScopeMismatch = $scopedCloudProfiles !== [] && $cloudProfileCandidates === [];
+        $cloudProfileDeclared = $cloudProfileCandidates !== [];
+        $cloudProfileConflict = count($cloudProfileCandidates) > 1;
+        $cloudProfile = count($cloudProfileCandidates) === 1 ? $cloudProfileCandidates[0] : [];
+        $cloudProfilePublicId = trim((string)($cloudProfile['profile_public_id'] ?? ''));
+        $cloudProfilePublicDigest = preg_match('/^cbp_[A-Za-z0-9_-]{16,64}$/D', $cloudProfilePublicId) === 1
+            ? hash('sha256', $cloudProfilePublicId)
+            : '';
+        $cloudProfileBound = $cloudProfile !== [] && $cloudProfilePublicDigest !== '';
+        $cloudProfileReady = false;
+        $cloudProfileSessionStatus = null;
+        $cloudAuthorizationStatus = strtolower(trim((string)($cloudProfile['authorization_status'] ?? '')));
+        if (!$isLocalCollector && !$singleUserLocalDeclared) {
+            if ($cloudProfileReadError !== '' && $localExecutionCandidates === []) {
+                $blockers[] = $this->issue(
+                    'ota_cloud_profile_binding_read_failed',
+                    $cloudProfileReadError,
+                    $platform
+                );
+            }
+            if ($cloudProfileConflict) {
+                $blockers[] = $this->issue(
+                    'ota_cloud_profile_binding_conflict',
+                    'More than one cloud browser Profile matched the exact hotel, owner and platform scope.',
+                    $platform
+                );
+            } elseif ($cloudProfileScopeMismatch) {
+                $blockers[] = $this->issue(
+                    'ota_cloud_profile_source_binding_mismatch',
+                    'The cloud browser Profile does not match the exact Profile identity declared by this OTA source.',
+                    $platform
+                );
+            } elseif ($cloudProfile !== []) {
+                if ($cloudProfilePublicDigest === '') {
+                    $blockers[] = $this->issue(
+                        'ota_cloud_profile_identity_invalid',
+                        'The exact cloud browser Profile has no valid opaque identity.',
+                        $platform
+                    );
+                }
+                $readyAt = trim((string)($cloudProfile['ready_at'] ?? ''));
+                $sessionExpiresAt = trim((string)($cloudProfile['session_expires_at'] ?? ''));
+                $readyAtValid = $this->timestamp($readyAt)
+                    && (new DateTimeImmutable($readyAt))->getTimestamp() <= $this->now()->getTimestamp();
+                $sessionExpiryValid = $this->timestamp($sessionExpiresAt);
+                $sessionExpired = $sessionExpiryValid
+                    && (new DateTimeImmutable($sessionExpiresAt))->getTimestamp() <= $this->now()->getTimestamp();
+                if (!$readyAtValid) {
+                    $blockers[] = $this->issue(
+                        'ota_cloud_profile_ready_evidence_invalid',
+                        'The exact cloud browser Profile has no current ready evidence.',
+                        $platform
+                    );
+                }
+                if (!$sessionExpiryValid) {
+                    $blockers[] = $this->issue(
+                        'ota_cloud_profile_session_expiry_missing',
+                        'The exact cloud browser Profile has no verifiable session expiry.',
+                        $platform
+                    );
+                }
+                if ($sessionExpired
+                    || in_array($cloudAuthorizationStatus, ['session_expired', 'awaiting_relogin'], true)
+                ) {
+                    $cloudProfileSessionStatus = 'session_expired';
+                    $recoveryReasons[] = $this->issue(
+                        'session_expired',
+                        'Reauthenticate this exact cloud browser Profile before resuming.',
+                        $platform
+                    );
+                } elseif ($cloudAuthorizationStatus !== CloudBrowserProfileService::READY_TO_COLLECT) {
+                    $cloudProfileSessionStatus = 'login_required';
+                    $recoveryReasons[] = $this->issue(
+                        'login_required',
+                        'Complete login for this exact cloud browser Profile before resuming.',
+                        $platform
+                    );
+                } elseif ($cloudProfileBound && $readyAtValid && $sessionExpiryValid) {
+                    $cloudProfileReady = true;
+                    $cloudProfileSessionStatus = CloudBrowserProfileService::READY_TO_COLLECT;
+                }
+            }
+        }
+        $executionCandidates = $singleUserLocalDeclared || $scopedCloudProfiles !== []
             ? []
             : $localExecutionCandidates;
         $profileSchedulerBound = ($singleUserLocalBinding['complete'] ?? false) === true
@@ -463,7 +579,8 @@ final class HotelCollectionBindingReceiptService
             }
         }
         if (count($executionCandidates) !== 1
-            && !($profileSchedulerBound && count($executionCandidates) === 0)
+            && !(($profileSchedulerBound || $cloudProfileBound) && count($executionCandidates) === 0)
+            && !$cloudProfileDeclared
         ) {
             $blockers[] = $this->issue(
                 count($executionCandidates) === 0
@@ -472,7 +589,7 @@ final class HotelCollectionBindingReceiptService
                 count($executionCandidates) === 0
                     ? ($isLocalCollector
                         ? 'No operator-owned execution device mapping exists for this hotel and platform.'
-                        : 'No complete single_user_local Profile execution binding exists for this hotel and platform.')
+                        : 'No exact ready cloud Profile, complete single_user_local Profile, or operator device binding exists for this hotel and platform.')
                     : 'More than one execution device mapping exists for this hotel and platform.',
                 $platform
             );
@@ -571,7 +688,9 @@ final class HotelCollectionBindingReceiptService
         $status = $blockers !== [] ? 'blocked' : ($recoveryReasons !== [] ? 'recoverable' : 'ready');
         $executionBindingKind = $execution !== []
             ? 'local_collector_device'
-            : ($profileSchedulerBound ? 'browser_profile_single_user_local' : null);
+            : ($cloudProfileBound
+                ? 'cloud_browser_profile'
+                : ($profileSchedulerBound ? 'browser_profile_single_user_local' : null));
         $executionBindingDigest = $execution !== []
             ? hash('sha256', (string)json_encode([
                 'tenant_id' => $tenantId,
@@ -583,8 +702,21 @@ final class HotelCollectionBindingReceiptService
                 'device_id' => (int)($execution['device_id'] ?? 0),
                 'device_binding_digest' => (string)($execution['device_binding_digest'] ?? ''),
             ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))
-            : ($profileSchedulerBound
+            : ($cloudProfileBound
                 ? hash('sha256', (string)json_encode([
+                    'binding_kind' => 'cloud_browser_profile',
+                    'tenant_id' => $tenantId,
+                    'system_hotel_id' => $hotelId,
+                    'platform' => $platform,
+                    'source_id' => $sourceId,
+                    'execution_owner_user_id' => $sourceOwnerUserId,
+                    'platform_hotel_id' => $platformHotelId,
+                    'profile_binding_digest' => $profileHash,
+                    'cloud_profile_public_id_digest' => $cloudProfilePublicDigest,
+                    'ingestion_method' => $ingestionMethod,
+                ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))
+                : ($profileSchedulerBound
+                    ? hash('sha256', (string)json_encode([
                     'binding_kind' => 'browser_profile_single_user_local',
                     'tenant_id' => $tenantId,
                     'system_hotel_id' => $hotelId,
@@ -597,13 +729,19 @@ final class HotelCollectionBindingReceiptService
                     'collector_bound_at' => (string)($singleUserLocalBinding['bound_at'] ?? ''),
                     'ingestion_method' => $ingestionMethod,
                 ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))
-                : null);
-        $executionBindingStatus = $execution !== [] || $profileSchedulerBound
+                    : null));
+        $executionBindingStatus = $execution !== [] || $profileSchedulerBound || $cloudProfileBound
             ? 'bound'
-            : (count($executionCandidates) === 0 ? 'missing' : 'conflict');
-        $resumeScope = $profileSchedulerBound && $execution === []
-            ? 'same_bound_local_profile_owner_hotel_platform'
-            : 'same_account_same_device_same_hotel_same_platform';
+            : ($cloudProfileConflict
+                ? 'conflict'
+                : ($cloudProfileDeclared || $cloudProfileScopeMismatch
+                    ? 'invalid'
+                    : (count($executionCandidates) === 0 ? 'missing' : 'conflict')));
+        $resumeScope = $cloudProfileBound && $execution === []
+            ? 'same_cloud_profile_owner_hotel_platform'
+            : ($profileSchedulerBound && $execution === []
+                ? 'same_bound_local_profile_owner_hotel_platform'
+                : 'same_account_same_device_same_hotel_same_platform');
 
         return [
             'platform' => $platform,
@@ -633,7 +771,7 @@ final class HotelCollectionBindingReceiptService
                 : null,
             'identity_evidence' => [
                 'status' => $platformHotelId !== '' && $identitySource !== '' && $this->timestamp($identityCheckedAt)
-                    ? 'verified'
+                    ? ($identitySource === 'operator_confirmed_onboarding' ? 'operator_confirmed' : 'verified')
                     : 'unverified',
                 'source' => $identitySource !== '' ? $this->safeCode($identitySource) : null,
                 'checked_at' => $this->timestamp($identityCheckedAt) ? $identityCheckedAt : null,
@@ -657,7 +795,11 @@ final class HotelCollectionBindingReceiptService
                     : null,
                 'session_status' => $execution !== []
                     ? (trim((string)($execution['session_status'] ?? '')) ?: null)
-                    : $profileSessionStatus,
+                    : ($cloudProfileBound ? $cloudProfileSessionStatus : $profileSessionStatus),
+                'authorization_status' => $cloudProfileBound
+                    ? ($cloudAuthorizationStatus ?: null)
+                    : null,
+                'ready_to_collect' => $cloudProfileBound ? $cloudProfileReady : null,
                 'last_seen_at' => $this->timestamp((string)($execution['last_seen_at'] ?? ''))
                     ? (string)$execution['last_seen_at']
                     : null,
@@ -795,6 +937,23 @@ final class HotelCollectionBindingReceiptService
             ->where('system_hotel_id', $hotelId)
             ->whereIn('platform', self::PLATFORMS)
             ->order('platform,id')
+            ->select()
+            ->toArray();
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function loadCloudBrowserProfiles(int $tenantId, int $hotelId): array
+    {
+        if ($this->cloudBrowserProfileLoader !== null) {
+            $rows = call_user_func($this->cloudBrowserProfileLoader, $tenantId, $hotelId);
+            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
+        }
+        return Db::name('cloud_browser_profiles')
+            ->field('id,tenant_id,system_hotel_id,owner_user_id,platform,profile_public_id,authorization_status,ready_at,session_expires_at')
+            ->where('tenant_id', $tenantId)
+            ->where('system_hotel_id', $hotelId)
+            ->whereIn('platform', self::PLATFORMS)
+            ->order('platform,owner_user_id,id')
             ->select()
             ->toArray();
     }
@@ -973,18 +1132,64 @@ final class HotelCollectionBindingReceiptService
             $profileKeyHash = strtolower(trim((string)($config['profile_key_hash'] ?? '')));
             return preg_match('/^[a-f0-9]{64}$/D', $profileKeyHash) === 1 ? $profileKeyHash : '';
         }
-        $keys = $platform === 'meituan'
-            ? ['store_id', 'storeId', 'poi_id', 'poiId', 'profile_id', 'profileId']
-            : ['profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
-        foreach ($keys as $key) {
-            $value = trim((string)($config[$key] ?? ''));
-            if ($value === '') {
-                continue;
-            }
+        $explicitValues = $this->explicitProfileAliasValues($config);
+        if (count($explicitValues) > 1) {
+            return '';
+        }
+        if (count($explicitValues) === 1) {
+            $value = $explicitValues[0];
             $canonical = BrowserProfileCaptureRequestService::safeFilePart($value);
             return $canonical !== '' ? hash('sha256', $canonical) : '';
         }
+        if ($platform === 'meituan') {
+            foreach (['store_id', 'storeId', 'poi_id', 'poiId'] as $key) {
+                $value = trim((string)($config[$key] ?? ''));
+                if ($value === '') {
+                    continue;
+                }
+                $canonical = BrowserProfileCaptureRequestService::safeFilePart($value);
+                return $canonical !== '' ? hash('sha256', $canonical) : '';
+            }
+        }
         return '';
+    }
+
+    /** @param array<string,mixed> $config */
+    private function sourceCloudProfilePublicId(array $config): string
+    {
+        $values = $this->explicitProfileAliasValues($config);
+        if (count($values) !== 1) {
+            return '';
+        }
+        $value = $values[0];
+        return preg_match('/^cbp_[A-Za-z0-9_-]{16,64}$/D', $value) === 1 ? $value : '';
+    }
+
+    /** @param array<string,mixed> $config @return array<int,string> */
+    private function explicitProfileAliasValues(array $config): array
+    {
+        $values = [];
+        foreach ([
+            'profile_binding_key',
+            'profileBindingKey',
+            'stable_profile_id',
+            'stableProfileId',
+            'profile_id',
+            'profileId',
+            'browser_profile_id',
+            'browserProfileId',
+        ] as $key) {
+            $value = trim((string)($config[$key] ?? ''));
+            if ($value !== '') {
+                $values[$value] = true;
+            }
+        }
+        // PHP converts numeric-string array keys to integers. Normalize them
+        // back to strings before they enter the Profile canonicalizer.
+        return array_values(array_map(
+            static fn(int|string $value): string => (string)$value,
+            array_keys($values)
+        ));
     }
 
     /**

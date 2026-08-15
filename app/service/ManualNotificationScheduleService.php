@@ -58,7 +58,8 @@ final class ManualNotificationScheduleService
         ?callable $ctripTemporalRefresher = null,
         ?callable $pmsSourceRefresher = null,
         private readonly ?ManualNotificationConditionRuleService $conditionRuleService = null,
-        private readonly ?ManualNotificationExecutionActorService $executionActorService = null
+        private readonly ?ManualNotificationExecutionActorService $executionActorService = null,
+        private readonly ?CloudThreeSourceHourlyPayloadService $cloudThreeSourcePayloads = null
     ) {
         $this->sender = $sender;
         $this->meituanTemporalRefresher = $meituanTemporalRefresher;
@@ -323,6 +324,7 @@ final class ManualNotificationScheduleService
         if (!ManualNotificationService::isOperatingDailyReportType($templateType)
             || ManualNotificationService::isOperatingDailyTriggerAllowed($triggerType)
             || ManualNotificationService::isStrictThreeSourceIntervalPlan($row)
+            || ManualNotificationService::isStrictThreeSourceHourlyPlan($row)
         ) {
             return null;
         }
@@ -479,7 +481,26 @@ final class ManualNotificationScheduleService
                 'delivery_attempted' => false,
             ];
         }
-        $preparations = ($identity['eligible'] ?? false) === true
+        $cloudThreeSourceHourly =
+            ManualNotificationService::isStrictThreeSourceHourlyPlan($row);
+        $preparations = $cloudThreeSourceHourly
+            ? [
+                'status' => 'ready',
+                'reason_code' => 'cloud_collectors_run_before_hour',
+                'pms' => [
+                    'status' => 'not_required',
+                    'reason_code' => 'payload_validates_recent_cloud_readback',
+                ],
+                'meituan' => [
+                    'status' => 'not_required',
+                    'reason_code' => 'payload_validates_recent_cloud_readback',
+                ],
+                'ctrip' => [
+                    'status' => 'not_required',
+                    'reason_code' => 'payload_validates_recent_cloud_readback',
+                ],
+            ]
+            : (($identity['eligible'] ?? false) === true
             ? ($dispatch
                 ? $this->prepareSourcesForDelivery(
                     $row,
@@ -523,7 +544,7 @@ final class ManualNotificationScheduleService
                     'status' => 'skipped',
                     'reason_code' => 'target_identity_not_ready',
                 ],
-            ];
+            ]);
         $pmsPreparation = $preparations['pms'];
         $base['pms_source_preparation'] = $pmsPreparation;
         $sourcePreparation = $preparations['meituan'];
@@ -1639,6 +1660,13 @@ final class ManualNotificationScheduleService
         array $candidate,
         array $preparations
     ): array {
+        if (ManualNotificationService::isStrictThreeSourceHourlyPlan($row)) {
+            return [
+                'allowed' => true,
+                'reason_code' => 'cloud_three_source_payload_self_verified',
+                'message' => '',
+            ];
+        }
         if (!ManualNotificationService::isOperatingDailyReportType(
             (string)($row['template_type']
                 ?? $row['notification_type']
@@ -1839,6 +1867,41 @@ final class ManualNotificationScheduleService
             if (ManualNotificationService::isOperatingDailyReportType(
                 $templateType
             )) {
+                if (ManualNotificationService::isStrictThreeSourceHourlyPlan($row)) {
+                    $actorResolution = $this->executionActor($row);
+                    $actorId = (int)($actorResolution['actor_id'] ?? 0);
+                    if (($actorResolution['status'] ?? '') !== 'ready' || $actorId <= 0) {
+                        $reasonCode = (string)(
+                            $actorResolution['reason_code']
+                                ?? 'manual_notification_execution_actor_missing'
+                        );
+                        return [
+                            'status' => 'blocked',
+                            'reason_code' => $reasonCode,
+                            'business_date' => $businessDate,
+                            'payload' => null,
+                            'formal_send_gate' => [
+                                'allowed' => false,
+                                'status' => 'formal_send_blocked',
+                                'blockers' => [[
+                                    'code' => $reasonCode,
+                                    'message' => 'No authorized hotel execution actor is available for this plan.',
+                                ]],
+                            ],
+                            ...$this->executionActorMetadata($actorResolution),
+                        ];
+                    }
+                    $candidate = $this->cloudThreeSourcePayloads()->build(
+                        $tenantId,
+                        $hotelId,
+                        $hotelName,
+                        $businessDate,
+                        $actorId
+                    );
+                    return $mode === self::MODE_FORMAL
+                        ? $this->formalizeDynamicCandidate($candidate)
+                        : $candidate;
+                }
                 $contractBlocker =
                     ManualNotificationService::
                     operatingDailyCustomContractBlocker(
@@ -2201,6 +2264,12 @@ final class ManualNotificationScheduleService
     {
         return $this->businessMessagePayloads
             ?? new ManualNotificationBusinessPayloadService();
+    }
+
+    private function cloudThreeSourcePayloads(): CloudThreeSourceHourlyPayloadService
+    {
+        return $this->cloudThreeSourcePayloads
+            ?? new CloudThreeSourceHourlyPayloadService();
     }
 
     private function conditionRules(): ManualNotificationConditionRuleService

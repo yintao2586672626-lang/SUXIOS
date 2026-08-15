@@ -1,0 +1,25 @@
+[Unit]
+Description=SUXIOS Dingdandao PMS current-day collection
+After=network-online.target mariadb.service php8.3-fpm.service suxios-cloud-browser-gateway.service
+Wants=network-online.target
+Requires=suxios-cloud-browser-gateway.service
+ConditionPathExists=/var/www/suxios/current/scripts/run_dingdandao_cloud_collection.php
+ConditionPathExists=/etc/suxios/dingdandao-collector.env
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=/etc/suxios/dingdandao-collector.env
+ExecStart=/usr/bin/php -d memory_limit=384M scripts/run_dingdandao_cloud_collection.php --hotel-id=${SUXIOS_DINGDANDAO_HOTEL_ID} --owner-user-id=${SUXIOS_DINGDANDAO_OWNER_USER_ID} --profile-id=${SUXIOS_DINGDANDAO_PROFILE_ID} --no-push
+LoadCredential=control-token:/etc/suxios-cloud-browser/control-token
+RuntimeDirectory=suxios-dingdandao-collection
+RuntimeDirectoryMode=0750
+Nice=10
+CPUQuota=60%
+MemoryMax=512M
+TasksMax=48
+TimeoutStartSec=20min
+UMask=0027

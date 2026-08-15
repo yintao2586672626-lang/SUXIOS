@@ -50,6 +50,18 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
+        $requestedCdpUrl = $this->firstString($options, [], ['cdp_url', 'cdpUrl']);
+        $cdpUrl = $this->normalizeCdpUrl($requestedCdpUrl);
+        if ($requestedCdpUrl !== '' && $cdpUrl === '') {
+            return [
+                'status' => 'waiting_config',
+                'status_code' => 'invalid_cdp_url',
+                'error_code' => 'invalid_cdp_url',
+                'message' => 'Meituan CDP URL must use http://127.0.0.1:<port>.',
+                'payload' => [],
+            ];
+        }
+
         $safeStoreId = $this->safeName($storeId);
         $interactive = $this->truthy($options['interactive_browser'] ?? $options['interactiveBrowser'] ?? false);
         $profileDir = $this->projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $safeStoreId;
@@ -148,6 +160,8 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if ($cdpUrl !== '') {
             $args[] = '--cdp-url=' . $cdpUrl;
+            $args[] = '--report-dir=' . $outputDir;
+            $args[] = '--profile-dir=' . $outputDir . DIRECTORY_SEPARATOR . 'meituan_cdp_profile_stub';
         }
 
         try {
@@ -838,6 +852,19 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         $timestamp = strtotime($value);
         return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    }
+
+    private function normalizeCdpUrl(string $value): string
+    {
+        $value = trim($value);
+        if (preg_match('#^http://127\.0\.0\.1:([1-9][0-9]{0,4})/?$#D', $value, $matches) !== 1) {
+            return '';
+        }
+        $port = (int)$matches[1];
+        if ($port < 1 || $port > 65535) {
+            return '';
+        }
+        return 'http://127.0.0.1:' . $port;
     }
 
     private function truthy(mixed $value): bool

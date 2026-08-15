@@ -41,6 +41,11 @@ try {
             requiredTicket($input),
             requiredText($input, 'session_expires_at', 32)
         ),
+        'cancel_login_entry' => $service->cancelLoginEntry(
+            requiredId($input, 'profile_id', 'cbp_'),
+            requiredId($input, 'session_id', 'cbls_'),
+            requiredText($input, 'reason', 80)
+        ),
         'expire_profile' => $service->markSessionExpired(
             requiredId($input, 'profile_id', 'cbp_'),
             requiredText($input, 'reason', 80)
@@ -60,14 +65,24 @@ try {
             requiredDate($input, 'target_date'),
             requiredPmsPlatform($input)
         ),
-        'validate_ota_collection' => $service->validateOtaCollectionProfile(
-            requiredId($input, 'profile_id', 'cbp_'),
-            requiredPositiveInt($input, 'tenant_id'),
-            requiredPositiveInt($input, 'hotel_id'),
-            requiredPositiveInt($input, 'owner_user_id'),
-            requiredDate($input, 'target_date'),
-            requiredPlatform($input, ['ctrip', 'meituan'])
-        ),
+        'validate_ota_collection' => array_key_exists('data_source_id', $input)
+            ? $service->validateOtaDataSourceCollectionProfile(
+                requiredId($input, 'profile_id', 'cbp_'),
+                requiredPositiveInt($input, 'data_source_id'),
+                requiredPositiveInt($input, 'tenant_id'),
+                requiredPositiveInt($input, 'hotel_id'),
+                requiredPositiveInt($input, 'owner_user_id'),
+                requiredDate($input, 'target_date'),
+                requiredOtaPlatform($input)
+            )
+            : $service->validateOtaCollectionProfile(
+                requiredId($input, 'profile_id', 'cbp_'),
+                requiredPositiveInt($input, 'tenant_id'),
+                requiredPositiveInt($input, 'hotel_id'),
+                requiredPositiveInt($input, 'owner_user_id'),
+                requiredDate($input, 'target_date'),
+                requiredOtaPlatform($input)
+            ),
         default => throw new RuntimeException('gateway_action_unsupported'),
     };
 } catch (Throwable $e) {
@@ -141,6 +156,16 @@ function requiredPlatform(array $input, array $allowed): string
 {
     $value = strtolower(requiredText($input, 'platform', 24));
     if (!in_array($value, $allowed, true)) {
+        throw new RuntimeException('gateway_platform_invalid');
+    }
+    return $value;
+}
+
+/** @param array<string,mixed> $input */
+function requiredOtaPlatform(array $input): string
+{
+    $value = strtolower(trim((string)($input['platform'] ?? '')));
+    if (!in_array($value, ['ctrip', 'meituan'], true)) {
         throw new RuntimeException('gateway_platform_invalid');
     }
     return $value;

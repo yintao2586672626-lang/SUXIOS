@@ -98,6 +98,8 @@ try {
                 $triggerType
             ) || ManualNotificationService::isStrictThreeSourceIntervalPlan(
                 $record
+            ) || ManualNotificationService::isStrictThreeSourceHourlyPlan(
+                $record
             );
             if (!$allowed) {
                 $policyBlocked[] = (int)($record['id'] ?? 0);
