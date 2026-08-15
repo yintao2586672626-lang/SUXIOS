@@ -539,33 +539,13 @@ final class HotelAutopilotLifecycleServiceTest extends TestCase
         self::assertStringNotContainsString('202', json_encode($items[1], JSON_THROW_ON_ERROR));
     }
 
-    public function testDispatcherBridgeRequiresExactSafeReadback(): void
+    public function testWindowsDispatcherProvisionRequiresExactSafeReadback(): void
     {
-        $runner = static fn(array $command): array => [
-            'exit_code' => 0,
-            'stdout' => '',
-            'schema_version' => HotelAutopilotDispatcherProvisioningService::SCHEMA_VERSION,
-            'status' => 'ready',
-            'reason_code' => 'task_enabled_and_started',
-            'hotel_id' => 80,
-            'task_name' => 'SUXIOS OTA Dispatcher H80',
-            'task_exists' => true,
-            'enabled' => true,
-            'task_started' => true,
-            'scope' => [
-                'hotel_id' => 80,
-                'source_ids' => [25, 68],
-                'platforms' => ['ctrip', 'meituan'],
-                'mode' => 'daily',
-            ],
-            'scope_verified' => true,
-            'action_verified' => true,
-            'trigger_verified' => true,
-            'principal_verified' => true,
-            'readback_verified' => true,
-            'sensitive_values_exposed' => false,
-            'process_exit_code' => 0,
-        ];
+        if (PHP_OS_FAMILY !== 'Windows') {
+            $this->markTestSkipped('Windows Scheduled Task dispatcher contract requires a Windows runtime.');
+        }
+
+        $runner = static fn(array $command): array => self::readyDispatcherReceipt();
         $service = new HotelAutopilotDispatcherProvisioningService($runner, dirname(__DIR__));
 
         $receipt = $service->provision([
@@ -581,6 +561,38 @@ final class HotelAutopilotLifecycleServiceTest extends TestCase
         self::assertTrue($receipt['task_started']);
         self::assertFalse($receipt['auto_write_ota']);
         self::assertFalse($receipt['sensitive_values_exposed']);
+    }
+
+    public function testDispatcherReceiptNormalizationRequiresEveryVerifiedReadbackFlag(): void
+    {
+        $service = new HotelAutopilotDispatcherProvisioningService(
+            static fn(array $command): array => [],
+            dirname(__DIR__)
+        );
+        $normalize = new \ReflectionMethod($service, 'normalizeReceipt');
+        $normalize->setAccessible(true);
+
+        $ready = self::readyDispatcherReceipt();
+        $receipt = $normalize->invoke($service, $ready, 80, [25, 68], ['ctrip', 'meituan'], true);
+
+        self::assertSame('ready', $receipt['status']);
+        self::assertTrue($receipt['readback_verified']);
+        self::assertTrue($receipt['task_started']);
+        self::assertFalse($receipt['auto_write_ota']);
+        self::assertFalse($receipt['sensitive_values_exposed']);
+
+        foreach (['scope_verified', 'principal_verified', 'readback_verified'] as $requiredFlag) {
+            $invalid = $ready;
+            $invalid[$requiredFlag] = false;
+            $invalid['reason_code'] = '';
+
+            try {
+                $normalize->invoke($service, $invalid, 80, [25, 68], ['ctrip', 'meituan'], true);
+                self::fail($requiredFlag . ' must fail closed.');
+            } catch (RuntimeException $exception) {
+                self::assertSame('hotel_autopilot_dispatcher_readback_failed', $exception->getMessage());
+            }
+        }
     }
 
     /**
@@ -744,6 +756,36 @@ final class HotelAutopilotLifecycleServiceTest extends TestCase
             'binding_digest_matches' => true,
             'execution_authorized' => true,
             'failure_reasons' => [],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private static function readyDispatcherReceipt(): array
+    {
+        return [
+            'exit_code' => 0,
+            'stdout' => '',
+            'schema_version' => HotelAutopilotDispatcherProvisioningService::SCHEMA_VERSION,
+            'status' => 'ready',
+            'reason_code' => 'task_enabled_and_started',
+            'hotel_id' => 80,
+            'task_name' => 'SUXIOS OTA Dispatcher H80',
+            'task_exists' => true,
+            'enabled' => true,
+            'task_started' => true,
+            'scope' => [
+                'hotel_id' => 80,
+                'source_ids' => [25, 68],
+                'platforms' => ['ctrip', 'meituan'],
+                'mode' => 'daily',
+            ],
+            'scope_verified' => true,
+            'action_verified' => true,
+            'trigger_verified' => true,
+            'principal_verified' => true,
+            'readback_verified' => true,
+            'sensitive_values_exposed' => false,
+            'process_exit_code' => 0,
         ];
     }
 
