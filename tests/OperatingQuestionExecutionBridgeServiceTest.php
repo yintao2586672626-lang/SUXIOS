@@ -54,6 +54,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
             'operation_execution_evidence',
             'operation_execution_tasks',
             'operation_execution_intents',
+            'hotel_operating_question_model_responses',
             'hotel_operating_questions',
             'online_daily_data',
             'hotels',
@@ -69,6 +70,12 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
             . 'fact_refs_json TEXT, memory_refs_json TEXT, knowledge_refs_json TEXT, execution_refs_json TEXT, data_gaps_json TEXT, '
             . 'content_digest TEXT, created_by INTEGER, created_at TEXT, updated_at TEXT, deleted_at TEXT, '
             . 'UNIQUE(tenant_id,hotel_id,request_key))'
+        );
+        Db::execute(
+            'CREATE TABLE hotel_operating_question_model_responses ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, provider_response_id TEXT COLLATE BINARY NOT NULL UNIQUE, '
+            . 'provider TEXT NOT NULL, question_id INTEGER NOT NULL UNIQUE, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, '
+            . 'question_content_digest TEXT NOT NULL, created_at TEXT NOT NULL)'
         );
         Db::execute(
             'CREATE TABLE operation_execution_intents ('
@@ -117,14 +124,20 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
             'detail_exposure' => 360,
             'raw_data' => json_encode([
                 'field_facts' => [[
+                    'metric_key' => 'list_exposure',
+                    'data_type' => 'traffic',
+                    'source_key' => 'listExposure',
                     'status' => 'captured',
                     'stored_value_present' => true,
-                    'source_path' => 'traffic.list_exposure',
+                    'source_path' => 'traffic.listExposure',
                     'storage_field' => 'online_daily_data.list_exposure',
                 ], [
+                    'metric_key' => 'detail_exposure',
+                    'data_type' => 'traffic',
+                    'source_key' => 'detailExposure',
                     'status' => 'captured',
                     'stored_value_present' => true,
-                    'source_path' => 'traffic.detail_exposure',
+                    'source_path' => 'traffic.detailExposure',
                     'storage_field' => 'online_daily_data.detail_exposure',
                 ]],
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -137,7 +150,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         $saved = $questionService->create(
             10,
             20,
-            '今天应复核哪条携程流量链路？',
+            '2026-08-12 携程列表曝光用户数应复核什么？',
             'ctrip',
             '2026-08-12',
             '2026-08-12',
@@ -163,6 +176,10 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         self::assertFalse($created['reused_existing_intent']);
         self::assertFalse($intent['evidence']['boundaries']['automatic_execution']);
         self::assertFalse($intent['evidence']['boundaries']['ota_write']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $intent['evidence']['claims_digest']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $intent['evidence']['basis_claims_digest']);
+        self::assertCount(1, $intent['evidence']['basis_claim_ids']);
+        self::assertStringStartsWith('claim-', $intent['evidence']['basis_claim_ids'][0]);
 
         $replayed = $bridge->createIntent($questionId, 0, 10, [20], 7);
         self::assertTrue($replayed['reused_existing_intent']);
@@ -181,6 +198,38 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         self::assertSame('manual', $approved['tasks'][0]['execution_mode']);
         self::assertSame('pending_execute', $approved['tasks'][0]['status']);
         self::assertSame(1, (int)Db::name('operation_execution_tasks')->count());
+
+        try {
+            $bridge->createIntent($questionId, 0, 10, [20], 7);
+            self::fail('an approved intent must not replay as a new pending-approval draft');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('已经结束审批', $exception->getMessage());
+        }
+
+        $rejectedQuestion = $questionService->create(
+            10,
+            20,
+            '2026-08-12 携程列表曝光用户数还应复核什么？',
+            'ctrip',
+            '2026-08-12',
+            '2026-08-12',
+            7
+        );
+        $rejectedIntent = $bridge->createIntent((int)$rejectedQuestion['question']['id'], 0, 10, [20], 7);
+        $rejected = (new OperationManagementService())->approveExecutionIntent(
+            (int)$rejectedIntent['execution_intent']['id'],
+            false,
+            '人工驳回测试草案',
+            8,
+            [20]
+        );
+        self::assertSame('rejected', $rejected['status']);
+        try {
+            $bridge->createIntent((int)$rejectedQuestion['question']['id'], 0, 10, [20], 7);
+            self::fail('a rejected intent must not replay as a new pending-approval draft');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('已经结束审批', $exception->getMessage());
+        }
     }
 
     public function testMissingFactsAndSourceDriftNeverCreateOrApproveAnIntent(): void
@@ -211,7 +260,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         $saved = $questionService->create(
             10,
             20,
-            '创建后若来源漂移还能批准吗？',
+            '2026-08-12 携程列表曝光用户数应复核什么？',
             'ctrip',
             '2026-08-12',
             '2026-08-12',
@@ -264,7 +313,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         $saved = $questionService->create(
             10,
             20,
-            '低置信度回答能直接创建任务吗？',
+            '2026-08-12 携程列表曝光用户数应复核什么？',
             'ctrip',
             '2026-08-12',
             '2026-08-12',
@@ -296,7 +345,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         $first = $questionService->create(
             10,
             20,
-            '来源撤销后还能批准吗？',
+            '2026-08-12 携程列表曝光用户数应复核什么？',
             'ctrip',
             '2026-08-12',
             '2026-08-12',
@@ -322,7 +371,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         $second = $questionService->create(
             10,
             20,
-            '指标值变化后还能批准吗？',
+            '2026-08-12 携程列表曝光用户数还应复核什么？',
             'ctrip',
             '2026-08-12',
             '2026-08-12',
@@ -345,13 +394,78 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
     }
 
+    public function testActionMetricMustBelongToValidatedClaims(): void
+    {
+        $questionService = $this->readyQuestionService('medium', 'detail_exposure');
+        $saved = $questionService->create(
+            10,
+            20,
+            '2026-08-12 携程列表曝光用户数应复核什么？',
+            'ctrip',
+            '2026-08-12',
+            '2026-08-12',
+            7
+        );
+        self::assertSame('answered_by_grounded_ai', $saved['question']['answer_status']);
+        self::assertSame('list_exposure', $saved['question']['answer']['fact_claims'][0]['metric_key']);
+        self::assertSame([], $saved['question']['answer']['action_drafts']);
+        try {
+            (new OperatingQuestionExecutionBridgeService(
+                $questionService,
+                new OperationManagementService()
+            ))->createIntent((int)$saved['question']['id'], 0, 10, [20], 7);
+            self::fail('an action metric outside validated claims must not create an intent');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('行动草案', $exception->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('operation_execution_intents')->count());
+    }
+
+    public function testApprovalRevalidatesClaimMetricDefinitionAndUnit(): void
+    {
+        $questionService = $this->readyQuestionService();
+        $bridge = new OperatingQuestionExecutionBridgeService(
+            $questionService,
+            new OperationManagementService()
+        );
+        $saved = $questionService->create(
+            10,
+            20,
+            '2026-08-12 携程列表曝光用户数应复核什么？',
+            'ctrip',
+            '2026-08-12',
+            '2026-08-12',
+            7
+        );
+        $intent = $bridge->createIntent((int)$saved['question']['id'], 0, 10, [20], 7);
+        $raw = json_decode((string)Db::name('online_daily_data')->where('id', 1201)->value('raw_data'), true);
+        $raw['field_facts'][0]['source_key'] = 'exposureUV';
+        Db::name('online_daily_data')->where('id', 1201)->update([
+            'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        try {
+            (new OperationManagementService())->approveExecutionIntent(
+                (int)$intent['execution_intent']['id'],
+                true,
+                '定义或单位漂移后不应获批',
+                8,
+                [20]
+            );
+            self::fail('changed metric definition or unit must block approval');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('来源', $exception->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
+    }
+
     public function testLegacyRequestKeyCannotReplayTheCurrentActionContract(): void
     {
         $questionService = $this->readyQuestionService();
         $first = $questionService->create(
             10,
             20,
-            '当前行动契约必须生成新问题记录吗？',
+            '2026-08-12 携程列表曝光用户数应复核什么？',
             'ctrip',
             '2026-08-12',
             '2026-08-12',
@@ -359,15 +473,24 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         );
         $firstId = (int)$first['question']['id'];
         $currentKey = (string)$first['question']['request_key'];
-        self::assertStringStartsWith('operating-question:v3:', $currentKey);
+        self::assertStringStartsWith('operating-question:v4:', $currentKey);
         Db::name('hotel_operating_questions')->where('id', $firstId)->update([
-            'request_key' => str_replace('operating-question:v3:', 'operating-question:v2:', $currentKey),
+            'request_key' => str_replace('operating-question:v4:', 'operating-question:v3:', $currentKey),
         ]);
+        try {
+            (new OperatingQuestionExecutionBridgeService(
+                $questionService,
+                new OperationManagementService()
+            ))->createIntent($firstId, 0, 10, [20], 7);
+            self::fail('a v3 question must never reuse the current action contract');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('当前', $exception->getMessage());
+        }
 
         $second = $questionService->create(
             10,
             20,
-            '当前行动契约必须生成新问题记录吗？',
+            '2026-08-12 携程列表曝光用户数应复核什么？',
             'ctrip',
             '2026-08-12',
             '2026-08-12',
@@ -375,14 +498,98 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         );
         self::assertTrue($second['created']);
         self::assertNotSame($firstId, (int)$second['question']['id']);
-        self::assertStringStartsWith('operating-question:v3:', (string)$second['question']['request_key']);
+        self::assertStringStartsWith('operating-question:v4:', (string)$second['question']['request_key']);
         self::assertSame(2, (int)Db::name('hotel_operating_questions')->count());
     }
 
-    private function readyQuestionService(string $confidence = 'medium'): OperatingQuestionService
+    public function testMissingOrMismatchedResponseRegistryBlocksIntentCreationAndApproval(): void
     {
-        $fakeClient = new class($confidence) extends LlmClient {
-            public function __construct(private readonly string $confidence)
+        $questionService = $this->readyQuestionService();
+        $bridge = new OperatingQuestionExecutionBridgeService(
+            $questionService,
+            new OperationManagementService()
+        );
+        $missing = $questionService->create(
+            10, 20, '2026-08-12 携程列表曝光用户数应复核什么？', 'ctrip', '2026-08-12', '2026-08-12', 7
+        );
+        $missingId = (int)$missing['question']['id'];
+        Db::name('hotel_operating_question_model_responses')->where('question_id', $missingId)->delete();
+        try {
+            $bridge->createIntent($missingId, 0, 10, [20], 7);
+            self::fail('missing provider receipt registry must block intent creation');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('当前', $exception->getMessage());
+        }
+
+        $mismatched = $questionService->create(
+            10, 20, '2026-08-12 携程列表曝光用户数还应复核什么？', 'ctrip', '2026-08-12', '2026-08-12', 7
+        );
+        $mismatchedId = (int)$mismatched['question']['id'];
+        $intent = $bridge->createIntent($mismatchedId, 0, 10, [20], 7);
+        Db::name('hotel_operating_question_model_responses')->where('question_id', $mismatchedId)->update([
+            'question_content_digest' => str_repeat('0', 64),
+        ]);
+        try {
+            (new OperationManagementService())->approveExecutionIntent(
+                (int)$intent['execution_intent']['id'],
+                true,
+                'registry 错绑时不得审批',
+                8,
+                [20]
+            );
+            self::fail('mismatched provider receipt registry must block approval');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertNotSame('', trim($exception->getMessage()));
+        }
+        self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
+    }
+
+    /** @return array<string,mixed> */
+    private static function listExposureDefinition(): array
+    {
+        $identity = [
+            'data_type' => 'traffic',
+            'metric_key' => 'list_exposure',
+            'source_metric_key' => 'exposure_users',
+            'source_key' => 'listexposure',
+            'source_path' => 'traffic.listExposure',
+            'storage_field' => 'online_daily_data.list_exposure',
+            'status' => 'captured',
+            'stored_value_present' => true,
+            'unit' => 'visitor_count',
+        ];
+        ksort($identity, SORT_STRING);
+        return [
+            'claimable' => true,
+            'definition_id' => 'ota_list_exposure_users.v1',
+            'source_metric_key' => 'exposure_users',
+            'source_data_type' => 'traffic',
+            'source_key' => 'listexposure',
+            'storage_field' => 'online_daily_data.list_exposure',
+            'source_path_digest' => hash('sha256', 'traffic.listExposure'),
+            'field_fact_digest' => hash('sha256', json_encode(
+                $identity,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR
+            )),
+            'unit' => 'visitor_count',
+            'unit_status' => 'verified',
+            'unit_source' => 'operating_question_metric_semantics.v1',
+            'label' => '曝光用户数',
+        ];
+    }
+
+    private function readyQuestionService(
+        string $confidence = 'medium',
+        string $actionMetric = 'list_exposure'
+    ): OperatingQuestionService
+    {
+        $fakeClient = new class($confidence, $actionMetric) extends LlmClient {
+            private int $calls = 0;
+
+            public function __construct(
+                private readonly string $confidence,
+                private readonly string $actionMetric
+            )
             {
             }
 
@@ -391,38 +598,29 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
                 array $schema,
                 string $modelKey = 'deepseek_v4_default'
             ): array {
+                $this->calls++;
                 return [
                     'data' => [
-                        'answer_summary' => '目标日携程流量事实已严格回读，可先进行人工链路复核。',
-                        'key_points' => ['列表曝光与详情曝光均有同日事实。'],
-                        'missing_information' => [],
+                        'fact_claims' => [[
+                            'evidence_ref' => 'online_daily_data#1201',
+                            'metric_key' => 'list_exposure',
+                            'metric_definition_id' => 'ota_list_exposure_users.v1',
+                            'value' => 1800,
+                            'unit' => 'visitor_count',
+                        ]],
                         'follow_up_questions' => [],
                         'confidence' => $this->confidence,
-                        'used_evidence_refs' => ['online_daily_data#1201'],
                         'action_drafts' => [[
-                            'title' => '复核携程曝光到详情访问链路',
-                            'action' => '人工复核目标日携程列表曝光、详情曝光和页面展示配置，并保存核对记录。',
-                            'action_object' => '携程曝光到详情访问链路',
-                            'execution_steps' => ['核对目标日列表曝光与详情曝光', '人工检查页面展示配置并记录差异'],
-                            'priority' => 'P1',
-                            'expected_metric' => 'list_exposure',
-                            'review_window' => '完成复核后按同酒店同渠道同业务日口径再次回读',
-                            'risk_level' => 'medium',
-                            'risk_summary' => '单日流量波动可能受外部因素影响，不能直接归因为页面配置。',
-                            'risk_controls' => ['人工确认对象和日期，不在本流程修改 OTA 配置'],
-                            'stop_conditions' => ['发现酒店、渠道或业务日身份不一致时停止'],
+                            'expected_metric' => $this->actionMetric,
+                            'expected_metric_definition_id' => $this->actionMetric === 'list_exposure'
+                                ? 'ota_list_exposure_users.v1'
+                                : 'ota_detail_exposure.v1',
                             'evidence_refs' => ['online_daily_data#1201'],
                         ]],
                     ],
-                    'meta' => [
-                        'provider' => 'deepseek',
-                        'model_key' => 'deepseek_v4_default',
-                        'model' => 'deepseek-v4-flash',
-                        'finish_reason' => 'stop',
-                        'fallback_used' => false,
-                        'cache_hit' => false,
-                        'degraded' => false,
-                    ],
+                    'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
+                        'resp-bridge-1201-' . str_pad((string)$this->calls, 4, '0', STR_PAD_LEFT)
+                    ),
                 ];
             }
         };
@@ -440,8 +638,11 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
                     'readback_verified_at' => '2026-08-12 10:00:00',
                     'ingestion_method' => 'browser_profile',
                     'source_trace_id' => 'execution-bridge-test',
-                    'metric_values' => ['list_exposure' => 1800, 'detail_exposure' => 360],
-                    'metric_units' => ['list_exposure' => 'exposure_count', 'detail_exposure' => 'exposure_count'],
+                    'metric_values' => ['list_exposure' => 1800],
+                    'metric_units' => ['list_exposure' => 'visitor_count'],
+                    'metric_definitions' => [
+                        'list_exposure' => self::listExposureDefinition(),
+                    ],
                 ]],
                 'fact_count' => 1,
             ],

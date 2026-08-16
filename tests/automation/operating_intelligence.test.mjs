@@ -4,8 +4,10 @@ import test from 'node:test';
 
 const read = (path) => readFileSync(path, 'utf8');
 const migration = read('database/migrations/20260802_extend_operating_intelligence.sql');
+const responseRegistryMigration = read('database/migrations/20260816_create_operating_question_model_response_registry.sql');
 const questions = read('app/service/OperatingQuestionService.php');
 const aiAnswers = read('app/service/OperatingQuestionAiAnswerService.php');
+const executionBridge = read('app/service/OperatingQuestionExecutionBridgeService.php');
 const knowledgeRetrieval = read('app/service/OperatingQuestionKnowledgeRetrievalService.php');
 const systemGuidance = read('app/service/SystemUsageAssistantService.php');
 const systemGuidanceController = read('app/controller/SystemGuidance.php');
@@ -74,7 +76,6 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(questions, /not_called_missing_facts/);
   assert.match(aiAnswers, /allowed_evidence_refs/);
   assert.match(aiAnswers, /knowledge_context/);
-  assert.match(aiAnswers, /knowledge_chunks/);
   assert.match(aiAnswers, /createJsonResponseEnvelope/);
   assert.match(knowledgeRetrieval, /KnowledgeDecisionGateService/);
   assert.match(knowledgeRetrieval, /metadata_filtered_lexical_v1/);
@@ -87,6 +88,16 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(aiAnswers, /missing_substantive_fact_coverage/);
   assert.match(aiAnswers, /metric_values/);
   assert.match(aiAnswers, /metric_units/);
+  assert.match(aiAnswers, /fact_claims/);
+  assert.match(aiAnswers, /validateFactClaims/);
+  assert.match(aiAnswers, /metric_definition_id/);
+  assert.match(aiAnswers, /source_path_digest/);
+  assert.match(aiAnswers, /field_fact_digest/);
+  assert.match(aiAnswers, /source_data_type/);
+  assert.match(aiAnswers, /source_key/);
+  assert.match(aiAnswers, /claims_digest/);
+  assert.match(aiAnswers, /renderClaimSummary/);
+  assert.doesNotMatch(aiAnswers, /'required' => \['answer_summary'/);
   assert.match(aiAnswers, /isSubstantiveFact/);
   assert.match(aiAnswers, /count\(\$dates\) \* count\(\$platforms\) > 40/);
   assert.match(questions, /observedMetricFields/);
@@ -97,6 +108,18 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(questions, /whereIn\('platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
   assert.match(questions, /whereIn\('i\.platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
   assert.match(questions, /where\('quality_status', 'verified'\)/);
+  assert.match(questions, /requested_metric_fact_missing/);
+  assert.match(questions, /requested_metric_unit_missing/);
+  assert.match(questions, /requested_metric_out_of_scope/);
+  assert.match(questions, /question_metric_ambiguous/);
+  assert.match(questions, /operating_question_metric_intent\.v2/);
+  assert.match(questions, /question_scope_platform_mismatch/);
+  assert.match(questions, /question_scope_date_mismatch/);
+  assert.match(questions, /UNSUPPORTED_QUESTION_SEMANTIC_PATTERNS/);
+  assert.match(questions, /LIST_EXPOSURE_VISITOR_SOURCE_KEYS/);
+  assert.match(questions, /DETAIL_EXPOSURE_VISITOR_SOURCE_KEYS/);
+  assert.match(questions, /action_draft_allowed/);
+  assert.match(aiAnswers, /model_fact_claim_not_requested/);
 
   assert.match(globalShell, /<operating-question-consultant v-if="isLoggedIn" :ctx="\$root"><\/operating-question-consultant>/);
   assert.match(routes, /Route::post\('\/system-guidance', 'SystemGuidance\/guide'\)/);
@@ -156,6 +179,28 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(style, /\.sx-system-guide-coach/);
   assert.match(style, /\.sx-system-guide-anchor-active/);
   assert.match(style, /@media \(max-width: 640px\)/);
+});
+
+test('operating question claims use an immutable global provider response registry', () => {
+  assert.match(responseRegistryMigration, /CREATE TABLE IF NOT EXISTS `hotel_operating_question_model_responses`/);
+  assert.match(responseRegistryMigration, /provider_response_id` VARCHAR\(191\) CHARACTER SET ascii COLLATE ascii_bin NOT NULL/);
+  assert.match(responseRegistryMigration, /UNIQUE KEY `uniq_operating_question_provider_response` \(`provider_response_id`\)/);
+  assert.match(responseRegistryMigration, /UNIQUE KEY `uniq_operating_question_response_question` \(`question_id`\)/);
+  assert.match(responseRegistryMigration, /KEY `idx_operating_question_response_scope` \(`tenant_id`, `hotel_id`, `question_id`\)/);
+  assert.doesNotMatch(responseRegistryMigration, /ON DUPLICATE KEY|REPLACE INTO|UPDATE `hotel_operating_question_model_responses`/i);
+  assert.match(questions, /operating-question:v4:/);
+  assert.match(questions, /hotel_operating_question\.v2/);
+  assert.match(questions, /provider_response_replay_rejected/);
+  assert.match(questions, /Db::transaction/);
+  assert.match(questions, /模型响应登记严格回读失败/);
+  assert.match(executionBridge, /operating_question_execution_bridge\.v2/);
+  assert.match(executionBridge, /basis_claim_ids/);
+  assert.match(executionBridge, /basis_claims_digest/);
+  assert.match(executionBridge, /currentActionEvidenceMatches/);
+  assert.match(executionBridge, /METRIC_INTENT_CONTRACT_VERSION/);
+  assert.match(executionBridge, /modelResponseRegistryMatches/);
+  assert.match(executionBridge, /operating-question:v4:/);
+  assert.match(executionBridge, /MODEL_RESPONSE_REGISTRY_TABLE/);
 });
 
 test('system usage assistant maps common work to a real page and falls back to task navigation', () => {
