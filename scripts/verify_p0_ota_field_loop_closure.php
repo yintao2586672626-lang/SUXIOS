@@ -5863,11 +5863,8 @@ function p0_authoritative_storage_evidence_rows(
             if ($validationStatus !== '' && in_array($validationStatus, $blockedValidationStatuses, true)) {
                 return false;
             }
-            if (!\app\service\OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic($row, $platform)) {
-                return false;
-            }
             if (strtolower(trim($platform)) !== 'ctrip') {
-                return true;
+                return \app\service\OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic($row, $platform);
             }
             $rowScope = p0_traffic_row_scope($row, $platform);
             if (($rowScope['authoritative'] ?? false) !== true) {
@@ -5875,6 +5872,9 @@ function p0_authoritative_storage_evidence_rows(
             }
             if (p0_ctrip_realtime_row_proof_ready($row, (string)($rowScope['endpoint_id'] ?? ''), $today)) {
                 return true;
+            }
+            if (!\app\service\OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic($row, $platform)) {
+                return false;
             }
             if (str_starts_with(strtolower(trim((string)($row['dimension'] ?? ''))), 'catalog:')) {
                 return false;
