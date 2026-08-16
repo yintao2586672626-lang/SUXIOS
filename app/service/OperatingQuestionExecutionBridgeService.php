@@ -5,6 +5,7 @@ namespace app\service;
 
 use InvalidArgumentException;
 use RuntimeException;
+use think\facade\Db;
 
 /**
  * Promotes one source-verified Q&A action draft into the existing manual
@@ -13,7 +14,17 @@ use RuntimeException;
 final class OperatingQuestionExecutionBridgeService
 {
     public const SOURCE_MODULE = 'operating_question';
-    public const CONTRACT_VERSION = 'operating_question_execution_bridge.v1';
+    public const CONTRACT_VERSION = 'operating_question_execution_bridge.v2';
+    /** @var list<string> */
+    private const SUPPORTED_CURRENCY_CODES = [
+        'CNY', 'USD', 'HKD', 'MOP', 'TWD', 'JPY', 'KRW', 'EUR', 'GBP', 'SGD', 'THB', 'MYR', 'AUD', 'CAD',
+    ];
+
+    /** @var list<string> */
+    private const SUPPORTED_NON_CURRENCY_UNITS = [
+        'percent', 'ratio_0_1', 'score_5_point', 'exposure_count', 'order_count',
+        'count', 'room_night_count', 'visitor_count',
+    ];
 
     public function __construct(
         private readonly OperatingQuestionService $questionService = new OperatingQuestionService(),
@@ -48,6 +59,9 @@ final class OperatingQuestionExecutionBridgeService
             $idempotencyKey,
             $hotelIds
         );
+        if (is_array($existing) && (string)($existing['status'] ?? '') !== 'pending_approval') {
+            throw new InvalidArgumentException('该经营问答行动草案已经结束审批；请重新提问并生成新的待审批草案');
+        }
         $evidenceRefs = array_values(array_unique([
             'hotel_operating_questions#' . $questionId,
             ...(array)$action['evidence_refs'],
@@ -71,6 +85,7 @@ final class OperatingQuestionExecutionBridgeService
                 'current_value' => [
                     'question_id' => $questionId,
                     'question_content_digest' => (string)$question['content_digest'],
+                    'claims_digest' => (string)$action['claims_digest'],
                     'question_scope' => $this->questionScope($question),
                     'metric_baseline' => $this->metricBaseline($question, $action),
                 ],
@@ -98,9 +113,15 @@ final class OperatingQuestionExecutionBridgeService
                     'question_id' => $questionId,
                     'question_content_digest' => (string)$question['content_digest'],
                     'question_answer_status' => (string)$question['answer_status'],
+                    'question_contract_version' => (string)($question['answer']['contract_version'] ?? ''),
+                    'provider_response_id' => (string)($question['answer']['ai_runtime']['provider_response_id'] ?? ''),
                     'question_scope' => $this->questionScope($question),
+                    'question_metric_contract' => (array)($question['answer']['question_metric_contract'] ?? []),
                     'action_index' => $actionIndex,
                     'action_draft_digest' => (string)$action['action_digest'],
+                    'claims_digest' => (string)$action['claims_digest'],
+                    'basis_claim_ids' => array_values((array)$action['basis_claim_ids']),
+                    'basis_claims_digest' => (string)$action['basis_claims_digest'],
                     'evidence_refs' => $evidenceRefs,
                     'source_refs' => array_values((array)$action['evidence_refs']),
                     'decision_recommendation' => $action,
@@ -123,6 +144,9 @@ final class OperatingQuestionExecutionBridgeService
             true
         );
         $this->assertIntentReadback($intent, $question, $action, $actionIndex);
+        if ((string)($intent['status'] ?? '') !== 'pending_approval') {
+            throw new InvalidArgumentException('经营问答桥接只能返回待人工审批的行动草案');
+        }
 
         return [
             'execution_intent' => $intent,
@@ -191,18 +215,24 @@ final class OperatingQuestionExecutionBridgeService
         }
         $answer = is_array($question['answer'] ?? null) ? $question['answer'] : [];
         $runtime = is_array($answer['ai_runtime'] ?? null) ? $answer['ai_runtime'] : [];
+        $claims = $this->verifiedClaims($answer);
         if ((string)($question['answer_status'] ?? '') !== 'answered_by_grounded_ai'
+            || preg_match('/^operating-question:v4:[a-f0-9]{48}$/D', (string)($question['request_key'] ?? '')) !== 1
+            || (string)($answer['contract_version'] ?? '') !== OperatingQuestionService::CONTRACT_VERSION
             || (string)($answer['status'] ?? '') !== 'answered_by_grounded_ai'
             || (string)($runtime['status'] ?? '') !== 'ready'
-            || strtolower(trim((string)($runtime['provider'] ?? ''))) !== 'deepseek'
+            || !OperatingQuestionAiAnswerService::directCallProofReady($runtime)
             || (string)($runtime['prompt_version'] ?? '') !== OperatingQuestionAiAnswerService::PROMPT_VERSION
-            || strtolower(trim((string)($runtime['finish_reason'] ?? ''))) !== 'stop'
             || !in_array((string)($answer['confidence'] ?? ''), ['medium', 'high'], true)
             || ($runtime['external_llm_called'] ?? false) !== true
-            || (string)($runtime['external_llm_call_status'] ?? '') !== 'confirmed_success'
-            || ($runtime['fallback_used'] ?? false) === true
-            || ($runtime['cache_hit'] ?? false) === true
-            || ($runtime['degraded'] ?? false) === true
+            || (string)($runtime['external_llm_call_status'] ?? '')
+                !== OperatingQuestionAiAnswerService::DIRECT_CALL_STATUS
+            || $claims === []
+            || (string)($answer['question_metric_contract']['contract_version'] ?? '')
+                !== OperatingQuestionService::METRIC_INTENT_CONTRACT_VERSION
+            || (string)($answer['question_metric_contract']['mode'] ?? '') !== 'metric_lookup'
+            || ($answer['question_metric_contract']['action_draft_allowed'] ?? false) !== true
+            || !$this->modelResponseRegistryMatches($question, $runtime)
         ) {
             throw new InvalidArgumentException('只有当前 DeepSeek 直接生成且严格回读的证据回答才能转为行动草案');
         }
@@ -214,6 +244,7 @@ final class OperatingQuestionExecutionBridgeService
         if (!is_array($action)) {
             throw new InvalidArgumentException('经营问答没有可用的行动草案');
         }
+        $basisClaims = $this->basisClaims($answer, $action, $claims);
         $quality = is_array($action['decision_quality'] ?? null) ? $action['decision_quality'] : [];
         $boundaries = is_array($action['boundaries'] ?? null) ? $action['boundaries'] : [];
         $digest = strtolower(trim((string)($action['action_digest'] ?? '')));
@@ -230,9 +261,10 @@ final class OperatingQuestionExecutionBridgeService
             || ($boundaries['external_message'] ?? true) !== false
             || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1
             || !hash_equals($digest, self::actionDigest($action))
+            || $basisClaims === []
             || !$this->actionScopeMatches($question, $action)
-            || !$this->actionEvidenceCoverageReady($question, $action)
-            || !$this->currentActionEvidenceMatches($question, $action)
+            || !$this->actionEvidenceCoverageReady($question, $action, $basisClaims)
+            || !$this->currentActionEvidenceMatches($question, $action, $basisClaims)
         ) {
             throw new InvalidArgumentException('行动草案尚未通过当前来源、证据、范围、风险和人工确认门');
         }
@@ -270,15 +302,31 @@ final class OperatingQuestionExecutionBridgeService
             || (string)($intent['expected_metric'] ?? '') !== (string)$action['expected_metric']
             || (string)($evidence['bridge_contract_version'] ?? '') !== self::CONTRACT_VERSION
             || (int)($evidence['question_id'] ?? 0) !== (int)$question['id']
+            || (string)($evidence['question_contract_version'] ?? '')
+                !== OperatingQuestionService::CONTRACT_VERSION
+            || (string)($evidence['provider_response_id'] ?? '')
+                !== (string)($question['answer']['ai_runtime']['provider_response_id'] ?? '')
             || !hash_equals(
                 strtolower((string)$question['content_digest']),
                 strtolower(trim((string)($evidence['question_content_digest'] ?? '')))
             )
             || (int)($evidence['action_index'] ?? -1) !== $actionIndex
+            || self::canonicalize((array)($evidence['question_metric_contract'] ?? []))
+                !== self::canonicalize((array)($question['answer']['question_metric_contract'] ?? []))
             || !hash_equals(
                 (string)$action['action_digest'],
                 strtolower(trim((string)($evidence['action_draft_digest'] ?? '')))
             )
+            || !hash_equals(
+                (string)$action['claims_digest'],
+                strtolower(trim((string)($evidence['claims_digest'] ?? '')))
+            )
+            || !hash_equals(
+                (string)$action['basis_claims_digest'],
+                strtolower(trim((string)($evidence['basis_claims_digest'] ?? '')))
+            )
+            || array_values((array)($evidence['basis_claim_ids'] ?? []))
+                !== array_values((array)$action['basis_claim_ids'])
             || $embedded === []
             || !hash_equals((string)$action['action_digest'], self::actionDigest($embedded))
         ) {
@@ -334,39 +382,264 @@ final class OperatingQuestionExecutionBridgeService
             && (string)($scope['source_scope'] ?? '') === 'ota_channel';
     }
 
-    /** @param array<string,mixed> $question @param array<string,mixed> $action */
-    private function actionEvidenceCoverageReady(array $question, array $action): bool
+    /** @param array<string,mixed> $answer @return list<array<string,mixed>> */
+    private function verifiedClaims(array $answer): array
+    {
+        $claims = $answer['fact_claims'] ?? null;
+        $digest = strtolower((string)($answer['claims_digest'] ?? ''));
+        if (!is_array($claims)
+            || !array_is_list($claims)
+            || $claims === []
+            || count($claims) > 8
+            || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1
+            || !hash_equals($digest, OperatingQuestionAiAnswerService::claimsDigest($claims))
+        ) {
+            return [];
+        }
+
+        $seen = [];
+        foreach ($claims as $claim) {
+            if (!is_array($claim)) {
+                return [];
+            }
+            $claimId = (string)($claim['claim_id'] ?? '');
+            $binding = is_array($claim['binding'] ?? null) ? $claim['binding'] : [];
+            if (preg_match('/^claim-[a-f0-9]{16}$/D', $claimId) !== 1
+                || isset($seen[$claimId])
+                || preg_match('/^online_daily_data#[1-9][0-9]*$/D', (string)($claim['evidence_ref'] ?? '')) !== 1
+                || preg_match('/^[a-zA-Z0-9_.:-]{1,80}$/D', (string)($claim['metric_key'] ?? '')) !== 1
+                || preg_match('/^[a-z0-9_.-]+\.v[1-9][0-9]*$/D', (string)($claim['metric_definition_id'] ?? '')) !== 1
+                || preg_match('/^[a-z0-9_.:-]{1,100}$/D', (string)($claim['source_metric_key'] ?? '')) !== 1
+                || (!is_int($claim['value'] ?? null) && !is_float($claim['value'] ?? null))
+                || !$this->realMetricUnit((string)($claim['unit'] ?? ''))
+                || !in_array((string)($claim['platform'] ?? ''), ['ctrip', 'meituan', 'qunar'], true)
+                || $this->dates((string)($claim['data_date'] ?? ''), (string)($claim['data_date'] ?? '')) === []
+                || (string)($binding['storage_field'] ?? '') !== 'online_daily_data.' . (string)$claim['metric_key']
+                || preg_match('/^[a-f0-9]{64}$/D', (string)($binding['source_path_digest'] ?? '')) !== 1
+                || preg_match('/^[a-f0-9]{64}$/D', (string)($binding['field_fact_digest'] ?? '')) !== 1
+                || preg_match('/^[a-z0-9_.:-]{1,50}$/D', (string)($binding['source_data_type'] ?? '')) !== 1
+                || preg_match('/^[a-z0-9_.:-]{1,100}$/D', (string)($binding['source_key'] ?? '')) !== 1
+                || trim((string)($binding['readback_verified_at'] ?? '')) === ''
+                || trim((string)($binding['ingestion_method'] ?? '')) === ''
+                || preg_match('/^[a-f0-9]{64}$/D', (string)($binding['source_trace_id_digest'] ?? '')) !== 1
+                || trim((string)($claim['statement'] ?? '')) === ''
+            ) {
+                return [];
+            }
+            $identity = [
+                'evidence_ref' => (string)$claim['evidence_ref'],
+                'metric_key' => (string)$claim['metric_key'],
+                'metric_definition_id' => (string)$claim['metric_definition_id'],
+                'source_metric_key' => (string)$claim['source_metric_key'],
+                'metric_label' => (string)($claim['metric_label'] ?? ''),
+                'value' => $claim['value'],
+                'unit' => (string)$claim['unit'],
+                'platform' => (string)$claim['platform'],
+                'data_date' => (string)$claim['data_date'],
+                'binding' => $binding,
+            ];
+            $expectedId = 'claim-' . substr(hash('sha256', json_encode(
+                $identity,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR
+            )), 0, 16);
+            if (!hash_equals($expectedId, $claimId)) {
+                return [];
+            }
+            $seen[$claimId] = true;
+        }
+        return $claims;
+    }
+
+    /** @param array<string,mixed> $question @param array<string,mixed> $runtime */
+    private function modelResponseRegistryMatches(array $question, array $runtime): bool
+    {
+        $providerResponseId = $this->providerResponseId($runtime['provider_response_id'] ?? null);
+        $provider = strtolower(trim((string)($runtime['provider'] ?? '')));
+        $digest = strtolower(trim((string)($question['content_digest'] ?? '')));
+        if ($providerResponseId === ''
+            || preg_match('/^[a-z0-9_.:-]{2,50}$/D', $provider) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1
+            || (int)($question['id'] ?? 0) <= 0
+            || (int)($question['tenant_id'] ?? 0) <= 0
+            || (int)($question['hotel_id'] ?? 0) <= 0
+        ) {
+            return false;
+        }
+        try {
+            $registry = Db::name(OperatingQuestionService::MODEL_RESPONSE_REGISTRY_TABLE)
+                ->where('provider_response_id', $providerResponseId)
+                ->find();
+        } catch (\Throwable) {
+            return false;
+        }
+        return is_array($registry)
+            && (string)($registry['provider_response_id'] ?? '') === $providerResponseId
+            && (string)($registry['provider'] ?? '') === $provider
+            && (int)($registry['question_id'] ?? 0) === (int)$question['id']
+            && (int)($registry['tenant_id'] ?? 0) === (int)$question['tenant_id']
+            && (int)($registry['hotel_id'] ?? 0) === (int)$question['hotel_id']
+            && hash_equals($digest, strtolower(trim((string)($registry['question_content_digest'] ?? ''))));
+    }
+
+    /**
+     * @param array<string,mixed> $answer
+     * @param array<string,mixed> $action
+     * @param list<array<string,mixed>> $claims
+     * @return list<array<string,mixed>>
+     */
+    private function basisClaims(array $answer, array $action, array $claims): array
+    {
+        $answerDigest = strtolower((string)($answer['claims_digest'] ?? ''));
+        $actionDigest = strtolower((string)($action['claims_digest'] ?? ''));
+        $basisDigest = strtolower((string)($action['basis_claims_digest'] ?? ''));
+        $basisIds = $action['basis_claim_ids'] ?? null;
+        if ($claims === []
+            || preg_match('/^[a-f0-9]{64}$/D', $answerDigest) !== 1
+            || !hash_equals($answerDigest, $actionDigest)
+            || preg_match('/^[a-f0-9]{64}$/D', $basisDigest) !== 1
+            || !is_array($basisIds)
+            || !array_is_list($basisIds)
+            || $basisIds === []
+        ) {
+            return [];
+        }
+        $byId = [];
+        foreach ($claims as $claim) {
+            $byId[(string)$claim['claim_id']] = $claim;
+        }
+        $basis = [];
+        $seen = [];
+        foreach ($basisIds as $claimId) {
+            if (!is_string($claimId) || isset($seen[$claimId]) || !isset($byId[$claimId])) {
+                return [];
+            }
+            $seen[$claimId] = true;
+            $basis[] = $byId[$claimId];
+        }
+        $metric = (string)($action['expected_metric'] ?? '');
+        $definitionId = (string)($action['expected_metric_definition_id'] ?? '');
+        $unit = (string)($action['expected_unit'] ?? '');
+        $allMatchingIds = [];
+        foreach ($claims as $claim) {
+            if ((string)$claim['metric_key'] === $metric
+                && (string)$claim['metric_definition_id'] === $definitionId
+            ) {
+                $allMatchingIds[] = (string)$claim['claim_id'];
+            }
+        }
+        $declaredIds = array_values($basisIds);
+        sort($declaredIds, SORT_STRING);
+        sort($allMatchingIds, SORT_STRING);
+        if ($allMatchingIds === [] || $declaredIds !== $allMatchingIds) {
+            return [];
+        }
+        foreach ($basis as $claim) {
+            if ((string)$claim['metric_key'] !== $metric
+                || (string)$claim['metric_definition_id'] !== $definitionId
+                || (string)$claim['unit'] !== $unit
+            ) {
+                return [];
+            }
+        }
+        if (!hash_equals($basisDigest, OperatingQuestionAiAnswerService::claimsDigest($basis))) {
+            return [];
+        }
+        $claimRefs = array_values(array_unique(array_map(
+            static fn(array $claim): string => (string)$claim['evidence_ref'],
+            $basis
+        )));
+        $actionRefs = array_values(array_unique(array_map('strval', (array)($action['evidence_refs'] ?? []))));
+        sort($claimRefs, SORT_STRING);
+        sort($actionRefs, SORT_STRING);
+        return $claimRefs === $actionRefs ? $basis : [];
+    }
+
+    private function providerResponseId(mixed $value): string
+    {
+        return is_string($value)
+            && strlen($value) >= 8
+            && strlen($value) <= 191
+            && preg_match('/^[A-Za-z0-9._:-]+$/D', $value) === 1
+                ? $value
+                : '';
+    }
+
+    private function realMetricUnit(string $unit): bool
+    {
+        $unit = trim($unit);
+        if (preg_match('/^[A-Z]{3}$/D', $unit) === 1) {
+            return in_array($unit, self::SUPPORTED_CURRENCY_CODES, true);
+        }
+        return in_array(strtolower($unit), self::SUPPORTED_NON_CURRENCY_UNITS, true);
+    }
+
+    /**
+     * @param array<string,mixed> $question
+     * @param array<string,mixed> $action
+     * @param list<array<string,mixed>> $basisClaims
+     */
+    private function actionEvidenceCoverageReady(array $question, array $action, array $basisClaims): bool
     {
         $metric = trim((string)($action['expected_metric'] ?? ''));
+        $definitionId = trim((string)($action['expected_metric_definition_id'] ?? ''));
+        $unit = trim((string)($action['expected_unit'] ?? ''));
         $refs = array_values(array_unique(array_filter(array_map(
             'strval',
             (array)($action['evidence_refs'] ?? [])
         ))));
         $factRefs = array_values(array_map('strval', (array)($question['fact_refs'] ?? [])));
         if ($metric === ''
+            || $definitionId === ''
+            || !$this->realMetricUnit($unit)
             || $refs === []
+            || $basisClaims === []
             || array_diff($refs, $factRefs) !== []
             || array_filter($refs, static fn(string $ref): bool => preg_match('/^online_daily_data#[1-9][0-9]*$/D', $ref) !== 1) !== []
         ) {
             return false;
         }
         $answer = is_array($question['answer'] ?? null) ? $question['answer'] : [];
-        $coverage = [];
-        foreach ((array)($answer['fact_samples'] ?? []) as $fact) {
-            if (!is_array($fact) || !in_array((string)($fact['ref'] ?? ''), $refs, true)) {
-                continue;
-            }
-            $values = is_array($fact['metric_values'] ?? null) ? $fact['metric_values'] : [];
-            $units = is_array($fact['metric_units'] ?? null) ? $fact['metric_units'] : [];
-            if (!array_key_exists($metric, $values)
-                || !is_numeric($values[$metric])
-                || trim((string)($units[$metric] ?? '')) === ''
+        $metricContract = is_array($answer['question_metric_contract'] ?? null)
+            ? $answer['question_metric_contract']
+            : [];
+        $requestedMetricReady = false;
+        foreach ((array)($metricContract['requested_metrics'] ?? []) as $requested) {
+            if (is_array($requested)
+                && (string)($requested['metric_key'] ?? '') === $metric
+                && in_array($definitionId, (array)($requested['definition_ids'] ?? []), true)
             ) {
-                continue;
+                $requestedMetricReady = true;
+                break;
             }
-            $platform = strtolower(trim((string)($fact['platform'] ?? '')));
-            $date = trim((string)($fact['data_date'] ?? ''));
+        }
+        if (!$requestedMetricReady) {
+            return false;
+        }
+        $coverage = [];
+        $claimRefs = [];
+        foreach ($basisClaims as $claim) {
+            if ((string)($claim['metric_key'] ?? '') !== $metric
+                || (string)($claim['metric_definition_id'] ?? '') !== $definitionId
+                || (string)($claim['unit'] ?? '') !== $unit
+                || (!is_int($claim['value'] ?? null) && !is_float($claim['value'] ?? null))
+            ) {
+                return false;
+            }
+            $ref = (string)($claim['evidence_ref'] ?? '');
+            if (!in_array($ref, $refs, true)) {
+                return false;
+            }
+            $claimRefs[$ref] = true;
+            $platform = strtolower(trim((string)($claim['platform'] ?? '')));
+            $date = trim((string)($claim['data_date'] ?? ''));
             $coverage[$platform][$date] = true;
+        }
+        $declaredRefs = $refs;
+        $boundRefs = array_keys($claimRefs);
+        sort($declaredRefs, SORT_STRING);
+        sort($boundRefs, SORT_STRING);
+        if ($declaredRefs !== $boundRefs) {
+            return false;
         }
         $platforms = (string)$question['platform'] === 'all_ota'
             ? ['ctrip', 'meituan']
@@ -393,15 +666,15 @@ final class OperatingQuestionExecutionBridgeService
      *
      * @param array<string,mixed> $question
      * @param array<string,mixed> $action
+     * @param list<array<string,mixed>> $basisClaims
      */
-    private function currentActionEvidenceMatches(array $question, array $action): bool
+    private function currentActionEvidenceMatches(array $question, array $action, array $basisClaims): bool
     {
-        $metric = trim((string)($action['expected_metric'] ?? ''));
         $refs = array_values(array_unique(array_filter(array_map(
             'strval',
             (array)($action['evidence_refs'] ?? [])
         ))));
-        if ($metric === '' || $refs === []) {
+        if ($refs === [] || $basisClaims === []) {
             return false;
         }
         try {
@@ -416,12 +689,6 @@ final class OperatingQuestionExecutionBridgeService
         } catch (\Throwable) {
             return false;
         }
-        $savedByRef = [];
-        foreach ((array)($question['answer']['fact_samples'] ?? []) as $fact) {
-            if (is_array($fact)) {
-                $savedByRef[(string)($fact['ref'] ?? '')] = $fact;
-            }
-        }
         $currentByRef = [];
         foreach ($currentFacts as $fact) {
             if (is_array($fact)) {
@@ -431,33 +698,56 @@ final class OperatingQuestionExecutionBridgeService
         if (count($currentByRef) !== count($refs)) {
             return false;
         }
-        foreach ($refs as $ref) {
-            $saved = $savedByRef[$ref] ?? null;
+        foreach ($basisClaims as $claim) {
+            $ref = (string)($claim['evidence_ref'] ?? '');
+            $metric = (string)($claim['metric_key'] ?? '');
             $current = $currentByRef[$ref] ?? null;
-            if (!is_array($saved) || !is_array($current)) {
+            $binding = is_array($claim['binding'] ?? null) ? $claim['binding'] : [];
+            if ($ref === '' || $metric === '' || !is_array($current)) {
                 return false;
             }
-            $savedValues = is_array($saved['metric_values'] ?? null) ? $saved['metric_values'] : [];
             $currentValues = is_array($current['metric_values'] ?? null) ? $current['metric_values'] : [];
-            $savedUnits = is_array($saved['metric_units'] ?? null) ? $saved['metric_units'] : [];
             $currentUnits = is_array($current['metric_units'] ?? null) ? $current['metric_units'] : [];
+            $currentDefinitions = is_array($current['metric_definitions'] ?? null)
+                ? $current['metric_definitions']
+                : [];
+            $definition = is_array($currentDefinitions[$metric] ?? null)
+                ? $currentDefinitions[$metric]
+                : [];
             if ((string)($current['ref'] ?? '') !== $ref
-                || (string)($current['data_date'] ?? '') !== (string)($saved['data_date'] ?? '')
+                || (string)($current['data_date'] ?? '') !== (string)($claim['data_date'] ?? '')
                 || strtolower(trim((string)($current['platform'] ?? '')))
-                    !== strtolower(trim((string)($saved['platform'] ?? '')))
-                || (string)($current['data_type'] ?? '') !== (string)($saved['data_type'] ?? '')
+                    !== strtolower(trim((string)($claim['platform'] ?? '')))
                 || (string)($current['history_status'] ?? '') !== 'success'
                 || (string)($current['quality_status'] ?? '') !== 'verified'
                 || (string)($current['readback_status'] ?? '') !== 'readback_verified'
-                || (string)($current['ingestion_method'] ?? '') !== (string)($saved['ingestion_method'] ?? '')
-                || (string)($current['source_trace_id'] ?? '') !== (string)($saved['source_trace_id'] ?? '')
-                || !array_key_exists($metric, $savedValues)
+                || trim((string)($current['readback_verified_at'] ?? ''))
+                    !== (string)($binding['readback_verified_at'] ?? '')
+                || trim((string)($current['ingestion_method'] ?? ''))
+                    !== (string)($binding['ingestion_method'] ?? '')
+                || !hash_equals(
+                    (string)($binding['source_trace_id_digest'] ?? ''),
+                    hash('sha256', trim((string)($current['source_trace_id'] ?? '')))
+                )
                 || !array_key_exists($metric, $currentValues)
-                || !is_numeric($savedValues[$metric])
                 || !is_numeric($currentValues[$metric])
-                || !$this->sameMetricValue($savedValues[$metric], $currentValues[$metric])
-                || trim((string)($savedUnits[$metric] ?? '')) === ''
-                || (string)($currentUnits[$metric] ?? '') !== (string)$savedUnits[$metric]
+                || !$this->sameMetricValue($claim['value'] ?? null, $currentValues[$metric])
+                || (string)($currentUnits[$metric] ?? '') !== (string)($claim['unit'] ?? '')
+                || (string)($definition['definition_id'] ?? '')
+                    !== (string)($claim['metric_definition_id'] ?? '')
+                || (string)($definition['source_metric_key'] ?? '')
+                    !== (string)($claim['source_metric_key'] ?? '')
+                || (string)($definition['source_data_type'] ?? '')
+                    !== (string)($binding['source_data_type'] ?? '')
+                || (string)($definition['source_key'] ?? '')
+                    !== (string)($binding['source_key'] ?? '')
+                || (string)($definition['storage_field'] ?? '')
+                    !== (string)($binding['storage_field'] ?? '')
+                || (string)($definition['source_path_digest'] ?? '')
+                    !== (string)($binding['source_path_digest'] ?? '')
+                || (string)($definition['field_fact_digest'] ?? '')
+                    !== (string)($binding['field_fact_digest'] ?? '')
+                || (string)($definition['unit_status'] ?? '') !== 'verified'
             ) {
                 return false;
             }
@@ -473,23 +763,31 @@ final class OperatingQuestionExecutionBridgeService
     /** @param array<string,mixed> $question @param array<string,mixed> $action @return array<string,mixed> */
     private function metricBaseline(array $question, array $action): array
     {
-        $metric = (string)$action['expected_metric'];
-        $refs = array_values((array)$action['evidence_refs']);
+        $answer = is_array($question['answer'] ?? null) ? $question['answer'] : [];
+        $claims = $this->verifiedClaims($answer);
+        $basisClaims = $this->basisClaims($answer, $action, $claims);
         $rows = [];
-        foreach ((array)($question['answer']['fact_samples'] ?? []) as $fact) {
-            if (!is_array($fact) || !in_array((string)($fact['ref'] ?? ''), $refs, true)) {
-                continue;
-            }
+        foreach ($basisClaims as $claim) {
             $rows[] = [
-                'ref' => (string)$fact['ref'],
-                'platform' => (string)($fact['platform'] ?? ''),
-                'business_date' => (string)($fact['data_date'] ?? ''),
-                'metric' => $metric,
-                'value' => $fact['metric_values'][$metric] ?? null,
-                'unit' => (string)($fact['metric_units'][$metric] ?? ''),
+                'claim_id' => (string)$claim['claim_id'],
+                'ref' => (string)$claim['evidence_ref'],
+                'platform' => (string)$claim['platform'],
+                'business_date' => (string)$claim['data_date'],
+                'metric' => (string)$claim['metric_key'],
+                'metric_definition_id' => (string)$claim['metric_definition_id'],
+                'value' => $claim['value'],
+                'unit' => (string)$claim['unit'],
+                'binding' => (array)$claim['binding'],
             ];
         }
-        return ['metric' => $metric, 'rows' => $rows];
+        return [
+            'metric' => (string)$action['expected_metric'],
+            'metric_definition_id' => (string)$action['expected_metric_definition_id'],
+            'unit' => (string)$action['expected_unit'],
+            'claims_digest' => (string)$action['claims_digest'],
+            'basis_claims_digest' => (string)$action['basis_claims_digest'],
+            'rows' => $rows,
+        ];
     }
 
     /** @param array<string,mixed> $question @return array<string,mixed> */

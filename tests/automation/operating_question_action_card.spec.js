@@ -39,7 +39,7 @@ const user = {
 };
 
 const action = {
-  contract_version: 'operating_question_action_draft.v1',
+  contract_version: 'operating_question_action_draft.v2',
   title: '复核携程曝光到详情访问链路',
   action: '人工复核目标日携程列表曝光、详情曝光和页面展示配置，并保存核对记录。',
   action_object: '携程曝光到详情访问链路',
@@ -99,12 +99,31 @@ const question = {
     ai_runtime: {
       status: 'ready',
       provider: 'deepseek',
-      model_key: 'deepseek_v4_default',
-      model: 'deepseek-v4-flash',
-      prompt_version: 'operating_question_grounded_ai.zh-CN.v3',
+      model_key: 'deepseek_v4_pro',
+      model: 'deepseek-v4-pro',
+      configured_model: 'deepseek-v4-pro',
+      response_model: 'deepseek-v4-pro',
+      provider_response_id: 'chatcmpl-action-proof-0001',
+      provider_created_at: Math.floor(Date.now() / 1000),
+      provider_response_fresh: true,
+      provider_endpoint_origin: 'https://api.deepseek.com',
+      provider_endpoint_host: 'api.deepseek.com',
+      provider_endpoint_official: true,
+      provider_config_digest: 'c'.repeat(64),
+      direct_call_nonce: 'oq_action_proof_0001',
+      transport_request_id: 'oq_action_proof_0001',
+      transport_retry_attempts: 0,
+      upstream_idempotency_key_sent: false,
+      http_status: 200,
+      provider_attempt_count: 1,
+      idempotent_replay: false,
+      direct_request_proof: true,
+      thinking_mode: 'enabled',
+      reasoning_effort: 'high',
+      prompt_version: 'operating_question_grounded_ai.zh-CN.v4',
       finish_reason: 'stop',
       external_llm_called: true,
-      external_llm_call_status: 'confirmed_success',
+      external_llm_call_status: 'confirmed_direct_deepseek_v4_pro',
       fallback_used: false,
       cache_hit: false,
       degraded: false,
@@ -119,6 +138,7 @@ const question = {
   execution_refs: [],
   data_gaps: [],
   content_digest: questionDigest,
+  readback_verified: true,
 };
 
 const intent = {
@@ -203,6 +223,8 @@ test('grounded operating answer submits one evidence-locked action for human app
     '/api/agent/operating-questions',
     '/api/agent/operating-questions/71/action-drafts/0/execution-intent',
   ]);
+  expect(calls.find(call => call.pathname === '/api/agent/operating-questions').body.model_key)
+    .toBe('deepseek_v4_pro');
   expect(calls.some(call => /approve|collect|fetch|apply/.test(call.pathname) && call.method === 'POST')).toBe(false);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
@@ -228,3 +250,27 @@ test('stale or low-confidence action remains blocked in the UI and never posts a
   await expect(page.getByTestId('operating-question-action-submit')).toHaveCount(0);
   expect(calls.some(call => call.pathname.includes('/execution-intent') && call.method === 'POST')).toBe(false);
 });
+
+for (const [label, mutate] of [
+  ['Flash response model', runtime => { runtime.response_model = 'deepseek-v4-flash'; runtime.direct_request_proof = false; }],
+  ['cache replay', runtime => { runtime.cache_hit = true; runtime.direct_request_proof = false; }],
+  ['provider fallback', runtime => { runtime.fallback_used = true; runtime.direct_request_proof = false; }],
+  ['unofficial endpoint', runtime => { runtime.provider_endpoint_origin = 'https://gateway.example.com'; runtime.provider_endpoint_official = false; runtime.direct_request_proof = false; }],
+  ['stale provider response', runtime => { runtime.provider_response_fresh = false; runtime.direct_request_proof = false; }],
+  ['retry or idempotency', runtime => { runtime.transport_retry_attempts = 1; runtime.upstream_idempotency_key_sent = true; runtime.direct_request_proof = false; }],
+]) {
+  test(`${label} proof never exposes the pending-action submit`, async ({ page }) => {
+    const calls = [];
+    const rejected = structuredClone(question);
+    mutate(rejected.answer.ai_runtime);
+    await installAuthenticatedMocks(page, calls, { questionResponse: rejected });
+    await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+    await page.getByTestId('nav-lean-more').click();
+    await page.getByTestId('nav-agent-center').click();
+    await page.getByPlaceholder('例如：这家店今天最需要复核什么？').fill(rejected.question_text);
+    await page.getByRole('button', { name: '提交并回读' }).click();
+    await expect(page.getByTestId('operating-question-action-card')).toContainText('需补齐后提交');
+    await expect(page.getByTestId('operating-question-action-submit')).toHaveCount(0);
+    expect(calls.some(call => call.pathname.includes('/execution-intent') && call.method === 'POST')).toBe(false);
+  });
+}

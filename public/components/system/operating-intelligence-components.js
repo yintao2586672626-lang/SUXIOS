@@ -307,13 +307,7 @@
                     })),
                 ];
                 const modelOptions = [
-                    { value: '', label: 'DeepSeek V4 默认' },
-                    ...textList(ctx.availableAiModelOptions).filter((model) => (
-                        String(model?.value || '').toLowerCase().includes('deepseek')
-                    )).map((model) => ({
-                        value: model?.value || '',
-                        label: model?.label || model?.value || '模型',
-                    })),
+                    { value: 'deepseek_v4_pro', label: 'DeepSeek V4 Pro（固定直调）' },
                 ];
                 const conversation = [];
 

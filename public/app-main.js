@@ -41089,7 +41089,7 @@
                 platform: 'ctrip',
                 date_start: toLocalIsoDate(),
                 date_end: toLocalIsoDate(),
-                model_key: '',
+                model_key: 'deepseek_v4_pro',
             });
             const createOperatingQuestionState = () => ({
                 question: '',
@@ -41102,6 +41102,34 @@
             });
             const operatingQuestionForm = ref(createOperatingQuestionForm());
             const operatingQuestionState = ref(createOperatingQuestionState());
+            const operatingQuestionDirectCallReady = (runtime = {}) => (
+                String(runtime?.provider || '').trim().toLowerCase() === 'deepseek'
+                && String(runtime?.model_key || '') === 'deepseek_v4_pro'
+                && String(runtime?.configured_model || '').trim().toLowerCase() === 'deepseek-v4-pro'
+                && String(runtime?.response_model || '').trim().toLowerCase() === 'deepseek-v4-pro'
+                && String(runtime?.provider_response_id || '').trim() !== ''
+                && Number(runtime?.provider_created_at || 0) > 0
+                && Math.abs(Math.floor(Date.now() / 1000) - Number(runtime?.provider_created_at || 0)) <= 900
+                && runtime?.provider_response_fresh === true
+                && String(runtime?.provider_endpoint_origin || '').trim().toLowerCase() === 'https://api.deepseek.com'
+                && String(runtime?.provider_endpoint_host || '').trim().toLowerCase() === 'api.deepseek.com'
+                && runtime?.provider_endpoint_official === true
+                && /^[a-f0-9]{64}$/.test(String(runtime?.provider_config_digest || '').trim().toLowerCase())
+                && String(runtime?.direct_call_nonce || '').trim() !== ''
+                && String(runtime?.direct_call_nonce || '').trim() === String(runtime?.transport_request_id || '').trim()
+                && Number(runtime?.transport_retry_attempts ?? -1) === 0
+                && runtime?.upstream_idempotency_key_sent === false
+                && Number(runtime?.http_status || 0) === 200
+                && Number(runtime?.provider_attempt_count || 0) === 1
+                && runtime?.idempotent_replay === false
+                && runtime?.direct_request_proof === true
+                && String(runtime?.thinking_mode || '').trim().toLowerCase() === 'enabled'
+                && String(runtime?.reasoning_effort || '').trim().toLowerCase() === 'high'
+                && String(runtime?.finish_reason || '').trim().toLowerCase() === 'stop'
+                && runtime?.fallback_used === false
+                && runtime?.cache_hit === false
+                && runtime?.degraded === false
+            );
             const operatingQuestionActionIsCurrent = (result = {}, action = {}, form = {}) => {
                 const answer = result?.answer || {};
                 const runtime = answer?.ai_runtime || {};
@@ -41111,15 +41139,11 @@
                     && String(answer?.status || '') === 'answered_by_grounded_ai'
                     && ['medium', 'high'].includes(String(answer?.confidence || ''))
                     && String(runtime?.status || '') === 'ready'
-                    && String(runtime?.provider || '').trim().toLowerCase() === 'deepseek'
-                    && String(runtime?.prompt_version || '') === 'operating_question_grounded_ai.zh-CN.v3'
-                    && String(runtime?.finish_reason || '').trim().toLowerCase() === 'stop'
+                    && operatingQuestionDirectCallReady(runtime)
+                    && String(runtime?.prompt_version || '') === 'operating_question_grounded_ai.zh-CN.v4'
                     && runtime?.external_llm_called === true
-                    && String(runtime?.external_llm_call_status || '') === 'confirmed_success'
-                    && runtime?.fallback_used !== true
-                    && runtime?.cache_hit !== true
-                    && runtime?.degraded !== true
-                    && String(action?.contract_version || '') === 'operating_question_action_draft.v1'
+                    && String(runtime?.external_llm_call_status || '') === 'confirmed_direct_deepseek_v4_pro'
+                    && String(action?.contract_version || '') === 'operating_question_action_draft.v2'
                     && String(action?.status || '') === 'ready_for_human_review'
                     && action?.can_create_execution_intent === true
                     && String(action?.decision_quality?.contract_version || '') === 'ai_recommendation_quality.v2'
@@ -41247,9 +41271,13 @@
             const operatingQuestionAiRuntimeText = (result) => {
                 const runtime = result?.answer?.ai_runtime || {};
                 const status = String(runtime.status || '');
+                if (status === 'ready' && operatingQuestionDirectCallReady(runtime)
+                    && String(runtime?.external_llm_call_status || '') === 'confirmed_direct_deepseek_v4_pro'
+                ) {
+                    return 'DeepSeek V4 Pro 直连已确认 · 已基于严格回读证据生成';
+                }
                 if (status === 'ready') {
-                    const provider = String(runtime.provider || '').toLowerCase() === 'deepseek' ? 'DeepSeek' : String(runtime.provider || 'AI');
-                    return `AI已基于证据生成 · ${provider}${runtime.model ? ` · ${runtime.model}` : ''}`;
+                    return 'AI回答缺少完整直连证明 · 当前不允许生成待审批行动';
                 }
                 if (status === 'model_unavailable') {
                     return runtime.external_llm_call_status === 'unknown_after_client_attempt'
@@ -45035,7 +45063,8 @@
                 const platform = String(operatingQuestionForm.value.platform || '').trim();
                 const dateStart = String(operatingQuestionForm.value.date_start || '').trim();
                 const dateEnd = String(operatingQuestionForm.value.date_end || '').trim();
-                const modelKey = String(operatingQuestionForm.value.model_key || '').trim();
+                const modelKey = 'deepseek_v4_pro';
+                operatingQuestionForm.value.model_key = modelKey;
                 state.error = '';
                 state.result = null;
                 state.action_error = '';
@@ -45072,7 +45101,8 @@
                         || String(exact.date_start || '') !== dateStart
                         || String(exact.date_end || '') !== dateEnd
                         || String(exact.question_text || '') !== question
-                        || !exact.content_digest
+                        || exact.readback_verified !== true
+                        || !/^[a-f0-9]{64}$/.test(String(exact.content_digest || ''))
                         || String(exact.content_digest) !== String(savedQuestion.content_digest || '')
                     ) {
                         throw new Error('operating-question-readback-error：保存与回读身份不一致');
@@ -45140,7 +45170,7 @@
                         || String(exact.date_end || '') !== dateEnd
                         || String(exact.object_type || '') !== 'operation_checklist'
                         || String(exact.action_type || '') !== 'human_reviewed_operating_check'
-                        || !['pending_approval', 'approved', 'rejected'].includes(String(exact.status || ''))
+                        || String(exact.status || '') !== 'pending_approval'
                         || String(evidence.question_content_digest || '') !== String(result.content_digest || '')
                         || Number(evidence.action_index ?? -1) !== Number(actionIndex)
                         || String(evidence.action_draft_digest || '') !== actionDigest
