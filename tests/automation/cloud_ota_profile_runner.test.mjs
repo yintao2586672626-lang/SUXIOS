@@ -9,6 +9,7 @@ const service = read('deploy/systemd/suxios-cloud-ota-profile-collection.service
 const timer = read('deploy/systemd/suxios-cloud-ota-profile-collection.timer');
 const batch = read('scripts/run_cloud_ota_profile_collection_batch.php');
 const profileLease = read('app/service/CloudOtaProfileLeaseService.php');
+const ctripCapture = read('scripts/ctrip_browser_capture.mjs');
 
 test('cloud OTA runner binds one source/Profile/date and persists only after current capture proof', () => {
   assert.match(runner, /validateOtaDataSourceCollectionProfile/);
@@ -110,6 +111,7 @@ test('cloud OTA service serializes Ctrip then Meituan and cannot send messages',
   assert.match(batch, /OTA_BATCH_CHILD_DEADLINE_SECONDS/);
   assert.match(batch, /--timeout-seconds=480/);
   assert.match(profileLease, /\$path === '\/v1\/collection\/open' \? 90 : 30/);
+  assert.match(ctripCapture, /const parallelSectionsEnabled = !authOnly\s*&& !connectedCloudProfile/);
   assert.match(batch, /\(\$receipt\['business_data_persisted'\] \?\? null\) !== false/);
   assert.match(batch, /gateway_receipt_readback_verified/);
   assert.match(batch, /requires_explicit_no_persistence/);

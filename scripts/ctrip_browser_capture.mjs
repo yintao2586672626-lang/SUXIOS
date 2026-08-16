@@ -148,7 +148,9 @@ const sectionConcurrency = normalizeSectionConcurrency(
     || args.ctrip_section_concurrency,
   3,
 );
+const connectedCloudProfile = Boolean(String(args.cdpUrl || args.cdp_url || '').trim());
 const parallelSectionsEnabled = !authOnly
+  && !connectedCloudProfile
   && requestedSections.length > 1
   && sectionConcurrency > 1
   && !booleanArg(args.disableParallelSections)
@@ -156,7 +158,6 @@ const parallelSectionsEnabled = !authOnly
   && !booleanArg(args.sequential_sections);
 const parallelFallbackEnabled = !booleanArg(args.disableParallelFallback);
 const includeResponseDataInOutput = booleanArg(args.includeResponseData || args.include_response_data || args.rawResponses || args.raw_responses);
-const connectedCloudProfile = Boolean(String(args.cdpUrl || args.cdp_url || '').trim());
 const captureStartedAtMs = Date.now();
 
 if (!connectedCloudProfile) {
