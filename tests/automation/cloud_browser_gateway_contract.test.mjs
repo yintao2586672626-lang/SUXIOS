@@ -1220,8 +1220,8 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /message\.sessionId \|\| ''/);
   assert.match(gateway, /targetInfo\.type === 'page'/);
   assert.match(gateway, /policyViolation = true/);
-  assert.match(gateway, /const markPolicyViolation = \(\) => \{\s*policyViolation = true;\s*child\?\.kill\?\.\('SIGTERM'\)/);
-  assert.match(gateway, /if \(!intentionalClose\) \{\s*markPolicyViolation\(\)/);
+  assert.match(gateway, /const markPolicyViolation = \(reason = 'unknown'\) => \{\s*policyViolation = true;\s*console\.error\([^;]+\);\s*child\?\.kill\?\.\('SIGTERM'\)/);
+  assert.match(gateway, /if \(!intentionalClose\) \{\s*markPolicyViolation\('policy_socket_closed'\)/);
   assert.match(gateway, /requestPolicyEnforced\s*&& !policyViolation\s*&& !closed\s*&& socket\.readyState === WebSocket\.OPEN/);
   assert.match(gateway, /pages\.length > 1/);
   assert.match(gateway, /collectionPolicyStillEnforced/);
