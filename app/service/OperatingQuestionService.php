@@ -240,7 +240,7 @@ final class OperatingQuestionService
         string $dateStart,
         string $dateEnd,
         int $createdBy,
-        string $modelKey = OperatingQuestionAiAnswerService::REQUIRED_MODEL_KEY
+        string $modelKey = OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY
     ): array {
         $this->assertTableReady();
         $this->assertHotelIdentity($tenantId, $hotelId);
@@ -694,7 +694,7 @@ final class OperatingQuestionService
         if (!is_array($row)) {
             throw new RuntimeException('operating question not found');
         }
-        return $this->normalizeRow($row);
+        return $this->assertReadbackDigest($this->normalizeRow($row));
     }
 
     /** @param list<int> $hotelIds @return array<string,mixed> */
@@ -2287,24 +2287,29 @@ final class OperatingQuestionService
             'external_llm_call_status' => 'not_attempted',
             'provider' => '',
             'model' => '',
+            'configured_model' => '',
+            'response_model' => '',
             'provider_response_id' => '',
             'provider_created_at' => 0,
-            'finish_reason' => '',
+            'provider_response_fresh' => false,
+            'provider_endpoint_origin' => '',
+            'provider_endpoint_host' => '',
+            'provider_endpoint_official' => false,
+            'provider_config_digest' => '',
+            'direct_call_nonce' => '',
+            'transport_request_id' => '',
+            'transport_retry_attempts' => -1,
+            'upstream_idempotency_key_sent' => false,
             'http_status' => 0,
+            'provider_attempt_count' => 0,
+            'idempotent_replay' => false,
+            'direct_request_proof' => false,
+            'thinking_mode' => '',
+            'reasoning_effort' => '',
+            'finish_reason' => '',
             'fallback_used' => false,
             'cache_hit' => false,
             'degraded' => false,
-            'direct_request_proof' => false,
-            'transport_request_id' => '',
-            'transport_retry_attempts' => -1,
-            'transport_max_retries' => -1,
-            'provider_attempt_count' => 0,
-            'upstream_idempotency_key_sent' => null,
-            'thinking_mode' => '',
-            'reasoning_effort' => '',
-            'endpoint_origin' => '',
-            'endpoint_base_url' => '',
-            'config_digest' => '',
             'reason' => '',
             'message' => $this->answerGenerator === null
                 ? '当前使用严格回读的证据摘要。'
@@ -2351,24 +2356,29 @@ final class OperatingQuestionService
                 'external_llm_call_status' => 'unknown_after_client_attempt',
                 'provider' => '',
                 'model' => '',
+                'configured_model' => '',
+                'response_model' => '',
                 'provider_response_id' => '',
                 'provider_created_at' => 0,
-                'finish_reason' => '',
+                'provider_response_fresh' => false,
+                'provider_endpoint_origin' => '',
+                'provider_endpoint_host' => '',
+                'provider_endpoint_official' => false,
+                'provider_config_digest' => '',
+                'direct_call_nonce' => '',
+                'transport_request_id' => '',
+                'transport_retry_attempts' => -1,
+                'upstream_idempotency_key_sent' => false,
                 'http_status' => 0,
+                'provider_attempt_count' => 0,
+                'idempotent_replay' => false,
+                'direct_request_proof' => false,
+                'thinking_mode' => '',
+                'reasoning_effort' => '',
+                'finish_reason' => '',
                 'fallback_used' => false,
                 'cache_hit' => false,
                 'degraded' => false,
-                'direct_request_proof' => false,
-                'transport_request_id' => '',
-                'transport_retry_attempts' => -1,
-                'transport_max_retries' => -1,
-                'provider_attempt_count' => 0,
-                'upstream_idempotency_key_sent' => null,
-                'thinking_mode' => '',
-                'reasoning_effort' => '',
-                'endpoint_origin' => '',
-                'endpoint_base_url' => '',
-                'config_digest' => '',
             ];
         }
 
@@ -2383,35 +2393,33 @@ final class OperatingQuestionService
             'llm_client_invoked' => ($result['llm_client_invoked'] ?? false) === true,
             'external_llm_called' => $externalLlmCalled,
             'external_llm_call_status' => mb_substr(trim((string)($result['external_llm_call_status'] ?? (
-                $externalLlmCalled === true ? 'confirmed_success' : 'unknown_after_client_attempt'
+                $externalLlmCalled === true ? 'unverified_external_response' : 'unknown_after_client_attempt'
             ))), 0, 80),
             'provider' => mb_substr(trim((string)($result['provider'] ?? '')), 0, 50),
             'model' => mb_substr(trim((string)($result['model'] ?? '')), 0, 150),
+            'configured_model' => mb_substr(trim((string)($result['configured_model'] ?? '')), 0, 150),
+            'response_model' => mb_substr(trim((string)($result['response_model'] ?? '')), 0, 150),
             'provider_response_id' => $this->providerResponseId($result['provider_response_id'] ?? null),
             'provider_created_at' => max(0, (int)($result['provider_created_at'] ?? 0)),
-            'finish_reason' => mb_substr(trim((string)($result['finish_reason'] ?? '')), 0, 50),
+            'provider_response_fresh' => ($result['provider_response_fresh'] ?? false) === true,
+            'provider_endpoint_origin' => mb_substr(trim((string)($result['provider_endpoint_origin'] ?? '')), 0, 255),
+            'provider_endpoint_host' => strtolower(mb_substr(trim((string)($result['provider_endpoint_host'] ?? '')), 0, 191)),
+            'provider_endpoint_official' => ($result['provider_endpoint_official'] ?? false) === true,
+            'provider_config_digest' => strtolower(mb_substr(trim((string)($result['provider_config_digest'] ?? '')), 0, 64)),
+            'direct_call_nonce' => mb_substr(trim((string)($result['direct_call_nonce'] ?? '')), 0, 64),
+            'transport_request_id' => mb_substr(trim((string)($result['transport_request_id'] ?? '')), 0, 64),
+            'transport_retry_attempts' => (int)($result['transport_retry_attempts'] ?? -1),
+            'upstream_idempotency_key_sent' => ($result['upstream_idempotency_key_sent'] ?? false) === true,
             'http_status' => max(0, (int)($result['http_status'] ?? 0)),
+            'provider_attempt_count' => max(0, (int)($result['provider_attempt_count'] ?? 0)),
+            'idempotent_replay' => ($result['idempotent_replay'] ?? false) === true,
+            'direct_request_proof' => ($result['direct_request_proof'] ?? false) === true,
+            'thinking_mode' => mb_substr(trim((string)($result['thinking_mode'] ?? '')), 0, 20),
+            'reasoning_effort' => mb_substr(trim((string)($result['reasoning_effort'] ?? '')), 0, 20),
+            'finish_reason' => mb_substr(trim((string)($result['finish_reason'] ?? '')), 0, 50),
             'fallback_used' => ($result['fallback_used'] ?? false) === true,
             'cache_hit' => ($result['cache_hit'] ?? false) === true,
             'degraded' => ($result['degraded'] ?? false) === true,
-            'direct_request_proof' => ($result['direct_request_proof'] ?? null) === true,
-            'transport_request_id' => preg_match(
-                '/^oq-[a-f0-9]{32}$/D',
-                (string)($result['transport_request_id'] ?? '')
-            ) === 1 ? (string)$result['transport_request_id'] : '',
-            'transport_retry_attempts' => (int)($result['transport_retry_attempts'] ?? -1),
-            'transport_max_retries' => (int)($result['transport_max_retries'] ?? -1),
-            'provider_attempt_count' => max(0, (int)($result['provider_attempt_count'] ?? 0)),
-            'upstream_idempotency_key_sent' => is_bool($result['upstream_idempotency_key_sent'] ?? null)
-                ? $result['upstream_idempotency_key_sent']
-                : null,
-            'thinking_mode' => mb_substr(trim((string)($result['thinking_mode'] ?? '')), 0, 20),
-            'reasoning_effort' => mb_substr(trim((string)($result['reasoning_effort'] ?? '')), 0, 20),
-            'endpoint_origin' => mb_substr(trim((string)($result['endpoint_origin'] ?? '')), 0, 120),
-            'endpoint_base_url' => mb_substr(trim((string)($result['endpoint_base_url'] ?? '')), 0, 160),
-            'config_digest' => preg_match('/^[a-f0-9]{64}$/D', (string)($result['config_digest'] ?? '')) === 1
-                ? (string)$result['config_digest']
-                : '',
             'reason' => mb_substr(trim((string)($result['reason'] ?? '')), 0, 120),
             'message' => mb_substr(trim((string)($result['message'] ?? '')), 0, 300),
         ];
@@ -2429,32 +2437,12 @@ final class OperatingQuestionService
         $groundedRuntimeReady = (string)($runtime['status'] ?? '') === 'ready'
             && (string)($answer['question_metric_contract']['contract_version'] ?? '')
                 === self::METRIC_INTENT_CONTRACT_VERSION
-            && strtolower(trim((string)($runtime['provider'] ?? ''))) === 'deepseek'
-            && (string)($runtime['model_key'] ?? '') === OperatingQuestionAiAnswerService::REQUIRED_MODEL_KEY
-            && strtolower(trim((string)($runtime['model'] ?? '')))
-                === OperatingQuestionAiAnswerService::REQUIRED_MODEL
+            && OperatingQuestionAiAnswerService::directCallProofReady($runtime)
+            && OperatingQuestionAiAnswerService::directCallReceiptFreshNow($runtime)
             && (string)($runtime['prompt_version'] ?? '') === OperatingQuestionAiAnswerService::PROMPT_VERSION
-            && strtolower(trim((string)($runtime['finish_reason'] ?? ''))) === 'stop'
             && ($runtime['external_llm_called'] ?? false) === true
-            && (string)($runtime['external_llm_call_status'] ?? '') === 'confirmed_success'
-            && $this->providerResponseId($runtime['provider_response_id'] ?? null) !== ''
-            && ($runtime['fallback_used'] ?? null) === false
-            && ($runtime['cache_hit'] ?? null) === false
-            && ($runtime['degraded'] ?? null) === false
-            && ($runtime['direct_request_proof'] ?? null) === true
-            && preg_match('/^oq-[a-f0-9]{32}$/D', (string)($runtime['transport_request_id'] ?? '')) === 1
-            && (int)($runtime['transport_retry_attempts'] ?? -1) === 0
-            && (int)($runtime['transport_max_retries'] ?? -1) === 0
-            && (int)($runtime['provider_attempt_count'] ?? 0) === 1
-            && ($runtime['upstream_idempotency_key_sent'] ?? null) === false
-            && (string)($runtime['thinking_mode'] ?? '') === 'enabled'
-            && in_array((string)($runtime['reasoning_effort'] ?? ''), ['high', 'max'], true)
-            && (string)($runtime['endpoint_origin'] ?? '')
-                === OperatingQuestionAiAnswerService::REQUIRED_ENDPOINT_ORIGIN
-            && preg_match('/^[a-f0-9]{64}$/D', (string)($runtime['config_digest'] ?? '')) === 1
-            && (int)($runtime['http_status'] ?? 0) === 200
-            && (int)($runtime['provider_created_at'] ?? 0) > 0
-            && abs(time() - (int)$runtime['provider_created_at']) <= 900;
+            && (string)($runtime['external_llm_call_status'] ?? '')
+                === OperatingQuestionAiAnswerService::DIRECT_CALL_STATUS;
         if (($result['ok'] ?? false) !== true || !$groundedRuntimeReady || !$claimsDigestReady) {
             if (is_array($result['data_gaps'] ?? null)) {
                 $answer['data_gaps'] = array_values(array_merge(
@@ -2762,7 +2750,19 @@ final class OperatingQuestionService
 
     private function modelKey(string $value): string
     {
-        return OperatingQuestionAiAnswerService::REQUIRED_MODEL_KEY;
+        $value = strtolower(trim($value));
+        if ($value === '') {
+            return OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY;
+        }
+        if (in_array($value, [
+            OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY,
+            OperatingQuestionAiAnswerService::DIRECT_MODEL_NAME,
+            'deepseek_reasoner',
+            'deepseek-reasoner',
+        ], true)) {
+            return OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY;
+        }
+        throw new InvalidArgumentException('经营问答只允许 DeepSeek V4 Pro 直接模型，已拒绝其他模型或客户端降级选择');
     }
 
     private function providerResponseId(mixed $value): string
@@ -3118,6 +3118,38 @@ final class OperatingQuestionService
             $row[$publicField] = $this->decode($row[$jsonField] ?? null);
             unset($row[$jsonField]);
         }
+        return $row;
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function assertReadbackDigest(array $row): array
+    {
+        $answer = is_array($row['answer'] ?? null) ? $row['answer'] : [];
+        $stored = strtolower(trim((string)($row['content_digest'] ?? '')));
+        $expected = $this->digest([
+            'question' => (string)($row['question_text'] ?? ''),
+            'answer' => $answer,
+            'fact_refs' => array_values((array)($row['fact_refs'] ?? [])),
+            'memory_refs' => array_values((array)($row['memory_refs'] ?? [])),
+            'knowledge_refs' => array_values((array)($row['knowledge_refs'] ?? [])),
+            'execution_refs' => array_values((array)($row['execution_refs'] ?? [])),
+        ]);
+        $scope = is_array($answer['scope'] ?? null) ? $answer['scope'] : [];
+        if (preg_match('/^[a-f0-9]{64}$/D', $stored) !== 1
+            || !hash_equals($stored, $expected)
+            || (string)($row['answer_status'] ?? '') !== (string)($answer['status'] ?? '')
+            || (string)($row['answer_summary'] ?? '') !== (string)($answer['summary'] ?? '')
+            || (int)($row['tenant_id'] ?? 0) !== (int)($scope['tenant_id'] ?? 0)
+            || (int)($row['hotel_id'] ?? 0) !== (int)($scope['hotel_id'] ?? 0)
+            || (string)($row['platform'] ?? '') !== (string)($scope['platform'] ?? '')
+            || (string)($row['date_start'] ?? '') !== (string)($scope['date_start'] ?? '')
+            || (string)($row['date_end'] ?? '') !== (string)($scope['date_end'] ?? '')
+            || $this->canonicalize((array)($row['data_gaps'] ?? []))
+                !== $this->canonicalize((array)($answer['data_gaps'] ?? []))
+        ) {
+            throw new RuntimeException('经营问题按ID回读内容摘要校验失败（question_readback_digest_mismatch）');
+        }
+        $row['readback_verified'] = true;
         return $row;
     }
 

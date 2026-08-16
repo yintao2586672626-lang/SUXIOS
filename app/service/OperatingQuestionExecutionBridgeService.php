@@ -221,33 +221,12 @@ final class OperatingQuestionExecutionBridgeService
             || (string)($answer['contract_version'] ?? '') !== OperatingQuestionService::CONTRACT_VERSION
             || (string)($answer['status'] ?? '') !== 'answered_by_grounded_ai'
             || (string)($runtime['status'] ?? '') !== 'ready'
-            || strtolower(trim((string)($runtime['provider'] ?? ''))) !== 'deepseek'
-            || (string)($runtime['model_key'] ?? '') !== OperatingQuestionAiAnswerService::REQUIRED_MODEL_KEY
-            || strtolower(trim((string)($runtime['model'] ?? '')))
-                !== OperatingQuestionAiAnswerService::REQUIRED_MODEL
-            || $this->providerResponseId($runtime['provider_response_id'] ?? null) === ''
-            || (int)($runtime['provider_created_at'] ?? 0) <= 0
-            || abs(time() - (int)$runtime['provider_created_at']) > 900
+            || !OperatingQuestionAiAnswerService::directCallProofReady($runtime)
             || (string)($runtime['prompt_version'] ?? '') !== OperatingQuestionAiAnswerService::PROMPT_VERSION
-            || strtolower(trim((string)($runtime['finish_reason'] ?? ''))) !== 'stop'
-            || (int)($runtime['http_status'] ?? 0) !== 200
             || !in_array((string)($answer['confidence'] ?? ''), ['medium', 'high'], true)
             || ($runtime['external_llm_called'] ?? false) !== true
-            || (string)($runtime['external_llm_call_status'] ?? '') !== 'confirmed_success'
-            || ($runtime['fallback_used'] ?? null) !== false
-            || ($runtime['cache_hit'] ?? null) !== false
-            || ($runtime['degraded'] ?? null) !== false
-            || ($runtime['direct_request_proof'] ?? null) !== true
-            || preg_match('/^oq-[a-f0-9]{32}$/D', (string)($runtime['transport_request_id'] ?? '')) !== 1
-            || (int)($runtime['transport_retry_attempts'] ?? -1) !== 0
-            || (int)($runtime['transport_max_retries'] ?? -1) !== 0
-            || (int)($runtime['provider_attempt_count'] ?? 0) !== 1
-            || ($runtime['upstream_idempotency_key_sent'] ?? null) !== false
-            || (string)($runtime['thinking_mode'] ?? '') !== 'enabled'
-            || !in_array((string)($runtime['reasoning_effort'] ?? ''), ['high', 'max'], true)
-            || (string)($runtime['endpoint_origin'] ?? '')
-                !== OperatingQuestionAiAnswerService::REQUIRED_ENDPOINT_ORIGIN
-            || preg_match('/^[a-f0-9]{64}$/D', (string)($runtime['config_digest'] ?? '')) !== 1
+            || (string)($runtime['external_llm_call_status'] ?? '')
+                !== OperatingQuestionAiAnswerService::DIRECT_CALL_STATUS
             || $claims === []
             || (string)($answer['question_metric_contract']['contract_version'] ?? '')
                 !== OperatingQuestionService::METRIC_INTENT_CONTRACT_VERSION

@@ -19,7 +19,8 @@ const sops = read('app/service/OperatingSopService.php');
 const controller = read('app/controller/OperatingIntelligence.php');
 const routes = read('route/app.php');
 const operatingIntelligenceComponents = read('public/components/system/operating-intelligence-components.js');
-const frontend = `${read('public/app-main.js')}\n${operatingIntelligenceComponents}`;
+const appMain = read('public/app-main.js');
+const frontend = `${appMain}\n${operatingIntelligenceComponents}`;
 const agentPage = read('resources/frontend/templates/fragments/27-page-agent-center.html');
 const globalShell = read('resources/frontend/templates/fragments/46-global-toast.html');
 const style = read('public/style.css');
@@ -44,12 +45,17 @@ const systemUsageGuideComponent = sliceBetween(
 test('unified Agent operating question saves and performs an exact second readback', () => {
   assert.match(routes, /agent[\s\S]*operating-questions/);
   assert.match(controller, /OperatingQuestionService/);
+  assert.match(controller, /OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY/);
   assert.match(questions, /deterministic_saved_evidence/);
   assert.match(questions, /readback_verified/);
   assert.match(questions, /blocked_by_missing_facts/);
   assert.match(frontend, /\/agent\/operating-questions/);
   assert.match(frontend, /operating-question-readback-error/);
   assert.match(frontend, /content_digest/);
+  assert.match(frontend, /readback_verified !== true/);
+  assert.match(frontend, /model_key:\s*modelKey/);
+  assert.match(frontend, /const modelKey = 'deepseek_v4_pro'/);
+  assert.doesNotMatch(operatingIntelligenceComponents, /deepseek_v4_default|deepseek_v4_flash/);
   assert.match(agentPage, /<oq><\/oq>/);
   assert.match(frontend, /['"]data-testid['"]:\s*['"]operating-question-entry['"]/);
 });
@@ -83,6 +89,19 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(knowledgeRetrieval, /formalShared/);
   assert.match(llmClient, /provider_fallback_enabled' => false/);
   assert.match(llmClient, /response_cache_enabled' => false/);
+  assert.match(llmClient, /max_retries' => 0/);
+  assert.match(llmClient, /send_idempotency_key' => false/);
+  assert.match(llmClient, /\$thinkingMode = \$deepSeekProRequest \? 'enabled' : 'disabled'/);
+  assert.match(llmClient, /\$reasoningEffort = \$deepSeekProRequest \? 'high' : ''/);
+  assert.match(llmClient, /'deepseek_thinking' => \$thinkingMode/);
+  assert.match(llmClient, /api\.deepseek\.com/);
+  assert.match(llmClient, /response_model/);
+  assert.match(llmClient, /provider_config_digest/);
+  assert.match(aiAnswers, /DIRECT_MODEL_KEY = 'deepseek_v4_pro'/);
+  assert.match(aiAnswers, /DIRECT_MODEL_NAME = 'deepseek-v4-pro'/);
+  assert.match(aiAnswers, /directCallProofReady/);
+  assert.match(questions, /directCallProofReady/);
+  assert.match(executionBridge, /directCallProofReady/);
   assert.match(llmClient, /'type' => 'json_object'/);
   assert.match(aiAnswers, /verified_ota_channel_only/);
   assert.match(aiAnswers, /missing_substantive_fact_coverage/);
@@ -179,6 +198,44 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(style, /\.sx-system-guide-coach/);
   assert.match(style, /\.sx-system-guide-anchor-active/);
   assert.match(style, /@media \(max-width: 640px\)/);
+});
+
+test('frontend rejects every incomplete DeepSeek V4 Pro proof before exposing an action', () => {
+  const proofSource = sliceBetween(
+    appMain,
+    'const operatingQuestionDirectCallReady =',
+    'const operatingQuestionActionIsCurrent =',
+  );
+  const operatingQuestionDirectCallReady = new Function(
+    `${proofSource}\nreturn operatingQuestionDirectCallReady;`,
+  )();
+  const nonce = 'oq_node_proof_0001';
+  const valid = {
+    provider: 'deepseek', model_key: 'deepseek_v4_pro', model: 'deepseek-v4-pro',
+    configured_model: 'deepseek-v4-pro', response_model: 'deepseek-v4-pro',
+    provider_response_id: 'chatcmpl-node-proof-0001', provider_created_at: Math.floor(Date.now() / 1000),
+    provider_response_fresh: true, provider_endpoint_origin: 'https://api.deepseek.com',
+    provider_endpoint_host: 'api.deepseek.com', provider_endpoint_official: true,
+    provider_config_digest: 'd'.repeat(64), direct_call_nonce: nonce, transport_request_id: nonce,
+    transport_retry_attempts: 0, upstream_idempotency_key_sent: false, http_status: 200,
+    provider_attempt_count: 1, idempotent_replay: false, direct_request_proof: true,
+    thinking_mode: 'enabled', reasoning_effort: 'high', finish_reason: 'stop',
+    fallback_used: false, cache_hit: false, degraded: false,
+  };
+  assert.equal(operatingQuestionDirectCallReady(valid), true);
+  for (const mutation of [
+    { response_model: 'deepseek-v4-flash' },
+    { cache_hit: true },
+    { fallback_used: true },
+    { provider_endpoint_origin: 'https://gateway.example.com', provider_endpoint_official: false },
+    { provider_response_fresh: false },
+    { transport_retry_attempts: 1 },
+    { upstream_idempotency_key_sent: true },
+    { direct_request_proof: false },
+  ]) {
+    assert.equal(operatingQuestionDirectCallReady({ ...valid, ...mutation }), false);
+  }
+  assert.equal(operatingQuestionDirectCallReady({ ...valid, provider_created_at: 1 }), true);
 });
 
 test('operating question claims use an immutable global provider response registry', () => {

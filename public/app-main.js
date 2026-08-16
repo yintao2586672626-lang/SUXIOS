@@ -41089,7 +41089,7 @@
                 platform: 'ctrip',
                 date_start: toLocalIsoDate(),
                 date_end: toLocalIsoDate(),
-                model_key: '',
+                model_key: 'deepseek_v4_pro',
             });
             const createOperatingQuestionState = () => ({
                 question: '',
@@ -41102,6 +41102,10 @@
             });
             const operatingQuestionForm = ref(createOperatingQuestionForm());
             const operatingQuestionState = ref(createOperatingQuestionState());
+            const operatingQuestionDirectCallReady = (runtime = {}) => {
+                const text = (key) => String(runtime?.[key] ?? '').trim().toLowerCase(), createdAt = Number(runtime?.provider_created_at || 0), exact = { provider: 'deepseek', model_key: 'deepseek_v4_pro', configured_model: 'deepseek-v4-pro', response_model: 'deepseek-v4-pro', provider_endpoint_origin: 'https://api.deepseek.com', provider_endpoint_host: 'api.deepseek.com', thinking_mode: 'enabled', reasoning_effort: 'high', finish_reason: 'stop' }, requiredTrue = ['provider_response_fresh', 'provider_endpoint_official', 'direct_request_proof'], requiredFalse = ['upstream_idempotency_key_sent', 'idempotent_replay', 'fallback_used', 'cache_hit', 'degraded'];
+                return Object.entries(exact).every(([key, value]) => text(key) === value) && requiredTrue.every((key) => runtime?.[key] === true) && requiredFalse.every((key) => runtime?.[key] === false) && String(runtime?.provider_response_id || '').trim() !== '' && /^[a-f0-9]{64}$/.test(text('provider_config_digest')) && String(runtime?.direct_call_nonce || '').trim() !== '' && String(runtime?.direct_call_nonce || '').trim() === String(runtime?.transport_request_id || '').trim() && createdAt > 0 && Number(runtime?.transport_retry_attempts ?? -1) === 0 && Number(runtime?.http_status || 0) === 200 && Number(runtime?.provider_attempt_count || 0) === 1;
+            };
             const operatingQuestionActionIsCurrent = (result = {}, action = {}, form = {}) => {
                 const answer = result?.answer || {};
                 const runtime = answer?.ai_runtime || {};
@@ -41111,15 +41115,11 @@
                     && String(answer?.status || '') === 'answered_by_grounded_ai'
                     && ['medium', 'high'].includes(String(answer?.confidence || ''))
                     && String(runtime?.status || '') === 'ready'
-                    && String(runtime?.provider || '').trim().toLowerCase() === 'deepseek'
-                    && String(runtime?.prompt_version || '') === 'operating_question_grounded_ai.zh-CN.v3'
-                    && String(runtime?.finish_reason || '').trim().toLowerCase() === 'stop'
+                    && operatingQuestionDirectCallReady(runtime)
+                    && String(runtime?.prompt_version || '') === 'operating_question_grounded_ai.zh-CN.v4'
                     && runtime?.external_llm_called === true
-                    && String(runtime?.external_llm_call_status || '') === 'confirmed_success'
-                    && runtime?.fallback_used !== true
-                    && runtime?.cache_hit !== true
-                    && runtime?.degraded !== true
-                    && String(action?.contract_version || '') === 'operating_question_action_draft.v1'
+                    && String(runtime?.external_llm_call_status || '') === 'confirmed_direct_deepseek_v4_pro'
+                    && String(action?.contract_version || '') === 'operating_question_action_draft.v2'
                     && String(action?.status || '') === 'ready_for_human_review'
                     && action?.can_create_execution_intent === true
                     && String(action?.decision_quality?.contract_version || '') === 'ai_recommendation_quality.v2'
@@ -41247,9 +41247,13 @@
             const operatingQuestionAiRuntimeText = (result) => {
                 const runtime = result?.answer?.ai_runtime || {};
                 const status = String(runtime.status || '');
+                if (status === 'ready' && operatingQuestionDirectCallReady(runtime)
+                    && String(runtime?.external_llm_call_status || '') === 'confirmed_direct_deepseek_v4_pro'
+                ) {
+                    return 'DeepSeek V4 Pro 直连已确认 · 已基于严格回读证据生成';
+                }
                 if (status === 'ready') {
-                    const provider = String(runtime.provider || '').toLowerCase() === 'deepseek' ? 'DeepSeek' : String(runtime.provider || 'AI');
-                    return `AI已基于证据生成 · ${provider}${runtime.model ? ` · ${runtime.model}` : ''}`;
+                    return 'AI回答缺少完整直连证明 · 当前不允许生成待审批行动';
                 }
                 if (status === 'model_unavailable') {
                     return runtime.external_llm_call_status === 'unknown_after_client_attempt'
@@ -45035,7 +45039,8 @@
                 const platform = String(operatingQuestionForm.value.platform || '').trim();
                 const dateStart = String(operatingQuestionForm.value.date_start || '').trim();
                 const dateEnd = String(operatingQuestionForm.value.date_end || '').trim();
-                const modelKey = String(operatingQuestionForm.value.model_key || '').trim();
+                const modelKey = 'deepseek_v4_pro';
+                operatingQuestionForm.value.model_key = modelKey;
                 state.error = '';
                 state.result = null;
                 state.action_error = '';
@@ -45072,7 +45077,8 @@
                         || String(exact.date_start || '') !== dateStart
                         || String(exact.date_end || '') !== dateEnd
                         || String(exact.question_text || '') !== question
-                        || !exact.content_digest
+                        || exact.readback_verified !== true
+                        || !/^[a-f0-9]{64}$/.test(String(exact.content_digest || ''))
                         || String(exact.content_digest) !== String(savedQuestion.content_digest || '')
                     ) {
                         throw new Error('operating-question-readback-error：保存与回读身份不一致');
@@ -45140,7 +45146,7 @@
                         || String(exact.date_end || '') !== dateEnd
                         || String(exact.object_type || '') !== 'operation_checklist'
                         || String(exact.action_type || '') !== 'human_reviewed_operating_check'
-                        || !['pending_approval', 'approved', 'rejected'].includes(String(exact.status || ''))
+                        || String(exact.status || '') !== 'pending_approval'
                         || String(evidence.question_content_digest || '') !== String(result.content_digest || '')
                         || Number(evidence.action_index ?? -1) !== Number(actionIndex)
                         || String(evidence.action_draft_digest || '') !== actionDigest

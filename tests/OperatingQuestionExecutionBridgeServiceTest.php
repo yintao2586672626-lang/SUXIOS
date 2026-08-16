@@ -18,6 +18,49 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
     private static array $originalDatabaseConfig = [];
     private static string $sqlitePath = '';
 
+    /** @return array<string,mixed> */
+    public static function directMeta(string $responseId): array
+    {
+        $nonce = 'oq_bridge_' . substr(hash('sha256', $responseId), 0, 24);
+        return [
+            'provider' => 'deepseek',
+            'model_key' => OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY,
+            'model' => OperatingQuestionAiAnswerService::DIRECT_MODEL_NAME,
+            'configured_model' => OperatingQuestionAiAnswerService::DIRECT_MODEL_NAME,
+            'response_model' => OperatingQuestionAiAnswerService::DIRECT_MODEL_NAME,
+            'provider_response_id' => $responseId,
+            'provider_created_at' => time(),
+            'provider_response_fresh' => true,
+            'provider_endpoint_origin' => 'https://api.deepseek.com',
+            'provider_endpoint_host' => 'api.deepseek.com',
+            'provider_endpoint_official' => true,
+            'provider_config_digest' => str_repeat('b', 64),
+            'direct_call_nonce' => $nonce,
+            'transport_request_id' => $nonce,
+            'transport_retry_attempts' => 0,
+            'upstream_idempotency_key_sent' => false,
+            'http_status' => 200,
+            'provider_attempt_count' => 1,
+            'idempotent_replay' => false,
+            'direct_request_proof' => true,
+            'thinking_mode' => 'enabled',
+            'reasoning_effort' => 'high',
+            'finish_reason' => 'stop',
+            'fallback_used' => false,
+            'cache_hit' => false,
+            'degraded' => false,
+        ];
+    }
+
+    public function testAcceptedDirectProofDoesNotExpireWhileNewReceiptFreshnessStillDoes(): void
+    {
+        $persisted = self::directMeta('resp-bridge-persisted-0001');
+        $persisted['provider_created_at'] = time() - 3600;
+
+        self::assertTrue(OperatingQuestionAiAnswerService::directCallProofReady($persisted));
+        self::assertFalse(OperatingQuestionAiAnswerService::directCallReceiptFreshNow($persisted));
+    }
+
     public static function setUpBeforeClass(): void
     {
         $app = new App(dirname(__DIR__));
@@ -274,7 +317,8 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
             ->where('id', (int)$saved['question']['id'])
             ->update(['content_digest' => str_repeat('0', 64)]);
 
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('question_readback_digest_mismatch');
         (new OperationManagementService())->approveExecutionIntent(
             (int)$created['execution_intent']['id'],
             true,
@@ -596,7 +640,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
             public function createJsonResponseEnvelope(
                 array $messages,
                 array $schema,
-                string $modelKey = 'deepseek_v4_default'
+                string $modelKey = 'deepseek_v4_pro'
             ): array {
                 $this->calls++;
                 return [
@@ -618,7 +662,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
                             'evidence_refs' => ['online_daily_data#1201'],
                         ]],
                     ],
-                    'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
+                    'meta' => OperatingQuestionExecutionBridgeServiceTest::directMeta(
                         'resp-bridge-1201-' . str_pad((string)$this->calls, 4, '0', STR_PAD_LEFT)
                     ),
                 ];

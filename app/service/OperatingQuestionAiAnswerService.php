@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
@@ -15,10 +16,9 @@ final class OperatingQuestionAiAnswerService
 {
     public const PROMPT_VERSION = 'operating_question_grounded_ai.zh-CN.v4';
     public const ACTION_DRAFT_CONTRACT_VERSION = 'operating_question_action_draft.v2';
-    public const REQUIRED_MODEL_KEY = 'deepseek_v4_pro';
-    public const REQUIRED_PROVIDER = 'deepseek';
-    public const REQUIRED_MODEL = 'deepseek-v4-pro';
-    public const REQUIRED_ENDPOINT_ORIGIN = 'https://api.deepseek.com';
+    public const DIRECT_MODEL_KEY = 'deepseek_v4_pro';
+    public const DIRECT_MODEL_NAME = 'deepseek-v4-pro';
+    public const DIRECT_CALL_STATUS = 'confirmed_direct_deepseek_v4_pro';
     /** @var list<string> */
     private const SUPPORTED_CURRENCY_CODES = [
         'CNY', 'USD', 'HKD', 'MOP', 'TWD', 'JPY', 'KRW', 'EUR', 'GBP', 'SGD', 'THB', 'MYR', 'AUD', 'CAD',
@@ -199,17 +199,35 @@ final class OperatingQuestionAiAnswerService
             $result = is_array($envelope['data'] ?? null) ? $envelope['data'] : [];
             $meta = is_array($envelope['meta'] ?? null) ? $envelope['meta'] : [];
             $providerResponseId = $this->providerResponseId($meta);
-            if (!$this->trustedDirectResponseMeta($meta)) {
+            if (!self::directCallProofReady($meta) || !self::directCallReceiptFreshNow($meta)) {
                 $cacheHit = ($meta['cache_hit'] ?? false) === true;
-                return array_merge([
+                return [
                     'ok' => false,
                     'status' => 'model_unavailable',
-                    'reason' => 'deepseek_v4_pro_direct_response_not_confirmed',
-                    'message' => '本次回答缺少官方 DeepSeek V4 Pro 新鲜直调证明，已拒绝展示并保留严格回读的证据摘要。',
+                    'reason' => $this->directFailureReason($meta),
+                    'message' => '本次回答未被证明为新鲜的 DeepSeek V4 Pro 直接响应，已拒绝展示并保留严格回读的证据摘要。',
                     'model_key' => (string)($meta['model_key'] ?? $modelKey),
                     'provider' => (string)($meta['provider'] ?? ''),
                     'model' => (string)($meta['model'] ?? ''),
+                    'configured_model' => (string)($meta['configured_model'] ?? ''),
+                    'response_model' => (string)($meta['response_model'] ?? ''),
                     'provider_response_id' => $providerResponseId,
+                    'provider_created_at' => max(0, (int)($meta['provider_created_at'] ?? 0)),
+                    'provider_response_fresh' => ($meta['provider_response_fresh'] ?? false) === true,
+                    'provider_endpoint_origin' => (string)($meta['provider_endpoint_origin'] ?? ''),
+                    'provider_endpoint_host' => (string)($meta['provider_endpoint_host'] ?? ''),
+                    'provider_endpoint_official' => ($meta['provider_endpoint_official'] ?? false) === true,
+                    'provider_config_digest' => (string)($meta['provider_config_digest'] ?? ''),
+                    'direct_call_nonce' => (string)($meta['direct_call_nonce'] ?? ''),
+                    'transport_request_id' => (string)($meta['transport_request_id'] ?? ''),
+                    'transport_retry_attempts' => (int)($meta['transport_retry_attempts'] ?? -1),
+                    'upstream_idempotency_key_sent' => ($meta['upstream_idempotency_key_sent'] ?? true) === true,
+                    'http_status' => max(0, (int)($meta['http_status'] ?? 0)),
+                    'provider_attempt_count' => max(0, (int)($meta['provider_attempt_count'] ?? 0)),
+                    'idempotent_replay' => ($meta['idempotent_replay'] ?? false) === true,
+                    'direct_request_proof' => ($meta['direct_request_proof'] ?? false) === true,
+                    'thinking_mode' => (string)($meta['thinking_mode'] ?? ''),
+                    'reasoning_effort' => (string)($meta['reasoning_effort'] ?? ''),
                     'finish_reason' => (string)($meta['finish_reason'] ?? ''),
                     'fallback_used' => ($meta['fallback_used'] ?? false) === true,
                     'cache_hit' => $cacheHit,
@@ -220,8 +238,8 @@ final class OperatingQuestionAiAnswerService
                     'external_llm_called' => $cacheHit ? false : true,
                     'external_llm_call_status' => $cacheHit
                         ? 'cache_replay_rejected'
-                        : 'untrusted_direct_response_rejected',
-                ], $this->directAuditMeta($meta));
+                        : 'direct_deepseek_v4_pro_proof_rejected',
+                ];
             }
             if (!$this->completeAnswerShape($result)) {
                 throw new RuntimeException('AI回答不符合完整结构契约');
@@ -269,7 +287,7 @@ final class OperatingQuestionAiAnswerService
                 )
                 : [];
 
-            return array_merge([
+            return [
                 'ok' => true,
                 'status' => 'ready',
                 'summary' => $summary,
@@ -284,7 +302,25 @@ final class OperatingQuestionAiAnswerService
                 'model_key' => (string)($meta['model_key'] ?? $modelKey),
                 'provider' => (string)($meta['provider'] ?? ''),
                 'model' => (string)($meta['model'] ?? ''),
+                'configured_model' => (string)($meta['configured_model'] ?? ''),
+                'response_model' => (string)($meta['response_model'] ?? ''),
                 'provider_response_id' => $providerResponseId,
+                'provider_created_at' => max(0, (int)($meta['provider_created_at'] ?? 0)),
+                'provider_response_fresh' => true,
+                'provider_endpoint_origin' => (string)($meta['provider_endpoint_origin'] ?? ''),
+                'provider_endpoint_host' => (string)($meta['provider_endpoint_host'] ?? ''),
+                'provider_endpoint_official' => true,
+                'provider_config_digest' => (string)($meta['provider_config_digest'] ?? ''),
+                'direct_call_nonce' => (string)($meta['direct_call_nonce'] ?? ''),
+                'transport_request_id' => (string)($meta['transport_request_id'] ?? ''),
+                'transport_retry_attempts' => 0,
+                'upstream_idempotency_key_sent' => false,
+                'http_status' => 200,
+                'provider_attempt_count' => 1,
+                'idempotent_replay' => false,
+                'direct_request_proof' => true,
+                'thinking_mode' => (string)($meta['thinking_mode'] ?? ''),
+                'reasoning_effort' => (string)($meta['reasoning_effort'] ?? ''),
                 'finish_reason' => (string)($meta['finish_reason'] ?? ''),
                 'fallback_used' => false,
                 'cache_hit' => false,
@@ -293,22 +329,40 @@ final class OperatingQuestionAiAnswerService
                 'model_attempted' => true,
                 'llm_client_invoked' => true,
                 'external_llm_called' => true,
-                'external_llm_call_status' => 'confirmed_success',
-            ], $this->directAuditMeta($meta));
+                'external_llm_call_status' => self::DIRECT_CALL_STATUS,
+            ];
         } catch (Throwable) {
             $providerResponseId = $this->providerResponseId($meta);
-            return array_merge([
+            return [
                 'ok' => false,
                 'status' => 'model_unavailable',
                 'message' => 'AI模型暂不可用，已保留严格回读的证据摘要。',
                 'model_key' => $modelKey,
-                'provider' => '',
-                'model' => '',
+                'provider' => (string)($meta['provider'] ?? ''),
+                'model' => (string)($meta['model'] ?? ''),
+                'configured_model' => (string)($meta['configured_model'] ?? ''),
+                'response_model' => (string)($meta['response_model'] ?? ''),
                 'provider_response_id' => $providerResponseId,
-                'finish_reason' => '',
-                'fallback_used' => false,
-                'cache_hit' => false,
-                'degraded' => false,
+                'provider_created_at' => max(0, (int)($meta['provider_created_at'] ?? 0)),
+                'provider_response_fresh' => ($meta['provider_response_fresh'] ?? false) === true,
+                'provider_endpoint_origin' => (string)($meta['provider_endpoint_origin'] ?? ''),
+                'provider_endpoint_host' => (string)($meta['provider_endpoint_host'] ?? ''),
+                'provider_endpoint_official' => ($meta['provider_endpoint_official'] ?? false) === true,
+                'provider_config_digest' => (string)($meta['provider_config_digest'] ?? ''),
+                'direct_call_nonce' => (string)($meta['direct_call_nonce'] ?? ''),
+                'transport_request_id' => (string)($meta['transport_request_id'] ?? ''),
+                'transport_retry_attempts' => (int)($meta['transport_retry_attempts'] ?? -1),
+                'upstream_idempotency_key_sent' => ($meta['upstream_idempotency_key_sent'] ?? false) === true,
+                'http_status' => max(0, (int)($meta['http_status'] ?? 0)),
+                'provider_attempt_count' => max(0, (int)($meta['provider_attempt_count'] ?? 0)),
+                'idempotent_replay' => ($meta['idempotent_replay'] ?? false) === true,
+                'direct_request_proof' => ($meta['direct_request_proof'] ?? false) === true,
+                'thinking_mode' => (string)($meta['thinking_mode'] ?? ''),
+                'reasoning_effort' => (string)($meta['reasoning_effort'] ?? ''),
+                'finish_reason' => (string)($meta['finish_reason'] ?? ''),
+                'fallback_used' => ($meta['fallback_used'] ?? false) === true,
+                'cache_hit' => ($meta['cache_hit'] ?? false) === true,
+                'degraded' => ($meta['degraded'] ?? false) === true,
                 'prompt_version' => self::PROMPT_VERSION,
                 'model_attempted' => true,
                 'llm_client_invoked' => true,
@@ -316,7 +370,7 @@ final class OperatingQuestionAiAnswerService
                 'external_llm_call_status' => $providerResponseId !== ''
                     ? 'response_rejected_after_direct_call'
                     : 'unknown_after_client_attempt',
-            ], $this->directAuditMeta($meta));
+            ];
         }
     }
 
@@ -679,7 +733,7 @@ final class OperatingQuestionAiAnswerService
     private function claimValidationRejected(string $modelKey, array $meta, string $reason): array
     {
         $providerResponseId = $this->providerResponseId($meta);
-        return array_merge([
+        return [
             'ok' => false,
             'status' => 'claim_validation_failed',
             'reason' => $reason,
@@ -692,7 +746,25 @@ final class OperatingQuestionAiAnswerService
             'model_key' => (string)($meta['model_key'] ?? $modelKey),
             'provider' => (string)($meta['provider'] ?? ''),
             'model' => (string)($meta['model'] ?? ''),
+            'configured_model' => (string)($meta['configured_model'] ?? ''),
+            'response_model' => (string)($meta['response_model'] ?? ''),
             'provider_response_id' => $providerResponseId,
+            'provider_created_at' => max(0, (int)($meta['provider_created_at'] ?? 0)),
+            'provider_response_fresh' => ($meta['provider_response_fresh'] ?? false) === true,
+            'provider_endpoint_origin' => (string)($meta['provider_endpoint_origin'] ?? ''),
+            'provider_endpoint_host' => (string)($meta['provider_endpoint_host'] ?? ''),
+            'provider_endpoint_official' => ($meta['provider_endpoint_official'] ?? false) === true,
+            'provider_config_digest' => (string)($meta['provider_config_digest'] ?? ''),
+            'direct_call_nonce' => (string)($meta['direct_call_nonce'] ?? ''),
+            'transport_request_id' => (string)($meta['transport_request_id'] ?? ''),
+            'transport_retry_attempts' => (int)($meta['transport_retry_attempts'] ?? -1),
+            'upstream_idempotency_key_sent' => ($meta['upstream_idempotency_key_sent'] ?? true) === true,
+            'http_status' => max(0, (int)($meta['http_status'] ?? 0)),
+            'provider_attempt_count' => max(0, (int)($meta['provider_attempt_count'] ?? 0)),
+            'idempotent_replay' => ($meta['idempotent_replay'] ?? false) === true,
+            'direct_request_proof' => ($meta['direct_request_proof'] ?? false) === true,
+            'thinking_mode' => (string)($meta['thinking_mode'] ?? ''),
+            'reasoning_effort' => (string)($meta['reasoning_effort'] ?? ''),
             'finish_reason' => (string)($meta['finish_reason'] ?? ''),
             'fallback_used' => false,
             'cache_hit' => false,
@@ -702,7 +774,7 @@ final class OperatingQuestionAiAnswerService
             'llm_client_invoked' => true,
             'external_llm_called' => true,
             'external_llm_call_status' => 'response_claims_rejected',
-        ], $this->directAuditMeta($meta));
+        ];
     }
 
     private function providerResponseId(array $meta): string
@@ -714,68 +786,6 @@ final class OperatingQuestionAiAnswerService
             && preg_match('/^[A-Za-z0-9._:-]+$/D', $id) === 1
                 ? $id
                 : '';
-    }
-
-    /** @param array<string,mixed> $meta */
-    private function trustedDirectResponseMeta(array $meta): bool
-    {
-        $providerCreatedAt = (int)($meta['provider_created_at'] ?? 0);
-        $endpointBaseUrl = strtolower(rtrim(trim((string)($meta['endpoint_base_url'] ?? '')), '/'));
-
-        return strtolower(trim((string)($meta['provider'] ?? ''))) === self::REQUIRED_PROVIDER
-            && (string)($meta['model_key'] ?? '') === self::REQUIRED_MODEL_KEY
-            && strtolower(trim((string)($meta['model'] ?? ''))) === self::REQUIRED_MODEL
-            && $this->providerResponseId($meta) !== ''
-            && $providerCreatedAt > 0
-            && abs(time() - $providerCreatedAt) <= 900
-            && strtolower(trim((string)($meta['finish_reason'] ?? ''))) === 'stop'
-            && (int)($meta['http_status'] ?? 0) === 200
-            && ($meta['fallback_used'] ?? null) === false
-            && ($meta['cache_hit'] ?? null) === false
-            && ($meta['degraded'] ?? null) === false
-            && ($meta['direct_request_proof'] ?? null) === true
-            && preg_match('/^oq-[a-f0-9]{32}$/D', (string)($meta['transport_request_id'] ?? '')) === 1
-            && (int)($meta['transport_retry_attempts'] ?? -1) === 0
-            && (int)($meta['transport_max_retries'] ?? -1) === 0
-            && (int)($meta['provider_attempt_count'] ?? 0) === 1
-            && ($meta['upstream_idempotency_key_sent'] ?? null) === false
-            && (string)($meta['thinking_mode'] ?? '') === 'enabled'
-            && in_array((string)($meta['reasoning_effort'] ?? ''), ['high', 'max'], true)
-            && (string)($meta['endpoint_origin'] ?? '') === self::REQUIRED_ENDPOINT_ORIGIN
-            && in_array($endpointBaseUrl, [
-                self::REQUIRED_ENDPOINT_ORIGIN,
-                self::REQUIRED_ENDPOINT_ORIGIN . '/v1',
-            ], true)
-            && preg_match('/^[a-f0-9]{64}$/D', (string)($meta['config_digest'] ?? '')) === 1;
-    }
-
-    /** @param array<string,mixed> $meta @return array<string,mixed> */
-    private function directAuditMeta(array $meta): array
-    {
-        $upstreamIdempotency = is_bool($meta['upstream_idempotency_key_sent'] ?? null)
-            ? $meta['upstream_idempotency_key_sent']
-            : null;
-
-        return [
-            'provider_created_at' => max(0, (int)($meta['provider_created_at'] ?? 0)),
-            'http_status' => max(0, (int)($meta['http_status'] ?? 0)),
-            'direct_request_proof' => ($meta['direct_request_proof'] ?? null) === true,
-            'transport_request_id' => preg_match(
-                '/^oq-[a-f0-9]{32}$/D',
-                (string)($meta['transport_request_id'] ?? '')
-            ) === 1 ? (string)$meta['transport_request_id'] : '',
-            'transport_retry_attempts' => (int)($meta['transport_retry_attempts'] ?? -1),
-            'transport_max_retries' => (int)($meta['transport_max_retries'] ?? -1),
-            'provider_attempt_count' => max(0, (int)($meta['provider_attempt_count'] ?? 0)),
-            'upstream_idempotency_key_sent' => $upstreamIdempotency,
-            'thinking_mode' => mb_substr(trim((string)($meta['thinking_mode'] ?? '')), 0, 20),
-            'reasoning_effort' => mb_substr(trim((string)($meta['reasoning_effort'] ?? '')), 0, 20),
-            'endpoint_origin' => mb_substr(trim((string)($meta['endpoint_origin'] ?? '')), 0, 120),
-            'endpoint_base_url' => mb_substr(trim((string)($meta['endpoint_base_url'] ?? '')), 0, 160),
-            'config_digest' => preg_match('/^[a-f0-9]{64}$/D', (string)($meta['config_digest'] ?? '')) === 1
-                ? (string)$meta['config_digest']
-                : '',
-        ];
     }
 
     /**
@@ -1360,11 +1370,105 @@ final class OperatingQuestionAiAnswerService
 
     private function modelKey(string $value): string
     {
-        // This trusted workflow deliberately has no caller-selectable model.
-        // Flash, aliases, compatibility gateways and backup providers may
-        // answer other product surfaces but can never mint a trusted
-        // operating-question response or pending approval draft.
-        return self::REQUIRED_MODEL_KEY;
+        $value = strtolower(trim($value));
+        if ($value === '') {
+            return self::DIRECT_MODEL_KEY;
+        }
+        if (in_array($value, [
+            self::DIRECT_MODEL_KEY,
+            self::DIRECT_MODEL_NAME,
+            'deepseek_reasoner',
+            'deepseek-reasoner',
+        ], true)) {
+            return self::DIRECT_MODEL_KEY;
+        }
+        throw new InvalidArgumentException('经营问答只允许 DeepSeek V4 Pro 直接模型，已拒绝其他模型或客户端降级选择');
+    }
+
+    /** @param array<string,mixed> $meta */
+    public static function directCallProofReady(array $meta): bool
+    {
+        $configuredModel = strtolower(trim((string)($meta['configured_model'] ?? '')));
+        $responseId = $meta['provider_response_id'] ?? null;
+        return strtolower(trim((string)($meta['provider'] ?? ''))) === 'deepseek'
+            && strtolower(trim((string)($meta['model_key'] ?? ''))) === self::DIRECT_MODEL_KEY
+            && $configuredModel === self::DIRECT_MODEL_NAME
+            && strtolower(trim((string)($meta['response_model'] ?? ''))) === self::DIRECT_MODEL_NAME
+            && is_string($responseId)
+            && strlen($responseId) >= 8
+            && strlen($responseId) <= 191
+            && preg_match('/^[A-Za-z0-9._:-]+$/D', $responseId) === 1
+            && max(0, (int)($meta['provider_created_at'] ?? 0)) > 0
+            && ($meta['provider_response_fresh'] ?? false) === true
+            && strtolower(trim((string)($meta['provider_endpoint_origin'] ?? ''))) === 'https://api.deepseek.com'
+            && strtolower(trim((string)($meta['provider_endpoint_host'] ?? ''))) === 'api.deepseek.com'
+            && ($meta['provider_endpoint_official'] ?? false) === true
+            && preg_match('/^[a-f0-9]{64}$/D', strtolower(trim((string)($meta['provider_config_digest'] ?? '')))) === 1
+            && trim((string)($meta['direct_call_nonce'] ?? '')) !== ''
+            && hash_equals(
+                trim((string)($meta['direct_call_nonce'] ?? '')),
+                trim((string)($meta['transport_request_id'] ?? ''))
+            )
+            && (int)($meta['transport_retry_attempts'] ?? -1) === 0
+            && ($meta['upstream_idempotency_key_sent'] ?? true) === false
+            && (int)($meta['http_status'] ?? 0) === 200
+            && (int)($meta['provider_attempt_count'] ?? 0) === 1
+            && ($meta['idempotent_replay'] ?? true) === false
+            && ($meta['direct_request_proof'] ?? false) === true
+            && strtolower(trim((string)($meta['thinking_mode'] ?? ''))) === 'enabled'
+            && strtolower(trim((string)($meta['reasoning_effort'] ?? ''))) === 'high'
+            && strtolower(trim((string)($meta['finish_reason'] ?? ''))) === 'stop'
+            && ($meta['fallback_used'] ?? null) === false
+            && ($meta['cache_hit'] ?? null) === false
+            && ($meta['degraded'] ?? null) === false;
+    }
+
+    /** @param array<string,mixed> $meta */
+    public static function directCallReceiptFreshNow(array $meta): bool
+    {
+        $createdAt = max(0, (int)($meta['provider_created_at'] ?? 0));
+        return ($meta['provider_response_fresh'] ?? false) === true
+            && $createdAt > 0
+            && abs(time() - $createdAt) <= 900;
+    }
+
+    /** @param array<string,mixed> $meta */
+    private function directFailureReason(array $meta): string
+    {
+        if (strtolower(trim((string)($meta['response_model'] ?? ''))) !== self::DIRECT_MODEL_NAME
+            || strtolower(trim((string)($meta['model_key'] ?? ''))) !== self::DIRECT_MODEL_KEY
+        ) {
+            return 'deepseek_v4_pro_not_confirmed';
+        }
+        if (($meta['cache_hit'] ?? false) === true || ($meta['idempotent_replay'] ?? false) === true) {
+            return 'cached_or_replayed_response_rejected';
+        }
+        if (($meta['fallback_used'] ?? false) === true || ($meta['degraded'] ?? false) === true) {
+            return 'fallback_or_degraded_response_rejected';
+        }
+        if (($meta['provider_endpoint_official'] ?? false) !== true
+            || strtolower(trim((string)($meta['provider_endpoint_host'] ?? ''))) !== 'api.deepseek.com'
+            || preg_match('/^[a-f0-9]{64}$/D', strtolower(trim((string)($meta['provider_config_digest'] ?? '')))) !== 1
+        ) {
+            return 'deepseek_official_endpoint_not_confirmed';
+        }
+        if (($meta['provider_response_fresh'] ?? false) !== true
+            || max(0, (int)($meta['provider_created_at'] ?? 0)) <= 0
+            || abs(time() - max(0, (int)($meta['provider_created_at'] ?? 0))) > 900
+        ) {
+            return 'deepseek_provider_response_stale';
+        }
+        if (trim((string)($meta['direct_call_nonce'] ?? '')) === ''
+            || !hash_equals(
+                trim((string)($meta['direct_call_nonce'] ?? '')),
+                trim((string)($meta['transport_request_id'] ?? ''))
+            )
+            || (int)($meta['transport_retry_attempts'] ?? -1) !== 0
+            || ($meta['upstream_idempotency_key_sent'] ?? true) === true
+        ) {
+            return 'upstream_replay_protection_not_confirmed';
+        }
+        return 'deepseek_direct_response_not_confirmed';
     }
 
     /** @param array<string,mixed> $result */

@@ -19,30 +19,36 @@ final class OperatingIntelligenceServiceTest extends TestCase
     private static string $sqlitePath = '';
 
     /** @param array<string,mixed> $overrides @return array<string,mixed> */
-    public static function trustedDeepSeekMeta(string $responseId, array $overrides = []): array
+    public static function directMeta(string $responseId, array $overrides = []): array
     {
+        $nonce = 'oq_test_' . substr(hash('sha256', $responseId), 0, 24);
         return array_replace([
-            'provider' => OperatingQuestionAiAnswerService::REQUIRED_PROVIDER,
-            'model_key' => OperatingQuestionAiAnswerService::REQUIRED_MODEL_KEY,
-            'model' => OperatingQuestionAiAnswerService::REQUIRED_MODEL,
+            'provider' => 'deepseek',
+            'model_key' => OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY,
+            'model' => OperatingQuestionAiAnswerService::DIRECT_MODEL_NAME,
+            'configured_model' => OperatingQuestionAiAnswerService::DIRECT_MODEL_NAME,
+            'response_model' => OperatingQuestionAiAnswerService::DIRECT_MODEL_NAME,
             'provider_response_id' => $responseId,
             'provider_created_at' => time(),
-            'finish_reason' => 'stop',
+            'provider_response_fresh' => true,
+            'provider_endpoint_origin' => 'https://api.deepseek.com',
+            'provider_endpoint_host' => 'api.deepseek.com',
+            'provider_endpoint_official' => true,
+            'provider_config_digest' => str_repeat('a', 64),
+            'direct_call_nonce' => $nonce,
+            'transport_request_id' => $nonce,
+            'transport_retry_attempts' => 0,
+            'upstream_idempotency_key_sent' => false,
             'http_status' => 200,
+            'provider_attempt_count' => 1,
+            'idempotent_replay' => false,
+            'direct_request_proof' => true,
+            'thinking_mode' => 'enabled',
+            'reasoning_effort' => 'high',
+            'finish_reason' => 'stop',
             'fallback_used' => false,
             'cache_hit' => false,
             'degraded' => false,
-            'direct_request_proof' => true,
-            'transport_request_id' => 'oq-' . substr(hash('sha256', $responseId), 0, 32),
-            'transport_retry_attempts' => 0,
-            'transport_max_retries' => 0,
-            'provider_attempt_count' => 1,
-            'upstream_idempotency_key_sent' => false,
-            'thinking_mode' => 'enabled',
-            'reasoning_effort' => 'high',
-            'endpoint_origin' => OperatingQuestionAiAnswerService::REQUIRED_ENDPOINT_ORIGIN,
-            'endpoint_base_url' => OperatingQuestionAiAnswerService::REQUIRED_ENDPOINT_ORIGIN . '/v1',
-            'config_digest' => hash('sha256', 'trusted-test-deepseek-v4-pro'),
         ], $overrides);
     }
 
@@ -410,7 +416,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             public function createJsonResponseEnvelope(
                 array $messages,
                 array $schema,
-                string $modelKey = 'deepseek_v4_default'
+                string $modelKey = 'deepseek_v4_pro'
             ): array {
                 $this->calls++;
                 $this->lastPrompt = json_encode($messages, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -431,7 +437,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
                             'evidence_refs' => ['online_daily_data#801'],
                         ]],
                     ],
-                    'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
+                    'meta' => OperatingIntelligenceServiceTest::directMeta(
                         'resp-operating-801-' . str_pad((string)$this->calls, 4, '0', STR_PAD_LEFT)
                     ),
                 ];
@@ -508,7 +514,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-02',
             '2026-08-02',
             7,
-            'deepseek_v4_default'
+            'deepseek_v4_pro'
         );
 
         self::assertSame(1, $fakeClient->calls);
@@ -532,8 +538,10 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertSame('deepseek', $saved['question']['answer']['ai_runtime']['provider']);
         self::assertSame('deepseek-v4-pro', $saved['question']['answer']['ai_runtime']['model']);
         self::assertTrue($saved['question']['answer']['ai_runtime']['direct_request_proof']);
-        self::assertSame(0, $saved['question']['answer']['ai_runtime']['transport_retry_attempts']);
-        self::assertFalse($saved['question']['answer']['ai_runtime']['upstream_idempotency_key_sent']);
+        self::assertSame(
+            OperatingQuestionAiAnswerService::DIRECT_CALL_STATUS,
+            $saved['question']['answer']['ai_runtime']['external_llm_call_status']
+        );
         self::assertSame('stop', $saved['question']['answer']['ai_runtime']['finish_reason']);
         self::assertSame('resp-operating-801-0001', $saved['question']['answer']['ai_runtime']['provider_response_id']);
         self::assertStringContainsString('曝光用户数为1800人', $saved['question']['answer_summary']);
@@ -565,7 +573,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-02',
             '2026-08-02',
             7,
-            'deepseek_v4_default'
+            'deepseek_v4_pro'
         );
         self::assertTrue($same['created']);
         self::assertSame(2, $fakeClient->calls);
@@ -744,7 +752,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             public function createJsonResponseEnvelope(
                 array $messages,
                 array $schema,
-                string $modelKey = 'deepseek_v4_default'
+                string $modelKey = 'deepseek_v4_pro'
             ): array {
                 $this->calls++;
                 $this->messages = $messages;
@@ -761,9 +769,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
                         'confidence' => 'medium',
                         'action_drafts' => [],
                     ],
-                    'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
-                        'resp-thirteen-days-0001'
-                    ),
+                    'meta' => OperatingIntelligenceServiceTest::directMeta('resp-thirteen-days-0001'),
                 ];
             }
         };
@@ -800,7 +806,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             public function createJsonResponseEnvelope(
                 array $messages,
                 array $schema,
-                string $modelKey = 'deepseek_v4_default'
+                string $modelKey = 'deepseek_v4_pro'
             ): array {
                 return [
                     'data' => [
@@ -811,16 +817,12 @@ final class OperatingIntelligenceServiceTest extends TestCase
                         'confidence' => 'medium',
                         'used_evidence_refs' => ['online_daily_data#9101'],
                     ],
-                    'meta' => [
+                    'meta' => OperatingIntelligenceServiceTest::directMeta('resp-fallback-provider-0001', [
                         'provider' => 'xiaomi_mimo',
-                        'model_key' => 'xiaomi_mimo_pro',
                         'model' => 'mimo-v2.5-pro',
-                        'provider_response_id' => 'resp-fallback-provider-0001',
-                        'finish_reason' => 'stop',
                         'fallback_used' => true,
-                        'cache_hit' => false,
-                        'degraded' => false,
-                    ],
+                        'direct_request_proof' => false,
+                    ]),
                 ];
             }
         };
@@ -852,18 +854,113 @@ final class OperatingIntelligenceServiceTest extends TestCase
                 ],
             ],
             'evidence' => [],
-            'model_key' => 'deepseek_v4_default',
+            'model_key' => 'deepseek_v4_pro',
             'user_id' => 7,
         ]);
 
         self::assertFalse($result['ok']);
         self::assertSame('model_unavailable', $result['status']);
-        self::assertSame('deepseek_v4_pro_direct_response_not_confirmed', $result['reason']);
+        self::assertSame('fallback_or_degraded_response_rejected', $result['reason']);
         self::assertSame('xiaomi_mimo', $result['provider']);
         self::assertSame('mimo-v2.5-pro', $result['model']);
         self::assertTrue($result['fallback_used']);
         self::assertTrue($result['external_llm_called']);
-        self::assertSame('untrusted_direct_response_rejected', $result['external_llm_call_status']);
+        self::assertSame('direct_deepseek_v4_pro_proof_rejected', $result['external_llm_call_status']);
+    }
+
+    public function testOperatingQuestionRejectsEveryUntrustedDirectResponseReceipt(): void
+    {
+        $variants = [
+            'flash' => ['response_model' => 'deepseek-v4-flash', 'direct_request_proof' => false],
+            'cache' => ['cache_hit' => true, 'direct_request_proof' => false],
+            'fallback' => ['fallback_used' => true, 'direct_request_proof' => false],
+            'fake_model' => ['response_model' => 'deepseek-v4-pro-compatible', 'direct_request_proof' => false],
+            'gateway' => [
+                'provider_endpoint_origin' => 'https://gateway.example.com',
+                'provider_endpoint_host' => 'gateway.example.com',
+                'provider_endpoint_official' => false,
+                'direct_request_proof' => false,
+            ],
+            'stale' => [
+                'provider_created_at' => time() - 3600,
+                'provider_response_fresh' => false,
+                'direct_request_proof' => false,
+            ],
+            'retry' => ['transport_retry_attempts' => 1, 'direct_request_proof' => false],
+            'idempotency' => ['upstream_idempotency_key_sent' => true, 'direct_request_proof' => false],
+        ];
+        foreach ($variants as $label => $overrides) {
+            $meta = self::directMeta('resp-negative-' . $label . '-0001', $overrides);
+            $fakeClient = new class($meta) extends LlmClient {
+                public function __construct(private readonly array $meta)
+                {
+                }
+
+                public function createJsonResponseEnvelope(
+                    array $messages,
+                    array $schema,
+                    string $modelKey = 'deepseek_v4_pro'
+                ): array {
+                    return [
+                        'data' => [
+                            'fact_claims' => [],
+                            'follow_up_questions' => [],
+                            'confidence' => 'medium',
+                            'action_drafts' => [[
+                                'expected_metric' => 'list_exposure',
+                                'expected_metric_definition_id' => 'ota_list_exposure_users.v1',
+                                'evidence_refs' => ['online_daily_data#9102'],
+                            ]],
+                        ],
+                        'meta' => $this->meta,
+                    ];
+                }
+            };
+            $result = (new OperatingQuestionAiAnswerService($fakeClient))->generate([
+                'question' => '2026-08-10 携程曝光是多少？',
+                'scope' => [
+                    'tenant_id' => 10,
+                    'hotel_id' => 20,
+                    'platform' => 'ctrip',
+                    'date_start' => '2026-08-10',
+                    'date_end' => '2026-08-10',
+                ],
+                'answer' => [
+                    'status' => 'evidence_ready',
+                    'evidence_counts' => ['facts' => 1],
+                    'fact_samples' => [self::substantiveFact(9102, '2026-08-10')],
+                    'question_metric_contract' => [
+                        'contract_version' => OperatingQuestionService::METRIC_INTENT_CONTRACT_VERSION,
+                        'mode' => 'metric_lookup',
+                        'requested_metrics' => [[
+                            'metric_key' => 'list_exposure',
+                            'definition_ids' => ['ota_list_exposure_users.v1'],
+                        ]],
+                        'required_platforms' => ['ctrip'],
+                        'required_dates' => ['2026-08-10'],
+                        'action_draft_allowed' => true,
+                    ],
+                ],
+                'evidence' => [],
+                'model_key' => 'deepseek_v4_pro',
+                'user_id' => 7,
+            ]);
+            self::assertFalse($result['ok'], $label);
+            self::assertSame([], $result['action_drafts'] ?? [], $label);
+            self::assertNotSame(OperatingQuestionAiAnswerService::DIRECT_CALL_STATUS, $result['external_llm_call_status'], $label);
+        }
+    }
+
+    public function testOperatingQuestionRejectsFlashDefaultAndBackupModelKeysBeforeClientInvocation(): void
+    {
+        foreach (['deepseek_v4_default', 'deepseek_v4_flash', 'deepseek_chat', 'backup_model'] as $modelKey) {
+            try {
+                (new OperatingQuestionAiAnswerService())->generate(['model_key' => $modelKey]);
+                self::fail('untrusted model key was accepted: ' . $modelKey);
+            } catch (InvalidArgumentException $exception) {
+                self::assertStringContainsString('DeepSeek V4 Pro', $exception->getMessage());
+            }
+        }
     }
 
     public function testKnowledgeContextAloneNeverBypassesMissingVerifiedFacts(): void
@@ -874,7 +971,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             public function createJsonResponseEnvelope(
                 array $messages,
                 array $schema,
-                string $modelKey = 'deepseek_v4_default'
+                string $modelKey = 'deepseek_v4_pro'
             ): array {
                 $this->calls++;
                 return ['data' => [], 'meta' => []];
@@ -916,7 +1013,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             public function createJsonResponseEnvelope(
                 array $messages,
                 array $schema,
-                string $modelKey = 'deepseek_v4_default'
+                string $modelKey = 'deepseek_v4_pro'
             ): array {
                 $this->calls++;
                 throw new \RuntimeException('provider timeout with sensitive detail');
@@ -1252,7 +1349,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
                 public function createJsonResponseEnvelope(
                     array $messages,
                     array $schema,
-                    string $modelKey = 'deepseek_v4_default'
+                    string $modelKey = 'deepseek_v4_pro'
                 ): array {
                     return [
                         'data' => [
@@ -1261,7 +1358,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
                             'confidence' => 'medium',
                             'action_drafts' => [],
                         ],
-                        'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
+                        'meta' => OperatingIntelligenceServiceTest::directMeta(
                             'resp-claim-case-' . str_pad((string)$this->index, 4, '0', STR_PAD_LEFT)
                         ),
                     ];
@@ -1904,7 +2001,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             public function createJsonResponseEnvelope(
                 array $messages,
                 array $schema,
-                string $modelKey = 'deepseek_v4_default'
+                string $modelKey = 'deepseek_v4_pro'
             ): array {
                 return [
                     'data' => [
@@ -1913,9 +2010,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
                         'confidence' => 'medium',
                         'action_drafts' => [],
                     ],
-                    'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
-                        'resp-all-visible-claims-0001'
-                    ),
+                    'meta' => OperatingIntelligenceServiceTest::directMeta('resp-all-visible-claims-0001'),
                 ];
             }
         };
@@ -1947,7 +2042,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             public function createJsonResponseEnvelope(
                 array $messages,
                 array $schema,
-                string $modelKey = 'deepseek_v4_default'
+                string $modelKey = 'deepseek_v4_pro'
             ): array {
                 return [
                     'data' => [
@@ -1962,9 +2057,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
                         'confidence' => 'medium',
                         'action_drafts' => [],
                     ],
-                    'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
-                        'resp-global-replay-0001'
-                    ),
+                    'meta' => OperatingIntelligenceServiceTest::directMeta('resp-global-replay-0001'),
                 ];
             }
         };
@@ -2031,10 +2124,11 @@ final class OperatingIntelligenceServiceTest extends TestCase
                 'model_attempted' => true,
                 'llm_client_invoked' => true,
                 'external_llm_called' => true,
-                'external_llm_call_status' => 'confirmed_success',
+                'external_llm_call_status' => OperatingQuestionAiAnswerService::DIRECT_CALL_STATUS,
                 'fallback_used' => false,
                 'cache_hit' => false,
                 'degraded' => false,
+                ...self::directMeta('resp-missing-registry-0001'),
             ]
         );
         try {

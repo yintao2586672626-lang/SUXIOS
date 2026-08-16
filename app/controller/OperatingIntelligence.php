@@ -50,7 +50,7 @@ final class OperatingIntelligence extends Base
                 (string)($input['date_start'] ?? ''),
                 (string)($input['date_end'] ?? ''),
                 (int)($this->currentUser->id ?? 0),
-                OperatingQuestionAiAnswerService::REQUIRED_MODEL_KEY
+                OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '经营问题保存失败'), $this->status($e));

@@ -102,7 +102,7 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
   await page.route('**/api/**', async route => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
-    apiCalls.push({ method: request.method(), pathname });
+    apiCalls.push({ method: request.method(), pathname, body: request.postDataJSON?.() || null });
     let data = { list: [], items: [], total: 0 };
     if (pathname === '/api/auth/info') data = user;
     if (pathname === '/api/hotels') {
@@ -120,6 +120,7 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
         date_end: String(payload.date_end),
         question_text: String(payload.question),
         content_digest: digest,
+        readback_verified: true,
         answer_status: 'blocked_by_missing_facts',
         answer_summary: '当前范围缺少同酒店、同平台、同日期的严格保存回读事实，暂不能给出确定经营结论。',
         data_gaps: [{ code: 'verified_fact_missing', message: '缺少当前范围的可信 OTA 事实。' }],
@@ -334,6 +335,8 @@ test('intelligent system assistant keeps conversation context and changes the ne
     '/api/agent/operating-questions',
     '/api/agent/system-guidance',
   ]);
+  expect(apiCalls.find(call => call.pathname === '/api/agent/operating-questions').body.model_key)
+    .toBe('deepseek_v4_pro');
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
