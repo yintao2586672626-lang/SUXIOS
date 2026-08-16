@@ -985,7 +985,11 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     const navigation = await send('Page.navigate', { url: platformStartUrl(platform) });
     if (navigation.errorText) throw new Error('read_only_navigation_failed');
     await send('Runtime.enable');
-    const navigationDeadline = Date.now() + 12000;
+    // Ctrip's authenticated home shell can remain in `loading` while its
+    // bundled read-only resources initialize. Keep the origin/path/request
+    // gates unchanged, but allow the real production page a bounded window
+    // before declaring the navigation unverified.
+    const navigationDeadline = Date.now() + 30000;
     let sourcePageReady = false;
     let navigationFailure = 'read_only_navigation_document_not_ready';
     while (Date.now() < navigationDeadline) {

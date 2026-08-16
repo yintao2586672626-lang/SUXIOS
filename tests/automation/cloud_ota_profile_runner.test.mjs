@@ -58,6 +58,9 @@ test('cloud OTA runner binds one source/Profile/date and persists only after cur
   const gatewayReceiptReadback = runner.indexOf('gatewayReadReceipt(');
   const finalOutput = runner.indexOf('echo json_encode($result');
   assert.ok(sessionClaim > gatewayOpen);
+  assert.match(runner, /'access_mode'\s*=>\s*'read_only',\s*\], 90\)/);
+  assert.match(runner, /int \$timeoutSeconds = 30/);
+  assert.match(runner, /'timeout'\s*=>\s*\$timeoutSeconds/);
   assert.ok(openVerification > sessionClaim);
   assert.ok(close > sync);
   assert.ok(abort > close);

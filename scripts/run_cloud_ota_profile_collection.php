@@ -142,7 +142,7 @@ try {
         'target_date' => $targetDate,
         'collection_kind' => 'ota_channel_profile',
         'access_mode' => 'read_only',
-    ]);
+    ], 90);
     $gatewayOpenAccepted = ($opened['status'] ?? '') === 'collection_open';
     if ($gatewayOpenAccepted) {
         // Claim the session identity before checking the remaining response
@@ -510,13 +510,20 @@ function assertCurrentCaptureEvidence(
 }
 
 /** @return array<string,mixed> */
-function gatewayRequest(string $baseUrl, string $token, string $path, array $body): array
+function gatewayRequest(
+    string $baseUrl,
+    string $token,
+    string $path,
+    array $body,
+    int $timeoutSeconds = 30
+): array
 {
+    $timeoutSeconds = max(1, min(120, $timeoutSeconds));
     $context = stream_context_create(['http' => [
         'method' => 'POST',
         'header' => "Content-Type: application/json\r\nAuthorization: Bearer {$token}\r\n",
         'content' => json_encode($body, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-        'timeout' => 30,
+        'timeout' => $timeoutSeconds,
         'ignore_errors' => true,
     ]]);
     error_clear_last();
