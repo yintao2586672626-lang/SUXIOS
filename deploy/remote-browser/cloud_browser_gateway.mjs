@@ -996,7 +996,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     // bundled read-only resources initialize. Keep the origin/path/request
     // gates unchanged, but allow the real production page a bounded window
     // before declaring the navigation unverified.
-    const navigationDeadline = Date.now() + 30000;
+    const navigationDeadline = Date.now() + (platform === 'ctrip' ? 30000 : 12000);
     let sourcePageReady = false;
     let navigationFailure = 'read_only_navigation_document_not_ready';
     while (Date.now() < navigationDeadline) {
@@ -1014,11 +1014,17 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
         // can legitimately stay in the browser-standard `loading` state while
         // the collector performs its stricter login, hotel, date and field
         // readiness checks over the already guarded CDP session.
+        const acceptedReadyStates = platform === 'ctrip'
+          ? ['loading', 'interactive', 'complete']
+          : ['interactive', 'complete'];
         sourcePageReady = trustedCollectionPageLocation(value.href, platform)
-          && ['loading', 'interactive', 'complete'].includes(String(value.readyState || ''));
+          && acceptedReadyStates.includes(String(value.readyState || ''));
         if (sourcePageReady) break;
-      } catch {
+      } catch (error) {
         sourcePageReady = false;
+        navigationFailure = error?.message === 'read_only_policy_connection_closed'
+          ? 'read_only_policy_connection_closed'
+          : 'read_only_navigation_evaluation_unavailable';
       }
       await delay(100);
     }

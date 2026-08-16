@@ -1229,7 +1229,9 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /collector_read_only_contract: OTA_RECEIPT_PLATFORM_PATTERN\.test/);
   assert.match(gateway, /Runtime\.evaluate/);
   assert.match(gateway, /read_only_navigation_document_not_ready/);
-  assert.match(gateway, /navigationDeadline = Date\.now\(\) \+ 30000/);
+  assert.match(gateway, /navigationDeadline = Date\.now\(\) \+ \(platform === 'ctrip' \? 30000 : 12000\)/);
+  assert.match(gateway, /platform === 'ctrip'[\s\S]*?\['loading', 'interactive', 'complete'\][\s\S]*?\['interactive', 'complete'\]/);
+  assert.match(gateway, /read_only_navigation_evaluation_unavailable/);
   assert.match(gateway, /\['loading', 'interactive', 'complete'\]/);
   assert.match(gateway, /return 'origin_mismatch'/);
   assert.match(gateway, /return pathMatched \? 'matched' : 'path_mismatch'/);

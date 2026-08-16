@@ -107,6 +107,7 @@ test('cloud OTA service serializes Ctrip then Meituan and cannot send messages',
   assert.match(batch, /stream_set_blocking\(\$pipes\[1\], false\)/);
   assert.match(batch, /stream_set_blocking\(\$pipes\[2\], false\)/);
   assert.match(batch, /OTA_BATCH_CHILD_DEADLINE_SECONDS/);
+  assert.match(batch, /--timeout-seconds=540/);
   assert.match(batch, /\(\$receipt\['business_data_persisted'\] \?\? null\) !== false/);
   assert.match(batch, /gateway_receipt_readback_verified/);
   assert.match(batch, /requires_explicit_no_persistence/);
