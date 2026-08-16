@@ -345,7 +345,13 @@ final class OperatingQuestionKnowledgeRetrievalService
                 break;
             }
         }
-        return array_slice(array_keys($terms), 0, 48);
+        // PHP converts numeric-string array keys (for example the year in an
+        // absolute business date) to integers. Keep the declared list<string>
+        // contract so dated operating questions cannot crash retrieval.
+        return array_values(array_map(
+            'strval',
+            array_slice(array_keys($terms), 0, 48)
+        ));
     }
 
     /** @param list<string> $terms */
