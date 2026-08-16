@@ -916,14 +916,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
       failClosedForTarget(targetInfo.targetId);
       return;
     }
-    if (targetInfo.type === 'page' && targetInfo.targetId !== target.targetId) {
-      closeUnexpectedPageTarget(targetInfo.targetId);
-      return;
-    }
-    if (['service_worker', 'shared_worker', 'worker'].includes(targetInfo.type)) {
-      // Workers are not part of the single guarded-page collection contract.
-      // Closing them prevents a side channel while avoiding a browser-wide
-      // teardown between gateway open and the collector's CDP connection.
+    if (targetInfo.targetId && targetInfo.targetId !== target.targetId) {
       closeUnexpectedPageTarget(targetInfo.targetId);
       return;
     }
