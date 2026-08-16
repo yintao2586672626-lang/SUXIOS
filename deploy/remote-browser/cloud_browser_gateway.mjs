@@ -606,7 +606,7 @@ function validateCollectionCloseRequest(body) {
 }
 
 function validateCollectionAbortRequest(body) {
-  if (Object.keys(body).some((key) => key !== 'profile_public_id')) {
+  if (Object.keys(body).some((key) => !['profile_public_id', 'collection_session_id'].includes(key))) {
     throw new Error('collection_abort_scope_invalid');
   }
   return {
@@ -615,6 +615,13 @@ function validateCollectionAbortRequest(body) {
       PROFILE_ID_PATTERN,
       'profile_public_id_invalid',
     ),
+    collectionSessionId: body.collection_session_id == null
+      ? null
+      : assertOpaque(
+        body.collection_session_id,
+        COLLECTION_SESSION_ID_PATTERN,
+        'collection_session_id_invalid',
+      ),
   };
 }
 
@@ -642,23 +649,30 @@ function platformStartUrl(platform) {
   return url;
 }
 
-function trustedCollectionPageLocation(value, platform) {
+function trustedCollectionPageState(value, platform) {
   let location;
   let source;
   try {
     location = new URL(String(value || ''));
     source = new URL(platformStartUrl(platform));
   } catch {
-    return false;
+    return 'invalid';
   }
   if (location.protocol !== 'https:'
     || location.origin !== source.origin
     || location.username !== ''
     || location.password !== ''
-  ) return false;
-  if (platform === 'ctrip') return location.pathname.startsWith('/home/');
-  if (platform === 'meituan') return location.pathname.startsWith('/ebooking/');
-  return location.pathname === source.pathname;
+  ) return 'origin_mismatch';
+  const pathMatched = platform === 'ctrip'
+    ? location.pathname.startsWith('/home/')
+    : (platform === 'meituan'
+      ? location.pathname.startsWith('/ebooking/')
+      : location.pathname === source.pathname);
+  return pathMatched ? 'matched' : 'path_mismatch';
+}
+
+function trustedCollectionPageLocation(value, platform) {
+  return trustedCollectionPageState(value, platform) === 'matched';
 }
 
 async function startBrowser(config, profilePath, platform, startUrl = null) {
@@ -978,8 +992,13 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     const navigation = await send('Page.navigate', { url: platformStartUrl(platform) });
     if (navigation.errorText) throw new Error('read_only_navigation_failed');
     await send('Runtime.enable');
-    const navigationDeadline = Date.now() + 12000;
+    // Ctrip's authenticated home shell can remain in `loading` while its
+    // bundled read-only resources initialize. Keep the origin/path/request
+    // gates unchanged, but allow the real production page a bounded window
+    // before declaring the navigation unverified.
+    const navigationDeadline = Date.now() + (platform === 'ctrip' ? 30000 : 12000);
     let sourcePageReady = false;
+    let navigationFailure = 'read_only_navigation_document_not_ready';
     while (Date.now() < navigationDeadline) {
       try {
         const evaluated = await send('Runtime.evaluate', {
@@ -987,19 +1006,38 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
           returnByValue: true,
         });
         const value = evaluated?.result?.value || {};
+        const locationState = trustedCollectionPageState(value.href, platform);
+        navigationFailure = locationState === 'matched'
+          ? 'read_only_navigation_document_not_ready'
+          : `read_only_navigation_${locationState}`;
+        // The gateway owns location and read-only policy trust. Ctrip's SPA
+        // can legitimately stay in the browser-standard `loading` state while
+        // the collector performs its stricter login, hotel, date and field
+        // readiness checks over the already guarded CDP session.
+        const acceptedReadyStates = platform === 'ctrip'
+          ? ['loading', 'interactive', 'complete']
+          : ['interactive', 'complete'];
         sourcePageReady = trustedCollectionPageLocation(value.href, platform)
-          && ['interactive', 'complete'].includes(String(value.readyState || ''));
-        if (sourcePageReady) break;
-      } catch {
+          && acceptedReadyStates.includes(String(value.readyState || ''));
+        if (sourcePageReady) {
+          // The Ctrip SPA may replace its execution context while still in
+          // `loading`. Only accept readiness once the lease marker succeeds
+          // in that same stable context; otherwise retry within the deadline.
+          await send('Runtime.evaluate', {
+            expression: "window.name='suxios_profile_lease_guarded'",
+            returnByValue: true,
+          });
+          break;
+        }
+      } catch (error) {
         sourcePageReady = false;
+        navigationFailure = error?.message === 'read_only_policy_connection_closed'
+          ? 'read_only_policy_connection_closed'
+          : 'read_only_navigation_evaluation_unavailable';
       }
       await delay(100);
     }
-    if (!sourcePageReady) throw new Error('read_only_navigation_not_ready');
-    await send('Runtime.evaluate', {
-      expression: "window.name='suxios_profile_lease_guarded'",
-      returnByValue: true,
-    });
+    if (!sourcePageReady) throw new Error(navigationFailure);
   } catch (error) {
     closed = true;
     socket.close();
@@ -1416,9 +1454,13 @@ export async function createGateway(env = process.env, dependencies = {}) {
           if (session.abortRequested === true) {
             throw new GatewayError('collection_open_aborted', 409);
           }
-          if (publicError(error).startsWith('collection_')
-            || publicError(error).startsWith('profile_')
-            || publicError(error).startsWith('gateway_')) {
+          const reason = publicError(error);
+          if (reason.startsWith('collection_')
+            || reason.startsWith('profile_')
+            || reason.startsWith('gateway_')
+            || reason.startsWith('browser_')
+            || reason.startsWith('read_only_')
+            || reason.startsWith('snap_chromium_')) {
             throw error;
           }
           throw new GatewayError('read_only_policy_setup_failed', 500);
@@ -1492,6 +1534,8 @@ export async function createGateway(env = process.env, dependencies = {}) {
         if (!session
           || session.kind !== 'collection'
           || session.profileId !== abort.profilePublicId
+          || (abort.collectionSessionId !== null
+            && session.collectionSessionId !== abort.collectionSessionId)
         ) {
           jsonResponse(response, 200, {
             status: 'no_active_collection',

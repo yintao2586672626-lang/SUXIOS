@@ -142,7 +142,7 @@ try {
         'target_date' => $targetDate,
         'collection_kind' => 'ota_channel_profile',
         'access_mode' => 'read_only',
-    ]);
+    ], 90);
     $gatewayOpenAccepted = ($opened['status'] ?? '') === 'collection_open';
     if ($gatewayOpenAccepted) {
         // Claim the session identity before checking the remaining response
@@ -150,7 +150,7 @@ try {
         // have started Chromium and occupied the single gateway slot; the
         // finally block must then close or abort that exact Profile instead
         // of leaking capacity until the gateway TTL expires.
-        $collectionSessionId = opaqueId(
+        $collectionSessionId = opaqueIdOrThrow(
             (string)($opened['collection_session_id'] ?? ''),
             'cbcs_',
             'cloud_ota_collection_session_invalid'
@@ -355,7 +355,7 @@ try {
         } catch (Throwable $closeError) {
             $failureReason = $failureReason ?? safeReason($closeError->getMessage());
             $failureReason = safeReason($failureReason . '_profile_close_failed');
-            if (!abortGatewayCollection($gatewayUrl, $controlToken, $profileId)) {
+            if (!abortGatewayCollection($gatewayUrl, $controlToken, $profileId, $collectionSessionId)) {
                 $failureReason = safeReason($failureReason . '_gateway_abort_unverified');
             }
             $postSyncFailure = $syncTaskRecorded;
@@ -510,13 +510,20 @@ function assertCurrentCaptureEvidence(
 }
 
 /** @return array<string,mixed> */
-function gatewayRequest(string $baseUrl, string $token, string $path, array $body): array
+function gatewayRequest(
+    string $baseUrl,
+    string $token,
+    string $path,
+    array $body,
+    int $timeoutSeconds = 30
+): array
 {
+    $timeoutSeconds = max(1, min(120, $timeoutSeconds));
     $context = stream_context_create(['http' => [
         'method' => 'POST',
         'header' => "Content-Type: application/json\r\nAuthorization: Bearer {$token}\r\n",
         'content' => json_encode($body, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-        'timeout' => 30,
+        'timeout' => $timeoutSeconds,
         'ignore_errors' => true,
     ]]);
     error_clear_last();
@@ -530,15 +537,24 @@ function gatewayRequest(string $baseUrl, string $token, string $path, array $bod
     return $decoded;
 }
 
-function abortGatewayCollection(string $baseUrl, string $token, string $profileId): bool
+function abortGatewayCollection(
+    string $baseUrl,
+    string $token,
+    string $profileId,
+    ?string $collectionSessionId = null
+): bool
 {
     if ($token === '' || preg_match('/^cbp_[A-Za-z0-9_-]{16,64}$/D', $profileId) !== 1) {
         return false;
     }
     try {
-        $aborted = gatewayRequest($baseUrl, $token, '/v1/collection/abort', [
+        $payload = [
             'profile_public_id' => $profileId,
-        ]);
+        ];
+        if ($collectionSessionId !== null) {
+            $payload['collection_session_id'] = $collectionSessionId;
+        }
+        $aborted = gatewayRequest($baseUrl, $token, '/v1/collection/abort', $payload);
         return in_array((string)($aborted['status'] ?? ''), ['aborted', 'no_active_collection'], true)
             && ($aborted['cleanup_verified'] ?? null) === true;
     } catch (Throwable) {
@@ -652,6 +668,15 @@ function opaqueId(string $value, string $prefix, string $reason): string
     $value = trim($value);
     if (preg_match('/^' . preg_quote($prefix, '/') . '[A-Za-z0-9_-]{16,64}$/D', $value) !== 1) {
         fail($reason);
+    }
+    return $value;
+}
+
+function opaqueIdOrThrow(string $value, string $prefix, string $reason): string
+{
+    $value = trim($value);
+    if (preg_match('/^' . preg_quote($prefix, '/') . '[A-Za-z0-9_-]{16,64}$/D', $value) !== 1) {
+        throw new RuntimeException($reason);
     }
     return $value;
 }

@@ -115,7 +115,9 @@ function runCollectionChild(string $root, array $scope, int $ownerUserId): array
         '--owner-user-id=' . $ownerUserId,
         '--profile-id=' . $scope['profile_id'],
         '--control-token-file=' . OTA_BATCH_TOKEN_FILE,
-        '--timeout-seconds=600',
+        // Reserve 180 seconds for gateway open, persistence/readback,
+        // close/abort and receipt verification inside the 660-second child.
+        '--timeout-seconds=480',
     ];
     $descriptors = [
         0 => ['pipe', 'r'],

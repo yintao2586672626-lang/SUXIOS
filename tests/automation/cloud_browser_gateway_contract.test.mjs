@@ -564,6 +564,17 @@ test('collection abort is loopback-token protected, exact-profile scoped, idempo
       cleanup_verified: true,
     });
 
+    const wrongSession = await fetch(`${base}/v1/collection/abort`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profile_public_id: profileId,
+        collection_session_id: 'cbcs_notthiscollection1',
+      }),
+    }).then((response) => response.json());
+    assert.equal(wrongSession.status, 'no_active_collection');
+    assert.equal(wrongSession.cleanup_verified, true);
+
     const abortResponse = await fetch(`${base}/v1/collection/abort`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -1217,7 +1228,18 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /collection_browser_policy_breached/);
   assert.match(gateway, /collector_read_only_contract: OTA_RECEIPT_PLATFORM_PATTERN\.test/);
   assert.match(gateway, /Runtime\.evaluate/);
-  assert.match(gateway, /read_only_navigation_not_ready/);
+  assert.match(gateway, /read_only_navigation_document_not_ready/);
+  assert.match(gateway, /navigationDeadline = Date\.now\(\) \+ \(platform === 'ctrip' \? 30000 : 12000\)/);
+  assert.match(gateway, /platform === 'ctrip'[\s\S]*?\['loading', 'interactive', 'complete'\][\s\S]*?\['interactive', 'complete'\]/);
+  assert.match(gateway, /read_only_navigation_evaluation_unavailable/);
+  assert.match(gateway, /if \(sourcePageReady\) \{[\s\S]*?window\.name='suxios_profile_lease_guarded'[\s\S]*?break;/);
+  assert.match(gateway, /\['loading', 'interactive', 'complete'\]/);
+  assert.match(gateway, /return 'origin_mismatch'/);
+  assert.match(gateway, /return pathMatched \? 'matched' : 'path_mismatch'/);
+  assert.match(gateway, /`read_only_navigation_\$\{locationState\}`/);
+  assert.match(gateway, /reason\.startsWith\('browser_'\)/);
+  assert.match(gateway, /reason\.startsWith\('read_only_'\)/);
+  assert.match(gateway, /reason\.startsWith\('snap_chromium_'\)/);
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/open'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/close'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /function claimCapacity\([\s\S]{0,220}capacitySlot !== null/);

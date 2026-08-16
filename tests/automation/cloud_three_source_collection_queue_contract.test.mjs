@@ -62,6 +62,11 @@ test('canonical promotion and final ledger persistence consume the queue deadlin
   assert.match(runReceiptService, /SET SESSION innodb_lock_wait_timeout/);
 });
 
+test('OTA capture reserves lifecycle time inside the supervised child deadline', () => {
+  assert.match(queueService, /\$otaCaptureTimeoutSeconds = max\(60, \$childTimeoutSeconds - 180\)/);
+  assert.match(queueService, /--timeout-seconds=' \. \$otaCaptureTimeoutSeconds/);
+});
+
 test('new systemd timer is standalone and does not replace or invoke message dispatch', () => {
   assert.match(systemdService, /Type=oneshot/);
   assert.match(systemdService, /run_cloud_three_source_collection_queue\.php/);

@@ -216,7 +216,7 @@ final class CloudOtaProfileLeaseService
                     $body,
                     JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
                 ),
-                'timeout' => 30,
+                'timeout' => $path === '/v1/collection/open' ? 90 : 30,
                 'ignore_errors' => true,
             ],
         ]);

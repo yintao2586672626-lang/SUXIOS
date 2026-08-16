@@ -245,6 +245,7 @@ final class CloudThreeSourceCollectionQueueService
         int $childTimeoutSeconds,
         float $deadlineAt
     ): array {
+        $otaCaptureTimeoutSeconds = max(60, $childTimeoutSeconds - 180);
         $planId = (int)($plan['id'] ?? 0);
         $tenantId = (int)($plan['tenant_id'] ?? 0);
         $hotelId = (int)($plan['system_hotel_id'] ?? 0);
@@ -459,7 +460,7 @@ final class CloudThreeSourceCollectionQueueService
                 '--profile-id=' . $profiles['ctrip']['profile_public_id'],
                 '--target-date=' . $targetDate,
                 '--control-token-file=' . $controlTokenFile,
-                '--timeout-seconds=' . $childTimeoutSeconds,
+                '--timeout-seconds=' . $otaCaptureTimeoutSeconds,
                 '--dispatcher-run-id=' . $dispatcherRunId,
             ],
             'meituan' => [
@@ -472,7 +473,7 @@ final class CloudThreeSourceCollectionQueueService
                 '--profile-id=' . $profiles['meituan']['profile_public_id'],
                 '--target-date=' . $targetDate,
                 '--control-token-file=' . $controlTokenFile,
-                '--timeout-seconds=' . $childTimeoutSeconds,
+                '--timeout-seconds=' . $otaCaptureTimeoutSeconds,
                 '--dispatcher-run-id=' . $dispatcherRunId,
             ],
         ];

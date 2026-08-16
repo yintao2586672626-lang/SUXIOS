@@ -8,6 +8,7 @@ const adapter = read('app/service/platform/TrustedCloudProfileDataSourceAdapter.
 const service = read('deploy/systemd/suxios-cloud-ota-profile-collection.service');
 const timer = read('deploy/systemd/suxios-cloud-ota-profile-collection.timer');
 const batch = read('scripts/run_cloud_ota_profile_collection_batch.php');
+const profileLease = read('app/service/CloudOtaProfileLeaseService.php');
 
 test('cloud OTA runner binds one source/Profile/date and persists only after current capture proof', () => {
   assert.match(runner, /validateOtaDataSourceCollectionProfile/);
@@ -50,7 +51,7 @@ test('cloud OTA runner binds one source/Profile/date and persists only after cur
   assert.match(runner, /gateway_connection_refused/);
   assert.match(runner, /gateway_connection_timeout/);
   const gatewayOpen = runner.indexOf("'/v1/collection/open'");
-  const sessionClaim = runner.indexOf('$collectionSessionId = opaqueId(', gatewayOpen);
+  const sessionClaim = runner.indexOf('$collectionSessionId = opaqueIdOrThrow(', gatewayOpen);
   const openVerification = runner.indexOf("if (($opened['status']", gatewayOpen);
   const close = runner.indexOf("'/v1/collection/close'");
   const abort = runner.indexOf("'/v1/collection/abort'");
@@ -58,6 +59,9 @@ test('cloud OTA runner binds one source/Profile/date and persists only after cur
   const gatewayReceiptReadback = runner.indexOf('gatewayReadReceipt(');
   const finalOutput = runner.indexOf('echo json_encode($result');
   assert.ok(sessionClaim > gatewayOpen);
+  assert.match(runner, /'access_mode'\s*=>\s*'read_only',\s*\], 90\)/);
+  assert.match(runner, /int \$timeoutSeconds = 30/);
+  assert.match(runner, /'timeout'\s*=>\s*\$timeoutSeconds/);
   assert.ok(openVerification > sessionClaim);
   assert.ok(close > sync);
   assert.ok(abort > close);
@@ -73,6 +77,7 @@ test('cloud OTA runner binds one source/Profile/date and persists only after cur
   assert.match(runner, /\$result\['gateway_receipt_readback_verified'\]\s*=\s*true/);
   assert.match(runner, /\$gatewayOpenAccepted\s*&&\s*\$controlToken !== ''/);
   assert.match(runner, /function abortGatewayCollection\(/);
+  assert.match(runner, /'collection_session_id'\]\s*=\s*\$collectionSessionId/);
   assert.match(runner, /\['aborted',\s*'no_active_collection'\]/);
   assert.match(runner, /\(\$aborted\['cleanup_verified'\] \?\? null\) === true/);
   assert.match(runner, /profile_close_failed'_?\s*\)?/);
@@ -103,6 +108,8 @@ test('cloud OTA service serializes Ctrip then Meituan and cannot send messages',
   assert.match(batch, /stream_set_blocking\(\$pipes\[1\], false\)/);
   assert.match(batch, /stream_set_blocking\(\$pipes\[2\], false\)/);
   assert.match(batch, /OTA_BATCH_CHILD_DEADLINE_SECONDS/);
+  assert.match(batch, /--timeout-seconds=480/);
+  assert.match(profileLease, /\$path === '\/v1\/collection\/open' \? 90 : 30/);
   assert.match(batch, /\(\$receipt\['business_data_persisted'\] \?\? null\) !== false/);
   assert.match(batch, /gateway_receipt_readback_verified/);
   assert.match(batch, /requires_explicit_no_persistence/);
