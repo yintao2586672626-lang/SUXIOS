@@ -441,10 +441,24 @@ final class OtaCanonicalHistoryPromotionService
             throw new RuntimeException('promotion_receipt_exists_but_rows_not_verified');
         }
 
+        $promotableValidationStatuses = self::PROMOTABLE_VALIDATION_STATUSES;
+        if ($platform === 'ctrip'
+            && $dataPeriod === 'realtime_snapshot'
+            && $targetDate === (new \DateTimeImmutable(
+                'today',
+                new \DateTimeZone('Asia/Shanghai')
+            ))->format('Y-m-d')
+            && (int)$contract['authoritative_traffic_row_count'] === count($contract['sample_row_ids'])
+        ) {
+            // Each strict realtime endpoint proves one member of the aggregate
+            // two-metric contract, so its row is partial before the external
+            // verifier confirms the exact two-row union.
+            $promotableValidationStatuses[] = 'partial';
+        }
         foreach ($authoritativeRows as $row) {
             if (!in_array(
                 strtolower(trim((string)($row['validation_status'] ?? ''))),
-                self::PROMOTABLE_VALIDATION_STATUSES,
+                $promotableValidationStatuses,
                 true
             )) {
                 throw new RuntimeException('promotion_row_validation_not_promotable');
@@ -507,7 +521,7 @@ final class OtaCanonicalHistoryPromotionService
                 ->where('data_date', $targetDate)
                 ->where('data_period', $dataPeriod)
                 ->whereIn('id', $idsToPromote)
-                ->whereIn('validation_status', self::PROMOTABLE_VALIDATION_STATUSES)
+                ->whereIn('validation_status', $promotableValidationStatuses)
                 ->update($update);
             $this->assertDeadline($deadlineAt);
             if ($affected !== count($idsToPromote)) {
