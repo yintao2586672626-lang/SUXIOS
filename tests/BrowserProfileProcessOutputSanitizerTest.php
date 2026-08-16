@@ -52,4 +52,15 @@ final class BrowserProfileProcessOutputSanitizerTest extends TestCase
             BrowserProfileProcessOutputSanitizer::summarize($stderr, '')
         );
     }
+
+    public function testNodeErrorObjectSkipsNameMetadataAndUsesMessage(): void
+    {
+        $stderr = "triggerUncaughtException(err, true);\n{\nname: 'Error',\n"
+            . "message: 'Target page, context or browser has been closed'\n}";
+
+        self::assertSame(
+            'Target page, context or browser has been closed',
+            BrowserProfileProcessOutputSanitizer::summarize($stderr, '')
+        );
+    }
 }
