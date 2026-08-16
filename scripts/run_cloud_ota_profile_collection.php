@@ -72,6 +72,7 @@ $syncUser = new class($ownerUserId) {
 };
 $failureReceiptService = new PlatformDataSyncService();
 $collectionSessionId = null;
+$gatewayOpenAccepted = false;
 $closeOutcome = 'cancelled';
 $businessDataPersisted = false;
 $syncTaskRecorded = false;
@@ -142,6 +143,19 @@ try {
         'collection_kind' => 'ota_channel_profile',
         'access_mode' => 'read_only',
     ]);
+    $gatewayOpenAccepted = ($opened['status'] ?? '') === 'collection_open';
+    if ($gatewayOpenAccepted) {
+        // Claim the session identity before checking the remaining response
+        // contract. A version-skewed or malformed open response may still
+        // have started Chromium and occupied the single gateway slot; the
+        // finally block must then close or abort that exact Profile instead
+        // of leaking capacity until the gateway TTL expires.
+        $collectionSessionId = opaqueId(
+            (string)($opened['collection_session_id'] ?? ''),
+            'cbcs_',
+            'cloud_ota_collection_session_invalid'
+        );
+    }
     if (($opened['status'] ?? '') !== 'collection_open'
         || ($opened['collector_read_only_contract'] ?? null) !== true
         || ($opened['read_only_enforced'] ?? null) !== true
@@ -154,11 +168,6 @@ try {
     ) {
         throw new RuntimeException('cloud_ota_gateway_open_unverified');
     }
-    $collectionSessionId = opaqueId(
-        (string)($opened['collection_session_id'] ?? ''),
-        'cbcs_',
-        'cloud_ota_collection_session_invalid'
-    );
 
     $captureOptions = [
         'cdp_url' => $cdpUrl,
@@ -346,6 +355,16 @@ try {
         } catch (Throwable $closeError) {
             $failureReason = $failureReason ?? safeReason($closeError->getMessage());
             $failureReason = safeReason($failureReason . '_profile_close_failed');
+            if (!abortGatewayCollection($gatewayUrl, $controlToken, $profileId)) {
+                $failureReason = safeReason($failureReason . '_gateway_abort_unverified');
+            }
+            $postSyncFailure = $syncTaskRecorded;
+            $result = null;
+        }
+    } elseif ($gatewayOpenAccepted && $controlToken !== '') {
+        if (!abortGatewayCollection($gatewayUrl, $controlToken, $profileId)) {
+            $failureReason = $failureReason ?? 'cloud_ota_collection_profile_abort_unverified';
+            $failureReason = safeReason($failureReason . '_profile_close_failed');
             $postSyncFailure = $syncTaskRecorded;
             $result = null;
         }
@@ -509,6 +528,22 @@ function gatewayRequest(string $baseUrl, string $token, string $path, array $bod
             : gatewayTransportFailureCode('cloud_ota_gateway_failed'));
     }
     return $decoded;
+}
+
+function abortGatewayCollection(string $baseUrl, string $token, string $profileId): bool
+{
+    if ($token === '' || preg_match('/^cbp_[A-Za-z0-9_-]{16,64}$/D', $profileId) !== 1) {
+        return false;
+    }
+    try {
+        $aborted = gatewayRequest($baseUrl, $token, '/v1/collection/abort', [
+            'profile_public_id' => $profileId,
+        ]);
+        return in_array((string)($aborted['status'] ?? ''), ['aborted', 'no_active_collection'], true)
+            && ($aborted['cleanup_verified'] ?? null) === true;
+    } catch (Throwable) {
+        return false;
+    }
 }
 
 /** @return array<string,mixed> */
