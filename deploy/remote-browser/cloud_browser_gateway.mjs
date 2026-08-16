@@ -899,13 +899,25 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     if (targetId) send('Target.closeTarget', { targetId }).catch(() => undefined);
   };
 
+  const closeUnexpectedPageTarget = (targetId = '') => {
+    if (!targetId) {
+      markPolicyViolation();
+      return;
+    }
+    // Ctrip may transiently create a target=_blank popup while the collector
+    // clicks a read-only report control. Close that extra page immediately;
+    // keep the guarded page and browser alive because no request escapes the
+    // existing Fetch policy and the extra target is never exposed to callers.
+    send('Target.closeTarget', { targetId }).catch(() => markPolicyViolation());
+  };
+
   const protectAttachedTarget = async ({ sessionId = '', targetInfo = {} } = {}) => {
     if (!sessionId) {
       failClosedForTarget(targetInfo.targetId);
       return;
     }
     if (targetInfo.type === 'page' && targetInfo.targetId !== target.targetId) {
-      failClosedForTarget(targetInfo.targetId);
+      closeUnexpectedPageTarget(targetInfo.targetId);
       return;
     }
     try {
@@ -946,7 +958,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     if (message.method === 'Target.targetCreated') {
       const targetInfo = message.params?.targetInfo || {};
       if (targetInfo.type === 'page' && targetInfo.targetId !== target.targetId) {
-        failClosedForTarget(targetInfo.targetId);
+        closeUnexpectedPageTarget(targetInfo.targetId);
       }
       return;
     }

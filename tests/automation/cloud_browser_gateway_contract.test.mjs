@@ -1233,6 +1233,8 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /platform === 'ctrip'[\s\S]*?\['loading', 'interactive', 'complete'\][\s\S]*?\['interactive', 'complete'\]/);
   assert.match(gateway, /read_only_navigation_evaluation_unavailable/);
   assert.match(gateway, /if \(sourcePageReady\) \{[\s\S]*?window\.name='suxios_profile_lease_guarded'[\s\S]*?break;/);
+  assert.match(gateway, /closeUnexpectedPageTarget[\s\S]*?Target\.closeTarget/);
+  assert.doesNotMatch(gateway, /targetInfo\.type === 'page'[\s\S]{0,160}failClosedForTarget\(targetInfo\.targetId\)/);
   assert.match(gateway, /\['loading', 'interactive', 'complete'\]/);
   assert.match(gateway, /return 'origin_mismatch'/);
   assert.match(gateway, /return pathMatched \? 'matched' : 'path_mismatch'/);
