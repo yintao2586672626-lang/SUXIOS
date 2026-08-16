@@ -124,6 +124,12 @@ final class OperatingQuestionKnowledgeRetrievalServiceTest extends TestCase
 
         self::assertSame('matched', $result['status']);
         self::assertSame(['knowledge_chunks#101'], array_column($result['items'], 'ref'));
+
+        $score = new \ReflectionMethod($service, 'score');
+        self::assertGreaterThan(
+            0,
+            $score->invoke($service, [2026, '美团订单'], '2026 美团订单', '2026-08-09 美团订单复核')
+        );
     }
 
     /** @return array<string,mixed> */

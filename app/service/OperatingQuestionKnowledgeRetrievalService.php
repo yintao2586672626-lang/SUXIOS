@@ -359,6 +359,10 @@ final class OperatingQuestionKnowledgeRetrievalService
     {
         $score = 0;
         foreach ($terms as $term) {
+            $term = (string)$term;
+            if ($term === '') {
+                continue;
+            }
             $length = mb_strlen($term);
             if (str_contains($titleText, $term)) {
                 $score += 8 + min(6, $length);

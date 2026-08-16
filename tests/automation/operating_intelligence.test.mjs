@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 
 const read = (path) => readFileSync(path, 'utf8');
 const migration = read('database/migrations/20260802_extend_operating_intelligence.sql');
@@ -42,6 +43,27 @@ const systemUsageGuideComponent = sliceBetween(
   'return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant });',
 );
 
+const findVNodeByTestId = (node, testId) => {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findVNodeByTestId(child, testId);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!node || typeof node !== 'object') return null;
+  if (node.props?.['data-testid'] === testId) return node;
+  return findVNodeByTestId(node.children, testId);
+};
+
+const createVNode = function createVNode(type, props, children) {
+  if (arguments.length === 2 && (props === null || Array.isArray(props) || typeof props !== 'object')) {
+    children = props;
+    props = {};
+  }
+  return { type, props: props || {}, children };
+};
+
 test('unified Agent operating question saves and performs an exact second readback', () => {
   assert.match(routes, /agent[\s\S]*operating-questions/);
   assert.match(controller, /OperatingQuestionService/);
@@ -58,6 +80,161 @@ test('unified Agent operating question saves and performs an exact second readba
   assert.doesNotMatch(operatingIntelligenceComponents, /deepseek_v4_default|deepseek_v4_flash/);
   assert.match(agentPage, /<oq><\/oq>/);
   assert.match(frontend, /['"]data-testid['"]:\s*['"]operating-question-entry['"]/);
+});
+
+test('floating operating workflow binds only one valid absolute question date to the structured scope', async () => {
+  const operatingQuestionPost = sliceBetween(
+    appMain,
+    'const askOperatingQuestion = async () => {',
+    'const createOperatingQuestionActionIntent = async',
+  );
+  assert.match(
+    operatingQuestionPost,
+    /body:\s*JSON\.stringify\(\{[\s\S]*date_start:\s*dateStart,[\s\S]*date_end:\s*dateEnd,[\s\S]*question,/,
+  );
+  const localStorage = {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+  };
+  const sandbox = {
+    console,
+    localStorage,
+    window: {
+      localStorage,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    },
+  };
+  runInNewContext(operatingIntelligenceComponents, sandbox, {
+    filename: 'operating-intelligence-components.js',
+  });
+  const components = sandbox.window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL.create({
+    ref: (value) => ({ value }),
+    computed: (getter) => ({ get value() { return getter(); } }),
+    inject: () => null,
+    h: createVNode,
+    nextTick: async (callback) => callback?.(),
+    onMounted: () => {},
+    onUnmounted: () => {},
+  });
+
+  const submit = async (query, { questionLoading = false } = {}) => {
+    const form = {
+      hotel_id: 80,
+      platform: 'ctrip',
+      date_start: '2026-08-16',
+      date_end: '2026-08-16',
+    };
+    const questionState = {
+      question: '',
+      result: null,
+      error: '',
+      loading: questionLoading,
+      action_intents: {},
+    };
+    let resolveCaptured;
+    const captured = new Promise((resolve) => { resolveCaptured = resolve; });
+    let askCount = 0;
+    const ctx = {
+      currentPage: 'compass',
+      pageTitle: '今日经营看板',
+      operatingQuestionForm: form,
+      operatingQuestionState: questionState,
+      ensureOperatingQuestionScope: () => {},
+      askSystemUsageGuide: async () => ({
+        mode: 'intelligent',
+        assistant_mode: 'report',
+        topic_key: 'revenue-report',
+        goal: '经营结论',
+        journey: ['revenue-report'],
+      }),
+      askOperatingQuestion: async () => {
+        askCount += 1;
+        const snapshot = {
+          question: questionState.question,
+          platform: form.platform,
+          date_start: form.date_start,
+          date_end: form.date_end,
+        };
+        resolveCaptured(snapshot);
+        return {
+          id: 31,
+          hotel_id: 80,
+          platform: form.platform,
+          date_start: form.date_start,
+          date_end: form.date_end,
+          answer_status: 'blocked_by_missing_facts',
+          answer_summary: '测试严格回读结果',
+        };
+      },
+    };
+    const render = components.operatingQuestionConsultant.setup({ ctx });
+    const input = findVNodeByTestId(render(), 'system-guide-input');
+    assert.ok(input, 'floating assistant input should render');
+    input.props.onInput({ target: { value: query } });
+    input.props.onKeydown({
+      key: 'Enter',
+      shiftKey: false,
+      isComposing: false,
+      preventDefault: () => {},
+    });
+    if (questionLoading) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return {
+        question: questionState.question,
+        platform: form.platform,
+        date_start: form.date_start,
+        date_end: form.date_end,
+        ask_count: askCount,
+      };
+    }
+    return captured;
+  };
+
+  assert.deepEqual(
+    await submit('请给我2026-08-09美团订单数的经营结论'),
+    {
+      question: '请给我2026-08-09美团订单数的经营结论',
+      platform: 'meituan',
+      date_start: '2026-08-09',
+      date_end: '2026-08-09',
+    },
+  );
+  assert.deepEqual(
+    await submit('按2026-08-09订单数分析2026-08-09美团经营结论'),
+    {
+      question: '按2026-08-09订单数分析2026-08-09美团经营结论',
+      platform: 'meituan',
+      date_start: '2026-08-09',
+      date_end: '2026-08-09',
+    },
+  );
+  assert.deepEqual(
+    await submit('请给我2026-08-09美团订单数的经营结论', { questionLoading: true }),
+    {
+      question: '',
+      platform: 'ctrip',
+      date_start: '2026-08-16',
+      date_end: '2026-08-16',
+      ask_count: 0,
+    },
+  );
+  for (const query of [
+    '比较2026-08-09和2026-08-10的美团订单数',
+    '请看2026-02-30的美团订单数',
+    '请给我美团订单数的经营结论',
+  ]) {
+    assert.deepEqual(
+      await submit(query),
+      {
+        question: query,
+        platform: 'meituan',
+        date_start: '2026-08-16',
+        date_end: '2026-08-16',
+      },
+    );
+  }
 });
 
 test('question evidence keeps facts, memory, knowledge, Agent and execution references separate', () => {

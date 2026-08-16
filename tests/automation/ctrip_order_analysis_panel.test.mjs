@@ -147,6 +147,56 @@ test('a dynamically loaded component script remains reusable by the deferred man
   await deferredManifestReuse;
 });
 
+test('floating operating consultant requests its full component before any full-render transition', async () => {
+  const scripts = [];
+  const createScript = () => {
+    const handlers = new Map();
+    return {
+      dataset: {},
+      src: '',
+      async: false,
+      addEventListener: (name, handler) => handlers.set(name, handler),
+      remove: () => {},
+      dispatch: name => handlers.get(name)?.(),
+    };
+  };
+  const document = {
+    baseURI: 'https://hotel.example.test/',
+    documentElement: { dataset: {} },
+    scripts,
+    head: { appendChild: script => scripts.push(script) },
+    createElement: createScript,
+  };
+  const window = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => {},
+  };
+  const CustomEvent = class {
+    constructor(type) { this.type = type; }
+  };
+  vm.runInNewContext(operatingIntelligenceLoader, {
+    window, document, URL, CustomEvent,
+  }, {
+    filename: 'operating-intelligence-loader.js',
+  });
+  const Vue = {
+    defineAsyncComponent: definition => (
+      typeof definition === 'function' ? { loader: definition } : definition
+    ),
+  };
+  const components = window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS.create({ Vue, h: () => null });
+
+  const componentPromise = components.operatingQuestionConsultant.loader();
+  await Promise.resolve();
+  assert.equal(scripts.length, 1, 'the mounted floating consultant must start its full script immediately');
+  window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL = {
+    create: () => ({ operatingQuestionConsultant: { name: 'OperatingQuestionConsultant' } }),
+  };
+  scripts[0].dispatch('load');
+  assert.equal((await componentPromise).name, 'OperatingQuestionConsultant');
+});
+
 test('deferred component bridges replace a completed script that did not register its factory', async () => {
   for (const contract of [
     {
@@ -240,7 +290,7 @@ test('deferred component bridges discard a failed manifest script before retryin
     {
       filename: 'operating-intelligence-loader.js',
       source: operatingIntelligenceLoader,
-      fullScript: 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h2142faa592',
+      fullScript: 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h85ac5e9b03',
       bridgeKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS',
       fullKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL',
       componentKey: 'operatingQuestionPanel',
