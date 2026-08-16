@@ -1100,7 +1100,8 @@ final class HotelCollectionRunReceiptService
         int $hotelId,
         string $businessDate,
         array $receipt,
-        bool $trustedReady
+        bool $trustedReady,
+        int $timeoutSeconds = 0
     ): array {
         $this->assertTablesReady();
         $dispatcherRunId = $this->uuid($dispatcherRunId);
@@ -1108,19 +1109,27 @@ final class HotelCollectionRunReceiptService
         if ($dispatcherRunId === '' || $hotelId <= 0 || $businessDate === '') {
             throw new RuntimeException('hotel_collection_run_final_receipt_scope_invalid');
         }
-        $context = Db::transaction(function () use (
+        $deadlineAt = $timeoutSeconds > 0
+            ? microtime(true) + max(1, $timeoutSeconds)
+            : null;
+        $lockTimeouts = $this->applyDatabaseLockBudget($deadlineAt);
+        try {
+            return Db::transaction(function () use (
             $dispatcherRunId,
             $hotelId,
             $businessDate,
             $receipt,
-            $trustedReady
+            $trustedReady,
+            $deadlineAt
         ): array {
+            $this->assertFinalReceiptDeadline($deadlineAt);
             [$run, $children] = $this->loadExactRun(
                 $dispatcherRunId,
                 $hotelId,
                 $businessDate,
                 true
             );
+            $this->assertFinalReceiptDeadline($deadlineAt);
             if ($this->uuid((string)($receipt['dispatcher_run_id'] ?? '')) !== $dispatcherRunId
                 || (int)($receipt['hotel_id'] ?? 0) !== $hotelId
                 || $this->date((string)($receipt['target_date'] ?? '')) !== $businessDate
@@ -1148,11 +1157,14 @@ final class HotelCollectionRunReceiptService
                 ) {
                     throw new RuntimeException('hotel_collection_run_success_is_immutable');
                 }
-                return [
-                    'tenant_id' => (int)$run['tenant_id'],
-                    'dispatcher_run_id' => $dispatcherRunId,
-                    'business_date' => $businessDate,
-                ];
+                $finalizedReceipt = $this->readGroup(
+                    $dispatcherRunId,
+                    (int)$run['tenant_id'],
+                    $hotelId,
+                    $businessDate
+                );
+                $this->assertFinalReceiptDeadline($deadlineAt);
+                return $finalizedReceipt;
             }
 
             $expectedSourceIds = $this->positiveIds(array_map(
@@ -1293,25 +1305,27 @@ final class HotelCollectionRunReceiptService
                     'finished_at' => $now,
                     'update_time' => $now,
                 ]);
+            $this->assertFinalReceiptDeadline($deadlineAt);
             $written = Db::name(self::RUN_TABLE)->where('id', (int)$run['id'])->find();
+            $this->assertFinalReceiptDeadline($deadlineAt);
             if (!is_array($written)
                 || (string)($written['status'] ?? '') !== $status
                 || (string)($written['collection_anchor_hash'] ?? '') !== ($verified ? $anchorHash : '')
             ) {
                 throw new RuntimeException('hotel_collection_run_final_receipt_readback_mismatch');
             }
-            return [
-                'tenant_id' => (int)$run['tenant_id'],
-                'dispatcher_run_id' => $dispatcherRunId,
-                'business_date' => $businessDate,
-            ];
-        });
-        return $this->readGroup(
-            (string)$context['dispatcher_run_id'],
-            (int)$context['tenant_id'],
-            $hotelId,
-            (string)$context['business_date']
-        );
+            $finalizedReceipt = $this->readGroup(
+                $dispatcherRunId,
+                (int)$run['tenant_id'],
+                $hotelId,
+                $businessDate
+            );
+            $this->assertFinalReceiptDeadline($deadlineAt);
+            return $finalizedReceipt;
+            });
+        } finally {
+            $this->restoreDatabaseLockBudget($lockTimeouts);
+        }
     }
 
     /** @return array<string,mixed> */
@@ -3058,6 +3072,76 @@ final class HotelCollectionRunReceiptService
     {
         $value = strtolower(trim($value));
         return preg_match('/^[a-f0-9]{64}$/D', $value) === 1 ? $value : '';
+    }
+
+    private function assertFinalReceiptDeadline(?float $deadlineAt): void
+    {
+        if ($deadlineAt !== null && microtime(true) >= $deadlineAt) {
+            throw new RuntimeException('hotel_collection_run_final_receipt_deadline_reached');
+        }
+    }
+
+    /** @return array{pdo?:\PDO,innodb_lock_wait_timeout?:int,lock_wait_timeout?:int} */
+    private function applyDatabaseLockBudget(?float $deadlineAt): array
+    {
+        if ($deadlineAt === null) {
+            return [];
+        }
+        $this->assertFinalReceiptDeadline($deadlineAt);
+        $pdo = Db::connect()->getPdo();
+        if (strtolower((string)$pdo->getAttribute(\PDO::ATTR_DRIVER_NAME)) !== 'mysql') {
+            return [];
+        }
+        $statement = $pdo->query(
+            'SELECT @@SESSION.innodb_lock_wait_timeout AS innodb_lock_wait_timeout, '
+            . '@@SESSION.lock_wait_timeout AS lock_wait_timeout'
+        );
+        $current = $statement !== false ? $statement->fetch(\PDO::FETCH_ASSOC) : false;
+        if (!is_array($current)) {
+            throw new RuntimeException('hotel_collection_run_final_receipt_lock_budget_unavailable');
+        }
+        $remainingSeconds = max(1, (int)ceil($deadlineAt - microtime(true)));
+        $budget = [
+            'pdo' => $pdo,
+            'innodb_lock_wait_timeout' => max(1, (int)($current['innodb_lock_wait_timeout'] ?? 1)),
+            'lock_wait_timeout' => max(1, (int)($current['lock_wait_timeout'] ?? 1)),
+        ];
+        try {
+            $pdo->exec(
+                'SET SESSION innodb_lock_wait_timeout = '
+                . min($remainingSeconds, $budget['innodb_lock_wait_timeout'])
+            );
+            $pdo->exec(
+                'SET SESSION lock_wait_timeout = '
+                . min($remainingSeconds, $budget['lock_wait_timeout'])
+            );
+            $this->assertFinalReceiptDeadline($deadlineAt);
+            return $budget;
+        } catch (\Throwable $exception) {
+            $this->restoreDatabaseLockBudget($budget);
+            throw $exception;
+        }
+    }
+
+    /** @param array{pdo?:\PDO,innodb_lock_wait_timeout?:int,lock_wait_timeout?:int} $budget */
+    private function restoreDatabaseLockBudget(array $budget): void
+    {
+        $pdo = $budget['pdo'] ?? null;
+        if (!$pdo instanceof \PDO) {
+            return;
+        }
+        try {
+            $pdo->exec(
+                'SET SESSION innodb_lock_wait_timeout = '
+                . max(1, (int)($budget['innodb_lock_wait_timeout'] ?? 1))
+            );
+            $pdo->exec(
+                'SET SESSION lock_wait_timeout = '
+                . max(1, (int)($budget['lock_wait_timeout'] ?? 1))
+            );
+        } catch (\Throwable) {
+            // The CLI connection is ending; never mask the final receipt.
+        }
     }
 
     private function assertTablesReady(): void

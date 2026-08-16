@@ -712,6 +712,14 @@ final class CloudThreeSourceCollectionQueueService
                         $targetDate,
                         $finalizationReceipt
                     );
+                $finalReceiptBudgetSeconds = (int)floor(
+                    $deadlineAt - $this->monotonicNow()
+                );
+                if ($finalReceiptBudgetSeconds <= 0) {
+                    $deadlineReached = true;
+                    $trustedReady = false;
+                    $finalReceiptBudgetSeconds = 1;
+                }
                 $finalRunReceipt = $this->writeRunReceipt('finalize', [
                     'dispatcher_run_id' => $dispatcherRunId,
                     'tenant_id' => $tenantId,
@@ -719,7 +727,12 @@ final class CloudThreeSourceCollectionQueueService
                     'business_date' => $targetDate,
                     'receipt' => $finalizationReceipt,
                     'trusted_ready' => $trustedReady,
+                    'timeout_seconds' => $finalReceiptBudgetSeconds,
                 ]);
+                if ($this->monotonicNow() >= $deadlineAt) {
+                    $deadlineReached = true;
+                    $trustedReady = false;
+                }
                 $runReceiptWritesVerified = $this->finalizedRunReceiptVerified(
                     $finalRunReceipt,
                     $dispatcherRunId,
@@ -1224,7 +1237,8 @@ final class CloudThreeSourceCollectionQueueService
                 (int)($context['system_hotel_id'] ?? 0),
                 (string)($context['business_date'] ?? ''),
                 (array)($context['receipt'] ?? []),
-                ($context['trusted_ready'] ?? false) === true
+                ($context['trusted_ready'] ?? false) === true,
+                max(0, (int)($context['timeout_seconds'] ?? 0))
             ),
             'read' => $service->readGroup(
                 (string)($context['dispatcher_run_id'] ?? ''),

@@ -28,7 +28,8 @@ final class OtaCanonicalHistoryPromotionService
         array $verifierReceipt,
         string $platform,
         int $expectedTenantId,
-        int $expectedHotelId
+        int $expectedHotelId,
+        int $timeoutSeconds = 0
     ): array {
         return $this->run(
             $collectionReceipt,
@@ -36,7 +37,8 @@ final class OtaCanonicalHistoryPromotionService
             $platform,
             $expectedTenantId,
             $expectedHotelId,
-            true
+            true,
+            $timeoutSeconds
         );
     }
 
@@ -46,7 +48,8 @@ final class OtaCanonicalHistoryPromotionService
         array $verifierReceipt,
         string $platform,
         int $expectedTenantId,
-        int $expectedHotelId
+        int $expectedHotelId,
+        int $timeoutSeconds = 0
     ): array {
         return $this->run(
             $collectionReceipt,
@@ -54,7 +57,8 @@ final class OtaCanonicalHistoryPromotionService
             $platform,
             $expectedTenantId,
             $expectedHotelId,
-            false
+            false,
+            $timeoutSeconds
         );
     }
 
@@ -65,8 +69,12 @@ final class OtaCanonicalHistoryPromotionService
         string $platform,
         int $expectedTenantId,
         int $expectedHotelId,
-        bool $execute
+        bool $execute,
+        int $timeoutSeconds
     ): array {
+        $deadlineAt = $timeoutSeconds > 0
+            ? microtime(true) + max(1, $timeoutSeconds)
+            : null;
         $platform = strtolower(trim($platform));
         $contract = $this->promotionContract(
             $collectionReceipt,
@@ -79,9 +87,15 @@ final class OtaCanonicalHistoryPromotionService
             return $contract;
         }
 
+        $lockTimeouts = [];
         try {
-            return Db::transaction(function () use ($contract, $execute): array {
-                return $this->promoteInTransaction($contract, $execute);
+            $this->assertDeadline($deadlineAt);
+            $lockTimeouts = $this->applyDatabaseLockBudget($deadlineAt);
+            return Db::transaction(function () use ($contract, $execute, $deadlineAt): array {
+                $this->assertDeadline($deadlineAt);
+                $result = $this->promoteInTransaction($contract, $execute, $deadlineAt);
+                $this->assertDeadline($deadlineAt);
+                return $result;
             });
         } catch (\Throwable $exception) {
             $reason = trim($exception->getMessage());
@@ -89,6 +103,8 @@ final class OtaCanonicalHistoryPromotionService
                 $reason = 'canonical_history_promotion_transaction_failed';
             }
             return $this->blocked($reason, $contract);
+        } finally {
+            $this->restoreDatabaseLockBudget($lockTimeouts);
         }
     }
 
@@ -231,8 +247,13 @@ final class OtaCanonicalHistoryPromotionService
     }
 
     /** @param array<string,mixed> $contract @return array<string,mixed> */
-    private function promoteInTransaction(array $contract, bool $execute): array
+    private function promoteInTransaction(
+        array $contract,
+        bool $execute,
+        ?float $deadlineAt
+    ): array
     {
+        $this->assertDeadline($deadlineAt);
         $tenantId = (int)$contract['tenant_id'];
         $hotelId = (int)$contract['system_hotel_id'];
         $sourceId = (int)$contract['data_source_id'];
@@ -246,6 +267,7 @@ final class OtaCanonicalHistoryPromotionService
             ->where('id', $hotelId)
             ->lock(true)
             ->find();
+        $this->assertDeadline($deadlineAt);
         if (!is_array($hotel) || (int)($hotel['tenant_id'] ?? 0) !== $tenantId) {
             throw new RuntimeException('promotion_hotel_tenant_scope_mismatch');
         }
@@ -257,6 +279,7 @@ final class OtaCanonicalHistoryPromotionService
             ->where('platform', $platform)
             ->lock(true)
             ->find();
+        $this->assertDeadline($deadlineAt);
         if (!is_array($source)
             || (int)($source['enabled'] ?? 0) !== 1
             || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled'
@@ -276,6 +299,7 @@ final class OtaCanonicalHistoryPromotionService
             ->where('platform', $platform)
             ->lock(true)
             ->find();
+        $this->assertDeadline($deadlineAt);
         if (!is_array($task) || strtolower(trim((string)($task['status'] ?? ''))) !== 'success') {
             throw new RuntimeException('promotion_sync_task_not_success');
         }
@@ -285,6 +309,7 @@ final class OtaCanonicalHistoryPromotionService
         $runReadbackRowIds = $this->positiveIds($runReadback['row_ids'] ?? []);
 
         $columns = array_keys(Db::getFields('online_daily_data'));
+        $this->assertDeadline($deadlineAt);
         $requiredColumns = [
             'id', 'tenant_id', 'system_hotel_id', 'hotel_id', 'data_source_id', 'sync_task_id',
             'source', 'platform', 'data_date', 'data_period', 'data_type', 'dimension', 'compare_type',
@@ -332,6 +357,7 @@ final class OtaCanonicalHistoryPromotionService
             ->lock(true)
             ->select()
             ->toArray();
+        $this->assertDeadline($deadlineAt);
         $exactScopeRowIds = $this->positiveIds(array_column($rows, 'id'));
         if ($exactScopeRowIds !== $collectionRowIds
             || $exactScopeRowIds !== $runReadbackRowIds
@@ -386,6 +412,7 @@ final class OtaCanonicalHistoryPromotionService
             $authoritativeRows,
             $contract
         );
+        $this->assertDeadline($deadlineAt);
         $contract['platform_hotel_identity_digest'] = (string)$identityProof['digest'];
         $contract['authoritative_row_platform_hotel_identity_digests'] = is_array(
             $identityProof['row_digests'] ?? null
@@ -405,6 +432,7 @@ final class OtaCanonicalHistoryPromotionService
             if (!$this->promotionReceiptMatches($existingPromotion, $contract, $authoritativeRowIds)) {
                 throw new RuntimeException('verified_row_without_matching_promotion_receipt');
             }
+            $this->assertDeadline($deadlineAt);
             return $execute
                 ? $this->successResponse($contract, $authoritativeRowIds, 0, true, $existingPromotion)
                 : $this->preflightResponse($contract, $authoritativeRowIds, 0, true);
@@ -433,6 +461,7 @@ final class OtaCanonicalHistoryPromotionService
             array_keys($contract['snapshot_time_backfills'])
         ));
         if (!$execute) {
+            $this->assertDeadline($deadlineAt);
             return $this->preflightResponse(
                 $contract,
                 $authoritativeRowIds,
@@ -441,6 +470,7 @@ final class OtaCanonicalHistoryPromotionService
             );
         }
         foreach ($contract['snapshot_time_backfills'] as $rowId => $snapshotTime) {
+            $this->assertDeadline($deadlineAt);
             $backfill = ['snapshot_time' => (string)$snapshotTime];
             if (in_array('update_time', $columns, true)) {
                 $backfill['update_time'] = date('Y-m-d H:i:s');
@@ -456,6 +486,7 @@ final class OtaCanonicalHistoryPromotionService
                 ->where('data_date', $targetDate)
                 ->where('data_period', 'historical_daily')
                 ->update($backfill);
+            $this->assertDeadline($deadlineAt);
             if ($affected !== 1) {
                 throw new RuntimeException('promotion_snapshot_time_backfill_failed');
             }
@@ -465,6 +496,7 @@ final class OtaCanonicalHistoryPromotionService
             $update['update_time'] = date('Y-m-d H:i:s');
         }
         if ($idsToPromote !== []) {
+            $this->assertDeadline($deadlineAt);
             $affected = (int)Db::name('online_daily_data')
                 ->where('tenant_id', $tenantId)
                 ->where('system_hotel_id', $hotelId)
@@ -477,6 +509,7 @@ final class OtaCanonicalHistoryPromotionService
                 ->whereIn('id', $idsToPromote)
                 ->whereIn('validation_status', self::PROMOTABLE_VALIDATION_STATUSES)
                 ->update($update);
+            $this->assertDeadline($deadlineAt);
             if ($affected !== count($idsToPromote)) {
                 throw new RuntimeException('promotion_row_update_count_mismatch');
             }
@@ -498,6 +531,7 @@ final class OtaCanonicalHistoryPromotionService
                 ),
                 'update_time' => date('Y-m-d H:i:s'),
             ]);
+        $this->assertDeadline($deadlineAt);
         if ($taskAffected !== 1) {
             throw new RuntimeException('promotion_task_receipt_write_failed');
         }
@@ -511,6 +545,7 @@ final class OtaCanonicalHistoryPromotionService
             ->where('sync_task_id', $taskId)
             ->select()
             ->toArray();
+        $this->assertDeadline($deadlineAt);
         if ($this->positiveIds(array_column($verifiedRows, 'id')) !== $authoritativeRowIds) {
             throw new RuntimeException('promotion_row_readback_identity_mismatch');
         }
@@ -528,6 +563,7 @@ final class OtaCanonicalHistoryPromotionService
             ->where('system_hotel_id', $hotelId)
             ->where('platform', $platform)
             ->find();
+        $this->assertDeadline($deadlineAt);
         $storedStats = is_array($storedTask)
             ? $this->decode((string)($storedTask['stats_json'] ?? ''))
             : [];
@@ -541,6 +577,7 @@ final class OtaCanonicalHistoryPromotionService
             throw new RuntimeException('promotion_task_receipt_readback_failed');
         }
 
+        $this->assertDeadline($deadlineAt);
         return $this->successResponse(
             $contract,
             $authoritativeRowIds,
@@ -1523,6 +1560,82 @@ final class OtaCanonicalHistoryPromotionService
             $value,
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
         ));
+    }
+
+    private function assertDeadline(?float $deadlineAt): void
+    {
+        if ($deadlineAt !== null && microtime(true) >= $deadlineAt) {
+            throw new RuntimeException('canonical_history_promotion_deadline_reached');
+        }
+    }
+
+    /**
+     * Bound row and metadata lock waits on the exact connection used by the
+     * transaction. The final in-transaction deadline assertion then prevents
+     * a late promotion from committing after its queue budget has expired.
+     *
+     * @return array{pdo?:\PDO,innodb_lock_wait_timeout?:int,lock_wait_timeout?:int}
+     */
+    private function applyDatabaseLockBudget(?float $deadlineAt): array
+    {
+        if ($deadlineAt === null) {
+            return [];
+        }
+        $this->assertDeadline($deadlineAt);
+        $pdo = Db::connect()->getPdo();
+        if (strtolower((string)$pdo->getAttribute(\PDO::ATTR_DRIVER_NAME)) !== 'mysql') {
+            return [];
+        }
+        $statement = $pdo->query(
+            'SELECT @@SESSION.innodb_lock_wait_timeout AS innodb_lock_wait_timeout, '
+            . '@@SESSION.lock_wait_timeout AS lock_wait_timeout'
+        );
+        $current = $statement !== false ? $statement->fetch(\PDO::FETCH_ASSOC) : false;
+        if (!is_array($current)) {
+            throw new RuntimeException('canonical_history_promotion_lock_budget_unavailable');
+        }
+        $remainingSeconds = max(1, (int)ceil($deadlineAt - microtime(true)));
+        $budget = [
+            'pdo' => $pdo,
+            'innodb_lock_wait_timeout' => max(1, (int)($current['innodb_lock_wait_timeout'] ?? 1)),
+            'lock_wait_timeout' => max(1, (int)($current['lock_wait_timeout'] ?? 1)),
+        ];
+        try {
+            $pdo->exec(
+                'SET SESSION innodb_lock_wait_timeout = '
+                . min($remainingSeconds, $budget['innodb_lock_wait_timeout'])
+            );
+            $pdo->exec(
+                'SET SESSION lock_wait_timeout = '
+                . min($remainingSeconds, $budget['lock_wait_timeout'])
+            );
+            $this->assertDeadline($deadlineAt);
+            return $budget;
+        } catch (\Throwable $exception) {
+            $this->restoreDatabaseLockBudget($budget);
+            throw $exception;
+        }
+    }
+
+    /** @param array{pdo?:\PDO,innodb_lock_wait_timeout?:int,lock_wait_timeout?:int} $budget */
+    private function restoreDatabaseLockBudget(array $budget): void
+    {
+        $pdo = $budget['pdo'] ?? null;
+        if (!$pdo instanceof \PDO) {
+            return;
+        }
+        try {
+            $pdo->exec(
+                'SET SESSION innodb_lock_wait_timeout = '
+                . max(1, (int)($budget['innodb_lock_wait_timeout'] ?? 1))
+            );
+            $pdo->exec(
+                'SET SESSION lock_wait_timeout = '
+                . max(1, (int)($budget['lock_wait_timeout'] ?? 1))
+            );
+        } catch (\Throwable) {
+            // The CLI connection is ending; never mask the promotion outcome.
+        }
     }
 
     private function validDate(string $date): bool

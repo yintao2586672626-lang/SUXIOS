@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const queueService = readFileSync('app/service/CloudThreeSourceCollectionQueueService.php', 'utf8');
+const canonicalCoordinator = readFileSync('app/service/OtaCanonicalHistoryPromotionCoordinator.php', 'utf8');
+const canonicalPromotion = readFileSync('app/service/OtaCanonicalHistoryPromotionService.php', 'utf8');
+const runReceiptService = readFileSync('app/service/HotelCollectionRunReceiptService.php', 'utf8');
 const queueRunner = readFileSync('scripts/run_cloud_three_source_collection_queue.php', 'utf8');
 const systemdService = readFileSync('deploy/systemd/suxios-cloud-three-source-queue.service', 'utf8');
 const systemdTimer = readFileSync('deploy/systemd/suxios-cloud-three-source-queue.timer', 'utf8');
@@ -44,6 +47,19 @@ test('queue runner holds one nonblocking process-lifetime flock and bounds every
   assert.match(queueService, /\$timeoutSeconds/);
   assert.match(queueService, /queue_deadline_reached/);
   assert.match(queueService, /continue;/);
+});
+
+test('canonical promotion and final ledger persistence consume the queue deadline budget', () => {
+  assert.match(canonicalCoordinator, /promoterSupportsBudget/);
+  assert.match(canonicalCoordinator, /canonical_history_promotion_budget_unsupported/);
+  assert.match(canonicalCoordinator, /\$expectedHotelId,\s*\$timeoutSeconds\s*\)/);
+  assert.match(canonicalPromotion, /canonical_history_promotion_deadline_reached/);
+  assert.match(canonicalPromotion, /SET SESSION innodb_lock_wait_timeout/);
+  assert.match(canonicalPromotion, /SET SESSION lock_wait_timeout/);
+  assert.match(queueService, /'timeout_seconds' => \$finalReceiptBudgetSeconds/);
+  assert.match(runReceiptService, /int \$timeoutSeconds = 0/);
+  assert.match(runReceiptService, /hotel_collection_run_final_receipt_deadline_reached/);
+  assert.match(runReceiptService, /SET SESSION innodb_lock_wait_timeout/);
 });
 
 test('new systemd timer is standalone and does not replace or invoke message dispatch', () => {

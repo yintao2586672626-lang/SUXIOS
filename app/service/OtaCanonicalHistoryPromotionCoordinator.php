@@ -11,11 +11,15 @@ namespace app\service;
  */
 final class OtaCanonicalHistoryPromotionCoordinator
 {
+    private const PROMOTION_RECEIPT_RESERVE_SECONDS = 2;
+
     /** @var callable(int,string,array<int,string>,string,int):array<string,mixed> */
     private $verifier;
 
-    /** @var callable(array<string,mixed>,array<string,mixed>,string,int,int):array<string,mixed> */
+    /** @var callable(array<string,mixed>,array<string,mixed>,string,int,int,int):array<string,mixed> */
     private $promoter;
+
+    private bool $promoterSupportsBudget;
 
     public function __construct(?callable $verifier = null, ?callable $promoter = null)
     {
@@ -37,14 +41,19 @@ final class OtaCanonicalHistoryPromotionCoordinator
             array $verifierReceipt,
             string $platform,
             int $expectedTenantId,
-            int $expectedHotelId
+            int $expectedHotelId,
+            int $timeoutSeconds
         ): array => (new OtaCanonicalHistoryPromotionService())->promote(
             $collectionReceipt,
             $verifierReceipt,
             $platform,
             $expectedTenantId,
-            $expectedHotelId
+            $expectedHotelId,
+            $timeoutSeconds
         );
+        $reflection = new \ReflectionFunction(\Closure::fromCallable($this->promoter));
+        $this->promoterSupportsBudget = $reflection->isVariadic()
+            || $reflection->getNumberOfParameters() >= 6;
     }
 
     /** @return array<string,mixed> */
@@ -183,7 +192,8 @@ final class OtaCanonicalHistoryPromotionCoordinator
                             $platformVerifier,
                             $platform,
                             $expectedTenantId,
-                            $expectedHotelId
+                            $expectedHotelId,
+                            $deadlineAt
                         )
                         : [
                             'status' => 'blocked',
@@ -283,11 +293,13 @@ final class OtaCanonicalHistoryPromotionCoordinator
     }
 
     /** @return array<string,mixed> */
-    private function deadlineBlockedPromotion(): array
+    private function deadlineBlockedPromotion(
+        string $reason = 'canonical_history_finalization_deadline_reached'
+    ): array
     {
         return [
             'status' => 'blocked',
-            'reason' => 'canonical_history_finalization_deadline_reached',
+            'reason' => $reason,
             'promoted_count' => 0,
             'readback_verified' => false,
             'sensitive_values_exposed' => false,
@@ -305,16 +317,34 @@ final class OtaCanonicalHistoryPromotionCoordinator
         array $verifier,
         string $platform,
         int $expectedTenantId,
-        int $expectedHotelId
+        int $expectedHotelId,
+        ?float $deadlineAt = null
     ): array
     {
         try {
+            $timeoutSeconds = 0;
+            if ($deadlineAt !== null) {
+                if (!$this->promoterSupportsBudget) {
+                    return $this->deadlineBlockedPromotion(
+                        'canonical_history_promotion_budget_unsupported'
+                    );
+                }
+                $remainingSeconds = (int)floor($deadlineAt - microtime(true));
+                if ($remainingSeconds <= self::PROMOTION_RECEIPT_RESERVE_SECONDS) {
+                    return $this->deadlineBlockedPromotion();
+                }
+                $timeoutSeconds = max(
+                    1,
+                    $remainingSeconds - self::PROMOTION_RECEIPT_RESERVE_SECONDS
+                );
+            }
             $result = ($this->promoter)(
                 $collection,
                 $verifier,
                 $platform,
                 $expectedTenantId,
-                $expectedHotelId
+                $expectedHotelId,
+                $timeoutSeconds
             );
             return is_array($result) ? $result : [];
         } catch (\Throwable) {
