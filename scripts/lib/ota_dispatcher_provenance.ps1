@@ -96,6 +96,27 @@ function Get-SuxiosSha256FromText {
     }
 }
 
+function Get-SuxiosFileSha256 {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Path
+    )
+
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        if ($null -ne $stream) {
+            $stream.Dispose()
+        }
+        $sha256.Dispose()
+    }
+}
+
 function Get-SuxiosStableSha256 {
     [CmdletBinding()]
     param(
@@ -395,7 +416,7 @@ function Get-SuxiosDispatcherCodeManifest {
             $records[$relativePath] = [ordered]@{
                 path = $relativePath
                 size_bytes = [int64]$file.Length
-                sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+                sha256 = Get-SuxiosFileSha256 -Path $file.FullName
             }
         }
     }
@@ -406,7 +427,7 @@ function Get-SuxiosDispatcherCodeManifest {
         $records['think'] = [ordered]@{
             path = 'think'
             size_bytes = [int64]$thinkFile.Length
-            sha256 = (Get-FileHash -LiteralPath $thinkFile.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+            sha256 = Get-SuxiosFileSha256 -Path $thinkFile.FullName
         }
     } else {
         $missingRoots += 'think'
