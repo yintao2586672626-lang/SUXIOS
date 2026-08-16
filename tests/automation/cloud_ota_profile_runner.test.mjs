@@ -50,7 +50,7 @@ test('cloud OTA runner binds one source/Profile/date and persists only after cur
   assert.match(runner, /gateway_connection_refused/);
   assert.match(runner, /gateway_connection_timeout/);
   const gatewayOpen = runner.indexOf("'/v1/collection/open'");
-  const sessionClaim = runner.indexOf('$collectionSessionId = opaqueId(', gatewayOpen);
+  const sessionClaim = runner.indexOf('$collectionSessionId = opaqueIdOrThrow(', gatewayOpen);
   const openVerification = runner.indexOf("if (($opened['status']", gatewayOpen);
   const close = runner.indexOf("'/v1/collection/close'");
   const abort = runner.indexOf("'/v1/collection/abort'");
@@ -76,6 +76,7 @@ test('cloud OTA runner binds one source/Profile/date and persists only after cur
   assert.match(runner, /\$result\['gateway_receipt_readback_verified'\]\s*=\s*true/);
   assert.match(runner, /\$gatewayOpenAccepted\s*&&\s*\$controlToken !== ''/);
   assert.match(runner, /function abortGatewayCollection\(/);
+  assert.match(runner, /'collection_session_id'\]\s*=\s*\$collectionSessionId/);
   assert.match(runner, /\['aborted',\s*'no_active_collection'\]/);
   assert.match(runner, /\(\$aborted\['cleanup_verified'\] \?\? null\) === true/);
   assert.match(runner, /profile_close_failed'_?\s*\)?/);

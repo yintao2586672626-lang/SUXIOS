@@ -564,6 +564,17 @@ test('collection abort is loopback-token protected, exact-profile scoped, idempo
       cleanup_verified: true,
     });
 
+    const wrongSession = await fetch(`${base}/v1/collection/abort`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profile_public_id: profileId,
+        collection_session_id: 'cbcs_notthiscollection1',
+      }),
+    }).then((response) => response.json());
+    assert.equal(wrongSession.status, 'no_active_collection');
+    assert.equal(wrongSession.cleanup_verified, true);
+
     const abortResponse = await fetch(`${base}/v1/collection/abort`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },

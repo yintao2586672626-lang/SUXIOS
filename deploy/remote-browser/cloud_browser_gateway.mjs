@@ -606,7 +606,7 @@ function validateCollectionCloseRequest(body) {
 }
 
 function validateCollectionAbortRequest(body) {
-  if (Object.keys(body).some((key) => key !== 'profile_public_id')) {
+  if (Object.keys(body).some((key) => !['profile_public_id', 'collection_session_id'].includes(key))) {
     throw new Error('collection_abort_scope_invalid');
   }
   return {
@@ -615,6 +615,13 @@ function validateCollectionAbortRequest(body) {
       PROFILE_ID_PATTERN,
       'profile_public_id_invalid',
     ),
+    collectionSessionId: body.collection_session_id == null
+      ? null
+      : assertOpaque(
+        body.collection_session_id,
+        COLLECTION_SESSION_ID_PATTERN,
+        'collection_session_id_invalid',
+      ),
   };
 }
 
@@ -1516,6 +1523,8 @@ export async function createGateway(env = process.env, dependencies = {}) {
         if (!session
           || session.kind !== 'collection'
           || session.profileId !== abort.profilePublicId
+          || (abort.collectionSessionId !== null
+            && session.collectionSessionId !== abort.collectionSessionId)
         ) {
           jsonResponse(response, 200, {
             status: 'no_active_collection',
