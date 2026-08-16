@@ -38,4 +38,18 @@ final class BrowserProfileProcessOutputSanitizerTest extends TestCase
             BrowserProfileProcessOutputSanitizer::summarize('Error: spawn EPERM', '')
         );
     }
+
+    public function testNodeUncaughtExceptionReportsTheUnderlyingSafeReason(): void
+    {
+        $stderr = "node:internal/process/promises:394\n"
+            . "triggerUncaughtException(err, true);\n"
+            . "^\n"
+            . "browserContext.newCDPSession: Target page, context or browser has been closed\n"
+            . "at safeFrame (capture.mjs:1:1)";
+
+        self::assertSame(
+            'browserContext.newCDPSession: Target page, context or browser has been closed',
+            BrowserProfileProcessOutputSanitizer::summarize($stderr, '')
+        );
+    }
 }

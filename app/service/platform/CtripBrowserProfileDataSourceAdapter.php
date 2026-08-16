@@ -1957,7 +1957,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             (string)($runResult['stdout'] ?? '')
         );
         $result = $prefix . ($message !== '' ? ': ' . $message : '');
-        return $summary !== '' ? $result . ' | ' . $summary : $result;
+        return $summary !== '' ? $summary . ' | ' . $result : $result;
     }
 
     private function extractProcessErrorSummary(string $stderr, string $stdout): string

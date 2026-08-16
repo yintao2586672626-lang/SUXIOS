@@ -85,12 +85,30 @@ final class BrowserProfileProcessOutputSanitizer
             preg_split('/\R+/u', $text) ?: []
         )));
         foreach ($lines as $line) {
+            if (str_contains($line, 'triggerUncaughtException')) {
+                continue;
+            }
             if (
                 stripos($line, 'Error') !== false
                 || stripos($line, 'Exception') !== false
                 || stripos($line, 'failed') !== false
             ) {
                 return mb_substr($line, 0, 240);
+            }
+        }
+
+        foreach ($lines as $index => $line) {
+            if (!str_contains($line, 'triggerUncaughtException')) {
+                continue;
+            }
+            foreach (array_slice($lines, $index + 1) as $candidate) {
+                if ($candidate === '^'
+                    || str_starts_with($candidate, 'at ')
+                    || str_starts_with($candidate, 'node:')
+                ) {
+                    continue;
+                }
+                return mb_substr($candidate, 0, 240);
             }
         }
 
