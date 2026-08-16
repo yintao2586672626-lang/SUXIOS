@@ -1217,7 +1217,10 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /collection_browser_policy_breached/);
   assert.match(gateway, /collector_read_only_contract: OTA_RECEIPT_PLATFORM_PATTERN\.test/);
   assert.match(gateway, /Runtime\.evaluate/);
-  assert.match(gateway, /read_only_navigation_not_ready/);
+  assert.match(gateway, /read_only_navigation_document_not_ready/);
+  assert.match(gateway, /return 'origin_mismatch'/);
+  assert.match(gateway, /return pathMatched \? 'matched' : 'path_mismatch'/);
+  assert.match(gateway, /`read_only_navigation_\$\{locationState\}`/);
   assert.match(gateway, /reason\.startsWith\('browser_'\)/);
   assert.match(gateway, /reason\.startsWith\('read_only_'\)/);
   assert.match(gateway, /reason\.startsWith\('snap_chromium_'\)/);

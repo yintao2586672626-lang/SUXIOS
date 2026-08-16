@@ -642,23 +642,30 @@ function platformStartUrl(platform) {
   return url;
 }
 
-function trustedCollectionPageLocation(value, platform) {
+function trustedCollectionPageState(value, platform) {
   let location;
   let source;
   try {
     location = new URL(String(value || ''));
     source = new URL(platformStartUrl(platform));
   } catch {
-    return false;
+    return 'invalid';
   }
   if (location.protocol !== 'https:'
     || location.origin !== source.origin
     || location.username !== ''
     || location.password !== ''
-  ) return false;
-  if (platform === 'ctrip') return location.pathname.startsWith('/home/');
-  if (platform === 'meituan') return location.pathname.startsWith('/ebooking/');
-  return location.pathname === source.pathname;
+  ) return 'origin_mismatch';
+  const pathMatched = platform === 'ctrip'
+    ? location.pathname.startsWith('/home/')
+    : (platform === 'meituan'
+      ? location.pathname.startsWith('/ebooking/')
+      : location.pathname === source.pathname);
+  return pathMatched ? 'matched' : 'path_mismatch';
+}
+
+function trustedCollectionPageLocation(value, platform) {
+  return trustedCollectionPageState(value, platform) === 'matched';
 }
 
 async function startBrowser(config, profilePath, platform, startUrl = null) {
@@ -980,6 +987,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     await send('Runtime.enable');
     const navigationDeadline = Date.now() + 12000;
     let sourcePageReady = false;
+    let navigationFailure = 'read_only_navigation_document_not_ready';
     while (Date.now() < navigationDeadline) {
       try {
         const evaluated = await send('Runtime.evaluate', {
@@ -987,6 +995,10 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
           returnByValue: true,
         });
         const value = evaluated?.result?.value || {};
+        const locationState = trustedCollectionPageState(value.href, platform);
+        navigationFailure = locationState === 'matched'
+          ? 'read_only_navigation_document_not_ready'
+          : `read_only_navigation_${locationState}`;
         sourcePageReady = trustedCollectionPageLocation(value.href, platform)
           && ['interactive', 'complete'].includes(String(value.readyState || ''));
         if (sourcePageReady) break;
@@ -995,7 +1007,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
       }
       await delay(100);
     }
-    if (!sourcePageReady) throw new Error('read_only_navigation_not_ready');
+    if (!sourcePageReady) throw new Error(navigationFailure);
     await send('Runtime.evaluate', {
       expression: "window.name='suxios_profile_lease_guarded'",
       returnByValue: true,
