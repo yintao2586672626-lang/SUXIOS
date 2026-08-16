@@ -524,8 +524,14 @@ final class P0FieldLoopVerifierContractTest extends TestCase
     {
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
         foreach ([
+            'p0_array',
             'p0_required_traffic_metric_keys',
             'p0_observed_traffic_metric_provenance',
+            'p0_traffic_row_endpoint_id',
+            'p0_traffic_row_date_scope_is_authoritative',
+            'p0_row_raw_data',
+            'p0_ctrip_realtime_row_proof_ready',
+            'p0_traffic_row_scope',
             'p0_authoritative_storage_evidence_rows',
         ] as $functionName) {
             if (!function_exists(__NAMESPACE__ . '\\' . $functionName) && !function_exists($functionName)) {
@@ -607,7 +613,7 @@ final class P0FieldLoopVerifierContractTest extends TestCase
     public function testObservedTrafficMarkerRequiresSnakeCaseMembershipForEveryPlatformMetric(): void
     {
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
-        foreach (['p0_required_traffic_metric_keys', 'p0_observed_traffic_metric_provenance'] as $functionName) {
+        foreach (['p0_array', 'p0_required_traffic_metric_keys', 'p0_required_traffic_storage_field_map', 'p0_observed_traffic_metric_provenance'] as $functionName) {
             if (!function_exists($functionName)) {
                 $definition = $this->extractFunctionDefinition($verifier, $functionName);
                 self::assertNotSame('', $definition, 'Missing pure verifier helper: ' . $functionName);
@@ -637,6 +643,24 @@ final class P0FieldLoopVerifierContractTest extends TestCase
             '_observed_traffic_metric_keys' => $required,
         ], 'ctrip');
         self::assertSame('synthetic_normalization_provenance_missing', $topLevelOnly['status']);
+
+        $realtimeFact = p0_observed_traffic_metric_provenance([
+            'field_facts' => [[
+                'metric_key' => 'order_submit_num',
+                'storage_field' => 'online_daily_data.order_submit_num',
+                'status' => 'captured',
+            ]],
+        ], 'ctrip', ['order_submit_num'], true);
+        self::assertSame('ready', $realtimeFact['status']);
+
+        $historicalFactFallbackDenied = p0_observed_traffic_metric_provenance([
+            'field_facts' => [[
+                'metric_key' => 'order_submit_num',
+                'storage_field' => 'online_daily_data.order_submit_num',
+                'status' => 'captured',
+            ]],
+        ], 'ctrip', ['order_submit_num'], false);
+        self::assertSame('synthetic_normalization_provenance_missing', $historicalFactFallbackDenied['status']);
     }
 
     public function testStoredValueReadinessOnlyRequiresCompleteFactsToHaveStoredValues(): void
@@ -1017,6 +1041,21 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         $profileDir = substr($register, $profileDirStart, $profileDirEnd - $profileDirStart);
         self::assertStringContainsString('BrowserProfileCaptureRequestService::safeFilePart($profileKey)', $profileDir);
         self::assertStringNotContainsString("preg_replace('/[^a-zA-Z0-9_.-]+'", $profileDir);
+
+        $profileKeyDefinition = $this->extractFunctionDefinition($verifier, 'p0_profile_key_from_config');
+        self::assertNotSame('', $profileKeyDefinition);
+        if (!function_exists('p0_profile_key_from_config')) {
+            eval($profileKeyDefinition);
+        }
+        self::assertSame('cloud-profile-80', p0_profile_key_from_config('meituan', [
+            'profile_binding_key' => 'cloud-profile-80',
+            'store_id' => 'platform-store-80',
+        ]));
+        self::assertStringContainsString("'profile_binding_key', 'profileBindingKey'", $verifier);
+        self::assertStringContainsString(
+            "'profile_binding_key', 'profileBindingKey'",
+            (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'service' . DIRECTORY_SEPARATOR . 'OtaCanonicalHistoryPromotionService.php')
+        );
     }
 
     public function testP0RegistrationUsesStrictShanghaiDateAndExcludesForecastOnlyHotels(): void
@@ -1116,8 +1155,12 @@ final class P0FieldLoopVerifierContractTest extends TestCase
     {
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
         foreach ([
+            'p0_array',
+            'p0_row_raw_data',
             'p0_traffic_row_endpoint_id',
             'p0_traffic_row_date_scope_is_authoritative',
+            'p0_ctrip_realtime_row_proof_ready',
+            'p0_ctrip_realtime_endpoint_metric_keys',
             'p0_traffic_row_scope',
         ] as $functionName) {
             if (function_exists(__NAMESPACE__ . '\\' . $functionName) || function_exists($functionName)) {
@@ -1242,6 +1285,33 @@ final class P0FieldLoopVerifierContractTest extends TestCase
             'meituan_refresh_timestamp_not_business_date_evidence',
             $meituanRefreshTimestamp['reason']
         );
+
+        $today = (new \DateTimeImmutable('today', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $realtimeRow = [
+            'sync_task_id' => 216,
+            'data_date' => $today,
+            'data_period' => 'realtime_snapshot',
+            'is_final' => 0,
+            'raw_data' => json_encode([
+                'sync_task_id' => 216,
+                'date_source' => 'response.endpoint.realtime_current_day',
+                'row' => ['endpoint_id' => 'business_visitor_title', 'date' => $today],
+                'capture_evidence' => [
+                    'source_url_hash' => str_repeat('a', 64),
+                    'response_evidence_type' => 'structured_json',
+                ],
+            ], JSON_UNESCAPED_SLASHES),
+        ];
+        $realtime = p0_traffic_row_scope($realtimeRow, 'ctrip');
+        self::assertTrue($realtime['authoritative']);
+        self::assertSame('strict_current_day_realtime_endpoint', $realtime['reason']);
+        self::assertSame(['detail_exposure'], p0_ctrip_realtime_endpoint_metric_keys($realtimeRow));
+
+        $wrongDateEvidence = $realtimeRow;
+        $wrongRaw = json_decode((string)$wrongDateEvidence['raw_data'], true);
+        $wrongRaw['date_source'] = 'capture_argument';
+        $wrongDateEvidence['raw_data'] = json_encode($wrongRaw, JSON_UNESCAPED_SLASHES);
+        self::assertFalse(p0_traffic_row_scope($wrongDateEvidence, 'ctrip')['authoritative']);
     }
 
     public function testCtripCatalogProjectionIsReferenceOnlyAfterExactRawTupleProof(): void
@@ -1562,6 +1632,10 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertSame(
             ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'],
             p0_required_traffic_metric_keys('ctrip')
+        );
+        self::assertSame(
+            ['detail_exposure', 'order_submit_num'],
+            p0_required_traffic_metric_keys('ctrip', 'realtime_snapshot')
         );
         self::assertSame(
             [

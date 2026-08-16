@@ -9,6 +9,7 @@ import {
   buildCtripEndpointCandidates,
   buildCtripStandardRowsFromFacts,
   ctripCaptureRowPeriodMetadata,
+  ctripRealtimeDateEvidence,
   ctripCatalogSummary,
   extractCtripCatalogFacts,
   filterCtripCatalogFactsForProfileFields,
@@ -19,6 +20,42 @@ import {
   normalizeCtripCapturePlan,
   normalizeCtripCaptureSections,
 } from '../../scripts/lib/ctrip_capture_catalog.mjs';
+
+test('proves Ctrip realtime dates only from current-day endpoint or selected-page evidence', () => {
+  const capturedAt = '2026-08-16T10:47:34.155Z';
+  assert.deepEqual(ctripRealtimeDateEvidence({
+    endpointId: 'business_realtime',
+    targetDate: '2026-08-16',
+    capturedAt,
+  }), {
+    date: '2026-08-16',
+    date_source: 'response.endpoint.realtime_current_day',
+  });
+  assert.deepEqual(ctripRealtimeDateEvidence({
+    endpointId: 'traffic_order_overview',
+    targetDate: '2026-08-16',
+    capturedAt,
+    pagePeriodEvidence: {
+      selected: true,
+      target_date: '2026-08-16',
+      relative_range: '今日实时',
+      evidence_source: 'page.traffic_period_selection.readback',
+    },
+  }), {
+    date: '2026-08-16',
+    date_source: 'page.traffic_period_selection.readback',
+  });
+  assert.deepEqual(ctripRealtimeDateEvidence({
+    endpointId: 'business_realtime',
+    targetDate: '2026-08-15',
+    capturedAt,
+  }), { date: '', date_source: '' });
+  assert.deepEqual(ctripRealtimeDateEvidence({
+    endpointId: 'traffic_order_overview',
+    targetDate: '2026-08-16',
+    capturedAt,
+  }), { date: '', date_source: '' });
+});
 
 test('keeps Ctrip and Qunar raw traffic rows in separate platform identities', () => {
   const captureSource = readFileSync(
@@ -1482,6 +1519,35 @@ test('maps Ctrip business overview visitor title daily fields', () => {
   assert.equal(row.raw_data.metrics.qunar_competitor_avg_visitor, 23);
   assert.equal(row.raw_data.rank_metrics.visitor_rank, 15);
   assert.equal(row.raw_data.rank_metrics.qunar_visitor_rank, 11);
+});
+
+test('maps Ctrip current-day order overview into a traffic order-submit fact', () => {
+  const url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchOrderOverView';
+  const endpoint = findCtripEndpointByUrl(url, { preferredSection: 'traffic_report' });
+  assert.equal(endpoint?.id, 'traffic_order_overview');
+  assert.equal(endpoint?.dataType, 'traffic');
+  const facts = extractCtripCatalogFacts({ data: { orderQuantity: 3 } }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '6866634',
+    dataDate: '2026-08-16',
+    capturedAt: '2026-08-16T10:00:00.000Z',
+    url,
+  });
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    hotelId: '6866634',
+    dataDate: '2026-08-16',
+    defaultDataDate: '2026-08-16',
+    capturePlan: 'realtime_broadcast',
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'traffic');
+  assert.equal(rows[0].order_submit_num, 3);
+  assert.equal(rows[0].raw_data.field_facts.some((fact) => (
+    fact.metric_key === 'order_submit_user'
+      && fact.storage_field === 'online_daily_data.order_submit_num'
+  )), true);
 });
 
 test('traffic realtime rank keeps hotel, competitor rank, and competitor hotel count separate', () => {

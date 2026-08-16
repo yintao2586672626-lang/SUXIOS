@@ -441,10 +441,24 @@ final class OtaCanonicalHistoryPromotionService
             throw new RuntimeException('promotion_receipt_exists_but_rows_not_verified');
         }
 
+        $promotableValidationStatuses = self::PROMOTABLE_VALIDATION_STATUSES;
+        if ($platform === 'ctrip'
+            && $dataPeriod === 'realtime_snapshot'
+            && $targetDate === (new \DateTimeImmutable(
+                'today',
+                new \DateTimeZone('Asia/Shanghai')
+            ))->format('Y-m-d')
+            && (int)$contract['authoritative_traffic_row_count'] === count($contract['sample_row_ids'])
+        ) {
+            // Each strict realtime endpoint proves one member of the aggregate
+            // two-metric contract, so its row is partial before the external
+            // verifier confirms the exact two-row union.
+            $promotableValidationStatuses[] = 'partial';
+        }
         foreach ($authoritativeRows as $row) {
             if (!in_array(
                 strtolower(trim((string)($row['validation_status'] ?? ''))),
-                self::PROMOTABLE_VALIDATION_STATUSES,
+                $promotableValidationStatuses,
                 true
             )) {
                 throw new RuntimeException('promotion_row_validation_not_promotable');
@@ -507,7 +521,7 @@ final class OtaCanonicalHistoryPromotionService
                 ->where('data_date', $targetDate)
                 ->where('data_period', $dataPeriod)
                 ->whereIn('id', $idsToPromote)
-                ->whereIn('validation_status', self::PROMOTABLE_VALIDATION_STATUSES)
+                ->whereIn('validation_status', $promotableValidationStatuses)
                 ->update($update);
             $this->assertDeadline($deadlineAt);
             if ($affected !== count($idsToPromote)) {
@@ -615,6 +629,14 @@ final class OtaCanonicalHistoryPromotionService
     {
         return array_values(array_filter($rows, static function (array $row) use ($contract): bool {
             $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+            $platform = (string)$contract['platform'];
+            $ctripRealtime = $platform === 'ctrip'
+                && (string)$contract['data_period'] === 'realtime_snapshot'
+                && (string)$contract['target_date'] === (new \DateTimeImmutable(
+                    'today',
+                    new \DateTimeZone('Asia/Shanghai')
+                ))->format('Y-m-d');
+            $sampleRowIds = array_map('intval', (array)($contract['sample_row_ids'] ?? []));
             return (int)($row['tenant_id'] ?? 0) === (int)$contract['tenant_id']
                 && (int)($row['system_hotel_id'] ?? 0) === (int)$contract['system_hotel_id']
                 && (int)($row['data_source_id'] ?? 0) === (int)$contract['data_source_id']
@@ -629,16 +651,18 @@ final class OtaCanonicalHistoryPromotionService
                 && in_array(strtolower(trim((string)($row['ingestion_method'] ?? ''))), [
                     'browser_profile', 'profile_browser',
                 ], true)
-                && ((string)$contract['platform'] !== 'ctrip'
-                    || !str_starts_with(
+                && ($platform !== 'ctrip'
+                    || ($ctripRealtime
+                        ? in_array((int)($row['id'] ?? 0), $sampleRowIds, true)
+                        : !str_starts_with(
                         strtolower(trim((string)($row['dimension'] ?? ''))),
                         'catalog:'
-                    ))
+                    )))
                 && trim((string)($row['source_trace_id'] ?? '')) !== ''
-                && OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic(
+                && ($ctripRealtime || OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic(
                     $row,
-                    (string)$contract['platform']
-                );
+                    $platform
+                ));
         }));
     }
 
@@ -847,9 +871,17 @@ final class OtaCanonicalHistoryPromotionService
             'order_filling_num' => 'online_daily_data.order_filling_num',
             'order_submit_num' => 'online_daily_data.order_submit_num',
         ];
+        $realtimeCtrip = $platform === 'ctrip'
+            && (string)($contract['data_period'] ?? '') === 'realtime_snapshot'
+            && (string)($contract['target_date'] ?? '') === (new \DateTimeImmutable(
+                'today',
+                new \DateTimeZone('Asia/Shanghai')
+            ))->format('Y-m-d');
         $platformRequiredKeys = $platform === 'meituan'
             ? array_slice(array_keys($expectedStorageFields), 0, 3)
-            : array_keys($expectedStorageFields);
+            : ($realtimeCtrip
+                ? ['detail_exposure', 'order_submit_num']
+                : array_keys($expectedStorageFields));
         sort($platformRequiredKeys, SORT_STRING);
         if ($contract['required_metric_keys'] !== $platformRequiredKeys) {
             throw new RuntimeException('promotion_required_metric_contract_mismatch');
@@ -864,6 +896,7 @@ final class OtaCanonicalHistoryPromotionService
         $nonzeroRows = 0;
         $explicitZeroRows = 0;
         $snapshotTimeBackfills = [];
+        $coveredMetricKeys = [];
         foreach ($rows as $row) {
             $rawJson = trim((string)($row['raw_data'] ?? ''));
             $raw = json_decode($rawJson, true);
@@ -876,9 +909,22 @@ final class OtaCanonicalHistoryPromotionService
             }
             $observedSourceRow = is_array($raw['row'] ?? null) ? $raw['row'] : [];
             $sourceRow = $observedSourceRow !== [] ? $observedSourceRow : $raw;
+            $rowRequiredKeys = $realtimeCtrip
+                ? $this->ctripRealtimeRowMetricKeys($row, $raw)
+                : $platformRequiredKeys;
+            if ($rowRequiredKeys === []) {
+                throw new RuntimeException('promotion_authoritative_realtime_endpoint_invalid');
+            }
             $observedMetricKeys = $this->observedTrafficMetricKeys($observedSourceRow);
+            if ($observedMetricKeys === null && $realtimeCtrip) {
+                $observedMetricKeys = $this->capturedTrafficMetricKeys(
+                    $raw,
+                    $rowRequiredKeys,
+                    $expectedStorageFields
+                );
+            }
             if ($observedMetricKeys === null
-                || array_diff($platformRequiredKeys, $observedMetricKeys) !== []
+                || array_diff($rowRequiredKeys, $observedMetricKeys) !== []
             ) {
                 throw new RuntimeException('promotion_synthetic_normalization_provenance_missing');
             }
@@ -910,9 +956,15 @@ final class OtaCanonicalHistoryPromotionService
             if ($this->shanghaiDate($sourceDate) !== (string)$contract['target_date']) {
                 throw new RuntimeException('promotion_authoritative_source_date_mismatch');
             }
+            $rowCaptureEvidence = is_array($raw['capture_evidence'] ?? null)
+                ? $raw['capture_evidence']
+                : [];
             $captureSource = strtolower(trim((string)(
                 $sourceRow['_capture_source'] ?? $sourceRow['capture_source'] ?? ''
             )));
+            if ($captureSource === '') {
+                $captureSource = strtolower(trim((string)($rowCaptureEvidence['capture_source'] ?? '')));
+            }
             if (preg_match('/^(?:xhr|fetch|same_origin_api|browser_response|network_response)(?::|$)/', $captureSource) !== 1) {
                 throw new RuntimeException('promotion_authoritative_capture_source_invalid');
             }
@@ -945,7 +997,7 @@ final class OtaCanonicalHistoryPromotionService
             }
 
             $boundedMetrics = [];
-            foreach ($platformRequiredKeys as $metricKey) {
+            foreach ($rowRequiredKeys as $metricKey) {
                 $fact = $factsByMetric[$metricKey] ?? null;
                 $sourceKey = is_array($fact) ? trim((string)($fact['source_key'] ?? '')) : '';
                 $sourcePath = is_array($fact) ? trim((string)($fact['source_path'] ?? '')) : '';
@@ -976,6 +1028,7 @@ final class OtaCanonicalHistoryPromotionService
                     throw new RuntimeException('promotion_authoritative_metric_fact_invalid:' . $metricKey);
                 }
                 $boundedMetrics[$metricKey] = sprintf('%.8F', (float)$row[$metricKey]);
+                $coveredMetricKeys[$metricKey] = true;
             }
             ksort($boundedMetrics, SORT_STRING);
             $hasNonzero = array_reduce(
@@ -995,7 +1048,7 @@ final class OtaCanonicalHistoryPromotionService
                 'source_trace_digest' => hash('sha256', $rowTraceId),
                 'raw_data_digest' => hash('sha256', $rawJson),
                 'metric_values' => $boundedMetrics,
-                'observed_traffic_metric_keys' => $platformRequiredKeys,
+                'observed_traffic_metric_keys' => $rowRequiredKeys,
                 'value_status' => $hasNonzero ? 'nonzero' : 'explicit_zero',
             ];
             if ((string)$contract['data_period'] === 'historical_daily') {
@@ -1005,14 +1058,20 @@ final class OtaCanonicalHistoryPromotionService
             $rowDigestPayload = $boundedRow;
             unset($rowDigestPayload['capture_time']);
             $rowDigests[(int)$row['id']] = $this->digest([
-                'required_metric_keys' => $platformRequiredKeys,
+                'required_metric_keys' => $rowRequiredKeys,
                 'rows' => [$rowDigestPayload],
             ]);
             $operationRowMetricDigests[(int)$row['id']] = $this->digest([
-                'required_metric_keys' => $platformRequiredKeys,
+                'required_metric_keys' => $rowRequiredKeys,
                 'metric_values' => $boundedMetrics,
                 'value_status' => $hasNonzero ? 'nonzero' : 'explicit_zero',
             ]);
+        }
+
+        $coveredMetricKeys = array_keys($coveredMetricKeys);
+        sort($coveredMetricKeys, SORT_STRING);
+        if ($coveredMetricKeys !== $platformRequiredKeys) {
+            throw new RuntimeException('promotion_authoritative_metric_union_incomplete');
         }
 
         ksort($rowDigests, SORT_NUMERIC);
@@ -1080,6 +1139,60 @@ final class OtaCanonicalHistoryPromotionService
         $result = array_keys($keys);
         sort($result, SORT_STRING);
         return $result;
+    }
+
+    /** @return array<int,string> */
+    private function ctripRealtimeRowMetricKeys(array $row, array $raw): array
+    {
+        $endpointIds = [];
+        foreach ([
+            is_array($raw['row'] ?? null) ? $raw['row'] : [],
+            is_array($raw['capture'] ?? null) ? $raw['capture'] : [],
+            $raw,
+            $row,
+        ] as $container) {
+            foreach (['endpoint_id', 'endpointId', '_endpoint_id'] as $key) {
+                $endpointId = strtolower(trim((string)($container[$key] ?? '')));
+                if ($endpointId !== '') {
+                    $endpointIds[$endpointId] = true;
+                }
+            }
+        }
+        $dimension = strtolower(trim((string)($row['dimension'] ?? '')));
+        if (preg_match('/^catalog:[^:]+:([^:]+)/', $dimension, $matches) === 1) {
+            $endpointIds[strtolower(trim((string)($matches[1] ?? '')))] = true;
+        }
+        if (count($endpointIds) !== 1) {
+            return [];
+        }
+        return match ((string)array_key_first($endpointIds)) {
+            'business_visitor_title' => ['detail_exposure'],
+            'traffic_order_overview' => ['order_submit_num'],
+            default => [],
+        };
+    }
+
+    /** @return array<int,string>|null */
+    private function capturedTrafficMetricKeys(
+        array $raw,
+        array $requiredMetricKeys,
+        array $expectedStorageFields
+    ): ?array {
+        $captured = [];
+        foreach (is_array($raw['field_facts'] ?? null) ? $raw['field_facts'] : [] as $fact) {
+            if (!is_array($fact) || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured') {
+                continue;
+            }
+            $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
+            if (in_array($metricKey, $requiredMetricKeys, true)
+                && trim((string)($fact['storage_field'] ?? '')) === ($expectedStorageFields[$metricKey] ?? '')
+            ) {
+                $captured[$metricKey] = true;
+            }
+        }
+        $keys = array_keys($captured);
+        sort($keys, SORT_STRING);
+        return $keys === [] ? null : $keys;
     }
 
     /** @param array<string,mixed> $row @param array<string,mixed> $raw @param array<string,mixed> $contract */
@@ -1318,8 +1431,8 @@ final class OtaCanonicalHistoryPromotionService
     private function profileKeyHash(string $platform, array $config): string
     {
         $keys = $platform === 'meituan'
-            ? ['store_id', 'storeId', 'profile_id', 'profileId']
-            : ['profile_id', 'profileId'];
+            ? ['profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId', 'store_id', 'storeId', 'poi_id', 'poiId']
+            : ['profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
         $profileKey = '';
         foreach ($keys as $key) {
             if (is_scalar($config[$key] ?? null) && trim((string)$config[$key]) !== '') {

@@ -845,7 +845,11 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
     field('traffic_competitor_hotel_total', '竞争圈酒店数', ['competitorHotelTotal']),
   ], { dataType: 'traffic' }),
   endpoint('traffic_flow_transform', 'traffic_report', ['queryFlowTransformNewV1', 'queryFlowTransforNewV1', 'queryFlowTransferNewV1'], [...trafficFields], { dataType: 'traffic' }),
-  endpoint('traffic_order_overview', 'traffic_report', ['fetchOrderOverView'], [...revenueFields, ...trafficFields]),
+  endpoint('traffic_order_overview', 'traffic_report', ['fetchOrderOverView'], [
+    ...revenueFields,
+    ...trafficFields,
+    field('order_submit_user', '今日实时订单提交量', ['orderQuantity'], '今日实时页订单概览返回的当前订单量；只在实时采集计划中作为订单提交事实'),
+  ], { dataType: 'traffic' }),
   endpoint('traffic_order_trend', 'traffic_report', ['queryOrderTrendV1'], [...revenueFields, ...trafficFields]),
   endpoint('traffic_flow_source_popups', 'traffic_report', ['queryFlowSourcePopups'], [
     field('source_name', '流量来源弹窗', ['sourceName', 'sourceNameTag', 'title', 'name']),
@@ -4083,6 +4087,78 @@ export function ctripCaptureRowPeriodMetadata(value, context = {}) {
     : { data_period: 'realtime_snapshot', is_final: 0 };
 }
 
+const CTRIP_REALTIME_BUSINESS_DATE_ENDPOINT_IDS = new Set([
+  'homepage_realtime',
+  'business_realtime',
+  'business_capacity',
+  'business_flow_compete',
+  'business_visitor_title',
+  'business_hotel_seq',
+]);
+
+const CTRIP_REALTIME_PAGE_DATE_ENDPOINT_IDS = new Set([
+  'traffic_order_overview',
+  'traffic_realtime_visitor_trend',
+  'traffic_hotel_seq',
+  'traffic_hotel_min_price',
+]);
+
+function shanghaiCalendarDate(value) {
+  const instant = value instanceof Date ? value : new Date(value || Date.now());
+  if (Number.isNaN(instant.getTime())) {
+    return '';
+  }
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(instant);
+  const values = Object.fromEntries(parts.map((item) => [item.type, item.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+/**
+ * Resolve an exact same-day date only from an observed real-time endpoint or
+ * a verified visible period selection. The requested date alone is never
+ * evidence, and historical targets can never enter this path.
+ */
+export function ctripRealtimeDateEvidence({
+  endpointId = '',
+  targetDate = '',
+  capturedAt = '',
+  pagePeriodEvidence = null,
+} = {}) {
+  const normalizedTarget = normalizeFactDate(targetDate);
+  if (!normalizedTarget || normalizedTarget !== shanghaiCalendarDate(capturedAt)) {
+    return { date: '', date_source: '' };
+  }
+  const normalizedEndpoint = String(endpointId || '').trim();
+  if (CTRIP_REALTIME_BUSINESS_DATE_ENDPOINT_IDS.has(normalizedEndpoint)) {
+    return {
+      date: normalizedTarget,
+      date_source: 'response.endpoint.realtime_current_day',
+    };
+  }
+  if (!CTRIP_REALTIME_PAGE_DATE_ENDPOINT_IDS.has(normalizedEndpoint)) {
+    return { date: '', date_source: '' };
+  }
+  const pageEvidence = pagePeriodEvidence && typeof pagePeriodEvidence === 'object'
+    ? pagePeriodEvidence
+    : {};
+  if (pageEvidence.selected !== true
+    || normalizeFactDate(pageEvidence.target_date || '') !== normalizedTarget
+    || String(pageEvidence.relative_range || '').trim() !== '今日实时'
+    || String(pageEvidence.evidence_source || '').trim() !== 'page.traffic_period_selection.readback'
+  ) {
+    return { date: '', date_source: '' };
+  }
+  return {
+    date: normalizedTarget,
+    date_source: 'page.traffic_period_selection.readback',
+  };
+}
+
 function ctripHistoricalRequestWindow(endpointId, capturePlan, requestPayload) {
   const normalizedEndpoint = String(endpointId || '').trim().toLowerCase();
   const normalizedPlan = String(capturePlan || '').trim().toLowerCase();
@@ -4370,6 +4446,9 @@ function standardDataTypeForFacts(facts) {
   const declaredType = String(facts[0]?.data_type || '').trim().toLowerCase();
   if (CTRIP_RANKING_ENDPOINT_IDS.has(endpointId)) {
     return 'ranking';
+  }
+  if (endpointId === 'traffic_order_overview') {
+    return 'traffic';
   }
   if (ids.some((id) => id.startsWith('ad_') || ['ctr', 'cvr', 'roas', 'campaign_id', 'diagnosis_text', 'peer_avg', 'peer_top'].includes(id))) {
     return 'advertising';

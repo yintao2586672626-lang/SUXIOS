@@ -2219,10 +2219,6 @@ trait PlatformSyncTaskConcern
         if ($platform === 'meituan') {
             $requiredMetricKeys = array_slice($requiredMetricKeys, 0, 3);
         }
-        $expectedStorageFields = [];
-        foreach ($requiredMetricKeys as $metricKey) {
-            $expectedStorageFields[$metricKey] = 'online_daily_data.' . $metricKey;
-        }
 
         $trafficRows = [];
         foreach ($rows as $row) {
@@ -2234,6 +2230,24 @@ trait PlatformSyncTaskConcern
                 continue;
             }
             $trafficRows[] = $row;
+        }
+
+        $realtimeTrafficRows = array_filter(
+            $trafficRows,
+            fn(array $row): bool => $this->normalizeDataPeriod($row['data_period'] ?? '') === 'realtime_snapshot'
+        );
+        if ($platform === 'ctrip'
+            && $trafficRows !== []
+            && count($realtimeTrafficRows) === count($trafficRows)
+        ) {
+            // Ctrip's same-day real-time pages expose verified visitors and
+            // submitted orders. The full five-step exposure funnel is a
+            // historical daily response and must not be relabelled as today.
+            $requiredMetricKeys = ['detail_exposure', 'order_submit_num'];
+        }
+        $expectedStorageFields = [];
+        foreach ($requiredMetricKeys as $metricKey) {
+            $expectedStorageFields[$metricKey] = 'online_daily_data.' . $metricKey;
         }
 
         $completeMetricKeys = [];
@@ -2252,12 +2266,15 @@ trait PlatformSyncTaskConcern
                 if (!is_array($fact)) {
                     continue;
                 }
-                $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
-                if (!isset($expectedStorageFields[$metricKey])) {
-                    continue;
-                }
                 $sourcePath = trim((string)($fact['source_path'] ?? ''));
                 $storageField = trim((string)($fact['storage_field'] ?? ''));
+                $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
+                if (!isset($expectedStorageFields[$metricKey])) {
+                    $metricKey = (string)(array_search($storageField, $expectedStorageFields, true) ?: '');
+                }
+                if ($metricKey === '' || !isset($expectedStorageFields[$metricKey])) {
+                    continue;
+                }
                 $factEvidence = is_array($fact['capture_evidence'] ?? null) ? $fact['capture_evidence'] : [];
                 $factTraceId = trim((string)($factEvidence['source_trace_id'] ?? $factEvidence['_source_trace_id'] ?? ''));
                 $factSourceUrlHash = trim((string)($factEvidence['source_url_hash'] ?? $factEvidence['_source_url_hash'] ?? ''));

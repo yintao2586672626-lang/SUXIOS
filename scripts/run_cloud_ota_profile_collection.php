@@ -481,7 +481,7 @@ function assertCurrentCaptureEvidence(
                 'trim',
                 explode(' | ', $sanitizedMessage)
             )));
-            $statusCode = (string)($messageParts[count($messageParts) - 1] ?? $sanitizedMessage);
+            $statusCode = (string)($messageParts[0] ?? $sanitizedMessage);
         }
         throw new RuntimeException(
             'cloud_ota_' . $platform . '_capture_' . safeReason($statusCode ?: 'failed')

@@ -88,6 +88,12 @@ final class BrowserProfileProcessOutputSanitizer
             if (str_contains($line, 'triggerUncaughtException')) {
                 continue;
             }
+            if (preg_match('/^(?:name|code)\s*:\s*[\'\"]?(?:error|exception)\b/iu', $line) === 1) {
+                continue;
+            }
+            if (preg_match('/^message\s*:\s*[\'\"]?(.+?)[\'\"]?,?$/iu', $line, $messageMatch) === 1) {
+                return mb_substr((string)$messageMatch[1], 0, 240);
+            }
             if (
                 stripos($line, 'Error') !== false
                 || stripos($line, 'Exception') !== false
@@ -103,10 +109,16 @@ final class BrowserProfileProcessOutputSanitizer
             }
             foreach (array_slice($lines, $index + 1) as $candidate) {
                 if ($candidate === '^'
+                    || $candidate === '{'
+                    || $candidate === '}'
                     || str_starts_with($candidate, 'at ')
                     || str_starts_with($candidate, 'node:')
+                    || preg_match('/^(?:name|code)\s*:/iu', $candidate) === 1
                 ) {
                     continue;
+                }
+                if (preg_match('/^message\s*:\s*[\'\"]?(.+?)[\'\"]?,?$/iu', $candidate, $messageMatch) === 1) {
+                    return mb_substr((string)$messageMatch[1], 0, 240);
                 }
                 return mb_substr($candidate, 0, 240);
             }

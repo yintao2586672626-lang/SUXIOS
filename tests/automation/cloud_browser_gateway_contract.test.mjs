@@ -1220,8 +1220,8 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /message\.sessionId \|\| ''/);
   assert.match(gateway, /targetInfo\.type === 'page'/);
   assert.match(gateway, /policyViolation = true/);
-  assert.match(gateway, /const markPolicyViolation = \(\) => \{\s*policyViolation = true;\s*child\?\.kill\?\.\('SIGTERM'\)/);
-  assert.match(gateway, /if \(!intentionalClose\) \{\s*markPolicyViolation\(\)/);
+  assert.match(gateway, /const markPolicyViolation = \(reason = 'unknown'\) => \{\s*policyViolation = true;\s*console\.error\([^;]+\);\s*child\?\.kill\?\.\('SIGTERM'\)/);
+  assert.match(gateway, /if \(!intentionalClose\) \{\s*markPolicyViolation\('policy_socket_closed'\)/);
   assert.match(gateway, /requestPolicyEnforced\s*&& !policyViolation\s*&& !closed\s*&& socket\.readyState === WebSocket\.OPEN/);
   assert.match(gateway, /pages\.length > 1/);
   assert.match(gateway, /collectionPolicyStillEnforced/);
@@ -1234,6 +1234,9 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /read_only_navigation_evaluation_unavailable/);
   assert.match(gateway, /if \(sourcePageReady\) \{[\s\S]*?window\.name='suxios_profile_lease_guarded'[\s\S]*?break;/);
   assert.match(gateway, /closeUnexpectedPageTarget[\s\S]*?Target\.closeTarget/);
+  assert.match(gateway, /targetInfo\.targetId && targetInfo\.targetId !== target\.targetId[\s\S]*?closeUnexpectedPageTarget/);
+  assert.match(gateway, /SUXIOS_GATEWAY_POLICY_VIOLATION/);
+  assert.doesNotMatch(gateway, /unexpected_target_close_failed/);
   assert.doesNotMatch(gateway, /targetInfo\.type === 'page'[\s\S]{0,160}failClosedForTarget\(targetInfo\.targetId\)/);
   assert.match(gateway, /\['loading', 'interactive', 'complete'\]/);
   assert.match(gateway, /return 'origin_mismatch'/);

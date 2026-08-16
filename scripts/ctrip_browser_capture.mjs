@@ -16,6 +16,7 @@ import {
   buildCtripStandardRowsFromFacts,
   buildCtripPageUrls,
   ctripCaptureRowPeriodMetadata,
+  ctripRealtimeDateEvidence,
   ctripCatalogSummary,
   extractCtripCatalogFacts,
   filterCtripCatalogFactsForProfileFields,
@@ -657,6 +658,7 @@ async function holdInteractiveLoginWindow(context, currentPage, platformName) {
 }
 
 async function finalizePayload() {
+  retainStrictRealtimeTargetRows(payload);
   dedupeRows(payload.business, row => row._fingerprint || JSON.stringify([row.hotelId, row.dataDate, row.amount, row.quantity, row.bookOrderNum]));
   dedupeRows(payload.traffic, row => JSON.stringify([
     row.platform || '',
@@ -796,6 +798,7 @@ function createCaptureState(section) {
   return {
     activeCaptureSection: section || '',
     activeTrafficPlatform: section === 'traffic_report' ? 'Ctrip' : '',
+    activeTrafficPeriodEvidence: null,
     readFallbackState: createOtaReadFallbackState('ctrip', {
       maxTemplates: 12,
       maxAttempts: 12,
@@ -1030,6 +1033,7 @@ async function captureSection(page, section, url, confidence = '', target = payl
   }
   await page.waitForLoadState('networkidle', { timeout: capturePlan.lightweight ? 3500 : 10000 }).catch(() => null);
   await waitForPendingResponses(target, capturePlan.lightweight ? 1500 : 3000);
+  applyVerifiedCtripPageDateEvidence(target, state.activeTrafficPeriodEvidence);
   if (ok) {
     const fallbackDiagnostics = await replayObservedOtaReadRequests(
       page,
@@ -1076,23 +1080,71 @@ async function runSectionInteractionPlan(page, section, state = defaultCaptureSt
       state.activeTrafficPlatform = stepPlatform;
     }
     const result = await clickTextIfVisible(page, step.text);
-    results.push({
+    const interaction = {
       action: step.action,
       text: step.text,
       reason: step.reason || '',
       clicked: result.clicked,
       skipped: result.skipped || '',
       ...(result.error ? { error: result.error } : {}),
-    });
+    };
+    results.push(interaction);
     if (!result.clicked && stepPlatform) {
       state.activeTrafficPlatform = previousTrafficPlatform;
     }
     if (result.clicked) {
       await page.waitForLoadState('networkidle', { timeout: capturePlan.lightweight ? 3500 : 8000 }).catch(() => null);
       await page.waitForTimeout(capturePlan.lightweight ? 350 : 900);
+      if (section === 'traffic_report' && String(step.text || '').trim() === '今日实时') {
+        const selected = await readCtripSelectedTextControl(page, step.text);
+        interaction.selected_readback = selected;
+        state.activeTrafficPeriodEvidence = selected
+          ? {
+              selected: true,
+              target_date: defaultDataDate,
+              relative_range: '今日实时',
+              evidence_source: 'page.traffic_period_selection.readback',
+            }
+          : null;
+      }
     }
   }
   return results;
+}
+
+async function readCtripSelectedTextControl(page, text) {
+  const candidates = page.getByText(text, { exact: true });
+  const count = Math.min(12, await candidates.count().catch(() => 0));
+  for (let index = 0; index < count; index += 1) {
+    const candidate = candidates.nth(index);
+    if (!await candidate.isVisible({ timeout: 300 }).catch(() => false)) {
+      continue;
+    }
+    const selected = await candidate.evaluate((node) => {
+      const selectedToken = (element) => {
+        if (!element) return false;
+        if (element.matches?.(':checked')) return true;
+        const attrs = ['aria-selected', 'aria-pressed', 'aria-checked', 'data-active', 'data-selected'];
+        if (attrs.some((name) => String(element.getAttribute?.(name) || '').toLowerCase() === 'true')) {
+          return true;
+        }
+        if (String(element.getAttribute?.('aria-current') || '').toLowerCase() === 'page') {
+          return true;
+        }
+        const classes = String(element.className || '').toLowerCase();
+        return /(^|[\s_-])(active|selected|checked|current|on)([\s_-]|$)/.test(classes);
+      };
+      let current = node;
+      for (let depth = 0; current && depth < 4; depth += 1, current = current.parentElement) {
+        if (selectedToken(current)) return true;
+      }
+      return false;
+    }).catch(() => false);
+    if (selected) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function triggerTrafficSourcePopupEvidence(page) {
@@ -1399,12 +1451,22 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     })) {
       observedPlatformIdentifiers.add(identifier);
     }
-    const requestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
     const activeSection = state.activeCaptureSection || '';
     const endpoint = findCtripEndpointByUrl(url, { preferredSection: activeSection });
     if (!capturePlanAllowsEndpoint(endpoint)) {
       return;
     }
+    const observedRequestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
+    const requestDateEvidence = observedRequestDateEvidence.date
+      ? observedRequestDateEvidence
+      : (capturePlan.id === 'realtime_broadcast'
+          ? ctripRealtimeDateEvidence({
+              endpointId: endpoint?.id || '',
+              targetDate: defaultDataDate,
+              capturedAt,
+              pagePeriodEvidence: state.activeTrafficPeriodEvidence,
+            })
+          : observedRequestDateEvidence);
     const urlSection = endpoint?.section || '';
     const approvedMappingMatches = approvedMappingsForUrl(url);
     const contentType = response.headers()['content-type'] || '';
@@ -1813,6 +1875,63 @@ function annotateCtripStandardRowDateSource(row, requestDateEvidence = {}) {
     return { ...row, date_source: requestDateEvidence.date_source || 'request' };
   }
   return { ...row, date_source: 'capture_context.default_data_date' };
+}
+
+function applyVerifiedCtripPageDateEvidence(target, pagePeriodEvidence) {
+  if (capturePlan.id !== 'realtime_broadcast' || !pagePeriodEvidence) {
+    return;
+  }
+  const apply = (row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      return row;
+    }
+    const evidence = ctripRealtimeDateEvidence({
+      endpointId: row.endpoint_id || row.endpointId || '',
+      targetDate: defaultDataDate,
+      capturedAt,
+      pagePeriodEvidence,
+    });
+    const rowDate = normalizeDate(firstValue(row, ['data_date', 'dataDate', 'date']));
+    if (!evidence.date || rowDate !== evidence.date) {
+      return row;
+    }
+    return { ...row, date_source: evidence.date_source };
+  };
+  for (const key of ['rows', 'standard_rows', 'business', 'traffic']) {
+    if (Array.isArray(target[key])) {
+      target[key] = target[key].map(apply);
+    }
+  }
+  for (const [section, rows] of Object.entries(target.by_section || {})) {
+    if (Array.isArray(rows)) {
+      target.by_section[section] = rows.map(apply);
+    }
+  }
+}
+
+function retainStrictRealtimeTargetRows(target) {
+  if (capturePlan.id !== 'realtime_broadcast') {
+    return;
+  }
+  const keep = (row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      return false;
+    }
+    const rowDate = normalizeDate(firstValue(row, ['data_date', 'dataDate', 'date']));
+    const dateSource = String(firstValue(row, ['date_source', 'dateSource'], '')).trim().toLowerCase();
+    return rowDate === defaultDataDate
+      && /^(?:row(?:\.|$)|response\.|request(?:\.|$)|page\.)/.test(dateSource);
+  };
+  for (const key of ['rows', 'standard_rows', 'business', 'traffic']) {
+    if (Array.isArray(target[key])) {
+      target[key] = target[key].filter(keep);
+    }
+  }
+  for (const [section, rows] of Object.entries(target.by_section || {})) {
+    if (Array.isArray(rows)) {
+      target.by_section[section] = rows.filter(keep);
+    }
+  }
 }
 
 function normalizeRows(value, section, sourceUrl, requestDateEvidence = {}, options = {}) {

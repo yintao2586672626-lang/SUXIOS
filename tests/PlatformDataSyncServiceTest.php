@@ -397,6 +397,57 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertTrue($closure['ui_status_ready']);
     }
 
+    public function testCtripRealtimeP0RequiresOnlyFactsAvailableFromSameDayEndpoints(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'targetTrafficP0Closure');
+        $method->setAccessible(true);
+        $targetDate = '2026-08-16';
+        $rows = [];
+        foreach ([
+            ['visitor_count', 'detail_exposure', 12],
+            ['order_submit_user', 'order_submit_num', 3],
+        ] as [$factMetricKey, $storageMetricKey, $value]) {
+            $traceId = 'ctrip:realtime:' . $storageMetricKey;
+            $sourceUrlHash = hash('sha256', $traceId);
+            $rows[] = [
+                'data_date' => $targetDate,
+                'data_period' => 'realtime_snapshot',
+                'data_type' => 'traffic',
+                'platform' => 'ctrip',
+                'compare_type' => 'self',
+                $storageMetricKey => $value,
+                'source_trace_id' => $traceId,
+                'raw_data' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $sourceUrlHash,
+                    'platform_hotel_identifier_present' => true,
+                    'platform_hotel_identifier_source' => 'hotel_id_family',
+                    'platform_hotel_identifier_proof' => 'row_field_present',
+                    'field_facts' => [[
+                        'metric_key' => $factMetricKey,
+                        'source_path' => 'data.' . $factMetricKey,
+                        'storage_field' => 'online_daily_data.' . $storageMetricKey,
+                        'stored_value_present' => true,
+                        'capture_evidence' => [
+                            'source_trace_id' => $traceId,
+                            'source_url_hash' => $sourceUrlHash,
+                        ],
+                    ]],
+                ],
+            ];
+        }
+
+        $closure = $method->invoke($service, $rows, 'ctrip', $targetDate);
+
+        self::assertSame(['detail_exposure', 'order_submit_num'], $closure['required_metric_keys']);
+        self::assertSame(['detail_exposure', 'order_submit_num'], $closure['complete_metric_keys']);
+        self::assertSame([], $closure['missing_metric_keys']);
+        self::assertSame(2, $closure['field_fact_ready_count']);
+        self::assertTrue($closure['platform_hotel_identifier_ready']);
+        self::assertTrue($closure['ui_status_ready']);
+    }
+
     public function testCtripDailyBusinessOverviewKeepsCheckoutFieldsSeparateFromBookingFields(): void
     {
         $service = new PlatformDataSyncService();
