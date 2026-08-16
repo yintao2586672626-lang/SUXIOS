@@ -1,30 +1,10 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h2142faa592';
-    const requestEvent = 'suxi:operating-intelligence-requested';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-hdadd9b311e';
     let fullScriptPromise = null;
 
-    const requestFullComponents = () => {
-        window.dispatchEvent(new CustomEvent(requestEvent));
-    };
-    const waitForActivation = () => {
-        if (window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL?.create
-            || document.documentElement.dataset.suxiFullRenderReady === '1') {
-            return Promise.resolve();
-        }
-        return new Promise(resolve => {
-            const finish = () => {
-                window.removeEventListener(requestEvent, finish);
-                window.removeEventListener('suxi:full-render-ready', finish);
-                resolve();
-            };
-            window.addEventListener(requestEvent, finish, { once: true });
-            window.addEventListener('suxi:full-render-ready', finish, { once: true });
-        });
-    };
     const loadFullScript = async () => {
-        await waitForActivation();
         if (window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL?.create) {
             return window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL;
         }
@@ -60,6 +40,9 @@
             if (!existing) document.head.appendChild(script);
         });
         return fullScriptPromise;
+    };
+    const requestFullComponents = () => {
+        void loadFullScript().catch(() => {});
     };
 
     const create = (createOptions) => {
