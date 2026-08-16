@@ -205,15 +205,16 @@ final class LlmClientTest extends TestCase
 
     public function testDirectStructuredEnvelopeReturnsActualDeepSeekMetadataAndValidatesSchema(): void
     {
-        $primary = ScriptedLlmClient::modelConfig('deepseek_chat', 'deepseek');
-        $primary['model'] = 'deepseek-v4-flash';
+        $primary = ScriptedLlmClient::modelConfig('deepseek_v4_pro', 'deepseek');
+        $primary['base_url'] = 'https://api.deepseek.com/v1';
+        $primary['model'] = 'deepseek-v4-pro';
         $client = new ScriptedLlmClient($primary, [
             ScriptedLlmClient::modelConfig('backup_model', 'openai'),
         ], [
-            'deepseek_chat' => [ScriptedLlmClient::success(json_encode([
+            'deepseek_v4_pro' => [ScriptedLlmClient::success(json_encode([
                 'summary' => 'ok',
                 'confidence' => 'medium',
-            ], JSON_UNESCAPED_UNICODE))],
+            ], JSON_UNESCAPED_UNICODE), 'stop', 'resp-unit-test-0001', time(), 'deepseek-v4-pro')],
         ]);
 
         $envelope = $client->createJsonResponseEnvelope([[
@@ -231,18 +232,106 @@ final class LlmClientTest extends TestCase
                 'hotel_id' => 20,
                 'user_id' => 7,
             ],
-        ], 'deepseek_v4_default');
+        ], 'deepseek_v4_pro');
 
         self::assertSame('ok', $envelope['data']['summary']);
         self::assertSame('deepseek', $envelope['meta']['provider']);
-        self::assertSame('deepseek_chat', $envelope['meta']['model_key']);
-        self::assertSame('deepseek-v4-flash', $envelope['meta']['model']);
+        self::assertSame('deepseek_v4_pro', $envelope['meta']['model_key']);
+        self::assertSame('deepseek-v4-pro', $envelope['meta']['model']);
+        self::assertSame('resp-unit-test-0001', $envelope['meta']['provider_response_id']);
+        self::assertGreaterThanOrEqual(time() - 5, $envelope['meta']['provider_created_at']);
         self::assertSame('stop', $envelope['meta']['finish_reason']);
         self::assertFalse($envelope['meta']['fallback_used']);
+        self::assertTrue($envelope['meta']['direct_request_proof']);
+        self::assertSame(0, $envelope['meta']['transport_retry_attempts']);
+        self::assertSame(0, $envelope['meta']['transport_max_retries']);
+        self::assertSame(1, $envelope['meta']['provider_attempt_count']);
+        self::assertFalse($envelope['meta']['upstream_idempotency_key_sent']);
+        self::assertSame('https://api.deepseek.com', $envelope['meta']['endpoint_origin']);
+        self::assertMatchesRegularExpression('/^oq-[a-f0-9]{32}$/', $envelope['meta']['transport_request_id']);
         self::assertCount(1, $client->calls);
         self::assertSame(['type' => 'json_object'], $client->calls[0]['payload']['response_format']);
-        self::assertSame(['type' => 'disabled'], $client->calls[0]['payload']['thinking']);
+        self::assertSame(['type' => 'enabled'], $client->calls[0]['payload']['thinking']);
+        self::assertSame('high', $client->calls[0]['payload']['reasoning_effort']);
+        self::assertArrayNotHasKey('temperature', $client->calls[0]['payload']);
         self::assertMatchesRegularExpression('/^[A-Za-z0-9_-]{1,128}$/', $client->calls[0]['payload']['user_id']);
+    }
+
+    public function testOperatingQuestionDirectEnvelopeRejectsUnofficialEndpointBeforeTransport(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('deepseek_v4_pro', 'deepseek');
+        $primary['model'] = 'deepseek-v4-pro';
+        $client = new ScriptedLlmClient($primary, [], []);
+
+        try {
+            $client->createJsonResponseEnvelope([], [
+                'type' => 'object',
+                'properties' => [],
+                'x-governance' => ['module' => 'operating_question'],
+            ], 'deepseek_v4_pro');
+            self::fail('Unofficial DeepSeek-compatible endpoint must be rejected.');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('not trusted', $exception->getMessage());
+        }
+        self::assertCount(0, $client->calls);
+    }
+
+    public function testOperatingQuestionDirectEnvelopeReplacesReusedInboundRequestIdWithFreshNonces(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('deepseek_v4_pro', 'deepseek');
+        $primary['base_url'] = 'https://api.deepseek.com/v1';
+        $primary['model'] = 'deepseek-v4-pro';
+        $client = new ScriptedLlmClient($primary, [], [
+            'deepseek_v4_pro' => [
+                ScriptedLlmClient::success('{"summary":"first"}', 'stop', 'resp-fresh-0001', time(), 'deepseek-v4-pro'),
+                ScriptedLlmClient::success('{"summary":"second"}', 'stop', 'resp-fresh-0002', time(), 'deepseek-v4-pro'),
+            ],
+        ]);
+        $schema = [
+            'type' => 'object',
+            'required' => ['summary'],
+            'properties' => ['summary' => ['type' => 'string']],
+            'x-governance' => [
+                'module' => 'operating_question',
+                'request_id' => 'caller-reused-request-id',
+            ],
+        ];
+
+        $first = $client->createJsonResponseEnvelope([], $schema, 'deepseek_v4_pro');
+        $second = $client->createJsonResponseEnvelope([], $schema, 'deepseek_v4_pro');
+
+        self::assertTrue($first['meta']['direct_request_proof']);
+        self::assertTrue($second['meta']['direct_request_proof']);
+        self::assertNotSame($first['meta']['transport_request_id'], $second['meta']['transport_request_id']);
+        self::assertNotSame('caller-reused-request-id', $client->calls[0]['request_id']);
+        self::assertNotSame('caller-reused-request-id', $client->calls[1]['request_id']);
+        self::assertSame(0, $client->calls[0]['options']['max_retries']);
+        self::assertSame(0, $client->calls[1]['options']['max_retries']);
+        self::assertFalse($client->calls[0]['options']['upstream_idempotency_key_enabled']);
+        self::assertFalse($client->calls[1]['options']['upstream_idempotency_key_enabled']);
+    }
+
+    public function testProviderResponseReceiptIsExactAndInvalidIdsFailClosed(): void
+    {
+        $client = new LlmClient();
+        foreach ([
+            null,
+            12345678,
+            'short',
+            ' resp-valid-0001',
+            'resp-valid-0001 ',
+            'resp/invalid/0001',
+            "resp\tinvalid0001",
+            str_repeat('a', 192),
+        ] as $invalid) {
+            self::assertSame('', $this->invokeNonPublic($client, 'normalizeProviderResponseId', [$invalid]));
+        }
+        $exact = 'resp-Provider.Exact:0001';
+        self::assertSame($exact, $this->invokeNonPublic($client, 'normalizeProviderResponseId', [$exact]));
+        self::assertNotSame(
+            'local-request-id-should-never-substitute',
+            $this->invokeNonPublic($client, 'normalizeProviderResponseId', [null])
+        );
     }
 
     public function testDirectStructuredEnvelopeRejectsMissingRequiredFieldAndTruncatedFinish(): void
@@ -429,6 +518,25 @@ final class LlmClientTest extends TestCase
         self::assertSame(9, $options[CURLOPT_TIMEOUT]);
         self::assertContains('X-Request-ID: req-transport-1', $options[CURLOPT_HTTPHEADER]);
         self::assertContains('Idempotency-Key: req-transport-1', $options[CURLOPT_HTTPHEADER]);
+
+        $freshOptions = $this->invokeNonPublic(new LlmClient(), 'buildCurlOptions', [
+            $target,
+            ['api_key' => 'unit-test-key'],
+            '{"model":"unit-test"}',
+            [
+                'timeout' => 9,
+                'request_id' => 'oq-0123456789abcdef0123456789abcdef',
+                'upstream_idempotency_key_enabled' => false,
+            ],
+        ]);
+        self::assertContains(
+            'X-Request-ID: oq-0123456789abcdef0123456789abcdef',
+            $freshOptions[CURLOPT_HTTPHEADER]
+        );
+        self::assertNotContains(
+            'Idempotency-Key: oq-0123456789abcdef0123456789abcdef',
+            $freshOptions[CURLOPT_HTTPHEADER]
+        );
     }
 
     public function testOllamaTransportIsLoopbackOnlyKeylessAndUsesNativeJsonSchema(): void
@@ -720,10 +828,19 @@ final class ScriptedLlmClient extends LlmClient
     }
 
     /** @return array<string, mixed> */
-    public static function success(string $content, string $finishReason = 'stop'): array
+    public static function success(
+        string $content,
+        string $finishReason = 'stop',
+        mixed $providerResponseId = 'resp-unit-test-0001',
+        int $providerCreatedAt = 1786800000,
+        string $providerModel = ''
+    ): array
     {
         return [
             'response' => json_encode([
+                'id' => $providerResponseId,
+                'created' => $providerCreatedAt,
+                'model' => $providerModel,
                 'choices' => [[
                     'message' => ['content' => $content],
                     'finish_reason' => $finishReason,
@@ -772,6 +889,7 @@ final class ScriptedLlmClient extends LlmClient
             'model_key' => $modelKey,
             'request_id' => (string)($options['request_id'] ?? ''),
             'payload' => json_decode($payloadJson, true),
+            'options' => $options,
         ];
         $response = array_shift($this->scripts[$modelKey]);
         return is_array($response) ? $response : self::transportFailure(CURLE_COULDNT_CONNECT);

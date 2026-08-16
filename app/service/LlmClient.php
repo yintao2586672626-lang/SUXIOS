@@ -20,6 +20,9 @@ class LlmClient
     private const DEFAULT_RESPONSE_CACHE_TTL_SECONDS = 21600;
     private const MAX_TRANSPORT_TIMEOUT_SECONDS = 60;
     private const STATE_PREFIX = 'suxios_llm_client_v2:';
+    private const OPERATING_QUESTION_PROVIDER = 'deepseek';
+    private const OPERATING_QUESTION_MODEL = 'deepseek-v4-pro';
+    private const OPERATING_QUESTION_ENDPOINT_ORIGIN = 'https://api.deepseek.com';
 
     /** @var array<string, array{value:mixed,expires_at:int}> */
     private static array $localState = [];
@@ -365,6 +368,13 @@ class LlmClient
             ];
         }
 
+        // These identifiers come from the provider response body, not from
+        // model-authored JSON content. Operating questions use the response ID
+        // as the input to a database-backed global replay registry.
+        $providerResponseId = $this->normalizeProviderResponseId($data['id'] ?? null);
+        $providerCreatedAt = max(0, (int)($data['created'] ?? 0));
+        $providerReportedModel = mb_substr(trim((string)($data['model'] ?? '')), 0, 150);
+
         $content = $this->extractChatContent($data);
         if ($content === '') {
             $message = 'LLM returned empty content';
@@ -470,16 +480,21 @@ class LlmClient
                 'ok' => true,
                 'code' => 200,
                 'content' => $content,
-                'model' => $config['model'],
+                'model' => $providerReportedModel !== '' ? $providerReportedModel : $config['model'],
                 'model_key' => $config['model_key'],
                 'provider' => $config['provider'],
+                'provider_response_id' => $providerResponseId,
+                'provider_created_at' => $providerCreatedAt,
                 'finish_reason' => $finishReason,
                 'data' => [
                     'debug' => [
                         'provider' => (string)$config['provider'],
                         'model_key' => (string)$config['model_key'],
-                        'model' => (string)$config['model'],
+                        'model' => $providerReportedModel !== '' ? $providerReportedModel : (string)$config['model'],
                         'model_name' => (string)$config['model'],
+                        'provider_reported_model' => $providerReportedModel,
+                        'provider_response_id' => $providerResponseId,
+                        'provider_created_at' => $providerCreatedAt,
                         'config_source' => 'database',
                         'http_status' => $statusCode,
                         'selected_hotel_count' => (int)($meta['selected_hotel_count'] ?? 0),
@@ -670,6 +685,12 @@ class LlmClient
     ): array {
         $result['request_id'] = (string)$governance['request_id'];
         $result['fallback_used'] = $fallbackUsed;
+        if (!array_key_exists('degraded', $result)) {
+            $result['degraded'] = false;
+        }
+        if (!array_key_exists('cache_hit', $result)) {
+            $result['cache_hit'] = false;
+        }
         $result['business_action_allowed'] = ($result['ok'] ?? false) === true && ($result['degraded'] ?? false) !== true;
         $result['data'] = is_array($result['data'] ?? null) ? $result['data'] : [];
         $result['data']['stability'] = [
@@ -751,6 +772,18 @@ class LlmClient
         string $modelKey = 'deepseek_v4_default'
     ): array {
         $governanceMeta = $this->schemaGovernanceMeta($schema);
+        $isOperatingQuestion = strtolower(trim((string)($governanceMeta['module'] ?? '')))
+            === 'operating_question';
+        $configProof = $isOperatingQuestion
+            ? $this->operatingQuestionConfigProof($this->configByModelKey($modelKey))
+            : [];
+        if ($isOperatingQuestion && ($configProof['ok'] ?? false) !== true) {
+            throw new RuntimeException('Operating-question DeepSeek V4 Pro configuration is not trusted.');
+        }
+        $transportRequestId = 'oq-' . bin2hex(random_bytes(16));
+        // A caller-controlled inbound request ID must never become the
+        // transport identity of a supposedly fresh operating-question call.
+        $governanceMeta['request_id'] = $transportRequestId;
         $schemaForPrompt = $this->schemaWithoutGovernance($schema);
         $prompt = $this->messagesToPrompt($messages, $schemaForPrompt);
         $anonymousUserId = substr(hash('sha256', implode(':', [
@@ -764,7 +797,7 @@ class LlmClient
             'temperature' => 0.1,
             'timeout' => 45,
             'max_tokens' => 2048,
-            'max_retries' => 1,
+            'max_retries' => 0,
             'retry_base_delay_ms' => 500,
             'retry_max_delay_ms' => 1000,
             'retry_jitter_ms' => 0,
@@ -774,12 +807,14 @@ class LlmClient
             'max_provider_fallbacks' => 0,
             'response_cache_enabled' => false,
             'idempotency_enabled' => false,
-            'deepseek_thinking' => 'disabled',
+            'upstream_idempotency_key_enabled' => false,
+            'deepseek_thinking' => 'enabled',
+            'reasoning_effort' => 'high',
             'user_id' => $anonymousUserId,
         ]);
         if (($result['ok'] ?? false) !== true
-            || ($result['degraded'] ?? false) === true
-            || ($result['fallback_used'] ?? false) === true
+            || ($result['degraded'] ?? null) !== false
+            || ($result['fallback_used'] ?? null) !== false
         ) {
             throw new RuntimeException(
                 (string)($result['message'] ?? 'LLM direct structured request failed'),
@@ -795,6 +830,32 @@ class LlmClient
         $this->assertStructuredJsonMatchesSchema($data, $schemaForPrompt);
         $this->updateGovernanceFromJson($result, $data);
         $debug = is_array($result['data']['debug'] ?? null) ? $result['data']['debug'] : [];
+        $attempts = is_array($debug['provider_attempts'] ?? null) ? $debug['provider_attempts'] : [];
+        $providerResponseId = $this->normalizeProviderResponseId(
+            $result['provider_response_id'] ?? $debug['provider_response_id'] ?? null
+        );
+        $providerCreatedAt = max(0, (int)($result['provider_created_at'] ?? $debug['provider_created_at'] ?? 0));
+        $provider = strtolower(trim((string)($result['provider'] ?? $debug['provider'] ?? '')));
+        $providerModel = strtolower(trim((string)($debug['provider_reported_model'] ?? '')));
+        $retryAttempts = array_key_exists('retry_attempts', $debug) ? (int)$debug['retry_attempts'] : -1;
+        $maxRetries = array_key_exists('max_retries', $debug) ? (int)$debug['max_retries'] : -1;
+        $httpStatus = array_key_exists('http_status', $debug) ? (int)$debug['http_status'] : 0;
+        $freshProviderReceipt = $providerCreatedAt > 0 && abs(time() - $providerCreatedAt) <= 900;
+        $directRequestProof = $isOperatingQuestion
+            && ($configProof['ok'] ?? false) === true
+            && $provider === self::OPERATING_QUESTION_PROVIDER
+            && $providerModel === self::OPERATING_QUESTION_MODEL
+            && $providerResponseId !== ''
+            && $freshProviderReceipt
+            && strtolower(trim((string)($result['finish_reason'] ?? $debug['finish_reason'] ?? ''))) === 'stop'
+            && (string)($result['request_id'] ?? $debug['request_id'] ?? '') === $transportRequestId
+            && $httpStatus === 200
+            && $retryAttempts === 0
+            && $maxRetries === 0
+            && count($attempts) === 1
+            && ($attempts[0]['fallback'] ?? null) === false
+            && (int)($attempts[0]['http_status'] ?? 0) === 200
+            && (int)($attempts[0]['retry_attempts'] ?? -1) === 0;
 
         return [
             'data' => $data,
@@ -802,11 +863,24 @@ class LlmClient
                 'provider' => mb_substr(trim((string)($result['provider'] ?? $debug['provider'] ?? '')), 0, 50),
                 'model_key' => mb_substr(trim((string)($result['model_key'] ?? $debug['model_key'] ?? $modelKey)), 0, 100),
                 'model' => mb_substr(trim((string)($result['model'] ?? $debug['model'] ?? '')), 0, 150),
+                'provider_response_id' => $providerResponseId,
+                'provider_created_at' => $providerCreatedAt,
                 'finish_reason' => mb_substr(trim((string)($result['finish_reason'] ?? $debug['finish_reason'] ?? '')), 0, 50),
-                'http_status' => max(0, (int)($debug['http_status'] ?? 0)),
+                'http_status' => $httpStatus,
                 'fallback_used' => false,
                 'cache_hit' => false,
                 'degraded' => false,
+                'direct_request_proof' => $directRequestProof,
+                'transport_request_id' => $transportRequestId,
+                'transport_retry_attempts' => $retryAttempts,
+                'transport_max_retries' => $maxRetries,
+                'provider_attempt_count' => count($attempts),
+                'upstream_idempotency_key_sent' => false,
+                'thinking_mode' => 'enabled',
+                'reasoning_effort' => 'high',
+                'endpoint_origin' => (string)($configProof['endpoint_origin'] ?? ''),
+                'endpoint_base_url' => (string)($configProof['endpoint_base_url'] ?? ''),
+                'config_digest' => (string)($configProof['config_digest'] ?? ''),
             ],
         ];
     }
@@ -840,6 +914,34 @@ class LlmClient
             'source' => 'database',
             'config_entry' => '/ai-model-config',
             'next_action' => '检查模型Key、Base URL、模型名称、API Key和AI_CONFIG_SECRET。',
+        ];
+    }
+
+    /** @return array{ok:bool,endpoint_origin:string,endpoint_base_url:string,config_digest:string} */
+    private function operatingQuestionConfigProof(array $config): array
+    {
+        $baseUrl = rtrim(trim((string)($config['base_url'] ?? '')), '/');
+        $parts = parse_url($baseUrl);
+        $path = is_array($parts) ? rtrim((string)($parts['path'] ?? ''), '/') : '';
+        $endpointOrigin = is_array($parts)
+            && strtolower((string)($parts['scheme'] ?? '')) === 'https'
+            && strtolower((string)($parts['host'] ?? '')) === 'api.deepseek.com'
+            && !isset($parts['user'], $parts['pass'], $parts['query'], $parts['fragment'])
+            && (!isset($parts['port']) || (int)$parts['port'] === 443)
+                ? self::OPERATING_QUESTION_ENDPOINT_ORIGIN
+                : '';
+        $ok = ($config['ok'] ?? false) === true
+            && strtolower(trim((string)($config['provider'] ?? ''))) === self::OPERATING_QUESTION_PROVIDER
+            && strtolower(trim((string)($config['model'] ?? ''))) === self::OPERATING_QUESTION_MODEL
+            && strtolower(trim((string)($config['source'] ?? ''))) === 'database'
+            && $endpointOrigin !== ''
+            && in_array($path, ['', '/v1'], true);
+
+        return [
+            'ok' => $ok,
+            'endpoint_origin' => $ok ? $endpointOrigin : '',
+            'endpoint_base_url' => $ok ? $baseUrl : '',
+            'config_digest' => $ok ? $this->configIdentity($config) : '',
         ];
     }
 
@@ -1477,11 +1579,16 @@ class LlmClient
         }
         $provider = strtolower(trim((string)($config['provider'] ?? '')));
         if ($provider === 'deepseek') {
+            $thinkingEnabled = strtolower(trim((string)($options['deepseek_thinking'] ?? 'disabled')))
+                === 'enabled';
             $payload['thinking'] = [
-                'type' => strtolower(trim((string)($options['deepseek_thinking'] ?? 'disabled'))) === 'enabled'
-                    ? 'enabled'
-                    : 'disabled',
+                'type' => $thinkingEnabled ? 'enabled' : 'disabled',
             ];
+            if ($thinkingEnabled) {
+                unset($payload['temperature']);
+                $effort = strtolower(trim((string)($options['reasoning_effort'] ?? 'high')));
+                $payload['reasoning_effort'] = in_array($effort, ['high', 'max'], true) ? $effort : 'high';
+            }
             $userId = trim((string)($options['user_id'] ?? ''));
             if ($userId !== '' && preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $userId) === 1) {
                 $payload['user_id'] = $userId;
@@ -1735,7 +1842,9 @@ class LlmClient
         $requestId = $this->normalizeRequestId((string)($options['request_id'] ?? ''), false);
         if ($requestId !== '') {
             $headers[] = 'X-Request-ID: ' . $requestId;
-            $headers[] = 'Idempotency-Key: ' . $requestId;
+            if ($this->optionEnabled($options, 'upstream_idempotency_key_enabled', true)) {
+                $headers[] = 'Idempotency-Key: ' . $requestId;
+            }
         }
         $curlOptions = [
             CURLOPT_RETURNTRANSFER => true,
@@ -1953,6 +2062,23 @@ class LlmClient
             // CLI jobs and isolated tests may not have an active HTTP request.
         }
         return '';
+    }
+
+    /**
+     * Preserve only an exact provider-issued response receipt. Never trim,
+     * truncate, synthesize, hash, or substitute the local request ID: doing
+     * so would turn distinct upstream receipts into the same replay identity.
+     */
+    private function normalizeProviderResponseId(mixed $value): string
+    {
+        if (!is_string($value)
+            || strlen($value) < 8
+            || strlen($value) > 191
+            || preg_match('/^[A-Za-z0-9._:-]+$/D', $value) !== 1
+        ) {
+            return '';
+        }
+        return $value;
     }
 
     private function normalizeRequestId(string $requestId, bool $generate = true): string

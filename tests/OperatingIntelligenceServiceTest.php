@@ -18,6 +18,34 @@ final class OperatingIntelligenceServiceTest extends TestCase
     private static array $originalDatabaseConfig = [];
     private static string $sqlitePath = '';
 
+    /** @param array<string,mixed> $overrides @return array<string,mixed> */
+    public static function trustedDeepSeekMeta(string $responseId, array $overrides = []): array
+    {
+        return array_replace([
+            'provider' => OperatingQuestionAiAnswerService::REQUIRED_PROVIDER,
+            'model_key' => OperatingQuestionAiAnswerService::REQUIRED_MODEL_KEY,
+            'model' => OperatingQuestionAiAnswerService::REQUIRED_MODEL,
+            'provider_response_id' => $responseId,
+            'provider_created_at' => time(),
+            'finish_reason' => 'stop',
+            'http_status' => 200,
+            'fallback_used' => false,
+            'cache_hit' => false,
+            'degraded' => false,
+            'direct_request_proof' => true,
+            'transport_request_id' => 'oq-' . substr(hash('sha256', $responseId), 0, 32),
+            'transport_retry_attempts' => 0,
+            'transport_max_retries' => 0,
+            'provider_attempt_count' => 1,
+            'upstream_idempotency_key_sent' => false,
+            'thinking_mode' => 'enabled',
+            'reasoning_effort' => 'high',
+            'endpoint_origin' => OperatingQuestionAiAnswerService::REQUIRED_ENDPOINT_ORIGIN,
+            'endpoint_base_url' => OperatingQuestionAiAnswerService::REQUIRED_ENDPOINT_ORIGIN . '/v1',
+            'config_digest' => hash('sha256', 'trusted-test-deepseek-v4-pro'),
+        ], $overrides);
+    }
+
     public static function setUpBeforeClass(): void
     {
         $app = new App(dirname(__DIR__));
@@ -53,6 +81,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
         foreach ([
             'hotel_operating_sop_replications',
             'hotel_operating_sop_versions',
+            'hotel_operating_question_model_responses',
             'hotel_operating_questions',
             'hotel_operating_memories',
             'online_daily_data',
@@ -69,6 +98,12 @@ final class OperatingIntelligenceServiceTest extends TestCase
             . 'fact_refs_json TEXT, memory_refs_json TEXT, knowledge_refs_json TEXT, execution_refs_json TEXT, data_gaps_json TEXT, '
             . 'content_digest TEXT, created_by INTEGER, created_at TEXT, updated_at TEXT, deleted_at TEXT, '
             . 'UNIQUE(tenant_id,hotel_id,request_key))'
+        );
+        Db::execute(
+            'CREATE TABLE hotel_operating_question_model_responses ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, provider_response_id TEXT COLLATE BINARY NOT NULL UNIQUE, '
+            . 'provider TEXT NOT NULL, question_id INTEGER NOT NULL UNIQUE, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, '
+            . 'question_content_digest TEXT NOT NULL, created_at TEXT NOT NULL)'
         );
         Db::execute(
             'CREATE TABLE hotel_operating_memories ('
@@ -97,7 +132,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             . 'platform TEXT, source TEXT, data_type TEXT, dimension TEXT, readback_verified INTEGER, '
             . 'readback_verified_at TEXT, validation_status TEXT, history_status TEXT, ingestion_method TEXT, source_trace_id TEXT, '
             . 'raw_data TEXT, amount REAL DEFAULT 0, quantity INTEGER DEFAULT 0, book_order_num INTEGER DEFAULT 0, '
-            . 'comment_score REAL DEFAULT 0, data_value REAL DEFAULT 0, list_exposure INTEGER DEFAULT 0, '
+            . 'comment_score REAL DEFAULT 0, qunar_comment_score REAL DEFAULT 0, data_value REAL DEFAULT 0, list_exposure INTEGER DEFAULT 0, '
             . 'detail_exposure INTEGER DEFAULT 0, flow_rate REAL DEFAULT 0, order_filling_num INTEGER DEFAULT 0, '
             . 'order_submit_num INTEGER DEFAULT 0)'
         );
@@ -175,6 +210,36 @@ final class OperatingIntelligenceServiceTest extends TestCase
             'list_exposure' => 1200,
             'detail_exposure' => 240,
             'flow_rate' => 20.0,
+            'raw_data' => json_encode(['field_facts' => [
+                [
+                    'metric_key' => 'list_exposure',
+                    'data_type' => 'traffic',
+                    'source_key' => 'listExposure',
+                    'source_path' => 'payload.listExposure',
+                    'storage_field' => 'online_daily_data.list_exposure',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                ],
+                [
+                    'metric_key' => 'detail_exposure',
+                    'data_type' => 'traffic',
+                    'source_key' => 'detailExposure',
+                    'source_path' => 'payload.detailExposure',
+                    'storage_field' => 'online_daily_data.detail_exposure',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                ],
+                [
+                    'metric_key' => 'browse_to_pay_rate',
+                    'data_type' => 'traffic',
+                    'source_key' => 'browseToPayRate',
+                    'source_path' => 'payload.browseToPayRate',
+                    'storage_field' => 'online_daily_data.flow_rate',
+                    'stored_unit' => 'percent',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                ],
+            ]], JSON_UNESCAPED_SLASHES),
         ]);
 
         $trustedFacts = $loadFacts->invoke($factReader, 10, 20, 'ctrip', '2026-08-01', '2026-08-01');
@@ -202,9 +267,9 @@ final class OperatingIntelligenceServiceTest extends TestCase
             'flow_rate' => 20.0,
         ], $ready['question']['answer']['fact_samples'][0]['metric_values']);
         self::assertSame([
-            'list_exposure' => 'exposure_count',
-            'detail_exposure' => 'exposure_count',
-            'flow_rate' => 'source_defined_rate',
+            'list_exposure' => 'visitor_count',
+            'detail_exposure' => 'visitor_count',
+            'flow_rate' => 'percent',
         ], $ready['question']['answer']['fact_samples'][0]['metric_units']);
 
         Db::name('online_daily_data')->insertAll([
@@ -243,6 +308,8 @@ final class OperatingIntelligenceServiceTest extends TestCase
                 'raw_data' => json_encode([
                     'field_facts' => [[
                         'metric_key' => 'list_exposure',
+                        'data_type' => 'traffic',
+                        'source_key' => 'listExposure',
                         'source_path' => 'payload.listExposure',
                         'storage_field' => 'online_daily_data.list_exposure',
                         'status' => 'captured',
@@ -256,7 +323,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertSame([], $defaultZeroFacts[0]['metric_units']);
         $observedZeroFacts = $loadFacts->invoke($factReader, 10, 20, 'ctrip', '2026-08-06', '2026-08-06');
         self::assertSame(['list_exposure' => 0], $observedZeroFacts[0]['metric_values']);
-        self::assertSame(['list_exposure' => 'exposure_count'], $observedZeroFacts[0]['metric_units']);
+        self::assertSame(['list_exposure' => 'visitor_count'], $observedZeroFacts[0]['metric_units']);
 
         $observedMetricFields = new \ReflectionMethod($factReader, 'observedMetricFields');
         $observedMetricFields->setAccessible(true);
@@ -288,14 +355,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
     public function testOperatingQuestionSavesExactEvidenceReadbackAndVisibleMissingState(): void
     {
         $ready = new OperatingQuestionService(static fn(): array => [
-            'facts' => [[
-                'ref' => 'online_daily_data#701',
-                'data_date' => '2026-08-01',
-                'platform' => 'ctrip',
-                'data_type' => 'traffic',
-                'quality_status' => 'verified',
-                'readback_status' => 'readback_verified',
-            ]],
+            'facts' => [self::substantiveFact(701, '2026-08-01')],
             'fact_count' => 1,
             'memories' => [['ref' => 'hotel_operating_memories#11']],
             'diagnoses' => [[
@@ -317,8 +377,9 @@ final class OperatingIntelligenceServiceTest extends TestCase
         $saved = $ready->create(10, 20, 'What should this hotel review?', 'ctrip', '2026-08-01', '2026-08-01', 7);
         self::assertTrue($saved['created']);
         self::assertSame('readback_verified', $saved['persistence_status']);
-        self::assertSame('answered_from_saved_diagnosis', $saved['question']['answer_status']);
-        self::assertSame('Saved diagnosis conclusion.', $saved['question']['answer_summary']);
+        self::assertSame('evidence_ready', $saved['question']['answer_status']);
+        self::assertSame('saved_diagnosis_claim_contract_missing', $saved['question']['data_gaps'][0]['code']);
+        self::assertStringNotContainsString('Saved diagnosis conclusion.', $saved['question']['answer_summary']);
         self::assertSame(['online_daily_data#701'], $saved['question']['fact_refs']);
         self::assertSame(['hotel_operating_memories#11'], $saved['question']['memory_refs']);
         self::assertFalse($saved['write_boundaries']['external_llm_called']);
@@ -326,8 +387,9 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertFalse($saved['write_boundaries']['external_message']);
 
         $same = $ready->create(10, 20, 'What should this hotel review?', 'ctrip', '2026-08-01', '2026-08-01', 7);
-        self::assertFalse($same['created']);
-        self::assertSame($saved['question']['id'], $same['question']['id']);
+        self::assertTrue($same['created']);
+        self::assertNotSame($saved['question']['id'], $same['question']['id']);
+        self::assertNotSame($saved['question']['request_key'], $same['question']['request_key']);
 
         $missing = new OperatingQuestionService(static fn(): array => []);
         $blocked = $missing->create(10, 20, 'Is there evidence?', 'ctrip', '2099-01-01', '2099-01-01', 7);
@@ -354,52 +416,47 @@ final class OperatingIntelligenceServiceTest extends TestCase
                 $this->lastPrompt = json_encode($messages, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
                 return [
                     'data' => [
-                        'answer_summary' => '已读取目标日携程严格回读事实；当前应先复核已保存诊断中的流量问题，不能据此推断全酒店收入。',
-                        'key_points' => ['目标日携程事实已完成严格回读。'],
-                        'missing_information' => ['缺少PMS全酒店经营事实。'],
+                        'fact_claims' => [[
+                            'evidence_ref' => 'online_daily_data#801',
+                            'metric_key' => 'list_exposure',
+                            'metric_definition_id' => 'ota_list_exposure_users.v1',
+                            'value' => 1800,
+                            'unit' => 'visitor_count',
+                        ]],
                         'follow_up_questions' => ['目标日已保存诊断的具体缺口是什么？'],
                         'confidence' => 'medium',
-                        'used_evidence_refs' => ['online_daily_data#801', 'knowledge_chunks#91', 'invented#999'],
                         'action_drafts' => [[
-                            'title' => '复核携程曝光到详情访问链路',
-                            'action' => '人工复核目标日携程列表曝光、详情曝光及页面展示配置，并保存核对记录。',
-                            'action_object' => '携程曝光到详情访问链路',
-                            'execution_steps' => ['核对目标日列表曝光与详情曝光', '人工检查页面展示配置并记录差异'],
-                            'priority' => 'P1',
                             'expected_metric' => 'list_exposure',
-                            'review_window' => '完成复核后按同酒店同渠道同业务日口径再次回读',
-                            'risk_level' => 'medium',
-                            'risk_summary' => '单日流量波动可能受外部因素影响，不能直接归因为页面配置。',
-                            'risk_controls' => ['人工确认对象和日期，不在本流程修改 OTA 配置'],
-                            'stop_conditions' => ['发现酒店、渠道或业务日身份不一致时停止'],
+                            'expected_metric_definition_id' => 'ota_list_exposure_users.v1',
                             'evidence_refs' => ['online_daily_data#801'],
                         ]],
                     ],
-                    'meta' => [
-                        'provider' => 'deepseek',
-                        'model_key' => 'deepseek_chat',
-                        'model' => 'deepseek-v4-flash',
-                        'finish_reason' => 'stop',
-                        'fallback_used' => false,
-                        'cache_hit' => false,
-                        'degraded' => false,
-                    ],
+                    'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
+                        'resp-operating-801-' . str_pad((string)$this->calls, 4, '0', STR_PAD_LEFT)
+                    ),
                 ];
             }
         };
         $ai = new OperatingQuestionAiAnswerService($fakeClient);
+        $groundedFact = self::substantiveFact(
+            801,
+            '2026-08-02',
+            'ctrip',
+            ['list_exposure' => 1800, 'detail_exposure' => 360]
+        );
+        foreach ([
+            'list_exposure' => ['ota_list_exposure_users.v1', 'exposure_users', 'visitor_count', '曝光用户数'],
+            'detail_exposure' => ['ota_detail_visitors.v1', 'detail_visitors', 'visitor_count', '详情访问用户数'],
+        ] as $metricKey => [$definitionId, $sourceMetricKey, $unit, $label]) {
+            $groundedFact['metric_units'][$metricKey] = $unit;
+            $groundedFact['metric_definitions'][$metricKey]['definition_id'] = $definitionId;
+            $groundedFact['metric_definitions'][$metricKey]['source_metric_key'] = $sourceMetricKey;
+            $groundedFact['metric_definitions'][$metricKey]['unit'] = $unit;
+            $groundedFact['metric_definitions'][$metricKey]['label'] = $label;
+        }
         $service = new OperatingQuestionService(
             static fn(): array => [
-                'facts' => [[
-                    'ref' => 'online_daily_data#801',
-                    'data_date' => '2026-08-02',
-                    'platform' => 'ctrip',
-                    'data_type' => 'traffic',
-                    'quality_status' => 'verified',
-                    'readback_status' => 'readback_verified',
-                    'metric_values' => ['list_exposure' => 1800, 'detail_exposure' => 360],
-                    'metric_units' => ['list_exposure' => 'exposure_count', 'detail_exposure' => 'exposure_count'],
-                ]],
+                'facts' => [$groundedFact],
                 'fact_count' => 1,
                 'diagnoses' => [[
                     'ref' => 'agent_logs#81',
@@ -446,7 +503,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
         $saved = $service->create(
             10,
             20,
-            '今天最需要复核什么？',
+            '2026-08-02 携程列表曝光用户数最需要复核什么？',
             'ctrip',
             '2026-08-02',
             '2026-08-02',
@@ -462,19 +519,27 @@ final class OperatingIntelligenceServiceTest extends TestCase
             $promptPayload['untrusted_saved_evidence']['verified_facts'][0]['metric_values']
         );
         self::assertSame(
-            ['list_exposure' => 'exposure_count', 'detail_exposure' => 'exposure_count'],
+            ['list_exposure' => 'visitor_count', 'detail_exposure' => 'visitor_count'],
             $promptPayload['untrusted_saved_evidence']['verified_facts'][0]['metric_units']
         );
         self::assertSame('knowledge_chunks#91', $promptPayload['untrusted_saved_evidence']['knowledge_context'][0]['ref']);
         self::assertStringContainsString('曝光下降', $promptPayload['untrusted_saved_evidence']['knowledge_context'][0]['excerpt']);
         self::assertSame('answered_by_grounded_ai', $saved['question']['answer_status']);
         self::assertSame('grounded_ai_saved_evidence', $saved['question']['answer']['mode']);
-        self::assertSame(['online_daily_data#801', 'knowledge_chunks#91'], $saved['question']['answer']['used_evidence_refs']);
+        self::assertSame(['online_daily_data#801'], $saved['question']['answer']['used_evidence_refs']);
         self::assertSame(['knowledge_chunks#91'], $saved['question']['knowledge_refs']);
         self::assertSame('matched', $saved['question']['answer']['knowledge_retrieval']['status']);
         self::assertSame('deepseek', $saved['question']['answer']['ai_runtime']['provider']);
-        self::assertSame('deepseek-v4-flash', $saved['question']['answer']['ai_runtime']['model']);
+        self::assertSame('deepseek-v4-pro', $saved['question']['answer']['ai_runtime']['model']);
+        self::assertTrue($saved['question']['answer']['ai_runtime']['direct_request_proof']);
+        self::assertSame(0, $saved['question']['answer']['ai_runtime']['transport_retry_attempts']);
+        self::assertFalse($saved['question']['answer']['ai_runtime']['upstream_idempotency_key_sent']);
         self::assertSame('stop', $saved['question']['answer']['ai_runtime']['finish_reason']);
+        self::assertSame('resp-operating-801-0001', $saved['question']['answer']['ai_runtime']['provider_response_id']);
+        self::assertStringContainsString('曝光用户数为1800人', $saved['question']['answer_summary']);
+        self::assertStringNotContainsString('已读取目标日携程', $saved['question']['answer_summary']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $saved['question']['answer']['claims_digest']);
+        self::assertSame('ota_list_exposure_users.v1', $saved['question']['answer']['fact_claims'][0]['metric_definition_id']);
         self::assertCount(1, $saved['question']['answer']['action_drafts']);
         self::assertSame('ready_for_human_review', $saved['question']['answer']['action_drafts'][0]['status']);
         self::assertTrue($saved['question']['answer']['action_drafts'][0]['can_create_execution_intent']);
@@ -495,17 +560,17 @@ final class OperatingIntelligenceServiceTest extends TestCase
         $same = $service->create(
             10,
             20,
-            '今天最需要复核什么？',
+            '2026-08-02 携程列表曝光用户数最需要复核什么？',
             'ctrip',
             '2026-08-02',
             '2026-08-02',
             7,
             'deepseek_v4_default'
         );
-        self::assertFalse($same['created']);
-        self::assertSame(1, $fakeClient->calls);
-        self::assertSame($saved['question']['id'], $same['question']['id']);
-        self::assertSame($saved['question']['content_digest'], $same['question']['content_digest']);
+        self::assertTrue($same['created']);
+        self::assertSame(2, $fakeClient->calls);
+        self::assertNotSame($saved['question']['id'], $same['question']['id']);
+        self::assertNotSame($saved['question']['content_digest'], $same['question']['content_digest']);
 
         $blockedService = new OperatingQuestionService(
             static fn(): array => [],
@@ -520,7 +585,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2099-08-02',
             7
         );
-        self::assertSame(1, $fakeClient->calls);
+        self::assertSame(2, $fakeClient->calls);
         self::assertSame('blocked_by_missing_facts', $blocked['question']['answer_status']);
         self::assertSame('not_called_missing_facts', $blocked['question']['answer']['ai_runtime']['status']);
         self::assertFalse($blocked['write_boundaries']['external_llm_called']);
@@ -548,9 +613,9 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-04',
             7
         );
-        self::assertSame(1, $fakeClient->calls);
-        self::assertSame('evidence_ready', $metadataOnly['question']['answer_status']);
-        self::assertSame('not_called', $metadataOnly['question']['answer']['ai_runtime']['status']);
+        self::assertSame(2, $fakeClient->calls);
+        self::assertSame('blocked_by_missing_facts', $metadataOnly['question']['answer_status']);
+        self::assertSame('not_called_missing_facts', $metadataOnly['question']['answer']['ai_runtime']['status']);
         self::assertFalse($metadataOnly['write_boundaries']['external_llm_called']);
 
         $missingUnitService = new OperatingQuestionService(
@@ -577,9 +642,10 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-05',
             7
         );
-        self::assertSame(1, $fakeClient->calls);
-        self::assertSame('not_called', $missingUnit['question']['answer']['ai_runtime']['status']);
-        self::assertSame('missing_substantive_fact_coverage', $missingUnit['question']['answer']['ai_runtime']['reason']);
+        self::assertSame(2, $fakeClient->calls);
+        self::assertSame('blocked_by_missing_facts', $missingUnit['question']['answer_status']);
+        self::assertSame('not_called_missing_facts', $missingUnit['question']['answer']['ai_runtime']['status']);
+        self::assertContains('substantive_fact_coverage_missing', array_column($missingUnit['question']['data_gaps'], 'code'));
 
         $mixedRangeService = new OperatingQuestionService(
             static fn(): array => [
@@ -616,10 +682,10 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-07',
             7
         );
-        self::assertSame(1, $fakeClient->calls);
-        self::assertSame('evidence_ready', $mixedRange['question']['answer_status']);
-        self::assertSame('not_called', $mixedRange['question']['answer']['ai_runtime']['status']);
-        self::assertSame('missing_substantive_fact_coverage', $mixedRange['question']['answer']['ai_runtime']['reason']);
+        self::assertSame(2, $fakeClient->calls);
+        self::assertSame('blocked_by_missing_facts', $mixedRange['question']['answer_status']);
+        self::assertSame('not_called_missing_facts', $mixedRange['question']['answer']['ai_runtime']['status']);
+        self::assertContains('substantive_fact_coverage_missing', array_column($mixedRange['question']['data_gaps'], 'code'));
 
         $allOtaFacts = [];
         $factId = 810;
@@ -653,10 +719,10 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-09',
             7
         );
-        self::assertSame(1, $fakeClient->calls);
-        self::assertSame('evidence_ready', $allOta['question']['answer_status']);
-        self::assertSame('not_called', $allOta['question']['answer']['ai_runtime']['status']);
-        self::assertSame('missing_substantive_fact_coverage', $allOta['question']['answer']['ai_runtime']['reason']);
+        self::assertSame(2, $fakeClient->calls);
+        self::assertSame('blocked_by_missing_facts', $allOta['question']['answer_status']);
+        self::assertSame('not_called_missing_facts', $allOta['question']['answer']['ai_runtime']['status']);
+        self::assertContains('substantive_fact_coverage_missing', array_column($allOta['question']['data_gaps'], 'code'));
     }
 
     public function testOperatingQuestionAiPacketContainsEverySubstantiveDateBeyondLegacyTwelveRowSample(): void
@@ -664,16 +730,12 @@ final class OperatingIntelligenceServiceTest extends TestCase
         $facts = [];
         $cursor = new \DateTimeImmutable('2026-07-01');
         for ($index = 0; $index < 13; $index++) {
-            $facts[] = [
-                'ref' => 'online_daily_data#' . (9001 + $index),
-                'data_date' => $cursor->modify('+' . $index . ' days')->format('Y-m-d'),
-                'platform' => 'ctrip',
-                'data_type' => 'traffic',
-                'quality_status' => 'verified',
-                'readback_status' => 'readback_verified',
-                'metric_values' => ['list_exposure' => 1000 + $index],
-                'metric_units' => ['list_exposure' => 'exposure_count'],
-            ];
+            $facts[] = self::substantiveFact(
+                9001 + $index,
+                $cursor->modify('+' . $index . ' days')->format('Y-m-d'),
+                'ctrip',
+                ['amount' => 1000 + $index]
+            );
         }
         $fakeClient = new class extends LlmClient {
             public int $calls = 0;
@@ -688,23 +750,20 @@ final class OperatingIntelligenceServiceTest extends TestCase
                 $this->messages = $messages;
                 return [
                     'data' => [
-                        'answer_summary' => '十三天的实质事实均已进入本次只读回答。',
-                        'key_points' => [],
-                        'missing_information' => [],
+                        'fact_claims' => [[
+                            'evidence_ref' => 'online_daily_data#9001',
+                            'metric_key' => 'amount',
+                            'metric_definition_id' => 'ota_paid_order_amount.v1',
+                            'value' => 1000,
+                            'unit' => 'CNY',
+                        ]],
                         'follow_up_questions' => [],
                         'confidence' => 'medium',
-                        'used_evidence_refs' => ['online_daily_data#9001'],
                         'action_drafts' => [],
                     ],
-                    'meta' => [
-                        'provider' => 'deepseek',
-                        'model_key' => 'deepseek_chat',
-                        'model' => 'deepseek-v4-flash',
-                        'finish_reason' => 'stop',
-                        'fallback_used' => false,
-                        'cache_hit' => false,
-                        'degraded' => false,
-                    ],
+                    'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
+                        'resp-thirteen-days-0001'
+                    ),
                 ];
             }
         };
@@ -717,7 +776,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
         $saved = $service->create(
             10,
             20,
-            '这十三天携程流量事实是否完整？',
+            '携程已回读事实是否完整？',
             'ctrip',
             '2026-07-01',
             '2026-07-13',
@@ -756,6 +815,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
                         'provider' => 'xiaomi_mimo',
                         'model_key' => 'xiaomi_mimo_pro',
                         'model' => 'mimo-v2.5-pro',
+                        'provider_response_id' => 'resp-fallback-provider-0001',
                         'finish_reason' => 'stop',
                         'fallback_used' => true,
                         'cache_hit' => false,
@@ -778,13 +838,18 @@ final class OperatingIntelligenceServiceTest extends TestCase
                 'status' => 'evidence_ready',
                 'summary' => '严格证据摘要',
                 'evidence_counts' => ['facts' => 1],
-                'fact_samples' => [[
-                    'ref' => 'online_daily_data#9101',
-                    'data_date' => '2026-08-10',
-                    'platform' => 'ctrip',
-                    'metric_values' => ['list_exposure' => 100],
-                    'metric_units' => ['list_exposure' => 'exposure_count'],
-                ]],
+                'fact_samples' => [self::substantiveFact(9101, '2026-08-10')],
+                'question_metric_contract' => [
+                    'contract_version' => OperatingQuestionService::METRIC_INTENT_CONTRACT_VERSION,
+                    'mode' => 'metric_lookup',
+                    'requested_metrics' => [[
+                        'metric_key' => 'list_exposure',
+                        'definition_ids' => ['ota_list_exposure.v1'],
+                    ]],
+                    'required_platforms' => ['ctrip'],
+                    'required_dates' => ['2026-08-10'],
+                    'action_draft_allowed' => true,
+                ],
             ],
             'evidence' => [],
             'model_key' => 'deepseek_v4_default',
@@ -793,12 +858,12 @@ final class OperatingIntelligenceServiceTest extends TestCase
 
         self::assertFalse($result['ok']);
         self::assertSame('model_unavailable', $result['status']);
-        self::assertSame('deepseek_provider_not_confirmed', $result['reason']);
+        self::assertSame('deepseek_v4_pro_direct_response_not_confirmed', $result['reason']);
         self::assertSame('xiaomi_mimo', $result['provider']);
         self::assertSame('mimo-v2.5-pro', $result['model']);
         self::assertTrue($result['fallback_used']);
         self::assertTrue($result['external_llm_called']);
-        self::assertSame('confirmed_non_deepseek_rejected', $result['external_llm_call_status']);
+        self::assertSame('untrusted_direct_response_rejected', $result['external_llm_call_status']);
     }
 
     public function testKnowledgeContextAloneNeverBypassesMissingVerifiedFacts(): void
@@ -816,7 +881,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             }
         };
         $result = (new OperatingQuestionAiAnswerService($fakeClient))->generate([
-            'question' => '知识库能否代替今天的经营事实？',
+            'question' => '知识库能否代替指定业务日的经营事实？',
             'scope' => [
                 'tenant_id' => 10,
                 'hotel_id' => 20,
@@ -860,16 +925,12 @@ final class OperatingIntelligenceServiceTest extends TestCase
         $ai = new OperatingQuestionAiAnswerService($fakeClient);
         $service = new OperatingQuestionService(
             static fn(): array => [
-                'facts' => [[
-                    'ref' => 'online_daily_data#802',
-                    'data_date' => '2026-08-03',
-                    'platform' => 'ctrip',
-                    'data_type' => 'traffic',
-                    'quality_status' => 'verified',
-                    'readback_status' => 'readback_verified',
-                    'metric_values' => ['list_exposure' => 900, 'detail_exposure' => 180],
-                    'metric_units' => ['list_exposure' => 'exposure_count', 'detail_exposure' => 'exposure_count'],
-                ]],
+                'facts' => [self::substantiveFact(
+                    802,
+                    '2026-08-03',
+                    'ctrip',
+                    ['list_exposure' => 900, 'detail_exposure' => 180]
+                )],
                 'fact_count' => 1,
             ],
             static fn(array $payload): array => $ai->generate($payload)
@@ -1036,8 +1097,8 @@ final class OperatingIntelligenceServiceTest extends TestCase
 
         $bothFactsOneDiagnosis = new OperatingQuestionService(static fn(): array => [
             'facts' => [
-                ['ref' => 'online_daily_data#702', 'data_date' => '2026-08-01', 'platform' => 'ctrip', 'data_type' => 'traffic'],
-                ['ref' => 'online_daily_data#703', 'data_date' => '2026-08-01', 'platform' => 'meituan', 'data_type' => 'business'],
+                self::substantiveFact(702, '2026-08-01', 'ctrip'),
+                self::substantiveFact(703, '2026-08-01', 'meituan'),
             ],
             'fact_count' => 2,
             'diagnoses' => [[
@@ -1061,8 +1122,8 @@ final class OperatingIntelligenceServiceTest extends TestCase
 
         $complete = new OperatingQuestionService(static fn(): array => [
             'facts' => [
-                ['ref' => 'online_daily_data#704', 'data_date' => '2026-08-01', 'platform' => 'ctrip', 'data_type' => 'traffic'],
-                ['ref' => 'online_daily_data#705', 'data_date' => '2026-08-01', 'platform' => 'meituan', 'data_type' => 'business'],
+                self::substantiveFact(704, '2026-08-01', 'ctrip'),
+                self::substantiveFact(705, '2026-08-01', 'meituan'),
             ],
             'fact_count' => 2,
             'diagnoses' => [[
@@ -1114,14 +1175,15 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-01',
             7
         );
-        self::assertSame('answered_from_saved_diagnosis', $answered['question']['answer_status']);
-        self::assertSame('明确保存并回读的跨渠道诊断。', $answered['question']['answer_summary']);
+        self::assertSame('evidence_ready', $answered['question']['answer_status']);
+        self::assertSame('saved_diagnosis_claim_contract_missing', $answered['question']['data_gaps'][0]['code']);
+        self::assertStringNotContainsString('明确保存并回读的跨渠道诊断。', $answered['question']['answer_summary']);
         self::assertSame(['ctrip' => 1, 'meituan' => 1], $answered['question']['answer']['evidence_counts']['fact_platforms']);
 
         $latestFallback = new OperatingQuestionService(static fn(): array => [
             'facts' => [
-                ['ref' => 'online_daily_data#706', 'data_date' => '2026-08-01', 'platform' => 'ctrip', 'data_type' => 'traffic'],
-                ['ref' => 'online_daily_data#707', 'data_date' => '2026-08-01', 'platform' => 'meituan', 'data_type' => 'traffic'],
+                self::substantiveFact(706, '2026-08-01', 'ctrip'),
+                self::substantiveFact(707, '2026-08-01', 'meituan'),
             ],
             'diagnoses' => [[
                 'ref' => 'agent_logs#34',
@@ -1136,11 +1198,852 @@ final class OperatingIntelligenceServiceTest extends TestCase
             ]],
         ]);
         $rejected = $latestFallback->create(
-            10, 20, '最近可用诊断可否回答？', 'all_ota', '2026-08-01', '2026-08-01', 7
+            10, 20, '2026-08-01 双平台诊断可否回答？', 'all_ota', '2026-08-01', '2026-08-01', 7
         );
         self::assertSame('evidence_ready', $rejected['question']['answer_status']);
         self::assertSame('all_ota_saved_diagnosis_not_current', $rejected['question']['data_gaps'][0]['code']);
         self::assertContains('diagnosis_used_latest_available_data', $rejected['question']['data_gaps'][0]['reason_codes']);
+    }
+
+    public function testGroundedAiRejectsEveryMismatchedClaimWithoutRenderingModelProse(): void
+    {
+        $fact = self::substantiveFact(
+            9501,
+            '2026-08-15',
+            'ctrip',
+            ['list_exposure' => 1800, 'detail_exposure' => 360]
+        );
+        $base = [
+            'evidence_ref' => 'online_daily_data#9501',
+            'metric_key' => 'list_exposure',
+            'metric_definition_id' => 'ota_list_exposure.v1',
+            'value' => 1800,
+            'unit' => 'exposure_count',
+        ];
+        $cases = [
+            [[...$base, 'evidence_ref' => 'online_daily_data#9999']],
+            [[...$base, 'metric_definition_id' => 'ota_detail_exposure.v1']],
+            [[...$base, 'value' => 1801]],
+            [[...$base, 'value' => '1800']],
+            [[...$base, 'unit' => 'count']],
+            [$base, $base],
+            [$base, [...$base, 'evidence_ref' => 'online_daily_data#9999']],
+            [[
+                'evidence_ref' => 'online_daily_data#9501',
+                'metric_key' => 'detail_exposure',
+                'metric_definition_id' => 'ota_detail_exposure.v1',
+                'value' => 360,
+                'unit' => 'exposure_count',
+            ]],
+            [$base, [
+                'evidence_ref' => 'online_daily_data#9501',
+                'metric_key' => 'detail_exposure',
+                'metric_definition_id' => 'ota_detail_exposure.v1',
+                'value' => 360,
+                'unit' => 'exposure_count',
+            ]],
+        ];
+        foreach ($cases as $index => $claims) {
+            $fakeClient = new class($claims, $index) extends LlmClient {
+                public function __construct(private array $claims, private int $index)
+                {
+                }
+
+                public function createJsonResponseEnvelope(
+                    array $messages,
+                    array $schema,
+                    string $modelKey = 'deepseek_v4_default'
+                ): array {
+                    return [
+                        'data' => [
+                            'fact_claims' => $this->claims,
+                            'follow_up_questions' => [],
+                            'confidence' => 'medium',
+                            'action_drafts' => [],
+                        ],
+                        'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
+                            'resp-claim-case-' . str_pad((string)$this->index, 4, '0', STR_PAD_LEFT)
+                        ),
+                    ];
+                }
+            };
+            $result = (new OperatingQuestionAiAnswerService($fakeClient))->generate([
+                'question' => '携程列表曝光是多少？',
+                'scope' => [
+                    'tenant_id' => 10,
+                    'hotel_id' => 20,
+                    'platform' => 'ctrip',
+                    'date_start' => '2026-08-15',
+                    'date_end' => '2026-08-15',
+                ],
+                'answer' => [
+                    'status' => 'evidence_ready',
+                    'summary' => '确定性摘要',
+                    'evidence_counts' => ['facts' => 1],
+                    'fact_samples' => [$fact],
+                    'question_metric_contract' => [
+                        'contract_version' => OperatingQuestionService::METRIC_INTENT_CONTRACT_VERSION,
+                        'mode' => 'metric_lookup',
+                        'requested_metrics' => [[
+                            'metric_key' => 'list_exposure',
+                            'definition_ids' => ['ota_list_exposure.v1'],
+                        ]],
+                        'required_platforms' => ['ctrip'],
+                        'required_dates' => ['2026-08-15'],
+                        'action_draft_allowed' => true,
+                    ],
+                    'data_gaps' => [],
+                ],
+                'evidence' => [],
+            ]);
+
+            self::assertFalse($result['ok'], 'case ' . $index);
+            self::assertSame('claim_validation_failed', $result['status'], 'case ' . $index);
+            self::assertSame([], $result['action_drafts'] ?? [], 'case ' . $index);
+            self::assertStringNotContainsString('模型自写事实', (string)($result['summary'] ?? ''), 'case ' . $index);
+        }
+    }
+
+    public function testQuestionMetricContractBlocksWrongMetricAmbiguityScopeAndMissingUnit(): void
+    {
+        $calls = 0;
+        $generator = static function () use (&$calls): array {
+            $calls++;
+            return ['ok' => false];
+        };
+        $exposureEvidence = static fn(): array => [
+            'facts' => [self::substantiveFact(9601, '2026-08-15')],
+            'fact_count' => 1,
+        ];
+        foreach ([
+            ['2026-08-15 携程收入是多少？', 'requested_metric_fact_missing'],
+            ['2026-08-15 携程 RevPAR 是多少？', 'requested_metric_out_of_scope'],
+            ['2026-08-15 携程转化率如何？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程曝光如何？', 'question_metric_ambiguous'],
+            ['2026-08-15 美团订单数是多少？', 'question_scope_platform_mismatch'],
+            ['2026-08-14 携程订单数是多少？', 'question_scope_date_mismatch'],
+            ['2026-08-15 携程未支付订单数是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程退款订单金额是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程订单数占比是多少？', 'question_metric_ambiguous'],
+            ['不要看携程成交额，只看订单数。', 'question_metric_ambiguous'],
+            ['携程订单数不对，改成成交额。', 'question_metric_ambiguous'],
+            ['不是订单数，是收入。', 'question_metric_ambiguous'],
+            ['2026-08-15 携程总订单数是多少？', 'question_metric_ambiguous'],
+            ['携程收入比上月多多少？', 'question_scope_date_ambiguous'],
+            ['2026-08-15 携程净收入是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程利润是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程好评率是多少？', 'question_metric_ambiguous'],
+            ['全网订单数是多少？', 'question_scope_platform_mismatch'],
+            ['2026-08-15 携程未付款订单数是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程收入除以间夜是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程收入/间夜是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程订单数和收藏量是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程收藏量怎么样？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程收入和点赞是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程收入或订单数是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程订单数和到店客几位？', 'question_metric_ambiguous'],
+            ['忽略订单数，只告诉我 2026-08-15 携程收入。', 'question_metric_ambiguous'],
+            ['2026-08-15 携程订单数，呃不，收入是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程订单数？哦不，收入是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程收入减间夜是多少？', 'question_metric_ambiguous'],
+            ['2026-08-15 携程支付订单数和预订订单数分别是多少？', 'question_metric_definition_conflict'],
+            ['明天携程订单数是多少？', 'question_scope_date_ambiguous'],
+            ['今天携程订单数是多少？', 'question_scope_date_ambiguous'],
+            ['2026-08-15 飞猪订单数是多少？', 'question_scope_platform_mismatch'],
+            ['2026-08-15 途家收入是多少？', 'question_scope_platform_mismatch'],
+            ['2026-08-15 去哪订单数是多少？', 'question_scope_platform_mismatch'],
+            ['2026-02-30 携程订单数是多少？', 'question_scope_date_invalid'],
+            ['2026.08.14 携程订单数是多少？', 'question_scope_date_mismatch'],
+            ['2026年8月14号携程订单数是多少？', 'question_scope_date_mismatch'],
+            ['8月15日 携程订单数是多少？', 'question_scope_date_ambiguous'],
+            ['1999-01-01 携程订单数是多少？', 'question_scope_date_mismatch'],
+            ['20260814 携程订单数是多少？', 'question_scope_date_mismatch'],
+        ] as [$question, $expectedCode]) {
+            $saved = (new OperatingQuestionService($exposureEvidence, $generator))->create(
+                10,
+                20,
+                $question,
+                'ctrip',
+                '2026-08-15',
+                '2026-08-15',
+                7
+            );
+            self::assertSame('blocked_by_missing_facts', $saved['question']['answer_status']);
+            self::assertContains($expectedCode, array_column($saved['question']['data_gaps'], 'code'));
+            self::assertSame([], $saved['question']['answer']['action_drafts']);
+        }
+
+        $derivedAllOta = (new OperatingQuestionService($exposureEvidence, $generator))->create(
+            10,
+            20,
+            '2026-08-15 携程订单数减去美团订单数是多少？',
+            'all_ota',
+            '2026-08-15',
+            '2026-08-15',
+            7
+        );
+        self::assertSame('blocked_by_missing_facts', $derivedAllOta['question']['answer_status']);
+        self::assertContains('question_metric_ambiguous', array_column($derivedAllOta['question']['data_gaps'], 'code'));
+        self::assertSame([], $derivedAllOta['question']['answer']['action_drafts']);
+
+        $derivedDateRange = (new OperatingQuestionService($exposureEvidence, $generator))->create(
+            10,
+            20,
+            '2026-08-14 和 2026-08-15 携程订单数加和是多少？',
+            'ctrip',
+            '2026-08-14',
+            '2026-08-15',
+            7
+        );
+        self::assertSame('blocked_by_missing_facts', $derivedDateRange['question']['answer_status']);
+        self::assertContains('question_metric_ambiguous', array_column($derivedDateRange['question']['data_gaps'], 'code'));
+        self::assertSame([], $derivedDateRange['question']['answer']['action_drafts']);
+
+        $missingCurrency = self::substantiveFact(
+            9602,
+            '2026-08-15',
+            'ctrip',
+            ['amount' => 1288.5],
+            ['amount' => 'currency_amount_currency_unspecified']
+        );
+        $unitBlocked = (new OperatingQuestionService(
+            static fn(): array => ['facts' => [$missingCurrency], 'fact_count' => 1],
+            $generator
+        ))->create(10, 20, '2026-08-15 携程收入是多少？', 'ctrip', '2026-08-15', '2026-08-15', 7);
+        self::assertContains('requested_metric_unit_missing', array_column($unitBlocked['question']['data_gaps'], 'code'));
+
+        foreach (['ZZZ', 'XXX'] as $index => $unsupportedCurrency) {
+            $invalidCurrency = self::substantiveFact(
+                9630 + $index,
+                '2026-08-15',
+                'ctrip',
+                ['amount' => 1288.5],
+                ['amount' => $unsupportedCurrency]
+            );
+            $currencyBlocked = (new OperatingQuestionService(
+                static fn(): array => ['facts' => [$invalidCurrency], 'fact_count' => 1],
+                $generator
+            ))->create(10, 20, '2026-08-15 携程收入是多少？', 'ctrip', '2026-08-15', '2026-08-15', 7);
+            self::assertContains(
+                'requested_metric_unit_missing',
+                array_column($currencyBlocked['question']['data_gaps'], 'code')
+            );
+            self::assertSame([], $currencyBlocked['question']['answer']['action_drafts']);
+        }
+
+        $wrongDefinition = self::substantiveFact(9603, '2026-08-15', 'ctrip', ['amount' => 1288.5]);
+        $wrongDefinition['metric_definitions']['amount']['definition_id'] = 'ota_ad_spend.v1';
+        $definitionBlocked = (new OperatingQuestionService(
+            static fn(): array => ['facts' => [$wrongDefinition], 'fact_count' => 1],
+            $generator
+        ))->create(10, 20, '2026-08-15 携程收入是多少？', 'ctrip', '2026-08-15', '2026-08-15', 7);
+        self::assertContains('requested_metric_definition_mismatch', array_column($definitionBlocked['question']['data_gaps'], 'code'));
+
+        $invalidPercent = self::substantiveFact(
+            9604,
+            '2026-08-15',
+            'ctrip',
+            ['flow_rate' => 150.0],
+            ['flow_rate' => 'percent']
+        );
+        $scaleBlocked = (new OperatingQuestionService(
+            static fn(): array => ['facts' => [$invalidPercent], 'fact_count' => 1],
+            $generator
+        ))->create(10, 20, '2026-08-15 携程浏览到支付转化率是多少？', 'ctrip', '2026-08-15', '2026-08-15', 7);
+        self::assertContains(
+            'requested_metric_value_scale_mismatch',
+            array_column($scaleBlocked['question']['data_gaps'], 'code')
+        );
+        self::assertSame(0, $calls);
+
+        $submitCalls = 0;
+        $submitFact = self::substantiveFact(
+            9605,
+            '2026-08-15',
+            'ctrip',
+            ['order_submit_num' => 18]
+        );
+        $submitReady = (new OperatingQuestionService(
+            static fn(): array => ['facts' => [$submitFact], 'fact_count' => 1],
+            static function () use (&$submitCalls): array {
+                $submitCalls++;
+                return ['ok' => false];
+            }
+        ))->create(10, 20, '2026-08-15 携程提交订单数是多少？', 'ctrip', '2026-08-15', '2026-08-15', 7);
+        self::assertSame(1, $submitCalls);
+        self::assertSame(
+            OperatingQuestionService::METRIC_INTENT_CONTRACT_VERSION,
+            $submitReady['question']['answer']['question_metric_contract']['contract_version']
+        );
+        self::assertSame(
+            ['order_submit_num'],
+            array_column($submitReady['question']['answer']['question_metric_contract']['requested_metrics'], 'metric_key')
+        );
+
+        foreach ([
+            [
+                '2026-08-15 携程提交订单数是多少？',
+                'order_submit_num',
+                'ota_paid_order_count.v1',
+                'paid_order_count',
+            ],
+            [
+                '2026-08-15 携程曝光量是多少？',
+                'list_exposure',
+                'ota_list_exposure.v1',
+                'list_exposure',
+            ],
+            [
+                '2026-08-15 携程详情曝光是多少？',
+                'detail_exposure',
+                'ota_detail_exposure.v1',
+                'detail_exposure',
+            ],
+        ] as $index => [$question, $metricKey, $wrongDefinitionId, $wrongSourceMetricKey]) {
+            $wrongSemanticFact = self::substantiveFact(
+                9610 + $index,
+                '2026-08-15',
+                'ctrip',
+                [$metricKey => 18]
+            );
+            $wrongSemanticFact['metric_definitions'][$metricKey]['definition_id'] = $wrongDefinitionId;
+            $wrongSemanticFact['metric_definitions'][$metricKey]['source_metric_key'] = $wrongSourceMetricKey;
+            $blocked = (new OperatingQuestionService(
+                static fn(): array => ['facts' => [$wrongSemanticFact], 'fact_count' => 1],
+                $generator
+            ))->create(10, 20, $question, 'ctrip', '2026-08-15', '2026-08-15', 7);
+            self::assertSame('blocked_by_missing_facts', $blocked['question']['answer_status']);
+            self::assertContains(
+                'requested_metric_definition_mismatch',
+                array_column($blocked['question']['data_gaps'], 'code')
+            );
+            self::assertSame([], $blocked['question']['answer']['action_drafts']);
+        }
+        self::assertSame(0, $calls);
+
+        foreach ([
+            ['2026-08-15 携程列表曝光用户数是多少？', 'list_exposure', 'requested_metric_definition_mismatch'],
+            ['2026-08-15 携程详情曝光用户数是多少？', 'detail_exposure', 'requested_metric_definition_mismatch'],
+            ['2026-08-15 携程曝光用户数是多少？', 'list_exposure', 'question_metric_ambiguous'],
+            ['2026-08-15 携程广告曝光量是多少？', 'list_exposure', 'question_metric_ambiguous'],
+        ] as $index => [$question, $metricKey, $expectedCode]) {
+            $countFact = self::substantiveFact(
+                9620 + $index,
+                '2026-08-15',
+                'ctrip',
+                [$metricKey => 100]
+            );
+            $blocked = (new OperatingQuestionService(
+                static fn(): array => ['facts' => [$countFact], 'fact_count' => 1],
+                $generator
+            ))->create(10, 20, $question, 'ctrip', '2026-08-15', '2026-08-15', 7);
+            self::assertSame('blocked_by_missing_facts', $blocked['question']['answer_status']);
+            self::assertContains($expectedCode, array_column($blocked['question']['data_gaps'], 'code'));
+            self::assertSame([], $blocked['question']['answer']['action_drafts']);
+        }
+        self::assertSame(0, $calls);
+    }
+
+    public function testProductionSourceKeysCannotTurnVisitorOrAdvertisingFieldsIntoExposureCounts(): void
+    {
+        $calls = 0;
+        $generator = static function () use (&$calls): array {
+            $calls++;
+            return ['ok' => false];
+        };
+        $reader = new OperatingQuestionService();
+        $loadFacts = new \ReflectionMethod($reader, 'loadFacts');
+        $loadFacts->setAccessible(true);
+        $cases = [
+            ['2026-08-20', 'list_exposure', 'exposureUV', '2026-08-20 携程列表曝光是多少？', 'ota_list_exposure_users.v1', null],
+            ['2026-08-21', 'detail_exposure', 'intentionUV', '2026-08-21 携程详情曝光是多少？', 'ota_detail_visitors.v1', null],
+            ['2026-08-22', 'detail_exposure', 'uv', '2026-08-22 携程详情曝光是多少？', 'ota_detail_visitors.v1', null],
+            ['2026-08-23', 'detail_exposure', 'visitors', '2026-08-23 携程详情曝光是多少？', 'ota_detail_visitors.v1', null],
+            ['2026-08-24', 'list_exposure', 'adExposure', '2026-08-24 携程列表曝光是多少？', '', 'requested_metric_fact_missing'],
+            ['2026-08-25', 'list_exposure', 'listExposure', '2026-08-25 携程列表页曝光量是多少？', 'ota_list_exposure_users.v1', null],
+            ['2026-08-26', 'detail_exposure', 'detailExposure', '2026-08-26 携程详情曝光是多少？', 'ota_detail_visitors.v1', null],
+            ['2026-08-27', 'list_exposure', 'impressions', '2026-08-27 携程列表曝光是多少？', '', 'requested_metric_fact_missing'],
+        ];
+        foreach ($cases as $index => [$date, $metric, $sourceKey, $question, $definitionId, $gapCode]) {
+            Db::name('online_daily_data')->insert([
+                'tenant_id' => 10,
+                'system_hotel_id' => 20,
+                'data_date' => $date,
+                'platform' => 'ctrip',
+                'source' => 'ctrip',
+                'data_type' => 'traffic',
+                'dimension' => '',
+                'readback_verified' => 1,
+                'readback_verified_at' => $date . ' 10:00:00',
+                'validation_status' => 'verified',
+                'history_status' => 'success',
+                'ingestion_method' => 'browser_profile',
+                'source_trace_id' => 'source-semantic-' . $index,
+                $metric => 100 + $index,
+                'raw_data' => json_encode(['field_facts' => [[
+                    'metric_key' => $metric,
+                    'data_type' => 'traffic',
+                    'source_key' => $sourceKey,
+                    'source_path' => 'payload.' . $sourceKey,
+                    'storage_field' => 'online_daily_data.' . $metric,
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                ]]], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            ]);
+            $facts = $loadFacts->invoke($reader, 10, 20, 'ctrip', $date, $date);
+            self::assertCount(1, $facts);
+            if ($definitionId !== '') {
+                self::assertSame($definitionId, $facts[0]['metric_definitions'][$metric]['definition_id']);
+                self::assertSame('visitor_count', $facts[0]['metric_units'][$metric]);
+            } else {
+                self::assertSame([], $facts[0]['metric_values']);
+            }
+            $saved = (new OperatingQuestionService(
+                static fn(): array => ['facts' => $facts, 'fact_count' => 1],
+                $generator
+            ))->create(10, 20, $question, 'ctrip', $date, $date, 7);
+            if ($gapCode === null) {
+                self::assertSame('evidence_ready', $saved['question']['answer_status']);
+                self::assertSame(
+                    [$definitionId],
+                    $saved['question']['answer']['question_metric_contract']['requested_metrics'][0]['definition_ids']
+                );
+            } else {
+                self::assertSame('blocked_by_missing_facts', $saved['question']['answer_status']);
+                self::assertContains($gapCode, array_column($saved['question']['data_gaps'], 'code'));
+            }
+            self::assertSame([], $saved['question']['answer']['action_drafts']);
+        }
+        self::assertSame(6, $calls);
+    }
+
+    public function testConflictingSourceDefinitionsForSameStorageFailClosedRegardlessOfOrder(): void
+    {
+        $visitorFact = [
+            'metric_key' => 'list_exposure',
+            'data_type' => 'traffic',
+            'source_key' => 'exposureUV',
+            'source_path' => 'payload.exposureUV',
+            'storage_field' => 'online_daily_data.list_exposure',
+            'status' => 'captured',
+            'stored_value_present' => true,
+        ];
+        $countFact = [
+            'metric_key' => 'mt_exposure',
+            'data_type' => 'traffic',
+            'source_key' => 'mt_exposure',
+            'source_path' => 'payload.mt_exposure',
+            'storage_field' => 'online_daily_data.list_exposure',
+            'status' => 'captured',
+            'stored_value_present' => true,
+        ];
+        $reader = new OperatingQuestionService();
+        $loadFacts = new \ReflectionMethod($reader, 'loadFacts');
+        $loadFacts->setAccessible(true);
+        $calls = 0;
+        $generator = static function () use (&$calls): array {
+            $calls++;
+            return ['ok' => false];
+        };
+
+        foreach ([
+            ['2026-08-31', [$visitorFact, $countFact]],
+            ['2026-09-01', [$countFact, $visitorFact]],
+        ] as $index => [$date, $fieldFacts]) {
+            Db::name('online_daily_data')->insert([
+                'tenant_id' => 10,
+                'system_hotel_id' => 20,
+                'data_date' => $date,
+                'platform' => 'meituan',
+                'source' => 'meituan',
+                'data_type' => 'traffic',
+                'dimension' => '',
+                'readback_verified' => 1,
+                'readback_verified_at' => $date . ' 10:00:00',
+                'validation_status' => 'verified',
+                'history_status' => 'success',
+                'ingestion_method' => 'browser_profile',
+                'source_trace_id' => 'source-definition-conflict-' . $index,
+                'list_exposure' => 100,
+                'raw_data' => json_encode(
+                    ['field_facts' => $fieldFacts],
+                    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                ),
+            ]);
+            $facts = $loadFacts->invoke($reader, 10, 20, 'meituan', $date, $date);
+            self::assertSame([], $facts[0]['metric_values']);
+            self::assertContains(
+                'metric_source_definition_conflict',
+                array_column($facts[0]['metric_gaps'], 'reason')
+            );
+            $blocked = (new OperatingQuestionService(
+                static fn(): array => ['facts' => $facts, 'fact_count' => 1],
+                $generator
+            ))->create(10, 20, $date . ' 美团列表曝光是多少？', 'meituan', $date, $date, 7);
+            self::assertSame('blocked_by_missing_facts', $blocked['question']['answer_status']);
+            self::assertContains('requested_metric_fact_missing', array_column($blocked['question']['data_gaps'], 'code'));
+            self::assertSame([], $blocked['question']['answer']['action_drafts']);
+        }
+        self::assertSame(0, $calls);
+    }
+
+    public function testOrdinaryBookingOrdersCannotSatisfyAPaidOrderQuestion(): void
+    {
+        Db::name('online_daily_data')->insert([
+            'tenant_id' => 10,
+            'system_hotel_id' => 20,
+            'data_date' => '2026-08-28',
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_type' => 'order',
+            'dimension' => '',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-08-28 10:00:00',
+            'validation_status' => 'verified',
+            'history_status' => 'success',
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => 'booking-order-semantic',
+            'book_order_num' => 12,
+            'raw_data' => json_encode(['field_facts' => [[
+                'metric_key' => 'order_count',
+                'data_type' => 'order',
+                'source_key' => 'orderCount',
+                'source_path' => 'payload.orderCount',
+                'storage_field' => 'online_daily_data.book_order_num',
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ]]], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        $reader = new OperatingQuestionService();
+        $loadFacts = new \ReflectionMethod($reader, 'loadFacts');
+        $loadFacts->setAccessible(true);
+        $facts = $loadFacts->invoke($reader, 10, 20, 'ctrip', '2026-08-28', '2026-08-28');
+        self::assertSame('ota_booking_order_count.v1', $facts[0]['metric_definitions']['book_order_num']['definition_id']);
+        self::assertSame('order_count', $facts[0]['metric_units']['book_order_num']);
+
+        $calls = 0;
+        $generator = static function () use (&$calls): array {
+            $calls++;
+            return ['ok' => false];
+        };
+        $blocked = (new OperatingQuestionService(
+            static fn(): array => ['facts' => $facts, 'fact_count' => 1],
+            $generator
+        ))->create(
+            10,
+            20,
+            '2026-08-28 携程支付订单数是多少？',
+            'ctrip',
+            '2026-08-28',
+            '2026-08-28',
+            7
+        );
+        self::assertSame('blocked_by_missing_facts', $blocked['question']['answer_status']);
+        self::assertContains('requested_metric_definition_mismatch', array_column($blocked['question']['data_gaps'], 'code'));
+        self::assertSame([], $blocked['question']['answer']['action_drafts']);
+        self::assertSame(0, $calls);
+
+        $booking = (new OperatingQuestionService(
+            static fn(): array => ['facts' => $facts, 'fact_count' => 1],
+            $generator
+        ))->create(
+            10,
+            20,
+            '2026-08-28 携程预订订单数是多少？',
+            'ctrip',
+            '2026-08-28',
+            '2026-08-28',
+            7
+        );
+        self::assertSame('evidence_ready', $booking['question']['answer_status']);
+        self::assertSame(
+            ['ota_booking_order_count.v1'],
+            $booking['question']['answer']['question_metric_contract']['requested_metrics'][0]['definition_ids']
+        );
+        self::assertSame(1, $calls);
+    }
+
+    public function testQunarRatingUsesItsRealSourceTupleAndPollutedAmountTupleFailsClosed(): void
+    {
+        Db::name('online_daily_data')->insert([
+            'tenant_id' => 10,
+            'system_hotel_id' => 20,
+            'data_date' => '2026-08-29',
+            'platform' => 'qunar',
+            'source' => 'qunar',
+            'data_type' => 'quality',
+            'dimension' => '',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-08-29 10:00:00',
+            'validation_status' => 'verified',
+            'history_status' => 'success',
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => 'qunar-rating-semantic',
+            'qunar_comment_score' => 4.7,
+            'raw_data' => json_encode(['field_facts' => [[
+                'metric_key' => 'qunar_rating',
+                'data_type' => 'quality',
+                'source_key' => 'qunarRatingall',
+                'source_path' => 'data.qunarRatingall',
+                'storage_field' => 'online_daily_data.qunar_comment_score',
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ]]], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        Db::name('online_daily_data')->insert([
+            'tenant_id' => 10,
+            'system_hotel_id' => 20,
+            'data_date' => '2026-08-30',
+            'platform' => 'qunar',
+            'source' => 'qunar',
+            'data_type' => 'advertising',
+            'dimension' => '',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-08-30 10:00:00',
+            'validation_status' => 'verified',
+            'history_status' => 'success',
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => 'polluted-amount-semantic',
+            'amount' => 88,
+            'raw_data' => json_encode(['field_facts' => [[
+                'metric_key' => 'paid_order_amount',
+                'data_type' => 'advertising',
+                'source_key' => 'todayCost',
+                'source_path' => 'payload.todayCost',
+                'storage_field' => 'online_daily_data.amount',
+                'currency_code' => 'CNY',
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ]]], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        $reader = new OperatingQuestionService();
+        $loadFacts = new \ReflectionMethod($reader, 'loadFacts');
+        $loadFacts->setAccessible(true);
+        $ratingFacts = $loadFacts->invoke($reader, 10, 20, 'qunar', '2026-08-29', '2026-08-29');
+        self::assertSame(4.7, $ratingFacts[0]['metric_values']['qunar_comment_score']);
+        self::assertSame('score_5_point', $ratingFacts[0]['metric_units']['qunar_comment_score']);
+        self::assertSame(
+            'ota_comment_score_5_point.v1',
+            $ratingFacts[0]['metric_definitions']['qunar_comment_score']['definition_id']
+        );
+
+        $calls = 0;
+        $generator = static function () use (&$calls): array {
+            $calls++;
+            return ['ok' => false];
+        };
+        $rating = (new OperatingQuestionService(
+            static fn(): array => ['facts' => $ratingFacts, 'fact_count' => 1],
+            $generator
+        ))->create(10, 20, '2026-08-29 去哪儿评分是多少？', 'qunar', '2026-08-29', '2026-08-29', 7);
+        self::assertSame('evidence_ready', $rating['question']['answer_status']);
+        self::assertSame(1, $calls);
+
+        $pollutedFacts = $loadFacts->invoke($reader, 10, 20, 'qunar', '2026-08-30', '2026-08-30');
+        self::assertSame([], $pollutedFacts[0]['metric_values']);
+        $blocked = (new OperatingQuestionService(
+            static fn(): array => ['facts' => $pollutedFacts, 'fact_count' => 1],
+            $generator
+        ))->create(10, 20, '2026-08-30 去哪儿收入是多少？', 'qunar', '2026-08-30', '2026-08-30', 7);
+        self::assertSame('blocked_by_missing_facts', $blocked['question']['answer_status']);
+        self::assertContains('requested_metric_fact_missing', array_column($blocked['question']['data_gaps'], 'code'));
+        self::assertSame([], $blocked['question']['answer']['action_drafts']);
+        self::assertSame(1, $calls);
+    }
+
+    public function testEveryRequestedClaimRemainsVisibleThroughTheEighthClaim(): void
+    {
+        $metrics = [
+            'amount' => 1288.5,
+            'quantity' => 12,
+            'book_order_num' => 6,
+            'comment_score' => 4.8,
+            'list_exposure' => 1800,
+            'detail_exposure' => 360,
+            'flow_rate' => 20.0,
+            'order_filling_num' => 90,
+        ];
+        $fact = self::substantiveFact(9660, '2026-08-15', 'ctrip', $metrics);
+        foreach ([
+            'list_exposure' => ['ota_list_exposure_users.v1', 'exposure_users', 'visitor_count', '曝光用户数'],
+            'detail_exposure' => ['ota_detail_visitors.v1', 'detail_visitors', 'visitor_count', '详情访问用户数'],
+        ] as $metricKey => [$definitionId, $sourceMetricKey, $unit, $label]) {
+            $fact['metric_units'][$metricKey] = $unit;
+            $fact['metric_definitions'][$metricKey]['definition_id'] = $definitionId;
+            $fact['metric_definitions'][$metricKey]['source_metric_key'] = $sourceMetricKey;
+            $fact['metric_definitions'][$metricKey]['unit'] = $unit;
+            $fact['metric_definitions'][$metricKey]['label'] = $label;
+        }
+        $definitions = [
+            'amount' => 'ota_paid_order_amount.v1',
+            'quantity' => 'ota_paid_room_nights.v1',
+            'book_order_num' => 'ota_paid_order_count.v1',
+            'comment_score' => 'ota_comment_score_5_point.v1',
+            'list_exposure' => 'ota_list_exposure_users.v1',
+            'detail_exposure' => 'ota_detail_visitors.v1',
+            'flow_rate' => 'ota_browse_to_pay_rate.v1',
+            'order_filling_num' => 'ota_order_filling_count.v1',
+        ];
+        $claims = [];
+        foreach ($definitions as $metric => $definitionId) {
+            $claims[] = [
+                'evidence_ref' => 'online_daily_data#9660',
+                'metric_key' => $metric,
+                'metric_definition_id' => $definitionId,
+                'value' => $metrics[$metric],
+                'unit' => $fact['metric_units'][$metric],
+            ];
+        }
+        $client = new class($claims) extends LlmClient {
+            public function __construct(private readonly array $claims)
+            {
+            }
+
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                return [
+                    'data' => [
+                        'fact_claims' => $this->claims,
+                        'follow_up_questions' => [],
+                        'confidence' => 'medium',
+                        'action_drafts' => [],
+                    ],
+                    'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
+                        'resp-all-visible-claims-0001'
+                    ),
+                ];
+            }
+        };
+        $ai = new OperatingQuestionAiAnswerService($client);
+        $saved = (new OperatingQuestionService(
+            static fn(): array => ['facts' => [$fact], 'fact_count' => 1],
+            static fn(array $payload): array => $ai->generate($payload)
+        ))->create(
+            10,
+            20,
+            '2026-08-15 携程收入、间夜、支付订单数、点评分、列表曝光用户数、详情曝光用户数、浏览到支付转化率和填单数是多少？',
+            'ctrip',
+            '2026-08-15',
+            '2026-08-15',
+            7
+        );
+        self::assertSame('answered_by_grounded_ai', $saved['question']['answer_status']);
+        self::assertCount(8, $saved['question']['answer']['fact_claims']);
+        self::assertCount(8, $saved['question']['answer']['key_points']);
+        self::assertStringContainsString('详情访问用户数为360人', $saved['question']['answer_summary']);
+        self::assertStringContainsString('详情访问用户数为360人', $saved['question']['answer']['key_points'][5]);
+        self::assertStringContainsString('填单数为90单', $saved['question']['answer_summary']);
+        self::assertStringContainsString('填单数为90单', $saved['question']['answer']['key_points'][7]);
+    }
+
+    public function testProviderResponseRegistryRejectsGlobalReplayAndRollsBackQuestion(): void
+    {
+        $fixedReceiptClient = new class extends LlmClient {
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                return [
+                    'data' => [
+                        'fact_claims' => [[
+                            'evidence_ref' => 'online_daily_data#9701',
+                            'metric_key' => 'amount',
+                            'metric_definition_id' => 'ota_paid_order_amount.v1',
+                            'value' => 321,
+                            'unit' => 'CNY',
+                        ]],
+                        'follow_up_questions' => [],
+                        'confidence' => 'medium',
+                        'action_drafts' => [],
+                    ],
+                    'meta' => OperatingIntelligenceServiceTest::trustedDeepSeekMeta(
+                        'resp-global-replay-0001'
+                    ),
+                ];
+            }
+        };
+        $ai = new OperatingQuestionAiAnswerService($fixedReceiptClient);
+        $service = new OperatingQuestionService(
+            static fn(): array => [
+                'facts' => [self::substantiveFact(9701, '2026-08-15', 'ctrip', ['amount' => 321])],
+                'fact_count' => 1,
+            ],
+            static fn(array $payload): array => $ai->generate($payload)
+        );
+
+        $first = $service->create(
+            10,
+            20,
+            '2026-08-15 携程收入是多少？',
+            'ctrip',
+            '2026-08-15',
+            '2026-08-15',
+            7
+        );
+        self::assertSame('answered_by_grounded_ai', $first['question']['answer_status']);
+        self::assertSame(1, (int)Db::name('hotel_operating_questions')->count());
+        self::assertSame(1, (int)Db::name('hotel_operating_question_model_responses')->count());
+
+        try {
+            $service->create(
+                11,
+                30,
+                '2026-08-15 携程收入是多少？',
+                'ctrip',
+                '2026-08-15',
+                '2026-08-15',
+                9
+            );
+            self::fail('the same upstream receipt must be globally single-use');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('provider_response_replay_rejected', $exception->getMessage());
+        }
+        self::assertSame(1, (int)Db::name('hotel_operating_questions')->count());
+        self::assertSame(1, (int)Db::name('hotel_operating_question_model_responses')->count());
+        self::assertSame(0, (int)Db::name('hotel_operating_questions')->where('tenant_id', 11)->count());
+    }
+
+    public function testProviderReceiptRequiresRegistryBeforeQuestionInsert(): void
+    {
+        Db::execute('DROP TABLE hotel_operating_question_model_responses');
+        $service = new OperatingQuestionService(
+            static fn(): array => [
+                'facts' => [self::substantiveFact(9801, '2026-08-15', 'ctrip', ['amount' => 321])],
+                'fact_count' => 1,
+            ],
+            static fn(): array => [
+                'ok' => true,
+                'status' => 'ready',
+                'summary' => '不得被采用的自由文本',
+                'fact_claims' => [],
+                'claims_digest' => str_repeat('0', 64),
+                'confidence' => 'medium',
+                'provider' => 'deepseek',
+                'provider_response_id' => 'resp-missing-registry-0001',
+                'prompt_version' => OperatingQuestionAiAnswerService::PROMPT_VERSION,
+                'finish_reason' => 'stop',
+                'model_attempted' => true,
+                'llm_client_invoked' => true,
+                'external_llm_called' => true,
+                'external_llm_call_status' => 'confirmed_success',
+                'fallback_used' => false,
+                'cache_hit' => false,
+                'degraded' => false,
+            ]
+        );
+        try {
+            $service->create(10, 20, '2026-08-15 携程收入是多少？', 'ctrip', '2026-08-15', '2026-08-15', 7);
+            self::fail('a provider receipt cannot be saved without the global registry');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('回放登记表缺失', $exception->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('hotel_operating_questions')->count());
     }
 
     public function testSopCandidateNeedsRepeatedPositiveMemoriesAndCreatesImmutableVerifiedVersion(): void
@@ -1287,6 +2190,70 @@ final class OperatingIntelligenceServiceTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
         $service->replicate($versionId, 10, [20, 30], 30, 8);
+    }
+
+    /**
+     * @param array<string,int|float> $metrics
+     * @param array<string,string> $units
+     * @return array<string,mixed>
+     */
+    private static function substantiveFact(
+        int $id,
+        string $date,
+        string $platform = 'ctrip',
+        array $metrics = ['list_exposure' => 100],
+        array $units = []
+    ): array {
+        $semantics = [
+            'list_exposure' => ['ota_list_exposure.v1', 'list_exposure', 'exposure_count', '列表曝光'],
+            'detail_exposure' => ['ota_detail_exposure.v1', 'detail_exposure', 'exposure_count', '详情曝光'],
+            'flow_rate' => ['ota_browse_to_pay_rate.v1', 'browse_to_pay_rate', 'percent', '浏览到支付转化率'],
+            'amount' => ['ota_paid_order_amount.v1', 'paid_order_amount', 'CNY', '渠道支付订单金额'],
+            'quantity' => ['ota_paid_room_nights.v1', 'room_nights', 'room_night_count', '渠道间夜'],
+            'book_order_num' => ['ota_paid_order_count.v1', 'paid_order_count', 'order_count', '渠道支付订单数'],
+            'comment_score' => ['ota_comment_score_5_point.v1', 'comment_score', 'score_5_point', '渠道点评分'],
+            'order_filling_num' => ['ota_order_filling_count.v1', 'order_filling_num', 'order_count', '填单数'],
+            'order_submit_num' => ['ota_order_submit_count.v1', 'order_submit_num', 'order_count', '提交订单数'],
+        ];
+        $metricUnits = [];
+        $definitions = [];
+        foreach ($metrics as $metric => $_value) {
+            [$definitionId, $sourceMetricKey, $defaultUnit, $label] = $semantics[$metric]
+                ?? ['ota_test_metric.v1', $metric, 'count', $metric];
+            $unit = (string)($units[$metric] ?? $defaultUnit);
+            $metricUnits[$metric] = $unit;
+            $definitions[$metric] = [
+                'claimable' => true,
+                'definition_id' => $definitionId,
+                'source_metric_key' => $sourceMetricKey,
+                'source_data_type' => 'traffic',
+                'source_key' => $sourceMetricKey,
+                'storage_field' => 'online_daily_data.' . $metric,
+                'source_path_digest' => hash('sha256', 'payload.' . $metric),
+                'field_fact_digest' => hash('sha256', 'field-fact-' . $metric . '-' . $unit),
+                'unit' => $unit,
+                'unit_status' => 'verified',
+                'unit_source' => in_array($unit, ['CNY', 'percent', 'ratio_0_1'], true)
+                    ? 'field_fact'
+                    : 'operating_question_metric_semantics.v1',
+                'label' => $label,
+            ];
+        }
+        return [
+            'ref' => 'online_daily_data#' . $id,
+            'data_date' => $date,
+            'platform' => $platform,
+            'data_type' => 'traffic',
+            'quality_status' => 'verified',
+            'history_status' => 'success',
+            'readback_status' => 'readback_verified',
+            'readback_verified_at' => $date . ' 10:00:00',
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => 'trace-' . $id,
+            'metric_values' => $metrics,
+            'metric_units' => $metricUnits,
+            'metric_definitions' => $definitions,
+        ];
     }
 
     /** @return list<int> */
