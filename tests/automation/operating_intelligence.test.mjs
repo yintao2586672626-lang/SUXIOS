@@ -229,13 +229,13 @@ test('frontend rejects every incomplete DeepSeek V4 Pro proof before exposing an
     { fallback_used: true },
     { provider_endpoint_origin: 'https://gateway.example.com', provider_endpoint_official: false },
     { provider_response_fresh: false },
-    { provider_created_at: Math.floor(Date.now() / 1000) - 3600 },
     { transport_retry_attempts: 1 },
     { upstream_idempotency_key_sent: true },
     { direct_request_proof: false },
   ]) {
     assert.equal(operatingQuestionDirectCallReady({ ...valid, ...mutation }), false);
   }
+  assert.equal(operatingQuestionDirectCallReady({ ...valid, provider_created_at: 1 }), true);
 });
 
 test('operating question claims use an immutable global provider response registry', () => {

@@ -199,7 +199,7 @@ final class OperatingQuestionAiAnswerService
             $result = is_array($envelope['data'] ?? null) ? $envelope['data'] : [];
             $meta = is_array($envelope['meta'] ?? null) ? $envelope['meta'] : [];
             $providerResponseId = $this->providerResponseId($meta);
-            if (!self::directCallProofReady($meta)) {
+            if (!self::directCallProofReady($meta) || !self::directCallReceiptFreshNow($meta)) {
                 $cacheHit = ($meta['cache_hit'] ?? false) === true;
                 return [
                     'ok' => false,
@@ -1399,7 +1399,6 @@ final class OperatingQuestionAiAnswerService
             && strlen($responseId) <= 191
             && preg_match('/^[A-Za-z0-9._:-]+$/D', $responseId) === 1
             && max(0, (int)($meta['provider_created_at'] ?? 0)) > 0
-            && abs(time() - max(0, (int)($meta['provider_created_at'] ?? 0))) <= 900
             && ($meta['provider_response_fresh'] ?? false) === true
             && strtolower(trim((string)($meta['provider_endpoint_origin'] ?? ''))) === 'https://api.deepseek.com'
             && strtolower(trim((string)($meta['provider_endpoint_host'] ?? ''))) === 'api.deepseek.com'
@@ -1422,6 +1421,15 @@ final class OperatingQuestionAiAnswerService
             && ($meta['fallback_used'] ?? null) === false
             && ($meta['cache_hit'] ?? null) === false
             && ($meta['degraded'] ?? null) === false;
+    }
+
+    /** @param array<string,mixed> $meta */
+    public static function directCallReceiptFreshNow(array $meta): bool
+    {
+        $createdAt = max(0, (int)($meta['provider_created_at'] ?? 0));
+        return ($meta['provider_response_fresh'] ?? false) === true
+            && $createdAt > 0
+            && abs(time() - $createdAt) <= 900;
     }
 
     /** @param array<string,mixed> $meta */

@@ -52,6 +52,15 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         ];
     }
 
+    public function testAcceptedDirectProofDoesNotExpireWhileNewReceiptFreshnessStillDoes(): void
+    {
+        $persisted = self::directMeta('resp-bridge-persisted-0001');
+        $persisted['provider_created_at'] = time() - 3600;
+
+        self::assertTrue(OperatingQuestionAiAnswerService::directCallProofReady($persisted));
+        self::assertFalse(OperatingQuestionAiAnswerService::directCallReceiptFreshNow($persisted));
+    }
+
     public static function setUpBeforeClass(): void
     {
         $app = new App(dirname(__DIR__));

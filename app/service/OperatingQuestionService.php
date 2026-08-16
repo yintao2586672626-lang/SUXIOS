@@ -2438,6 +2438,7 @@ final class OperatingQuestionService
             && (string)($answer['question_metric_contract']['contract_version'] ?? '')
                 === self::METRIC_INTENT_CONTRACT_VERSION
             && OperatingQuestionAiAnswerService::directCallProofReady($runtime)
+            && OperatingQuestionAiAnswerService::directCallReceiptFreshNow($runtime)
             && (string)($runtime['prompt_version'] ?? '') === OperatingQuestionAiAnswerService::PROMPT_VERSION
             && ($runtime['external_llm_called'] ?? false) === true
             && (string)($runtime['external_llm_call_status'] ?? '')
