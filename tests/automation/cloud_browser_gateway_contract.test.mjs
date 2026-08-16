@@ -1219,6 +1219,7 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /Runtime\.evaluate/);
   assert.match(gateway, /read_only_navigation_document_not_ready/);
   assert.match(gateway, /navigationDeadline = Date\.now\(\) \+ 30000/);
+  assert.match(gateway, /\['loading', 'interactive', 'complete'\]/);
   assert.match(gateway, /return 'origin_mismatch'/);
   assert.match(gateway, /return pathMatched \? 'matched' : 'path_mismatch'/);
   assert.match(gateway, /`read_only_navigation_\$\{locationState\}`/);

@@ -1003,8 +1003,12 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
         navigationFailure = locationState === 'matched'
           ? 'read_only_navigation_document_not_ready'
           : `read_only_navigation_${locationState}`;
+        // The gateway owns location and read-only policy trust. Ctrip's SPA
+        // can legitimately stay in the browser-standard `loading` state while
+        // the collector performs its stricter login, hotel, date and field
+        // readiness checks over the already guarded CDP session.
         sourcePageReady = trustedCollectionPageLocation(value.href, platform)
-          && ['interactive', 'complete'].includes(String(value.readyState || ''));
+          && ['loading', 'interactive', 'complete'].includes(String(value.readyState || ''));
         if (sourcePageReady) break;
       } catch {
         sourcePageReady = false;
