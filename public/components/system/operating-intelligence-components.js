@@ -884,6 +884,17 @@
         if (reportKeywords.some((keyword) => normalized.includes(normalizeSystemUsageGuideText(keyword)))) return 'report';
         return 'guide';
     };
+    const singleAbsoluteOperatingDateFromQuery = (query) => {
+        const matches = Array.from(
+            String(query || '').matchAll(/(^|[^\d])(\d{4}-\d{2}-\d{2})(?=$|[^\d])/g),
+            (match) => String(match[2] || '')
+        );
+        if (matches.length !== 1) return '';
+        const candidate = matches[0];
+        const parsed = new Date(`${candidate}T00:00:00.000Z`);
+        if (!Number.isFinite(parsed.getTime())) return '';
+        return parsed.toISOString().slice(0, 10) === candidate ? candidate : '';
+    };
     const resolveSystemUsageGuideTopic = (query, currentPage = '') => {
         const originalQuery = String(query || '').trim();
         const normalizedQuery = normalizeSystemUsageGuideText(originalQuery);
@@ -1696,6 +1707,11 @@
                 ctx.ensureOperatingQuestionScope?.();
                 const inferredPlatform = operatingPlatformFromQuery(query);
                 if (inferredPlatform) form.platform = inferredPlatform;
+                const inferredDate = singleAbsoluteOperatingDateFromQuery(query);
+                if (inferredDate) {
+                    form.date_start = inferredDate;
+                    form.date_end = inferredDate;
+                }
                 questionState.question = query;
                 const exact = await ctx.askOperatingQuestion();
                 const operatingResult = exact || questionState.result || null;
