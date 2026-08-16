@@ -858,8 +858,9 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     waitForDebuggerOnStart: true,
     flatten: true,
   };
-  const markPolicyViolation = () => {
+  const markPolicyViolation = (reason = 'unknown') => {
     policyViolation = true;
+    console.error(`SUXIOS_GATEWAY_POLICY_VIOLATION ${platform} ${safeReason(reason, 'unknown')}`);
     child?.kill?.('SIGTERM');
   };
   const requestPolicyEnforced = COLLECTION_PLATFORM_PATTERN.test(
@@ -874,7 +875,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     }, { once: true });
     socket.addEventListener('error', () => {
       clearTimeout(timer);
-      if (!intentionalClose) markPolicyViolation();
+      if (!intentionalClose) markPolicyViolation('policy_socket_error');
       reject(new Error('read_only_policy_connect_failed'));
     }, { once: true });
   });
@@ -895,20 +896,21 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
   });
 
   const failClosedForTarget = (targetId = '') => {
-    markPolicyViolation();
+    markPolicyViolation('attached_target_unprotected');
     if (targetId) send('Target.closeTarget', { targetId }).catch(() => undefined);
   };
 
   const closeUnexpectedPageTarget = (targetId = '') => {
     if (!targetId) {
-      markPolicyViolation();
+      markPolicyViolation('unexpected_target_id_missing');
       return;
     }
     // Ctrip may transiently create a target=_blank popup while the collector
     // clicks a read-only report control. Close that extra page immediately;
     // keep the guarded page and browser alive because no request escapes the
     // existing Fetch policy and the extra target is never exposed to callers.
-    send('Target.closeTarget', { targetId }).catch(() => markPolicyViolation());
+    send('Target.closeTarget', { targetId })
+      .catch(() => markPolicyViolation('unexpected_target_close_failed'));
   };
 
   const protectAttachedTarget = async ({ sessionId = '', targetInfo = {} } = {}) => {
@@ -979,7 +981,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
 
   socket.addEventListener('close', () => {
     if (!intentionalClose) {
-      markPolicyViolation();
+      markPolicyViolation('policy_socket_closed');
     }
     closed = true;
     for (const request of pending.values()) {
