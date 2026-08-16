@@ -1318,8 +1318,8 @@ final class OtaCanonicalHistoryPromotionService
     private function profileKeyHash(string $platform, array $config): string
     {
         $keys = $platform === 'meituan'
-            ? ['store_id', 'storeId', 'profile_id', 'profileId']
-            : ['profile_id', 'profileId'];
+            ? ['profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId', 'store_id', 'storeId', 'poi_id', 'poiId']
+            : ['profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
         $profileKey = '';
         foreach ($keys as $key) {
             if (is_scalar($config[$key] ?? null) && trim((string)$config[$key]) !== '') {

@@ -282,7 +282,7 @@ function p0_array(mixed $value): array
 /**
  * @return array<int, string>
  */
-function p0_required_traffic_metric_keys(string $platform = ''): array
+function p0_required_traffic_metric_keys(string $platform = '', string $dataPeriod = ''): array
 {
     $metricKeys = [
         'list_exposure',
@@ -292,9 +292,14 @@ function p0_required_traffic_metric_keys(string $platform = ''): array
         'order_submit_num',
     ];
 
-    return strtolower(trim($platform)) === 'meituan'
-        ? array_slice($metricKeys, 0, 3)
-        : $metricKeys;
+    $platform = strtolower(trim($platform));
+    if ($platform === 'meituan') {
+        return array_slice($metricKeys, 0, 3);
+    }
+    if ($platform === 'ctrip' && strtolower(trim($dataPeriod)) === 'realtime_snapshot') {
+        return ['detail_exposure', 'order_submit_num'];
+    }
+    return $metricKeys;
 }
 
 /**
@@ -306,11 +311,36 @@ function p0_required_traffic_metric_keys(string $platform = ''): array
  * @param array<string, mixed> $raw
  * @return array{status:string,reason:string,observed_metric_keys:array<int,string>,missing_metric_keys:array<int,string>}
  */
-function p0_observed_traffic_metric_provenance(array $raw, string $platform = ''): array
+function p0_observed_traffic_metric_provenance(
+    array $raw,
+    string $platform = '',
+    array $requiredMetricKeys = [],
+    bool $allowCapturedFieldFacts = false
+): array
 {
-    $requiredMetricKeys = p0_required_traffic_metric_keys($platform);
+    if ($requiredMetricKeys === []) {
+        $requiredMetricKeys = p0_required_traffic_metric_keys($platform);
+    }
     $sourceRow = is_array($raw['row'] ?? null) ? $raw['row'] : [];
     $marker = $sourceRow['_observed_traffic_metric_keys'] ?? null;
+    if ($allowCapturedFieldFacts && (!is_array($marker) || !array_is_list($marker))) {
+        $marker = [];
+        $requiredStorageFields = p0_required_traffic_storage_field_map($platform, 'realtime_snapshot');
+        foreach (p0_array($raw['field_facts'] ?? null) as $fact) {
+            if (!is_array($fact) || (string)($fact['status'] ?? '') !== 'captured') {
+                continue;
+            }
+            $metricKey = trim((string)($fact['metric_key'] ?? ''));
+            $storageField = trim((string)($fact['storage_field'] ?? ''));
+            foreach ($requiredMetricKeys as $requiredMetricKey) {
+                if ($metricKey === $requiredMetricKey
+                    && ($requiredStorageFields[$requiredMetricKey] ?? '') === $storageField
+                ) {
+                    $marker[] = $requiredMetricKey;
+                }
+            }
+        }
+    }
     $base = [
         'status' => 'synthetic_normalization_provenance_missing',
         'reason' => 'synthetic_normalization_provenance_missing',
@@ -347,7 +377,7 @@ function p0_observed_traffic_metric_provenance(array $raw, string $platform = ''
  * @param array<string, mixed> $row
  * @return array<string, float>
  */
-function p0_required_traffic_metric_values(array $row, string $platform = ''): array
+function p0_required_traffic_metric_values(array $row, string $platform = '', array $requiredMetricKeys = []): array
 {
     $values = [
         'list_exposure' => (float)($row['list_exposure'] ?? 0),
@@ -357,15 +387,21 @@ function p0_required_traffic_metric_values(array $row, string $platform = ''): a
         'order_submit_num' => (float)($row['order_submit_num'] ?? 0),
     ];
 
-    return array_intersect_key($values, array_fill_keys(p0_required_traffic_metric_keys($platform), true));
+    if ($requiredMetricKeys === []) {
+        $requiredMetricKeys = p0_required_traffic_metric_keys($platform);
+    }
+    return array_intersect_key($values, array_fill_keys($requiredMetricKeys, true));
 }
 
 /**
  * @param array<string, mixed> $metrics
  */
-function p0_has_nonzero_required_traffic_metric(array $metrics, string $platform = ''): bool
+function p0_has_nonzero_required_traffic_metric(array $metrics, string $platform = '', array $requiredMetricKeys = []): bool
 {
-    foreach (p0_required_traffic_metric_keys($platform) as $key) {
+    if ($requiredMetricKeys === []) {
+        $requiredMetricKeys = p0_required_traffic_metric_keys($platform);
+    }
+    foreach ($requiredMetricKeys as $key) {
         if (abs((float)($metrics[$key] ?? 0)) > 0.000001) {
             return true;
         }
@@ -389,13 +425,22 @@ function p0_has_explicit_zero_required_traffic_confirmation(
     string $platform,
     array $requiredStorageFields,
     string $rowSourceTraceId,
-    string $rowSourceUrlHash
+    string $rowSourceUrlHash,
+    array $requiredMetricKeys = []
 ): bool {
-    $metrics = p0_required_traffic_metric_values($row, $platform);
-    if (p0_has_nonzero_required_traffic_metric($metrics, $platform)) {
+    if ($requiredMetricKeys === []) {
+        $requiredMetricKeys = p0_required_traffic_metric_keys($platform);
+    }
+    $metrics = p0_required_traffic_metric_values($row, $platform, $requiredMetricKeys);
+    if (p0_has_nonzero_required_traffic_metric($metrics, $platform, $requiredMetricKeys)) {
         return false;
     }
-    if ((string)(p0_observed_traffic_metric_provenance($raw, $platform)['status'] ?? '') !== 'ready') {
+    if ((string)(p0_observed_traffic_metric_provenance(
+        $raw,
+        $platform,
+        $requiredMetricKeys,
+        $platform === 'ctrip' && strtolower(trim((string)($row['data_period'] ?? ''))) === 'realtime_snapshot'
+    )['status'] ?? '') !== 'ready') {
         return false;
     }
 
@@ -440,9 +485,11 @@ function p0_has_explicit_zero_required_traffic_confirmation(
         return false;
     }
 
+    $captureEvidence = p0_array($raw['capture_evidence'] ?? null);
     $captureSource = strtolower(trim((string)(
         $sourceRow['_capture_source']
         ?? $sourceRow['capture_source']
+        ?? $captureEvidence['capture_source']
         ?? ''
     )));
     if (preg_match('/^(?:xhr|fetch|same_origin_api|browser_response|network_response)(?::|$)/', $captureSource) !== 1) {
@@ -460,7 +507,7 @@ function p0_has_explicit_zero_required_traffic_confirmation(
         }
     }
 
-    foreach (p0_required_traffic_metric_keys($platform) as $metricKey) {
+    foreach ($requiredMetricKeys as $metricKey) {
         $fact = $factsByMetric[$metricKey] ?? null;
         if (!is_array($fact)) {
             return false;
@@ -491,7 +538,7 @@ function p0_has_explicit_zero_required_traffic_confirmation(
 /**
  * @return array<string, string>
  */
-function p0_required_traffic_storage_field_map(string $platform = ''): array
+function p0_required_traffic_storage_field_map(string $platform = '', string $dataPeriod = ''): array
 {
     $storageFields = [
         'list_exposure' => 'online_daily_data.list_exposure',
@@ -501,7 +548,7 @@ function p0_required_traffic_storage_field_map(string $platform = ''): array
         'order_submit_num' => 'online_daily_data.order_submit_num',
     ];
 
-    return array_intersect_key($storageFields, array_fill_keys(p0_required_traffic_metric_keys($platform), true));
+    return array_intersect_key($storageFields, array_fill_keys(p0_required_traffic_metric_keys($platform, $dataPeriod), true));
 }
 
 /**
@@ -2016,7 +2063,8 @@ function p0_safe_platform_config_projection(array $config): array
 {
     $allowedScalarKeys = [
         'credential_ref', 'credential_status', 'config_id', 'source_config_id', 'source_config_key',
-        'profile_id', 'profileId',
+        'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId',
+        'profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId',
         'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'master_hotel_id', 'masterHotelId', 'node_id', 'nodeId',
         'store_id', 'storeId', 'poi_id', 'poiId', 'shop_id', 'shopId', 'mt_poi_id', 'mtPoiId', 'partner_id', 'partnerId',
         'hotel_name', 'name', 'poi_name', 'poiName',
@@ -2726,8 +2774,8 @@ function p0_traffic_platform_hotel_identifier_present(string $platform, array $c
 function p0_profile_key_from_config(string $platform, array $config): string
 {
     $keys = $platform === 'meituan'
-        ? ['store_id', 'storeId', 'profile_id', 'profileId']
-        : ['profile_id', 'profileId'];
+        ? ['profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId', 'store_id', 'storeId', 'poi_id', 'poiId']
+        : ['profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
     foreach ($keys as $key) {
         $value = trim((string)($config[$key] ?? ''));
         if ($value !== '') {
@@ -5535,12 +5583,74 @@ function p0_traffic_row_scope(array $row, string $platform): array
             'reason' => 'canonical_flow_transform_snapshot',
         ];
     }
+    if (in_array($endpointId, ['business_visitor_title', 'traffic_order_overview'], true)
+        && p0_ctrip_realtime_row_proof_ready($row, $endpointId)
+    ) {
+        return [
+            'authoritative' => true,
+            'endpoint_id' => $endpointId,
+            'reason' => 'strict_current_day_realtime_endpoint',
+        ];
+    }
 
     return [
         'authoritative' => false,
         'endpoint_id' => $endpointId,
         'reason' => 'ctrip_auxiliary_traffic_endpoint',
     ];
+}
+
+/**
+ * Ctrip exposes today's visitor and order facts on separate realtime endpoints.
+ * They are authoritative only for today's non-final snapshot with endpoint-
+ * specific date evidence and structured response provenance.
+ */
+function p0_ctrip_realtime_row_proof_ready(array $row, string $endpointId = '', string $today = ''): bool
+{
+    $endpointId = $endpointId !== '' ? $endpointId : p0_traffic_row_endpoint_id($row);
+    $dateSources = [
+        'business_visitor_title' => 'response.endpoint.realtime_current_day',
+        'traffic_order_overview' => 'page.traffic_period_selection.readback',
+    ];
+    if (!isset($dateSources[$endpointId])
+        || strtolower(trim((string)($row['data_period'] ?? ''))) !== 'realtime_snapshot'
+        || (int)($row['is_final'] ?? 0) !== 0
+        || (int)($row['sync_task_id'] ?? 0) <= 0
+    ) {
+        return false;
+    }
+    if ($today === '') {
+        $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+    }
+    if (trim((string)($row['data_date'] ?? '')) !== $today) {
+        return false;
+    }
+    $raw = p0_row_raw_data($row);
+    $sourceRow = is_array($raw['row'] ?? null) ? $raw['row'] : $raw;
+    if ($raw === [] || (int)($raw['sync_task_id'] ?? 0) !== (int)($row['sync_task_id'] ?? 0)) {
+        return false;
+    }
+    $dateSource = strtolower(trim((string)($raw['date_source'] ?? $sourceRow['date_source'] ?? '')));
+    $sourceDate = trim((string)($sourceRow['date'] ?? $sourceRow['dataDate'] ?? $sourceRow['data_date'] ?? ''));
+    if (strlen($sourceDate) >= 10) {
+        $sourceDate = substr($sourceDate, 0, 10);
+    }
+    $capture = p0_array($raw['capture_evidence'] ?? null);
+    $sourceUrlHash = strtolower(trim((string)($raw['source_url_hash'] ?? $capture['source_url_hash'] ?? '')));
+    return $dateSource === $dateSources[$endpointId]
+        && $sourceDate === $today
+        && preg_match('/^[a-f0-9]{64}$/D', $sourceUrlHash) === 1
+        && strtolower(trim((string)($capture['response_evidence_type'] ?? ''))) === 'structured_json';
+}
+
+/** @return array<int,string> */
+function p0_ctrip_realtime_endpoint_metric_keys(array $row): array
+{
+    return match (p0_traffic_row_endpoint_id($row)) {
+        'business_visitor_title' => ['detail_exposure'],
+        'traffic_order_overview' => ['order_submit_num'],
+        default => [],
+    };
 }
 
 /** @return array<string, mixed> */
@@ -5659,6 +5769,9 @@ function p0_reduce_ctrip_query_flow_projection_rows(
 ): array {
     $canonicalSignatures = [];
     foreach ($rows as $row) {
+        if (!in_array(p0_traffic_row_endpoint_id($row), ['business_flow_transform', 'traffic_flow_transform'], true)) {
+            continue;
+        }
         $raw = p0_row_raw_data($row);
         if (str_starts_with(strtolower(trim((string)($row['dimension'] ?? ''))), 'catalog:')
             || (string)(p0_observed_traffic_metric_provenance($raw, 'ctrip')['status'] ?? '') !== 'ready'
@@ -5676,6 +5789,10 @@ function p0_reduce_ctrip_query_flow_projection_rows(
     $references = [];
     $unresolved = 0;
     foreach ($rows as $row) {
+        if (!in_array(p0_traffic_row_endpoint_id($row), ['business_flow_transform', 'traffic_flow_transform'], true)) {
+            $authoritative[] = $row;
+            continue;
+        }
         $isCatalogProjection = str_starts_with(
             strtolower(trim((string)($row['dimension'] ?? ''))),
             'catalog:'
@@ -5750,6 +5867,13 @@ function p0_authoritative_storage_evidence_rows(
                 return false;
             }
             if (strtolower(trim($platform)) !== 'ctrip') {
+                return true;
+            }
+            $rowScope = p0_traffic_row_scope($row, $platform);
+            if (($rowScope['authoritative'] ?? false) !== true) {
+                return false;
+            }
+            if (p0_ctrip_realtime_row_proof_ready($row, (string)($rowScope['endpoint_id'] ?? ''), $today)) {
                 return true;
             }
             if (str_starts_with(strtolower(trim((string)($row['dimension'] ?? ''))), 'catalog:')) {
@@ -6493,6 +6617,21 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     $tenantId = (int)($storageScope['tenant_id'] ?? 0);
     $dataSourceId = (int)($storageScope['data_source_id'] ?? 0);
     $syncTaskId = (int)($storageScope['sync_task_id'] ?? 0);
+    $dataPeriod = strtolower(trim((string)($storageScope['run_readback']['data_period'] ?? '')));
+    $requiredMetricKeys = p0_required_traffic_metric_keys($platform, $dataPeriod);
+    $requiredStorageFields = p0_required_traffic_storage_field_map($platform, $dataPeriod);
+    $base['required_metric_keys'] = $requiredMetricKeys;
+    $base['required_storage_fields'] = array_values($requiredStorageFields);
+    $base['missing_metric_keys'] = $requiredMetricKeys;
+    $base['field_loop_matrix'] = p0_traffic_field_loop_matrix_values(
+        p0_traffic_field_loop_matrix_index($requiredMetricKeys, $requiredStorageFields, 'not_loaded')
+    );
+    $base = array_merge($base, p0_standard_fact_summary(
+        $requiredMetricKeys,
+        $requiredStorageFields,
+        (array)$base['field_loop_matrix'],
+        0
+    ));
 
     $query = Db::name('online_daily_data')
         ->where('source', $platform)
@@ -6672,9 +6811,24 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
             $base['ui_status_incomplete_rows']++;
             continue;
         }
-        $metrics = p0_required_traffic_metric_values($row, $platform);
-        $hasNonzeroRequiredMetric = p0_has_nonzero_required_traffic_metric($metrics, $platform);
-        $observedProvenance = p0_observed_traffic_metric_provenance($raw, $platform);
+        $rowRequiredMetricKeys = $platform === 'ctrip' && $dataPeriod === 'realtime_snapshot'
+            ? p0_ctrip_realtime_endpoint_metric_keys($row)
+            : $requiredMetricKeys;
+        if ($rowRequiredMetricKeys === []) {
+            $rowRequiredMetricKeys = $requiredMetricKeys;
+        }
+        $rowRequiredStorageFields = array_intersect_key(
+            $requiredStorageFields,
+            array_fill_keys($rowRequiredMetricKeys, true)
+        );
+        $metrics = p0_required_traffic_metric_values($row, $platform, $rowRequiredMetricKeys);
+        $hasNonzeroRequiredMetric = p0_has_nonzero_required_traffic_metric($metrics, $platform, $rowRequiredMetricKeys);
+        $observedProvenance = p0_observed_traffic_metric_provenance(
+            $raw,
+            $platform,
+            $rowRequiredMetricKeys,
+            $platform === 'ctrip' && $dataPeriod === 'realtime_snapshot'
+        );
         $observedProvenanceReady = (string)($observedProvenance['status'] ?? '') === 'ready';
         if ($observedProvenanceReady) {
             $base['observed_traffic_metric_provenance_ready_rows']++;
@@ -6704,9 +6858,10 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
                 $row,
                 $raw,
                 $platform,
-                $requiredStorageFields,
+                $rowRequiredStorageFields,
                 $rowSourceTraceId,
-                $rowSourceUrlHash
+                $rowSourceUrlHash,
+                $rowRequiredMetricKeys
             );
         if ($explicitZeroConfirmed) {
             $base['explicit_zero_confirmed_rows']++;
@@ -6732,8 +6887,8 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
             $facts,
             $row,
             $raw,
-            $requiredMetricKeys,
-            $requiredStorageFields,
+            $rowRequiredMetricKeys,
+            $rowRequiredStorageFields,
             $rowSourceTraceId,
             $rowSourceUrlHash,
             p0_traffic_row_ui_status($row, $raw)
@@ -6746,12 +6901,12 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
             && ($uiStatus['raw_data_exposed'] ?? null) === false
             && (int)($uiStatus['missing_count'] ?? -1) === 0
             && (int)($uiStatus['stored_value_missing_count'] ?? -1) === 0
-            && (int)($uiStatus['captured_count'] ?? 0) >= count($requiredMetricKeys)
-            && (int)($uiStatus['capture_evidence_count'] ?? 0) >= count($requiredMetricKeys)
-            && (int)($uiStatus['desensitized_capture_evidence_count'] ?? 0) >= count($requiredMetricKeys)
-            && (int)($uiStatus['source_path_count'] ?? 0) >= count($requiredMetricKeys)
-            && (int)($uiStatus['structured_source_path_count'] ?? 0) >= count($requiredMetricKeys)
-            && (int)($uiStatus['storage_field_count'] ?? 0) >= count($requiredMetricKeys);
+            && (int)($uiStatus['captured_count'] ?? 0) >= count($rowRequiredMetricKeys)
+            && (int)($uiStatus['capture_evidence_count'] ?? 0) >= count($rowRequiredMetricKeys)
+            && (int)($uiStatus['desensitized_capture_evidence_count'] ?? 0) >= count($rowRequiredMetricKeys)
+            && (int)($uiStatus['source_path_count'] ?? 0) >= count($rowRequiredMetricKeys)
+            && (int)($uiStatus['structured_source_path_count'] ?? 0) >= count($rowRequiredMetricKeys)
+            && (int)($uiStatus['storage_field_count'] ?? 0) >= count($rowRequiredMetricKeys);
         if ($uiReady) {
             $base['ui_status_ready_rows']++;
         } else {
