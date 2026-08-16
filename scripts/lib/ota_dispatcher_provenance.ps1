@@ -96,37 +96,24 @@ function Get-SuxiosSha256FromText {
     }
 }
 
-function Get-SuxiosSha256FromFile {
+function Get-SuxiosFileSha256 {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
-        [string]$LiteralPath
+        [string]$Path
     )
 
-    # Get-FileHash is supplied by Microsoft.PowerShell.Utility and may be
-    # unavailable in the intentionally minimal child PowerShell environment
-    # used by the dispatcher. Hash through the BCL so provenance does not
-    # depend on module auto-loading. File/open/read failures still terminate
-    # the manifest calculation and therefore remain fail-closed.
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
     $stream = $null
-    $sha256 = $null
     try {
-        $stream = [System.IO.File]::Open(
-            $LiteralPath,
-            [System.IO.FileMode]::Open,
-            [System.IO.FileAccess]::Read,
-            [System.IO.FileShare]::Read
-        )
-        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        $stream = [System.IO.File]::OpenRead($Path)
         return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
     } finally {
-        if ($null -ne $sha256) {
-            $sha256.Dispose()
-        }
         if ($null -ne $stream) {
             $stream.Dispose()
         }
+        $sha256.Dispose()
     }
 }
 
@@ -429,7 +416,7 @@ function Get-SuxiosDispatcherCodeManifest {
             $records[$relativePath] = [ordered]@{
                 path = $relativePath
                 size_bytes = [int64]$file.Length
-                sha256 = Get-SuxiosSha256FromFile -LiteralPath $file.FullName
+                sha256 = Get-SuxiosFileSha256 -Path $file.FullName
             }
         }
     }
@@ -440,7 +427,7 @@ function Get-SuxiosDispatcherCodeManifest {
         $records['think'] = [ordered]@{
             path = 'think'
             size_bytes = [int64]$thinkFile.Length
-            sha256 = Get-SuxiosSha256FromFile -LiteralPath $thinkFile.FullName
+            sha256 = Get-SuxiosFileSha256 -Path $thinkFile.FullName
         }
     } else {
         $missingRoots += 'think'
