@@ -325,6 +325,7 @@ final class HotelCollectionRunReceiptService
                 || (string)($capture['quality_status'] ?? '') !== 'verified'
                 || (string)($capture['reconciliation_status'] ?? '') !== 'matched'
                 || (string)($capture['readback_status'] ?? '') !== 'readback_verified'
+                || !$this->pmsCaptureRowsVerified($capture, $provider)
             ) {
                 throw new RuntimeException('hotel_collection_run_pms_capture_not_verified');
             }
@@ -1187,6 +1188,9 @@ final class HotelCollectionRunReceiptService
                     $expectedTrigger = (string)($child['ingestion_method'] ?? '') === 'local_collector'
                         ? 'local_collector_upload'
                         : 'daily_profile_reuse';
+                    $expectedHistoricalCoreStatus = (string)($run['run_mode'] ?? '') === 'realtime'
+                        ? 'not_required'
+                        : 'ready';
                     if (!is_array($child) || !is_array($task) || !is_array($rawTask)) {
                         $exactSources = false;
                         break;
@@ -1210,7 +1214,8 @@ final class HotelCollectionRunReceiptService
                         || (int)($child['platform_sync_task_id'] ?? 0) !== (int)$task['sync_task_id']
                         || $this->code((string)($task['collection_status'] ?? '')) !== 'success'
                         || $this->code((string)($task['p0_status'] ?? '')) !== 'ready'
-                        || $this->code((string)($task['historical_core_contract_status'] ?? '')) !== 'ready'
+                        || $this->code((string)($task['historical_core_contract_status'] ?? ''))
+                            !== $expectedHistoricalCoreStatus
                         || $this->uuid((string)($rawTask['dispatcher_run_id'] ?? '')) !== $dispatcherRunId
                         || $this->code((string)($rawTask['trigger_type'] ?? '')) !== $expectedTrigger
                         || !hash_equals(
@@ -2404,6 +2409,7 @@ final class HotelCollectionRunReceiptService
                 && (string)($capture['quality_status'] ?? '') === 'verified'
                 && (string)($capture['reconciliation_status'] ?? '') === 'matched'
                 && (string)($capture['readback_status'] ?? '') === 'readback_verified'
+                && $this->pmsCaptureRowsVerified($capture, $provider)
             ) {
                 return [
                     'provider' => $provider,
@@ -2483,6 +2489,18 @@ final class HotelCollectionRunReceiptService
             DingdandaoOperatingTargetCaptureService::PROVIDER => 'dingdandao_operating_target_captures',
             MeituanCloudPmsCaptureService::PROVIDER => 'meituan_cloud_pms_captures',
             default => '',
+        };
+    }
+
+    /** @param array<string,mixed> $capture */
+    private function pmsCaptureRowsVerified(array $capture, string $provider): bool
+    {
+        return match ($provider) {
+            DingdandaoOperatingTargetCaptureService::PROVIDER =>
+                (int)($capture['detail_row_count'] ?? 0) > 0,
+            MeituanCloudPmsCaptureService::PROVIDER =>
+                (int)($capture['room_type_count'] ?? 0) > 0,
+            default => false,
         };
     }
 
@@ -3019,7 +3037,10 @@ final class HotelCollectionRunReceiptService
 
     private function date(string $value): string
     {
-        $value = substr(trim($value), 0, 10);
+        $value = trim($value);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) !== 1) {
+            return '';
+        }
         $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
         return $date instanceof \DateTimeImmutable && $date->format('Y-m-d') === $value
             ? $value

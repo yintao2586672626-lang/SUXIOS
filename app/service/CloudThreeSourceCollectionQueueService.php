@@ -80,6 +80,9 @@ final class CloudThreeSourceCollectionQueueService
     /** @var callable|null */
     private $runReceiptWriter;
 
+    /** @var callable|null */
+    private $canonicalHistoryFinalizer;
+
     private string $applicationRoot;
 
     public function __construct(
@@ -93,7 +96,8 @@ final class CloudThreeSourceCollectionQueueService
         ?string $applicationRoot = null,
         ?callable $collectionAborter = null,
         ?callable $sleeper = null,
-        ?callable $runReceiptWriter = null
+        ?callable $runReceiptWriter = null,
+        ?callable $canonicalHistoryFinalizer = null
     ) {
         $this->planLoader = $planLoader;
         $this->hotelLoader = $hotelLoader;
@@ -106,6 +110,7 @@ final class CloudThreeSourceCollectionQueueService
         $this->collectionAborter = $collectionAborter;
         $this->sleeper = $sleeper;
         $this->runReceiptWriter = $runReceiptWriter;
+        $this->canonicalHistoryFinalizer = $canonicalHistoryFinalizer;
     }
 
     /** @param array<string,mixed> $options @return array<string,mixed> */
@@ -548,6 +553,7 @@ final class CloudThreeSourceCollectionQueueService
                             'owner_user_id' => $ownerUserId,
                             'data_source_id' => $sourceIds[$sourceKey],
                             'target_date' => $targetDate,
+                            'dispatcher_run_id' => $dispatcherRunId,
                             'profile_public_id' => $profiles[$sourceKey]['profile_public_id'],
                             'attempt_count' => $attemptCount,
                         ]
@@ -555,7 +561,10 @@ final class CloudThreeSourceCollectionQueueService
                     $receipt = $this->sanitizeChildReceipt(
                         $sourceKey,
                         $sourceIds[$sourceKey],
-                        $child
+                        $child,
+                        $dispatcherRunId,
+                        $hotelId,
+                        $targetDate
                     );
                     if (($receipt['timed_out'] ?? false) === true) {
                         $processCleanupVerified = ($child['process_group_cleanup_verified'] ?? false) === true;
@@ -643,28 +652,65 @@ final class CloudThreeSourceCollectionQueueService
             $sourceReceipts[] = $receipt;
         }
 
+        $finalizationReceipt = [];
+        $trustedReady = false;
         if ($runReceiptWritesVerified) {
             try {
-                $finalRunReceipt = $this->writeRunReceipt('read', [
+                $finalizationReceipt = $this->buildFinalizationReceipt(
+                    $dispatcherRunId,
+                    $hotelId,
+                    $targetDate,
+                    [$ctripSourceId, $meituanSourceId],
+                    $sourceReceipts
+                );
+                $canonicalFinalization = $this->finalizeCanonicalHistory(
+                    $finalizationReceipt,
+                    $tenantId,
+                    $hotelId
+                );
+                $finalizationReceipt['canonical_history_finalization'] = $canonicalFinalization;
+                $finalizationReceipt['canonical_history_complete'] =
+                    ($canonicalFinalization['canonical_history_complete'] ?? false) === true;
+                $policy = new ScheduledAutoFetchPolicy();
+                $trustedReady = $allVerified
+                    && $policy->dailyTrustReceiptReady(
+                        $finalizationReceipt,
+                        $targetDate,
+                        $hotelId,
+                        [$ctripSourceId, $meituanSourceId],
+                        ['ctrip', 'meituan']
+                    )
+                    && $this->canonicalHistoryFinalizationVerified(
+                        $canonicalFinalization,
+                        $tenantId,
+                        $hotelId,
+                        $targetDate,
+                        $finalizationReceipt
+                    );
+                $finalRunReceipt = $this->writeRunReceipt('finalize', [
                     'dispatcher_run_id' => $dispatcherRunId,
                     'tenant_id' => $tenantId,
                     'system_hotel_id' => $hotelId,
                     'business_date' => $targetDate,
+                    'receipt' => $finalizationReceipt,
+                    'trusted_ready' => $trustedReady,
                 ]);
-                $runReceiptWritesVerified = $this->finalRunReceiptVerified(
+                $runReceiptWritesVerified = $this->finalizedRunReceiptVerified(
                     $finalRunReceipt,
                     $dispatcherRunId,
                     $tenantId,
                     $hotelId,
                     $targetDate,
                     $pmsProvider,
-                    $sourceReceipts
+                    $sourceReceipts,
+                    $finalizationReceipt,
+                    $trustedReady
                 );
             } catch (\Throwable) {
                 $runReceiptWritesVerified = false;
             }
         }
-        if (!$runReceiptWritesVerified) {
+        if (!$runReceiptWritesVerified || !$trustedReady) {
             $allVerified = false;
         }
 
@@ -689,6 +735,16 @@ final class CloudThreeSourceCollectionQueueService
                 : 'unverified',
             'run_receipt_readback_verified' => $runReceiptWritesVerified
                 && ($finalRunReceipt['readback_verified'] ?? false) === true,
+            'run_receipt_finalized' => $runReceiptWritesVerified
+                && !in_array((string)($finalRunReceipt['status'] ?? ''), ['started', 'in_progress', 'collected'], true),
+            'collection_anchor_hash' => $trustedReady
+                ? (string)($finalRunReceipt['collection_anchor_hash'] ?? '')
+                : null,
+            'trust_receipt_digest' => $trustedReady
+                ? (string)($finalRunReceipt['trust_receipt_digest'] ?? '')
+                : null,
+            'canonical_history_complete' => $trustedReady
+                && ($finalizationReceipt['canonical_history_complete'] ?? false) === true,
             'message_sent' => false,
             'sensitive_values_exposed' => false,
         ];
@@ -998,7 +1054,14 @@ final class CloudThreeSourceCollectionQueueService
     }
 
     /** @param array<string,mixed> $child @return array<string,mixed> */
-    private function sanitizeChildReceipt(string $sourceKey, int $sourceId, array $child): array
+    private function sanitizeChildReceipt(
+        string $sourceKey,
+        int $sourceId,
+        array $child,
+        string $dispatcherRunId,
+        int $hotelId,
+        string $targetDate
+    ): array
     {
         $receipt = is_array($child['receipt'] ?? null) ? $child['receipt'] : [];
         $exitCode = (int)($child['exit_code'] ?? 1);
@@ -1037,10 +1100,27 @@ final class CloudThreeSourceCollectionQueueService
             $runReadback = $this->sanitizeRunReadback(
                 is_array($receipt['run_readback'] ?? null) ? $receipt['run_readback'] : []
             );
+            $runReadbackMatches = $runReadback !== []
+                && (string)($runReadback['dispatcher_run_id'] ?? '') === $dispatcherRunId
+                && (int)($runReadback['sync_task_id'] ?? 0) === (int)$taskId
+                && (int)($runReadback['data_source_id'] ?? 0) === $sourceId
+                && (int)($runReadback['system_hotel_id'] ?? 0) === $hotelId
+                && (string)($runReadback['platform'] ?? '') === $sourceKey
+                && (string)($runReadback['target_date'] ?? '') === $targetDate
+                && (int)($runReadback['readback_count'] ?? 0) === $readbackCount
+                && count((array)($runReadback['row_ids'] ?? [])) === $readbackCount
+                && ($runReadback['readback_verified'] ?? false) === true
+                && (string)($runReadback['p0_status'] ?? '') === 'ready'
+                && (string)($runReadback['field_fact_status'] ?? '') === 'ready'
+                && (string)($runReadback['page_field_fact_status'] ?? '') === 'ready'
+                && (string)($runReadback['platform_hotel_identifier_status'] ?? '') === 'ready'
+                && (array)($runReadback['missing_traffic_metric_keys'] ?? []) === [];
             $verified = !$timedOut
                 && !$messagePolicyViolated
                 && $exitCode === 0
                 && $status === 'saved_and_readback_verified'
+                && $taskId !== null
+                && $runReadbackMatches
                 && ($receipt['business_data_persisted'] ?? false) === true
                 && ($receipt['readback_verified'] ?? false) === true
                 && ($receipt['gateway_receipt_readback_verified'] ?? false) === true
@@ -1110,6 +1190,13 @@ final class CloudThreeSourceCollectionQueueService
                 (int)($context['system_hotel_id'] ?? 0),
                 (string)($context['business_date'] ?? ''),
                 (array)($context['results'] ?? [])
+            ),
+            'finalize' => $service->finalizeCollection(
+                (string)($context['dispatcher_run_id'] ?? ''),
+                (int)($context['system_hotel_id'] ?? 0),
+                (string)($context['business_date'] ?? ''),
+                (array)($context['receipt'] ?? []),
+                ($context['trusted_ready'] ?? false) === true
             ),
             'read' => $service->readGroup(
                 (string)($context['dispatcher_run_id'] ?? ''),
@@ -1282,6 +1369,9 @@ final class CloudThreeSourceCollectionQueueService
             'platform' => $platform,
             'success' => $verified,
             'status' => $verified ? 'success' : 'failed',
+            'source_task_status' => $verified ? 'success' : 'failed',
+            'ingestion_method' => 'browser_profile',
+            'historical_core_contract_status' => $verified ? 'not_required' : 'blocked',
             'dispatcher_run_id' => $dispatcherRunId,
             'system_hotel_id' => $hotelId,
             'target_date' => $businessDate,
@@ -1377,7 +1467,158 @@ final class CloudThreeSourceCollectionQueueService
                 return false;
             }
         }
-        return in_array((string)($receipt['status'] ?? ''), ['collected', 'partial', 'failed'], true);
+        return in_array(
+            (string)($receipt['status'] ?? ''),
+            ['succeeded', 'collected', 'partial', 'failed'],
+            true
+        );
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $sourceReceipts
+     * @return array<string,mixed>
+     */
+    private function buildFinalizationReceipt(
+        string $dispatcherRunId,
+        int $hotelId,
+        string $targetDate,
+        array $sourceIds,
+        array $sourceReceipts
+    ): array {
+        $platformResults = [];
+        $savedCount = 0;
+        $otaVerified = [];
+        foreach ($sourceReceipts as $sourceReceipt) {
+            $platform = (string)($sourceReceipt['source'] ?? '');
+            if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+                continue;
+            }
+            $platformResult = $this->platformRunResult(
+                $platform,
+                (int)($sourceReceipt['data_source_id'] ?? 0),
+                $dispatcherRunId,
+                $hotelId,
+                $targetDate,
+                $sourceReceipt
+            );
+            $platformResults[] = $platformResult;
+            $savedCount += max(0, (int)($platformResult['saved_count'] ?? 0));
+            if (($platformResult['success'] ?? false) === true) {
+                $otaVerified[$platform] = true;
+            }
+        }
+        $result = [
+            'success' => array_keys($otaVerified) === ['ctrip', 'meituan']
+                || array_keys($otaVerified) === ['meituan', 'ctrip'],
+            'saved_count' => $savedCount,
+            'required_platforms' => ['ctrip', 'meituan'],
+            'platform_results' => $platformResults,
+        ];
+        $policy = new ScheduledAutoFetchPolicy();
+        $outcome = $policy->classifyOutcome($result);
+        $receipt = $policy->buildDailyTrustReceipt(
+            $hotelId,
+            $targetDate,
+            $sourceIds,
+            $outcome,
+            $result,
+            'realtime_snapshot'
+        );
+        $receipt['dispatcher_run_id'] = $dispatcherRunId;
+        return $receipt;
+    }
+
+    /** @param array<string,mixed> $receipt @return array<string,mixed> */
+    private function finalizeCanonicalHistory(array $receipt, int $tenantId, int $hotelId): array
+    {
+        if ($this->canonicalHistoryFinalizer !== null) {
+            $result = call_user_func($this->canonicalHistoryFinalizer, $receipt, $tenantId, $hotelId);
+            if (!is_array($result)) {
+                throw new RuntimeException('canonical_history_finalizer_invalid');
+            }
+            return $result;
+        }
+        return (new OtaCanonicalHistoryPromotionCoordinator())->finalize(
+            $receipt,
+            $tenantId,
+            $hotelId
+        );
+    }
+
+    /** @param array<string,mixed> $finalization @param array<string,mixed> $receipt */
+    private function canonicalHistoryFinalizationVerified(
+        array $finalization,
+        int $tenantId,
+        int $hotelId,
+        string $targetDate,
+        array $receipt
+    ): bool {
+        $requiredPlatforms = array_values(array_unique(array_map(
+            'strval',
+            is_array($finalization['required_platforms'] ?? null)
+                ? $finalization['required_platforms']
+                : []
+        )));
+        $promotedPlatforms = array_values(array_unique(array_map(
+            'strval',
+            is_array($finalization['promoted_platforms'] ?? null)
+                ? $finalization['promoted_platforms']
+                : []
+        )));
+        sort($requiredPlatforms, SORT_STRING);
+        sort($promotedPlatforms, SORT_STRING);
+        $anchorHash = strtolower(trim((string)($receipt['collection_anchor_hash'] ?? '')));
+        return (string)($finalization['status'] ?? '') === 'verified'
+            && ($finalization['canonical_history_complete'] ?? false) === true
+            && (int)($finalization['tenant_id'] ?? 0) === $tenantId
+            && (int)($finalization['hotel_id'] ?? 0) === $hotelId
+            && (string)($finalization['target_date'] ?? '') === $targetDate
+            && $requiredPlatforms === ['ctrip', 'meituan']
+            && $promotedPlatforms === ['ctrip', 'meituan']
+            && preg_match('/^[a-f0-9]{64}$/D', $anchorHash) === 1
+            && hash_equals(
+                $anchorHash,
+                strtolower(trim((string)($finalization['collection_anchor_hash'] ?? '')))
+            )
+            && ($finalization['sensitive_values_exposed'] ?? true) === false;
+    }
+
+    /** @param array<int,array<string,mixed>> $sourceReceipts @param array<string,mixed> $receipt */
+    private function finalizedRunReceiptVerified(
+        array $runReceipt,
+        string $dispatcherRunId,
+        int $tenantId,
+        int $hotelId,
+        string $targetDate,
+        string $pmsProvider,
+        array $sourceReceipts,
+        array $receipt,
+        bool $trustedReady
+    ): bool {
+        if (!$this->finalRunReceiptVerified(
+            $runReceipt,
+            $dispatcherRunId,
+            $tenantId,
+            $hotelId,
+            $targetDate,
+            $pmsProvider,
+            $sourceReceipts
+        ) || ($runReceipt['readback_verified'] ?? false) !== true) {
+            return false;
+        }
+        $status = (string)($runReceipt['status'] ?? '');
+        $anchorHash = strtolower(trim((string)($runReceipt['collection_anchor_hash'] ?? '')));
+        $trustDigest = strtolower(trim((string)($runReceipt['trust_receipt_digest'] ?? '')));
+        if (!$trustedReady) {
+            return in_array($status, ['partial', 'failed'], true)
+                && $anchorHash === ''
+                && $trustDigest === '';
+        }
+        $expectedAnchorHash = strtolower(trim((string)($receipt['collection_anchor_hash'] ?? '')));
+        return $status === 'succeeded'
+            && preg_match('/^[a-f0-9]{64}$/D', $anchorHash) === 1
+            && hash_equals($expectedAnchorHash, $anchorHash)
+            && preg_match('/^[a-f0-9]{64}$/D', $trustDigest) === 1;
     }
 
     /** @return array<string,mixed> */
@@ -1390,6 +1631,22 @@ final class CloudThreeSourceCollectionQueueService
         $targetDate = trim((string)($receipt['target_date'] ?? ''));
         $platform = strtolower(trim((string)($receipt['platform'] ?? '')));
         $triggerType = strtolower(trim((string)($receipt['trigger_type'] ?? '')));
+        $syncTaskId = max(0, (int)($receipt['sync_task_id'] ?? 0));
+        $sourceId = max(0, (int)($receipt['data_source_id'] ?? 0));
+        $hotelId = max(0, (int)($receipt['system_hotel_id'] ?? 0));
+        $readbackCount = max(0, (int)($receipt['readback_count'] ?? 0));
+        $p0Status = strtolower(trim((string)($receipt['p0_status'] ?? '')));
+        $fieldFactStatus = strtolower(trim((string)($receipt['field_fact_status'] ?? '')));
+        $pageFieldFactStatus = strtolower(trim((string)($receipt['page_field_fact_status'] ?? '')));
+        $platformHotelIdentifierStatus = strtolower(trim((string)(
+            $receipt['platform_hotel_identifier_status'] ?? ''
+        )));
+        $missingTrafficMetricKeys = is_array($receipt['missing_traffic_metric_keys'] ?? null)
+            ? array_values(array_filter(array_map(
+                fn(mixed $value): string => $this->safeCode((string)$value),
+                $receipt['missing_traffic_metric_keys']
+            )))
+            : null;
         $rowIds = array_values(array_unique(array_filter(array_map(
             static fn($value): int => max(0, (int)$value),
             is_array($receipt['row_ids'] ?? null) ? $receipt['row_ids'] : []
@@ -1399,6 +1656,17 @@ final class CloudThreeSourceCollectionQueueService
             || !$this->validDate($targetDate)
             || !in_array($platform, ['ctrip', 'meituan'], true)
             || $triggerType !== 'daily_profile_reuse'
+            || $syncTaskId <= 0
+            || $sourceId <= 0
+            || $hotelId <= 0
+            || $readbackCount <= 0
+            || count($rowIds) !== $readbackCount
+            || ($receipt['readback_verified'] ?? false) !== true
+            || $p0Status !== 'ready'
+            || $fieldFactStatus !== 'ready'
+            || $pageFieldFactStatus !== 'ready'
+            || $platformHotelIdentifierStatus !== 'ready'
+            || $missingTrafficMetricKeys !== []
             || count($rowIds) > 500
         ) {
             return [];
@@ -1406,14 +1674,20 @@ final class CloudThreeSourceCollectionQueueService
         return [
             'dispatcher_run_id' => $dispatcherRunId,
             'trigger_type' => $triggerType,
-            'sync_task_id' => max(0, (int)($receipt['sync_task_id'] ?? 0)),
-            'data_source_id' => max(0, (int)($receipt['data_source_id'] ?? 0)),
-            'system_hotel_id' => max(0, (int)($receipt['system_hotel_id'] ?? 0)),
+            'sync_task_id' => $syncTaskId,
+            'data_source_id' => $sourceId,
+            'system_hotel_id' => $hotelId,
             'platform' => $platform,
             'target_date' => $targetDate,
-            'readback_count' => max(0, (int)($receipt['readback_count'] ?? 0)),
+            'started_at' => trim((string)($receipt['started_at'] ?? '')),
+            'p0_status' => $p0Status,
+            'field_fact_status' => $fieldFactStatus,
+            'page_field_fact_status' => $pageFieldFactStatus,
+            'platform_hotel_identifier_status' => $platformHotelIdentifierStatus,
+            'missing_traffic_metric_keys' => [],
+            'readback_count' => $readbackCount,
             'row_ids' => $rowIds,
-            'readback_verified' => ($receipt['readback_verified'] ?? false) === true,
+            'readback_verified' => true,
         ];
     }
 

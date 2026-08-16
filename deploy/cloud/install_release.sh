@@ -122,6 +122,11 @@ COMPOSER_ALLOW_SUPERUSER=1 composer install \
 # but make an enabled cloud collector reproducible across release switches
 # instead of relying on an untracked node_modules directory.
 CLOUD_NODE_RUNTIME_ENABLED="$(sed -n -E 's/^SUXIOS_CLOUD_NODE_RUNTIME=(0|1)$/\1/p' "$ENV_FILE" | tail -n 1)"
+if systemctl cat "$THREE_SOURCE_QUEUE_TIMER" >/dev/null 2>&1 \
+  && [[ "$CLOUD_NODE_RUNTIME_ENABLED" != "1" ]]; then
+  echo "An installed three-source queue requires SUXIOS_CLOUD_NODE_RUNTIME=1." >&2
+  exit 76
+fi
 if [[ "$CLOUD_NODE_RUNTIME_ENABLED" == "1" ]]; then
   command -v node >/dev/null
   command -v npm >/dev/null

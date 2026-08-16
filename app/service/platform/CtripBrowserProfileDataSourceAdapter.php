@@ -753,10 +753,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         if ($notApplicableSections !== []) {
             $args[] = '--not-applicable-sections=' . implode(',', $notApplicableSections);
         }
-        $cdpUrl = trim((string)($captureOptions['cdp_url'] ?? ''));
-        if ($cdpUrl !== '') {
-            $args[] = '--cdp-url=' . $cdpUrl;
-        }
         if ($hotelId !== '') {
             $args[] = '--hotel-id=' . $hotelId;
         }

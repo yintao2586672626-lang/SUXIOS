@@ -807,6 +807,8 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertFalse($receipt['authority_verifier_required']);
         self::assertTrue($receipt['authority_scope_complete']);
         self::assertFalse($receipt['dual_ota_p0_complete']);
+        self::assertSame(1, $receipt['source_tasks'][0]['saved_count']);
+        self::assertSame(1, $receipt['source_tasks'][0]['readback_count']);
         self::assertTrue($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58));
         self::assertTrue($this->policy->dailyTrustReceiptReady(
             $receipt,
@@ -821,6 +823,34 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertFalse($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58, [], ['ctrip']));
 
         $receipt['source_tasks'][0]['p0_status'] = 'blocked';
+        self::assertFalse($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58));
+    }
+
+    public function testTrustReceiptRejectsSavedReadbackAndRowCountMismatch(): void
+    {
+        $result = [
+            'success' => true,
+            'saved_count' => 2,
+            'required_platforms' => ['ctrip'],
+            'platform_results' => [
+                [
+                    ...$this->verifiedPlatformResult('ctrip', 25, 1001, true),
+                    'saved_count' => 2,
+                    'readback_count' => 1,
+                ],
+            ],
+        ];
+        $receipt = $this->policy->buildDailyTrustReceipt(
+            58,
+            '2026-07-16',
+            [25],
+            $this->policy->classifyOutcome($result),
+            $result,
+            'realtime_snapshot'
+        );
+
+        self::assertSame([], $receipt['source_tasks']);
+        self::assertFalse($receipt['collection_complete']);
         self::assertFalse($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58));
     }
 

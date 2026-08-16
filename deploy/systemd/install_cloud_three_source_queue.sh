@@ -72,6 +72,24 @@ done
   echo "Cloud browser control credential is missing." >&2
   exit 78
 }
+command -v php >/dev/null
+command -v node >/dev/null
+[[ -x /usr/bin/setsid ]] || {
+  echo "The queue requires /usr/bin/setsid." >&2
+  exit 78
+}
+/usr/bin/setsid --help 2>&1 | grep -q -- '--wait' || {
+  echo "The queue requires setsid --wait support." >&2
+  exit 78
+}
+php -r 'exit(function_exists("proc_open") && function_exists("posix_kill") ? 0 : 1);' || {
+  echo "The queue requires PHP proc_open and posix_kill." >&2
+  exit 78
+}
+(
+  cd "$RELEASE_ROOT"
+  node --input-type=module -e "await import('playwright-core'); await import('cloakbrowser')"
+)
 
 for script in \
   scripts/run_cloud_three_source_collection_queue.php \
@@ -113,10 +131,16 @@ if [[ $ENABLE -ne 1 ]]; then
   exit 0
 fi
 
+if [[ $DISABLE_LEGACY -eq 1 ]]; then
+  for legacy_timer in "${LEGACY_TIMERS[@]}"; do
+    if systemctl cat "$legacy_timer" >/dev/null 2>&1; then
+      systemctl disable --now "$legacy_timer"
+      ! systemctl is-enabled --quiet "$legacy_timer"
+      ! systemctl is-active --quiet "$legacy_timer"
+    fi
+  done
+fi
 systemctl enable --now "$TIMER_NAME"
 systemctl is-enabled "$TIMER_NAME" >/dev/null
 systemctl is-active "$TIMER_NAME" >/dev/null
-if [[ $DISABLE_LEGACY -eq 1 ]]; then
-  systemctl disable --now "${LEGACY_TIMERS[@]}" >/dev/null 2>&1 || true
-fi
 echo "INSTALLED_AND_ENABLED release=$RELEASE_ROOT legacy_collectors_disabled=$DISABLE_LEGACY"
