@@ -98,6 +98,35 @@ final class DualOtaPageVerificationServiceTest extends TestCase
         self::assertSame(['ctrip', 'meituan'], array_column($second['platforms'], 'platform'));
     }
 
+    public function testCanonicalContractRequiresExplicitCriticalFieldEvidenceArrays(): void
+    {
+        foreach (['complete', 'missing'] as $field) {
+            $trust = self::trustFixture();
+            unset($trust['days'][0]['platforms'][0]['acceptance_receipt']['critical_fields'][$field]);
+
+            try {
+                DualOtaPageVerificationService::canonicalContract($trust, 12, 80, '2026-08-08');
+                self::fail('Missing critical-field evidence must fail closed: ' . $field);
+            } catch (\RuntimeException $exception) {
+                self::assertSame(409, $exception->getCode());
+                self::assertStringContainsString('critical-field evidence', $exception->getMessage());
+            }
+        }
+
+        $trust = self::trustFixture();
+        foreach ($trust['days'][0]['platforms'] as &$platform) {
+            $platform['acceptance_receipt']['critical_fields']['complete'] = [];
+            $platform['acceptance_receipt']['critical_fields']['missing'] = [];
+        }
+        unset($platform);
+
+        $contract = DualOtaPageVerificationService::canonicalContract($trust, 12, 80, '2026-08-08');
+        foreach ($contract['platforms'] as $platform) {
+            self::assertSame([], $platform['critical_fields']['complete']);
+            self::assertSame([], $platform['critical_fields']['missing']);
+        }
+    }
+
     public function testExactTaskSourceOrDisplayedFactDriftChangesHash(): void
     {
         $trust = self::trustFixture();
@@ -120,6 +149,33 @@ final class DualOtaPageVerificationServiceTest extends TestCase
         $changed = $trust;
         $changed['days'][0]['platforms'][1]['acceptance_receipt']['critical_fields']['missing'] = ['flow_rate'];
         self::assertNotSame($base, self::hash($changed));
+
+        foreach ([
+            ['receipt_identity_mismatch_count', 1],
+            ['receipt_missing_row_count', 1],
+            ['authoritative_row_count', 0],
+        ] as [$field, $value]) {
+            $changed = $trust;
+            $changed['days'][0]['platforms'][0]['acceptance_receipt']['run_readback_scope'][$field] = $value;
+            self::assertNotSame($base, self::hash($changed), $field . ' must invalidate the page contract');
+        }
+
+        $changed = $trust;
+        $changed['days'][0]['platforms'][0]['p0_status'] = 'blocked';
+        self::assertNotSame($base, self::hash($changed));
+
+        $changed = $trust;
+        $changed['days'][0]['platforms'][0]['missing_metric_keys'] = ['flow_rate'];
+        self::assertNotSame($base, self::hash($changed));
+
+        $changed = $trust;
+        $changed['days'][0]['platforms'][0]['failure_reason'] = 'profile_session_unverified';
+        $changedContract = DualOtaPageVerificationService::canonicalContract($changed, 12, 80, '2026-08-08');
+        self::assertNotSame($base, DualOtaPageVerificationService::contractHash($changedContract));
+        $json = json_encode($changedContract, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertIsString($json);
+        self::assertStringNotContainsString('profile_session_unverified', $json);
+        self::assertStringContainsString(hash('sha256', 'profile_session_unverified'), $json);
     }
 
     public function testExactEvidenceAttachesWithoutPromotingOtaTruth(): void
@@ -155,6 +211,24 @@ final class DualOtaPageVerificationServiceTest extends TestCase
         self::assertSame('unverified', $attached['page_verification']['status']);
         self::assertSame('stale_page_confirmation', $attached['page_verification']['reason']);
         self::assertSame('verified', $attached['acceptance_status']);
+    }
+
+    public function testPreviousContractVersionIsUnverifiedAndStale(): void
+    {
+        $trust = self::trustFixture();
+        $contract = DualOtaPageVerificationService::canonicalContract($trust, 12, 80, '2026-08-08');
+        $hash = DualOtaPageVerificationService::contractHash($contract);
+        $row = self::evidenceRow($contract, $hash);
+        $row['description'] = 'dual_ota_page:v1:2026-08-08:' . $hash;
+        $extra = json_decode((string)$row['extra_data'], true);
+        self::assertIsArray($extra);
+        $extra['contract_version'] = 'suxios.dual_ota_page_verification.v1';
+        $row['extra_data'] = json_encode($extra, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $attached = DualOtaPageVerificationService::attachEvidenceRows($trust, 12, 80, [$row]);
+
+        self::assertSame('unverified', $attached['page_verification']['status']);
+        self::assertSame('stale_page_confirmation', $attached['page_verification']['reason']);
     }
 
     public function testInvalidEvidenceFailsClosedAndAnotherTenantIsIgnored(): void
@@ -347,7 +421,7 @@ final class DualOtaPageVerificationServiceTest extends TestCase
             'hotel_id' => 80,
             'module' => DualOtaPageVerificationService::MODULE,
             'action' => DualOtaPageVerificationService::ACTION,
-            'description' => 'dual_ota_page:v1:2026-08-08:' . $hash,
+            'description' => DualOtaPageVerificationService::DESCRIPTION_PREFIX . '2026-08-08:' . $hash,
             'create_time' => '2026-08-09 10:30:00',
             'extra_data' => json_encode([
                 'contract_version' => DualOtaPageVerificationService::CONTRACT_VERSION,
@@ -376,6 +450,8 @@ final class DualOtaPageVerificationServiceTest extends TestCase
                 'status' => 'verified',
                 'acceptance_status' => 'verified',
                 'p0_status' => 'ready',
+                'missing_metric_keys' => [],
+                'failure_reason' => null,
                 'page_status_evidence' => [
                     'status' => 'ready',
                     'live_page_verification_status' => 'not_evaluated',
@@ -399,6 +475,16 @@ final class DualOtaPageVerificationServiceTest extends TestCase
                     'sync_task_id' => $taskId,
                     'sync_task_status' => 'success',
                     'data_period' => 'historical_daily',
+                    'run_readback_scope' => [
+                        'status' => 'verified',
+                        'data_period' => 'historical_daily',
+                        'receipt_row_count' => $name === 'ctrip' ? 12 : 6,
+                        'receipt_current_row_count' => $name === 'ctrip' ? 12 : 6,
+                        'receipt_missing_row_count' => 0,
+                        'receipt_identity_mismatch_count' => 0,
+                        'authoritative_row_count' => $name === 'ctrip' ? 4 : 2,
+                        'mismatched_row_count' => 0,
+                    ],
                     'counts' => [
                         'saved' => $name === 'ctrip' ? 12 : 133,
                         'readback' => $name === 'ctrip' ? 12 : 133,

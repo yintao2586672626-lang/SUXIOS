@@ -119,6 +119,13 @@ class Expansion extends Base
             if (empty($permittedHotelIds) || !in_array($hotelId, $permittedHotelIds, true)) {
                 return $this->error('hotel_id is not permitted', 403);
             }
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'operation.execute',
+                'operation.execute permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
 
             $userId = (int)($this->currentUser->id ?? 0);
             $isSuperAdmin = $this->currentUser->isSuperAdmin();
@@ -131,28 +138,12 @@ class Expansion extends Base
             $this->service->ensureTable();
 
             $result = Db::transaction(function () use ($id, $hotelId, $permittedHotelIds, $userId, $isSuperAdmin, $dateOverrides): array {
+                $hotel = Db::name('hotels')->where('id', $hotelId)->lock(true)->find();
+                if (!is_array($hotel) || (int)($hotel['tenant_id'] ?? 0) <= 0) {
+                    throw new RuntimeException('expansion target hotel tenant scope is unavailable', 500);
+                }
                 $record = $this->service->detail($id, $userId, $isSuperAdmin, true);
                 $operationService = new OperationManagementService();
-                $linkedIntentId = (int)($record['execution_intent_id']
-                    ?? $record['result']['operation_execution_intent_id']
-                    ?? $record['result']['execution_intent_id']
-                    ?? 0);
-                if ($linkedIntentId > 0) {
-                    $intent = $operationService->readExecutionIntent($linkedIntentId, $permittedHotelIds);
-                    if ((int)($intent['hotel_id'] ?? 0) !== $hotelId) {
-                        return [
-                            'conflict' => true,
-                            'linked_hotel_id' => (int)($intent['hotel_id'] ?? 0),
-                        ];
-                    }
-
-                    return [
-                        'execution_intent' => $intent,
-                        'record' => $record,
-                        'idempotent_replay' => true,
-                    ];
-                }
-
                 $input = $this->service->buildExecutionIntentInput($record, $hotelId, $dateOverrides);
                 $intent = $operationService->createExecutionIntent($permittedHotelIds, $hotelId, $input, $userId, true);
                 $updatedRecord = $this->service->attachExecutionTracking($id, $userId, $isSuperAdmin, [
@@ -164,13 +155,9 @@ class Expansion extends Base
                 return [
                     'execution_intent' => $intent,
                     'record' => $updatedRecord,
-                    'idempotent_replay' => false,
+                    'idempotent_replay' => ($intent['idempotent_replay'] ?? false) === true,
                 ];
             });
-
-            if (($result['conflict'] ?? false) === true) {
-                return $this->error('expansion record is already linked to an execution intent for a different hotel', 409);
-            }
 
             return $this->success(
                 $result,

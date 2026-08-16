@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 const PRIVATE_STATES = new WeakMap();
 const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 const MAX_SAFE_HEADER_BYTES = 1024;
+const DEFAULT_REPLAY_TIMEOUT_MS = 12000;
 
 const PLATFORM_HOSTS = {
   ctrip: new Set(['ebooking.ctrip.com']),
@@ -55,6 +56,12 @@ export function createOtaReadFallbackState(platform, options = {}) {
   PRIVATE_STATES.set(state, {
     maxTemplates: boundedInteger(options.maxTemplates, 1, 12, 8),
     maxAttempts: boundedInteger(options.maxAttempts, 1, 12, 8),
+    replayTimeoutMs: boundedInteger(
+      options.replayTimeoutMs || options.replay_timeout_ms,
+      1000,
+      30000,
+      DEFAULT_REPLAY_TIMEOUT_MS,
+    ),
     templates: new Map(),
     attemptedFingerprints: new Set(),
     reportedBlocks: new Set(),
@@ -299,12 +306,15 @@ export async function replayObservedOtaReadRequests(page, state, context = {}) {
     let result;
     try {
       result = await executionContext.evaluate(async input => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
         try {
           const init = {
             method: input.method,
             credentials: 'include',
             headers: input.headers,
             redirect: 'follow',
+            signal: controller.signal,
           };
           if (input.method === 'GET') {
             init.cache = 'no-store';
@@ -323,14 +333,18 @@ export async function replayObservedOtaReadRequests(page, state, context = {}) {
             transport_ok: false,
             ok: false,
             status: 0,
+            timed_out: String(error?.name || '') === 'AbortError',
             error_name: String(error?.name || 'Error').replace(/[^A-Za-z]/g, '').slice(0, 40),
           };
+        } finally {
+          clearTimeout(timeout);
         }
       }, {
         url: template.url,
         method: template.method,
         body: template.body,
         headers: template.headers,
+        timeoutMs: privateState.replayTimeoutMs,
       });
     } catch {
       result = { transport_ok: false, ok: false, status: 0 };
@@ -344,7 +358,7 @@ export async function replayObservedOtaReadRequests(page, state, context = {}) {
       status: responseObserved ? 'response_observed' : 'failed',
       reason: responseObserved
         ? 'same_origin_read_replay'
-        : (httpStatus > 0 ? 'http_status' : 'fetch_failed'),
+        : (result?.timed_out === true ? 'timeout' : (httpStatus > 0 ? 'http_status' : 'fetch_failed')),
       httpStatus,
     }));
   }

@@ -29,12 +29,10 @@ use think\facade\Log;
 
 class AutoFetchOnlineData extends Command
 {
-    private const PROFILE_LOCK_STALE_SECONDS = 300;
+    private const PROFILE_LOCK_STALE_SECONDS = 3600;
     private const NATURAL_HISTORICAL_CAPTURE_TIMEOUT_SECONDS = 600;
     private const LOCAL_PLAN_COMPLETION_TIMEOUT_SECONDS = 300;
     private const LOCAL_PLAN_POLL_INTERVAL_MICROSECONDS = 1_000_000;
-    private const CLOUD_SINGLE_USER_LOCAL_HOTEL_IDS = [80];
-
     /** @var array<string, mixed> */
     private array $cloudCollectorScope = [];
 
@@ -748,6 +746,25 @@ class AutoFetchOnlineData extends Command
                     }
                     continue;
                 }
+                $profileRunLock = $this->acquireHotelProfileRunLock($hotelId);
+                if (!is_resource($profileRunLock)) {
+                    $message = 'skipped_locked: same hotel already has another scheduled capture task';
+                    $output->writeln("Hotel {$hotelName} {$run['label']} {$message}.");
+                    $this->updateStatus($hotelId, false, $message, $run['data_date'], [
+                        'status' => 'skipped_locked',
+                        'data_period' => $run['period'],
+                        'slot_id' => $run['slot_id'],
+                    ]);
+                    $this->markScheduledNoCollectionOutcome(
+                        $output,
+                        $hotelId,
+                        (string)$run['data_date'],
+                        'profile_locked'
+                    );
+                    $hasIncompleteDueRun = true;
+                    continue;
+                }
+                try {
                 $existingLock = Cache::get($lockKey);
                 if (is_array($existingLock) && $this->profileLockIsStale($existingLock)) {
                     // The worker can disappear before its finally block runs.
@@ -775,8 +792,10 @@ class AutoFetchOnlineData extends Command
                 }
 
                 $snapshotTime = date('Y-m-d H:i:s');
+                $lockOwnerToken = bin2hex(random_bytes(16));
                 $output->writeln("Hotel {$hotelName} start {$run['label']} capture for {$run['data_date']}.");
                 Cache::set($lockKey, [
+                    'owner_token' => $lockOwnerToken,
                     'data_period' => $run['period'],
                     'data_date' => $run['data_date'],
                     'started_at' => $snapshotTime,
@@ -941,6 +960,57 @@ class AutoFetchOnlineData extends Command
                             ? (array)($run['cache_scope_platforms'] ?? [])
                             : null
                     ) && ($receipt['canonical_history_complete'] ?? false) === true;
+                    if ($this->dispatcherRunId !== ''
+                        && !$trustedReady
+                        && ($outcome['complete'] ?? false) === true
+                    ) {
+                        $failureReason = 'requested_scope_authority_or_history_incomplete';
+                        $result['message'] = trim(
+                            (string)($result['message'] ?? '') . '; ' . $failureReason,
+                            '; '
+                        );
+                        $receipt = $this->downgradeUntrustedMachineReceipt($receipt);
+                        $receipt['pms_run_attachment'] = $this->attachExactScheduledPmsCapture(
+                            $tenantId,
+                            $hotelId,
+                            (string)$run['data_date']
+                        );
+                        $this->updateStatus(
+                            $hotelId,
+                            false,
+                            (string)$result['message'],
+                            (string)$run['data_date'],
+                            [
+                                'status' => 'in_progress',
+                                'saved_count' => (int)($outcome['saved_count'] ?? 0),
+                                'data_period' => $run['period'],
+                                'slot_id' => $run['slot_id'],
+                                'platform_results' => is_array($result['platform_results'] ?? null)
+                                    ? $result['platform_results']
+                                    : [],
+                                'failed_platforms' => [],
+                                'in_progress_platforms' => (array)(
+                                    $outcome['required_platforms'] ?? []
+                                ),
+                                'successful_platforms' => (array)(
+                                    $outcome['successful_platforms'] ?? []
+                                ),
+                                'failure_reason' => $failureReason,
+                                'dispatcher_run_id' => $this->dispatcherRunId,
+                                'authority_verifier' => $receipt['authority_verifier'] ?? [],
+                                'trust_receipt' => $receipt,
+                            ]
+                        );
+                        $output->writeln(
+                            "Hotel {$hotelName} {$run['label']} in_progress: {$failureReason}"
+                        );
+                        // Both producer tasks and their exact rows are already durable.
+                        // Keep this dispatcher active so a later trigger retries only
+                        // canonical/authority finalization instead of collecting again
+                        // under a new UUID.
+                        $hasIncompleteDueRun = true;
+                        continue;
+                    }
                     if ($this->dispatcherRunId !== '') {
                         $finalizedRunReceipt = $this->finalizeScheduledCollectionReceipt(
                             $hotelId,
@@ -985,6 +1055,15 @@ class AutoFetchOnlineData extends Command
                             $hasIncompleteDueRun = true;
                             continue;
                         }
+                        $output->writeln(
+                            'SUXIOS_COLLECTION_RUN_RECEIPT='
+                            . json_encode(
+                                $finalizedRunReceipt,
+                                JSON_UNESCAPED_UNICODE
+                                    | JSON_UNESCAPED_SLASHES
+                                    | JSON_THROW_ON_ERROR
+                            )
+                        );
                         $receipt['collection_run_status'] = (string)(
                             $finalizedRunReceipt['status'] ?? ''
                         );
@@ -1094,7 +1173,15 @@ class AutoFetchOnlineData extends Command
                         $hasIncompleteDueRun = true;
                     }
                 } finally {
-                    Cache::delete($lockKey);
+                    $currentLock = Cache::get($lockKey);
+                    if (is_array($currentLock)
+                        && hash_equals($lockOwnerToken, (string)($currentLock['owner_token'] ?? ''))
+                    ) {
+                        Cache::delete($lockKey);
+                    }
+                }
+                } finally {
+                    $this->releaseHotelProfileRunLock($profileRunLock);
                 }
             }
         }
@@ -1282,11 +1369,6 @@ class AutoFetchOnlineData extends Command
         array $platforms,
         bool $requireExistingBinding = true
     ): array {
-        if (!in_array($hotelId, self::CLOUD_SINGLE_USER_LOCAL_HOTEL_IDS, true)) {
-            throw new \RuntimeException(
-                'single_user_local cloud compatibility is allowlisted only for system hotel 80.'
-            );
-        }
         $user = User::where('id', $userId)->where('status', User::STATUS_ENABLED)->find();
         if (!$user instanceof User) {
             throw new \RuntimeException('collector user is missing or disabled.');
@@ -1585,8 +1667,9 @@ class AutoFetchOnlineData extends Command
         string $boundAt,
         string $platformHotelId = ''
     ): array {
-        $platformHotelId = trim($platformHotelId) !== ''
-            ? trim($platformHotelId)
+        $explicitPlatformHotelId = trim($platformHotelId);
+        $platformHotelId = $explicitPlatformHotelId !== ''
+            ? $explicitPlatformHotelId
             : trim((string)($config['platform_hotel_id'] ?? ''));
         if ($platformHotelId === '') {
             throw new \RuntimeException(
@@ -1603,6 +1686,10 @@ class AutoFetchOnlineData extends Command
         $config['collector_platform'] = strtolower(trim((string)($source['platform'] ?? '')));
         $config['collector_bound_at'] = $boundAt;
         $config['platform_hotel_id'] = $platformHotelId;
+        if ($explicitPlatformHotelId !== '') {
+            $config['platform_hotel_identity_source'] = 'explicit_single_user_local_binding';
+            $config['platform_hotel_identity_checked_at'] = $boundAt;
+        }
         foreach (array_keys($config) as $key) {
             if (str_starts_with((string)$key, 'current_session_')) {
                 unset($config[$key]);
@@ -5091,6 +5178,43 @@ class AutoFetchOnlineData extends Command
         }
 
         return array_keys($codes) ?: ['ordered_profile_capture_failed'];
+    }
+
+    /** @return resource|null */
+    private function acquireHotelProfileRunLock(int $hotelId)
+    {
+        if ($hotelId <= 0) {
+            return null;
+        }
+        $directory = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
+        if (!is_dir($directory) && !@mkdir($directory, 0775, true) && !is_dir($directory)) {
+            return null;
+        }
+        $path = $directory . DIRECTORY_SEPARATOR . 'hotel_profile_schedule_' . $hotelId . '.lock';
+        $handle = @fopen($path, 'c+');
+        if (!is_resource($handle)) {
+            return null;
+        }
+        if (!@flock($handle, LOCK_EX | LOCK_NB)) {
+            fclose($handle);
+            return null;
+        }
+        ftruncate($handle, 0);
+        fwrite($handle, json_encode([
+            'hotel_id' => $hotelId,
+            'pid' => getmypid(),
+            'locked_at' => date('c'),
+        ], JSON_UNESCAPED_SLASHES) ?: '{}');
+        return $handle;
+    }
+
+    /** @param resource|null $lock */
+    private function releaseHotelProfileRunLock($lock): void
+    {
+        if (is_resource($lock)) {
+            @flock($lock, LOCK_UN);
+            fclose($lock);
+        }
     }
 
     /** @return array<int, string> */

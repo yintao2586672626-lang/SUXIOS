@@ -7,6 +7,18 @@ import vm from 'node:vm';
 const systemStaticSource = fs.readFileSync('public/system-static.js', 'utf8');
 const appMainSource = fs.readFileSync('public/app-main.js', 'utf8');
 const serviceSource = fs.readFileSync('app/service/ManualNotificationService.php', 'utf8');
+const scheduleRuleSource = fs.readFileSync(
+  'app/service/ManualNotificationScheduleRuleService.php',
+  'utf8',
+);
+const hourlyPayloadSource = fs.readFileSync(
+  'app/service/CloudThreeSourceHourlyPayloadService.php',
+  'utf8',
+);
+const conditionRuleSource = fs.readFileSync(
+  'app/service/ManualNotificationConditionRuleService.php',
+  'utf8',
+);
 const fragmentSource = fs.readFileSync(
   'resources/frontend/templates/fragments/15ab-page-manual-notifications.html',
   'utf8',
@@ -189,6 +201,46 @@ test('notification schedule panel cache key matches its exact source bytes', () 
   );
 });
 
+test('business-condition rules are configurable and advance only after success', () => {
+  for (const marker of [
+    'manual-notification-condition-type',
+    'manual-notification-condition-threshold',
+    'manual-notification-condition-step',
+    'manual-notification-condition-state',
+  ]) {
+    assert.match(schedulePanelSource, new RegExp(marker));
+  }
+  for (const copy of [
+    '入住率跨档提醒',
+    '满房时提醒',
+    '首次成功送达才记为已提醒',
+    '20/25/30',
+  ]) {
+    assert.match(
+      `${serviceSource}\n${schedulePanelSource}\n${conditionRuleSource}`,
+      new RegExp(copy),
+    );
+  }
+  for (const fieldName of [
+    'condition_type',
+    'condition_threshold',
+    'condition_step',
+    'condition_state',
+  ]) {
+    assert.match(appMainSource, new RegExp(fieldName));
+  }
+  assert.match(conditionRuleSource, /commitSuccessfulDelivery/);
+  assert.match(conditionRuleSource, /where\('status', 'sent'\)/);
+  assert.match(conditionRuleSource, /manual_notification_condition_level_already_sent/);
+  assert.match(conditionRuleSource, /manual_notification_condition_full_house_already_sent/);
+  assert.match(conditionRuleSource, /'requires_pms_facts' => true/);
+  assert.match(schedulePanelSource, /hasPmsConditionFacts/);
+  assert.match(
+    appMainSource,
+    /field === 'content_sections'[\s\S]*manualNotificationForm\.value\.condition_type = 'always'/,
+  );
+});
+
 test('operating daily keeps custom compatibility while common templates choose a source', () => {
   assert.match(fragmentSource, /manual-notification-content-template-mode/);
   assert.match(fragmentSource, /manual-notification-content-mode-\$\{mode\.key\}/);
@@ -210,7 +262,7 @@ test('operating daily keeps custom compatibility while common templates choose a
   );
 });
 
-test('operating daily plans allow only manual test or one daily fixed time', () => {
+test('operating daily keeps fixed-time default and exposes strict cloud three-source schedules', () => {
   assert.match(
     serviceSource,
     /OPERATING_DAILY_TRIGGER_TYPES\s*=\s*\[\s*'manual_test',\s*'daily_fixed_time'/,
@@ -237,8 +289,134 @@ test('operating daily plans allow only manual test or one daily fixed time', () 
   );
   assert.match(
     appMainSource,
-    /经营日报不支持循环发送，请选择每日固定时间/,
+    /普通经营日报不支持循环发送，请选择每日固定时间/,
   );
+  assert.match(serviceSource, /isStrictThreeSourceIntervalPlan/);
+  assert.match(
+    appMainSource,
+    /manualNotificationCanConfigureStrictThreeSourceInterval/,
+  );
+  assert.match(
+    appMainSource,
+    /Number\(manualNotificationForm\.value\.hotel_id \|\| 0\) === 80/,
+  );
+  assert.match(
+    appMainSource,
+    /trigger_type: 'interval_minutes',[\s\S]{0,220}interval_minutes: 30/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /strictThreeSourceIntervalAvailable[\s\S]*每 30 分钟（三源严格计划）/,
+  );
+  assert.match(schedulePanelSource, /三源计划配置待修正/);
+  assert.match(serviceSource, /isStrictThreeSourceHourlyPlan/);
+  assert.match(
+    appMainSource,
+    /manualNotificationCanConfigureStrictThreeSourceHourly/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /strictThreeSourceHourlyAvailable[\s\S]*每小时整点（三源云端推送）/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /默认 01:00–23:00 整点发送；云端会在整点前刷新三源/,
+  );
+  assert.match(appMainSource, /hourly_start_time: '01:00'/);
+  assert.match(scheduleRuleSource, /\$now->format\('H'\) === '00'/);
+  assert.match(
+    scheduleRuleSource,
+    /return \$now->modify\('-1 day'\)->format\('Y-m-d'\);/,
+  );
+  assert.match(hourlyPayloadSource, /\$midnightCloseout/);
+  assert.match(
+    hourlyPayloadSource,
+    /00:00 仅允许前一天的最新收口回读/,
+  );
+  assert.match(serviceSource, /previous day's fresh 23:30 closeout batch/);
+});
+
+test('three-source hourly setup exposes one-click guided fields and truthful source actions', () => {
+  assert.match(
+    schedulePanelSource,
+    /data-testid': 'manual-notification-hourly-preset'[\s\S]*一键三源整点推送/,
+  );
+  assert.match(
+    appMainSource,
+    /data-manual-notification-create-hourly="1">一键三源整点推送/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /emit\('apply-hourly-preset'\)/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-hourly-primary-controls[\s\S]*开始整点[\s\S]*结束整点/,
+  );
+  assert.match(schedulePanelSource, /const channelControl = field\('推送通道'/);
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-hourly-contract-summary[\s\S]*当前酒店[\s\S]*当天数据[\s\S]*PMS＋携程＋美团/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-hourly-advanced-settings[\s\S]*数据来源（只读）[\s\S]*发送方式（只读）/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-exit-hourly-guided[\s\S]*改为普通每日计划/,
+  );
+  assert.match(
+    appMainSource,
+    /applyManualNotificationThreeSourceHourlyPreset[\s\S]*hourly_start_time: '01:00'[\s\S]*hourly_end_time: '23:00'/,
+  );
+  assert.match(
+    appMainSource,
+    /applyHourlyPreset: applyManualNotificationThreeSourceHourlyPreset/,
+  );
+  assert.match(
+    appMainSource,
+    /data-manual-notification-create-hourly[\s\S]*selectManualNotificationTemplate\(template\)[\s\S]*applyManualNotificationThreeSourceHourlyPreset\(\)/,
+  );
+
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-runtime-overview[\s\S]*三源运行状态[\s\S]*上次成功[\s\S]*下次运行[\s\S]*最近阻断/,
+  );
+  for (const source of ['pms', 'ctrip', 'meituan']) {
+    assert.match(appMainSource, new RegExp(`key: '${source}'`));
+  }
+  for (const actionKey of [
+    'recollect_source',
+    'relogin_source',
+    'check_source_binding',
+    'check_source_status',
+  ]) {
+    assert.match(appMainSource, new RegExp(`action_key: '${actionKey}'`));
+  }
+  assert.match(
+    schedulePanelSource,
+    /emit\('source-action'[\s\S]*action_key: source\.action_key/,
+  );
+  assert.match(
+    appMainSource,
+    /handleManualNotificationSourceAction[\s\S]*openHotelManualFetchConfig[\s\S]*openPlatformSourcesTab[\s\S]*openHotelManualFetch/,
+  );
+  assert.match(
+    appMainSource,
+    /最近记录未提供该来源的独立状态/,
+    'missing evidence must remain unknown instead of being rendered ready',
+  );
+});
+
+test('three-source runtime prefers formal source readiness and exposes expiry recovery', () => {
+  assert.match(
+    appMainSource,
+    /three_source_hourly_status[\s\S]*cloud_three_source_hourly_status\.v1/,
+    'source readiness must prefer the hotel-scoped readback status contract',
+  );
+  assert.match(appMainSource, /source\.profile\?\.expiring_soon === true/);
+  assert.match(appMainSource, /request_login: \['relogin_source'/);
 });
 
 test('PMS operating data page owns unified PMS deltas without duplicating source configuration', () => {

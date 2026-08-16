@@ -30,22 +30,24 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     public function fetch(array $source, array $options = []): array
     {
         $config = is_array($source['config'] ?? null) ? $source['config'] : [];
-        $cdpUrl = trim((string)($options['cdp_url'] ?? $options['cdpUrl'] ?? ''));
-        if ($cdpUrl !== '' && $cdpUrl !== 'http://127.0.0.1:9223') {
-            return [
-                'status' => 'failed',
-                'status_code' => 'cloud_browser_cdp_url_invalid',
-                'error_code' => 'cloud_browser_cdp_url_invalid',
-                'message' => 'Cloud browser CDP endpoint is invalid.',
-                'payload' => [],
-            ];
-        }
         $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
         $storeId = $this->firstString($options, $config, ['platform_hotel_id', 'store_id', 'storeId', 'poi_id', 'poiId']);
         if ($storeId === '') {
             return [
                 'status' => 'waiting_config',
                 'message' => 'Meituan browser Profile store_id/poi_id is not configured.',
+                'payload' => [],
+            ];
+        }
+
+        $requestedCdpUrl = $this->firstString($options, [], ['cdp_url', 'cdpUrl']);
+        $cdpUrl = $this->normalizeCdpUrl($requestedCdpUrl);
+        if ($requestedCdpUrl !== '' && $cdpUrl !== 'http://127.0.0.1:9223') {
+            return [
+                'status' => 'failed',
+                'status_code' => 'cloud_browser_cdp_url_invalid',
+                'error_code' => 'cloud_browser_cdp_url_invalid',
+                'message' => 'Meituan CDP URL must use the protected http://127.0.0.1:9223 endpoint.',
                 'payload' => [],
             ];
         }
@@ -148,6 +150,8 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if ($cdpUrl !== '') {
             $args[] = '--cdp-url=' . $cdpUrl;
+            $args[] = '--report-dir=' . $outputDir;
+            $args[] = '--profile-dir=' . $outputDir . DIRECTORY_SEPARATOR . 'meituan_cdp_profile_stub';
         }
 
         try {
@@ -838,6 +842,19 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         $timestamp = strtotime($value);
         return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    }
+
+    private function normalizeCdpUrl(string $value): string
+    {
+        $value = trim($value);
+        if (preg_match('#^http://127\.0\.0\.1:([1-9][0-9]{0,4})/?$#D', $value, $matches) !== 1) {
+            return '';
+        }
+        $port = (int)$matches[1];
+        if ($port < 1 || $port > 65535) {
+            return '';
+        }
+        return 'http://127.0.0.1:' . $port;
     }
 
     private function truthy(mixed $value): bool

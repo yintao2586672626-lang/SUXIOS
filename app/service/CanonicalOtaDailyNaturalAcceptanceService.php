@@ -146,7 +146,7 @@ final class CanonicalOtaDailyNaturalAcceptanceService
             $origins,
             $reasons
         );
-        $continuous = $this->evaluateContinuousTrust($scope, $reasons);
+        $continuous = $this->evaluateContinuousTrust($scope, $collection, $reasons);
         $operations = $this->evaluateOperations(
             $child,
             $scope,
@@ -840,10 +840,15 @@ final class CanonicalOtaDailyNaturalAcceptanceService
 
     /**
      * @param array<string,mixed> $scope
+     * @param array<string,mixed> $collection
      * @param array<int,string> $reasons
      * @return array<string,mixed>
      */
-    private function evaluateContinuousTrust(array $scope, array &$reasons): array
+    private function evaluateContinuousTrust(
+        array $scope,
+        array $collection,
+        array &$reasons
+    ): array
     {
         try {
             $result = ($this->continuousTrustInspector)(
@@ -857,7 +862,7 @@ final class CanonicalOtaDailyNaturalAcceptanceService
         }
         $days = is_array($result['days'] ?? null) ? $result['days'] : [];
         $day = is_array($days[0] ?? null) ? $days[0] : [];
-        $ready = strtolower(trim((string)($result['status'] ?? ''))) === 'verified'
+        $aggregateReady = strtolower(trim((string)($result['status'] ?? ''))) === 'verified'
             && strtolower(trim((string)($result['acceptance_status'] ?? ''))) === 'verified'
             && (int)($result['verified_days'] ?? 0) === 1
             && (int)($result['accepted_days'] ?? 0) === 1
@@ -866,16 +871,80 @@ final class CanonicalOtaDailyNaturalAcceptanceService
             && (string)($day['date'] ?? '') === $scope['target_date']
             && strtolower(trim((string)($day['status'] ?? ''))) === 'verified'
             && strtolower(trim((string)($day['acceptance_status'] ?? ''))) === 'verified';
-        if (!$ready) {
+        $exactRunClaimTaskMatch = $aggregateReady
+            && $this->exactRunClaimTasksMatch($day, $collection, $scope);
+        if (!$aggregateReady) {
             $reasons[] = 'dual_ota_continuous_trust_not_ready';
+        } elseif (!$exactRunClaimTaskMatch) {
+            $reasons[] = 'exact_run_claim_task_mismatch';
         }
+        $ready = $aggregateReady && $exactRunClaimTaskMatch;
         return [
             'status' => $ready ? 'verified' : 'blocked',
             'acceptance_status' => strtolower(trim((string)($result['acceptance_status'] ?? ''))),
             'verified_days' => max(0, (int)($result['verified_days'] ?? 0)),
             'accepted_days' => max(0, (int)($result['accepted_days'] ?? 0)),
             'required_platforms' => $this->platforms($result['required_platforms'] ?? []),
+            'exact_run_claim_task_match' => $exactRunClaimTaskMatch,
         ];
+    }
+
+    /**
+     * A same-date continuous-trust claim is evidence for this natural run only
+     * when each platform receipt names the exact source task selected by the
+     * current child receipt. This still permits a bounded retry task because
+     * evaluateCollection() exposes only the child's explicit canonical choice.
+     *
+     * @param array<string,mixed> $day
+     * @param array<string,mixed> $collection
+     * @param array<string,mixed> $scope
+     */
+    private function exactRunClaimTasksMatch(
+        array $day,
+        array $collection,
+        array $scope
+    ): bool {
+        $tasks = is_array($collection['source_tasks'] ?? null)
+            ? $collection['source_tasks']
+            : [];
+        $platformRows = is_array($day['platforms'] ?? null) ? $day['platforms'] : [];
+        if (count($tasks) !== count($scope['platforms'])
+            || count($platformRows) !== count($scope['platforms'])
+        ) {
+            return false;
+        }
+
+        $seenPlatforms = [];
+        foreach ($platformRows as $platformRow) {
+            if (!is_array($platformRow)) {
+                return false;
+            }
+            $platform = strtolower(trim((string)($platformRow['platform'] ?? '')));
+            $task = is_array($tasks[$platform] ?? null) ? $tasks[$platform] : [];
+            $receipt = is_array($platformRow['acceptance_receipt'] ?? null)
+                ? $platformRow['acceptance_receipt']
+                : [];
+            if (!in_array($platform, $scope['platforms'], true)
+                || isset($seenPlatforms[$platform])
+                || $task === []
+                || strtolower(trim((string)($receipt['platform'] ?? ''))) !== $platform
+                || ($receipt['claim_allowed'] ?? false) !== true
+                || (int)($receipt['data_source_id'] ?? 0)
+                    !== (int)($task['data_source_id'] ?? 0)
+                || (int)($receipt['sync_task_id'] ?? 0)
+                    !== (int)($task['sync_task_id'] ?? 0)
+            ) {
+                return false;
+            }
+            $seenPlatforms[$platform] = true;
+        }
+
+        foreach ($scope['platforms'] as $platform) {
+            if (!isset($seenPlatforms[$platform])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -1223,8 +1292,13 @@ final class CanonicalOtaDailyNaturalAcceptanceService
             return false;
         }
 
+        $currentCollection = ['source_tasks' => $currentTasks];
         $continuousReasons = [];
-        if (($this->evaluateContinuousTrust($scope, $continuousReasons)['status'] ?? '') !== 'verified') {
+        if (($this->evaluateContinuousTrust(
+            $scope,
+            $currentCollection,
+            $continuousReasons
+        )['status'] ?? '') !== 'verified') {
             return false;
         }
 
@@ -1238,7 +1312,6 @@ final class CanonicalOtaDailyNaturalAcceptanceService
         $expectedActionTypes = in_array($selectedPlatform, self::ALLOWED_PLATFORMS, true)
             ? CanonicalOtaInvestigationActionService::actionTypesForPlatform($selectedPlatform)
             : [];
-        $currentCollection = ['source_tasks' => $currentTasks];
         if (count($intentIds) !== 4
             || count($taskIds) !== 4
             || count($evidenceIds) !== 4
@@ -1417,7 +1490,8 @@ final class CanonicalOtaDailyNaturalAcceptanceService
                     }
                     $finish = $decoded;
                 }
-            } elseif (str_starts_with($line, 'SUXIOS_AUTO_FETCH_RECEIPT=')) {
+            } elseif (str_starts_with($line, 'SUXIOS_AUTO_FETCH_RECEIPT=')
+                || str_starts_with($line, 'SUXIOS_COLLECTION_RUN_RECEIPT=')) {
                 $childLines[] = $line;
             } elseif (preg_match('/^dispatcher_terminal_status=finished;exit_code=(-?[0-9]+)$/D', $line, $match) === 1) {
                 if ($terminalExitCode !== null) {
@@ -1429,11 +1503,44 @@ final class CanonicalOtaDailyNaturalAcceptanceService
         if (!is_array($start) || !is_array($finish)) {
             throw new RuntimeException('dispatcher_provenance_missing');
         }
-        if (count($childLines) !== 1) {
+        foreach ($childLines as $line) {
+            $prefix = str_starts_with($line, 'SUXIOS_COLLECTION_RUN_RECEIPT=')
+                ? 'SUXIOS_COLLECTION_RUN_RECEIPT='
+                : 'SUXIOS_AUTO_FETCH_RECEIPT=';
+            $candidate = json_decode(
+                substr($line, strlen($prefix)),
+                true,
+                128,
+                JSON_THROW_ON_ERROR
+            );
+            if (!is_array($candidate)
+                || !array_key_exists('sensitive_values_exposed', $candidate)
+                || !is_bool($candidate['sensitive_values_exposed'])
+                || $candidate['sensitive_values_exposed'] !== false
+            ) {
+                throw new RuntimeException('child_receipt_invalid');
+            }
+        }
+        $selectedChildLines = $childLines;
+        if (count($childLines) > 1) {
+            $expectedDigest = (string)($finish['child_receipt_sha256'] ?? '');
+            $selectedChildLines = array_values(array_filter(
+                $childLines,
+                fn(string $line): bool => $this->digestEquals(
+                    $this->childLineDigest($line),
+                    $expectedDigest
+                )
+            ));
+        }
+        if (count($selectedChildLines) !== 1) {
             throw new RuntimeException('child_receipt_ambiguous');
         }
+        $childLine = $selectedChildLines[0];
+        $childPrefix = str_starts_with($childLine, 'SUXIOS_COLLECTION_RUN_RECEIPT=')
+            ? 'SUXIOS_COLLECTION_RUN_RECEIPT='
+            : 'SUXIOS_AUTO_FETCH_RECEIPT=';
         $child = json_decode(
-            substr($childLines[0], strlen('SUXIOS_AUTO_FETCH_RECEIPT=')),
+            substr($childLine, strlen($childPrefix)),
             true,
             128,
             JSON_THROW_ON_ERROR
@@ -1444,7 +1551,7 @@ final class CanonicalOtaDailyNaturalAcceptanceService
         return [
             'start' => $start,
             'finish' => $finish,
-            'child_line' => $childLines[0],
+            'child_line' => $childLine,
             'child_receipt' => $child,
             'terminal_exit_code' => $terminalExitCode,
         ];
@@ -1619,17 +1726,24 @@ final class CanonicalOtaDailyNaturalAcceptanceService
                 ? 'ready'
                 : 'blocked';
         $ingestionMethod = strtolower(trim((string)($taskRow['ingestion_method'] ?? '')));
-        $producerEvidenceVerified = (new HotelCollectionRunReceiptService())->sourceEvidenceCurrent(
-            (string)($task['dispatcher_run_id'] ?? ''),
-            $hotelId,
-            $date,
-            $platform,
-            $sourceId,
-            $taskId,
-            $localCollectorTaskId,
-            $rowIds,
-            $executionOwnerUserId
-        );
+        try {
+            $producerEvidenceVerified = (new HotelCollectionRunReceiptService())->sourceEvidenceCurrent(
+                (string)($task['dispatcher_run_id'] ?? ''),
+                $hotelId,
+                $date,
+                $platform,
+                $sourceId,
+                $taskId,
+                $localCollectorTaskId,
+                $rowIds,
+                $executionOwnerUserId
+            );
+        } catch (\Throwable) {
+            // Missing or unreadable producer-ledger evidence blocks natural
+            // acceptance, but must not turn a truthful data-gap response into
+            // an unhandled request failure.
+            $producerEvidenceVerified = false;
+        }
 
         return [
             'tenant_id' => $tenantId,

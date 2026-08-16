@@ -53,7 +53,7 @@ final class RevenueForecastReadinessService
                 $this->missing('actual_result', '入住结果复盘', '入住日后回填实际入住率并复盘调价效果'),
             ]);
         } elseif ($appliedCount > 0) {
-            $readiness = $this->readiness('forecast_pricing_closed', '预测已闭环', 100, true, true, '保留预测、调价和实际结果证据');
+            $readiness = $this->readiness('forecast_pricing_closed', '预测组件已复盘', 100, true, true, '保留预测、调价和实际结果证据，并由经营闭环内核判断全链状态');
         } elseif ($approvedCount > 0) {
             $readiness = $this->readiness('forecast_pricing_approved', '定价已批', 80, false, true, '执行已批准调价并跟踪结果', [
                 $this->missing('pricing_execution', '调价执行', '执行已批准调价并记录结果'),
@@ -80,7 +80,10 @@ final class RevenueForecastReadinessService
             'stage' => $stage,
             'status_label' => $label,
             'score' => $score,
-            'closed_loop' => $closedLoop,
+            'closed_loop' => false,
+            'component_closed_loop' => $closedLoop,
+            'authority_status' => 'diagnostic_only',
+            'source_policy' => 'component_readiness_only_requires_hotel_operating_cycle_kernel',
             'execution_ready' => $executionReady,
             'next_action' => $nextAction,
             'missing_evidence' => $missingEvidence,

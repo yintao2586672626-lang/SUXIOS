@@ -737,7 +737,6 @@ class RevenueAiOverviewService
         ];
         return $base;
     }
-
     /**
      * @param array<string, mixed> $row
      * @return array<string, mixed>|null
@@ -747,10 +746,12 @@ class RevenueAiOverviewService
         $stored = $this->jsonLikeArray($row['raw_data'] ?? []);
         $canonical = is_array($stored['row'] ?? null) ? $stored['row'] : [];
         $detail = is_array($canonical['raw_data'] ?? null) ? $canonical['raw_data'] : [];
+        $importContract = (string)($detail['import_contract'] ?? '');
         if (strtolower(trim((string)($row['source'] ?? ''))) !== 'ctrip'
             || strtolower(trim((string)($canonical['platform'] ?? ''))) !== 'ctrip'
             || (string)($detail['amount_semantics'] ?? '') !== 'reference_bottom_price_not_confirmed_revenue'
-            || (string)($detail['import_contract'] ?? '') !== 'ctrip_order_aggregate_v1'
+            || !in_array($importContract, ['ctrip_order_aggregate_v1', 'ctrip_order_aggregate_v2'], true)
+            || ($importContract === 'ctrip_order_aggregate_v2' && (string)($detail['record_kind'] ?? '') !== 'channel_daily_aggregate')
             || (string)($detail['pii_policy'] ?? '') !== 'aggregate_only_no_guest_staff_reservation_notes'
         ) {
             return null;
@@ -786,10 +787,9 @@ class RevenueAiOverviewService
             'reference_bottom_price_completeness' => (string)($detail['bottom_price_completeness'] ?? 'unknown'),
             'amount_semantics' => 'reference_bottom_price_not_confirmed_revenue',
             'source_format' => $sourceFormat,
-            'source_layout' => is_scalar($detail['source_layout'] ?? null)
-                ? trim((string)$detail['source_layout']) ?: null
-                : null,
+            'source_layout' => is_scalar($detail['source_layout'] ?? null) ? trim((string)$detail['source_layout']) ?: null : null,
             'source_file_count' => max(0, (int)($detail['source_file_count'] ?? 0)),
+            'import_contract' => $importContract,
             'quality_status' => 'user_provided_unverified',
             'readback_verified' => true,
             'real_file_acceptance' => (string)($detail['fixture_status'] ?? '') === 'explicit_test_fixture'

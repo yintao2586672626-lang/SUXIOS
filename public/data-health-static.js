@@ -1,4 +1,6 @@
 window.SUXI_DATA_HEALTH_STATIC = (() => {
+    const DATA_HEALTH_STATIC_CONTRACT_VERSION = '20260811-full-render-v1';
+
     const onlineDataQualityStatusText = (quality) => {
         const status = quality?.status || 'ok';
         if (status === 'error') return '异常';
@@ -7113,6 +7115,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     });
 
     return {
+        contractVersion: DATA_HEALTH_STATIC_CONTRACT_VERSION,
         onlineDataQualityStatusText,
         onlineDataQualityStatusClass,
         onlineDataQualityPromptList,

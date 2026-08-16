@@ -22,6 +22,7 @@ $options = getopt('', [
     'cdp-url::',
     'control-token-file::',
     'node-binary::',
+    'no-push',
 ]);
 $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
     ->format('Y-m-d');
@@ -34,6 +35,7 @@ $cdpUrl = rtrim(trim((string)($options['cdp-url'] ?? 'http://127.0.0.1:9223')), 
 $tokenFile = trim((string)($options['control-token-file']
     ?? '/run/credentials/suxios-meituan-cloud-pms-collection.service/control-token'));
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
+$noPush = array_key_exists('no-push', $options);
 
 if (!validDate($targetDate)
     || $targetDate !== $today
@@ -41,6 +43,7 @@ if (!validDate($targetDate)
     || !preg_match('#^http://127\.0\.0\.1:[1-9][0-9]{1,4}$#D', $cdpUrl)
     || !in_array($tokenFile, [
         '/run/credentials/suxios-meituan-cloud-pms-collection.service/control-token',
+        '/run/credentials/suxios-cloud-three-source-queue.service/control-token',
         '/etc/suxios-cloud-browser/control-token',
     ], true)
     || $nodeBinary !== '/usr/bin/node'
@@ -181,6 +184,12 @@ try {
         'readback_status' => 'readback_verified',
         'source_scope' => MeituanCloudPmsCaptureService::SOURCE_SCOPE,
         'room_type_count' => (int)($capture['room_type_count'] ?? 0),
+        'message_sent' => false,
+        'push_orchestration' => [
+            'disabled_by_invocation' => $noPush,
+            'delivery_status' => 'not_supported',
+            'delivery_attempted' => false,
+        ],
         'sensitive_values_exposed' => false,
     ];
 } catch (Throwable $error) {
@@ -237,15 +246,31 @@ function gatewayRequest(string $baseUrl, string $token, string $path, array $bod
             'ignore_errors' => true,
         ],
     ]);
-    $raw = file_get_contents($baseUrl . $path, false, $context);
+    error_clear_last();
+    $raw = @file_get_contents($baseUrl . $path, false, $context);
     $decoded = is_string($raw) ? json_decode($raw, true) : null;
     if (!is_array($decoded) || ($decoded['status'] ?? '') === 'failed') {
         $reason = is_array($decoded) ? (string)($decoded['reason'] ?? '') : '';
         throw new RuntimeException(
-            $reason !== '' ? $reason : 'meituan_cloud_collection_gateway_failed'
+            $reason !== ''
+                ? $reason
+                : gatewayTransportFailureCode('meituan_cloud_collection_gateway_failed')
         );
     }
     return $decoded;
+}
+
+function gatewayTransportFailureCode(string $fallback): string
+{
+    $lastError = error_get_last();
+    $message = is_array($lastError) ? (string)($lastError['message'] ?? '') : '';
+    if (preg_match('/(?:connection\s+refused|actively\s+refused)/i', $message) === 1) {
+        return 'gateway_connection_refused';
+    }
+    if (preg_match('/(?:connection\s+timed\s*out|operation\s+timed\s*out|read\s+timed\s*out)/i', $message) === 1) {
+        return 'gateway_connection_timeout';
+    }
+    return $fallback;
 }
 
 /** @return array<string,mixed> */
@@ -335,6 +360,7 @@ function fail(string $reason, int $exitCode = 1, bool $businessDataPersisted = f
         'status' => 'blocked',
         'reason' => safeReason($reason),
         'business_data_persisted' => $businessDataPersisted,
+        'message_sent' => false,
         'sensitive_values_exposed' => false,
     ], JSON_UNESCAPED_SLASHES) . PHP_EOL);
     exit($exitCode);

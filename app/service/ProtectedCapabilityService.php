@@ -168,6 +168,7 @@ class ProtectedCapabilityService
                     'label' => 'Operation execution write bridge',
                     'permission' => 'operation.execute',
                     'module' => 'operation_decision',
+                    'controller_hotel_scope' => true,
                     'paths' => [
                         [
                             'path' => 'api/revenue-ai/price-suggestions/*/execution-intent',
@@ -177,6 +178,25 @@ class ProtectedCapabilityService
                             'path' => 'api/knowledge/*/chunks/*/execution-intent',
                             'methods' => ['POST'],
                         ],
+                        ['path' => 'api/agent/feasibility-report/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/agent/price-suggestions/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/agent/ota-diagnoses/*/actions/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/agent/operating-questions/*/action-drafts/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/ai-daily-reports/*/actions/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/revenue-research/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/strategy/records/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/simulation/records/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/opening/projects/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/expansion/records/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/transfer/records/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/temporal-insights/forecasts/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/temporal-insights/forecast-trials/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/ota-standard/operation-optimizer/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/operation/alerts/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/operation/operating-sop-replications/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/operation/execution-intents', 'methods' => ['POST']],
+                        ['path' => 'api/operation/execution-tasks/*', 'methods' => ['POST']],
+                        ['path' => 'api/online-data/public-page-diagnosis/execution-intent', 'methods' => ['POST']],
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_operation', 'limit' => 60, 'window' => 3600],
@@ -202,7 +222,7 @@ class ProtectedCapabilityService
                     'module' => 'operation_decision',
                     'paths' => [
                         'api/operation',
-                        ['path' => 'api/online-data/public-page-diagnosis/execution-intent', 'methods' => ['POST']],
+                        'api/operating-loop',
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_operation', 'limit' => 60, 'window' => 3600],
@@ -362,7 +382,8 @@ class ProtectedCapabilityService
             ];
         }
 
-        if (!$this->hotelScopeAllows($user, $hotelId)) {
+        $controllerHotelScope = ($capability['controller_hotel_scope'] ?? false) === true && $hotelId <= 0;
+        if (!$controllerHotelScope && !$this->hotelScopeAllows($user, $hotelId)) {
             return [
                 'allowed' => false,
                 'reason' => 'hotel_permission_denied',
@@ -386,7 +407,10 @@ class ProtectedCapabilityService
             ];
         }
 
-        if ($permission !== '' && !$this->hotelCapabilityAllows($user, $hotelId, $permission)) {
+        if (!$controllerHotelScope
+            && $permission !== ''
+            && !$this->hotelCapabilityAllows($user, $hotelId, $permission)
+        ) {
             return [
                 'allowed' => false,
                 'reason' => 'hotel_permission_denied',

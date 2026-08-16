@@ -184,7 +184,26 @@ final class ProtectedCapabilityServiceTest extends TestCase
         )['allowed']);
     }
 
-    public function testPublicPageTaskBridgeRequiresOperationModuleBeforeWrite(): void
+    public function testOperatingLoopApiIsAlwaysClassifiedAsProtectedOperationDecision(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['operation_decision'],
+        ]);
+
+        foreach ([
+            ['GET', '/api/operating-loop/current?hotel_id=7&business_date=2026-08-10'],
+            ['POST', '/api/operating-loop/reconcile'],
+            ['POST', '/api/operating-loop/9/transitions'],
+        ] as [$method, $path]) {
+            $capability = $service->classifyPath($method, $path);
+            self::assertIsArray($capability);
+            self::assertSame('operation_decision', $capability['key']);
+            self::assertSame('operation.view', $capability['permission']);
+            self::assertSame('operation_decision', $capability['module']);
+        }
+    }
+
+    public function testPublicPageTaskBridgeRequiresOperationExecuteBeforeWrite(): void
     {
         $service = new ProtectedCapabilityService();
         $capability = $service->classifyPath(
@@ -193,15 +212,15 @@ final class ProtectedCapabilityServiceTest extends TestCase
         );
 
         self::assertIsArray($capability);
-        self::assertSame('operation_decision', $capability['key']);
-        self::assertSame('operation.view', $capability['permission']);
+        self::assertSame('operation_execution', $capability['key']);
+        self::assertSame('operation.execute', $capability['permission']);
         $denied = $service->authorizeContext(
             $this->userWithPermissions(['operation.view']),
             $capability,
             ['system_hotel_id' => 7]
         );
         self::assertFalse($denied['allowed']);
-        self::assertSame('module_not_entitled', $denied['reason']);
+        self::assertSame('role_permission_denied', $denied['reason']);
 
         $enabledService = new ProtectedCapabilityService([
             'default_enabled_modules' => ['operation_decision'],
@@ -211,12 +230,18 @@ final class ProtectedCapabilityServiceTest extends TestCase
             '/api/online-data/public-page-diagnosis/execution-intent'
         );
         self::assertIsArray($enabledCapability);
-        $allowed = $enabledService->authorizeContext(
+        $deniedByRole = $enabledService->authorizeContext(
             $this->userWithPermissions(['operation.view']),
             $enabledCapability,
             ['system_hotel_id' => 7]
         );
-        self::assertTrue($allowed['allowed']);
+        self::assertFalse($deniedByRole['allowed']);
+        self::assertSame('role_permission_denied', $deniedByRole['reason']);
+        self::assertTrue($enabledService->authorizeContext(
+            $this->userWithPermissions(['operation.execute']),
+            $enabledCapability,
+            ['system_hotel_id' => 7]
+        )['allowed']);
     }
 
     public function testOnlineHistoryReadPathsRequireOnlineDataViewPermission(): void
@@ -426,6 +451,67 @@ final class ProtectedCapabilityServiceTest extends TestCase
             'system_hotel_id' => 88,
             'hotel_id' => 7,
         ], $user));
+    }
+
+    public function testEveryExecutionIntentWriteBridgeRequiresOperationExecute(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['operation_decision'],
+        ]);
+        $paths = [
+            '/api/agent/feasibility-report/9/execution-intent',
+            '/api/agent/price-suggestions/9/execution-intent',
+            '/api/ai-daily-reports/9/actions/0/execution-intent',
+            '/api/revenue-research/execution-intent',
+            '/api/strategy/records/9/execution-intent',
+            '/api/simulation/records/9/execution-intent',
+            '/api/opening/projects/9/execution-intent',
+            '/api/expansion/records/9/execution-intent',
+            '/api/transfer/records/9/execution-intent',
+            '/api/temporal-insights/forecasts/9/execution-intent',
+            '/api/temporal-insights/forecast-trials/9/execution-intent',
+            '/api/online-data/public-page-diagnosis/execution-intent',
+        ];
+
+        foreach ($paths as $path) {
+            $capability = $service->classifyPath('POST', $path);
+            self::assertIsArray($capability, $path);
+            self::assertSame('operation_execution', $capability['key'], $path);
+            self::assertSame('operation.execute', $capability['permission'], $path);
+            self::assertTrue($capability['controller_hotel_scope'], $path);
+        }
+    }
+
+    public function testEveryExecutionTaskWriteRequiresExecuteWhileDetailRemainsViewOnly(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['operation_decision'],
+        ]);
+        $viewer = $this->userWithPermissions(['operation.view']);
+        $executor = $this->userWithPermissions(['operation.execute']);
+
+        foreach ([
+            '/api/operation/execution-tasks/81/execute',
+            '/api/operation/execution-tasks/81/evidence',
+            '/api/operation/execution-tasks/81/intervention-assessments',
+            '/api/operation/execution-tasks/81/reconcile-review',
+            '/api/operation/execution-tasks/81/review',
+            '/api/operation/execution-tasks/81/operating-memory',
+        ] as $path) {
+            $capability = $service->classifyPath('POST', $path);
+            self::assertIsArray($capability, $path);
+            self::assertSame('operation_execution', $capability['key'], $path);
+            self::assertSame('operation.execute', $capability['permission'], $path);
+            self::assertFalse($service->authorizeContext($viewer, $capability, ['hotel_id' => 7])['allowed'], $path);
+            self::assertTrue($service->authorizeContext($executor, $capability, ['hotel_id' => 7])['allowed'], $path);
+        }
+
+        $detail = $service->classifyPath('GET', '/api/operation/execution-tasks/81');
+        self::assertIsArray($detail);
+        self::assertSame('operation_decision', $detail['key']);
+        self::assertSame('operation.view', $detail['permission']);
+        self::assertTrue($service->authorizeContext($viewer, $detail, ['hotel_id' => 7])['allowed']);
+        self::assertFalse($service->authorizeContext($executor, $detail, ['hotel_id' => 7])['allowed']);
     }
 
     /**

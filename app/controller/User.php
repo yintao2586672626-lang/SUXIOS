@@ -9,6 +9,7 @@ use app\model\Role;
 use app\model\OperationLog;
 use app\service\PermissionService;
 use app\service\BatchStatusPreviewService;
+use app\service\HotelAutopilotLifecycleService;
 use think\db\BaseQuery;
 use think\Response;
 use think\facade\Db;
@@ -517,6 +518,13 @@ class User extends Base
                 $user->tenant_id = $this->provisionOwnerTenant($user);
             }
             $user->save();
+            $tenantId = (int)($user->tenant_id ?? 0);
+            if ($tenantId > 0) {
+                (new HotelAutopilotLifecycleService())->initializeTenant(
+                    $tenantId,
+                    (int)$this->currentUser->id
+                );
+            }
             $this->syncUserHotelPermissions(
                 $user,
                 $hotelIds,
@@ -1223,6 +1231,11 @@ class User extends Base
         if ($tenantId <= 0) {
             throw new \RuntimeException('业主专属租户创建失败');
         }
+
+        (new HotelAutopilotLifecycleService())->initializeTenant(
+            $tenantId,
+            (int)($this->currentUser->id ?? 0)
+        );
 
         return $tenantId;
     }

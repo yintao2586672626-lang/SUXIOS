@@ -299,6 +299,106 @@ final class CtripOrderExportImportServiceTest extends TestCase
         self::assertSame('unavailable_unknown_status_orders_present', $item['raw_data']['cancel_rate_basis']);
     }
 
+    public function testV2PersistsDatasetClassificationDistributionsAndDoesNotGuessExclusions(): void
+    {
+        $base = [
+            '城市' => '桂林',
+            '酒店名称' => '匿名酒店（测试fixture）',
+            '订单类型' => '新订',
+            '入住日期' => '2026-08-08',
+            '离店日期' => '2026-08-09',
+            '预订时间' => '2026-08-08 09:00:00',
+            '通知时间' => '2026-08-08 10:00:00',
+            '晚数' => '1',
+            '房间数' => '1',
+            '底价' => '100',
+            '房型名称' => '江景房',
+            '预订网站' => '携程',
+            '_source_format' => 'biff_xls',
+            '_source_layout' => 'ctrip_order_export_25_columns',
+            '_source_file_index' => 1,
+        ];
+        $rows = [
+            array_replace($base, ['订单号' => 'ANON-V2-1', '订单状态' => '已接单', '通知时间' => '2026-08-08 09:30:00']),
+            array_replace($base, ['订单号' => 'ANON-V2-1', '订单状态' => '已入住']),
+            array_replace($base, [
+                '订单号' => 'ANON-V2-2', '订单状态' => '部分入住', '晚数' => '2',
+                '离店日期' => '2026-08-10', '预订时间' => '2026-08-06 09:00:00',
+                '底价' => '200', '_source_file_index' => 2,
+            ]),
+            array_replace($base, [
+                '订单号' => 'ANON-V2-3', '订单状态' => '已确认', '晚数' => '3',
+                '离店日期' => '2026-08-11', '预订时间' => '2026-08-09 09:00:00',
+                '房型名称' => '双床房', '底价' => '300', '_source_file_index' => 2,
+            ]),
+            array_replace($base, ['订单号' => 'ANON-V2-4', '订单状态' => '已取消']),
+            array_replace($base, ['订单号' => 'ANON-V2-5', '订单状态' => '待人工确认的新状态']),
+            array_replace($base, [
+                '订单号' => 'ANON-V2-6', '订单状态' => '已接单',
+                '入住日期' => '', '离店日期' => '', '预订时间' => '',
+            ]),
+            array_replace($base, ['订单号' => '', '订单状态' => '已入住']),
+        ];
+
+        $normalized = (new CtripOrderExportImportService())->normalizeRows($rows, [
+            'system_hotel_id' => 64,
+            'hotel_name' => '匿名酒店（测试fixture）',
+            'test_fixture' => true,
+        ]);
+
+        self::assertCount(1, $normalized);
+        $item = $normalized[0];
+        $detail = $item['raw_data'];
+        self::assertSame('ctrip_order_aggregate_v2', $detail['import_contract']);
+        self::assertSame('channel_daily_aggregate', $detail['record_kind']);
+        self::assertSame(5, $item['gross_order_num']);
+        self::assertSame(3, $item['book_order_num']);
+        self::assertSame(1, $item['cancel_order_num']);
+        self::assertSame(1, $item['unknown_status_order_num']);
+        self::assertSame(1, $detail['classification_receipt']['stayed_order_num']);
+        self::assertSame(2, $detail['classification_receipt']['active_not_stayed_order_num']);
+        self::assertSame(1, $detail['classification_receipt']['status_family_counts']['active_stayed']);
+        self::assertSame(1, $detail['classification_receipt']['status_family_counts']['active_partial_stay']);
+        self::assertSame(1, $detail['classification_receipt']['status_family_counts']['active_confirmed']);
+        self::assertSame(1, $detail['classification_receipt']['status_family_counts']['cancelled']);
+        self::assertSame(1, $detail['classification_receipt']['status_family_counts']['unknown']);
+
+        $los = array_column($detail['los_distribution']['buckets'], 'orders', 'key');
+        self::assertSame(1, $los['one_night']);
+        self::assertSame(1, $los['two_nights']);
+        self::assertSame(1, $los['three_to_four_nights']);
+        self::assertSame(3, $detail['los_distribution']['valid_order_count']);
+        self::assertSame(2.0, $detail['average_los']);
+
+        $lead = array_column($detail['lead_time_distribution']['buckets'], 'orders', 'key');
+        self::assertSame(1, $lead['same_day']);
+        self::assertSame(1, $lead['one_to_three_days']);
+        self::assertSame(2, $detail['lead_time_distribution']['valid_order_count']);
+        self::assertSame(1, $detail['lead_time_distribution']['invalid_negative_order_count']);
+        self::assertSame(1.0, $detail['average_booking_lead_days']);
+
+        self::assertSame('unverified_not_applied', $detail['exclusion_receipt']['status']);
+        self::assertSame(0, $detail['exclusion_receipt']['excluded_order_count']);
+        self::assertSame([], $detail['exclusion_receipt']['reason_counts']);
+        self::assertSame(8, $detail['dataset_receipt']['raw_row_count']);
+        self::assertSame(6, $detail['dataset_receipt']['distinct_order_count']);
+        self::assertSame(1, $detail['dataset_receipt']['duplicate_version_count']);
+        self::assertSame(1, $detail['dataset_receipt']['missing_order_id_count']);
+        self::assertSame(1, $detail['dataset_receipt']['missing_business_date_count']);
+        self::assertSame(2, $detail['dataset_receipt']['source_file_count']);
+        self::assertSame(64, strlen($detail['dataset_receipt']['dataset_hash']));
+        self::assertFalse($detail['room_type_metrics_truncated']);
+        self::assertSame('江景房', $detail['room_type_metrics'][0]['name']);
+        self::assertSame(2, $detail['room_type_metrics'][0]['active_orders']);
+        self::assertNull($item['amount']);
+        self::assertSame('reference_bottom_price_not_confirmed_revenue', $detail['amount_semantics']);
+
+        $storedJson = json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        foreach (['ANON-V2-1', 'ANON-V2-2', 'ANON-V2-3', 'ANON-V2-4', 'ANON-V2-5', 'ANON-V2-6'] as $orderId) {
+            self::assertStringNotContainsString($orderId, $storedJson);
+        }
+    }
+
     private function legacyFixturePath(): string
     {
         $xlsPath = $this->temporaryXlsPath('ctrip-order-fixture-');

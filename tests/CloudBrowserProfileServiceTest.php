@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\CloudBrowserProfileService;
+use app\service\OtaProfileBindingService;
 use PHPUnit\Framework\TestCase;
 use think\App;
 use think\facade\Config;
@@ -40,6 +41,10 @@ final class CloudBrowserProfileServiceTest extends TestCase
         Db::execute('CREATE TABLE IF NOT EXISTS hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL, status INTEGER NOT NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS cloud_browser_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, owner_user_id INTEGER NOT NULL, platform TEXT NOT NULL, profile_public_id TEXT NOT NULL UNIQUE, authorization_status TEXT NOT NULL, status_reason TEXT NOT NULL, login_verified_at TEXT NULL, ready_at TEXT NULL, session_expires_at TEXT NULL, last_state_change_at TEXT NOT NULL, create_time TEXT NOT NULL, update_time TEXT NOT NULL, UNIQUE(tenant_id, owner_user_id, system_hotel_id, platform))');
         Db::execute('CREATE TABLE IF NOT EXISTS cloud_browser_login_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER NOT NULL, session_public_id TEXT NOT NULL UNIQUE, ticket_hash TEXT NOT NULL, session_status TEXT NOT NULL, requested_by INTEGER NOT NULL, expires_at TEXT NOT NULL, verified_at TEXT NULL, create_time TEXT NOT NULL, update_time TEXT NOT NULL)');
+        Db::execute('CREATE TABLE IF NOT EXISTS platform_data_sources (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, user_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform TEXT NOT NULL, ingestion_method TEXT NOT NULL, enabled INTEGER NOT NULL, status TEXT NOT NULL, config_json TEXT NULL)');
+        Db::execute('CREATE TABLE IF NOT EXISTS ota_profile_bindings (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform TEXT NOT NULL, profile_key_hash TEXT NOT NULL, binding_status TEXT NOT NULL, bound_by INTEGER NULL, revoked_by INTEGER NULL, create_time TEXT NOT NULL, update_time TEXT NOT NULL)');
+        Db::name('ota_profile_bindings')->delete(true);
+        Db::name('platform_data_sources')->delete(true);
         Db::name('cloud_browser_login_sessions')->delete(true);
         Db::name('cloud_browser_profiles')->delete(true);
         Db::name('hotels')->delete(true);
@@ -131,11 +136,23 @@ final class CloudBrowserProfileServiceTest extends TestCase
         self::assertSame(CloudBrowserProfileService::AWAITING_RELOGIN, $retry['profile']['authorization_status']);
         self::assertSame(1, (int)Db::name('cloud_browser_profiles')->count());
 
+        try {
+            $service->requestLoginEntry(80, 7, 'meituan');
+            self::fail('an active login session must not be silently superseded');
+        } catch (\RuntimeException $error) {
+            self::assertSame('cloud_browser_login_session_active', $error->getMessage());
+        }
+        Db::name('cloud_browser_login_sessions')
+            ->where('session_public_id', (string)$retry['login_entry']['session_id'])
+            ->update([
+                'session_status' => 'expired',
+                'expires_at' => date('Y-m-d H:i:s', time() - 1),
+            ]);
         $replacement = $service->requestLoginEntry(80, 7, 'meituan');
         self::assertSame(CloudBrowserProfileService::AWAITING_RELOGIN, $replacement['profile']['authorization_status']);
         self::assertNotSame($retry['login_entry']['session_id'], $replacement['login_entry']['session_id']);
         self::assertSame(
-            'superseded',
+            'expired',
             (string)Db::name('cloud_browser_login_sessions')
                 ->where('session_public_id', (string)$retry['login_entry']['session_id'])
                 ->value('session_status')
@@ -245,6 +262,79 @@ final class CloudBrowserProfileServiceTest extends TestCase
         }
     }
 
+    public function testOtaProfileRequiresExactReadySourceAndRegisteredBinding(): void
+    {
+        $service = new CloudBrowserProfileService();
+        $cases = [
+            ['source_id' => 25, 'platform' => 'ctrip', 'binding_key' => 'ctrip-profile-80', 'platform_hotel_id' => '130079194', 'source_url' => 'https://ebooking.ctrip.com/home/mainland'],
+            ['source_id' => 68, 'platform' => 'meituan', 'binding_key' => 'meituan-profile-80', 'platform_hotel_id' => '1029642156589279', 'source_url' => 'https://me.meituan.com/ebooking/'],
+        ];
+
+        foreach ($cases as $case) {
+            $entry = $service->requestLoginEntry(80, 7, $case['platform']);
+            $service->completeGatewayLogin(
+                (string)$entry['profile']['profile_id'],
+                (string)$entry['login_entry']['session_id'],
+                (string)$entry['login_entry']['ticket'],
+                date('Y-m-d H:i:s', time() + 86400)
+            );
+            Db::name('platform_data_sources')->insert([
+                'id' => $case['source_id'],
+                'tenant_id' => 8,
+                'user_id' => 7,
+                'system_hotel_id' => 80,
+                'platform' => $case['platform'],
+                'ingestion_method' => 'browser_profile',
+                'enabled' => 1,
+                'status' => 'ready',
+                'config_json' => json_encode([
+                    'profile_binding_key' => (string)$entry['profile']['profile_id'],
+                    'platform_hotel_id' => $case['platform_hotel_id'],
+                ], JSON_THROW_ON_ERROR),
+            ]);
+            (new OtaProfileBindingService())->claim(
+                80,
+                $case['platform'],
+                (string)$entry['profile']['profile_id'],
+                7,
+                true
+            );
+
+            $validated = $service->validateOtaDataSourceCollectionProfile(
+                (string)$entry['profile']['profile_id'],
+                $case['source_id'],
+                8,
+                80,
+                7,
+                date('Y-m-d'),
+                $case['platform']
+            );
+            self::assertTrue($validated['validated']);
+            self::assertSame('ota_channel_profile', $validated['collection_kind']);
+            self::assertSame('read_only', $validated['access_mode']);
+            self::assertSame('ota_channel', $validated['source_scope']);
+            self::assertSame($case['source_url'], $validated['source_url']);
+            self::assertSame($case['source_id'], $validated['data_source_id']);
+            self::assertSame($case['platform_hotel_id'], $validated['platform_hotel_id']);
+            self::assertSame($case['platform'], $validated['profile']['platform']);
+        }
+
+        try {
+            $service->validateOtaDataSourceCollectionProfile(
+                (string)$service->status(80, 7, 'ctrip')['profiles'][0]['profile_id'],
+                68,
+                8,
+                80,
+                7,
+                date('Y-m-d'),
+                'ctrip'
+            );
+            self::fail('cross-platform data source must be rejected');
+        } catch (\RuntimeException $error) {
+            self::assertSame('cloud_browser_ota_data_source_scope_mismatch', $error->getMessage());
+        }
+    }
+
     public function testOtaProfileRequiresExactPlatformHotelUserAndSameDayScope(): void
     {
         $service = new CloudBrowserProfileService();
@@ -281,6 +371,104 @@ final class CloudBrowserProfileServiceTest extends TestCase
             self::fail('cross-platform Profile use must be rejected');
         } catch (\RuntimeException $error) {
             self::assertSame('cloud_browser_collection_scope_mismatch', $error->getMessage());
+        }
+    }
+
+    public function testEnsureProfileIsIdempotentAndDoesNotIssueLoginTicket(): void
+    {
+        $service = new CloudBrowserProfileService();
+        $first = $service->ensureProfile(80, 7, 'ctrip');
+        $second = $service->ensureProfile(80, 7, 'ctrip');
+
+        self::assertSame($first['profile_id'], $second['profile_id']);
+        self::assertStringStartsWith('cbp_', (string)$first['profile_id']);
+        self::assertSame(CloudBrowserProfileService::UNAUTHORIZED, $first['authorization_status']);
+        self::assertSame(1, (int)Db::name('cloud_browser_profiles')->count());
+        self::assertSame(0, (int)Db::name('cloud_browser_login_sessions')->count());
+    }
+
+    public function testAnySourceProfileAliasMustMatchExactCloudProfileId(): void
+    {
+        $service = new CloudBrowserProfileService();
+        $entry = $service->requestLoginEntry(80, 7, 'ctrip');
+        $service->completeGatewayLogin(
+            (string)$entry['profile']['profile_id'],
+            (string)$entry['login_entry']['session_id'],
+            (string)$entry['login_entry']['ticket'],
+            date('Y-m-d H:i:s', time() + 86400)
+        );
+        $wrongManagedProfileId = 'ctrip-profile-80';
+        Db::name('platform_data_sources')->insert([
+            'id' => 90,
+            'tenant_id' => 8,
+            'user_id' => 7,
+            'system_hotel_id' => 80,
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+            'enabled' => 1,
+            'status' => 'ready',
+            'config_json' => json_encode([
+                'profile_binding_key' => $wrongManagedProfileId,
+                'platform_hotel_id' => '130079194',
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        (new OtaProfileBindingService())->claim(80, 'ctrip', $wrongManagedProfileId, 7, true);
+
+        try {
+            $service->validateOtaDataSourceCollectionProfile(
+                (string)$entry['profile']['profile_id'],
+                90,
+                8,
+                80,
+                7,
+                date('Y-m-d'),
+                'ctrip'
+            );
+            self::fail('every source Profile alias must match the exact cloud Profile id');
+        } catch (\RuntimeException $error) {
+            self::assertSame('cloud_browser_ota_profile_id_mismatch', $error->getMessage());
+        }
+    }
+
+    public function testConflictingExplicitProfileAliasesAreRejected(): void
+    {
+        $service = new CloudBrowserProfileService();
+        $entry = $service->requestLoginEntry(80, 7, 'meituan');
+        $service->completeGatewayLogin(
+            (string)$entry['profile']['profile_id'],
+            (string)$entry['login_entry']['session_id'],
+            (string)$entry['login_entry']['ticket'],
+            date('Y-m-d H:i:s', time() + 86400)
+        );
+        Db::name('platform_data_sources')->insert([
+            'id' => 91,
+            'tenant_id' => 8,
+            'user_id' => 7,
+            'system_hotel_id' => 80,
+            'platform' => 'meituan',
+            'ingestion_method' => 'profile_browser',
+            'enabled' => 1,
+            'status' => 'ready',
+            'config_json' => json_encode([
+                'profile_binding_key' => (string)$entry['profile']['profile_id'],
+                'stable_profile_id' => 'cbp_conflicting_profile_alias_1234',
+                'platform_hotel_id' => '1029642156589279',
+            ], JSON_THROW_ON_ERROR),
+        ]);
+
+        try {
+            $service->validateOtaDataSourceCollectionProfile(
+                (string)$entry['profile']['profile_id'],
+                91,
+                8,
+                80,
+                7,
+                date('Y-m-d'),
+                'meituan'
+            );
+            self::fail('conflicting explicit Profile aliases must fail closed');
+        } catch (\RuntimeException $error) {
+            self::assertSame('cloud_browser_ota_profile_binding_key_conflict', $error->getMessage());
         }
     }
 }

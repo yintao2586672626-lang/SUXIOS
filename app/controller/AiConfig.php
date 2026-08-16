@@ -165,7 +165,7 @@ class AiConfig extends Base
 
         $result = $this->testChatCompletion(
             (string) $model->base_url,
-            (string) $model->model_name,
+            $this->resolvedProviderModelName((string)$model->provider, (string)$model->model_name),
             (string) $apiKey['api_key'],
             (string) $model->provider
         );
@@ -353,7 +353,7 @@ class AiConfig extends Base
                 'model_key' => 'deepseek_chat',
                 'provider' => 'deepseek',
                 'base_url' => 'https://api.deepseek.com/v1',
-                'model_name' => 'deepseek-chat',
+                'model_name' => 'deepseek-v4-flash',
                 'usage_scene' => 'ota_diagnosis',
                 'is_default' => 1,
             ],
@@ -362,7 +362,7 @@ class AiConfig extends Base
                 'model_key' => 'deepseek_chat',
                 'provider' => 'deepseek',
                 'base_url' => 'https://api.deepseek.com/v1',
-                'model_name' => 'deepseek-chat',
+                'model_name' => 'deepseek-v4-flash',
                 'usage_scene' => 'ota_diagnosis',
                 'is_default' => 1,
             ],
@@ -371,7 +371,7 @@ class AiConfig extends Base
                 'model_key' => 'deepseek_reasoner',
                 'provider' => 'deepseek',
                 'base_url' => 'https://api.deepseek.com/v1',
-                'model_name' => 'deepseek-reasoner',
+                'model_name' => 'deepseek-v4-pro',
                 'usage_scene' => 'reasoning',
                 'is_default' => 0,
             ],
@@ -414,8 +414,8 @@ class AiConfig extends Base
         if ($provider === 'deepseek') {
             $baseUrl = $baseUrlOverride !== '' ? $baseUrlOverride : 'https://api.deepseek.com/v1';
             return [
-                $this->quickModelDefinition('DeepSeek Chat', 'deepseek_chat', 'deepseek', $baseUrl, 'deepseek-chat', 'ota_diagnosis', 1),
-                $this->quickModelDefinition('DeepSeek Reasoner', 'deepseek_reasoner', 'deepseek', $baseUrl, 'deepseek-reasoner', 'reasoning'),
+                $this->quickModelDefinition('DeepSeek V4 Flash', 'deepseek_chat', 'deepseek', $baseUrl, 'deepseek-v4-flash', 'ota_diagnosis', 1),
+                $this->quickModelDefinition('DeepSeek V4 Pro', 'deepseek_reasoner', 'deepseek', $baseUrl, 'deepseek-v4-pro', 'reasoning'),
             ];
         }
 
@@ -533,6 +533,18 @@ class AiConfig extends Base
     private function providerRequiresApiKey(string $provider): bool
     {
         return strtolower(trim($provider)) !== 'ollama';
+    }
+
+    private function resolvedProviderModelName(string $provider, string $modelName): string
+    {
+        if (strtolower(trim($provider)) !== 'deepseek') {
+            return trim($modelName);
+        }
+        return match (strtolower(trim($modelName))) {
+            'deepseek-chat' => 'deepseek-v4-flash',
+            'deepseek-reasoner' => 'deepseek-v4-pro',
+            default => trim($modelName),
+        };
     }
 
     private function testChatCompletion(string $baseUrl, string $modelName, string $apiKey, string $provider = ''): array

@@ -59,7 +59,9 @@ import {
   observeOtaReadFallbackRequest,
   replayObservedOtaReadRequests,
 } from './lib/ota_read_fallback.mjs';
+import { readOtaResponseTextWithTimeout } from './lib/ota_response_body.mjs';
 import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
+import { isMeituanLoggedInPageState } from './lib/meituan_login_state.mjs';
 
 const URLS = {
   login: 'https://me.meituan.com/ebooking/',
@@ -502,6 +504,9 @@ async function buildLoginOnlySessionProbe(platformIdentityValidation) {
 async function looksLoggedIn(page) {
   const url = page.url();
   const text = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+  if (isMeituanLoggedInPageState(url, text)) {
+    return true;
+  }
   if (/login|passport|account/i.test(url)) {
     return false;
   }
@@ -1554,7 +1559,7 @@ async function captureMeituanResponse(response, target) {
 
     let body = null;
     try {
-      const text = await response.text();
+      const text = await readOtaResponseTextWithTimeout(response);
       body = parseResponseBody(text, contentType);
     } catch (error) {
       const responseEvidence = buildOtaCaptureEvidence('meituan', {
@@ -1703,20 +1708,21 @@ async function captureMeituanResponse(response, target) {
     }));
 }
 
-async function waitForPendingResponseCaptures(page) {
+async function waitForPendingResponseCaptures(page, timeoutMs = 6000) {
+  const started = Date.now();
   let idleRounds = 0;
-  for (let round = 0; round < 10; round += 1) {
-    await page.waitForTimeout(100).catch(() => null);
-    const pending = Array.from(pendingResponseCaptures);
-    if (pending.length === 0) {
+  while (Date.now() - started < timeoutMs) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    if (pendingResponseCaptures.size === 0) {
       idleRounds += 1;
-      if (idleRounds >= 2) return;
+      if (idleRounds >= 2) return true;
       continue;
     }
     idleRounds = 0;
-    await Promise.allSettled(pending);
   }
+  return pendingResponseCaptures.size === 0;
 }
+
 
 function normalizeCaptureSections(value) {
   return new Set(normalizeStandardCaptureSections('meituan', value));

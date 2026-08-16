@@ -11,11 +11,16 @@ vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context,
 vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context, {
   filename: 'public/data-health-static.js',
 });
+const aiDailyReportStatic = readFileSync('public/ai-daily-report-static.js', 'utf8');
+vm.runInNewContext(aiDailyReportStatic, context, {
+  filename: 'public/ai-daily-report-static.js',
+});
 
 const helpers = context.window.SUXI_REVENUE_AI_STATIC;
 const dataHealthHelpers = context.window.SUXI_DATA_HEALTH_STATIC;
+const aiDailyReportHelpers = context.window.SUXI_AI_DAILY_REPORT_STATIC;
 const indexHtml = readFileSync('public/index.html', 'utf8');
-const appMain = readFileSync('public/app-main.js', 'utf8');
+const appMain = `${readFileSync('public/components/system/app-main-components.js', 'utf8')}\n${readFileSync('public/app-main.js', 'utf8')}`;
 const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
 const aiDailyReportFragment = readFileSync('resources/frontend/templates/fragments/16-page-ai-daily-report.html', 'utf8');
 const html = `${indexHtml}\n${appTemplate}\n${appMain}`;
@@ -215,7 +220,6 @@ test('Revenue AI entry lazy-loads the versioned helper outside the startup chain
   assert.match(appMain, /persistedTask\.status !== 'pending_execute'/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-gaps"/);
-  assert.match(html, /data-testid="agent-pricing-generation-hotel-checks"/);
   assert.match(html, /data-testid="agent-price-suggestion-generate-result"/);
   assert.match(html, /data-testid="agent-price-suggestion-skipped-items"/);
   assert.match(html, /data-testid="agent-room-type-pricing-guard"/);
@@ -251,13 +255,18 @@ test('AI daily explanation stays optional and separate from the rule summary', (
 });
 
 test('AI daily report metric cards bind per-metric truth without global OTA promotion', () => {
-  const truthStart = appMain.indexOf('const aiDailyReportTruthStatusLabel');
-  const truthEnd = appMain.indexOf('const aiDailyReportActions', truthStart);
-  assert.ok(truthStart >= 0 && truthEnd > truthStart, 'AI daily metric truth block must exist');
-  const truthBlock = appMain.slice(truthStart, truthEnd);
+  const truthStart = aiDailyReportStatic.indexOf('const truthStatusLabel');
+  const truthEnd = aiDailyReportStatic.indexOf('const metricCalculation', truthStart);
+  const wrapperStart = appMain.indexOf('const buildAiDailyReportMetricTruth');
+  const wrapperEnd = appMain.indexOf('const aiDailyReportActions', wrapperStart);
+  assert.ok(truthStart >= 0 && truthEnd > truthStart, 'extracted AI daily metric truth helper must exist');
+  assert.ok(wrapperStart >= 0 && wrapperEnd > wrapperStart, 'AI daily metric truth runtime wrapper must exist');
+  const wrapperBlock = appMain.slice(wrapperStart, wrapperEnd);
+  const truthBlock = `${aiDailyReportStatic.slice(truthStart, truthEnd)}\n${wrapperBlock}`;
 
   assert.match(truthBlock, /metric\.truth[\s\S]*metric\.truth_context/);
-  assert.match(truthBlock, /aiDailyReport\.value\?\.source_refs/);
+  assert.match(truthBlock, /report\.source_refs/);
+  assert.match(truthBlock, /report:\s*aiDailyReport\.value\s*\|\|\s*\{\}/);
   assert.match(truthBlock, /metric_keys/);
   assert.match(truthBlock, /metric\.metric_scopes/);
   assert.match(truthBlock, /daily_reports#\\d\+/);
@@ -272,7 +281,7 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
     assert.match(truthBlock, new RegExp(scope));
   }
   assert.match(appMain, /const onlineTruthDetailText = requireDataHealthStatic\('onlineTruthDetailText'\);/);
-  assert.match(truthBlock, /truthDetailText: onlineTruthDetailText\(truth\)/);
+  assert.match(truthBlock, /truthDetailText: onlineTruthDetailText\(result\.truth\)/);
   assert.match(appMain, /const aiDailyReportMetricValue = \(metric\) => \{[\s\S]*?return '—';/);
   assert.doesNotMatch(truthBlock, /\|\|\s*0/);
 
@@ -293,10 +302,11 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
     const aiDailyReportList = (value) => Array.isArray(value) ? value : [];
     const aiDailyReportObjectList = (value) => aiDailyReportList(value)
       .filter(item => item && typeof item === 'object' && !Array.isArray(item));
-    ${truthBlock}
+    ${wrapperBlock}
     return { aiDailyReport, aiDailyReportMetricTruth, aiDailyReportMetricCards };
   })()`, {
     onlineTruthDetailText: dataHealthHelpers.onlineTruthDetailText,
+    requireAiDailyReportStatic: key => aiDailyReportHelpers[key],
   }, { filename: 'ai-daily-report-metric-truth.js' });
   metricHelpers.aiDailyReport.value = {
     hotel_id: 7,
@@ -675,10 +685,8 @@ test('Agent pricing suggestion workbench exposes manual Ctrip demand and competi
   assert.match(html, /agentPricingGenerationPreflightSummary/);
   assert.match(html, /revenueAiBuildPricingGenerationPreflightSummary\(\{\s*overview: revenueAiOverview\.value,\s*\}\)/s);
   assert.match(html, /agentPricingGenerationPreflightSummary\.autoWriteOta/);
-  assert.match(html, /agentPricingGenerationPreflightSummary\.requiredInputs/);
   assert.match(html, /agentPricingGenerationPreflightSummary\.candidateSkipReasons/);
   assert.match(html, /agentPricingGenerationPreflightSummary\.candidateDataGaps/);
-  assert.match(html, /agentPricingGenerationPreflightSummary\.hotelChecks/);
   assert.match(html, /data-testid="agent-price-suggestion-ctrip-preflight-inputs"/);
   assert.match(html, /data-testid="agent-suggestion-demand-forecast-manual-input"/);
   assert.match(html, /data-testid="agent-suggestion-ctrip-competitor-price-manual-input"/);
@@ -695,6 +703,13 @@ test('Agent pricing suggestion workbench exposes manual Ctrip demand and competi
   assert.match(html, /ota_platform: 1/);
   assert.match(html, /input_type: 'manual_ctrip_competitor_price_sample'/);
   assert.match(html, /handlePriceSuggestionDateChange/);
+  assert.match(html, /priceSuggestionFilter\.end_date/);
+  assert.match(html, /price_start_date/);
+  assert.match(html, /price_end_date/);
+  assert.match(html, /目标入住日/);
+  assert.match(html, /已保存并回读/);
+  assert.match(html, /changePriceSuggestionPage/);
+  assert.match(html, /最多 31 天/);
   assert.match(html, /demandForecastForm\.value\.forecast_date = date/);
   assert.match(html, /competitorPriceForm\.value\.analysis_date = date/);
   assert.match(html, /syncRevenuePricingInputDate\(forecastDate\)/);
@@ -2513,14 +2528,89 @@ test('Revenue AI generate result exposes blocked Ctrip-only preconditions', () =
         created_count: 2,
         skipped_count: 1,
         can_generate_pending_suggestions: true,
+        date_range: { start_date: '2026-06-28', end_date: '2026-06-29', day_count: 2 },
+        created_row_ids: [101, 102],
+        readback_verified_count: 2,
+        readback_verified: true,
         auto_write_ota: false,
+        skipped: [{
+          suggestion_date: '2026-06-29',
+          room_type_id: 12,
+          room_type_name: 'Deluxe King',
+          reason: 'pending_suggestion_exists',
+          price_change_rate: null,
+        }],
       },
     },
   });
   assert.equal(created.level, 'success');
   assert.equal(created.createdCount, 2);
+  assert.equal(created.readbackVerifiedCount, 2);
+  assert.equal(created.readbackVerified, true);
+  assert.deepEqual(created.createdRowIds, [101, 102]);
+  assert.equal(created.dateRange.day_count, 2);
+  assert.equal(created.skippedItems[0].targetDate, '2026-06-29');
+  assert.equal(created.skippedItems[0].primarySignalCount, null);
+  assert.equal(created.skippedItems[0].priceChangeRate, null);
+  assert.match(created.message, /回读 2 条/);
   assert.equal(created.canGeneratePendingSuggestions, true);
   assert.equal(created.autoWriteOta, false);
+
+  const exactTargetBlocked = helpers.buildRevenueAiPriceSuggestionGenerateResult({
+    response: {
+      code: 200,
+      data: {
+        status: 'blocked',
+        reason: 'exact_target_signals_missing',
+        created_count: 0,
+        skipped_count: 1,
+        auto_write_ota: false,
+        skipped: [{
+          suggestion_date: '2026-06-30',
+          reason: 'exact_target_signals_missing',
+          data_gaps: ['exact_target_room_type_competitor_price_missing'],
+        }],
+      },
+    },
+  });
+  assert.match(exactTargetBlocked.message, /不使用旧日或酒店级样本补齐/);
+  assert.equal(exactTargetBlocked.autoWriteOta, false);
+});
+
+test('pricing input date sync preserves the selected future ledger range', () => {
+  const start = appMain.indexOf('            const syncRevenuePricingInputDate =');
+  const end = appMain.indexOf('            const priceSuggestionRangeError =', start);
+  assert.ok(start >= 0 && end > start, 'pricing input date sync source must remain extractable');
+  const source = appMain.slice(start, end);
+  const run = vm.runInNewContext([
+    '() => {',
+    "  const priceSuggestionFilter = { value: { date: '2026-08-12', end_date: '2026-08-20' } };",
+    "  const demandForecastForm = { value: { forecast_date: '2026-08-12' } };",
+    "  const competitorPriceForm = { value: { analysis_date: '2026-08-12' } };",
+    "  const competitorFilter = { value: { date: '2026-08-12' } };",
+    "  const forecastFilter = { value: { start_date: '2026-08-12', end_date: '2026-08-20' } };",
+    source,
+    "  syncRevenuePricingInputDate('2026-08-15');",
+    '  return {',
+    '    priceRange: { ...priceSuggestionFilter.value },',
+    '    demandDate: demandForecastForm.value.forecast_date,',
+    '    competitorInputDate: competitorPriceForm.value.analysis_date,',
+    '    competitorViewDate: competitorFilter.value.date,',
+    '    forecastRange: { ...forecastFilter.value },',
+    '  };',
+    '}',
+  ].join('\n'));
+
+  const state = run();
+  assert.equal(state.priceRange.date, '2026-08-12');
+  assert.equal(state.priceRange.end_date, '2026-08-20');
+  assert.equal(state.demandDate, '2026-08-15');
+  assert.equal(state.competitorInputDate, '2026-08-15');
+  assert.equal(state.competitorViewDate, '2026-08-15');
+  assert.equal(state.forecastRange.start_date, '2026-08-15');
+  assert.equal(state.forecastRange.end_date, '2026-08-20');
+  assert.match(appTemplate, /精确身份已回读/);
+  assert.match(appTemplate, /已载入，身份字段不完整/);
 });
 
 test('Revenue AI pricing gate rows expose blockers without suggestions', () => {

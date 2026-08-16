@@ -843,7 +843,10 @@ final class OperatingDailyReportPayloadService
             }
         }
         $sourceRefs = [];
-        if ($needsPms && is_array($pms)) {
+        if ($needsPms
+            && is_array($pms)
+            && (int)($pms['id'] ?? 0) > 0
+        ) {
             $binding = is_array($pmsGate['binding'] ?? null)
                 ? $pmsGate['binding']
                 : [];

@@ -93,6 +93,15 @@ final class TemporalInsight extends Base
                 return $this->error('暂无可送入运营审核的酒店。', 403);
             }
 
+            $hotelId = $this->service->operationReviewHotelId($id);
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'operation.execute',
+                'operation.execute permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
+
             return $this->success(
                 $this->service->createOperationReviewIntent(
                     $id,
@@ -191,6 +200,13 @@ final class TemporalInsight extends Base
             $hotelId = (int)($payload['hotel_id'] ?? 0);
             if (!$this->canAccessHotel($hotelId)) {
                 return $this->error('无权送审该酒店的预测试运营。', 403);
+            }
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'operation.execute',
+                'operation.execute permission is required for this hotel'
+            )) !== null) {
+                return $denied;
             }
             return $this->success(
                 $this->trialService->createOperationReviewIntent(

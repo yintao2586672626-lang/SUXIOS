@@ -14,7 +14,7 @@ function close(server) {
   return new Promise((resolve) => server.close(resolve));
 }
 
-function worker({ healthy, name, failDynamic = false }) {
+function worker({ healthy, name, failDynamic = false, dynamicDelayMs = 0 }) {
   let healthResponse = healthy;
   let healthRequests = 0;
   let dynamicRequests = 0;
@@ -27,12 +27,19 @@ function worker({ healthy, name, failDynamic = false }) {
       return;
     }
     dynamicRequests += 1;
-    if (failDynamic) {
-      response.destroy();
-      return;
+    const finishDynamicRequest = () => {
+      if (failDynamic) {
+        response.destroy();
+        return;
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ worker: name }));
+    };
+    if (dynamicDelayMs > 0) {
+      setTimeout(finishDynamicRequest, dynamicDelayMs);
+    } else {
+      finishDynamicRequest();
     }
-    response.writeHead(200, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify({ worker: name }));
   });
   return {
     server,
@@ -95,6 +102,38 @@ test('local origin retains previously healthy workers for one transient pool-wid
     await close(origin);
     await close(first.server);
     await close(second.server);
+  }
+});
+
+test('local origin does not evict a verified worker while it is serving a slow request', async () => {
+  const busy = worker({ healthy: true, name: 'busy', dynamicDelayMs: 280 });
+  const busyPort = await listen(busy.server);
+  const origin = createLocalOriginServer({
+    backendUrl: `http://127.0.0.1:${busyPort}`,
+    healthCheckIntervalMs: 25,
+    healthCheckTimeoutMs: 15,
+  });
+  const originPort = await listen(origin);
+
+  try {
+    await waitFor(() => busy.healthRequests() >= 1, 'worker did not complete its initial healthy probe');
+    busy.setHealthResponse('timeout');
+    const slowRequest = fetch(`http://127.0.0.1:${originPort}/api/slow`);
+    await waitFor(() => busy.dynamicRequests() >= 1, 'slow request did not reach the worker');
+    const completedHealthyProbes = busy.healthRequests();
+    await waitFor(
+      () => busy.healthRequests() >= completedHealthyProbes + 2,
+      'busy worker did not receive sustained health probes',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    const duringBusy = await fetch(`http://127.0.0.1:${originPort}/api/during-busy`);
+    assert.equal(duringBusy.status, 200);
+    assert.deepEqual(await duringBusy.json(), { worker: 'busy' });
+    assert.equal((await slowRequest).status, 200);
+  } finally {
+    await close(origin);
+    await close(busy.server);
   }
 });
 

@@ -1558,7 +1558,63 @@ trait AgentOtaDiagnosisBuildConcern
             $dateCompare = strcmp((string)($right['data_date'] ?? ''), (string)($left['data_date'] ?? ''));
             return $dateCompare !== 0 ? $dateCompare : ((int)($right['id'] ?? 0) <=> (int)($left['id'] ?? 0));
         });
-        foreach (array_slice($eligibleRows, 0, 20) as $row) {
+        $decisionEvidenceRows = [];
+        $referenceEvidenceRows = [];
+        foreach ($eligibleRows as $rowIndex => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+            $isSupplementalOperatingEvidence = in_array($dataType, ['advertising', 'quality', 'review'], true);
+            $isOwnOperatingRow = OtaOperatingScope::isOwnOperatingRow(
+                $row,
+                null,
+                $ownHotelNames,
+                $ownPlatformHotelIds
+            );
+            $entry = ['index' => (int)$rowIndex, 'row' => $row, 'data_type' => $dataType];
+            if ($isOwnOperatingRow || $isSupplementalOperatingEvidence) {
+                $decisionEvidenceRows[] = $entry;
+            } else {
+                $referenceEvidenceRows[] = $entry;
+            }
+        }
+
+        // Keep the bounded snapshot useful for root-evidence readback. A large
+        // competitor set must not crowd out the hotel's own traffic/business
+        // rows or supplemental quality/review rows that contribute metrics.
+        $prioritizedDecisionRows = [];
+        $selectedDecisionIndexes = [];
+        foreach (['traffic', 'business', '', 'quality', 'review', 'advertising'] as $priorityDataType) {
+            foreach ($decisionEvidenceRows as $entry) {
+                if ($entry['data_type'] === $priorityDataType
+                    && !isset($selectedDecisionIndexes[$entry['index']])
+                ) {
+                    $prioritizedDecisionRows[] = $entry['row'];
+                    $selectedDecisionIndexes[$entry['index']] = true;
+                    break;
+                }
+            }
+        }
+        foreach ($decisionEvidenceRows as $entry) {
+            if (!isset($selectedDecisionIndexes[$entry['index']])) {
+                $prioritizedDecisionRows[] = $entry['row'];
+                $selectedDecisionIndexes[$entry['index']] = true;
+            }
+        }
+        $selectedEvidenceRows = array_slice($prioritizedDecisionRows, 0, 20);
+        $referenceSlots = max(0, 20 - count($selectedEvidenceRows));
+        if ($referenceSlots > 0) {
+            $selectedEvidenceRows = array_merge(
+                $selectedEvidenceRows,
+                array_map(
+                    static fn(array $entry): array => $entry['row'],
+                    array_slice($referenceEvidenceRows, 0, $referenceSlots)
+                )
+            );
+        }
+
+        foreach ($selectedEvidenceRows as $row) {
             if (!is_array($row)) {
                 continue;
             }

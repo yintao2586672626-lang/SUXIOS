@@ -20,36 +20,26 @@ function Invoke-CheckedNative {
     return $output
 }
 
-Invoke-CheckedNative -FilePath 'node' -ArgumentList @($ContextVerifierPath)
+$changed = @(Invoke-CheckedNative -FilePath 'git' -ArgumentList @(
+    'diff', '--name-only', '--cached', '--no-renames', '--diff-filter=ACMRD'
+)) | Where-Object { $_ } | Sort-Object -Unique
+
+$snapshotArguments = @(
+    'hooks/verify-staged-frontend-build.mjs',
+    '--context-verifier',
+    $ContextVerifierPath
+)
+if ($SkipProjectVerifiers) {
+    $snapshotArguments += '--context-only'
+}
+
+# Every verifier reads the exact index tree that will be committed. This
+# prevents partially staged files from borrowing matching worktree content.
+Invoke-CheckedNative -FilePath 'node' -ArgumentList $snapshotArguments
 
 if ($SkipProjectVerifiers) {
     Write-Output 'Skipped project verifiers by request.'
     exit 0
-}
-
-$changed = @()
-$changed += @(Invoke-CheckedNative -FilePath 'git' -ArgumentList @('diff', '--name-only'))
-$changed += @(Invoke-CheckedNative -FilePath 'git' -ArgumentList @('diff', '--name-only', '--cached'))
-$changed = $changed | Where-Object { $_ } | Sort-Object -Unique
-
-if ($changed -contains 'public/index.html') {
-    Invoke-CheckedNative -FilePath 'npm.cmd' -ArgumentList @('run', 'verify:public-entry')
-}
-
-if ($changed -contains 'public/index.html' -or $changed -contains 'public/style.css') {
-    if (Test-Path scripts/verify_taste_page_coverage.mjs) {
-        Invoke-CheckedNative -FilePath 'npm.cmd' -ArgumentList @('run', 'verify:taste-coverage')
-    } else {
-        Invoke-CheckedNative -FilePath 'npm.cmd' -ArgumentList @('run', 'verify:p0-guards')
-    }
-}
-
-if ($changed | Where-Object { $_ -match 'ctrip|OnlineData\.php|route/app\.php' }) {
-    Invoke-CheckedNative -FilePath 'npm.cmd' -ArgumentList @('run', 'verify:ctrip-capture-catalog')
-}
-
-if ($changed | Where-Object { $_ -match 'AGENTS\.md|\.agents/skills|vault/|evals/|rules/|hooks/' }) {
-    Invoke-CheckedNative -FilePath 'npm.cmd' -ArgumentList @('run', 'verify:context-assets')
 }
 
 Write-Output 'Pre-commit hook checks passed.'

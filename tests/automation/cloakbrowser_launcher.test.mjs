@@ -4,12 +4,89 @@ import test from 'node:test';
 
 import {
   buildOtaPersistentContextOptions,
+  connectOtaCdpContext,
   requireFreshOtaPageNetwork,
   createConnectedContextFacade,
   launchOtaPersistentContext,
   resolveOtaBrowserBinaryPath,
   resolveOtaCdpUrl,
 } from '../../scripts/lib/cloakbrowser_launcher.mjs';
+
+test('OTA CDP URL accepts only an explicit IPv4 loopback endpoint', () => {
+  assert.equal(resolveOtaCdpUrl({ cdpUrl: 'http://127.0.0.1:9223/' }), 'http://127.0.0.1:9223');
+  assert.equal(resolveOtaCdpUrl({}), '');
+  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://localhost:9223' }), /CDP URL/);
+  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://127.0.0.1:65536' }), /CDP URL/);
+  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://user:secret@127.0.0.1:9223' }), /CDP URL/);
+});
+
+test('CDP attach requires a guarded page and its facade closes the owning browser', async () => {
+  const guardedPage = {
+    isClosed: () => false,
+    evaluate: async () => 'suxios_profile_lease_guarded',
+  };
+  const context = {
+    pages: () => [guardedPage],
+    newPage: async () => {
+      throw new Error('guarded page must be reused');
+    },
+  };
+  let closeCount = 0;
+  const browser = {
+    contexts: () => [context],
+    async close() {
+      closeCount += 1;
+    },
+  };
+  const chromiumClient = {
+    async connectOverCDP(url) {
+      assert.equal(url, 'http://127.0.0.1:9223');
+      return browser;
+    },
+  };
+
+  const attached = await connectOtaCdpContext('http://127.0.0.1:9223', chromiumClient);
+  assert.equal(await attached.newPage(), guardedPage);
+  await attached.close();
+  await attached.close();
+  assert.equal(closeCount, 1);
+});
+
+test('CDP attach fails closed and closes the browser unless exactly one context exists', async () => {
+  let closed = false;
+  const chromiumClient = {
+    async connectOverCDP() {
+      return {
+        contexts: () => [{}, {}],
+        async close() {
+          closed = true;
+        },
+      };
+    },
+  };
+
+  await assert.rejects(
+    () => connectOtaCdpContext('http://127.0.0.1:9223', chromiumClient),
+    /ota_browser_cdp_context_count_invalid/,
+  );
+  assert.equal(closed, true);
+});
+
+test('CDP attach fails closed when the context contains more than the guarded page', async () => {
+  const guardedPage = { evaluate: async () => 'suxios_profile_lease_guarded' };
+  const extraPage = { evaluate: async () => '' };
+  let closed = false;
+  await assert.rejects(
+    () => connectOtaCdpContext('http://127.0.0.1:9223', {
+      connectOverCDP: async () => ({
+        contexts: () => [{ pages: () => [guardedPage, extraPage] }],
+        close: async () => { closed = true; },
+      }),
+    }),
+    /ota_browser_cdp_guarded_page_missing/,
+  );
+  assert.equal(closed, true);
+});
 
 test('configured browser binary takes precedence over a request path', () => {
   const previous = process.env.CLOAKBROWSER_BINARY_PATH;
@@ -89,7 +166,10 @@ test('every Ctrip and Meituan capture page installs the fresh network gate', asy
   const ctrip = await readFile(new URL('../../scripts/ctrip_browser_capture.mjs', import.meta.url), 'utf8');
   const meituan = await readFile(new URL('../../scripts/meituan_browser_capture.mjs', import.meta.url), 'utf8');
 
-  assert.match(ctrip, /payload\.network_freshness = await requireFreshOtaPageNetwork\(browser, page\)/);
+  assert.match(
+    ctrip,
+    /payload\.network_freshness = authOnly\s*\?\s*await prepareCtripAuthPage\(page\)\s*:\s*await requireFreshOtaPageNetwork\(browser, page\)/,
+  );
   assert.match(ctrip, /networkFreshness = await requireFreshOtaPageNetwork\(context, sectionPage\)/);
   assert.match(ctrip, /retry_network_freshness = await requireFreshOtaPageNetwork\(context, retryPage\)/);
   assert.match(meituan, /payload\.network_freshness = await requireFreshOtaPageNetwork\(browser, page\)/);
@@ -109,7 +189,7 @@ test('cloud Profile CDP accepts only the protected loopback endpoint', () => {
   }
 });
 
-test('connected context reuses the guarded page and closes only pages it creates', async () => {
+test('connected context reuses only the guarded page and rejects additional pages', async () => {
   const calls = [];
   const guardedPage = {
     isClosed: () => false,
@@ -133,27 +213,22 @@ test('connected context reuses the guarded page and closes only pages it creates
   const facade = createConnectedContextFacade(context, browser);
 
   assert.equal(await facade.newPage(), guardedPage);
-  assert.equal(await facade.newPage(), createdPage);
+  await assert.rejects(() => facade.newPage(), /ota_browser_cdp_additional_page_blocked/);
   assert.equal(await facade.grantPermissions(), 'ok');
   await facade.close();
   await facade.close();
 
-  assert.deepEqual(calls, ['created_close', 'disconnect']);
+  assert.deepEqual(calls, ['disconnect']);
 });
 
 test('launcher connects to the gateway CDP instead of launching a persistent profile', async () => {
-  const restoredPage = {
-    isClosed: () => false,
-    close: async () => undefined,
-    evaluate: async () => '',
-  };
   const guardedPage = {
     isClosed: () => false,
     close: async () => undefined,
     evaluate: async () => 'suxios_profile_lease_guarded',
   };
   const context = {
-    pages: () => [guardedPage, restoredPage],
+    pages: () => [guardedPage],
     newPage: async () => {
       throw new Error('must reuse guarded page');
     },

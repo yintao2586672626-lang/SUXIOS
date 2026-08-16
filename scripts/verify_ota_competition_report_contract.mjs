@@ -20,6 +20,7 @@ const wecomVisualCard = read('app/service/WechatCompetitionVisualCardService.php
 const wecomVisualRenderer = read('scripts/render_wechat_competition_visual_card.mjs');
 const cloudAutomation = read('app/service/CloudAutomationService.php');
 const frontend = read('public/app-main.js');
+const aiDailyStatic = read('public/ai-daily-report-static.js');
 const template = read('resources/frontend/templates/fragments/16-page-ai-daily-report.html');
 const workflow = read('.github/workflows/php.yml');
 const packageJson = JSON.parse(read('package.json'));
@@ -47,6 +48,11 @@ const scripts = packageJson.scripts ?? {};
   ["'ctrip_source_trace_unverified'", 'Ctrip source-trace gate'],
   ["'meituan_source_trace_unverified'", 'Meituan source-trace gate'],
   ["'competitor_count' => $competitorCount", 'missing competitor count remains null'],
+  ["'schema_version' => 'suxios.ota_competition_report.v1'", 'interactive report document contract'],
+  ["'schema_version' => 'suxios.xiaohongshu.content_draft.v1'", 'Xiaohongshu draft contract'],
+  ["'bundle_id' => $bundleId", 'interactive report bundle identity'],
+  ["'commercial_release_ready' => false", 'interactive report commercial boundary'],
+  ["'auto_publish' => false", 'Xiaohongshu manual publication boundary'],
 ].forEach(([needle, label]) => assertContains(bundleService, needle, label));
 
 [
@@ -104,9 +110,18 @@ const scripts = packageJson.scripts ?? {};
   ['delivery.delivery_parts || {}', 'text and visual delivery receipt binding'],
   ["aiDailyReportWecomEdition.value = 'lite'", 'non-admin WeCom edition reset'],
   ['aiDailyReportCompetitionBundle', 'competition bundle frontend binding'],
+  ['aiDailyReportCompetitionReportDocument', 'saved interactive report binding'],
+  ['downloadAiDailyCompetitionReportHtml', 'offline HTML report export'],
+  ['copyAiDailyCompetitionXiaohongshuDraft', 'Xiaohongshu draft copy action'],
+  ['includeCompetition && !downloadAiDailyCompetitionReportHtml()', 'report delivery is bound to identity-checked result package action'],
+].forEach(([needle, label]) => assertContains(frontend, needle, label));
+
+[
+  ['report.render_contract?.bundle_id', 'report export bundle identity check'],
+  ['data-bundle-id=', 'report export embeds bundle identity'],
   ["facts.competitor_count ?? '—'", 'missing competitor count display boundary'],
   ['auto_write_ota=false', 'manual execution boundary copy'],
-].forEach(([needle, label]) => assertContains(frontend, needle, label));
+].forEach(([needle, label]) => assertContains(aiDailyStatic, needle, label));
 
 [
   ['value="lite"', 'lite option'],
@@ -121,6 +136,7 @@ const scripts = packageJson.scripts ?? {};
   ["user?.is_super_admin && aiDailyReportWecomEdition === 'flagship'", 'non-admin send button label gate'],
   ['<strong>竞对变化（诊断参考）</strong>', 'always-visible diagnostic heading'],
   ['<pre v-if="aiDailyReportCompetitionSummaryText"', 'competition-circle report entry'],
+  ['>产出报告</button>', 'user-facing report output action'],
   ['v-else-if="!aiDailyReportCompetitorChanges.length"', 'truthful competition empty state'],
 ].forEach(([needle, label]) => assertContains(template, needle, label));
 

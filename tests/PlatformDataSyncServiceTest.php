@@ -6,6 +6,7 @@ namespace Tests;
 use app\service\PlatformDataSyncService;
 use app\service\PlatformNormalizedRowPersistenceService;
 use app\service\OnlineDataFieldFactService;
+use app\service\platform\BrowserProfileProcessOutputSanitizer;
 use app\service\platform\CtripBrowserProfileDataSourceAdapter;
 use app\service\platform\MeituanBrowserProfileDataSourceAdapter;
 use PHPUnit\Framework\TestCase;
@@ -707,7 +708,9 @@ final class PlatformDataSyncServiceTest extends TestCase
         ];
         $options = [
             'require_current_run_session_probe' => true,
-            'required_platform_hotel_id' => 'hotel-80',
+            // Production OTA hotel identifiers are commonly numeric strings;
+            // PHP must not turn the dedupe key into an int before hash_equals.
+            'required_platform_hotel_id' => '130079194',
         ];
 
         self::assertNull($method->invoke($service, $source, $options, [
@@ -719,7 +722,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     'schema_version' => 1,
                     'status' => 'matched',
                     'source_validation' => true,
-                    'validated_identifier' => 'hotel-80',
+                    'validated_identifier' => '130079194',
                     'sensitive_values_exposed' => false,
                 ],
             ],
@@ -740,6 +743,44 @@ final class PlatformDataSyncServiceTest extends TestCase
                 ],
             ],
         ]);
+    }
+
+    public function testRequiredCurrentRunProfileSessionProbeKeepsNumericPlatformHotelIdsAsStrings(): void
+    {
+        $service = new PlatformDataSyncService();
+        $identifiersMethod = new \ReflectionMethod($service, 'requiredCurrentRunPlatformHotelIds');
+        $probeMethod = new \ReflectionMethod($service, 'assertRequiredCurrentRunProfileSessionProbe');
+        $source = [
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+            'config' => [
+                'platform_hotel_id' => '130079194',
+            ],
+        ];
+        $options = [
+            'require_current_run_session_probe' => true,
+            'required_platform_hotel_id' => '130079194',
+        ];
+
+        self::assertSame(
+            ['130079194'],
+            $identifiersMethod->invoke($service, $source, $options)
+        );
+        self::assertNull($probeMethod->invoke($service, $source, $options, [
+            'status' => 'success',
+            'payload' => [
+                'network_freshness' => $this->readyNetworkFreshness(),
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'platform_identity_validation' => [
+                    'schema_version' => 1,
+                    'status' => 'matched',
+                    'source_validation' => true,
+                    'evidence_source' => 'trusted_ota_page_state',
+                    'validated_identifier' => '130079194',
+                    'sensitive_values_exposed' => false,
+                ],
+            ],
+        ]));
     }
 
     public function testRequiredCurrentRunProfileSessionProbeRejectsEveryMissingOrDriftedFact(): void
@@ -4243,6 +4284,68 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testCtripScheduledProfileCaptureRejectsRequestedDateUsedAsDefaultEvidence(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'standard_rows' => [[
+                    'hotel_id' => '24588',
+                    'data_date' => '2026-08-16',
+                    'date_source' => 'capture_context.default_data_date',
+                    'data_type' => 'business',
+                    'amount' => 100,
+                    'source_trace_id' => 'default-date-is-not-proof',
+                ]],
+            ]));
+
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'data_date' => '2026-08-16',
+                'require_current_run_session_probe' => true,
+            ]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertSame('ctrip_target_date_unverified', $result['status_code']);
+            self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripScheduledProfileCaptureRejectsAuthoritativeWrongDate(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'standard_rows' => [[
+                    'hotel_id' => '24588',
+                    'data_date' => '2026-08-15',
+                    'date_source' => 'response.businessDate',
+                    'data_type' => 'business',
+                    'amount' => 100,
+                    'source_trace_id' => 'wrong-date-response-row',
+                ]],
+            ]));
+
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'data_date' => '2026-08-16',
+                'require_current_run_session_probe' => true,
+            ]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertSame('ctrip_target_date_mismatch', $result['status_code']);
+            self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testCtripSequentialCaptureNeverMergesRowsWithoutFreshNetworkProof(): void
     {
         foreach ([
@@ -5663,6 +5766,12 @@ final class PlatformDataSyncServiceTest extends TestCase
                     'next_retry_at', 'requested_by', 'message', 'stats_json',
                     'create_time', 'update_time',
                 ], true),
+                'platform_data_sources' => array_fill_keys([
+                    'id', 'tenant_id', 'system_hotel_id', 'user_id', 'name',
+                    'platform', 'data_type', 'ingestion_method', 'status', 'enabled',
+                    'config_json', 'secret_json', 'last_sync_time', 'last_sync_status',
+                    'last_error', 'created_by', 'updated_by', 'create_time', 'update_time',
+                ], true),
             ]);
             $retry = $acquireTask->invoke(
                 $service,
@@ -5680,6 +5789,74 @@ final class PlatformDataSyncServiceTest extends TestCase
                 'running',
                 Db::name('platform_data_sync_tasks')->where('id', (int)$retry['task_id'])->value('status')
             );
+
+            Db::name('platform_data_sources')->insert([
+                'id' => 9902,
+                'tenant_id' => 1,
+                'system_hotel_id' => 7,
+                'user_id' => 91,
+                'name' => 'Cloud Profile failure receipt source',
+                'platform' => 'meituan',
+                'data_type' => 'traffic',
+                'ingestion_method' => 'browser_profile',
+                'status' => 'ready',
+                'enabled' => 1,
+                'config_json' => '{}',
+                'secret_json' => '{}',
+                'created_by' => 91,
+                'updated_by' => 91,
+                'create_time' => '2026-08-09 07:00:00',
+                'update_time' => '2026-08-09 07:00:00',
+            ]);
+            $failureReceipt = $service->recordCloudProfileCollectionFailure(
+                new class {
+                    public int $id = 91;
+                    public function isSuperAdmin(): bool { return true; }
+                },
+                9902,
+                'cloud_ota_target_date_mismatch',
+                ['target_date' => '2026-08-09']
+            );
+            self::assertSame('failed', $failureReceipt['status']);
+            self::assertSame(0, $failureReceipt['saved_count']);
+            self::assertFalse($failureReceipt['readback_verified']);
+            $failureTask = Db::name('platform_data_sync_tasks')
+                ->where('id', (int)$failureReceipt['task_id'])
+                ->find();
+            self::assertIsArray($failureTask);
+            self::assertSame('failed', $failureTask['status']);
+            self::assertSame('cloud_ota_target_date_mismatch', $failureTask['message']);
+            self::assertSame('failed', Db::name('platform_data_sources')->where('id', 9902)->value('last_sync_status'));
+            self::assertSame(
+                'cloud_ota_target_date_mismatch',
+                Db::name('platform_data_sources')->where('id', 9902)->value('last_error')
+            );
+
+            $dispatcherRunId = '9d000000-0000-4000-8000-000000000001';
+            $scheduledFailure = $service->recordCloudProfileCollectionFailure(
+                new class {
+                    public int $id = 91;
+                    public function isSuperAdmin(): bool { return true; }
+                },
+                9902,
+                'cloud_ota_collection_preflight_unverified',
+                [
+                    'target_date' => '2026-08-09',
+                    'dispatcher_run_id' => $dispatcherRunId,
+                ]
+            );
+            $scheduledFailureTask = Db::name('platform_data_sync_tasks')
+                ->where('id', (int)$scheduledFailure['task_id'])
+                ->find();
+            self::assertIsArray($scheduledFailureTask);
+            self::assertSame('daily_profile_reuse', $scheduledFailureTask['trigger_type']);
+            $scheduledFailureStats = json_decode(
+                (string)$scheduledFailureTask['stats_json'],
+                true,
+                512,
+                JSON_THROW_ON_ERROR
+            );
+            self::assertSame($dispatcherRunId, $scheduledFailureStats['dispatcher_run_id']);
 
             Db::execute(
                 "CREATE TRIGGER platform_source_update_fail "
@@ -5835,9 +6012,9 @@ final class PlatformDataSyncServiceTest extends TestCase
                     $ctripWriter($args);
                     return [
                         'success' => false,
-                        'message' => 'collector exited non-zero',
-                        'stdout' => '',
-                        'stderr' => '',
+                        'message' => 'collector failed {"\u0063\u006f\u006f\u006b\u0069\u0065\u0073":[{"value":"ctrip-message-secret"}]}',
+                        'stdout' => 'Error URL https\u003a\u002f\u002fuser\u003actrip-stdout-secret\u0040example.invalid\u002fpath',
+                        'stderr' => 'Authorization: Bearer ctrip-stderr-secret',
                     ];
                 }
             );
@@ -5849,6 +6026,11 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('failed', $ctripResult['status']);
             self::assertSame('capture_process_failed', $ctripResult['status_code']);
             self::assertArrayNotHasKey('rows', $ctripResult['payload']);
+            $ctripFailureJson = json_encode($ctripResult, JSON_UNESCAPED_SLASHES) ?: '';
+            self::assertStringNotContainsString('ctrip-message-secret', $ctripFailureJson);
+            self::assertStringNotContainsString('ctrip-stdout-secret', $ctripFailureJson);
+            self::assertStringNotContainsString('ctrip-stderr-secret', $ctripFailureJson);
+            self::assertStringContainsString('redacted', $ctripFailureJson);
 
             $meituanWriter = $this->captureRunner([
                 'auth_status' => ['ok' => true, 'status' => 'logged_in'],
@@ -5869,9 +6051,9 @@ final class PlatformDataSyncServiceTest extends TestCase
                     $meituanWriter($args);
                     return [
                         'success' => false,
-                        'message' => 'collector exited non-zero',
-                        'stdout' => '',
-                        'stderr' => '',
+                        'message' => 'collector failed {"\u0063\u006f\u006f\u006b\u0069\u0065\u004a\u0061\u0072":{"foo":"meituan-message-secret"}}',
+                        'stdout' => 'Error URL https://example.invalid/?token=meituan-stdout-secret',
+                        'stderr' => 'Cookie: session=meituan-stderr-secret',
                     ];
                 }
             );
@@ -5883,10 +6065,91 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('failed', $meituanResult['status']);
             self::assertSame('capture_process_failed', $meituanResult['status_code']);
             self::assertArrayNotHasKey('rows', $meituanResult['payload']);
+            $meituanFailureJson = json_encode($meituanResult, JSON_UNESCAPED_SLASHES) ?: '';
+            self::assertStringNotContainsString('meituan-message-secret', $meituanFailureJson);
+            self::assertStringNotContainsString('meituan-stdout-secret', $meituanFailureJson);
+            self::assertStringNotContainsString('meituan-stderr-secret', $meituanFailureJson);
+            self::assertStringContainsString('redacted', $meituanFailureJson);
         } finally {
             $this->removeDirectory($ctripRoot);
             $this->removeDirectory($meituanRoot);
         }
+    }
+
+    public function testBrowserProfileProcessDiagnosticsSuppressCredentialBearingLines(): void
+    {
+        $nestedEscape = static fn(string $value): string => str_replace(
+            ['\\', '"', '/'],
+            ['\\\\', '\\"', '\\/'],
+            $value
+        );
+        $tripleEscapedCookie = '{"cookies":[{"value":"live-secret-triple-cookie"}]}';
+        $tripleEscapedUrl = 'https://user:live-secret-triple-userinfo@example.invalid/path';
+        for ($pass = 0; $pass < 3; $pass++) {
+            $tripleEscapedCookie = $nestedEscape($tripleEscapedCookie);
+            $tripleEscapedUrl = $nestedEscape($tripleEscapedUrl);
+        }
+        $cases = [
+            ['Error: access_token=live-secret-123', 'live-secret-123'],
+            ['Exception Authorization: Bearer live-secret-789', 'live-secret-789'],
+            ['failed api_key=live-secret-abc', 'live-secret-abc'],
+            ['failed URL https://example.invalid/?token=live-secret-query', 'live-secret-query'],
+            ['failed Cookie: session=live-secret-cookie', 'live-secret-cookie'],
+            ['failed --refresh-token live-secret-refresh', 'live-secret-refresh'],
+            ['failed mtgsig=live-secret-signature', 'live-secret-signature'],
+            ['Error payload {"access_token":"live-secret-json"}', 'live-secret-json'],
+            [
+                'Error payload {"cookies":[{"name":"foo","value":"live-secret-cookie-jar"}]}',
+                'live-secret-cookie-jar',
+            ],
+            [
+                'failed URL https://user:live-secret-userinfo@example.invalid/path',
+                'live-secret-userinfo',
+            ],
+            [
+                'Error payload {\"cookies\":[{\"value\":\"live-secret-escaped-cookie\"}]}',
+                'live-secret-escaped-cookie',
+            ],
+            [
+                'Error payload {\"cookieJar\":{\"value\":\"live-secret-escaped-jar\"}}',
+                'live-secret-escaped-jar',
+            ],
+            [
+                'failed URL https:\/\/user:live-secret-escaped-userinfo@example.invalid/path',
+                'live-secret-escaped-userinfo',
+            ],
+            ['Error payload ' . $tripleEscapedCookie, 'live-secret-triple-cookie'],
+            ['failed URL ' . $tripleEscapedUrl, 'live-secret-triple-userinfo'],
+            [
+                'Error payload {"\u0063\u006f\u006f\u006b\u0069\u0065\u0073":[{"value":"live-secret-unicode-cookie"}]}',
+                'live-secret-unicode-cookie',
+            ],
+            [
+                'failed URL https\u003a\u002f\u002fuser\u003alive-secret-unicode-userinfo\u0040example.invalid\u002fpath',
+                'live-secret-unicode-userinfo',
+            ],
+            [
+                'failed URL \u0068\u0074\u0074\u0070\u0073\u003a\u002f\u002fuser\u003alive-secret-full-unicode-url\u0040example.invalid',
+                'live-secret-full-unicode-url',
+            ],
+        ];
+
+        foreach ($cases as [$line, $secret]) {
+            $log = BrowserProfileProcessOutputSanitizer::sanitizeLog("safe prelude\n{$line}\nsafe tail");
+            $summary = BrowserProfileProcessOutputSanitizer::summarize($line, '');
+
+            self::assertStringNotContainsString($secret, $log);
+            self::assertStringContainsString('[redacted_sensitive_process_output]', $log);
+            self::assertSame('browser_profile_process_error_redacted', $summary);
+        }
+
+        self::assertSame(
+            'Error: browser process timed out after 60 seconds',
+            BrowserProfileProcessOutputSanitizer::summarize(
+                'Error: browser process timed out after 60 seconds',
+                ''
+            )
+        );
     }
 
     private function ctripBrowserProfileSource(): array

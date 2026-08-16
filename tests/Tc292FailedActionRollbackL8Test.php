@@ -62,6 +62,8 @@ final class Tc292FailedActionRollbackL8Test extends TestCase
         Db::name('operation_execution_evidence')->delete(true);
         Db::name('operation_execution_tasks')->delete(true);
         Db::name('operation_execution_intents')->delete(true);
+        Db::name('hotels')->delete(true);
+        Db::name('hotels')->insert(['id' => self::HOTEL_ID, 'tenant_id' => 1]);
     }
 
     /**
@@ -393,6 +395,12 @@ final class Tc292FailedActionRollbackL8Test extends TestCase
 
     private static function createSchema(): void
     {
+        Db::execute(<<<'SQL'
+CREATE TABLE hotels (
+    id INTEGER PRIMARY KEY,
+    tenant_id INTEGER NOT NULL
+)
+SQL);
         Db::execute(<<<'SQL'
 CREATE TABLE operation_execution_intents (
     id INTEGER PRIMARY KEY,

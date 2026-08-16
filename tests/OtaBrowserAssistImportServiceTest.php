@@ -175,4 +175,40 @@ final class OtaBrowserAssistImportServiceTest extends TestCase
         self::assertStringNotContainsString('must-not-persist', $serialized);
         self::assertStringNotContainsString('cookie', strtolower($serialized));
     }
+
+    public function testNormalizeMeituanRealtimeFactsPreservesAuthenticatedHeaderIdentity(): void
+    {
+        $service = new OtaBrowserAssistImportService();
+
+        $result = $service->normalizeCapturePackages([
+            'system_hotel_id' => 80,
+            'hotel_name' => '敦煌漠蓝新',
+            'data_date' => '2026-08-12',
+            'snapshot_time' => '2026-08-12 20:39:48',
+            'meituanStats' => [
+                'identityEvidence' => [
+                    'status' => 'operator_confirmed',
+                    'evidenceType' => 'authenticated_page_header',
+                    'systemHotelId' => 80,
+                    'expectedHotelName' => '敦煌漠蓝新',
+                    'observedHotelName' => '敦煌·漠蓝·Club·野奢度假民宿（鸣沙山月牙泉店）',
+                    'confirmedAt' => '2026-08-12 20:39:48',
+                ],
+                'metrics' => [
+                    'browseUsers' => 264,
+                ],
+            ],
+        ]);
+
+        self::assertSame(1, $result['summary']['row_count']);
+        $row = $result['rows'][0];
+        self::assertSame(264.0, $row['detail_exposure']);
+        self::assertSame('operator_confirmed', $row['browser_assist_identity']['status']);
+        self::assertSame('authenticated_page_header', $row['browser_assist_identity']['evidence_type']);
+        self::assertSame('敦煌漠蓝新', $row['browser_assist_identity']['expected_hotel_name']);
+        self::assertSame(
+            $row['browser_assist_identity'],
+            $row['raw_data']['browser_assist_identity']
+        );
+    }
 }

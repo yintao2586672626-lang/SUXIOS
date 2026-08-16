@@ -12,6 +12,7 @@ class OpeningService
 {
     private LlmClient $client;
     private AiDecisionQualityService $decisionQualityService;
+    private SourceBackedExecutionBridgeProjectionService $executionBridgeProjection;
     private int $actorUserId = 0;
     private bool $actorIsSuperAdmin = false;
 
@@ -34,10 +35,16 @@ class OpeningService
         '开业营销推广' => 5,
     ];
 
-    public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
+    public function __construct(
+        ?LlmClient $client = null,
+        ?AiDecisionQualityService $decisionQualityService = null,
+        ?SourceBackedExecutionBridgeProjectionService $executionBridgeProjection = null
+    )
     {
         $this->client = $client ?: new LlmClient();
         $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
+        $this->executionBridgeProjection = $executionBridgeProjection
+            ?? new SourceBackedExecutionBridgeProjectionService();
     }
 
     public function forActor(int $userId, bool $isSuperAdmin): self
@@ -97,7 +104,7 @@ class OpeningService
         $this->applyProjectScope($query, $hotelIds, $userId, $isSuperAdmin);
 
         $projects = $this->attachProjectTaskTruth(array_map([$this, 'normalizeProject'], $query->select()->toArray()));
-        $intentIds = $this->executionIntentIdsForProjects(array_column($projects, 'id'));
+        $intentIds = $this->executionIntentIdsForProjects($projects);
         foreach ($projects as &$project) {
             $project['execution_intent_id'] = (int)($intentIds[(int)$project['id']] ?? 0);
         }
@@ -227,15 +234,17 @@ class OpeningService
         return ['generated' => true, 'tasks' => $this->tasks($projectId, $hotelIds, $userId, $isSuperAdmin), 'overview' => $this->overview($projectId, $hotelIds, $userId, $isSuperAdmin)];
     }
 
-    public function tasks(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
+    public function tasks(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false, bool $lockForUpdate = false): array
     {
         $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
-        $rows = Db::name('opening_tasks')
+        $query = Db::name('opening_tasks')
             ->where('project_id', $projectId)
             ->order('sort_order', 'asc')
-            ->order('id', 'asc')
-            ->select()
-            ->toArray();
+            ->order('id', 'asc');
+        if ($lockForUpdate) {
+            $query->lock(true);
+        }
+        $rows = $query->select()->toArray();
 
         return array_map(fn(array $row): array => $this->normalizeTask($row, $project), $rows);
     }
@@ -335,7 +344,7 @@ class OpeningService
         }
 
         $project = $this->normalizeProject($project);
-        $project['execution_intent_id'] = (int)($this->executionIntentIdsForProjects([(int)$project['id']])[(int)$project['id']] ?? 0);
+        $project['execution_intent_id'] = (int)($this->executionIntentIdsForProjects([$project])[(int)$project['id']] ?? 0);
 
         return $project;
     }
@@ -379,6 +388,10 @@ class OpeningService
             ],
             'evidence' => [
                 'source_scope' => 'opening_project_and_tasks',
+                'source_snapshot_digest' => SourceBackedExecutionIntentIdentityService::snapshotDigest('opening', [
+                    'project' => $project,
+                    'tasks' => array_values((array)($overview['source_tasks'] ?? [])),
+                ]),
                 'project_status' => (string)($project['status'] ?? ''),
                 'days_left' => (int)($project['days_left'] ?? 0),
                 'metrics' => $metrics,
@@ -389,6 +402,27 @@ class OpeningService
             'risk_level' => $this->executionRiskLevel((string)($project['risk_level'] ?? '')),
             'status' => 'pending_approval',
         ];
+    }
+
+    /** @param array<int, int> $hotelIds @param array<string, mixed> $overrides */
+    public function currentExecutionIntentInput(
+        int $projectId,
+        array $hotelIds,
+        int $userId,
+        bool $isSuperAdmin,
+        array $overrides = [],
+        bool $lockTasksForUpdate = false
+    ): array {
+        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
+        // Approval already holds the project row lock. Lock every child row
+        // before hashing so task writes cannot cross the approval snapshot.
+        $tasks = $this->tasks($projectId, $hotelIds, $userId, $isSuperAdmin, $lockTasksForUpdate);
+        $metrics = $this->calculateMetrics($project, $tasks, false);
+
+        return $this->buildExecutionIntentInput($metrics['project'], [
+            'metrics' => $metrics['metrics'],
+            'source_tasks' => $tasks,
+        ], $overrides);
     }
 
     private function calculateMetrics(array $project, array $tasks, bool $withSuggestions = true): array
@@ -1296,34 +1330,10 @@ class OpeningService
         return date('Y-m-d');
     }
 
-    private function executionIntentIdsForProjects(array $projectIds): array
+    /** @param array<int,array<string,mixed>> $projects @return array<int,int> */
+    private function executionIntentIdsForProjects(array $projects): array
     {
-        $ids = array_values(array_filter(array_map('intval', $projectIds), static fn(int $id): bool => $id > 0));
-        if (empty($ids) || !$this->tableExists('operation_execution_intents')) {
-            return [];
-        }
-
-        try {
-            $rows = Db::name('operation_execution_intents')
-                ->where('source_module', 'opening')
-                ->whereIn('source_record_id', $ids)
-                ->whereNull('deleted_at')
-                ->order('id', 'desc')
-                ->field('id, source_record_id')
-                ->select()
-                ->toArray();
-        } catch (Throwable $e) {
-            return [];
-        }
-
-        $result = [];
-        foreach ($rows as $row) {
-            $sourceId = (int)($row['source_record_id'] ?? 0);
-            if ($sourceId > 0 && !isset($result[$sourceId])) {
-                $result[$sourceId] = (int)($row['id'] ?? 0);
-            }
-        }
-        return $result;
+        return $this->executionBridgeProjection->latestIntentIds('opening', $projects);
     }
 
     private function executionRiskLevel(string $riskLevel): string

@@ -8,14 +8,17 @@ use app\model\SystemNotification;
 use app\service\BrowserProfileCaptureRequestService;
 use app\service\CanonicalOtaDailyNaturalAcceptanceService;
 use app\service\CtripCollectorWorkflowService;
+use app\service\HotelCollectionBindingReceiptService;
 use app\service\OtaProfileBindingService;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaFailureNotificationService;
 use app\service\OnlineDailyDataPersistenceService;
 use app\service\OnlineDataAutoFetchStatusStore;
+use app\service\PermissionService;
 use app\service\PlatformProfileBindingReadinessService;
 use app\service\PlatformDataSyncService;
 use app\service\ScheduledAutoFetchPolicy;
+use app\service\WindowsOtaDispatcherControlService;
 use think\Response;
 use think\facade\Db;
 
@@ -3387,6 +3390,7 @@ trait AutoFetchConcern
                     'detail_pending' => false,
                     'status_scope' => 'empty',
                     'natural_daily_acceptance' => $this->naturalDailyAcceptanceStatus(null),
+                    'windows_scheduler_receipt' => $this->windowsOtaDispatcherReceipt(null),
                 ]);
             }
         }
@@ -3465,8 +3469,314 @@ trait AutoFetchConcern
         $status['natural_daily_acceptance'] = $this->naturalDailyAcceptanceStatus(
             $hotelId === null ? null : (int)$hotelId
         );
+        $status['windows_scheduler_receipt'] = $this->windowsOtaDispatcherReceipt(
+            $hotelId === null ? null : (int)$hotelId
+        );
 
         return $this->success($status);
+    }
+
+    public function enableWindowsOtaDispatcher(): Response
+    {
+        $this->checkPermission();
+        $requestData = $this->requestData();
+        $hotelId = is_numeric($requestData['hotel_id'] ?? null)
+            ? (int)$requestData['hotel_id']
+            : 0;
+        if ($hotelId !== WindowsOtaDispatcherControlService::PILOT_HOTEL_ID) {
+            return $this->error('当前仅支持酒店80的固定双平台定时任务', 422, [
+                'status' => 'blocked',
+                'reason_code' => 'scheduler_hotel_scope_unsupported',
+                'hotel_id' => $hotelId,
+            ]);
+        }
+
+        $this->checkHotelActionPermission($hotelId, 'can_fetch_online_data');
+        $updateAuthorization = (new PermissionService())->authorize(
+            $this->currentUser,
+            'hotel.update',
+            $hotelId
+        );
+        if (($updateAuthorization['allowed'] ?? false) !== true) {
+            return $this->error('无权启用该酒店的 Windows 定时任务', 403, [
+                'status' => 'blocked',
+                'reason_code' => 'scheduler_enable_permission_denied',
+                'hotel_id' => $hotelId,
+            ]);
+        }
+
+        $expectedDigest = strtolower(trim((string)($requestData['expected_contract_digest'] ?? '')));
+        if (preg_match('/^[a-f0-9]{64}$/', $expectedDigest) !== 1) {
+            return $this->error('计划任务状态已失效，请刷新后重试', 422, [
+                'status' => 'blocked',
+                'reason_code' => 'scheduler_contract_digest_invalid',
+                'hotel_id' => $hotelId,
+            ]);
+        }
+
+        $bindingGate = $this->windowsOtaDispatcherBindingGate($hotelId);
+        if (($bindingGate['ready'] ?? false) !== true) {
+            return $this->error('携程与美团必须先在原执行设备完成精确绑定和登录验证', 409, [
+                'status' => 'blocked',
+                'reason_code' => 'scheduler_binding_not_ready',
+                'hotel_id' => $hotelId,
+                'binding_gate' => $bindingGate,
+                'task_started' => false,
+                'starts_task_immediately' => false,
+            ]);
+        }
+
+        OperationLog::record(
+            'online_data',
+            'request_enable_windows_ota_dispatcher',
+            '请求安全启用酒店80双平台 Windows 定时任务（结果待精确回读）',
+            (int)$this->currentUser->id,
+            $hotelId,
+            null,
+            [
+                'outcome' => 'partial',
+                'hotel_id' => $hotelId,
+                'source_ids' => [25, 68],
+                'platforms' => ['ctrip', 'meituan'],
+                'mode' => 'Daily',
+                'task_started' => false,
+            ]
+        );
+        $receipt = (new WindowsOtaDispatcherControlService())->enable($hotelId, $expectedDigest);
+        $receipt = $this->mergeWindowsOtaDispatcherBindingGate($receipt, $bindingGate);
+        $schedulerMutationPerformed = ($receipt['enable_action_performed'] ?? false) === true
+            || ($receipt['settings_action_performed'] ?? false) === true;
+        $schedulerMutationVerified = ($receipt['status'] ?? '') === 'ready'
+            && ($receipt['enabled'] ?? false) === true
+            && ($receipt['scope_verified'] ?? false) === true
+            && ($receipt['control_state_verified'] ?? false) === true
+            && ($receipt['catch_up_disabled'] ?? false) === true
+            && ($receipt['task_state_active'] ?? true) === false
+            && ($receipt['last_run_unchanged'] ?? false) === true
+            && ($receipt['task_started'] ?? true) === false;
+        OperationLog::record(
+            'online_data',
+            'enable_windows_ota_dispatcher',
+            $schedulerMutationVerified
+                ? '启用酒店80双平台 Windows 定时任务（未立即运行）'
+                : ($schedulerMutationPerformed
+                    ? '酒店80 Windows 定时任务设置已变更，但最终回读未通过'
+                    : '酒店80 Windows 定时任务启用请求被拒绝，未确认发生设置变更'),
+            (int)$this->currentUser->id,
+            $hotelId,
+            $schedulerMutationVerified ? null : (string)($receipt['reason_code'] ?? 'scheduler_enable_readback_failed'),
+            [
+                'outcome' => $schedulerMutationVerified ? 'success' : 'blocked',
+                'enable_action_performed' => is_bool($receipt['enable_action_performed'] ?? null)
+                    ? $receipt['enable_action_performed']
+                    : null,
+                'settings_action_performed' => is_bool($receipt['settings_action_performed'] ?? null)
+                    ? $receipt['settings_action_performed']
+                    : null,
+                'scope_verified' => ($receipt['scope_verified'] ?? false) === true,
+                'control_state_verified' => ($receipt['control_state_verified'] ?? false) === true,
+                'catch_up_disabled' => is_bool($receipt['catch_up_disabled'] ?? null)
+                    ? $receipt['catch_up_disabled']
+                    : null,
+                'last_run_unchanged' => is_bool($receipt['last_run_unchanged'] ?? null)
+                    ? $receipt['last_run_unchanged']
+                    : null,
+                'task_started' => is_bool($receipt['task_started'] ?? null)
+                    ? $receipt['task_started']
+                    : null,
+                'reason_code' => (string)($receipt['reason_code'] ?? 'scheduler_enable_readback_failed'),
+            ]
+        );
+        if (($receipt['status'] ?? '') !== 'ready'
+            || ($receipt['enabled'] ?? false) !== true
+            || ($receipt['scope_verified'] ?? false) !== true
+            || ($receipt['control_state_verified'] ?? false) !== true
+            || ($receipt['catch_up_disabled'] ?? false) !== true
+            || ($receipt['task_state_active'] ?? true) !== false
+            || ($receipt['last_run_unchanged'] ?? false) !== true
+            || ($receipt['task_started'] ?? true) !== false
+            || ($receipt['starts_task_immediately'] ?? true) !== false
+        ) {
+            return $this->error('Windows 定时任务未通过精确启用回读', 409, $receipt);
+        }
+
+        return $this->success(
+            $receipt,
+            '已启用并精确回读；等待下一次自然运行，未立即采集'
+        );
+    }
+
+    /** @return array<string,mixed> */
+    private function windowsOtaDispatcherReceipt(?int $hotelId): array
+    {
+        if ($hotelId !== WindowsOtaDispatcherControlService::PILOT_HOTEL_ID) {
+            return [
+                'schema_version' => WindowsOtaDispatcherControlService::SCHEMA_VERSION,
+                'visible' => false,
+                'status' => 'not_applicable',
+                'reason_code' => 'scheduler_hotel_scope_unsupported',
+                'hotel_id' => max(0, (int)$hotelId),
+                'local_only' => true,
+                'production_ready' => false,
+                'can_enable' => false,
+                'task_started' => false,
+                'starts_task_immediately' => false,
+                'sensitive_values_exposed' => false,
+            ];
+        }
+
+        $receipt = (new WindowsOtaDispatcherControlService())->inspect($hotelId);
+        return $this->mergeWindowsOtaDispatcherBindingGate(
+            $receipt,
+            $this->windowsOtaDispatcherBindingGate($hotelId)
+        );
+    }
+
+    /**
+     * @param array<string,mixed> $receipt
+     * @param array<string,mixed> $bindingGate
+     * @return array<string,mixed>
+     */
+    private function mergeWindowsOtaDispatcherBindingGate(array $receipt, array $bindingGate): array
+    {
+        $receipt['visible'] = true;
+        $receipt['binding_gate'] = $bindingGate;
+        $receipt['can_enable'] = ($receipt['can_enable'] ?? false) === true
+            && ($bindingGate['ready'] ?? false) === true;
+        $receipt['operational_status'] = ($receipt['enabled'] ?? false) === true
+            && ($receipt['status'] ?? '') === 'ready'
+            && ($receipt['scope_verified'] ?? false) === true
+            && ($receipt['control_state_verified'] ?? false) === true
+            && ($receipt['catch_up_disabled'] ?? false) === true
+            && ($receipt['task_state_active'] ?? true) === false
+            && ($bindingGate['ready'] ?? false) === true
+                ? 'ready_waiting_natural_run'
+                : 'blocked';
+        $receipt['natural_acceptance_separate'] = true;
+        $receipt['sensitive_values_exposed'] = false;
+
+        return $receipt;
+    }
+
+    /** @return array<string,mixed> */
+    private function windowsOtaDispatcherBindingGate(int $hotelId): array
+    {
+        $sourceIds = ['ctrip' => 25, 'meituan' => 68];
+        try {
+            $hotel = Db::name('hotels')
+                ->where('id', $hotelId)
+                ->field('id,tenant_id,name,status')
+                ->find();
+            if (!is_array($hotel)) {
+                throw new \RuntimeException('scheduler_hotel_missing');
+            }
+            $businessDate = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+                ->modify('-1 day')
+                ->format('Y-m-d');
+            $bindingReceipt = (new HotelCollectionBindingReceiptService())->receipt(
+                $hotel,
+                (int)$this->currentUser->id,
+                $businessDate,
+                $sourceIds
+            );
+        } catch (\Throwable) {
+            return [
+                'status' => 'blocked',
+                'ready' => false,
+                'reason_codes' => ['scheduler_binding_receipt_unavailable'],
+                'platforms' => [],
+                'sensitive_values_exposed' => false,
+            ];
+        }
+
+        $platformRows = [];
+        $allReady = true;
+        $allReasonCodes = [];
+        $executionOwnerIds = [];
+        $topLevelOwnerConflict = false;
+        foreach (is_array($bindingReceipt['blockers'] ?? null) ? $bindingReceipt['blockers'] : [] as $issue) {
+            $code = is_array($issue) ? (string)($issue['code'] ?? '') : (string)$issue;
+            if (strtolower(trim($code)) === 'ota_execution_owner_conflict') {
+                $topLevelOwnerConflict = true;
+                break;
+            }
+        }
+        foreach ($sourceIds as $platform => $sourceId) {
+            $binding = is_array($bindingReceipt['bindings'][$platform] ?? null)
+                ? $bindingReceipt['bindings'][$platform]
+                : [];
+            $reasonCodes = [];
+            foreach (['blockers', 'recovery_reasons'] as $issueKey) {
+                foreach (is_array($binding[$issueKey] ?? null) ? $binding[$issueKey] : [] as $issue) {
+                    $code = is_array($issue) ? (string)($issue['code'] ?? '') : (string)$issue;
+                    $code = strtolower(trim($code));
+                    if (preg_match('/^[a-z0-9_.:-]{1,100}$/', $code) === 1) {
+                        $reasonCodes[] = $code;
+                    }
+                }
+            }
+            $exactSource = (int)($binding['source_id'] ?? 0) === $sourceId;
+            $identityVerified = (string)($binding['identity_evidence']['status'] ?? '') === 'verified';
+            $executionBound = (string)($binding['execution_device_binding']['status'] ?? '') === 'bound';
+            $executionOwnerId = (int)($binding['execution_owner_user_id'] ?? 0);
+            if ($executionOwnerId > 0) {
+                $executionOwnerIds[] = $executionOwnerId;
+            }
+            $platformReady = (string)($binding['status'] ?? '') === 'ready'
+                && $exactSource
+                && $identityVerified
+                && $executionBound
+                && $executionOwnerId > 0;
+            if (!$exactSource) {
+                $reasonCodes[] = 'scheduler_source_scope_mismatch';
+            }
+            if (!$identityVerified) {
+                $reasonCodes[] = 'ota_platform_hotel_id_canonical_missing';
+            }
+            if (!$executionBound) {
+                $reasonCodes[] = 'ota_execution_device_binding_missing';
+            }
+            if ($executionOwnerId <= 0) {
+                $reasonCodes[] = 'ota_execution_owner_missing';
+            }
+            $reasonCodes = array_values(array_unique($reasonCodes));
+            if (!$platformReady && $reasonCodes === []) {
+                $reasonCodes[] = 'scheduler_binding_not_ready';
+            }
+            $allReady = $allReady && $platformReady;
+            $allReasonCodes = array_merge($allReasonCodes, $reasonCodes);
+            $platformRows[$platform] = [
+                'platform' => $platform,
+                'source_id' => (int)($binding['source_id'] ?? 0) ?: null,
+                'expected_source_id' => $sourceId,
+                'platform_hotel_id' => trim((string)($binding['platform_hotel_id'] ?? '')) ?: null,
+                'status' => $platformReady ? 'ready' : 'blocked',
+                'binding_status' => (string)($binding['status'] ?? 'unverified'),
+                'identity_status' => (string)($binding['identity_evidence']['status'] ?? 'unverified'),
+                'execution_binding_status' => (string)($binding['execution_device_binding']['status'] ?? 'missing'),
+                'session_status' => trim((string)($binding['execution_device_binding']['session_status'] ?? '')) ?: null,
+                'reason_codes' => $reasonCodes,
+            ];
+        }
+
+        $executionOwnerConflict = $topLevelOwnerConflict
+            || count($executionOwnerIds) !== count($sourceIds)
+            || count(array_unique($executionOwnerIds)) !== 1;
+        if ($executionOwnerConflict) {
+            $allReady = false;
+            $allReasonCodes[] = $topLevelOwnerConflict || count(array_unique($executionOwnerIds)) > 1
+                ? 'ota_execution_owner_conflict'
+                : 'ota_execution_owner_missing';
+        }
+
+        return [
+            'status' => $allReady ? 'ready' : 'blocked',
+            'ready' => $allReady,
+            'reason_codes' => array_values(array_unique($allReasonCodes)),
+            'business_date_context' => $bindingReceipt['business_date_context'] ?? null,
+            'platforms' => $platformRows,
+            'sensitive_values_exposed' => false,
+        ];
     }
 
     /** @return array<string,mixed> */

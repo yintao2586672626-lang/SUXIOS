@@ -19,6 +19,7 @@
         h('dd', {
             class: `${options.mono ? 'font-mono ' : ''}max-w-[155px] truncate text-slate-700`,
             title: text(value, ''),
+            ...(options.testid ? { 'data-testid': options.testid } : {}),
         }, text(value, options.fallback || '未取得')),
     ]);
     const pill = (ctx, status) => h('span', {
@@ -36,6 +37,123 @@
         control,
     ]);
     const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800';
+
+    const scheduledLoopInventoryPanel = (ctx) => {
+        const catalog = ctx.automationMonitor?.scheduled_loops || null;
+        const items = Array.isArray(catalog?.items) ? catalog.items : [];
+        const applicationLoops = Array.isArray(catalog?.application_loops)
+            ? catalog.application_loops
+            : [];
+        const summary = catalog?.summary || {};
+        const catalogTone = catalog?.status === 'ready'
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            : catalog?.status === 'partial'
+                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                : 'border-slate-200 bg-slate-50 text-slate-600';
+        const catalogLabel = catalog?.status === 'ready'
+            ? '当前回读'
+            : catalog?.status === 'partial' ? '部分回读' : '未验证';
+        const taskStatusClass = (status) => status === 'running'
+            ? 'border-blue-200 bg-blue-50 text-blue-700'
+            : status === 'enabled'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-slate-200 bg-slate-100 text-slate-600';
+        const resultClass = (status) => status === 'scheduler_completed'
+            ? 'border-blue-200 bg-blue-50 text-blue-700'
+            : status === 'nonzero'
+                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                : 'border-slate-200 bg-slate-50 text-slate-500';
+        const badge = (label, value, className) => h('span', {
+            class: `rounded-full border px-2.5 py-1 text-xs ${className}`,
+        }, `${label} ${value ?? 0}`);
+        const timestamp = (value) => text(value, '未取得');
+
+        return h('section', {
+            class: 'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm',
+            'data-testid': 'automation-periodic-task-list',
+        }, [
+            h('header', {
+                class: 'flex flex-col gap-3 border-b border-slate-200 bg-[#f7f9f8] px-4 py-4 lg:flex-row lg:items-start lg:justify-between',
+            }, [
+                h('div', {}, [
+                    h('div', { class: 'flex flex-wrap items-center gap-2' }, [
+                        h('h3', { class: 'font-semibold text-slate-900' }, '周期任务清单'),
+                        h('span', {
+                            class: `rounded-full border px-2 py-0.5 text-[11px] font-medium ${catalogTone}`,
+                        }, catalogLabel),
+                    ]),
+                    h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' },
+                        '所有明确按日、按周或固定间隔触发的宿析宿主机任务均在这里列出；登录/开机启动项与短期动画不计入。'),
+                    h('p', { class: 'mt-1 text-[11px] leading-5 text-slate-400' },
+                        `最近核验：${timestamp(catalog?.observed_at)} · 已启用不等于已执行，退出码 0 也不代表采集、推送或经营结果成功。`),
+                ]),
+                h('div', { class: 'flex flex-wrap gap-1.5' }, [
+                    badge('共', summary.total_count, 'border-slate-200 bg-white text-slate-600'),
+                    badge('启用', summary.enabled_count, 'border-emerald-200 bg-emerald-50 text-emerald-700'),
+                    badge('暂停', summary.disabled_count, 'border-slate-200 bg-slate-100 text-slate-600'),
+                    badge('非零结果', summary.nonzero_result_count, 'border-amber-200 bg-amber-50 text-amber-700'),
+                ]),
+            ]),
+            catalog && !['ready', 'partial'].includes(catalog.status) ? h('p', {
+                class: 'm-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800',
+            }, `${catalog.message || '周期任务当前无法读取；不会用默认任务或旧状态冒充。'} ${catalog.reason_code || ''}`.trim()) : null,
+            items.length ? h('div', { class: 'overflow-x-auto' }, [
+                h('table', {
+                    class: 'min-w-[1420px] w-full table-fixed text-left text-sm',
+                    'data-testid': 'automation-periodic-task-table',
+                }, [
+                    h('thead', { class: 'border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600' }, [
+                        h('tr', {}, ['任务名称', '用途', '来源', '频率', '状态', '上次运行', '下次运行', '最近结果'].map(label => (
+                            h('th', { class: 'px-3 py-3' }, label)
+                        ))),
+                    ]),
+                    h('tbody', { class: 'divide-y divide-slate-100' }, items.map(item => h('tr', {
+                        key: item.key,
+                        class: 'align-top hover:bg-slate-50/80',
+                    }, [
+                        h('td', { class: 'px-4 py-3' }, [
+                            h('p', { class: 'font-medium text-slate-900' }, text(item.name)),
+                            h('p', { class: 'mt-1 text-[11px] text-slate-400' }, text(item.scope_label)),
+                            item.risk_note ? h('p', { class: 'mt-1 text-[11px] leading-4 text-red-600' }, item.risk_note) : null,
+                        ]),
+                        h('td', { class: 'px-3 py-3 text-xs leading-5 text-slate-600' }, text(item.purpose)),
+                        h('td', { class: 'px-3 py-3 text-xs text-slate-600' }, text(item.source_label)),
+                        h('td', { class: 'px-3 py-3 text-xs leading-5 text-slate-600' }, text(item.frequency_label)),
+                        h('td', { class: 'px-3 py-3' }, [h('span', {
+                            class: `inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${taskStatusClass(item.status)}`,
+                        }, text(item.status_label))]),
+                        h('td', { class: 'px-3 py-3 text-xs tabular-nums text-slate-600' }, timestamp(item.last_run_at)),
+                        h('td', { class: 'px-3 py-3 text-xs tabular-nums text-slate-600' }, [
+                            timestamp(item.next_run_at),
+                            item.next_run_is_theoretical ? h('span', {
+                                class: 'mt-1 block text-[11px] text-slate-400',
+                            }, '已暂停，仅为理论时间') : null,
+                        ]),
+                        h('td', { class: 'px-3 py-3' }, [h('span', {
+                            class: `inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${resultClass(item.last_result_status)}`,
+                        }, text(item.last_result_summary, '结果未取得'))]),
+                    ]))),
+                ]),
+            ]) : catalog ? h('p', { class: 'px-5 py-8 text-center text-sm text-slate-500' },
+                '当前权限范围内没有已回读的周期任务。') : null,
+            applicationLoops.length ? h('div', {
+                class: 'border-t border-slate-200 bg-[#fbfcfb] px-4 py-3',
+            }, [
+                h('h4', { class: 'text-xs font-semibold text-slate-700' }, '页面与后端的条件式读取'),
+                h('div', { class: 'mt-2 grid gap-2 lg:grid-cols-3' }, applicationLoops.map(item => h('article', {
+                    key: item.key,
+                    class: 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs',
+                }, [
+                    h('div', { class: 'flex items-start justify-between gap-2' }, [
+                        h('strong', { class: 'text-slate-700' }, text(item.name)),
+                        h('span', { class: 'rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500' }, text(item.status_label)),
+                    ]),
+                    h('p', { class: 'mt-1 leading-5 text-slate-500' }, text(item.purpose)),
+                    h('p', { class: 'mt-1 font-medium text-[#315d50]' }, `${text(item.frequency_label)} · 不创建 CMD 窗口`),
+                ]))),
+            ]) : null,
+        ]);
+    };
 
     const systemCard = (ctx, binding) => h('article', {
         class: 'rounded-xl border border-slate-200 bg-slate-50/70 p-3',
@@ -70,6 +188,131 @@
                 detail('平台门店 ID', item.platform_hotel_id, { mono: true, fallback: '缺失' }),
                 detail('Profile 归属', item.profile_binding?.status),
                 detail('原设备映射', item.execution_device_binding?.status),
+            ]),
+        ]);
+    };
+
+    const bindingOnboardingPanel = (ctx, binding) => {
+        if (Number(ctx.automationMonitorContractHotelId || 0) !== 80) return null;
+        const onboarding = ctx.automationMonitorContractOnboarding || {};
+        const reasons = Array.isArray(onboarding.reason_codes) ? onboarding.reason_codes : [];
+        const busy = String(ctx.automationMonitorBindingActionBusy || '');
+        const confirmed = ctx.automationMonitorBindingConfirmation === true;
+        const action = (name) => onboarding.actions?.[name] || {};
+        const platformCard = (platform, expectedSourceId) => {
+            const item = binding.bindings?.[platform] || {};
+            const evidence = item.identity_evidence || {};
+            const label = platform === 'ctrip' ? '\u643a\u7a0b' : '\u7f8e\u56e2';
+            return h('article', {
+                class: 'rounded-xl border border-slate-200 bg-white p-3',
+                'data-testid': `automation-binding-scope-${platform}`,
+            }, [
+                h('div', { class: 'flex items-center justify-between gap-2' }, [
+                    h('h5', { class: 'text-sm font-semibold text-slate-900' }, label),
+                    pill(ctx, evidence.status || 'unverified'),
+                ]),
+                h('dl', { class: 'mt-3 space-y-1.5 text-xs' }, [
+                    detail('\u56fa\u5b9a\u6570\u636e\u6e90', `#${expectedSourceId}`, {
+                        mono: true,
+                        testid: `automation-binding-source-${platform}`,
+                    }),
+                    detail('\u5b9e\u9645\u7ed1\u5b9a\u6e90', item.source_id ? `#${item.source_id}` : '', {
+                        mono: true,
+                        fallback: '\u7f3a\u5931',
+                        testid: `automation-binding-actual-source-${platform}`,
+                    }),
+                    detail('\u6b63\u5f0f\u5e73\u53f0\u95e8\u5e97 ID', item.platform_hotel_id, {
+                        mono: true,
+                        fallback: '\u7f3a\u5931',
+                        testid: `automation-binding-canonical-${platform}`,
+                    }),
+                    detail('\u5386\u53f2\u5019\u9009', item.legacy_platform_hotel_id_candidate, {
+                        mono: true,
+                        fallback: '\u65e0',
+                        testid: `automation-binding-legacy-candidate-${platform}`,
+                    }),
+                    detail('\u8eab\u4efd\u51ed\u636e', evidence.status, {
+                        testid: `automation-binding-identity-status-${platform}`,
+                    }),
+                    detail('\u51ed\u636e\u6765\u6e90', evidence.source, { mono: true }),
+                    detail('\u6838\u9a8c\u65f6\u95f4', evidence.checked_at, { mono: true }),
+                    detail('\u6267\u884c\u8bbe\u5907', item.execution_device_binding?.status, {
+                        testid: `automation-binding-device-${platform}`,
+                    }),
+                ]),
+            ]);
+        };
+        const actionButton = (name, label, testid) => {
+            const item = action(name);
+            const isBusy = busy === name;
+            return h('button', {
+                type: 'button',
+                disabled: item.allowed !== true || !confirmed || busy !== '',
+                class: 'rounded-lg bg-[#315d50] px-3 py-2 text-sm font-medium text-white disabled:bg-slate-200 disabled:text-slate-400',
+                'data-testid': testid,
+                onClick: () => ctx.confirmAutomationMonitorOtaBinding(name),
+            }, isBusy ? '\u4fdd\u5b58\u5e76\u56de\u8bfb\u4e2d...' : label);
+        };
+
+        return h('section', {
+            class: 'rounded-xl border border-[#d8c49f] bg-[#fffaf0] p-4',
+            'data-testid': 'automation-binding-onboarding-panel',
+        }, [
+            h('div', { class: 'flex flex-wrap items-start justify-between gap-3' }, [
+                h('div', {}, [
+                    h('h4', { class: 'text-sm font-semibold text-slate-900' }, '\u9152\u5e97 80 \u00b7 \u56fa\u5b9a OTA \u7ed1\u5b9a\u6062\u590d'),
+                    h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' },
+                        '\u53ea\u5904\u7406\u643a\u7a0b source #25 \u4e0e\u7f8e\u56e2 source #68\uff1b\u4ec5\u4fdd\u5b58\u7ed1\u5b9a\u5e76\u7cbe\u786e\u56de\u8bfb\uff0c\u4e0d\u542f\u52a8 OTA \u91c7\u96c6\u3001\u4e0d\u521b\u5efa collector task\u3001\u4e0d\u4fee\u6539 Windows \u8ba1\u5212\u4efb\u52a1\u3002'),
+                ]),
+                pill(ctx, onboarding.status || 'unverified'),
+            ]),
+            h('div', { class: 'mt-3 grid gap-3 md:grid-cols-2' }, [
+                platformCard('ctrip', 25),
+                platformCard('meituan', 68),
+            ]),
+            h('p', {
+                class: 'mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs leading-5 text-amber-800',
+                'data-testid': 'automation-binding-legacy-warning',
+            }, '\u5386\u53f2\u5019\u9009 ID \u4ec5\u4f9b\u4eba\u5de5\u6838\u5bf9\uff0c\u9875\u9762\u4e0d\u4f1a\u81ea\u52a8\u586b\u5165\u6216\u65e0\u8bc1\u636e\u63d0\u5347\u3002\u53ea\u6709\u540c\u9152\u5e97\u3001\u540c source\u3001\u540c Profile\u3001\u5f53\u5929\u5f3a\u4f1a\u8bdd\u8bc1\u636e\u9f50\u5168\u65f6\u624d\u5141\u8bb8\u786e\u8ba4\u3002'),
+            reasons.length ? h('ul', {
+                class: 'mt-3 space-y-1 text-xs text-red-700',
+                'data-testid': 'automation-binding-reason-codes',
+            }, reasons.map((reason, index) => h('li', {
+                key: `${reason.platform || 'hotel'}-${reason.code || index}`,
+                class: 'font-mono',
+            }, `${reason.platform ? `${reason.platform}:` : ''}${reason.code || 'unknown'}`))) : null,
+            h('label', {
+                class: 'mt-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-700',
+                'data-testid': 'automation-binding-explicit-confirm',
+            }, [
+                h('input', {
+                    type: 'checkbox',
+                    checked: confirmed,
+                    disabled: busy !== '' || onboarding.action_required == null,
+                    class: 'mt-1',
+                    onChange: event => { ctx.automationMonitorBindingConfirmation = event.target.checked; },
+                }),
+                h('span', {}, '\u6211\u786e\u8ba4\u5f53\u524d\u662f\u7cfb\u7edf\u9152\u5e97 #80\uff0c\u4e14\u4e86\u89e3\u672c\u6b21\u53ea\u4fdd\u5b58\u5df2\u6709\u5f3a\u8bc1\u636e\u652f\u6301\u7684\u95e8\u5e97/\u8c03\u5ea6\u7ed1\u5b9a\uff0c\u4e0d\u53d1\u8d77 OTA \u91c7\u96c6\u3002'),
+            ]),
+            h('div', { class: 'mt-3 flex flex-wrap items-center gap-2' }, [
+                actionButton(
+                    'claim_meituan_identity',
+                    '\u786e\u8ba4\u7f8e\u56e2\u6b63\u5f0f\u95e8\u5e97\u8eab\u4efd',
+                    'automation-binding-action-claim'
+                ),
+                actionButton(
+                    'bind_local_profile_scheduler',
+                    '\u7ed1\u5b9a\u672c\u673a\u8c03\u5ea6\u5e76\u56de\u8bfb',
+                    'automation-binding-action-bind'
+                ),
+                h('span', {
+                    class: `rounded-full border px-2 py-1 text-[11px] ${ctx.automationMonitorContractStatusClass(
+                        onboarding.binding_readback_status === 'readback_verified' ? 'verified' : 'unverified'
+                    )}`,
+                    'data-testid': 'automation-binding-readback-status',
+                }, onboarding.binding_readback_status === 'readback_verified'
+                    ? '\u9875\u9762\u7cbe\u786e\u56de\u8bfb\u5df2\u8fde\u63a5'
+                    : '\u9875\u9762\u7cbe\u786e\u56de\u8bfb\u672a\u9a8c\u8bc1'),
             ]),
         ]);
     };
@@ -126,12 +369,14 @@
                     value: form.ctrip_source_id || '',
                     class: inputClass,
                     'data-testid': 'automation-plan-ctrip-source',
+                    disabled: ctx.automationMonitorContractSourceLocked('ctrip'),
                     onChange: event => { form.ctrip_source_id = event.target.value; },
                 }, sourceOptions(ctx, 'ctrip'))),
                 fieldLabel('美团数据源', h('select', {
                     value: form.meituan_source_id || '',
                     class: inputClass,
                     'data-testid': 'automation-plan-meituan-source',
+                    disabled: ctx.automationMonitorContractSourceLocked('meituan'),
                     onChange: event => { form.meituan_source_id = event.target.value; },
                 }, sourceOptions(ctx, 'meituan'))),
                 fieldLabel('主 PMS', h('input', {
@@ -403,6 +648,7 @@
                             otaCard(ctx, binding, plan, 'meituan'),
                             pmsCard(ctx, binding),
                         ]),
+                        bindingOnboardingPanel(ctx, binding),
                         h('div', { class: 'grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]' }, [
                             planForm(ctx, plan),
                             reasonPanel(ctx, binding),
@@ -411,7 +657,7 @@
                     ]);
                 }
 
-                return h('section', {
+                const contractPanel = h('section', {
                     class: 'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm',
                     'data-testid': 'automation-collection-contract',
                 }, [
@@ -451,6 +697,10 @@
                         ]),
                     ]),
                     body,
+                ]);
+                return h('section', { class: 'space-y-3' }, [
+                    scheduledLoopInventoryPanel(ctx),
+                    contractPanel,
                 ]);
             };
         },

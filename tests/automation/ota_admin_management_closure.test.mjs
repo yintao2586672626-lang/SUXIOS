@@ -10,6 +10,7 @@ const hotelController = fs.readFileSync(new URL('../../app/controller/Hotel.php'
 const userController = fs.readFileSync(new URL('../../app/controller/User.php', import.meta.url), 'utf8');
 const roleController = fs.readFileSync(new URL('../../app/controller/RoleController.php', import.meta.url), 'utf8');
 const otaConfigConcern = fs.readFileSync(new URL('../../app/controller/concern/OtaConfigConcern.php', import.meta.url), 'utf8');
+const authenticatedStyle = fs.readFileSync(new URL('../../public/style.css', import.meta.url), 'utf8');
 const userAdminStatic = fs.readFileSync(new URL('../../public/user-admin-static.js', import.meta.url), 'utf8');
 const userAdminStaticHash = createHash('sha256').update(userAdminStatic).digest('hex').slice(0, 10);
 const userAdminSandbox = { window: {}, crypto: webcrypto };
@@ -20,11 +21,29 @@ test('hotel permanent delete is super-admin only and requires an impact preview 
   assert.match(hotelController, /public function delete\(int \$id\): Response[\s\S]*?\$this->checkPermission\(true\)/);
   assert.match(hotelController, /HotelCascadeDeletionService/);
   assert.match(hotelController, /confirmation_name/);
+  assert.match(html, /const hotelDeletePreviewReady = ref\(false\);/);
+  assert.match(html, /const forceDelete = hotelDeletePreviewReady\.value && hotelDeleteCanForce\.value;/);
+  assert.match(html, /requires_name_confirmation === true/);
+  assert.match(html, /expectedHttpStatuses: forceDelete \? \[\] : \[409\]/);
+  assert.match(html, /error\.expectedHttpStatus = expectedHttpStatuses\.has\(response\.status\)/);
+  assert.match(html, /error\?\.expectedHttpStatus !== true/);
   assert.match(html, /v-model="hotelDeleteConfirmationName"/);
+  assert.match(html, /v-if="hotelDeletePreviewReady"/);
+  assert.match(html, /hotelDeletePreviewReady \? '确认永久删除' : '查看影响清单'/);
   assert.match(html, /永久删除门店/);
   assert.match(hotelController, /酒店及关联数据已删除/);
   assert.doesNotMatch(hotelController, /public function restore\(int \$id\): Response/);
   assert.doesNotMatch(html, /const restoreHotel = async/);
+});
+
+test('hotel delete dialog keeps its confirmation action visible in a short viewport', () => {
+  assert.match(html, /class="hotel-delete-overlay modal-overlay"/);
+  assert.match(html, /role="dialog"[^>]*aria-modal="true"[^>]*class="hotel-delete-dialog"/);
+  assert.match(html, /class="hotel-delete-dialog__body p-6 space-y-4"/);
+  assert.match(html, /class="hotel-delete-dialog__actions [^"]*flex flex-col/);
+  assert.match(authenticatedStyle, /\.hotel-delete-dialog \{[\s\S]*?max-height: calc\(100dvh - 2rem\);[\s\S]*?flex-direction: column;/);
+  assert.match(authenticatedStyle, /\.hotel-delete-dialog__body \{[\s\S]*?min-height: 0;[\s\S]*?overflow-y: auto;/);
+  assert.match(authenticatedStyle, /\.hotel-delete-dialog__actions \{[\s\S]*?flex-shrink: 0;/);
 });
 
 test('hotel disable wording does not claim employee accounts are disabled', () => {

@@ -47,7 +47,7 @@ test('asset failure renderer survives authenticated application load failure wit
   assert.doesNotMatch(html, /\sonerror=/);
   assert.match(bootstrap, /window\.SUXI_RENDER_ASSET_LOAD_ERROR\?\.\(failedAsset\)/);
   assert.match(bootstrap, /await loadScript\(entry\);/);
-  assert.match(appMain, /window\.SUXI_APP_RENDER \|\| window\.SUXI_APP_STARTUP_RENDER/);
+  assert.match(appMain, /const render = fullRenderRuntimeReady\(\)[\s\S]*window\.SUXI_APP_STARTUP_RENDER/);
   assert.match(appMain, /const suxiActiveRender = shallowRef\(requireSuxiAppRender\(\)\)/);
   assert.match(appMain, /const suxiRenderCaches = new WeakMap\(\)/);
   assert.match(appMain, /suxiActiveRender\.value = fullRender/);

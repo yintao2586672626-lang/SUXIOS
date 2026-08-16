@@ -28,7 +28,7 @@ trait PlatformDataSourceExecutionConcern
                     : (string)$payload[$key];
             }
         }
-        foreach (['config_id', 'url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'headers_json', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'capture_plan', 'capturePlan', 'ctrip_capture_plan', 'ctripCapturePlan', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'not_applicable_sections', 'notApplicableSections', 'excluded_sections', 'excludedSections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled', 'local_collector_account_id', 'collector_device_id_hash', 'profile_key_hash', 'source_method', 'current_session_verified'] as $key) {
+        foreach (['config_id', 'url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'headers_json', 'external_hotel_id', 'hotel_name', 'platform_hotel_id', 'platformHotelId', 'profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'capture_plan', 'capturePlan', 'ctrip_capture_plan', 'ctripCapturePlan', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'not_applicable_sections', 'notApplicableSections', 'excluded_sections', 'excludedSections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled', 'local_collector_account_id', 'collector_device_id_hash', 'profile_key_hash', 'source_method', 'current_session_verified'] as $key) {
             if (array_key_exists($key, $payload) && $payload[$key] !== '') {
                 $config[$key] = $payload[$key];
             }
@@ -486,8 +486,8 @@ trait PlatformDataSourceExecutionConcern
     private function otaBrowserProfileKey(string $platform, array $config): string
     {
         $keys = $platform === 'meituan'
-            ? ['store_id', 'storeId', 'poi_id', 'poiId', 'profile_id', 'profileId']
-            : ['profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
+            ? ['profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'store_id', 'storeId', 'poi_id', 'poiId', 'profile_id', 'profileId']
+            : ['profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
         foreach ($keys as $key) {
             if (is_scalar($config[$key] ?? null) && trim((string)$config[$key]) !== '') {
                 return trim((string)$config[$key]);
@@ -924,7 +924,7 @@ trait PlatformDataSourceExecutionConcern
             }
         }
         if ($identifiers !== []) {
-            return array_keys($identifiers);
+            return array_map(static fn(int|string $identifier): string => (string)$identifier, array_keys($identifiers));
         }
 
         $config = is_array($source['config'] ?? null)
@@ -940,7 +940,7 @@ trait PlatformDataSourceExecutionConcern
                 $identifiers[$identifier] = true;
             }
         }
-        return array_keys($identifiers);
+        return array_map(static fn(int|string $identifier): string => (string)$identifier, array_keys($identifiers));
     }
 
     /**

@@ -653,6 +653,7 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
             'operating_daily_ctrip_traffic_missing',
             array_column($result['formal_send_gate']['blockers'], 'code')
         );
+        self::assertArrayNotHasKey('pms', $result['source_snapshot_refs']);
     }
 
     public function testLegacyPmsFlagsWithoutUnifiedSourceEvidenceAreBlocked(): void

@@ -25,7 +25,10 @@ test('Ctrip legacy order upload closes through exact readback without revenue ov
   assert.match(importer, /reference_bottom_price_not_confirmed_revenue/);
   assert.match(importer, /'amount'\s*=>\s*null/);
   assert.match(importer, /'bottom_price_sum'\s*=>\s*\$referenceBottomPriceTotal/);
-  assert.match(importer, /ctrip_order_aggregate_v1/);
+  assert.match(importer, /ctrip_order_aggregate_v2/);
+  assert.match(importer, /exclusion_policy_status/);
+  assert.match(importer, /los_distribution/);
+  assert.match(importer, /lead_time_distribution/);
   assert.match(importer, /aggregate_only_no_guest_staff_reservation_notes/);
   assert.match(importer, /ctrip_order_export_25_columns/);
   assert.match(importer, /SAFE_IMPORT_HEADERS/);
@@ -45,6 +48,7 @@ test('Ctrip legacy order upload closes through exact readback without revenue ov
   assert.match(overview, /where\('readback_verified', 1\)/);
   assert.match(overview, /where\('source', 'ctrip'\)/);
   assert.match(overview, /ctrip_order_aggregate_v1/);
+  assert.match(overview, /ctrip_order_aggregate_v2/);
   assert.match(overview, /aggregate_only_no_guest_staff_reservation_notes/);
   assert.match(overview, /reference_bottom_price_not_confirmed_revenue/);
   assert.match(overview, /reference_bottom_price_coverage_rate/);

@@ -229,7 +229,6 @@ final class CloudOtaCollectionScopeService
     {
         $platform = strtolower(trim((string)($source['platform'] ?? '')));
         return (string)($scope['mode'] ?? '') === 'single_user_local'
-            && (int)($scope['hotel_id'] ?? 0) === 80
             && (int)($source['id'] ?? 0) > 0
             && in_array((int)$source['id'], (array)($scope['source_ids'] ?? []), true)
             && (int)($source['tenant_id'] ?? 0) === (int)($scope['tenant_id'] ?? 0)

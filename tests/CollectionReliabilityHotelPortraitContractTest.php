@@ -37,6 +37,7 @@ final class CollectionReliabilityHotelPortraitContractTest extends TestCase
         Db::execute(<<<'SQL'
 CREATE TABLE hotels (
     id INTEGER PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     status INTEGER NOT NULL,
     create_time TEXT DEFAULT NULL,
@@ -63,8 +64,8 @@ SQL);
         parent::setUp();
         Db::name('hotels')->delete(true);
         Db::name('hotels')->insertAll([
-            ['id' => 7, 'name' => 'Enabled hotel', 'status' => 1],
-            ['id' => 8, 'name' => 'Disabled hotel', 'status' => 0],
+            ['id' => 7, 'tenant_id' => 101, 'name' => 'Enabled hotel', 'status' => 1],
+            ['id' => 8, 'tenant_id' => 101, 'name' => 'Disabled hotel', 'status' => 0],
         ]);
     }
 
@@ -100,6 +101,7 @@ SQL);
             Db::execute(<<<'SQL'
 CREATE TABLE hotels (
     id INTEGER PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     status INTEGER NOT NULL,
     create_time TEXT DEFAULT NULL,

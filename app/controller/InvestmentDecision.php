@@ -22,12 +22,18 @@ class InvestmentDecision extends Base
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
+            $businessDate = trim((string)$this->request->param('business_date', ''));
+            $parsedBusinessDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $businessDate);
+            if ($parsedBusinessDate === false || $parsedBusinessDate->format('Y-m-d') !== $businessDate) {
+                throw new \InvalidArgumentException('business_date 必须是明确的 YYYY-MM-DD 业务日期');
+            }
 
             return $this->success($this->service->overview(
                 $hotelIds,
                 $hotelId,
                 (int)($this->currentUser->id ?? 0),
-                $this->currentUser ? $this->currentUser->isSuperAdmin() : false
+                $this->currentUser ? $this->currentUser->isSuperAdmin() : false,
+                $businessDate
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '投资决策辅助数据读取失败'), $this->statusCode($e));
@@ -75,7 +81,7 @@ class InvestmentDecision extends Base
             return 403;
         }
         if ($e instanceof \InvalidArgumentException) {
-            return 400;
+            return 422;
         }
 
         return 500;

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "72d6a75dd1e14ac25499fdbea8fd3820478ab32b4583aa007cc5ea09ba4b5af7",
-  "source_snapshot_bytes": 2171220,
+  "source_snapshot_sha256": "2790c15477404dbfc416a2758ffe744bf4f8a2884f3a21884741cc51b7991cea",
+  "source_snapshot_bytes": 2168049,
   "fragments": [
     {
       "id": "app-shell",
@@ -200,7 +200,7 @@
       "id": "home-shell-open",
       "domain": "decision-workbench",
       "path": "fragments/23-page-home-shell-open.html",
-      "anchor": "<div v-if=\"currentPage === 'ai-workbench' || currentPage === 'compass'\" class=\"compass-dashboard suxi-dashboard-scope\">"
+      "anchor": "<div v-if=\"currentPage === 'compass'\" class=\"compass-dashboard suxi-dashboard-scope\">"
     },
     {
       "id": "page-compass-summary",

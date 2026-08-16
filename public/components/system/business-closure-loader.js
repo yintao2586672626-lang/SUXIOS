@@ -1,6 +1,6 @@
 (() => {
     const registry = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
-    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h4edecaed79';
+    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h547ecb43c4';
     let loadPromise = null;
 
     const loadBodies = () => {
@@ -48,7 +48,9 @@
         },
     };
     const definitions = [
+        ['KnowledgeFeatureFinderView', 'KnowledgeFeatureFinderBody'],
         ['KnowledgePromotionWorkbenchView', 'KnowledgePromotionWorkbenchBody'],
+        ['OperatingGoalInterventionView', 'OperatingGoalInterventionBody'],
         ['HomeTemporalTrialView', 'HomeTemporalTrialBody'],
         ['KnowledgeXlsxImportDialogView', 'KnowledgeXlsxImportDialogBody'],
     ];

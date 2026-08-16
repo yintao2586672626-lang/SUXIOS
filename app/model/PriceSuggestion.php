@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace app\model;
 
 use app\model\base\BaseTenantModel;
+use think\facade\Db;
+use think\Model;
 
 /**
  * 定价建议模型
@@ -38,6 +40,7 @@ class PriceSuggestion extends BaseTenantModel
     
     protected $json = ['competitor_data', 'factors'];
     protected $jsonAssoc = true;
+    protected $hidden = ['active_dedupe_key'];
 
     // 建议类型常量
     const TYPE_DYNAMIC = 1;      // 动态定价
@@ -51,6 +54,50 @@ class PriceSuggestion extends BaseTenantModel
     const STATUS_REJECTED = 3;     // 已拒绝
     const STATUS_APPLIED = 4;      // 已应用
     const STATUS_EXPIRED = 5;      // 已过期
+
+    public static function activeDedupeKey(
+        int $tenantId,
+        int $hotelId,
+        int $roomTypeId,
+        string $suggestionDate
+    ): string {
+        $suggestionDate = trim($suggestionDate);
+        if ($tenantId <= 0 || $hotelId <= 0 || $roomTypeId <= 0
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/', $suggestionDate) !== 1
+        ) {
+            throw new \InvalidArgumentException('Pending price suggestion identity is incomplete');
+        }
+
+        return hash('sha256', implode('|', [
+            'price_suggestion_pending_v1',
+            $tenantId,
+            $hotelId,
+            $roomTypeId,
+            $suggestionDate,
+        ]));
+    }
+
+    protected static function onBeforeWrite(Model $model): void
+    {
+        parent::onBeforeWrite($model);
+        if (!$model instanceof self) {
+            return;
+        }
+
+        $data = $model->getData();
+        $status = (int)($data['status'] ?? self::STATUS_PENDING);
+        if ($status !== self::STATUS_PENDING) {
+            $model->setAttr('active_dedupe_key', null);
+            return;
+        }
+
+        $model->setAttr('active_dedupe_key', self::activeDedupeKey(
+            (int)($data['tenant_id'] ?? 0),
+            (int)($data['hotel_id'] ?? 0),
+            (int)($data['room_type_id'] ?? 0),
+            (string)($data['suggestion_date'] ?? '')
+        ));
+    }
 
     /**
      * 关联酒店
@@ -154,34 +201,145 @@ class PriceSuggestion extends BaseTenantModel
     /**
      * 批准建议
      */
-    public function approve(int $userId, string $remark = ''): void
+    public function approve(int $userId, string $remark = ''): self
     {
-        $this->status = self::STATUS_APPROVED;
-        $this->applied_by = $userId;
-        $this->remark = $remark;
-        $this->save();
+        return $this->transitionFromStatus(
+            self::STATUS_PENDING,
+            self::STATUS_APPROVED,
+            $userId,
+            $remark
+        );
     }
 
     /**
      * 拒绝建议
      */
-    public function reject(int $userId, string $reason = ''): void
+    public function reject(int $userId, string $reason = ''): self
     {
-        $this->status = self::STATUS_REJECTED;
-        $this->applied_by = $userId;
-        $this->remark = $reason;
-        $this->save();
+        return $this->transitionFromStatus(
+            self::STATUS_PENDING,
+            self::STATUS_REJECTED,
+            $userId,
+            $reason
+        );
     }
 
     /**
      * 应用建议
      */
-    public function apply(int $userId): void
+    public function apply(int $userId): self
     {
-        $this->status = self::STATUS_APPLIED;
-        $this->applied_by = $userId;
-        $this->applied_time = date('Y-m-d H:i:s');
-        $this->save();
+        return $this->transitionFromStatus(
+            self::STATUS_APPROVED,
+            self::STATUS_APPLIED,
+            $userId,
+            (string)($this->remark ?? ''),
+            null,
+            ['applied_time' => date('Y-m-d H:i:s')]
+        );
+    }
+
+    /**
+     * Persist one human review decision with a compare-and-swap status guard.
+     *
+     * @param array<string, mixed>|null $factors
+     */
+    public function reviewPending(
+        int $targetStatus,
+        int $userId,
+        string $remark = '',
+        ?array $factors = null
+    ): self {
+        if (!in_array($targetStatus, [self::STATUS_APPROVED, self::STATUS_REJECTED], true)) {
+            throw new \InvalidArgumentException('price_suggestion_review_target_status_invalid');
+        }
+
+        return $this->transitionFromStatus(
+            self::STATUS_PENDING,
+            $targetStatus,
+            $userId,
+            $remark,
+            $factors
+        );
+    }
+
+    /**
+     * @param array<string, mixed>|null $factors
+     * @param array<string, mixed> $extra
+     */
+    private function transitionFromStatus(
+        int $expectedStatus,
+        int $targetStatus,
+        int $userId,
+        string $remark,
+        ?array $factors = null,
+        array $extra = []
+    ): self {
+        $data = $this->getData();
+        $id = (int)($data['id'] ?? 0);
+        $tenantId = (int)($data['tenant_id'] ?? 0);
+        $hotelId = (int)($data['hotel_id'] ?? 0);
+        if ($id <= 0 || $tenantId <= 0 || $hotelId <= 0 || $userId <= 0) {
+            throw new \InvalidArgumentException('price_suggestion_transition_identity_invalid');
+        }
+
+        $payload = array_merge($extra, [
+            'status' => $targetStatus,
+            'applied_by' => $userId,
+            'remark' => $remark,
+            'active_dedupe_key' => null,
+            'update_time' => date('Y-m-d H:i:s'),
+        ]);
+        if ($factors !== null) {
+            $payload['factors'] = json_encode(
+                $factors,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            );
+        }
+
+        return Db::transaction(function () use (
+            $id,
+            $tenantId,
+            $hotelId,
+            $expectedStatus,
+            $targetStatus,
+            $payload
+        ): self {
+            $affected = self::where('id', $id)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('status', $expectedStatus)
+                ->update($payload);
+            if ((int)$affected !== 1) {
+                $current = self::where('id', $id)
+                    ->where('tenant_id', $tenantId)
+                    ->where('hotel_id', $hotelId)
+                    ->lock(true)
+                    ->find();
+                if (!$current) {
+                    throw new \RuntimeException('price_suggestion_not_found', 404);
+                }
+
+                throw new \RuntimeException(
+                    $expectedStatus === self::STATUS_PENDING
+                        ? 'price_suggestion_not_pending_review'
+                        : 'price_suggestion_status_transition_conflict',
+                    409
+                );
+            }
+
+            $fresh = self::where('id', $id)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('status', $targetStatus)
+                ->lock(true)
+                ->find();
+            if (!$fresh || ($fresh->getData()['active_dedupe_key'] ?? null) !== null) {
+                throw new \RuntimeException('price_suggestion_transition_readback_mismatch', 409);
+            }
+
+            return $fresh;
+        });
     }
 
     /**

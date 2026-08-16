@@ -11,6 +11,207 @@
                             </div>
                         </div>
 
+                        <section data-testid="knowledge-feature-finder" class="knowledge-feature-finder overflow-hidden rounded-2xl border border-yellow-200 bg-white shadow-sm">
+                            <div class="knowledge-feature-hero bg-gray-900 px-5 py-5 text-white">
+                                <div class="knowledge-feature-hero-layout flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                                    <div class="knowledge-feature-copy max-w-2xl">
+                                        <div class="knowledge-feature-eyebrow flex flex-wrap items-center gap-2">
+                                            <span class="knowledge-feature-kicker text-xs font-semibold uppercase tracking-widest text-yellow-200">任务导航</span>
+                                            <span class="knowledge-feature-proof-pill rounded-full border border-yellow-300 bg-gray-800 px-2.5 py-1 text-xs text-yellow-100">入口与前置条件，不代表数据已就绪</span>
+                                        </div>
+                                        <h3 class="knowledge-feature-title mt-2 text-xl font-semibold text-white" style="color: #ffffff;">先说要完成什么，再进入对应页面</h3>
+                                        <p class="knowledge-feature-subtitle mt-2 text-sm leading-6 text-gray-300">按经营任务搜索入口；每张卡先说明使用场景和证据边界，再给唯一主操作。</p>
+                                        <div class="knowledge-feature-journey" aria-label="任务导航三步路径">
+                                            <span><strong>01</strong> 搜索任务</span><i class="fas fa-chevron-right" aria-hidden="true"></i>
+                                            <span><strong>02</strong> 看使用场景</span><i class="fas fa-chevron-right" aria-hidden="true"></i>
+                                            <span><strong>03</strong> 进入真实页面</span>
+                                        </div>
+                                    </div>
+                                    <div class="knowledge-feature-search-panel w-full lg:max-w-md">
+                                        <label for="knowledge-feature-query" class="knowledge-feature-search-label mb-2 block text-xs font-medium text-gray-300" style="color: #d1d5db !important;">搜索任务、页面或设置</label>
+                                        <div class="knowledge-feature-search-shell relative">
+                                            <i class="fas fa-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden="true"></i>
+                                            <input id="knowledge-feature-query" v-model="knowledgeCenterFilter.keyword" type="search" data-testid="knowledge-feature-query" placeholder="例如：采集、收益、推送、设置" class="knowledge-feature-search-input w-full rounded-xl border border-gray-600 bg-white py-2.5 pl-10 pr-20 text-sm text-gray-900 outline-none placeholder-gray-400 focus:border-yellow-300 focus:ring-2 focus:ring-yellow-200">
+                                            <button v-if="knowledgeCenterFilter.keyword" type="button" @click="knowledgeCenterFilter.keyword = ''" class="knowledge-feature-search-clear absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 hover:text-gray-900">清空</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <nav class="knowledge-feature-filters mt-4 flex flex-wrap gap-2" aria-label="任务分类">
+                                <span class="knowledge-feature-filter-heading">按任务分类</span>
+                                    <button type="button" @click="knowledgeCenterFilter.keyword = ''" :class="knowledgeCenterFilter.keyword ? 'border-gray-600 text-gray-300' : 'border-yellow-300 bg-gray-800 text-yellow-100'" class="knowledge-feature-filter rounded-full border px-3 py-1.5 text-xs transition">全部</button>
+                                    <button type="button" @click="knowledgeCenterFilter.keyword = 'OTA'" :class="knowledgeCenterFilter.keyword === 'OTA' ? 'border-yellow-300 bg-gray-800 text-yellow-100' : 'border-gray-600 text-gray-300'" class="knowledge-feature-filter rounded-full border px-3 py-1.5 text-xs transition">OTA数据</button>
+                                    <button type="button" @click="knowledgeCenterFilter.keyword = '收益'" :class="knowledgeCenterFilter.keyword === '收益' ? 'border-yellow-300 bg-gray-800 text-yellow-100' : 'border-gray-600 text-gray-300'" class="knowledge-feature-filter rounded-full border px-3 py-1.5 text-xs transition">收益分析</button>
+                                    <button type="button" @click="knowledgeCenterFilter.keyword = '运营'" :class="knowledgeCenterFilter.keyword === '运营' ? 'border-yellow-300 bg-gray-800 text-yellow-100' : 'border-gray-600 text-gray-300'" class="knowledge-feature-filter rounded-full border px-3 py-1.5 text-xs transition">运营管理</button>
+                                    <button type="button" @click="knowledgeCenterFilter.keyword = '设置'" :class="knowledgeCenterFilter.keyword === '设置' ? 'border-yellow-300 bg-gray-800 text-yellow-100' : 'border-gray-600 text-gray-300'" class="knowledge-feature-filter rounded-full border px-3 py-1.5 text-xs transition">设置与绑定</button>
+                            </nav>
+
+                            <div class="knowledge-feature-grid grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-4" data-testid="knowledge-feature-grid">
+                                <article v-show="!knowledgeCenterFilter.keyword || 'ota 数据 数据健康 来源 缺数 采集'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="ota 数据 数据健康 来源 缺数 采集" data-testid="knowledge-feature-data-health" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700"><i class="fas fa-heartbeat" aria-hidden="true"></i></span>
+                                        <span class="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700">只读检查</span>
+                                    </div>
+                                    <h4 class="mt-3 font-semibold text-gray-900">核对数据是否可用</h4>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">先看酒店、平台、业务日期和缺失原因，再决定是否进入收益分析。</p>
+                                    <button type="button" data-testid="knowledge-feature-data-health-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-data-health-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
+                                        <span>使用场景</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
+                                    </button>
+                                    <dialog id="knowledge-feature-data-health-dialog" data-testid="knowledge-feature-data-health-dialog" aria-labelledby="knowledge-feature-data-health-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
+                                        <div class="knowledge-feature-dialog-panel">
+                                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white">
+                                                <div><p class="text-xs font-semibold tracking-widest text-yellow-200">只读检查</p><h5 id="knowledge-feature-data-health-dialog-title" class="mt-1 text-lg font-semibold">核对数据是否可用</h5></div>
+                                                <button type="button" aria-label="关闭数据健康使用场景" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button>
+                                            </div>
+                                            <div class="space-y-4 p-5">
+                                                <p class="text-sm leading-6 text-gray-600">数字存在不等于事实可用；页面会保留未验证、过期、绑定缺失和采集失败状态。</p>
+                                                <div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 锁定范围</strong><span class="mt-1 block text-xs text-gray-500">确认酒店、平台与业务日期。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 检查证据</strong><span class="mt-1 block text-xs text-gray-500">查看来源、质量与缺失原因。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 决定放行</strong><span class="mt-1 block text-xs text-gray-500">只把可用事实交给收益分析。</span></li></ol></div>
+                                                <div class="flex justify-end"><button type="button" data-testid="knowledge-feature-data-health-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div>
+                                            </div>
+                                        </div>
+                                    </dialog>
+                                    <button type="button" @click="currentPage = 'online-data'; onlineDataTab = 'data-health'; openOnlineDataTab('data-health', { force: true })" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开数据健康 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                </article>
+
+                                <article v-show="!knowledgeCenterFilter.keyword || 'ota 自动采集 设置 账号 绑定 调度'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="ota 自动采集 设置 账号 绑定 调度" data-testid="knowledge-feature-auto-collect" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700"><i class="fas fa-cloud-download-alt" aria-hidden="true"></i></span>
+                                        <span class="rounded-full border border-yellow-100 bg-yellow-50 px-2 py-0.5 text-xs text-yellow-700">需账号绑定</span>
+                                    </div>
+                                    <h4 class="mt-3 font-semibold text-gray-900">配置OTA自动采集</h4>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">集中查看采集方式、酒店绑定、运行计划与真实失败阶段。</p>
+                                    <button type="button" data-testid="knowledge-feature-auto-collect-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-auto-collect-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
+                                        <span>使用场景</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
+                                    </button>
+                                    <dialog id="knowledge-feature-auto-collect-dialog" data-testid="knowledge-feature-auto-collect-dialog" aria-labelledby="knowledge-feature-auto-collect-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
+                                        <div class="knowledge-feature-dialog-panel">
+                                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white"><div><p class="text-xs font-semibold tracking-widest text-yellow-200">需账号绑定</p><h5 id="knowledge-feature-auto-collect-dialog-title" class="mt-1 text-lg font-semibold">配置OTA自动采集</h5></div><button type="button" aria-label="关闭自动采集使用场景" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+                                            <div class="space-y-4 p-5"><p class="text-sm leading-6 text-gray-600">登录、验证码或平台权限仍需在原授权会话完成；计划已启用不代表采集成功。</p><div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 绑定身份</strong><span class="mt-1 block text-xs text-gray-500">选定酒店、平台和授权账号。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 配置运行</strong><span class="mt-1 block text-xs text-gray-500">确定采集方式、日期和计划。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 核对回读</strong><span class="mt-1 block text-xs text-gray-500">检查保存结果与真实失败阶段。</span></li></ol></div><div class="flex justify-end"><button type="button" data-testid="knowledge-feature-auto-collect-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div></div>
+                                        </div>
+                                    </dialog>
+                                    <button type="button" @click="openOnlinePlatformAutoTab({ force: true })" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开自动采集设置 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                </article>
+
+                                <article v-show="!knowledgeCenterFilter.keyword || 'pms 订单来了 经营数据 房态 营收 ota 数据'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="pms 订单来了 经营数据 房态 营收 ota 数据" data-testid="knowledge-feature-pms" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-green-100 text-green-700"><i class="fas fa-hotel" aria-hidden="true"></i></span>
+                                        <span class="rounded-full border border-green-100 bg-green-50 px-2 py-0.5 text-xs text-green-700">全酒店口径</span>
+                                    </div>
+                                    <h4 class="mt-3 font-semibold text-gray-900">查看PMS经营数据</h4>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">按页面实际日期查看房费、间夜和经营指标，不与OTA渠道口径混加。</p>
+                                    <button type="button" data-testid="knowledge-feature-pms-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-pms-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
+                                        <span>使用场景</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
+                                    </button>
+                                    <dialog id="knowledge-feature-pms-dialog" data-testid="knowledge-feature-pms-dialog" aria-labelledby="knowledge-feature-pms-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
+                                        <div class="knowledge-feature-dialog-panel">
+                                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white"><div><p class="text-xs font-semibold tracking-widest text-yellow-200">全酒店口径</p><h5 id="knowledge-feature-pms-dialog-title" class="mt-1 text-lg font-semibold">查看PMS经营数据</h5></div><button type="button" aria-label="关闭PMS使用场景" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+                                            <div class="space-y-4 p-5"><p class="text-sm leading-6 text-gray-600">目标日缺失时保留页面实际日期与质量状态；PMS全酒店事实不与OTA渠道口径混加。</p><div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 选定范围</strong><span class="mt-1 block text-xs text-gray-500">确认酒店和页面实际日期。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 查看事实</strong><span class="mt-1 block text-xs text-gray-500">读取房费、间夜和经营指标。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 保留口径</strong><span class="mt-1 block text-xs text-gray-500">回显来源、日期和质量状态。</span></li></ol></div><div class="flex justify-end"><button type="button" data-testid="knowledge-feature-pms-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div></div>
+                                        </div>
+                                    </dialog>
+                                    <button type="button" @click="currentPage = 'pms-operating-data'" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开PMS经营数据 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                </article>
+
+                                <article v-show="!knowledgeCenterFilter.keyword || '收益 分析 诊断 预测 调价 ota'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="收益 分析 诊断 预测 调价 ota" data-testid="knowledge-feature-revenue" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-yellow-100 text-yellow-800"><i class="fas fa-chart-line" aria-hidden="true"></i></span>
+                                        <span class="rounded-full border border-yellow-100 bg-yellow-50 px-2 py-0.5 text-xs text-yellow-700">需可用事实</span>
+                                    </div>
+                                    <h4 class="mt-3 font-semibold text-gray-900">进入收益诊断</h4>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">从已验证事实进入诊断、预测和建议，缺数时只显示阻塞原因。</p>
+                                    <button type="button" data-testid="knowledge-feature-revenue-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-revenue-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
+                                        <span>使用场景</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
+                                    </button>
+                                    <dialog id="knowledge-feature-revenue-dialog" data-testid="knowledge-feature-revenue-dialog" aria-labelledby="knowledge-feature-revenue-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
+                                        <div class="knowledge-feature-dialog-panel">
+                                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white"><div><p class="text-xs font-semibold tracking-widest text-yellow-200">需可用事实</p><h5 id="knowledge-feature-revenue-dialog-title" class="mt-1 text-lg font-semibold">进入收益诊断</h5></div><button type="button" aria-label="关闭收益诊断使用场景" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+                                            <div class="space-y-4 p-5"><p class="text-sm leading-6 text-gray-600">用于比较趋势、渠道和房型信号；建议不等于已执行、已调价或已产生收益。</p><div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 锁定事实</strong><span class="mt-1 block text-xs text-gray-500">确认酒店、渠道、日期和质量。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 运行诊断</strong><span class="mt-1 block text-xs text-gray-500">缺数时只呈现阻塞原因。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 人工决定</strong><span class="mt-1 block text-xs text-gray-500">决定是否建立运营任务。</span></li></ol></div><div class="flex justify-end"><button type="button" data-testid="knowledge-feature-revenue-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div></div>
+                                        </div>
+                                    </dialog>
+                                    <button type="button" @click="currentPage = 'revenue-research-center'" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开收益诊断 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                </article>
+
+                                <article v-show="!knowledgeCenterFilter.keyword || '运营 任务 执行 复盘 收益'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="运营 任务 执行 复盘 收益" data-testid="knowledge-feature-operations" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-100 text-purple-700"><i class="fas fa-tasks" aria-hidden="true"></i></span>
+                                        <span class="rounded-full border border-purple-100 bg-purple-50 px-2 py-0.5 text-xs text-purple-700">人工确认</span>
+                                    </div>
+                                    <h4 class="mt-3 font-semibold text-gray-900">管理运营任务与复盘</h4>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">把诊断建议变成可审批任务，并分别记录执行证据和效果复盘。</p>
+                                    <button type="button" data-testid="knowledge-feature-operations-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-operations-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
+                                        <span>使用场景</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
+                                    </button>
+                                    <dialog id="knowledge-feature-operations-dialog" data-testid="knowledge-feature-operations-dialog" aria-labelledby="knowledge-feature-operations-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
+                                        <div class="knowledge-feature-dialog-panel">
+                                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white"><div><p class="text-xs font-semibold tracking-widest text-yellow-200">人工确认</p><h5 id="knowledge-feature-operations-dialog-title" class="mt-1 text-lg font-semibold">管理运营任务与复盘</h5></div><button type="button" aria-label="关闭运营任务使用场景" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+                                            <div class="space-y-4 p-5"><p class="text-sm leading-6 text-gray-600">适合跟踪负责人、状态与结果；创建或审批任务不会自动改写OTA价格、库存或活动。</p><div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 明确任务</strong><span class="mt-1 block text-xs text-gray-500">选择诊断依据和负责人。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 记录执行</strong><span class="mt-1 block text-xs text-gray-500">保存审批与执行证据。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 回读复盘</strong><span class="mt-1 block text-xs text-gray-500">基于真实结果完成复盘。</span></li></ol></div><div class="flex justify-end"><button type="button" data-testid="knowledge-feature-operations-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div></div>
+                                        </div>
+                                    </dialog>
+                                    <button type="button" @click="currentPage = 'ops-track'" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开任务执行与复盘 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                </article>
+
+                                <article v-show="!knowledgeCenterFilter.keyword || '运营 自动化 监控 运行 失败'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="运营 自动化 监控 运行 失败" data-testid="knowledge-feature-automation" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700"><i class="fas fa-stream" aria-hidden="true"></i></span>
+                                        <span class="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs text-gray-600">运行证据</span>
+                                    </div>
+                                    <h4 class="mt-3 font-semibold text-gray-900">检查自动化运行</h4>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">查看每次采集、保存、回读与推送的实际结果，而非只看任务已启用。</p>
+                                    <button type="button" data-testid="knowledge-feature-automation-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-automation-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
+                                        <span>使用场景</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
+                                    </button>
+                                    <dialog id="knowledge-feature-automation-dialog" data-testid="knowledge-feature-automation-dialog" aria-labelledby="knowledge-feature-automation-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
+                                        <div class="knowledge-feature-dialog-panel">
+                                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white"><div><p class="text-xs font-semibold tracking-widest text-yellow-200">运行证据</p><h5 id="knowledge-feature-automation-dialog-title" class="mt-1 text-lg font-semibold">检查自动化运行</h5></div><button type="button" aria-label="关闭自动化监控使用场景" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+                                            <div class="space-y-4 p-5"><p class="text-sm leading-6 text-gray-600">适合排查某次任务卡在哪一阶段；任务已启用或存在未来计划，不等于已经执行成功。</p><div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 选中运行</strong><span class="mt-1 block text-xs text-gray-500">锁定酒店、任务和时间。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 查看阶段</strong><span class="mt-1 block text-xs text-gray-500">检查采集、保存、回读与发送。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 判定结果</strong><span class="mt-1 block text-xs text-gray-500">以任务ID和真实回执为准。</span></li></ol></div><div class="flex justify-end"><button type="button" data-testid="knowledge-feature-automation-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div></div>
+                                        </div>
+                                    </dialog>
+                                    <button type="button" @click="currentPage = 'automation-monitor'" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开运行监控 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                </article>
+
+                                <article v-show="!knowledgeCenterFilter.keyword || '设置 门店 渠道 绑定 权限 账号 ota'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="设置 门店 渠道 绑定 权限 账号 ota" data-testid="knowledge-feature-settings" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-200 text-gray-700"><i class="fas fa-sliders-h" aria-hidden="true"></i></span>
+                                        <span class="rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-xs text-red-700">按酒店隔离</span>
+                                    </div>
+                                    <h4 class="mt-3 font-semibold text-gray-900">门店、渠道与权限设置</h4>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">先绑定正确酒店和平台门店，再设置可见范围与操作权限。</p>
+                                    <button type="button" data-testid="knowledge-feature-settings-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-settings-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
+                                        <span>使用场景</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
+                                    </button>
+                                    <dialog id="knowledge-feature-settings-dialog" data-testid="knowledge-feature-settings-dialog" aria-labelledby="knowledge-feature-settings-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
+                                        <div class="knowledge-feature-dialog-panel">
+                                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white"><div><p class="text-xs font-semibold tracking-widest text-yellow-200">按酒店隔离</p><h5 id="knowledge-feature-settings-dialog-title" class="mt-1 text-lg font-semibold">门店、渠道与权限设置</h5></div><button type="button" aria-label="关闭门店权限使用场景" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+                                            <div class="space-y-4 p-5"><p class="text-sm leading-6 text-gray-600">适合新店接入或修复串店风险；系统酒店、平台门店、账号和权限身份缺一不可。</p><div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 绑定门店</strong><span class="mt-1 block text-xs text-gray-500">对应系统酒店与平台门店。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 配置权限</strong><span class="mt-1 block text-xs text-gray-500">限定账号可见与可操作范围。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 验证隔离</strong><span class="mt-1 block text-xs text-gray-500">按酒店检查读写边界。</span></li></ol></div><div class="flex justify-end"><button type="button" data-testid="knowledge-feature-settings-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div></div>
+                                        </div>
+                                    </dialog>
+                                    <div class="mt-auto flex flex-wrap gap-3 pt-4">
+                                        <button type="button" @click="currentPage = 'hotels'" class="knowledge-feature-action text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">门店管理 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                        <button v-if="user?.is_super_admin" type="button" @click="currentPage = 'users'" class="text-left text-sm font-semibold text-gray-600 hover:text-gray-800">账号权限</button>
+                                    </div>
+                                </article>
+
+                                <article v-show="!knowledgeCenterFilter.keyword || '设置 通知 企业微信 推送 运营'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="设置 通知 企业微信 推送 运营" data-testid="knowledge-feature-notification" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-green-100 text-green-700"><i class="fab fa-weixin" aria-hidden="true"></i></span>
+                                        <span class="rounded-full border border-yellow-100 bg-yellow-50 px-2 py-0.5 text-xs text-yellow-700">外部发送需确认</span>
+                                    </div>
+                                    <h4 class="mt-3 font-semibold text-gray-900">企业微信通知设置</h4>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">配置门店机器人、预览消息并检查实际发送回执。</p>
+                                    <button type="button" data-testid="knowledge-feature-notification-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-notification-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
+                                        <span>使用场景</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
+                                    </button>
+                                    <dialog id="knowledge-feature-notification-dialog" data-testid="knowledge-feature-notification-dialog" aria-labelledby="knowledge-feature-notification-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
+                                        <div class="knowledge-feature-dialog-panel">
+                                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white"><div><p class="text-xs font-semibold tracking-widest text-yellow-200">外部发送需确认</p><h5 id="knowledge-feature-notification-dialog-title" class="mt-1 text-lg font-semibold">企业微信通知设置</h5></div><button type="button" aria-label="关闭通知设置使用场景" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+                                            <div class="space-y-4 p-5"><p class="text-sm leading-6 text-gray-600">预览、保存和发送是三个独立状态；只有目标机器人身份正确且真实回执成功，才算已送达。</p><div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 选择目标</strong><span class="mt-1 block text-xs text-gray-500">确认酒店和企业微信机器人。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 预览确认</strong><span class="mt-1 block text-xs text-gray-500">人工确认内容与发送范围。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 核对回执</strong><span class="mt-1 block text-xs text-gray-500">以真实发送时间和回执判定。</span></li></ol></div><div class="flex justify-end"><button type="button" data-testid="knowledge-feature-notification-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div></div>
+                                        </div>
+                                    </dialog>
+                                    <button type="button" @click="currentPage = 'wechat-notification'" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开通知中心 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                </article>
+                            </div>
+                        </section>
+
                         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 space-y-4">
                             <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                                 <div>
@@ -148,6 +349,24 @@
                                                 <textarea v-model="knowledgePromotionForm.objective" rows="2" placeholder="目标" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></textarea>
                                                 <textarea v-model="knowledgePromotionForm.steps_text" rows="4" placeholder="每行一个步骤" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></textarea>
                                                 <textarea v-model="knowledgePromotionForm.stop_conditions_text" rows="2" placeholder="每行一个停止条件" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></textarea>
+                                                <details data-testid="knowledge-promotion-applicability-editor" class="rounded-lg border border-indigo-100 bg-indigo-50/40 p-3">
+                                                    <summary class="cursor-pointer text-sm font-medium text-indigo-900">复制适用画像、动作参数与证据有效期</summary>
+                                                    <p class="mt-2 text-xs leading-5 text-indigo-700">每项一行一个值。资料不全可以保存修订，但系统会把跨店判断标为资料缺口，不能升级为自动执行。</p>
+                                                    <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                                        <label class="text-xs text-gray-600">酒店类型和体量<textarea v-model="knowledgePromotionForm.hotel_type_and_scale_text" rows="2" placeholder="例如：经济型；80间" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">城市、商圈和需求结构<textarea v-model="knowledgePromotionForm.city_district_demand_text" rows="2" placeholder="例如：杭州；交通枢纽；商旅" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">价格带<textarea v-model="knowledgePromotionForm.price_band_text" rows="2" placeholder="例如：300-450元" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">房型结构<textarea v-model="knowledgePromotionForm.room_type_structure_text" rows="2" placeholder="例如：大床为主；家庭房少量" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">平台与渠道结构<textarea v-model="knowledgePromotionForm.platform_channel_structure_text" rows="2" placeholder="例如：携程主渠道；美团补充" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">淡旺季<textarea v-model="knowledgePromotionForm.seasonality_text" rows="2" placeholder="例如：暑期旺季；工作日商旅" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">数据质量<textarea v-model="knowledgePromotionForm.data_quality_text" rows="2" placeholder="例如：同平台严格回读；无缺日" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">执行前状态<textarea v-model="knowledgePromotionForm.pre_action_state_text" rows="2" placeholder="例如：曝光下降；转化正常" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">动作参数<textarea v-model="knowledgePromotionForm.action_parameters_text" rows="2" placeholder="每行一个可核验参数" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">成功条件<textarea v-model="knowledgePromotionForm.success_conditions_text" rows="2" placeholder="每行一个成功判据" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">失败样本<textarea v-model="knowledgePromotionForm.failure_samples_text" rows="2" placeholder="每行一个已知失败样本或反例" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                        <label class="text-xs text-gray-600">证据有效期<input v-model="knowledgePromotionForm.evidence_valid_until" type="date" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></label>
+                                                    </div>
+                                                </details>
                                                 <button @click="saveKnowledgePromotionRevision" :disabled="!!knowledgePromotionAction" class="btn-secondary text-sm disabled:opacity-50">保存新修订并独立回读</button>
                                             </div>
 
@@ -208,6 +427,219 @@
                                 </div>
                             </template>
                         </div>
+
+                        <section data-testid="operating-network-workbench" class="rounded-xl border border-blue-100 bg-white p-5 shadow-sm">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div class="max-w-3xl">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <h3 class="text-lg font-semibold text-gray-900">可控经营复制网络</h3>
+                                        <span class="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs text-blue-700">只生成待验证草稿</span>
+                                    </div>
+                                    <p class="mt-1 text-sm leading-6 text-gray-600">逐项判断来源经验的适用条件、目标酒店缺口与历史反例。匹配结果不触发自动执行、不写 OTA、不外发消息。</p>
+                                </div>
+                                <div class="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+                                    <select v-model="operatingNetworkHotelId" @change="changeOperatingNetworkHotel" :disabled="!!operatingNetworkAction" data-testid="operating-network-hotel" class="min-w-56 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50">
+                                        <option value="">选择目标酒店</option>
+                                        <option v-for="hotel in knowledgeCenterHotelOptions" :key="'operating-network-hotel-' + hotel.id" :value="String(hotel.id)">{{ hotel.name }}</option>
+                                    </select>
+                                    <button type="button" @click="loadOperatingNetwork" :disabled="!operatingNetworkHotelId || operatingNetworkLoading || !!operatingNetworkAction" class="btn-secondary whitespace-nowrap text-sm disabled:opacity-50">
+                                        <i class="fas fa-sync-alt mr-1" :class="{ 'fa-spin': operatingNetworkLoading }"></i>刷新网络
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div v-if="operatingNetworkError" data-testid="operating-network-error" class="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ operatingNetworkError }}</div>
+                            <div v-if="!operatingNetworkHotelId" class="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">先选择一间目标酒店。数据、画像、SOP 与反例都按当前租户和酒店范围回读。</div>
+
+                            <template v-else="">
+                                <div v-if="operatingNetworkData?.data_status === 'migration_required'" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">经营画像表尚未启用。执行本功能迁移并刷新后，才能保存画像与复制复盘。</div>
+
+                                <section data-testid="operating-network-asset-ledger" class="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/40 p-4">
+                                    <div class="flex flex-wrap items-start justify-between gap-2">
+                                        <div><h4 class="font-medium text-emerald-950">经营网络资产账本</h4><p class="mt-1 text-xs text-emerald-800">只统计当前租户可访问酒店的真实保存、权威闭环和已核验证据；不把页面能力当作业务资产。</p></div>
+                                        <span class="rounded-full border border-emerald-200 bg-white px-2 py-1 text-xs text-emerald-700">{{ operatingNetworkData?.network_asset_summary?.network_learning_status || '待读取' }}</span>
+                                    </div>
+                                    <div class="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 xl:grid-cols-6">
+                                        <div class="rounded-lg border border-emerald-100 bg-white p-3"><div class="text-gray-500">可用画像</div><div class="mt-1 text-base font-semibold text-gray-900">{{ operatingNetworkData?.network_asset_summary?.network_ready_profile_count || 0 }} / {{ operatingNetworkData?.network_asset_summary?.current_profile_count || 0 }}</div></div>
+                                        <div class="rounded-lg border border-emerald-100 bg-white p-3"><div class="text-gray-500">完成权威闭环酒店</div><div class="mt-1 text-base font-semibold text-gray-900">{{ operatingNetworkData?.network_asset_summary?.authoritative_operating_loop_hotel_count || 0 }} / {{ operatingNetworkData?.network_asset_summary?.hotel_count || 0 }}</div></div>
+                                        <div class="rounded-lg border border-emerald-100 bg-white p-3"><div class="text-gray-500">可用于草稿的 SOP</div><div class="mt-1 text-base font-semibold text-gray-900">{{ operatingNetworkData?.network_asset_summary?.eligible_sop_count || 0 }} / {{ operatingNetworkData?.network_asset_summary?.formal_sop_count || 0 }}</div></div>
+                                        <div class="rounded-lg border border-emerald-100 bg-white p-3"><div class="text-gray-500">待验证草稿</div><div class="mt-1 text-base font-semibold text-gray-900">{{ operatingNetworkData?.network_asset_summary?.validation_ready_draft_count || 0 }} 可验证 · {{ operatingNetworkData?.network_asset_summary?.blocked_draft_count || 0 }} 阻塞</div></div>
+                                        <div class="rounded-lg border border-emerald-100 bg-white p-3"><div class="text-gray-500">已核验复制复盘</div><div class="mt-1 text-base font-semibold text-gray-900">{{ operatingNetworkData?.network_asset_summary?.success_count || 0 }} 成功 · {{ operatingNetworkData?.network_asset_summary?.failed_count || 0 }} 失败 · {{ operatingNetworkData?.network_asset_summary?.stopped_count || 0 }} 停止</div></div>
+                                        <div class="rounded-lg border border-emerald-100 bg-white p-3"><div class="text-gray-500">跨店证据</div><div class="mt-1 text-base font-semibold text-gray-900">{{ operatingNetworkData?.network_asset_summary?.field_evidence_status || 'none' }}</div><div class="mt-1 text-[11px] text-gray-500">目标酒店 {{ operatingNetworkData?.network_asset_summary?.reviewed_target_hotel_count || 0 }} 家</div></div>
+                                    </div>
+                                    <p class="mt-3 text-xs text-emerald-900">下一缺口：{{ operatingNetworkData?.network_asset_summary?.next_gap || '待读取' }} <span class="ml-1 text-gray-500">field_validated 固定保持 false，直到独立现场验收。</span></p>
+                                </section>
+
+                                <div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-5">
+                                    <div class="xl:col-span-3 rounded-lg border border-gray-100 p-4">
+                                        <div class="flex flex-wrap items-center justify-between gap-2">
+                                            <div>
+                                                <h4 class="font-medium text-gray-900">新店接入进度</h4>
+                                                <p class="mt-1 text-xs text-gray-500">身份确认 → 数据源绑定 → 房型价型映射 → 指标口径确认 → 首次可信采集 → 首次经营闭环 → 可比酒店识别；首次闭环只认完成并可回读的权威经营周期。</p>
+                                            </div>
+                                            <span class="rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-600">当前：{{ operatingNetworkData?.onboarding?.current_stage || '待读取' }}</span>
+                                        </div>
+                                        <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                            <div v-for="(stage, index) in (operatingNetworkData?.onboarding?.stages || [])" :key="stage.key" class="rounded-lg border p-3" :class="operatingNetworkStageStatusClass(stage.status)">
+                                                <div class="flex items-center justify-between gap-2 text-xs">
+                                                    <span class="font-semibold">{{ index + 1 }}. {{ stage.label }}</span>
+                                                    <span>{{ operatingNetworkStageStatusLabel(stage.status) }}</span>
+                                                </div>
+                                                <div v-if="stage.data_gaps?.length" class="mt-1 text-[11px] opacity-80">{{ stage.data_gaps.join('；') }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="xl:col-span-2 rounded-lg border border-gray-100 p-4">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <div>
+                                                <h4 class="font-medium text-gray-900">当前经营画像</h4>
+                                                <p class="mt-1 text-xs text-gray-500">不可变版本；每次保存都会产生可追溯的新版本。</p>
+                                            </div>
+                                            <span class="rounded-full border px-2 py-1 text-xs" :class="operatingNetworkData?.profile?.quality_status === 'verified' ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-amber-100 bg-amber-50 text-amber-700'">{{ operatingNetworkData?.profile?.quality_status || '未保存' }}</span>
+                                        </div>
+                                        <div v-if="operatingNetworkData?.profile" class="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                                            <div class="rounded bg-gray-50 p-2">版本 v{{ operatingNetworkData.profile.version_no }}</div>
+                                            <div class="rounded bg-gray-50 p-2">有效至 {{ operatingNetworkData.profile.evidence_valid_until || '未声明' }}</div>
+                                        </div>
+                                        <div v-else="" class="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center text-xs text-gray-500">当前酒店尚无经营画像。</div>
+
+                                        <details data-testid="operating-network-profile-editor" class="mt-3 rounded-lg border border-blue-100 bg-blue-50/40 p-3">
+                                            <summary class="cursor-pointer text-sm font-medium text-blue-900">编辑并保存画像版本</summary>
+                                            <div class="mt-3 flex flex-wrap items-center gap-2">
+                                                <button type="button" data-testid="operating-network-generate-profile-preview" @click="generateOperatingNetworkProfilePreview" :disabled="!!operatingNetworkAction || operatingNetworkData?.data_status !== 'ok'" class="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50">{{ operatingNetworkAction === 'profile_preview' ? '正在读取可信证据…' : '生成待核验草稿预览' }}</button>
+                                                <span class="text-[11px] text-blue-700">只读生成，不保存、不自动核验，也不会覆盖编辑器。</span>
+                                            </div>
+                                            <div v-if="operatingNetworkProfilePreview" data-testid="operating-network-profile-preview" class="mt-3 rounded-lg border border-blue-200 bg-white p-3 text-xs text-gray-600">
+                                                <div class="flex flex-wrap items-start justify-between gap-2">
+                                                    <div>
+                                                        <div class="font-medium text-gray-900">未核验画像预览</div>
+                                                        <div class="mt-1">已生成 {{ operatingNetworkProfilePreview.summary?.filled_dimension_count || 0 }}/8 个维度；仍有 {{ operatingNetworkProfilePreview.summary?.missing_dimension_count || 0 }} 个维度为空。</div>
+                                                        <div class="mt-1">完整核验事实：{{ operatingNetworkProfilePreview.summary?.verified_fact_count || 0 }} 条；业务日期 {{ operatingNetworkProfilePreview.summary?.verified_business_date_start || '未取得' }} 至 {{ operatingNetworkProfilePreview.summary?.verified_business_date_end || '未取得' }}。</div>
+                                                        <div class="mt-1">保存回读候选：{{ operatingNetworkProfilePreview.summary?.readback_candidate_count || 0 }} 条；候选不等于已验证，必须经过门店身份、来源、采集时间与字段证据真值门。</div>
+                                                        <div class="mt-1 text-amber-700">房型价型映射与指标口径不会自动确认，当前仍为待核验。</div>
+                                                    </div>
+                                                    <span class="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">仅预览 · 未保存</span>
+                                                </div>
+                                                <div v-if="operatingNetworkProfilePreview.data_gaps?.length" class="mt-2 rounded bg-amber-50 p-2 text-amber-800">
+                                                    <div class="font-medium">仍需确认</div>
+                                                    <div v-for="gap in operatingNetworkProfilePreview.data_gaps.slice(0, 6)" :key="gap.code" class="mt-1">· {{ gap.message }}</div>
+                                                    <div v-if="operatingNetworkProfilePreview.data_gaps.length > 6" class="mt-1">另有 {{ operatingNetworkProfilePreview.data_gaps.length - 6 }} 项缺口，应用后仍保持空白或未核验。</div>
+                                                </div>
+                                                <details v-if="operatingNetworkProfilePreview.draft?.evidence_refs?.length" class="mt-2">
+                                                    <summary class="cursor-pointer text-blue-700">查看 {{ operatingNetworkProfilePreview.draft.evidence_refs.length }} 条证据引用</summary>
+                                                    <div class="mt-1 break-all text-[11px] text-gray-500">{{ operatingNetworkProfilePreview.draft.evidence_refs.join(' · ') }}</div>
+                                                </details>
+                                                <button type="button" data-testid="operating-network-apply-profile-preview" @click="applyOperatingNetworkProfilePreview" class="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100">用此预览替换编辑器内容</button>
+                                                <span class="ml-2 text-[11px] text-gray-500">应用后仍须人工确认并主动保存。</span>
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                                <label v-for="dimension in operatingNetworkProfileDimensions" :key="'profile-' + dimension.key" class="text-xs text-gray-600">{{ dimension.label }}
+                                                    <textarea v-model="operatingNetworkProfileForm[dimension.key + '_text']" rows="2" placeholder="一行、逗号或分号分隔" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea>
+                                                </label>
+                                                <label class="text-xs text-gray-600">画像质量
+                                                    <select v-model="operatingNetworkProfileForm.quality_status" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="unverified">未核验</option><option value="partial">部分核验</option><option value="verified">已核验</option></select>
+                                                </label>
+                                                <label class="text-xs text-gray-600">生效日期<input v-model="operatingNetworkProfileForm.effective_date" type="date" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></label>
+                                                <label class="text-xs text-gray-600">证据有效期<input v-model="operatingNetworkProfileForm.evidence_valid_until" type="date" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></label>
+                                                <label class="text-xs text-gray-600">来源方法<input v-model="operatingNetworkProfileForm.source_method" type="text" placeholder="例如：人工核验+严格采集回读" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></label>
+                                                <label class="text-xs text-gray-600 md:col-span-2">画像证据引用<textarea v-model="operatingNetworkProfileForm.evidence_refs_text" rows="2" placeholder="每行一个表名#ID、文件或人工核验引用" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                <label class="text-xs text-gray-600">房型价型映射状态
+                                                    <select v-model="operatingNetworkProfileForm.room_rate_mapping_status" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="missing">缺失</option><option value="partial">部分确认</option><option value="verified">已核验</option></select>
+                                                    <textarea v-model="operatingNetworkProfileForm.room_rate_mapping_refs_text" rows="2" placeholder="映射证据引用" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea>
+                                                </label>
+                                                <label class="text-xs text-gray-600">指标口径状态
+                                                    <select v-model="operatingNetworkProfileForm.metric_definition_status" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="missing">缺失</option><option value="partial">部分确认</option><option value="verified">已核验</option></select>
+                                                    <textarea v-model="operatingNetworkProfileForm.metric_definition_refs_text" rows="2" placeholder="口径证据引用" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea>
+                                                </label>
+                                                <label class="text-xs text-gray-600 md:col-span-2">备注<textarea v-model="operatingNetworkProfileForm.notes" rows="2" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                            </div>
+                                            <button type="button" data-testid="operating-network-save-profile" @click="saveOperatingNetworkProfile" :disabled="!!operatingNetworkAction || operatingNetworkData?.data_status !== 'ok'" class="btn-primary mt-3 text-sm disabled:opacity-50">{{ operatingNetworkAction === 'profile' ? '保存并回读中…' : '保存画像新版本' }}</button>
+                                        </details>
+                                    </div>
+                                </div>
+
+                                <div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-5">
+                                    <div class="xl:col-span-2 rounded-lg border border-gray-100 p-4">
+                                        <h4 class="font-medium text-gray-900">可比酒店候选</h4>
+                                        <p class="mt-1 text-xs text-gray-500">只按当前画像产生待人工复核候选，不把相似度当作可复制结论。</p>
+                                        <div v-if="!(operatingNetworkData?.comparable_hotels || []).length" class="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center text-xs text-gray-500">尚无可比候选，或接入前置条件未完成。</div>
+                                        <div v-else="" class="mt-3 space-y-2">
+                                            <div v-for="hotel in operatingNetworkData.comparable_hotels" :key="'comparable-' + hotel.hotel_id" class="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs">
+                                                <div class="flex items-center justify-between gap-2"><span class="font-medium text-gray-800">{{ hotel.hotel_name }}</span><span class="text-blue-700">待人工识别</span></div>
+                                                <div class="mt-1 text-gray-500">满足 {{ hotel.matched_count }} · 缺少 {{ hotel.missing_count }} · 冲突 {{ hotel.conflict_count }} · 画像 {{ hotel.profile_quality_status }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div data-testid="operating-network-replication-draft" class="xl:col-span-3 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4">
+                                        <div class="flex flex-wrap items-start justify-between gap-2">
+                                            <div><h4 class="font-medium text-indigo-950">生成目标店待验证草稿</h4><p class="mt-1 text-xs text-indigo-700">来源只能选择其他酒店当前有效且已人工验证的 SOP；目标事实日期必须明确。</p></div>
+                                            <span class="rounded-full border border-indigo-100 bg-white px-2 py-1 text-xs text-indigo-700">人工验证必需</span>
+                                        </div>
+                                        <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
+                                            <select v-model="operatingNetworkReplicationForm.source_sop_version_id" class="rounded-lg border border-indigo-100 bg-white px-3 py-2 text-sm md:col-span-2">
+                                                <option value="">选择来源正式 SOP</option>
+                                                <option v-for="sop in (operatingNetworkData?.verified_sops || [])" :key="'network-sop-' + sop.id" :value="String(sop.id)" :disabled="sop.replication_eligibility !== 'eligible_for_validation_draft'">#{{ sop.id }} · {{ sop.hotel_name }} · {{ sop.title }} · 画像 {{ sop.profile_dimension_count }}/8 · {{ sop.replication_eligibility === 'eligible_for_validation_draft' ? '资料完整' : '资料不全' }}</option>
+                                            </select>
+                                            <input v-model="operatingNetworkReplicationForm.target_date_start" type="date" aria-label="目标事实开始日期" class="rounded-lg border border-indigo-100 bg-white px-3 py-2 text-sm">
+                                            <input v-model="operatingNetworkReplicationForm.target_date_end" type="date" aria-label="目标事实结束日期" class="rounded-lg border border-indigo-100 bg-white px-3 py-2 text-sm">
+                                        </div>
+                                        <button type="button" @click="generateOperatingNetworkReplicationDraft" :disabled="!operatingNetworkReplicationForm.source_sop_version_id || !!operatingNetworkAction || operatingNetworkData?.data_status !== 'ok'" class="btn-primary mt-3 text-sm disabled:opacity-50">{{ operatingNetworkAction === 'replication' ? '保存并回读中…' : '生成待验证草稿' }}</button>
+                                        <p v-if="!(operatingNetworkData?.verified_sops || []).length" class="mt-2 text-xs text-amber-700">当前租户的其他可访问酒店没有有效且已人工验证的正式 SOP，不会用候选或历史版本替代。</p>
+                                        <p v-else-if="(operatingNetworkData?.verified_sops || []).some(sop => sop.replication_eligibility !== 'eligible_for_validation_draft')" class="mt-2 text-xs text-amber-700">标为“资料不全”的 SOP 缺少来源店权威经营闭环、适用画像、动作参数、成功/失败/停止条件或当前有效证据，不能选择用于复制。</p>
+
+                                        <div v-if="operatingNetworkLastReplication" data-testid="operating-network-assessment" class="mt-4 rounded-lg border border-indigo-100 bg-white p-4">
+                                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                                <div class="text-sm font-medium text-gray-900">草稿 #{{ operatingNetworkLastReplication.id }} · {{ operatingNetworkLastReplication.status }}</div>
+                                                <span class="rounded-full border border-amber-100 bg-amber-50 px-2 py-1 text-xs text-amber-700">validation_draft_only</span>
+                                            </div>
+                                            <p class="mt-2 text-sm leading-6 text-gray-700">{{ operatingNetworkLastReplication.draft?.applicability_assessment?.summary }}</p>
+                                            <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                                <div v-for="dimension in (operatingNetworkLastReplication.draft?.applicability_assessment?.dimension_results || [])" :key="'assessment-' + dimension.dimension" class="rounded-lg border p-2 text-xs" :class="operatingNetworkDimensionStatusClass(dimension.status)">
+                                                    <div class="flex items-center justify-between gap-2"><span class="font-medium">{{ dimension.label }}</span><span>{{ operatingNetworkDimensionStatusLabel(dimension.status) }}</span></div>
+                                                    <div class="mt-1 opacity-80">来源 {{ (dimension.source_values || []).join('、') || '未声明' }}；目标 {{ (dimension.target_values || []).join('、') || '缺失' }}</div>
+                                                    <div v-if="dimension.unmet_source_values?.length" class="mt-1 font-medium">未满足来源值：{{ dimension.unmet_source_values.join('、') }}</div>
+                                                </div>
+                                            </div>
+                                            <div v-if="operatingNetworkLastReplication.draft?.applicability_assessment?.success_samples?.length" class="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-xs text-emerald-700">相关成功复盘 {{ operatingNetworkLastReplication.draft.applicability_assessment.success_samples.length }} 条：{{ operatingNetworkLastReplication.draft.applicability_assessment.success_samples.map(item => item.ref).join('、') }}</div>
+                                            <div v-if="operatingNetworkLastReplication.draft?.applicability_assessment?.counterexamples?.length" class="mt-3 rounded-lg border border-red-100 bg-red-50 p-3 text-xs text-red-700">历史失败/停止反例 {{ operatingNetworkLastReplication.draft.applicability_assessment.counterexamples.length }} 条：{{ operatingNetworkLastReplication.draft.applicability_assessment.counterexamples.map(item => item.ref).join('、') }}</div>
+                                            <div v-if="operatingNetworkLastReplication.draft?.applicability_assessment?.replication_evidence?.ignored_review_count" class="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">另有 {{ operatingNetworkLastReplication.draft.applicability_assessment.replication_evidence.ignored_review_count }} 条历史复盘因画像不相近或证据未核验而未纳入本次判断。</div>
+                                            <div v-if="operatingNetworkLastReplication.data_gaps?.length" class="mt-3 rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-800">资料缺口：{{ operatingNetworkLastReplication.data_gaps.map(item => item.message || item.code).join('；') }}</div>
+
+                                            <div v-if="operatingNetworkLastReplication.status === 'draft_pending_target_validation' &amp;&amp; operatingNetworkLastReplication.target_validation_status === 'facts_available_review_required'" data-testid="operating-network-execution-intent" class="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <div class="flex flex-wrap items-center justify-between gap-3">
+                                                    <div><div class="text-sm font-medium text-blue-950">进入受控验证</div><p class="mt-1 text-xs leading-5 text-blue-800">只把当前草稿冻结为待人工审批意图。审批、人工执行、同任务来源回读、正式效果复盘和权威经营闭环缺一不可；不会自动执行、写 OTA 或外发消息。</p></div>
+                                                    <button v-if="!operatingNetworkExecutionIntent" type="button" @click="createOperatingNetworkExecutionIntent" :disabled="!!operatingNetworkAction" class="btn-primary text-sm disabled:opacity-50">{{ operatingNetworkAction === 'execution_intent' ? '保存并回读中…' : '转为待审批验证任务' }}</button>
+                                                </div>
+                                                <div v-if="operatingNetworkExecutionIntent" class="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-100 bg-white p-3 text-xs text-gray-700">
+                                                    <span>执行意图 #{{ operatingNetworkExecutionIntent.id }} · {{ operatingNetworkExecutionIntent.status }} · 来源草稿 #{{ operatingNetworkExecutionIntent.source_record_id }}</span>
+                                                    <button type="button" @click="openOperatingNetworkExecutionIntent" class="font-medium text-blue-700 hover:text-blue-900">打开任务执行与复盘</button>
+                                                </div>
+                                            </div>
+                                            <div v-else class="mt-3 rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">当前结果只能保留为待验证草稿；补齐目标画像、同范围事实和权威经营闭环后重新评估，才允许生成待审批任务。</div>
+
+                                            <details data-testid="operating-network-review" class="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                <summary class="cursor-pointer text-sm font-medium text-gray-800">记录本次验证结果，让成功或失败进入后续判断</summary>
+                                                <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                                    <label class="text-xs text-gray-600">结果<select v-model="operatingNetworkReviewForm.outcome" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="inconclusive">证据不足</option><option value="success">成功</option><option value="failed">失败</option><option value="stopped">触发停止</option></select></label>
+                                                    <label class="text-xs text-gray-600">复盘业务日期<input v-model="operatingNetworkReviewForm.reviewed_business_date" type="date" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></label>
+                                                    <label class="text-xs text-gray-600 md:col-span-2">人工说明<textarea v-model="operatingNetworkReviewForm.note" rows="2" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                    <label class="text-xs text-gray-600">实际观察条件<textarea v-model="operatingNetworkReviewForm.observed_conditions_text" rows="2" placeholder="一行一个" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                    <label class="text-xs text-gray-600">失败条件<textarea v-model="operatingNetworkReviewForm.failure_conditions_text" rows="2" placeholder="一行一个" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                    <label class="text-xs text-gray-600">已触发停止条件<textarea v-model="operatingNetworkReviewForm.stop_triggered_text" rows="2" placeholder="一行一个" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
+                                                    <label class="text-xs text-gray-600">证据引用<textarea v-model="operatingNetworkReviewForm.evidence_refs_text" rows="2" placeholder="成功/失败：operation_effect_reviews#ID；停止：operation_execution_evidence#ID" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea><span class="mt-1 block text-[11px] text-gray-500">引用必须来自本草稿生成并经人工审批的同一执行任务，且已进入完成、可回读的 hotel_operating_cycles 权威经营闭环；其他动作的同店同日结果不会计入。</span></label>
+                                                </div>
+                                                <button type="button" @click="saveOperatingNetworkReview" :disabled="!!operatingNetworkAction" class="btn-secondary mt-3 text-sm disabled:opacity-50">{{ operatingNetworkAction === 'review' ? '保存并回读中…' : '保存复制复盘' }}</button>
+                                                <div v-if="operatingNetworkReviews.length" class="mt-3 space-y-2">
+                                                    <div v-for="review in operatingNetworkReviews" :key="'network-review-' + review.id" class="rounded-lg border border-gray-100 bg-white p-2 text-xs text-gray-600">#{{ review.review_no }} · {{ review.outcome }} · {{ review.review?.evidence_verification?.status || '历史证据未核验' }} · {{ (review.review?.evidence_verification?.verified_operating_cycle_refs || []).join('、') || '未绑定权威闭环' }} · {{ review.review?.reviewed_business_date || '日期未填' }} · {{ review.review?.note || '无说明' }}</div>
+                                                </div>
+                                            </details>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </section>
 
                         <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
                             <div class="flex flex-col md:flex-row gap-3 md:items-center">

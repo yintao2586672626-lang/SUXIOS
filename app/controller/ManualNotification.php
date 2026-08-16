@@ -8,6 +8,7 @@ use app\service\AutomationRunMonitorService;
 use app\service\CloudMessageTaskOverviewService;
 use app\service\ManualNotificationService;
 use app\service\WechatRobotDeliveryService;
+use app\service\WindowsScheduledLoopCatalogService;
 use think\Response;
 
 final class ManualNotification extends Base
@@ -59,13 +60,14 @@ final class ManualNotification extends Base
                 ->toArray();
 
         try {
-            return $this->success(
-                (new AutomationRunMonitorService())->overview(
-                    $hotels,
-                    $businessDate,
-                    (int)$this->currentUser->id
-                )
+            $overview = (new AutomationRunMonitorService())->overview(
+                $hotels,
+                $businessDate,
+                (int)$this->currentUser->id
             );
+            $overview['scheduled_loops'] = (new WindowsScheduledLoopCatalogService())
+                ->overview($hotels, $this->currentUser->isSuperAdmin());
+            return $this->success($overview);
         } catch (\InvalidArgumentException) {
             return $this->error('请选择有效的数据日期', 422);
         } catch (\RuntimeException) {
@@ -273,10 +275,20 @@ final class ManualNotification extends Base
             'manual_notification_send_method_invalid' => '请选择有效的发送方式',
             'manual_notification_trigger_invalid' => '请选择有效的发送触发方式',
             'manual_notification_operating_daily_fixed_time_required'
-                => '经营日报不支持间隔或整点循环，请选择每日固定时间',
+                => '普通经营日报仅支持每日固定时间；三源整点推送需选择三源、当天、正式机器人和指定内容',
             'manual_notification_source_scope_invalid' => '请选择携程、美团、订单来了或三源汇总',
             'manual_notification_content_section_invalid' => '所选发送内容不属于当前数据源',
             'manual_notification_content_sections_required' => '至少选择一项要发送的内容',
+            'manual_notification_condition_type_invalid' => '请选择有效的发送条件',
+            'manual_notification_condition_threshold_invalid' => '入住率起始档必须大于 0 且不超过 100',
+            'manual_notification_condition_step_invalid' => '入住率跨档步长必须大于 0 且不超过 100',
+            'manual_notification_condition_template_unsupported' => '当前消息模板不支持该经营事实条件',
+            'manual_notification_condition_pms_facts_required' => '该条件必须选择订单来了 PMS 数据及入住率指标',
+            'manual_notification_condition_trigger_in_flight' => '该经营规则档位正在发送，请稍后查看发送记录',
+            'manual_notification_condition_trigger_claim_fenced' => '该经营规则档位已由新的执行窗口接管，本次未重复发送',
+            'manual_notification_condition_claim_failed' => '经营规则发送认领校验失败，本次未发送',
+            'manual_notification_condition_level_already_sent' => '该经营规则档位已有成功回执，无需重复发送',
+            'manual_notification_retry_condition_rule_changed' => '发送条件已变更，请使用当前计划重新测试',
             'manual_notification_schedule_required' => '每日固定时间必须配置触发时间',
             'manual_notification_schedule_invalid' => '计划发送时间格式无效',
             'manual_notification_interval_invalid' => '循环发送间隔必须是 5 到 1440 分钟',
@@ -285,6 +297,8 @@ final class ManualNotification extends Base
             'manual_notification_weekdays_required' => '至少选择一个生效星期',
             'manual_notification_effective_range_invalid' => '生效结束日期不能早于开始日期',
             'manual_notification_hourly_window_invalid' => '小时播报必须设置有效的整点起止时段',
+            'manual_notification_midnight_current_day_unavailable'
+                => '三源当天快报从 01:00 开始；00:00 处于业务日切换，不能发送前一天数据',
             'manual_notification_test_confirmation_required' => '请明确确认本次测试推送',
             'manual_notification_test_target_forbidden' => '所选机器人未启用、作用域不匹配或不属于当前酒店',
             'manual_notification_test_method_forbidden' => '当前通知发送方式不是企业微信测试机器人',

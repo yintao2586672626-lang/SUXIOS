@@ -69,14 +69,19 @@ class BusinessClosureOverviewService
         array $platforms = []
     ): array
     {
-        $businessDate = trim($businessDate) !== ''
-            ? trim($businessDate)
-            : date('Y-m-d', strtotime('-1 day'));
+        $businessDate = trim($businessDate);
+        $businessDateValid = $this->validBusinessDate($businessDate);
         $operationService = new OperationManagementService();
         $executionFlow = $operationService->executionFlow($hotelIds, $hotelId, []);
         $executionStats = $this->executionStatsBySource($executionFlow['list'] ?? []);
         $executionSummary = is_array($executionFlow['summary'] ?? null) ? $executionFlow['summary'] : [];
         $dataGaps = is_array($executionFlow['data_gaps'] ?? null) ? $executionFlow['data_gaps'] : [];
+        if (!$businessDateValid) {
+            $dataGaps[] = [
+                'code' => 'operating_loop_business_date_required',
+                'message' => '必须显式提供 YYYY-MM-DD 业务日期；本服务不会静默改读昨天或其他日期。',
+            ];
+        }
 
         $modules = [
             $this->aiDailyReportSignal($hotelIds, $hotelId, $executionStats),
@@ -91,10 +96,47 @@ class BusinessClosureOverviewService
             $platforms
         );
 
-        return $this->buildOverviewFromSignals($modules, $executionSummary, $dataGaps, $p0DownstreamGate);
+        $kernelSummary = [];
+        if ($businessDateValid && $hotelId !== null && $hotelId > 0) {
+            $hotel = Db::name('hotels')
+                ->where('id', $hotelId)
+                ->where('status', 1)
+                ->field(['id', 'tenant_id'])
+                ->find();
+            if (is_array($hotel) && (int)($hotel['tenant_id'] ?? 0) > 0) {
+                $kernelSummary = (new OperatingLoopKernelService())->currentForHotelDate(
+                    (int)$hotel['tenant_id'],
+                    $hotelId,
+                    $businessDate
+                );
+            }
+        }
+
+        return $this->buildOverviewFromSignals(
+            $modules,
+            $executionSummary,
+            $dataGaps,
+            $p0DownstreamGate,
+            $kernelSummary
+        );
     }
 
-    public function buildOverviewFromSignals(array $signals, array $executionSummary = [], array $dataGaps = [], array $p0DownstreamGate = []): array
+    private function validBusinessDate(string $businessDate): bool
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $businessDate) !== 1) {
+            return false;
+        }
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $businessDate);
+        return $date !== false && $date->format('Y-m-d') === $businessDate;
+    }
+
+    public function buildOverviewFromSignals(
+        array $signals,
+        array $executionSummary = [],
+        array $dataGaps = [],
+        array $p0DownstreamGate = [],
+        array $kernelSummary = []
+    ): array
     {
         $modules = [];
         foreach ($signals as $signal) {
@@ -132,7 +174,7 @@ class BusinessClosureOverviewService
         $recordOnly = 0;
         $scoreSum = 0;
         foreach ($modules as $module) {
-            if (($module['closed_loop'] ?? false) === true) {
+            if (($module['component_closed_loop'] ?? false) === true) {
                 $closed++;
             }
             if (($module['process_closed_loop'] ?? false) === true) {
@@ -156,12 +198,21 @@ class BusinessClosureOverviewService
         $roiWeakModules = array_values(array_filter($modules, static function (array $module): bool {
             return ($module['roi_ready'] ?? false) !== true;
         }));
+        $authorityState = trim((string)($kernelSummary['authoritative_state'] ?? 'not_started')) ?: 'not_started';
+        $authorityReadback = ($kernelSummary['readback_verified'] ?? false) === true;
+        $kernelClosed = $authorityState === 'completed' && $authorityReadback;
+        $authorityStatus = $kernelClosed
+            ? 'closed'
+            : (in_array($authorityState, ['active', 'blocked'], true) ? $authorityState : 'unverified');
 
         return [
             'summary' => [
                 'module_count' => $total,
-                'closed_loop_count' => $closed,
-                'not_closed_count' => max(0, $total - $closed),
+                'closed_loop' => $kernelClosed,
+                'closed_loop_count' => $kernelClosed ? 1 : 0,
+                'not_closed_count' => $kernelClosed ? 0 : 1,
+                'component_closed_loop_count' => $closed,
+                'component_not_closed_count' => max(0, $total - $closed),
                 'process_closed_count' => $processClosed,
                 'not_process_closed_count' => max(0, $total - $processClosed),
                 'roi_ready_module_count' => $roiReadyModules,
@@ -172,7 +223,15 @@ class BusinessClosureOverviewService
                 'avg_maturity_score' => $total > 0 ? round($scoreSum / $total, 1) : null,
                 'operation_execution_total' => (int)($executionSummary['total'] ?? 0),
                 'operation_roi_ready' => (int)($executionSummary['roi_ready'] ?? 0),
-                'status' => $p0Blocked ? 'blocked_by_p0_ota_gate' : ($closed === $total && $total > 0 ? 'closed' : 'not_closed'),
+                'status' => $authorityStatus,
+                'authoritative_state' => $authorityState,
+                'readback_verified' => $authorityReadback,
+                'kernel_id' => $kernelSummary['kernel_id'] ?? null,
+                'revision' => (int)($kernelSummary['revision'] ?? 0),
+                'component_status' => $p0Blocked
+                    ? 'blocked_by_p0_ota_gate'
+                    : ($closed === $total && $total > 0 ? 'closed' : 'not_closed'),
+                'source_policy' => 'hotel_operating_cycle_kernel_only',
             ],
             'modules' => $modules,
             'weak_modules' => array_slice($roiWeakModules, 0, 5),
@@ -180,9 +239,11 @@ class BusinessClosureOverviewService
             'roi_weak_modules' => array_slice($roiWeakModules, 0, 5),
             'data_status' => empty($dataGaps) ? 'ok' : 'data_gap',
             'data_gaps' => $dataGaps,
-            'source_scope' => 'post_ota_closure_only',
+            'operating_loop' => $kernelSummary,
+            'source_scope' => 'hotel_operating_cycle_kernel_only',
             'protected_scope' => 'online data collection and OTA standardization are read-only for this overview',
             'p0_downstream_gate' => $p0Gate,
+            'drilldown_policy' => 'module statuses are diagnostic only and cannot declare operating-loop success',
         ];
     }
 
@@ -317,7 +378,9 @@ class BusinessClosureOverviewService
             'closure_target' => $profile['closure_target'],
             'status' => $status,
             'status_label' => $this->statusLabel($status),
-            'closed_loop' => $status === 'roi_ready' && $aiSummaryFailures === 0,
+            'closed_loop' => false,
+            'component_closed_loop' => $status === 'roi_ready' && $aiSummaryFailures === 0,
+            'authority_status' => 'diagnostic_only',
             'process_closed_loop' => $processClosed,
             'process_status' => $processStatus,
             'roi_ready' => $roiReadyFlag,
@@ -565,7 +628,7 @@ class BusinessClosureOverviewService
             'executed_missing_evidence' => '缺执行证据',
             'evidence_ready' => '待复盘',
             'reviewed_no_roi' => '已复盘缺效果证据',
-            'roi_ready' => '已闭环',
+            'roi_ready' => 'ROI证据就绪',
             'blocked_by_p0_ota_gate' => 'P0未就绪',
             'blocked_by_ai_summary_failure' => 'AI汇总失败',
             'blocked' => '阻塞',

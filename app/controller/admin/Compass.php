@@ -6,6 +6,11 @@ namespace app\controller\admin;
 use app\controller\Base;
 use app\model\OperationLog;
 use app\model\SystemConfig;
+use app\service\HotelScopeService;
+use app\service\OperatingLoopKernelService;
+use app\service\PermissionService;
+use InvalidArgumentException;
+use think\facade\Db;
 use think\Response;
 
 class Compass extends Base
@@ -24,17 +29,21 @@ class Compass extends Base
     {
         $this->checkPermission();
 
-        $hotelId = $this->resolveHotelId((string)$this->request->get('hotel_id', ''));
-        $payload = $this->buildCompassData($hotelId);
-
-        return view('compass/index', $payload);
+        // The SPA Compass is the only user-facing authority surface. Keeping a
+        // second server-rendered dashboard here would allow two pages to imply
+        // different operating states.
+        return redirect('/');
     }
 
     public function apiIndex(): Response
     {
         $this->checkPermission();
         $hotelId = $this->resolveHotelId((string)$this->request->get('hotel_id', ''));
-        return $this->success($this->buildCompassData($hotelId));
+        $businessDate = trim((string)$this->request->get('business_date', ''));
+        if (!$this->validBusinessDate($businessDate)) {
+            return $this->error('business_date 必须是明确的 YYYY-MM-DD 业务日期', 422);
+        }
+        return $this->success($this->buildCompassData($hotelId, $businessDate));
     }
 
     public function saveLayout(): Response
@@ -169,10 +178,21 @@ class Compass extends Base
         ];
     }
 
-    private function buildCompassData(int $hotelId): array
+    private function buildCompassData(int $hotelId, string $businessDate = ''): array
     {
-        return [
-            'layout' => $this->getLayoutConfig(),
+        if (!$this->validBusinessDate($businessDate)) {
+            throw new InvalidArgumentException('business_date 必须是明确的 YYYY-MM-DD 业务日期');
+        }
+        $hotel = $hotelId > 0
+            ? Db::name('hotels')->where('id', $hotelId)->where('status', 1)->field(['id', 'tenant_id'])->find()
+            : null;
+        $tenantId = is_array($hotel) ? (int)($hotel['tenant_id'] ?? 0) : 0;
+        $operatingLoop = (new OperatingLoopKernelService())->currentForHotelDate(
+            $tenantId,
+            $hotelId,
+            $businessDate
+        );
+        $legacyPanels = [
             'weather' => [],
             'todos' => [],
             'metrics' => [
@@ -180,10 +200,22 @@ class Compass extends Base
                 'week' => (object)[],
                 'month' => (object)[],
                 'data_status' => 'not_loaded',
-                'source_policy' => 'compass_contract_only_no_metric_facts',
+                'source_policy' => 'diagnostic_only_no_operating_authority',
             ],
             'alerts' => [],
             'holidays' => [],
+        ];
+
+        return array_merge($legacyPanels, [
+            'layout' => $this->getLayoutConfig(),
+            'operating_loop' => $operatingLoop,
+            'authority_status' => [
+                'state' => (string)($operatingLoop['authoritative_state'] ?? 'not_started'),
+                'readback_verified' => ($operatingLoop['readback_verified'] ?? false) === true,
+                'kernel_id' => $operatingLoop['kernel_id'] ?? null,
+                'revision' => (int)($operatingLoop['revision'] ?? 0),
+            ],
+            'drilldowns' => array_merge(['diagnostic_only' => true], $legacyPanels),
             'contract_status' => [
                 'todos' => 'not_loaded',
                 'weather' => 'not_loaded',
@@ -191,21 +223,38 @@ class Compass extends Base
                 'alerts' => 'not_loaded',
                 'holidays' => 'not_loaded',
                 'weather_source_policy' => 'compass_contract_only_no_weather_facts',
-                'source_policy' => 'compass_contract_only_no_operating_facts',
+                'source_policy' => 'hotel_operating_cycle_kernel_only',
             ],
-        ];
+        ]);
     }
 
     private function resolveHotelId(string $hotelIdParam): int
     {
-        if ($this->currentUser && $this->currentUser->isSuperAdmin()) {
-            return $hotelIdParam !== '' ? (int)$hotelIdParam : 0;
-        }
-        $hotelId = (int)($this->currentUser->hotel_id ?? 0);
-        if (!$hotelId) {
+        $hotelId = $hotelIdParam !== ''
+            ? (int)$hotelIdParam
+            : (int)($this->currentUser->hotel_id ?? 0);
+        if ($hotelId <= 0) {
             abort(403, '您未关联酒店，请联系管理员');
         }
+        $hotelScope = new HotelScopeService();
+        $authorization = (new PermissionService($hotelScope))->authorize(
+            $this->currentUser,
+            'operation.view',
+            $hotelId
+        );
+        if (($authorization['allowed'] ?? false) !== true) {
+            abort(403, '无权查看该酒店经营闭环');
+        }
         return $hotelId;
+    }
+
+    private function validBusinessDate(string $businessDate): bool
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $businessDate) !== 1) {
+            return false;
+        }
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $businessDate);
+        return $date !== false && $date->format('Y-m-d') === $businessDate;
     }
 
 }

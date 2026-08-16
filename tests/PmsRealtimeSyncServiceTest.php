@@ -39,6 +39,19 @@ final class PmsRealtimeSyncServiceTest extends TestCase
             );
             self::assertSame([], $loader->invoke($service, 80, 8));
             self::assertSame([], $loader->invoke($service, 81, 7));
+
+            self::assertNotFalse(file_put_contents(
+                $receiptPath,
+                json_encode(self::loginExpiredReceipt(), JSON_UNESCAPED_SLASHES)
+            ));
+            $recoveryReceipt = $loader->invoke($service, 80, 7);
+            self::assertSame('blocked', $recoveryReceipt['status'] ?? null);
+            self::assertSame(
+                'sbx_dingdandao_h80_primary',
+                $recoveryReceipt['sandbox_id'] ?? null
+            );
+            self::assertSame([], $loader->invoke($service, 80, 8));
+            self::assertSame([], $loader->invoke($service, 81, 7));
         } finally {
             @unlink($receiptPath);
             @rmdir($receiptDirectory);
@@ -292,6 +305,7 @@ final class PmsRealtimeSyncServiceTest extends TestCase
 
     public function testUnavailableBrowserSessionReturnsLoginBlockerWithoutReadingOldData(): void
     {
+        $handoffSandbox = '';
         $service = new PmsRealtimeSyncService(
             bindingResolver: static fn(): array => [
                 'binding_status' => 'configured',
@@ -299,6 +313,12 @@ final class PmsRealtimeSyncServiceTest extends TestCase
             ],
             receiptLoader: static fn(): array => self::trustedReceipt(),
             cdpProbe: static fn(): bool => false,
+            loginHandoffRunner: static function (string $sandboxId) use (
+                &$handoffSandbox
+            ): array {
+                $handoffSandbox = $sandboxId;
+                return self::trustedHandoffReceipt();
+            },
             clock: static fn(): DateTimeImmutable => new DateTimeImmutable(
                 '2026-07-30 09:45:05',
                 new DateTimeZone('Asia/Shanghai')
@@ -309,9 +329,31 @@ final class PmsRealtimeSyncServiceTest extends TestCase
 
         self::assertSame('blocked', $result['status']);
         self::assertSame('pms_live_session_unavailable', $result['blocker_code']);
+        self::assertSame(80, $result['system_hotel_id']);
         self::assertTrue($result['requires_login']);
         self::assertFalse($result['saved']);
         self::assertFalse($result['readback_verified']);
+        self::assertSame('sbx_dingdandao_h80_primary', $handoffSandbox);
+        self::assertSame('ready', $result['login_handoff']['status'] ?? null);
+        self::assertSame(80, $result['login_handoff']['system_hotel_id'] ?? null);
+        self::assertSame(
+            'sbx_dingdandao_h80_primary',
+            $result['login_handoff']['sandbox_id'] ?? null
+        );
+        self::assertTrue(
+            $result['login_handoff']['window_target_activated'] ?? false
+        );
+        self::assertSame(
+            'pms_manage',
+            $result['login_handoff']['activated_target_scope'] ?? null
+        );
+        self::assertTrue(
+            $result['login_handoff']['window_foreground_requested'] ?? false
+        );
+        self::assertFalse($result['login_handoff']['login_verified'] ?? true);
+        self::assertFalse(
+            $result['login_handoff']['codex_iab_is_execution_browser'] ?? true
+        );
     }
 
     public function testAuthenticatedRouteExposesExplicitRealtimeSyncOnly(): void
@@ -323,17 +365,15 @@ final class PmsRealtimeSyncServiceTest extends TestCase
         );
     }
 
-    public function testBlockedReceiptAndConfiguredSandboxCannotAuthorizeCollection(): void
+    public function testExactLoginExpiredReceiptReusesSameSandboxWithoutClaimingSuccess(): void
     {
         $previous = getenv('SUXIOS_DINGDANDAO_LOCAL_SANDBOX_ID');
         putenv('SUXIOS_DINGDANDAO_LOCAL_SANDBOX_ID=sbx_dingdandao_h80_primary');
         $collectorCalled = false;
+        $captureRead = false;
+        $command = [];
         try {
-            $receipt = self::trustedReceipt();
-            $receipt['status'] = 'blocked';
-            $receipt['collection_success'] = false;
-            $receipt['business_data_persisted'] = false;
-            $receipt['capture_id'] = 0;
+            $receipt = self::loginExpiredReceipt();
 
             $service = new PmsRealtimeSyncService(
                 bindingResolver: static fn(): array => [
@@ -345,27 +385,203 @@ final class PmsRealtimeSyncServiceTest extends TestCase
                     $collectorCalled = true;
                     return true;
                 },
-                processRunner: static function () use (&$collectorCalled): array {
+                processRunner: static function (array $input) use (
+                    &$collectorCalled,
+                    &$command
+                ): array {
                     $collectorCalled = true;
+                    $command = $input;
+                    return [
+                        'exit_code' => 1,
+                        'stdout' => '',
+                        'stderr' => json_encode([
+                            'status' => 'blocked',
+                            'reason' => 'capture_session_expired',
+                            'collection_success' => false,
+                            'business_data_persisted' => false,
+                            'capture_id' => 0,
+                        ], JSON_UNESCAPED_SLASHES),
+                    ];
+                },
+                captureReader: static function () use (&$captureRead): array {
+                    $captureRead = true;
                     return [];
                 },
                 clock: static fn(): DateTimeImmutable => new DateTimeImmutable(
                     '2026-07-30 09:45:05',
                     new DateTimeZone('Asia/Shanghai')
-                )
+                ),
+                projectRoot: dirname(__DIR__),
+                phpBinary: PHP_BINARY,
+                loginHandoffRunner: static fn(string $sandboxId): array =>
+                    self::trustedHandoffReceipt($sandboxId)
             );
 
             $result = $service->sync(1, 80, 7, '2026-07-30');
 
             self::assertSame('blocked', $result['status']);
-            self::assertSame('pms_live_sandbox_not_configured', $result['blocker_code']);
-            self::assertFalse($collectorCalled);
+            self::assertSame('capture_session_expired', $result['blocker_code']);
+            self::assertTrue($result['requires_login']);
+            self::assertSame(
+                'login_in_bound_local_sandbox',
+                $result['recovery_action']
+            );
+            self::assertSame(
+                'same_bound_device_only',
+                $result['recovery_device_policy']
+            );
+            self::assertFalse($result['automatic_device_substitution']);
+            self::assertSame('ready', $result['login_handoff']['status'] ?? null);
+            self::assertSame(80, $result['login_handoff']['system_hotel_id'] ?? null);
+            self::assertFalse(
+                $result['login_handoff']['automatic_device_substitution'] ?? true
+            );
+            self::assertFalse(
+                $result['login_handoff']['profile_material_copied'] ?? true
+            );
+            self::assertFalse(
+                $result['login_handoff']['session_material_exposed'] ?? true
+            );
+            self::assertStringContainsString('独立 Google Chrome', $result['message']);
+            self::assertStringContainsString('不要复制 Cookie', $result['message']);
+            self::assertTrue($collectorCalled);
+            self::assertContains('--hotel-id=80', $command);
+            self::assertContains('--owner-user-id=7', $command);
+            self::assertContains('--sandbox-id=sbx_dingdandao_h80_primary', $command);
+            self::assertFalse($captureRead);
+            self::assertFalse($result['saved']);
+            self::assertFalse($result['readback_verified']);
+
+            $successGate = new \ReflectionMethod(
+                $service,
+                'trustedCollectionSuccessReceipt'
+            );
+            self::assertFalse($successGate->invoke($service, $receipt, 80, 7));
         } finally {
             if ($previous === false) {
                 putenv('SUXIOS_DINGDANDAO_LOCAL_SANDBOX_ID');
             } else {
                 putenv('SUXIOS_DINGDANDAO_LOCAL_SANDBOX_ID=' . $previous);
             }
+        }
+    }
+
+    public function testLoginHandoffRejectsForeignOrSensitiveReceiptWithoutLeakingIt(): void
+    {
+        $foreignSandbox = 'sbx_dingdandao_h81_foreign';
+        $service = new PmsRealtimeSyncService(
+            bindingResolver: static fn(): array => [
+                'binding_status' => 'configured',
+                'selected_provider' => 'dingdandao_pms',
+            ],
+            receiptLoader: static fn(): array => self::trustedReceipt(),
+            cdpProbe: static fn(): bool => false,
+            loginHandoffRunner: static fn(string $sandboxId): array => [
+                ...self::trustedHandoffReceipt($foreignSandbox),
+                'cookie' => 'must-not-escape',
+            ],
+            clock: static fn(): DateTimeImmutable => new DateTimeImmutable(
+                '2026-07-30 09:45:05',
+                new DateTimeZone('Asia/Shanghai')
+            )
+        );
+
+        $result = $service->sync(1, 80, 7, '2026-07-30');
+        $serialized = json_encode($result, JSON_UNESCAPED_SLASHES);
+
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('unavailable', $result['login_handoff']['status'] ?? null);
+        self::assertSame(
+            'pms_login_handoff_receipt_invalid',
+            $result['login_handoff']['failure_code'] ?? null
+        );
+        self::assertSame(
+            'sbx_dingdandao_h80_primary',
+            $result['login_handoff']['sandbox_id'] ?? null
+        );
+        self::assertIsString($serialized);
+        self::assertStringNotContainsString($foreignSandbox, $serialized);
+        self::assertStringNotContainsString('must-not-escape', $serialized);
+        self::assertStringNotContainsString('"cookie":', strtolower($serialized));
+        self::assertFalse(
+            $result['login_handoff']['automatic_device_substitution'] ?? true
+        );
+
+        $handoffGate = new \ReflectionMethod($service, 'trustedLoginHandoffReceipt');
+        self::assertTrue($handoffGate->invoke(
+            $service,
+            self::trustedHandoffReceipt(),
+            'sbx_dingdandao_h80_primary'
+        ));
+        self::assertFalse($handoffGate->invoke(
+            $service,
+            [
+                ...self::trustedHandoffReceipt(),
+                'activated_target_scope' => 'public_root',
+            ],
+            'sbx_dingdandao_h80_primary'
+        ));
+        self::assertTrue($handoffGate->invoke(
+            $service,
+            [
+                ...self::trustedHandoffReceipt(),
+                'activated_target_scope' => 'login_entry',
+            ],
+            'sbx_dingdandao_h80_primary'
+        ));
+    }
+
+    public function testSandboxRecoveryReceiptFailsClosedOnScopeOrDeviceMismatch(): void
+    {
+        $service = new PmsRealtimeSyncService();
+        $bindingGate = new \ReflectionMethod(
+            $service,
+            'trustedSandboxBindingReceipt'
+        );
+        $receipt = self::loginExpiredReceipt();
+
+        self::assertTrue($bindingGate->invoke($service, $receipt, 80, 7));
+
+        $cases = [
+            'other hotel argument' => [$receipt, 81, 7],
+            'other owner argument' => [$receipt, 80, 8],
+            'receipt hotel changed' => [[...$receipt, 'hotel_id' => 81], 80, 7],
+            'receipt owner changed' => [[...$receipt, 'owner_user_id' => 8], 80, 7],
+            'foreign execution mode' => [[
+                ...$receipt,
+                'execution_mode' => 'in_app_browser',
+            ], 80, 7],
+            'legacy cookie scan' => [[
+                ...$receipt,
+                'sandbox_selection' => 'legacy_cookie_scan',
+            ], 80, 7],
+            'remote cdp' => [[...$receipt, 'cdp_scope' => 'remote'], 80, 7],
+            'browser host unavailable' => [[
+                ...$receipt,
+                'browser_host_status' => 'unavailable',
+            ], 80, 7],
+            'scope mismatch present' => [[
+                ...$receipt,
+                'scope_mismatch_codes' => ['hotel_id_mismatch'],
+            ], 80, 7],
+            'automatic device substitution' => [[
+                ...$receipt,
+                'automatic_device_substitution' => true,
+            ], 80, 7],
+            'non-login blocker' => [[
+                ...$receipt,
+                'reason' => 'hotel_identity_mismatch',
+            ], 80, 7],
+            'invalid sandbox id' => [[
+                ...$receipt,
+                'sandbox_id' => 'sbx_invalid',
+            ], 80, 7],
+        ];
+        foreach ($cases as $label => [$candidate, $hotelId, $userId]) {
+            self::assertFalse(
+                $bindingGate->invoke($service, $candidate, $hotelId, $userId),
+                $label
+            );
         }
     }
 
@@ -394,6 +610,56 @@ final class PmsRealtimeSyncServiceTest extends TestCase
             'quality_status' => 'verified',
             'readback_status' => 'readback_verified',
             'scope_mismatch_codes' => [],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private static function loginExpiredReceipt(): array
+    {
+        return [
+            ...self::trustedReceipt(),
+            'status' => 'blocked',
+            'reason' => 'capture_session_expired',
+            'collection_success' => false,
+            'business_data_persisted' => false,
+            'capture_id' => 0,
+            'identity_status' => '',
+            'reconciliation_status' => '',
+            'quality_status' => '',
+            'readback_status' => '',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private static function trustedHandoffReceipt(
+        string $sandboxId = 'sbx_dingdandao_h80_primary'
+    ): array {
+        return [
+            'status' => 'handoff_ready',
+            'cdp_status' => 'ready',
+            'cdp_scope' => 'loopback_only',
+            'cdp_port' => 9223,
+            'browser_started' => false,
+            'headless' => false,
+            'mode_switch_performed' => false,
+            'platform' => 'dingdandao',
+            'sandbox_id' => $sandboxId,
+            'isolation' => 'process_profile',
+            'start_url' =>
+                'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData',
+            'session_status' => 'login_required',
+            'login_required' => true,
+            'window_target_activated' => true,
+            'window_target_reused' => true,
+            'activated_target_scope' => 'pms_manage',
+            'window_foreground_requested' => true,
+            'next_action' => 'complete_login_in_bound_browser_then_retry',
+            'automatic_device_substitution' => false,
+            'profile_material_copied' => false,
+            'browser_process_exposed' => false,
+            'raw_response_exposed' => false,
+            'session_material_exposed' => false,
+            'sensitive_values_exposed' => false,
         ];
     }
 }

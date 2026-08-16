@@ -12,7 +12,10 @@ use app\service\PermissionService;
 use app\service\BatchStatusPreviewService;
 use app\service\HotelCollectionBindingReceiptService;
 use app\service\HotelCollectionPlanService;
+use app\service\HotelAutopilotLifecycleService;
+use app\service\HotelOtaBindingOnboardingService;
 use app\service\HotelPmsBindingService;
+use app\service\HotelThreeSourceOnboardingService;
 use DomainException;
 use InvalidArgumentException;
 use RuntimeException;
@@ -226,6 +229,67 @@ class Hotel extends Base
     }
 
     /**
+     * Batch-read the safe lifecycle projection for every visible hotel.
+     */
+    public function automationLifecycle(): Response
+    {
+        $this->checkPermission();
+        $creatorColumnError = $this->ensureCreatorColumnIfRequired();
+        if ($creatorColumnError) {
+            return $creatorColumnError;
+        }
+
+        $query = $this->hotelQuery()
+            ->field('id,tenant_id')
+            ->order('id', 'asc')
+            ->limit(500);
+        if (!$this->currentUser->isSuperAdmin()) {
+            $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+            if ($permittedHotelIds === []) {
+                return $this->success([
+                    'items' => [],
+                    'count' => 0,
+                    'sensitive_values_exposed' => false,
+                ]);
+            }
+            $query->whereIn('id', $permittedHotelIds);
+            if ($this->requiresOwnHotelScope()) {
+                $query->where('created_by', (int)$this->currentUser->id);
+            }
+        }
+
+        $byTenant = [];
+        foreach ($query->select()->toArray() as $hotel) {
+            $tenantId = (int)($hotel['tenant_id'] ?? 0);
+            $hotelId = (int)($hotel['id'] ?? 0);
+            if ($tenantId > 0 && $hotelId > 0) {
+                $byTenant[$tenantId][] = $hotelId;
+            }
+        }
+        try {
+            $service = new HotelAutopilotLifecycleService();
+            $items = [];
+            foreach ($byTenant as $tenantId => $hotelIds) {
+                $items = array_merge($items, $service->readForHotels((int)$tenantId, $hotelIds));
+            }
+        } catch (\Throwable $error) {
+            $failureCode = preg_replace('/[^a-z0-9_.:-]+/', '_', strtolower($error->getMessage()))
+                ?: 'hotel_automation_lifecycle_read_failed';
+            return $this->error('自动运行状态暂不可用，请先完成数据库迁移', 503, [
+                'failure_code' => substr($failureCode, 0, 120),
+                'sensitive_values_exposed' => false,
+            ]);
+        }
+        usort($items, static fn(array $left, array $right): int =>
+            (int)($left['hotel_id'] ?? 0) <=> (int)($right['hotel_id'] ?? 0));
+        return $this->success([
+            'items' => $items,
+            'count' => count($items),
+            'sensitive_values_exposed' => false,
+        ]);
+    }
+
+    /**
      * 酒店详情
      */
     public function read(int $id): Response
@@ -353,6 +417,232 @@ class Hotel extends Base
     }
 
     /**
+     * Read the zero-collection Hotel-80 OTA binding recovery contract.
+     */
+    public function otaBindingOnboarding(int $id): Response
+    {
+        $this->checkPermission();
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
+        if (!$hotel instanceof HotelModel) {
+            return $this->error('酒店不存在', 404);
+        }
+        $authorization = (new PermissionService())->authorize(
+            $this->currentUser,
+            'ota.collect',
+            $id
+        );
+        if (empty($authorization['allowed']) || !$this->currentUserCanManageHotelRecord($hotel)) {
+            return $this->error('权限不足', 403, $authorization);
+        }
+
+        $result = (new HotelOtaBindingOnboardingService())->preview(
+            (int)$hotel->tenant_id,
+            $id
+        );
+        $bindingReceipt = $this->hotelOtaBindingReceipt($hotel);
+        if ($bindingReceipt === null) {
+            $result['binding_readback_status'] = 'unverified';
+            $result['reason_codes'][] = [
+                'code' => 'hotel_ota_binding_onboarding_binding_readback_failed',
+            ];
+        } else {
+            $result['binding_readback_status'] = 'readback_verified';
+            $result['binding_receipt'] = $bindingReceipt;
+        }
+        return $this->success($result);
+    }
+
+    /** Read one hotel's secret-free PMS/OTA/Profile/WeCom onboarding state. */
+    public function threeSourceOnboarding(int $id): Response
+    {
+        $this->checkPermission();
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
+        if (!$hotel instanceof HotelModel) {
+            return $this->error('酒店不存在', 404);
+        }
+        $authorization = (new PermissionService())->authorize($this->currentUser, 'ota.collect', $id);
+        if (empty($authorization['allowed']) || !$this->currentUserCanManageHotelRecord($hotel)) {
+            return $this->error('权限不足', 403, $authorization);
+        }
+
+        try {
+            return $this->success((new HotelThreeSourceOnboardingService())->status(
+                (int)$hotel->tenant_id,
+                $id,
+                (int)$this->currentUser->id
+            ));
+        } catch (InvalidArgumentException $error) {
+            return $this->error('三源配置范围无效', 422, [
+                'failure_code' => $error->getMessage(),
+                'external_action_performed' => false,
+            ]);
+        } catch (RuntimeException $error) {
+            $status = in_array($error->getCode(), [403, 409, 422, 503], true)
+                ? $error->getCode()
+                : 500;
+            return $this->error('三源配置状态读取失败', $status, [
+                'failure_code' => preg_replace('/[^a-z0-9_\-]+/i', '_', $error->getMessage()),
+                'external_action_performed' => false,
+            ]);
+        }
+    }
+
+    /**
+     * Bind Ctrip or Meituan metadata to an exact cloud Profile. Credentials,
+     * browser actions, collection and message delivery are deliberately out of
+     * this endpoint's contract.
+     */
+    public function updatePlatformBinding(int $id, string $platform): Response
+    {
+        $this->checkPermission();
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
+        if (!$hotel instanceof HotelModel) {
+            return $this->error('酒店不存在', 404);
+        }
+        $permissionService = new PermissionService();
+        $updateAuthorization = $permissionService->authorize($this->currentUser, 'hotel.update', $id);
+        $collectAuthorization = $permissionService->authorize($this->currentUser, 'ota.collect', $id);
+        if (empty($updateAuthorization['allowed'])
+            || empty($collectAuthorization['allowed'])
+            || !$this->currentUserCanManageHotelRecord($hotel)
+        ) {
+            return $this->error('权限不足', 403, [
+                'hotel_update' => $updateAuthorization,
+                'ota_collect' => $collectAuthorization,
+            ]);
+        }
+
+        $input = $this->requestData();
+        $allowedKeys = ['platform_hotel_id', 'platform_hotel_name'];
+        $unknownKeys = array_values(array_diff(array_keys($input), $allowedKeys));
+        if ($unknownKeys !== []) {
+            return $this->error('平台绑定参数无效', 422, [
+                'failure_code' => 'hotel_three_source_binding_input_unknown_fields',
+                'unknown_fields' => $unknownKeys,
+                'credentials_accepted' => false,
+                'external_action_performed' => false,
+            ]);
+        }
+
+        try {
+            $result = (new HotelThreeSourceOnboardingService())->bindPlatform(
+                $this->currentUser,
+                (int)$hotel->tenant_id,
+                $id,
+                $platform,
+                (string)($input['platform_hotel_id'] ?? ''),
+                (string)($input['platform_hotel_name'] ?? '')
+            );
+            OperationLog::record(
+                'hotel',
+                'three_source_platform_binding',
+                '维护酒店 OTA 平台元数据绑定: ' . (string)$hotel->name,
+                (int)$this->currentUser->id,
+                $id,
+                null,
+                [
+                    'outcome' => 'success',
+                    'platform' => $result['platform'] ?? null,
+                    'data_source_id' => $result['data_source']['id'] ?? null,
+                    'binding_status' => $result['binding_status'] ?? 'unverified',
+                    'credentials_accepted' => false,
+                    'external_action_performed' => false,
+                ]
+            );
+            return $this->success($result, '平台门店绑定已保存并精确回读');
+        } catch (InvalidArgumentException $error) {
+            return $this->error('平台绑定参数无效', 422, [
+                'failure_code' => $error->getMessage(),
+                'credentials_accepted' => false,
+                'external_action_performed' => false,
+            ]);
+        } catch (RuntimeException $error) {
+            $status = in_array($error->getCode(), [403, 409, 422, 503], true)
+                ? $error->getCode()
+                : 500;
+            return $this->error('平台绑定保存或精确回读失败', $status, [
+                'failure_code' => preg_replace('/[^a-z0-9_\-]+/i', '_', $error->getMessage()),
+                'credentials_accepted' => false,
+                'external_action_performed' => false,
+            ]);
+        }
+    }
+
+    /**
+     * Confirm one proof-gated Hotel-80 OTA binding action without collecting OTA data.
+     */
+    public function confirmOtaBindingOnboarding(int $id): Response
+    {
+        $this->checkPermission();
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
+        if (!$hotel instanceof HotelModel) {
+            return $this->error('酒店不存在', 404);
+        }
+        $permissionService = new PermissionService();
+        $updateAuthorization = $permissionService->authorize($this->currentUser, 'hotel.update', $id);
+        $collectAuthorization = $permissionService->authorize($this->currentUser, 'ota.collect', $id);
+        if (empty($updateAuthorization['allowed'])
+            || empty($collectAuthorization['allowed'])
+            || !$this->currentUserCanManageHotelRecord($hotel)
+        ) {
+            return $this->error('权限不足', 403, [
+                'hotel_update' => $updateAuthorization,
+                'ota_collect' => $collectAuthorization,
+            ]);
+        }
+
+        $input = $this->requestData();
+        $allowedKeys = ['contract_version', 'action', 'expected_intent_digest', 'confirmed'];
+        $unknownKeys = array_values(array_diff(array_keys($input), $allowedKeys));
+        $action = trim((string)($input['action'] ?? ''));
+        $intentDigest = strtolower(trim((string)($input['expected_intent_digest'] ?? '')));
+        if ($unknownKeys !== []
+            || (string)($input['contract_version'] ?? '') !== HotelOtaBindingOnboardingService::CONTRACT_VERSION
+            || !in_array($action, [
+                HotelOtaBindingOnboardingService::ACTION_CLAIM_IDENTITY,
+                HotelOtaBindingOnboardingService::ACTION_BIND_SCHEDULER,
+            ], true)
+            || preg_match('/^[a-f0-9]{64}$/D', $intentDigest) !== 1
+            || ($input['confirmed'] ?? null) !== true
+        ) {
+            return $this->error('绑定确认参数无效', 422, [
+                'failure_code' => 'hotel_ota_binding_onboarding_input_invalid',
+                'unknown_fields' => $unknownKeys,
+                'ota_collection_performed' => false,
+            ]);
+        }
+
+        $result = (new HotelOtaBindingOnboardingService())->execute(
+            (int)$hotel->tenant_id,
+            $id,
+            $action,
+            $intentDigest
+        );
+        if (($result['operation']['outcome'] ?? '') !== 'success') {
+            return $this->error('当前绑定确认未执行', 409, $result);
+        }
+
+        $bindingReceipt = $this->hotelOtaBindingReceipt($hotel);
+        $bindingReadbackVerified = $bindingReceipt !== null
+            && $this->hotelOtaBindingActionReadbackVerified($bindingReceipt, $action);
+        $result['binding_readback_status'] = $bindingReadbackVerified
+            ? 'readback_verified'
+            : 'unverified';
+        if ($bindingReceipt !== null) {
+            $result['binding_receipt'] = $bindingReceipt;
+        }
+        if (!$bindingReadbackVerified) {
+            $result['status'] = 'partial';
+            $result['operation']['outcome'] = 'partial';
+            $result['operation']['failure_code'] = 'hotel_ota_binding_onboarding_exact_readback_unverified';
+            $result['operation']['exact_readback_verified'] = false;
+            return $this->success($result, '绑定已写入，但页面精确回读尚未闭合');
+        }
+
+        return $this->success($result, '绑定已保存并精确回读；未触发 OTA 采集');
+    }
+
+    /**
      * Read the durable, hotel-scoped collection plan and its current binding gate.
      */
     public function collectionPlan(int $id): Response
@@ -426,6 +716,28 @@ class Hotel extends Base
         }
 
         $input = $this->requestData();
+        $allowedKeys = [
+            'sources',
+            'business_date',
+            'target_date',
+            'activate',
+            'ctrip_source_id',
+            'meituan_source_id',
+            'pms_provider',
+            'business_date_policy',
+            'timezone',
+            'schedule_time',
+            'retry_interval_minutes',
+            'max_attempts',
+        ];
+        $unknownKeys = array_values(array_diff(array_keys($input), $allowedKeys));
+        if ($unknownKeys !== []) {
+            return $this->error('采集计划不接收账号、密码、Cookie、验证码或其他未知字段。', 422, [
+                'failure_code' => 'hotel_collection_plan_input_unknown_fields',
+                'unknown_fields' => $unknownKeys,
+                'credentials_accepted' => false,
+            ]);
+        }
         try {
             $result = (new HotelCollectionPlanService())->save(
                 $hotel->toArray(),
@@ -512,6 +824,22 @@ class Hotel extends Base
         }
 
         $input = $this->requestData();
+        $allowedKeys = [
+            'provider',
+            'provider_hotel_id',
+            'provider_hotel_name',
+            'enabled',
+            'target_date',
+        ];
+        $unknownKeys = array_values(array_diff(array_keys($input), $allowedKeys));
+        if ($unknownKeys !== []) {
+            return $this->error('PMS 门店绑定参数无效', 422, [
+                'failure_code' => 'hotel_pms_binding_input_unknown_fields',
+                'unknown_fields' => $unknownKeys,
+                'credentials_accepted' => false,
+                'external_action_performed' => false,
+            ]);
+        }
         try {
             $result = (new HotelPmsBindingService())->save(
                 (int)$hotel->tenant_id,
@@ -566,6 +894,27 @@ class Hotel extends Base
         }
 
         $data = $this->requestData();
+        $allowedKeys = [
+            'name',
+            'code',
+            'address',
+            'contact_person',
+            'contact_phone',
+            'description',
+            'status',
+            'ota_channel_strategy',
+            'otaChannelStrategy',
+            'tenant_id',
+            'owner_user_id',
+        ];
+        $unknownKeys = array_values(array_diff(array_keys($data), $allowedKeys));
+        if ($unknownKeys !== []) {
+            return $this->error('创建门店不接收账号、密码、Cookie、验证码或其他未知字段。', 422, [
+                'failure_code' => 'hotel_create_input_unknown_fields',
+                'unknown_fields' => $unknownKeys,
+                'credentials_accepted' => false,
+            ]);
+        }
         try {
             $otaChannelStrategy = $this->normalizeOtaChannelStrategy($data);
         } catch (InvalidArgumentException $e) {
@@ -614,7 +963,8 @@ class Hotel extends Base
             $hotel->tenant_id = $tenantId;
         }
         $hadAccessibleHotels = $this->currentUser->getPermittedHotelIds() !== [];
-        Db::transaction(function () use ($hotel, $tenantId, $hadAccessibleHotels): void {
+        $automationLifecycle = null;
+        Db::transaction(function () use ($hotel, $tenantId, $hadAccessibleHotels, &$automationLifecycle): void {
             $hotel->save();
             $this->assignGeneratedHotelCode($hotel);
             if (!$this->currentUser->isSuperAdmin()) {
@@ -634,9 +984,15 @@ class Hotel extends Base
                 null,
                 $auditData
             );
+            $automationLifecycle = (new HotelAutopilotLifecycleService())->initializeHotel(
+                $hotel,
+                (int)($this->currentUser->id ?? 0)
+            );
         });
 
-        return $this->success($hotel, '创建成功');
+        $result = $hotel->toArray();
+        $result['automation_lifecycle'] = $automationLifecycle;
+        return $this->success($result, '创建成功，自动运行生命周期已建立');
     }
 
     /**
@@ -707,6 +1063,25 @@ class Hotel extends Base
         }
 
         $data = $this->requestData();
+        $allowedKeys = [
+            'name',
+            'code',
+            'address',
+            'contact_person',
+            'contact_phone',
+            'description',
+            'status',
+            'ota_channel_strategy',
+            'otaChannelStrategy',
+        ];
+        $unknownKeys = array_values(array_diff(array_keys($data), $allowedKeys));
+        if ($unknownKeys !== []) {
+            return $this->error('门店资料不接收账号、密码、Cookie、验证码或其他未知字段。', 422, [
+                'failure_code' => 'hotel_update_input_unknown_fields',
+                'unknown_fields' => $unknownKeys,
+                'credentials_accepted' => false,
+            ]);
+        }
         try {
             $otaChannelStrategy = $this->normalizeOtaChannelStrategy($data, (string)($hotel->ota_channel_strategy ?? 'none'));
         } catch (InvalidArgumentException $e) {
@@ -1104,6 +1479,65 @@ class Hotel extends Base
         }
 
         return (int)($hotel->created_by ?? 0) === (int)$this->currentUser->id;
+    }
+
+    /** @return array<string,mixed>|null */
+    private function hotelOtaBindingReceipt(HotelModel $hotel): ?array
+    {
+        try {
+            $receipt = (new HotelCollectionBindingReceiptService())->receipt(
+                $hotel->toArray(),
+                (int)$this->currentUser->id,
+                (string)$this->request->get(
+                    'business_date',
+                    $this->request->get('target_date', '')
+                ),
+                [
+                    'ctrip' => HotelOtaBindingOnboardingService::CTRIP_SOURCE_ID,
+                    'meituan' => HotelOtaBindingOnboardingService::MEITUAN_SOURCE_ID,
+                ]
+            );
+            unset($receipt['execution_owner_user_id']);
+            foreach (['ctrip', 'meituan'] as $platform) {
+                if (is_array($receipt['bindings'][$platform] ?? null)) {
+                    unset($receipt['bindings'][$platform]['execution_owner_user_id']);
+                }
+            }
+            return $receipt;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private function hotelOtaBindingActionReadbackVerified(array $receipt, string $action): bool
+    {
+        $expected = [
+            'ctrip' => HotelOtaBindingOnboardingService::CTRIP_SOURCE_ID,
+            'meituan' => HotelOtaBindingOnboardingService::MEITUAN_SOURCE_ID,
+        ];
+        foreach ($expected as $platform => $sourceId) {
+            $binding = is_array($receipt['bindings'][$platform] ?? null)
+                ? $receipt['bindings'][$platform]
+                : [];
+            if ((int)($binding['system_hotel_id'] ?? 0) !== HotelOtaBindingOnboardingService::HOTEL_ID
+                || (int)($binding['source_id'] ?? 0) !== $sourceId
+            ) {
+                return false;
+            }
+            if ($action === HotelOtaBindingOnboardingService::ACTION_BIND_SCHEDULER
+                && (string)($binding['execution_device_binding']['status'] ?? '') !== 'bound'
+            ) {
+                return false;
+            }
+        }
+        $meituan = is_array($receipt['bindings']['meituan'] ?? null)
+            ? $receipt['bindings']['meituan']
+            : [];
+        return trim((string)($meituan['platform_hotel_id'] ?? '')) !== ''
+            && (string)($meituan['identity_evidence']['status'] ?? '') === 'verified'
+            && trim((string)($meituan['identity_evidence']['source'] ?? '')) !== ''
+            && trim((string)($meituan['identity_evidence']['checked_at'] ?? '')) !== '';
     }
 
     private function currentUserCanManageHotelRecord(HotelModel $hotel): bool

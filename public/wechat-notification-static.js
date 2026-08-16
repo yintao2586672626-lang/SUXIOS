@@ -287,9 +287,14 @@
             latestDispatch: { type: Object, default: null },
             validationErrors: { type: Object, default: () => ({}) },
             operatingDaily: { type: Boolean, default: false },
+            strictThreeSourceInterval: { type: Boolean, default: false },
+            strictThreeSourceIntervalAvailable: { type: Boolean, default: false },
+            strictThreeSourceHourly: { type: Boolean, default: false },
+            strictThreeSourceHourlyAvailable: { type: Boolean, default: false },
+            runtimeStatus: { type: Object, default: () => ({}) },
             error: { type: String, default: '' },
         },
-        emits: ['field-change'],
+        emits: ['field-change', 'apply-hourly-preset', 'source-action'],
         setup(props, { emit }) {
             const change = (fieldName, value) => emit('field-change', {
                 field: fieldName,
@@ -335,10 +340,21 @@
                 const metadata = props.metadata || {};
                 const form = props.form || {};
                 const triggerType = String(form.trigger_type || 'manual_test');
+                const conditionType = String(form.condition_type || 'always');
                 const operatingDailyTriggerAllowed = (
                     !props.operatingDaily
                     || ['manual_test', 'daily_fixed_time'].includes(triggerType)
+                    || props.strictThreeSourceInterval
+                    || props.strictThreeSourceHourly
                 );
+                const strictIntervalNeedsCorrection = props.operatingDaily
+                    && triggerType === 'interval_minutes'
+                    && props.strictThreeSourceIntervalAvailable
+                    && !props.strictThreeSourceInterval;
+                const strictHourlyNeedsCorrection = props.operatingDaily
+                    && triggerType === 'hourly_on_the_hour'
+                    && props.strictThreeSourceHourlyAvailable
+                    && !props.strictThreeSourceHourly;
                 const planActive = form.enabled
                     && form.schedule_status === 'schedule_enabled'
                     && operatingDailyTriggerAllowed;
@@ -376,7 +392,9 @@
                     : '未取得发送回执';
                 const blocker = props.error
                     || (!operatingDailyTriggerAllowed
-                        ? '旧循环计划已停用，请改为每日固定时间并重新测试'
+                        ? (strictIntervalNeedsCorrection || strictHourlyNeedsCorrection
+                            ? '三源计划配置不完整，请恢复当日、正式群及指定四项内容'
+                            : '旧循环计划已停用，请改为每日固定时间并重新测试')
                         : !form.enabled
                         ? '计划已暂停'
                         : form.schedule_status === 'awaiting_test'
@@ -429,7 +447,16 @@
                 const triggerOptions = props.operatingDaily
                     ? [
                         ...configuredOperatingDailyTriggers,
-                        ...(!operatingDailyTriggerAllowed ? [{
+                        ...(props.strictThreeSourceIntervalAvailable ? [{
+                            key: 'interval_minutes',
+                            label: '每 30 分钟（三源严格计划）',
+                        }] : []),
+                        ...(props.strictThreeSourceHourlyAvailable ? [{
+                            key: 'hourly_on_the_hour',
+                            label: '每小时整点（三源云端推送）',
+                        }] : []),
+                        ...(!operatingDailyTriggerAllowed
+                            && !props.strictThreeSourceIntervalAvailable ? [{
                             key: triggerType,
                             label: `${optionLabel(
                                 allTriggerOptions,
@@ -440,6 +467,152 @@
                         }] : []),
                     ]
                     : allTriggerOptions;
+                const templateType = String(form.template_type || form.notification_type || '');
+                const hasPmsConditionFacts = !props.operatingDaily || (
+                    ['combined', 'dingdandao_pms'].includes(
+                        String(selectedSourceScope.key || '')
+                    )
+                    && selectedSections.includes('pms_efficiency')
+                );
+                const conditionRules = (Array.isArray(metadata.condition_rules)
+                    ? metadata.condition_rules
+                    : [{ key: 'always', label: '到点即发送' }]
+                ).filter(rule => {
+                    const supported = Array.isArray(rule?.supported_template_types)
+                        ? rule.supported_template_types
+                        : [];
+                    const templateSupported = supported.length === 0
+                        || supported.includes(templateType);
+                    const factsSupported = rule?.requires_pms_facts !== true
+                        || hasPmsConditionFacts;
+                    return String(rule?.key || '') === 'always'
+                        || (templateSupported && factsSupported);
+                });
+                const selectedCondition = conditionRules.find(
+                    rule => String(rule?.key || '') === conditionType
+                ) || conditionRules[0] || { key: 'always', label: '到点即发送' };
+                const conditionState = form.condition_state || null;
+                const hourlyGuided = props.operatingDaily && props.strictThreeSourceHourly;
+                const runtimeStatus = props.runtimeStatus || {};
+                const sourceStatuses = Array.isArray(runtimeStatus.sources)
+                    ? runtimeStatus.sources
+                    : [];
+                const channelControl = field('推送通道', h('div', {
+                    class: `rounded-xl border px-3 py-2.5 text-sm ${props.robots.length
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                        : 'border-amber-200 bg-amber-50 text-amber-800'}`,
+                    'data-testid': 'manual-notification-formal-robot',
+                    'aria-invalid': fieldError('target_robot_id') ? 'true' : 'false',
+                }, props.robots.length
+                    ? '当前酒店企业微信群机器人 Webhook 已绑定'
+                    : '请先到“推送通道”绑定当前酒店 Webhook'),
+                '', fieldError('target_robot_id'));
+                const guidedPrimaryControls = hourlyGuided
+                    ? h('div', {
+                        class: 'mt-4 grid gap-4 md:grid-cols-2',
+                        'data-testid': 'manual-notification-hourly-primary-controls',
+                    }, [
+                        h('div', { class: 'grid grid-cols-2 gap-3' }, [
+                            field('开始整点', input(
+                                'hourly_start_time',
+                                'time',
+                                'manual-notification-hourly-primary-start',
+                                { step: 3600 }
+                            ), '', fieldError('hourly_start_time')),
+                            field('结束整点', input(
+                                'hourly_end_time',
+                                'time',
+                                'manual-notification-hourly-primary-end',
+                                { step: 3600 }
+                            ), '', fieldError('hourly_end_time')),
+                        ]),
+                        channelControl,
+                    ])
+                    : null;
+                const hourlyPreset = props.operatingDaily
+                    && props.strictThreeSourceHourlyAvailable
+                    ? h('section', {
+                        class: `mt-4 rounded-2xl border p-4 ${hourlyGuided
+                            ? 'border-emerald-200 bg-emerald-50'
+                            : 'border-[#d8c49f] bg-[#fff7e8]'}`,
+                        'data-testid': 'manual-notification-hourly-preset',
+                    }, [
+                        h('div', {
+                            class: 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between',
+                        }, [
+                            h('div', {}, [
+                                h('b', { class: 'text-sm text-slate-900' }, '一键三源整点推送'),
+                                h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' },
+                                    '自动套用当天、三源、正式群和固定四项数据；只需确认群、时段和启用状态。'),
+                            ]),
+                            h('button', {
+                                type: 'button',
+                                class: 'shrink-0 rounded-xl border border-[#ad8b52] bg-white px-4 py-2 text-xs font-semibold text-[#826333] hover:bg-[#fffaf0]',
+                                'data-testid': 'manual-notification-apply-hourly-preset',
+                                onClick: () => emit('apply-hourly-preset'),
+                            }, hourlyGuided ? '重新应用标准配置' : '一键套用'),
+                        ]),
+                        hourlyGuided ? h('div', {
+                            class: 'mt-3 flex flex-wrap gap-2 text-xs text-emerald-800',
+                            'data-testid': 'manual-notification-hourly-contract-summary',
+                        }, [
+                            '当前酒店', '当天数据', 'PMS＋携程＋美团',
+                            '经营汇总＋效率＋两端流量', '企业微信正式发送', '到点即发送',
+                        ].map(label => h('span', {
+                            key: label,
+                            class: 'rounded-full border border-emerald-200 bg-white px-2.5 py-1',
+                        }, label))) : null,
+                    ])
+                    : null;
+                const runtimeOverview = triggerType === 'hourly_on_the_hour' ? h('section', {
+                    class: 'mt-4 rounded-2xl border border-slate-200 bg-white p-4',
+                    'data-testid': 'manual-notification-runtime-overview',
+                }, [
+                    h('div', { class: 'flex flex-wrap items-start justify-between gap-2' }, [
+                        h('div', {}, [
+                            h('b', { class: 'text-sm text-slate-900' }, '三源运行状态'),
+                            h('p', { class: 'mt-1 text-xs text-slate-500' },
+                                runtimeStatus.observed_at
+                                    ? `依据最近发送记录 · ${runtimeStatus.observed_at}`
+                                    : '尚未取得当前计划的发送记录，不推测来源已就绪。'),
+                        ]),
+                        h('span', {
+                            class: `rounded-full border px-2.5 py-1 text-xs font-medium ${runtimeStatus.overall_tone
+                                || 'border-slate-200 bg-slate-50 text-slate-600'}`,
+                        }, runtimeStatus.overall_label || '状态待核验'),
+                    ]),
+                    h('div', { class: 'mt-3 grid gap-2 md:grid-cols-3' }, sourceStatuses.map(source => h('article', {
+                        key: source.key,
+                        class: 'rounded-xl border border-slate-200 bg-slate-50 p-3',
+                        'data-testid': `manual-notification-runtime-source-${source.key}`,
+                    }, [
+                        h('div', { class: 'flex items-center justify-between gap-2' }, [
+                            h('b', { class: 'text-sm text-slate-900' }, source.label || source.key),
+                            h('span', {
+                                class: `rounded-full border px-2 py-0.5 text-[11px] font-medium ${source.tone
+                                    || 'border-slate-200 bg-white text-slate-600'}`,
+                            }, source.status_label || '待核验'),
+                        ]),
+                        h('p', {
+                            class: 'mt-2 min-h-[2.5rem] text-xs leading-5 text-slate-500',
+                        }, source.detail || '未取得来源运行证据。'),
+                        source.action_key ? h('button', {
+                            type: 'button',
+                            class: 'mt-2 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-[#315d50] hover:border-[#315d50]',
+                            'data-testid': `manual-notification-source-action-${source.key}`,
+                            'data-action-key': source.action_key,
+                            onClick: () => emit('source-action', {
+                                source: source.key,
+                                action_key: source.action_key,
+                            }),
+                        }, source.action_label || '查看状态') : null,
+                    ]))),
+                    h('dl', { class: 'mt-3 grid gap-2 text-xs md:grid-cols-3' }, [
+                        summary('上次成功', runtimeStatus.last_success_at || '尚无成功回执'),
+                        summary('下次运行', form.next_run_at || '保存并通过测试后计算'),
+                        summary('最近阻断', runtimeStatus.recent_blocker || '无已知阻断'),
+                    ]),
+                ]) : null;
 
                 return h('section', {
                     class: 'rounded-2xl border border-[#eadfc9] bg-[#fffdf8] p-4',
@@ -455,23 +628,70 @@
                         }, planActive
                             ? '本计划已开启'
                             : !operatingDailyTriggerAllowed
-                                ? '旧循环计划已阻断'
+                                ? (strictIntervalNeedsCorrection || strictHourlyNeedsCorrection
+                                    ? '三源计划配置待修正'
+                                    : '旧循环计划已阻断')
                                 : '本计划已暂停'),
                     ]),
-                    h('div', { class: 'mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4' }, [
+                    h('div', { class: 'mt-4 grid grid-cols-2 gap-2 lg:grid-cols-5' }, [
                         summary('数据范围', props.dataScopeLabel, 'manual-notification-data-scope'),
                         summary('数据日期', dateRuleLabel, 'manual-notification-date-rule-summary'),
+                        summary('发送条件', selectedCondition.label || conditionType, 'manual-notification-condition-summary'),
                         summary('计划状态', form.schedule_status_label || props.dataStatus),
                         summary(
                             '下次运行',
                             !operatingDailyTriggerAllowed
-                                ? '循环计划已停用'
+                                ? (strictIntervalNeedsCorrection || strictHourlyNeedsCorrection
+                                    ? '三源计划配置待修正'
+                                    : '循环计划已停用')
                                 : (form.next_run_at || '保存并通过测试后计算'),
                             'manual-notification-next-run'
                         ),
                     ]),
+                    hourlyPreset,
+                    runtimeOverview,
+                    guidedPrimaryControls,
+                    hourlyGuided ? h('details', {
+                        class: 'mt-4 rounded-xl border border-slate-200 bg-white',
+                        'data-testid': 'manual-notification-hourly-advanced-settings',
+                    }, [
+                        h('summary', {
+                            class: 'cursor-pointer px-3 py-2.5 text-sm font-medium text-slate-700',
+                        }, '高级设置（严格字段）'),
+                        h('p', {
+                            class: 'border-t border-slate-100 px-3 py-2 text-xs leading-5 text-slate-500',
+                        }, '严格合同由预设维护；如需改为其他来源、日期或条件，请重新选择发送频率。'),
+                        h('dl', {
+                            class: 'grid gap-2 border-t border-slate-100 p-3 text-xs sm:grid-cols-2',
+                        }, [
+                            summary('数据来源（只读）', selectedSourceScope.label || '三源并列'),
+                            summary('业务日期（只读）', dateRuleLabel),
+                            summary('发送内容（只读）', selectedSections.length
+                                ? `${selectedSections.length} 项严格字段`
+                                : '未取得'),
+                            summary('发送方式（只读）', optionLabel(
+                                metadata.send_methods,
+                                form.send_method,
+                                '企业微信正式发送'
+                            )),
+                            summary('发送条件（只读）', selectedCondition.label || '到点即发送'),
+                            summary('生效星期（只读）', weekdays.length === 7
+                                ? '每天'
+                                : weekdays.map(day => weekdayOptions.find(
+                                    option => Number(option.key) === day
+                                )?.label || `周${day}`).join('、')),
+                        ]),
+                        h('div', { class: 'border-t border-slate-100 p-3 text-right' }, [
+                            h('button', {
+                                type: 'button',
+                                class: 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:border-[#ad8b52]',
+                                'data-testid': 'manual-notification-exit-hourly-guided',
+                                onClick: () => change('trigger_type', 'daily_fixed_time'),
+                            }, '改为普通每日计划'),
+                        ]),
+                    ]) : null,
                     h('fieldset', {
-                        class: 'mt-4',
+                        class: `${hourlyGuided ? 'hidden' : 'mt-4'}`,
                         'data-testid': 'manual-notification-source-scope',
                         'aria-invalid': fieldError('source_scope') ? 'true' : 'false',
                     }, [
@@ -505,7 +725,7 @@
                             : null,
                     ]),
                     h('fieldset', {
-                        class: 'mt-4',
+                        class: `${hourlyGuided ? 'hidden' : 'mt-4'}`,
                         'data-testid': 'manual-notification-content-sections',
                         'aria-invalid': fieldError('content_sections') ? 'true' : 'false',
                     }, [
@@ -538,7 +758,7 @@
                             ? h('p', { class: 'mt-2 text-xs text-rose-600', role: 'alert' }, fieldError('content_sections'))
                             : null,
                     ]),
-                    h('div', { class: 'mt-4 grid gap-4 md:grid-cols-2' }, [
+                    h('div', { class: `${hourlyGuided ? 'hidden' : 'mt-4 grid'} gap-4 md:grid-cols-2` }, [
                         field('发送哪天的数据', select(
                             'business_date_rule',
                             metadata.business_date_rules,
@@ -557,7 +777,8 @@
                                 'manual-notification-planned-time'
                             ), '', fieldError('planned_send_at')),
                         ] : []),
-                        ...(!props.operatingDaily && triggerType === 'hourly_on_the_hour' ? [
+                        ...((!props.operatingDaily || props.strictThreeSourceHourlyAvailable)
+                            && triggerType === 'hourly_on_the_hour' ? [
                             h('div', { class: 'grid grid-cols-2 gap-3' }, [
                                 field('小时播报开始', input(
                                     'hourly_start_time',
@@ -572,14 +793,23 @@
                                     { step: 3600 }
                                 ), '', fieldError('hourly_end_time')),
                             ]),
+                            props.operatingDaily
+                                ? h('p', {
+                                    class: 'md:col-span-2 text-xs leading-5 text-slate-500',
+                                    'data-testid': 'manual-notification-cloud-hourly-help',
+                                }, '默认 01:00–23:00 整点发送；云端会在整点前刷新三源，只发送每条均在 45 分钟内且已保存回读的数据。00:00 因业务日切换不发送旧数据。')
+                                : null,
                         ] : []),
-                        ...(!props.operatingDaily && triggerType === 'interval_minutes' ? [
+                        ...((!props.operatingDaily || props.strictThreeSourceIntervalAvailable)
+                            && triggerType === 'interval_minutes' ? [
                             field('每隔多久发送', input(
                                 'interval_minutes',
                                 'number',
                                 'manual-notification-interval-minutes',
-                                { min: 5, max: 1440, step: 1 }
-                            ), '',
+                                props.operatingDaily
+                                    ? { min: 30, max: 30, step: 30, readonly: true }
+                                    : { min: 5, max: 1440, step: 1 }
+                            ), props.operatingDaily ? '酒店 80 三源严格计划固定为每 30 分钟。' : '',
                             fieldError('interval_minutes')),
                             field('首次发送时间', input(
                                 'hourly_start_time',
@@ -594,7 +824,43 @@
                                 class: 'md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800',
                                 role: 'alert',
                                 'data-testid': 'manual-notification-operating-daily-loop-blocked',
-                            }, '该旧计划使用循环发送，现已停止执行。请选择“每日固定时间”并重新保存、测试后再启用。'),
+                            }, strictIntervalNeedsCorrection || strictHourlyNeedsCorrection
+                                ? '该三源计划配置已偏离同店、当日、正式机器人及指定内容合同，请按页面提示恢复。'
+                                : '该旧计划使用循环发送，现已停止执行。请选择“每日固定时间”并重新保存、测试后再启用。'),
+                        ] : []),
+                        field('发送条件', select(
+                            'condition_type',
+                            conditionRules,
+                            'manual-notification-condition-type'
+                        ), selectedCondition.description || '时间到达后再按经营事实判断是否发送。', fieldError('condition_type')),
+                        ...(conditionType === 'occupancy_ladder' ? [
+                            field('入住率起始档（%）', input(
+                                'condition_threshold',
+                                'number',
+                                'manual-notification-condition-threshold',
+                                { min: 0.01, max: 100, step: 0.01 }
+                            ), '首次达到该档位时发送。', fieldError('condition_threshold')),
+                            field('跨档步长（百分点）', input(
+                                'condition_step',
+                                'number',
+                                'manual-notification-condition-step',
+                                { min: 0.01, max: 100, step: 0.01 }
+                            ), '例如起始 20、步长 5：20/25/30…各成功提醒一次。', fieldError('condition_step')),
+                        ] : []),
+                        ...(conditionType === 'full_house' ? [
+                            h('p', {
+                                class: 'md:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800',
+                                'data-testid': 'manual-notification-full-house-rule-help',
+                            }, '只读取同酒店、同业务日已保存回读的 PMS 事实；可售归零后首次成功送达才记为已提醒。'),
+                        ] : []),
+                        ...(conditionType !== 'always' && conditionState ? [
+                            h('div', {
+                                class: 'md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700',
+                                'data-testid': 'manual-notification-condition-state',
+                            }, [
+                                h('b', {}, '最近规则状态：'),
+                                h('span', {}, `业务日 ${conditionState.business_date || '未取得'}；最近观测 ${conditionState.last_observed_value ?? '未取得'}；已成功档位 ${conditionState.highest_triggered_bucket ?? '尚未触发'}；触发时间 ${conditionState.last_triggered_at || '尚未触发'}`),
+                            ]),
                         ] : []),
                         h('fieldset', {
                             class: 'md:col-span-2',
@@ -637,19 +903,9 @@
                             metadata.send_methods,
                             'manual-notification-send-method'
                         ), '', fieldError('send_method')),
-                        ...(['wecom_test', 'wecom_formal'].includes(String(form.send_method || '')) ? [
-                            field('推送通道', h('div', {
-                                class: `rounded-xl border px-3 py-2.5 text-sm ${props.robots.length
-                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                                    : 'border-amber-200 bg-amber-50 text-amber-800'}`,
-                                'data-testid': 'manual-notification-formal-robot',
-                                'aria-invalid': fieldError('target_robot_id') ? 'true' : 'false',
-                            }, props.robots.length
-                                ? '当前酒店企业微信群机器人 Webhook 已绑定'
-                                : '请先到“推送通道”绑定当前酒店 Webhook'),
-                            '',
-                            fieldError('target_robot_id')),
-                        ] : []),
+                        ...(['wecom_test', 'wecom_formal'].includes(String(form.send_method || ''))
+                            ? [channelControl]
+                            : []),
                     ]),
                     h('label', {
                         class: 'mt-4 flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3',

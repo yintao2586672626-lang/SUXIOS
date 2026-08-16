@@ -1,0 +1,11 @@
+[Unit]
+Description=Start the SUXIOS global serial three-source collection queue before hourly messages
+
+[Timer]
+OnCalendar=*-*-* *:30:00 Asia/Shanghai
+RandomizedDelaySec=0
+Persistent=false
+Unit=suxios-cloud-three-source-queue.service
+
+[Install]
+WantedBy=timers.target

@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 use app\service\DingdandaoOperatingTargetCaptureService;
 use app\service\DingdandaoPmsIntegrationService;
+use app\service\HotelPmsBindingService;
 use think\App;
 use think\facade\Db;
 
 const MAX_COLLECTOR_OUTPUT_BYTES = 2_000_000;
+const MAX_COLLECTOR_ERROR_BYTES = 65_536;
+const COLLECTOR_DEADLINE_SECONDS = 45;
 
 $root = dirname(__DIR__);
 require $root . '/vendor/autoload.php';
@@ -22,6 +25,8 @@ $options = getopt('', [
     'cdp-url::',
     'control-token-file::',
     'node-binary::',
+    'no-push',
+    'fresh-observation',
 ]);
 $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
     ->format('Y-m-d');
@@ -34,6 +39,8 @@ $cdpUrl = rtrim(trim((string)($options['cdp-url'] ?? 'http://127.0.0.1:9223')), 
 $tokenFile = trim((string)($options['control-token-file']
     ?? '/run/credentials/suxios-dingdandao-collection.service/control-token'));
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
+$noPush = array_key_exists('no-push', $options);
+$freshObservation = array_key_exists('fresh-observation', $options);
 
 if (!validDate($targetDate)
     || $targetDate !== $today
@@ -41,6 +48,7 @@ if (!validDate($targetDate)
     || !preg_match('#^http://127\.0\.0\.1:[1-9][0-9]{1,4}$#D', $cdpUrl)
     || !in_array($tokenFile, [
         '/run/credentials/suxios-dingdandao-collection.service/control-token',
+        '/run/credentials/suxios-cloud-three-source-queue.service/control-token',
         '/etc/suxios-cloud-browser/control-token',
     ], true)
     || $nodeBinary !== '/usr/bin/node'
@@ -67,9 +75,23 @@ $captureExpectation = $integrationService->captureExpectation(
     $hotelId,
     $hotelName
 );
+$pmsBinding = (new HotelPmsBindingService())->status(
+    $tenantId,
+    $hotelId,
+    $ownerUserId,
+    $targetDate
+);
+if (($pmsBinding['binding_status'] ?? '') !== 'configured'
+    || ($pmsBinding['selected_provider'] ?? '') !== HotelPmsBindingService::PROVIDER_DINGDANDAO
+    || ($captureExpectation['configured'] ?? false) !== true
+) {
+    fail('dingdandao_collection_unique_pms_binding_not_ready');
+}
 $expectedProviderHotelName = (string)$captureExpectation['expected_provider_hotel_name'];
-$expectedProviderHotelId = $captureExpectation['expected_provider_hotel_id']
-    ?? latestProviderHotelId($tenantId, $hotelId);
+$expectedProviderHotelId = trim((string)($captureExpectation['expected_provider_hotel_id'] ?? ''));
+if ($expectedProviderHotelId === '') {
+    fail('dingdandao_collection_provider_hotel_id_unverified');
+}
 
 $lockPath = '/run/suxios-dingdandao-collection/hotel-' . $hotelId . '.lock';
 if (!is_dir(dirname($lockPath))) {
@@ -133,16 +155,25 @@ try {
         throw new RuntimeException('dingdandao_collection_payload_invalid');
     }
     $captureInput = $collector['capture'];
-    $capture = (new DingdandaoOperatingTargetCaptureService())->save(
+    $captureService = new DingdandaoOperatingTargetCaptureService();
+    $capture = $captureService->save(
         $tenantId,
         $hotelId,
         $ownerUserId,
         $expectedProviderHotelName,
         $captureInput,
         true,
-        $expectedProviderHotelId
+        $expectedProviderHotelId,
+        $freshObservation
     );
     $businessDataPersisted = true;
+    $actorReadback = $captureService->latestForActor(
+        $tenantId,
+        $hotelId,
+        $ownerUserId,
+        $targetDate
+    );
+    $roundCapturedAt = normalizeCapturedAt((string)($captureInput['captured_at'] ?? ''));
     if (($capture['quality_status'] ?? '') !== 'verified'
         || ($capture['capture_status'] ?? '') !== 'verified'
         || ($capture['readback_status'] ?? '') !== 'readback_verified'
@@ -150,6 +181,13 @@ try {
         || ($capture['reconciliation_status'] ?? '') !== 'matched'
         || (string)($capture['business_date'] ?? '') !== $targetDate
         || (int)($capture['hotel_id'] ?? 0) !== $hotelId
+        || (int)($capture['captured_by'] ?? 0) !== $ownerUserId
+        || (int)($actorReadback['id'] ?? 0) !== (int)($capture['id'] ?? 0)
+        || (int)($actorReadback['captured_by'] ?? 0) !== $ownerUserId
+        || (string)($actorReadback['captured_at'] ?? '')
+            !== (string)($capture['captured_at'] ?? '')
+        || ($freshObservation
+            && (string)($actorReadback['captured_at'] ?? '') !== $roundCapturedAt)
     ) {
         throw new RuntimeException('dingdandao_collection_readback_not_verified');
     }
@@ -175,21 +213,28 @@ try {
         throw new RuntimeException('dingdandao_collection_target_sync_blocked');
     }
 
-    try {
-        $push = $integrationService->dispatchVerifiedCapture(
-            $tenantId,
-            $hotelId,
-            $ownerUserId,
-            $hotelName,
-            $capture,
-            'capture'
-        );
-    } catch (Throwable $pushError) {
-        $push = [
-            'delivery_status' => 'orchestration_failed',
-            'delivery_attempted' => false,
-            'error_summary' => safeReason($pushError->getMessage()),
-        ];
+    $push = [
+        'delivery_status' => 'skipped_no_push',
+        'delivery_attempted' => false,
+        'error_summary' => null,
+    ];
+    if (!$noPush) {
+        try {
+            $push = $integrationService->dispatchVerifiedCapture(
+                $tenantId,
+                $hotelId,
+                $ownerUserId,
+                $hotelName,
+                $capture,
+                'capture'
+            );
+        } catch (Throwable $pushError) {
+            $push = [
+                'delivery_status' => 'orchestration_failed',
+                'delivery_attempted' => false,
+                'error_summary' => safeReason($pushError->getMessage()),
+            ];
+        }
     }
     $closeOutcome = 'completed';
     $result = [
@@ -197,6 +242,9 @@ try {
         'hotel_id' => $hotelId,
         'target_date' => $targetDate,
         'capture_id' => (int)$capture['id'],
+        'captured_by' => (int)$capture['captured_by'],
+        'captured_at' => (string)$capture['captured_at'],
+        'fresh_observation' => $freshObservation,
         'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
         'identity_status' => 'matched',
         'reconciliation_status' => 'matched',
@@ -218,6 +266,7 @@ try {
             true
         ),
         'push_orchestration' => [
+            'disabled_by_invocation' => $noPush,
             'delivery_status' => (string)($push['delivery_status'] ?? 'blocked'),
             'delivery_attempted' => ($push['delivery_attempted'] ?? false) === true,
             'dispatch_id' => (int)($push['id'] ?? 0),
@@ -283,13 +332,29 @@ function gatewayRequest(string $baseUrl, string $token, string $path, array $bod
             'ignore_errors' => true,
         ],
     ]);
-    $raw = file_get_contents($baseUrl . $path, false, $context);
+    error_clear_last();
+    $raw = @file_get_contents($baseUrl . $path, false, $context);
     $decoded = is_string($raw) ? json_decode($raw, true) : null;
     if (!is_array($decoded) || ($decoded['status'] ?? '') === 'failed') {
         $reason = is_array($decoded) ? (string)($decoded['reason'] ?? '') : '';
-        throw new RuntimeException($reason !== '' ? $reason : 'dingdandao_collection_gateway_failed');
+        throw new RuntimeException($reason !== ''
+            ? $reason
+            : gatewayTransportFailureCode('dingdandao_collection_gateway_failed'));
     }
     return $decoded;
+}
+
+function gatewayTransportFailureCode(string $fallback): string
+{
+    $lastError = error_get_last();
+    $message = is_array($lastError) ? (string)($lastError['message'] ?? '') : '';
+    if (preg_match('/(?:connection\s+refused|actively\s+refused)/i', $message) === 1) {
+        return 'gateway_connection_refused';
+    }
+    if (preg_match('/(?:connection\s+timed\s*out|operation\s+timed\s*out|read\s+timed\s*out)/i', $message) === 1) {
+        return 'gateway_connection_timeout';
+    }
+    return $fallback;
 }
 
 /** @return array<string,mixed> */
@@ -302,6 +367,7 @@ function runCollector(
 ): array {
     $command = [
         $nodeBinary,
+        '--experimental-websocket',
         $script,
         '--cdp-url=' . $cdpUrl,
         '--target-date=' . $targetDate,
@@ -322,12 +388,64 @@ function runCollector(
         throw new RuntimeException('dingdandao_collector_start_failed');
     }
     fclose($pipes[0]);
-    $stdout = stream_get_contents($pipes[1], MAX_COLLECTOR_OUTPUT_BYTES + 1);
-    $stderr = stream_get_contents($pipes[2], 4096);
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $stdout = '';
+    $stderr = '';
+    $stdoutOverflow = false;
+    $timedOut = false;
+    $observedExitCode = null;
+    $deadlineAt = microtime(true) + COLLECTOR_DEADLINE_SECONDS;
+    while (true) {
+        $stdoutChunk = (string)stream_get_contents($pipes[1]);
+        if ($stdoutChunk !== '') {
+            if (!$stdoutOverflow) {
+                $stdout .= $stdoutChunk;
+                if (strlen($stdout) > MAX_COLLECTOR_OUTPUT_BYTES) {
+                    $stdoutOverflow = true;
+                    $stdout = substr($stdout, 0, MAX_COLLECTOR_OUTPUT_BYTES + 1);
+                }
+            }
+        }
+        $stderr = appendCollectorErrorTail($stderr, (string)stream_get_contents($pipes[2]));
+        $status = proc_get_status($process);
+        if (($status['running'] ?? false) !== true) {
+            $observedExitCode = is_int($status['exitcode'] ?? null)
+                ? (int)$status['exitcode']
+                : null;
+            break;
+        }
+        if (microtime(true) >= $deadlineAt) {
+            $timedOut = true;
+            proc_terminate($process);
+            usleep(250000);
+            $status = proc_get_status($process);
+            if (($status['running'] ?? false) === true) {
+                proc_terminate($process, 9);
+            }
+            break;
+        }
+        usleep(100000);
+    }
+    $stdoutChunk = (string)stream_get_contents($pipes[1]);
+    if (!$stdoutOverflow && $stdoutChunk !== '') {
+        $stdout .= $stdoutChunk;
+        $stdoutOverflow = strlen($stdout) > MAX_COLLECTOR_OUTPUT_BYTES;
+        if ($stdoutOverflow) {
+            $stdout = substr($stdout, 0, MAX_COLLECTOR_OUTPUT_BYTES + 1);
+        }
+    }
+    $stderr = appendCollectorErrorTail($stderr, (string)stream_get_contents($pipes[2]));
     fclose($pipes[1]);
     fclose($pipes[2]);
-    $exitCode = proc_close($process);
-    if (!is_string($stdout)
+    $closeExitCode = proc_close($process);
+    $exitCode = ($observedExitCode !== null && $observedExitCode >= 0)
+        ? $observedExitCode
+        : $closeExitCode;
+    if ($timedOut) {
+        throw new RuntimeException('dingdandao_collector_timeout');
+    }
+    if ($stdoutOverflow
         || strlen($stdout) > MAX_COLLECTOR_OUTPUT_BYTES
         || $exitCode !== 0
     ) {
@@ -342,19 +460,16 @@ function runCollector(
     return $decoded;
 }
 
-function latestProviderHotelId(int $tenantId, int $hotelId): ?string
+function appendCollectorErrorTail(string $current, string $chunk): string
 {
-    $value = Db::name('dingdandao_operating_target_captures')
-        ->where('tenant_id', $tenantId)
-        ->where('hotel_id', $hotelId)
-        ->where('provider', DingdandaoOperatingTargetCaptureService::PROVIDER)
-        ->where('identity_status', 'matched')
-        ->where('quality_status', 'verified')
-        ->where('readback_status', 'readback_verified')
-        ->order('id', 'desc')
-        ->value('provider_hotel_id');
-    $value = trim((string)($value ?? ''));
-    return $value !== '' ? $value : null;
+    if ($chunk === '') {
+        return $current;
+    }
+    $combined = $current . $chunk;
+    if (strlen($combined) <= MAX_COLLECTOR_ERROR_BYTES) {
+        return $combined;
+    }
+    return substr($combined, -MAX_COLLECTOR_ERROR_BYTES);
 }
 
 function positiveInt(mixed $value, string $reason): int
@@ -379,6 +494,21 @@ function validDate(string $value): bool
 {
     $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
     return $date instanceof DateTimeImmutable && $date->format('Y-m-d') === $value;
+}
+
+function normalizeCapturedAt(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        throw new RuntimeException('dingdandao_collection_capture_time_invalid');
+    }
+    try {
+        return (new DateTimeImmutable($value, new DateTimeZone('Asia/Shanghai')))
+            ->setTimezone(new DateTimeZone('Asia/Shanghai'))
+            ->format('Y-m-d H:i:s');
+    } catch (Throwable) {
+        throw new RuntimeException('dingdandao_collection_capture_time_invalid');
+    }
 }
 
 function safeReason(string $reason): string

@@ -8,21 +8,54 @@ services=(
   suxios-cloud-browser-gateway
 )
 
-for service in "${services[@]}"; do
-  systemctl is-active --quiet "$service"
+VERIFY_TIMEOUT_SECONDS="${SUXIOS_CLOUD_BROWSER_VERIFY_TIMEOUT_SECONDS:-15}"
+[[ "$VERIFY_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] && (( VERIFY_TIMEOUT_SECONDS >= 1 && VERIFY_TIMEOUT_SECONDS <= 60 )) || {
+  echo "Invalid verification timeout." >&2
+  exit 64
+}
+
+# Type=simple units become active just before x11vnc/websockify bind their
+# sockets. Poll the bounded readiness contract so a normal service restart is
+# not misreported as a failed installation.
+deadline=$((SECONDS + VERIFY_TIMEOUT_SECONDS))
+while :; do
+  ready=1
+  pending=()
+  for service in "${services[@]}"; do
+    if ! systemctl is-active --quiet "$service"; then
+      ready=0
+      pending+=("service:$service")
+    fi
+  done
+
+  for port in 5900 6080 8787; do
+    listeners="$(ss -H -ltn "sport = :$port")"
+    if [[ -z "$listeners" ]]; then
+      ready=0
+      pending+=("port:$port")
+      continue
+    fi
+    if grep -Eq '(^|[[:space:]])(0\.0\.0\.0|\[::\]|\*):'"$port"'([[:space:]]|$)' <<<"$listeners"; then
+      echo "Port $port is exposed beyond loopback." >&2
+      exit 1
+    fi
+  done
+
+  (( ready == 1 )) && break
+  if (( SECONDS >= deadline )); then
+    printf 'Cloud browser services did not become ready within %ss: %s\n' \
+      "$VERIFY_TIMEOUT_SECONDS" "${pending[*]}" >&2
+    exit 1
+  fi
+  sleep 1
 done
 
-for port in 5900 6080 8787; do
-  listeners="$(ss -H -ltn "sport = :$port")"
-  if [[ -z "$listeners" ]]; then
-    echo "Port $port is not listening." >&2
-    exit 1
-  fi
-  if grep -Eq '(^|[[:space:]])(0\.0\.0\.0|\[::\]|\*):'"$port"'([[:space:]]|$)' <<<"$listeners"; then
-    echo "Port $port is exposed beyond loopback." >&2
-    exit 1
-  fi
-done
+systemctl cat suxios-cloud-browser-vnc.service | grep -q -- '-nopw'
+systemctl cat suxios-cloud-browser-vnc.service | grep -q -- '-listen 127.0.0.1'
+if systemctl cat suxios-cloud-browser-vnc.service | grep -q -- '-rfbauth'; then
+  echo "The VNC unit still uses a browser-visible shared password." >&2
+  exit 1
+fi
 
 if ss -H -ltn "sport = :9223" | grep -q .; then
   echo "CDP is listening before a short-lived login session was opened." >&2

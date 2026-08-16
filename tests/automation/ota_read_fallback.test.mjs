@@ -245,6 +245,7 @@ test('same-origin replay reuses the observed request but diagnostics remain reda
   assert.equal(evaluatedInput.body, '{"hotelId":"sensitive-hotel-77"}');
   assert.match(evaluatedInput.url, /sensitive-query/);
   assert.equal(evaluatedInput.headers.authorization, undefined);
+  assert.equal(evaluatedInput.timeoutMs, 12000);
   assert.equal(diagnostics.length, 1);
   assert.equal(diagnostics[0].status, 'response_observed');
   assert.equal(diagnostics[0].replay_source, 'observed_request_same_origin');

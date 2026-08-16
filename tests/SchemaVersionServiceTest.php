@@ -443,6 +443,10 @@ final class SchemaVersionServiceTest extends TestCase
                 'd89bc7633624351221cb2cf6786a042758afd9266864c62181c8478acd45494e',
                 '1e044674a15b745c94dbadb4b23f8065897ce1a1b03891235ffea3297e3f709a',
             ],
+            '20260812_za_harden_hotel_operating_cycle_kernel.sql' => [
+                '9bd56641ec22e020765cbef99a1ee3cfb3f4bdc6285af6d76827487903d5e853',
+                'dcc2e1d86528e34b4f4328e563be44a8c36513382e20274600112e8d503059b6',
+            ],
         ];
         $insert = $this->pdo->prepare(
             'INSERT INTO schema_versions '
@@ -474,6 +478,32 @@ final class SchemaVersionServiceTest extends TestCase
             $select->execute([$migration]);
             self::assertSame($registeredChecksum, $select->fetchColumn());
         }
+    }
+
+    public function testOperatingCycleHardeningRevisionIsEmptyTableOnlyAndRetrySafe(): void
+    {
+        $projectRoot = realpath(__DIR__ . '/..');
+        self::assertIsString($projectRoot);
+        $sql = (string)file_get_contents(
+            $projectRoot . '/database/migrations/20260812_za_harden_hotel_operating_cycle_kernel.sql'
+        );
+
+        foreach ([
+            'hotel_operating_cycle_kernel_has_rows_requires_audited_conversion',
+            'ADD COLUMN IF NOT EXISTS `tenant_id`',
+            'ADD COLUMN IF NOT EXISTS `command_digest`',
+            'ADD COLUMN IF NOT EXISTS `verification_status`',
+            'DROP INDEX IF EXISTS `idx_hotel_operating_cycle_event_scope`',
+            'DROP INDEX IF EXISTS `idx_hotel_operating_cycle_evidence_scope`',
+            "CONSTRAINT_TYPE` = 'FOREIGN KEY'",
+            'ON UPDATE RESTRICT ON DELETE RESTRICT',
+        ] as $contract) {
+            self::assertStringContainsString($contract, $sql);
+        }
+        self::assertSame(
+            'dcc2e1d86528e34b4f4328e563be44a8c36513382e20274600112e8d503059b6',
+            hash_file('sha256', $projectRoot . '/database/migrations/20260812_za_harden_hotel_operating_cycle_kernel.sql')
+        );
     }
 
     public function testExistingChecksumColumnNeverSilentlyBackfillsMissingEvidence(): void

@@ -3371,7 +3371,7 @@ test('Hotel management paints its shell before mounting the heavy hotel rows', (
   assert.equal((hotelManagementTemplateFragment.match(/v-for="\(hotel, hotelIndex\) in hotelRowsForDisplay"/g) || []).length, 2);
 });
 
-test('FontAwesome stylesheet does not block the core shell first second', () => {
+test('FontAwesome stylesheet does not compete with the authenticated startup path', () => {
   const head = sliceFrom('<head>', '</head>');
 
   assert.doesNotMatch(head, /<link\s+href=["']font-awesome\.min\.css["']\s+rel=["']stylesheet["']/);
@@ -3379,6 +3379,10 @@ test('FontAwesome stylesheet does not block the core shell first second', () => 
   assert.match(head, /link\.dataset\.suxiFontawesome = '1';/);
   assert.match(head, /window\.setTimeout\(loadFontAwesomeStylesheet, 1600\);/);
   assert.match(head, /document\.addEventListener\('DOMContentLoaded', run, \{ once: true \}\);/);
+  assert.match(head, /document\.documentElement\.dataset\.suxiAuthenticatedInteractiveReady !== '1'/);
+  assert.match(head, /'suxi:authenticated-interactive-ready'/);
+  assert.match(head, /FONT_AWESOME_FALLBACK_MS = 8000/);
+  assert.match(head, /loadFontAwesomeStylesheet\(\{ force: true \}\)/);
 });
 
 test('Login background preload does not compete with cached-auth shell', () => {
@@ -3416,7 +3420,7 @@ test('OTA diagnosis helper does not block the online data shell', () => {
   const generateOtaDiagnosis = sliceFrom('const generateOtaDiagnosis = async () => {', '\n\n            // 加载Agent概览');
 
   assert.doesNotMatch(head, /<script src="ota-diagnosis-static\.js/);
-  assert.match(html, /const otaDiagnosisStaticScript = 'ota-diagnosis-static\.js\?v=20260715-meituan-daily-loop-h1c7db7577d';/);
+  assert.match(html, /const otaDiagnosisStaticScript = 'ota-diagnosis-static\.js\?v=20260811-ctrip-operating-radar-v2';/);
   assert.match(html, /const ensureOtaDiagnosisStaticReady = async \(\) => loadOtaDiagnosisStatic\(\);/);
   assert.match(currentPageWatcher, /runPageLoadOnce\(newPage, 'ota-diagnosis-static', \(\) => new Promise\(resolve => setTimeout\(resolve, 420\)\)\s*\.then\(\(\) => currentPage\.value === 'agent-center' \? ensureOtaDiagnosisStaticReady\(\) : null\)\);/);
   assert.match(generateOtaDiagnosis, /const runOtaDiagnosisGenerateFlow = await getOtaDiagnosisGenerateFlow\(\);/);
@@ -4617,6 +4621,10 @@ test('Online data health tab returns the initial light refresh and schedules lat
     "const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {",
     '\n            const openOnlineDataManualEntry'
   );
+  const handleMenuClick = sliceFrom(
+    'const handleMenuClick = (item) => {',
+    '\n\n            const isStillOnRequestPage'
+  );
   const dataHealthSecondaryScheduler = sliceFrom(
     'const clearDataHealthSecondaryPanelsReadyTimer = () => {',
     '\n            const shouldRefreshAutoFetchStatusPanel'
@@ -4642,6 +4650,8 @@ test('Online data health tab returns the initial light refresh and schedules lat
   assert.match(openOnlineDataEntryTab, /clearPlatformAutoSettingsPanelsReadyTimer\(\);\s*platformAutoSettingsPanelsReady\.value = false;/);
   assert.match(openOnlineDataEntryTab, /clearPlatformAutoSecondaryPanelsReadyTimer\(\);\s*platformAutoSecondaryPanelsReady\.value = false;/);
   assert.match(openOnlineDataEntryTab, /onlineDataTab\.value = targetTab;\s*currentPage\.value = 'online-data';/);
+  assert.match(handleMenuClick, /if \(item\.path === 'online-data'\) \{[\s\S]*openOnlineDataEntryTab\(String\(item\.tab \|\| 'data-health'\)\);[\s\S]*return;/);
+  assert.doesNotMatch(handleMenuClick, /pendingOnlineDataEntryTab\s*=/);
   assert.match(html, /v-if="dataHealthFullDiagnosticsLoaded && dataHealthEmployeePanelsReady" data-testid="phase1-employee-six-question-summary"/);
   assert.match(html, /v-if="dataHealthFullDiagnosticsLoaded && dataHealthSecondaryPanelsReady" data-testid="data-health-command-center"/);
   assert.doesNotMatch(html, /data-testid="hotel-data-cockpit-pending"/);
@@ -4830,7 +4840,7 @@ test('Operation action loads reject stale request and hotel responses', () => {
 
   assert.match(operationActionsLoader, /const requestSeq = \+\+operationActionsRequestSeq;/);
   assert.match(operationActionsLoader, /requestSeq === operationActionsRequestSeq\s*&& requestHotelId === String\(operationFilters\.value\.hotel_id \|\| ''\)\.trim\(\)/);
-  assert.match(operationActionsLoader, /const \[res, flowRes, closureRes\] = await Promise\.all\([\s\S]*if \(!isCurrentRequest\(\)\) return;/);
+  assert.match(operationActionsLoader, /const \[actionResult, flowResult, closureResult, , learningResult\] = await Promise\.allSettled\([\s\S]*if \(!isCurrentRequest\(\)\) return;/);
   assert.match(operationActionsLoader, /catch \(error\) \{\s*if \(!isCurrentRequest\(\)\) return;/);
   assert.match(operationActionsLoader, /finally \{\s*if \(requestSeq === operationActionsRequestSeq\) \{\s*operationLoading\.value\.actions = false;/);
 });

@@ -55,6 +55,12 @@ final class ManualNotificationService
         'manual_test',
         'daily_fixed_time',
     ];
+    private const STRICT_THREE_SOURCE_INTERVAL_SECTIONS = [
+        'pms_summary',
+        'pms_efficiency',
+        'ctrip_traffic',
+        'meituan_traffic',
+    ];
     private const BUSINESS_DATE_RULES = [
         'today' => '发送当天数据',
         'yesterday' => '发送前一天数据',
@@ -129,7 +135,11 @@ final class ManualNotificationService
         private readonly ?OperatingDailyReportPayloadService $operatingDailyPayloads = null,
         private readonly ?ManualNotificationBusinessPayloadService $businessMessagePayloads = null,
         private readonly ?CtripTemporalNotificationPayloadService $ctripTemporalPayloads = null,
-        private readonly ?ManualNotificationScheduleService $sourcePreparationService = null
+        private readonly ?ManualNotificationScheduleService $sourcePreparationService = null,
+        private readonly ?ManualNotificationConditionRuleService $conditionRuleService = null,
+        private readonly ?CloudThreeSourceHourlyPayloadService $cloudThreeSourcePayloads = null,
+        private readonly ?CloudThreeSourceHourlyStatusService $cloudThreeSourceStatus = null,
+        private readonly ?ManualNotificationExecutionActorService $executionActorService = null
     ) {
         $this->testDispatcher = $testDispatcher;
     }
@@ -182,6 +192,98 @@ final class ManualNotificationService
             self::OPERATING_DAILY_TRIGGER_TYPES,
             true
         );
+    }
+
+    /**
+     * Narrow opt-in for hotel 80's explicitly requested same-day three-source
+     * WeCom loop. Legacy interval reports remain blocked unless every source,
+     * date, section, delivery and target boundary matches this contract.
+     *
+     * @param array<string, mixed> $record
+     */
+    public static function isStrictThreeSourceIntervalPlan(
+        array $record,
+        bool $requireTarget = true
+    ): bool {
+        $rawSections = $record['content_sections'] ?? [];
+        $sections = is_array($rawSections)
+            ? $rawSections
+            : preg_split('/\s*,\s*/', trim((string)$rawSections), -1, PREG_SPLIT_NO_EMPTY);
+        $sections = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $section): string => trim((string)$section),
+            is_array($sections) ? $sections : []
+        ), static fn(string $section): bool => $section !== '')));
+        sort($sections, SORT_STRING);
+        $requiredSections = self::STRICT_THREE_SOURCE_INTERVAL_SECTIONS;
+        sort($requiredSections, SORT_STRING);
+
+        $targetId = max(0, (int)(
+            $record['target_robot_id']
+            ?? $record['test_robot_id']
+            ?? 0
+        ));
+        $targetName = trim((string)(
+            $record['target_robot_name']
+            ?? $record['test_robot_name']
+            ?? ''
+        ));
+
+        return (int)($record['hotel_id'] ?? 0) === 80
+            && trim((string)($record['template_type'] ?? ''))
+                === self::OPERATING_DAILY_REPORT_TYPE
+            && trim((string)($record['trigger_type'] ?? '')) === 'interval_minutes'
+            && (int)($record['interval_minutes'] ?? 0) === 30
+            && trim((string)($record['source_scope'] ?? '')) === 'combined'
+            && trim((string)($record['business_date_rule'] ?? '')) === 'today'
+            && trim((string)($record['send_method'] ?? '')) === 'wecom_formal'
+            && $sections === $requiredSections
+            && (!$requireTarget || ($targetId > 0 && $targetName !== ''));
+    }
+
+    /**
+     * User-configurable cloud plan: one exact hotel, today's formally saved
+     * three-source facts, one bound robot, and an hourly-on-the-hour schedule.
+     * The browser collectors run separately before the hour.
+     *
+     * @param array<string, mixed> $record
+     */
+    public static function isStrictThreeSourceHourlyPlan(
+        array $record,
+        bool $requireTarget = true
+    ): bool {
+        $rawSections = $record['content_sections'] ?? [];
+        $sections = is_array($rawSections)
+            ? $rawSections
+            : preg_split('/\s*,\s*/', trim((string)$rawSections), -1, PREG_SPLIT_NO_EMPTY);
+        $sections = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $section): string => trim((string)$section),
+            is_array($sections) ? $sections : []
+        ), static fn(string $section): bool => $section !== '')));
+        sort($sections, SORT_STRING);
+        $requiredSections = self::STRICT_THREE_SOURCE_INTERVAL_SECTIONS;
+        sort($requiredSections, SORT_STRING);
+
+        $targetId = max(0, (int)(
+            $record['target_robot_id']
+            ?? $record['test_robot_id']
+            ?? 0
+        ));
+        $targetName = trim((string)(
+            $record['target_robot_name']
+            ?? $record['test_robot_name']
+            ?? ''
+        ));
+
+        return (int)($record['hotel_id'] ?? 0) > 0
+            && trim((string)($record['template_type'] ?? ''))
+                === self::OPERATING_DAILY_REPORT_TYPE
+            && trim((string)($record['trigger_type'] ?? ''))
+                === 'hourly_on_the_hour'
+            && trim((string)($record['source_scope'] ?? '')) === 'combined'
+            && trim((string)($record['business_date_rule'] ?? '')) === 'today'
+            && trim((string)($record['send_method'] ?? '')) === 'wecom_formal'
+            && $sections === $requiredSections
+            && (!$requireTarget || ($targetId > 0 && $targetName !== ''));
     }
 
     public static function operatingDailyTemplateMode(string $type): string
@@ -331,6 +433,7 @@ final class ManualNotificationService
                 self::TRIGGER_TYPES,
                 array_keys(self::TRIGGER_TYPES)
             ),
+            'condition_rules' => ManualNotificationConditionRuleService::definitions(),
             'operating_daily_trigger_types' => array_values(array_filter(
                 array_map(
                     static fn(string $label, string $key): array => [
@@ -405,6 +508,11 @@ final class ManualNotificationService
             'scheduler_note' => (string)($scheduler['message'] ?? '调度状态以最近一次云端运行记录为准。'),
             'latest_schedule_run' => $scheduler,
             'latest_schedule_runs' => $schedulers,
+            'three_source_hourly_status' => $this->hourlyStatus()->status(
+                $tenantId,
+                $hotelId,
+                $date
+            ),
         ];
     }
 
@@ -421,7 +529,16 @@ final class ManualNotificationService
         array $input,
         int $tenantId = 0
     ): array {
-        $normalized = $this->normalizeInput($input);
+        $normalized = $this->normalizeInput($input, $hotelId);
+        $type = (string)(
+            $normalized['template_type']
+                ?? $normalized['notification_type']
+                ?? ''
+        );
+        if (self::isDynamicReportType($type)) {
+            $normalized['business_date'] = $this->scheduleRules()
+                ->resolveBusinessDate($normalized, $this->now());
+        }
         return $this->renderPreview($tenantId, $hotelId, $hotelName, $normalized);
     }
 
@@ -436,7 +553,6 @@ final class ManualNotificationService
         if ($tenantId <= 0 || $hotelId <= 0 || $userId <= 0) {
             throw new \InvalidArgumentException('manual_notification_scope_invalid');
         }
-        $normalized = $this->normalizeInput($input);
         $requestedId = max(0, (int)($input['id'] ?? 0));
         $existing = null;
         if ($requestedId > 0) {
@@ -449,6 +565,19 @@ final class ManualNotificationService
                 throw new \RuntimeException('manual_notification_not_found');
             }
         }
+        $normalizationInput = $input;
+        if (is_array($existing)) {
+            foreach ([
+                'condition_type',
+                'condition_threshold',
+                'condition_step',
+            ] as $conditionField) {
+                if (!array_key_exists($conditionField, $normalizationInput)) {
+                    $normalizationInput[$conditionField] = $existing[$conditionField] ?? null;
+                }
+            }
+        }
+        $normalized = $this->normalizeInput($normalizationInput, $hotelId);
         $targetRobotId = ($normalized['target_robot_provided'] ?? false) === true
             ? (int)$normalized['target_robot_id']
             : (int)($existing['test_robot_id'] ?? 0);
@@ -471,7 +600,9 @@ final class ManualNotificationService
                 $targetRobotId,
                 $targetRobotName,
                 (int)($existing['created_by'] ?? $userId),
-                (string)$normalized['send_method'] === 'wecom_formal' ? 'formal' : 'test'
+                (string)$normalized['send_method'] === 'wecom_formal'
+                    ? 'formal_test'
+                    : 'test'
             );
             if (($binding['eligible'] ?? false) !== true) {
                 throw new \InvalidArgumentException('manual_notification_target_binding_invalid');
@@ -529,6 +660,15 @@ final class ManualNotificationService
                 ? (string)($existing['update_time'] ?? $now)
                 : $now,
         ];
+        if ($this->tableHasColumn('manual_notifications', 'condition_type')) {
+            $recordData['condition_type'] = $normalized['condition_type'];
+        }
+        if ($this->tableHasColumn('manual_notifications', 'condition_threshold')) {
+            $recordData['condition_threshold'] = $normalized['condition_threshold'];
+        }
+        if ($this->tableHasColumn('manual_notifications', 'condition_step')) {
+            $recordData['condition_step'] = $normalized['condition_step'];
+        }
         if ($requestedId > 0) {
             unset($recordData['tenant_id'], $recordData['hotel_id'], $recordData['created_by']);
             Db::name('manual_notifications')->where('id', $requestedId)->update($recordData);
@@ -563,7 +703,13 @@ final class ManualNotificationService
         if (!is_array($row)) {
             throw new \RuntimeException('manual_notification_not_found');
         }
-        return $this->present($row);
+        $record = $this->present($row);
+        $record['three_source_hourly_status'] = $this->hourlyStatus()->status(
+            $tenantId,
+            $hotelId,
+            $this->now()->format('Y-m-d')
+        );
+        return $record;
     }
 
     /** @return array<string, mixed> */
@@ -683,7 +829,9 @@ final class ManualNotificationService
             $targetRobotId,
             trim($targetRobotName),
             (int)($record['created_by'] ?? $userId),
-            'test'
+            (string)$record['send_method'] === 'wecom_formal'
+                ? 'formal_test'
+                : 'test'
         );
         if (($binding['eligible'] ?? false) !== true) {
             throw new \InvalidArgumentException('manual_notification_test_target_forbidden');
@@ -752,7 +900,7 @@ final class ManualNotificationService
         } else {
             if (self::isOperatingDailyReportType(
                 (string)($record['template_type'] ?? '')
-            )) {
+            ) && !self::isStrictThreeSourceHourlyPlan($record)) {
                 $sourcePreparer = $this->sourcePreparer();
                 $sourcePreparations = $sourcePreparer->prepareSourcesForDelivery(
                     $record,
@@ -922,7 +1070,9 @@ final class ManualNotificationService
                     'tenant_id' => $tenantId,
                     'robot_name' => (string)$robot['name'],
                     'owner_user_id' => (int)($record['created_by'] ?? $userId),
-                    'mode' => 'test',
+                    'mode' => (string)$record['send_method'] === 'wecom_formal'
+                        ? 'formal_test'
+                        : 'test',
                 ]
             );
             $delivery = is_array($delivery) ? $delivery : [];
@@ -998,9 +1148,9 @@ final class ManualNotificationService
                 'manual_notification_retry_plan_fingerprint_missing'
             );
         }
-        if (!hash_equals(
+        if (!self::planFingerprintMatches(
             $testedPlanFingerprint,
-            self::planFingerprint($record)
+            $record
         )) {
             throw new \InvalidArgumentException(
                 'manual_notification_retry_plan_changed'
@@ -1033,6 +1183,24 @@ final class ManualNotificationService
             throw new \RuntimeException('manual_notification_dispatcher_missing');
         }
 
+        $conditionEvaluation = $this->conditionRules()
+            ->evaluationFromDispatch($record, (array)$retry['dispatch']);
+        $conditionTriggerClaim = null;
+        if (is_array($conditionEvaluation)) {
+            $conditionTriggerClaim = $this->conditionRules()->claimTrigger(
+                $record,
+                $conditionEvaluation,
+                $dispatchId,
+                $now
+            );
+            if (($conditionTriggerClaim['allowed'] ?? false) !== true) {
+                throw new \InvalidArgumentException((string)(
+                    $conditionTriggerClaim['reason_code']
+                    ?? 'manual_notification_condition_trigger_in_flight'
+                ));
+            }
+        }
+
         $attempt = $this->dispatchLedger()->beginAttempt(
             $dispatchId,
             $now,
@@ -1040,7 +1208,54 @@ final class ManualNotificationService
             (string)($retry['previous_status'] ?? '') === 'outcome_unknown'
         );
         if (($attempt['allowed'] ?? false) !== true) {
+            if (is_array($conditionEvaluation)
+                && ($conditionTriggerClaim['claimed'] ?? false) === true
+            ) {
+                $this->conditionRules()->releaseTriggerClaim(
+                    $record,
+                    $conditionEvaluation,
+                    $dispatchId,
+                    $now
+                );
+            }
             throw new \InvalidArgumentException((string)$attempt['reason_code']);
+        }
+        if (is_array($conditionEvaluation)) {
+            try {
+                $confirmedClaim = $this->conditionRules()
+                    ->confirmTriggerClaim(
+                        $record,
+                        $conditionEvaluation,
+                        $dispatchId,
+                        $now
+                    );
+            } catch (\Throwable) {
+                $confirmedClaim = [
+                    'allowed' => false,
+                    'reason_code' =>
+                        'manual_notification_condition_claim_failed',
+                ];
+            }
+            if (($confirmedClaim['allowed'] ?? false) !== true) {
+                $reasonCode = (string)(
+                    $confirmedClaim['reason_code']
+                    ?? 'manual_notification_condition_trigger_claim_fenced'
+                );
+                $this->dispatchLedger()->cancelAttemptBeforeSend(
+                    $dispatchId,
+                    (int)$attempt['attempt_id'],
+                    $now,
+                    $reasonCode,
+                    '经营规则档位已被其他执行窗口接管，显式重试未调用外部发送器。'
+                );
+                $this->conditionRules()->releaseTriggerClaim(
+                    $record,
+                    $conditionEvaluation,
+                    $dispatchId,
+                    $now
+                );
+                throw new \InvalidArgumentException($reasonCode);
+            }
         }
         $delivery = [];
         $exception = null;
@@ -1072,6 +1287,34 @@ final class ManualNotificationService
             $exception
         );
         $sent = (string)$finished['status'] === 'sent';
+        $conditionStateCommitted = false;
+        $conditionStateErrorReference = null;
+        if (is_array($conditionEvaluation) && $sent) {
+            try {
+                $this->conditionRules()->commitSuccessfulDelivery(
+                    $record,
+                    $conditionEvaluation,
+                    $dispatchId,
+                    $this->now()
+                );
+                $conditionStateCommitted = true;
+            } catch (\Throwable $error) {
+                $conditionStateErrorReference = substr(
+                    hash('sha256', $error->getMessage()),
+                    0,
+                    12
+                );
+            }
+        } elseif (is_array($conditionEvaluation)
+            && (string)$finished['status'] === 'failed'
+        ) {
+            $this->conditionRules()->releaseTriggerClaim(
+                $record,
+                $conditionEvaluation,
+                $dispatchId,
+                $this->now()
+            );
+        }
         if ($mode === 'test') {
             $this->persistTestResult(
                 $tenantId,
@@ -1092,11 +1335,14 @@ final class ManualNotificationService
             'dispatch' => $finished,
             'delivery_mode' => $mode,
             'formal_group_delivery_allowed' => $mode === 'formal',
+            'condition_state_committed' => $conditionStateCommitted,
+            'condition_state_error_reference' =>
+                $conditionStateErrorReference,
         ];
     }
 
     /** @param array<string, mixed> $input @return array<string, mixed> */
-    private function normalizeInput(array $input): array
+    private function normalizeInput(array $input, int $hotelId = 0): array
     {
         $type = trim((string)($input['template_type'] ?? $input['notification_type'] ?? ''));
         if (!isset(self::TYPES[$type])) {
@@ -1119,13 +1365,6 @@ final class ManualNotificationService
         $triggerType = trim((string)($input['trigger_type'] ?? 'manual_test'));
         if (!isset(self::TRIGGER_TYPES[$triggerType])) {
             throw new \InvalidArgumentException('manual_notification_trigger_invalid');
-        }
-        if (self::isOperatingDailyReportType($type)
-            && !self::isOperatingDailyTriggerAllowed($triggerType)
-        ) {
-            throw new \InvalidArgumentException(
-                'manual_notification_operating_daily_fixed_time_required'
-            );
         }
         $sourceScope = trim((string)($input['source_scope'] ?? 'combined'));
         if (!isset(self::SOURCE_SCOPES[$sourceScope])) {
@@ -1159,6 +1398,84 @@ final class ManualNotificationService
                     $sourceScope
                 )
                 : [];
+        }
+        $conditionType = trim((string)(
+            $input['condition_type']
+            ?? ManualNotificationConditionRuleService::ALWAYS
+        ));
+        $conditionKeys = array_column(
+            ManualNotificationConditionRuleService::definitions(),
+            'key'
+        );
+        if (!in_array($conditionType, $conditionKeys, true)) {
+            throw new \InvalidArgumentException(
+                'manual_notification_condition_type_invalid'
+            );
+        }
+        if (!ManualNotificationConditionRuleService::supportsTemplate(
+            $conditionType,
+            $type
+        )) {
+            throw new \InvalidArgumentException(
+                'manual_notification_condition_template_unsupported'
+            );
+        }
+        $conditionThreshold = null;
+        $conditionStep = null;
+        if ($conditionType === ManualNotificationConditionRuleService::OCCUPANCY_LADDER) {
+            $conditionThreshold = filter_var(
+                $input['condition_threshold'] ?? null,
+                FILTER_VALIDATE_FLOAT
+            );
+            $conditionStep = filter_var(
+                $input['condition_step'] ?? null,
+                FILTER_VALIDATE_FLOAT
+            );
+            if ($conditionThreshold === false
+                || $conditionThreshold <= 0
+                || $conditionThreshold > 100
+            ) {
+                throw new \InvalidArgumentException(
+                    'manual_notification_condition_threshold_invalid'
+                );
+            }
+            if ($conditionStep === false || $conditionStep <= 0 || $conditionStep > 100) {
+                throw new \InvalidArgumentException(
+                    'manual_notification_condition_step_invalid'
+                );
+            }
+            $conditionThreshold = round((float)$conditionThreshold, 2);
+            $conditionStep = round((float)$conditionStep, 2);
+        }
+        if ($conditionType !== ManualNotificationConditionRuleService::ALWAYS) {
+            if (self::isOperatingDailyReportType($type)
+                && (
+                    !in_array($sourceScope, ['combined', 'dingdandao_pms'], true)
+                    || !in_array('pms_efficiency', $contentSections, true)
+                )
+            ) {
+                throw new \InvalidArgumentException(
+                    'manual_notification_condition_pms_facts_required'
+                );
+            }
+            foreach ([
+                'condition_type',
+                'condition_threshold',
+                'condition_step',
+            ] as $requiredColumn) {
+                if (!$this->tableHasColumn('manual_notifications', $requiredColumn)) {
+                    throw new \RuntimeException(
+                        'manual_notification_condition_schema_missing'
+                    );
+                }
+            }
+            if (!$this->tableExists(
+                ManualNotificationConditionRuleService::STATE_TABLE
+            )) {
+                throw new \RuntimeException(
+                    'manual_notification_condition_state_schema_missing'
+                );
+            }
         }
         $plannedSendAt = $this->normalizeDateTime($input['planned_send_at'] ?? null);
         if ($triggerType === 'daily_fixed_time' && $plannedSendAt === null) {
@@ -1214,6 +1531,36 @@ final class ManualNotificationService
         if ($targetRobotProvided && (($targetRobotId > 0) !== ($targetRobotName !== ''))) {
             throw new \InvalidArgumentException('manual_notification_target_required');
         }
+        if (self::isOperatingDailyReportType($type)
+            && !self::isOperatingDailyTriggerAllowed($triggerType)
+            && !self::isStrictThreeSourceIntervalPlan([
+                'hotel_id' => $hotelId,
+                'template_type' => $type,
+                'source_scope' => $sourceScope,
+                'content_sections' => $contentSections,
+                'business_date_rule' => $businessDateRule,
+                'send_method' => $sendMethod,
+                'trigger_type' => $triggerType,
+                'interval_minutes' => $intervalMinutes,
+                'target_robot_id' => $targetRobotId,
+                'target_robot_name' => $targetRobotName,
+            ], false)
+            && !self::isStrictThreeSourceHourlyPlan([
+                'hotel_id' => $hotelId,
+                'template_type' => $type,
+                'source_scope' => $sourceScope,
+                'content_sections' => $contentSections,
+                'business_date_rule' => $businessDateRule,
+                'send_method' => $sendMethod,
+                'trigger_type' => $triggerType,
+                'target_robot_id' => $targetRobotId,
+                'target_robot_name' => $targetRobotName,
+            ], false)
+        ) {
+            throw new \InvalidArgumentException(
+                'manual_notification_operating_daily_fixed_time_required'
+            );
+        }
         return [
             'notification_type' => self::isOperatingDailyReportType($type)
                 ? self::OPERATING_DAILY_REPORT_TYPE
@@ -1234,6 +1581,9 @@ final class ManualNotificationService
             'effective_to' => $effectiveTo,
             'hourly_start_time' => $hourlyStartTime,
             'hourly_end_time' => $hourlyEndTime,
+            'condition_type' => $conditionType,
+            'condition_threshold' => $conditionThreshold,
+            'condition_step' => $conditionStep,
             'enabled' => filter_var($input['enabled'] ?? false, FILTER_VALIDATE_BOOL),
             'target_robot_provided' => $targetRobotProvided,
             'target_robot_id' => $targetRobotId,
@@ -1257,7 +1607,18 @@ final class ManualNotificationService
                     '缺少租户范围，动态经营目标报告不可预览。'
                 );
             }
-            $page = self::isCtripTemporalReportType($type)
+            $page = self::isStrictThreeSourceHourlyPlan([
+                ...$data,
+                'hotel_id' => $hotelId,
+            ], false)
+                ? $this->cloudThreeSourcePayloadForRecord(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    (string)$data['business_date'],
+                    $data
+                )
+                : (self::isCtripTemporalReportType($type)
                 ? $this->ctripTemporalPayloads()->pagePreview(
                     $tenantId,
                     $hotelId,
@@ -1292,7 +1653,7 @@ final class ManualNotificationService
                             $hotelId,
                             $hotelName,
                             (string)$data['business_date']
-                        )));
+                        ))));
             $scheduleStatus = trim((string)($data['schedule_status'] ?? ''));
             if ($scheduleStatus === '') {
                 $scheduleStatus = (bool)$data['enabled']
@@ -1377,6 +1738,18 @@ final class ManualNotificationService
                 ];
             }
             $templateType = (string)$record['template_type'];
+            if (self::isStrictThreeSourceHourlyPlan([
+                ...$record,
+                'hotel_id' => $hotelId,
+            ])) {
+                return $this->cloudThreeSourcePayloadForRecord(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    $businessDate,
+                    $record
+                );
+            }
             if (self::isOperatingDailyReportType($templateType)) {
                 $contractBlocker =
                     self::operatingDailyCustomContractBlocker(
@@ -1554,7 +1927,9 @@ final class ManualNotificationService
         );
         $triggerType = (string)($row['trigger_type'] ?? 'manual_test');
         $operatingDailyLoopBlocked = self::isOperatingDailyReportType($templateType)
-            && !self::isOperatingDailyTriggerAllowed($triggerType);
+            && !self::isOperatingDailyTriggerAllowed($triggerType)
+            && !self::isStrictThreeSourceIntervalPlan($row)
+            && !self::isStrictThreeSourceHourlyPlan($row);
         $storedScheduleStatus = (string)($row['schedule_status'] ?? 'saved_only');
         $enabled = (int)($row['enabled'] ?? 0) === 1;
         $nextRunAt = !$operatingDailyLoopBlocked
@@ -1570,6 +1945,18 @@ final class ManualNotificationService
         $scheduleStatus = $operatingDailyLoopBlocked
             ? 'blocked'
             : ($scheduleExpired ? 'schedule_expired' : $storedScheduleStatus);
+        $conditionType = trim((string)(
+            $row['condition_type']
+            ?? ManualNotificationConditionRuleService::ALWAYS
+        ));
+        try {
+            $conditionState = $this->conditionRules()->latestStateForPlan([
+                ...$row,
+                'condition_type' => $conditionType,
+            ]);
+        } catch (\Throwable) {
+            $conditionState = null;
+        }
         return [
             'id' => (int)($row['id'] ?? 0),
             'tenant_id' => (int)($row['tenant_id'] ?? 0),
@@ -1648,6 +2035,15 @@ final class ManualNotificationService
             'hourly_end_time' => $this->shortTime(
                 $row['hourly_end_time'] ?? ManualNotificationScheduleRuleService::DEFAULT_HOURLY_END
             ),
+            'condition_type' => $conditionType,
+            'condition_type_label' => $this->conditionLabel($conditionType),
+            'condition_threshold' => is_numeric($row['condition_threshold'] ?? null)
+                ? (float)$row['condition_threshold']
+                : null,
+            'condition_step' => is_numeric($row['condition_step'] ?? null)
+                ? (float)$row['condition_step']
+                : null,
+            'condition_state' => $conditionState,
             'enabled' => $enabled,
             'schedule_effective_enabled' => $enabled
                 && $scheduleStatus === 'schedule_enabled',
@@ -1691,9 +2087,9 @@ final class ManualNotificationService
     ): array {
         $record = $this->read($tenantId, $hotelId, $notificationId);
         $planChanged = $testedPlanFingerprint !== ''
-            && !hash_equals(
+            && !self::planFingerprintMatches(
                 $testedPlanFingerprint,
-                $this->testedPlanFingerprint($record)
+                $record
             );
         if ($planChanged) {
             return [
@@ -2108,6 +2504,10 @@ final class ManualNotificationService
         )));
         $dynamicBusinessDate = $existingDateRule === $normalizedDateRule
             && in_array($existingDateRule, ['today', 'yesterday'], true);
+        $midnightWindowMigration = $this->sameMidnightWindowMigration(
+            $existing,
+            $normalized
+        );
         foreach ([
             'notification_type',
             'template_type',
@@ -2124,8 +2524,28 @@ final class ManualNotificationService
             'effective_to',
             'hourly_start_time',
             'hourly_end_time',
+            'condition_type',
         ] as $field) {
+            if ($field === 'hourly_start_time' && $midnightWindowMigration) {
+                continue;
+            }
             if ((string)($existing[$field] ?? '') !== (string)($normalized[$field] ?? '')) {
+                return false;
+            }
+        }
+        foreach (['condition_threshold', 'condition_step'] as $conditionField) {
+            $existingValue = is_numeric($existing[$conditionField] ?? null)
+                ? (float)$existing[$conditionField]
+                : null;
+            $normalizedValue = is_numeric($normalized[$conditionField] ?? null)
+                ? (float)$normalized[$conditionField]
+                : null;
+            if ($existingValue === null xor $normalizedValue === null) {
+                return false;
+            }
+            if ($existingValue !== null
+                && abs($existingValue - (float)$normalizedValue) > 0.000001
+            ) {
                 return false;
             }
         }
@@ -2136,6 +2556,27 @@ final class ManualNotificationService
             return false;
         }
         return true;
+    }
+
+    /** @param array<string, mixed> $existing @param array<string, mixed> $normalized */
+    private function sameMidnightWindowMigration(
+        array $existing,
+        array $normalized
+    ): bool {
+        $existingStart = $this->shortTime($existing['hourly_start_time'] ?? '');
+        $normalizedStart = $this->shortTime($normalized['hourly_start_time'] ?? '');
+        $pair = [$existingStart, $normalizedStart];
+        sort($pair, SORT_STRING);
+        if ($pair !== ['00:00', '01:00']) {
+            return false;
+        }
+        $normalizedPlan = [
+            ...$existing,
+            ...$normalized,
+            'hotel_id' => (int)($existing['hotel_id'] ?? 0),
+        ];
+        return self::isStrictThreeSourceHourlyPlan($existing)
+            && self::isStrictThreeSourceHourlyPlan($normalizedPlan);
     }
 
     /** @param array<string, mixed> $record */
@@ -2164,9 +2605,9 @@ final class ManualNotificationService
             ->where('request_kind', 'immediate_test')
             ->where('robot_id', $robotId)
             ->where('robot_name', trim($robotName))
-            ->where(
+            ->whereIn(
                 'tested_plan_fingerprint',
-                self::planFingerprint($record)
+                self::acceptedPlanFingerprints($record)
             )
             ->where('status', 'sent')
             ->order('dispatched_at', 'desc')
@@ -2192,6 +2633,81 @@ final class ManualNotificationService
      * @param array<string, mixed> $record
      */
     public static function planFingerprint(array $record): string
+    {
+        return self::buildPlanFingerprint($record, true);
+    }
+
+    /** @param array<string, mixed> $record */
+    public static function legacyPlanFingerprint(array $record): string
+    {
+        return self::buildPlanFingerprint($record, false);
+    }
+
+    /** @param array<string, mixed> $record @return list<string> */
+    public static function acceptedPlanFingerprints(array $record): array
+    {
+        $fingerprints = [self::planFingerprint($record)];
+        $conditionType = trim((string)(
+            $record['condition_type']
+            ?? ManualNotificationConditionRuleService::ALWAYS
+        ));
+        $threshold = $record['condition_threshold'] ?? null;
+        $step = $record['condition_step'] ?? null;
+        if ($conditionType === ManualNotificationConditionRuleService::ALWAYS
+            && !is_numeric($threshold)
+            && !is_numeric($step)
+        ) {
+            $legacy = self::legacyPlanFingerprint($record);
+            if (!in_array($legacy, $fingerprints, true)) {
+                $fingerprints[] = $legacy;
+            }
+        }
+        $hourlyStart = trim((string)($record['hourly_start_time'] ?? ''));
+        if (self::isStrictThreeSourceHourlyPlan($record)
+            && preg_match('/^(?:00|01):00(?::00)?$/D', $hourlyStart) === 1
+        ) {
+            // The tested render/robot/source contract remains valid while the
+            // plan moves only between 00:00 and 01:00. At 00:00 the scheduler
+            // uses the previous day's fresh 23:30 closeout batch.
+            $adjacentVersion = [
+                ...$record,
+                'hourly_start_time' => str_starts_with($hourlyStart, '00:')
+                    ? '01:00:00'
+                    : '00:00:00',
+            ];
+            foreach ([
+                self::planFingerprint($adjacentVersion),
+                self::legacyPlanFingerprint($adjacentVersion),
+            ] as $legacy) {
+                if (!in_array($legacy, $fingerprints, true)) {
+                    $fingerprints[] = $legacy;
+                }
+            }
+        }
+        return $fingerprints;
+    }
+
+    /** @param array<string, mixed> $record */
+    public static function planFingerprintMatches(
+        string $fingerprint,
+        array $record
+    ): bool {
+        if (preg_match('/^[a-f0-9]{64}$/D', $fingerprint) !== 1) {
+            return false;
+        }
+        foreach (self::acceptedPlanFingerprints($record) as $accepted) {
+            if (hash_equals($accepted, $fingerprint)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string, mixed> $record */
+    private static function buildPlanFingerprint(
+        array $record,
+        bool $includeCondition
+    ): string
     {
         $list = static function (mixed $value, bool $numeric = false): array {
             $items = is_array($value) ? $value : explode(',', (string)$value);
@@ -2243,7 +2759,7 @@ final class ManualNotificationService
         $contentSections = self::isOperatingDailyReportType($templateType)
             ? $list($record['content_sections'] ?? [])
             : [];
-        $json = json_encode([
+        $payload = [
             'notification_type' => (string)($record['notification_type'] ?? ''),
             'template_type' => $templateType,
             'source_scope' => (string)($record['source_scope'] ?? ''),
@@ -2265,17 +2781,32 @@ final class ManualNotificationService
             'hourly_end_time' => $shortTime(
                 $record['hourly_end_time'] ?? ''
             ),
-            'target_robot_id' => (int)(
+        ];
+        if ($includeCondition) {
+            $payload['condition_type'] = (string)(
+                $record['condition_type']
+                ?? ManualNotificationConditionRuleService::ALWAYS
+            );
+            $payload['condition_threshold'] = is_numeric(
+                $record['condition_threshold'] ?? null
+            ) ? round((float)$record['condition_threshold'], 4) : null;
+            $payload['condition_step'] = is_numeric(
+                $record['condition_step'] ?? null
+            )
+                ? round((float)$record['condition_step'], 4)
+                : null;
+        }
+        $payload['target_robot_id'] = (int)(
                 $record['target_robot_id']
                 ?? $record['test_robot_id']
                 ?? 0
-            ),
-            'target_robot_name' => (string)(
+            );
+        $payload['target_robot_name'] = (string)(
                 $record['target_robot_name']
                 ?? $record['test_robot_name']
                 ?? ''
-            ),
-        ], JSON_UNESCAPED_UNICODE
+            );
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE
             | JSON_UNESCAPED_SLASHES
             | JSON_PRESERVE_ZERO_FRACTION);
         if (!is_string($json)) {
@@ -2319,10 +2850,89 @@ final class ManualNotificationService
             ?? new ManualNotificationBusinessPayloadService();
     }
 
+    private function cloudThreeSourcePayloads(): CloudThreeSourceHourlyPayloadService
+    {
+        return $this->cloudThreeSourcePayloads
+            ?? new CloudThreeSourceHourlyPayloadService();
+    }
+
+    /** @param array<string,mixed> $record @return array<string,mixed> */
+    private function cloudThreeSourcePayloadForRecord(
+        int $tenantId,
+        int $hotelId,
+        string $hotelName,
+        string $businessDate,
+        array $record
+    ): array {
+        $resolver = $this->executionActorService
+            ?? new ManualNotificationExecutionActorService();
+        $resolution = $resolver->resolve([
+            ...$record,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+        ]);
+        $actorId = (int)($resolution['actor_id'] ?? 0);
+        if (($resolution['status'] ?? '') !== 'ready' || $actorId <= 0) {
+            $reasonCode = (string)(
+                $resolution['reason_code']
+                    ?? 'manual_notification_execution_actor_missing'
+            );
+            return [
+                'status' => 'blocked',
+                'reason_code' => $reasonCode,
+                'business_date' => $businessDate,
+                'render_contract_version' =>
+                    CloudThreeSourceHourlyPayloadService::RENDER_CONTRACT_VERSION,
+                'payload_fingerprint' => hash(
+                    'sha256',
+                    implode('|', [$tenantId, $hotelId, $businessDate, $reasonCode])
+                ),
+                'formal_send_gate' => [
+                    'allowed' => false,
+                    'status' => 'formal_send_blocked',
+                    'blockers' => [[
+                        'code' => $reasonCode,
+                        'message' => 'No authorized hotel execution actor is available for this plan.',
+                    ]],
+                ],
+                'payload' => null,
+            ];
+        }
+        return $this->cloudThreeSourcePayloads()->build(
+            $tenantId,
+            $hotelId,
+            $hotelName,
+            $businessDate,
+            $actorId
+        );
+    }
+
+    private function hourlyStatus(): CloudThreeSourceHourlyStatusService
+    {
+        return $this->cloudThreeSourceStatus
+            ?? new CloudThreeSourceHourlyStatusService();
+    }
+
     private function ctripTemporalPayloads(): CtripTemporalNotificationPayloadService
     {
         return $this->ctripTemporalPayloads
             ?? new CtripTemporalNotificationPayloadService();
+    }
+
+    private function conditionRules(): ManualNotificationConditionRuleService
+    {
+        return $this->conditionRuleService
+            ?? new ManualNotificationConditionRuleService();
+    }
+
+    private function conditionLabel(string $type): string
+    {
+        foreach (ManualNotificationConditionRuleService::definitions() as $definition) {
+            if ((string)($definition['key'] ?? '') === $type) {
+                return (string)($definition['label'] ?? $type);
+            }
+        }
+        return $type;
     }
 
     private function dispatchLedger(): ManualNotificationDispatchLedgerService

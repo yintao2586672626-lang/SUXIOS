@@ -15,7 +15,8 @@ export const DEFAULT_FRONTEND_RUNTIME_BUDGETS = Object.freeze({
     target_api_p95_ms: 500,
     max_api_p95_ms: 750,
     max_total_requests_per_run: 30,
-    max_api_samples_per_run: 3,
+    // Login, identity, scoped revenue facts, and compass are four distinct startup reads.
+    max_api_samples_per_run: 4,
     max_repeated_api_requests_per_run: 0,
   }),
   'slow-4g': Object.freeze({
@@ -30,7 +31,7 @@ export const DEFAULT_FRONTEND_RUNTIME_BUDGETS = Object.freeze({
     target_api_p95_ms: 800,
     max_api_p95_ms: 1_600,
     max_total_requests_per_run: 30,
-    max_api_samples_per_run: 3,
+    max_api_samples_per_run: 4,
     max_repeated_api_requests_per_run: 0,
   }),
 });
@@ -72,6 +73,7 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
   const aggregate = report?.aggregate || {};
   const runs = Array.isArray(report?.runs) ? report.runs : [];
   const metricP95 = (name) => finiteOrNull(aggregate?.metrics?.[name]?.p95_ms);
+  const metricSampleCount = (name) => finiteOrNull(aggregate?.metrics?.[name]?.sample_count);
   const observed = {
     schema_version: finiteOrNull(report?.schema_version),
     authenticated_requested: report?.authenticated_requested === true,
@@ -83,6 +85,7 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
     unverified_run_count: finiteOrNull(aggregate?.unverified_run_count),
     fcp_p95_ms: metricP95('fcp_ms'),
     lcp_p95_ms: metricP95('lcp_ms'),
+    lcp_sample_count: metricSampleCount('lcp_ms'),
     login_click_to_interactive_p95_ms: metricP95('login_click_to_interactive_ms'),
     auth_to_interactive_p95_ms: metricP95('auth_to_interactive_ms'),
     longest_task_p95_ms: metricP95('longest_task_ms'),
@@ -141,6 +144,14 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
   }
   if (observed.verified_status_run_count !== runs.length) {
     fail('verified_status_run_count', observed.verified_status_run_count, runs.length, 'unverified_run_status_present');
+  }
+  if (observed.lcp_sample_count !== observed.verified_run_count) {
+    fail(
+      'lcp_sample_count',
+      observed.lcp_sample_count,
+      observed.verified_run_count,
+      'incomplete_measurement_samples'
+    );
   }
 
   for (const [metric, limitKey] of [

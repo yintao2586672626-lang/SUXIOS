@@ -102,6 +102,14 @@ final class HotelTenantCreationTest extends TestCase
         self::assertSame(2, Db::name('hotels')->where('tenant_id', 101)->count());
         self::assertSame(101, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
         self::assertSame(101, (int)$payload['data']['tenant_id']);
+        self::assertSame('awaiting_binding', $payload['data']['automation_lifecycle']['status']);
+        self::assertTrue($payload['data']['automation_lifecycle']['readback_verified']);
+        $lifecycle = Db::name('hotel_automation_lifecycles')
+            ->where('tenant_id', 101)
+            ->where('system_hotel_id', $hotelId)
+            ->find();
+        self::assertIsArray($lifecycle);
+        self::assertSame('awaiting_binding', $lifecycle['status']);
         $permission = Db::name('user_hotel_permissions')->where('hotel_id', $hotelId)->find();
         self::assertIsArray($permission);
         self::assertSame(9002, (int)$permission['user_id']);
@@ -142,6 +150,7 @@ final class HotelTenantCreationTest extends TestCase
         self::assertSame('owner', $permission['scope_type']);
         self::assertSame($hotelId, (int)Db::name('users')->where('id', 9002)->value('default_hotel_id'));
         self::assertNull(Db::name('users')->where('id', 9002)->value('hotel_id'));
+        self::assertSame(1, Db::name('tenant_automation_lifecycles')->where('tenant_id', 101)->count());
     }
 
     public function testDisablingHotelClearsDefaultPreferenceWithoutChangingAuthorizationOrTenant(): void
@@ -458,6 +467,35 @@ final class HotelTenantCreationTest extends TestCase
             tenant_id INTEGER,
             hotel_id INTEGER,
             default_hotel_id INTEGER
+        )');
+        if ($withTenantId) {
+            $this->createAutomationLifecycleSchema();
+        }
+    }
+
+    private function createAutomationLifecycleSchema(): void
+    {
+        Db::execute('CREATE TABLE tenant_automation_lifecycles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL UNIQUE,
+            status TEXT NOT NULL, current_stage TEXT NOT NULL, state_version INTEGER NOT NULL,
+            state_digest TEXT NOT NULL, safe_state_json TEXT NOT NULL, created_by INTEGER NOT NULL,
+            updated_by INTEGER NOT NULL, create_time TEXT NOT NULL, update_time TEXT NOT NULL
+        )');
+        Db::execute('CREATE TABLE hotel_automation_lifecycles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+            system_hotel_id INTEGER NOT NULL, status TEXT NOT NULL, current_stage TEXT NOT NULL,
+            ota_channel_strategy TEXT NOT NULL, completed_stage_count INTEGER NOT NULL,
+            total_stage_count INTEGER NOT NULL, binding_status TEXT NOT NULL, binding_digest TEXT,
+            active_plan_id INTEGER, active_plan_hash TEXT, dispatcher_status TEXT NOT NULL,
+            dispatcher_task_name TEXT, first_dispatch_requested_at TEXT,
+            first_trusted_business_date TEXT, last_business_date TEXT, last_dispatcher_run_id TEXT,
+            last_run_status TEXT, analysis_status TEXT NOT NULL, analysis_digest TEXT,
+            profile_draft_status TEXT NOT NULL, profile_draft_digest TEXT, failure_code TEXT,
+            upstream_failure_code TEXT, retryable INTEGER NOT NULL, attempt_count INTEGER NOT NULL,
+            next_retry_at TEXT, state_version INTEGER NOT NULL, state_digest TEXT NOT NULL,
+            safe_state_json TEXT NOT NULL, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL,
+            create_time TEXT NOT NULL, update_time TEXT NOT NULL,
+            UNIQUE (tenant_id, system_hotel_id)
         )');
     }
 

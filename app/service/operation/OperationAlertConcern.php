@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service\operation;
 
+use app\service\SourceBackedExecutionIntentIdentityService;
 use DateTimeImmutable;
 use DateTimeZone;
 use think\facade\Db;
@@ -10,9 +11,119 @@ use Throwable;
 
 trait OperationAlertConcern
 {
+    public function alerts(array $hotelIds, ?int $hotelId, bool $canExecute = false): array
+    {
+        if ($hotelId === null || $hotelId <= 0) {
+            throw new \InvalidArgumentException('operation alerts require one permitted hotel');
+        }
+        $hotelIds = $this->scopeHotelIdsForSelection($hotelIds, $hotelId);
+        $persisted = $this->tableExists('operation_alerts');
+        if (!$persisted) {
+            return $this->operationAlertSchemaGapResponse(
+                $this->operationAlertMigrationGap(
+                    'operation_alerts_missing',
+                    'operation alerts table is unavailable'
+                ),
+                $hotelId
+            );
+        }
+        if (($gap = $this->operationAlertPersistenceSchemaGap()) !== null) {
+            return $this->operationAlertSchemaGapResponse($gap, $hotelId);
+        }
+
+        try {
+            $expectedTenantId = $this->operationAlertExpectedTenantId($hotelId);
+            $generated = array_map(
+                static function (array $alert) use ($expectedTenantId): array {
+                    $alert['tenant_id'] = $expectedTenantId;
+                    return $alert;
+                },
+                $this->generateRuleAlerts([$hotelId], $hotelId)
+            );
+            if ($generated !== []) {
+                $this->persistRuleAlerts($generated);
+            }
+            $query = Db::name('operation_alerts')->where('hotel_id', $hotelId)->whereNull('deleted_at');
+            $rows = $this->scopeOperationAlertQueryToCurrentTenant($query)
+                ->order('id', 'desc')->limit(100)->select()->toArray();
+        } catch (Throwable) {
+            $gap = $this->operationAlertMigrationGap('operation_alerts_tenant_read_failed',
+                'current-tenant operation alerts could not be read or safely persisted');
+            return $this->operationAlertSchemaGapResponse($gap, $hotelId);
+        }
+        $alerts = array_map([$this, 'normalizeAlertRow'], $rows);
+        return [
+            'list' => $this->attachAlertExecutionBridges($alerts, $persisted, $canExecute),
+            'unread_count' => count(array_filter($alerts, static fn(array $row): bool => ($row['status'] ?? '') !== 'read')),
+            'data_status' => empty($alerts) ? '暂无预警' : self::DATA_OK, 'selected_hotel_id' => $hotelId,
+            'generated_for_date' => $this->operationShanghaiToday(), 'scope' => 'single_hotel',
+            'capabilities' => ['can_execute' => $canExecute, 'can_mark_read' => $canExecute],
+        ];
+    }
+
+    public function markAlertsRead(array $ids, array $hotelIds): int
+    {
+        if (!$this->tableExists('operation_alerts')) {
+            throw new \RuntimeException('migration_required: operation alerts table is unavailable');
+        }
+        if (($gap = $this->operationAlertTenantSchemaGap()) !== null) {
+            throw new \RuntimeException($gap['message']);
+        }
+        $updatedAt = $this->operationShanghaiNow();
+        return (int)$this->withOperationAlertMutationAuthorization($ids, $hotelIds,
+            static function (array $alerts) use ($updatedAt): int {
+                $authorizedIds = array_map(static fn(array $alert): int => (int)$alert['id'], $alerts);
+                if ($authorizedIds === []) {
+                    return 0;
+                }
+                return (int)Db::name('operation_alerts')->whereIn('id', $authorizedIds)->update([
+                    'status' => 'read', 'updated_at' => $updatedAt,
+                ]);
+            });
+    }
+
+    public function createExecutionIntentFromAlert(int $alertId, array $hotelIds, int $createdBy): array
+    {
+        if ($alertId <= 0) {
+            throw new \InvalidArgumentException('operation alert id is invalid');
+        }
+        if (!$this->tableExists('operation_alerts')) {
+            throw new \RuntimeException('operation_alerts table does not exist, run database migration first');
+        }
+
+        return $this->withOperationAlertMutationAuthorization([$alertId], $hotelIds,
+            function (array $rows) use ($alertId, $hotelIds, $createdBy): array {
+                $row = $rows[0] ?? null;
+                if (!is_array($row)) {
+                    throw new \RuntimeException('operation alert not found in the current tenant scope');
+                }
+                $alert = $this->normalizeAlertRow($row);
+                $unavailableReason = $this->alertExecutionEvidenceUnavailableReason($alert);
+                if ($unavailableReason !== '') {
+                    throw new \InvalidArgumentException($unavailableReason);
+                }
+                $hotelId = (int)$alert['hotel_id'];
+                $intent = $this->createExecutionIntent(
+                    $hotelIds, $hotelId, $this->buildAlertExecutionIntentInput($alert),
+                    $createdBy, false, null, true
+                );
+                Db::name('operation_alerts')->where('id', $alertId)->update([
+                    'status' => 'read', 'updated_at' => $this->operationShanghaiNow(),
+                ]);
+                $alert['status'] = 'read';
+                $alert['task_bridge'] = $this->alertExecutionBridgeFromIntent($intent);
+                return [
+                    'alert' => $alert,
+                    'execution_intent' => $intent,
+                    'reused_existing_intent' => ($intent['idempotent_replay'] ?? false) === true,
+                    'execution_policy' => 'pending_human_approval_no_automatic_ota_write',
+                ];
+            });
+    }
+
     private function generateRuleAlerts(array $hotelIds, ?int $hotelId): array
     {
-        $date = date('Y-m-d');
+        $date = $this->operationShanghaiToday();
         $full = $this->fullData($hotelIds, $hotelId, $date);
         $alerts = [];
         $id = 1;
@@ -179,85 +290,152 @@ trait OperationAlertConcern
 
     private function persistRuleAlerts(array $alerts): array
     {
-        $now = date('Y-m-d H:i:s');
-        $rows = [];
-
-        foreach ($alerts as $alert) {
-            $hotelId = (int)($alert['hotel_id'] ?? 0);
-            $type = (string)($alert['alert_type'] ?? '');
-            $date = (string)($alert['related_date'] ?? date('Y-m-d'));
-            if ($hotelId <= 0 || $type === '') {
-                continue;
-            }
-
-            $rawData = is_array($alert['raw_data'] ?? null) ? $alert['raw_data'] : [];
-            $actionSuggestion = $this->normalizeAlertSuggestion($alert);
-            if ($actionSuggestion !== '') {
-                $rawData['action_suggestion'] = $actionSuggestion;
-            }
-
-            $payload = [
-                'hotel_id' => $hotelId,
-                'alert_type' => $type,
-                'level' => (string)($alert['level'] ?? 'low'),
-                'title' => (string)($alert['title'] ?? ''),
-                'message' => (string)($alert['message'] ?? ''),
-                'source' => (string)($alert['source'] ?? 'rule'),
-                'related_date' => $date,
-                'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE),
-                'updated_at' => $now,
-            ];
-            $payload = $this->withHotelTenantId($payload, 'operation_alerts', $hotelId);
-
-            $existing = Db::name('operation_alerts')
-                ->where('hotel_id', $hotelId)
-                ->where('alert_type', $type)
-                ->where('source', $payload['source'])
-                ->where('related_date', $date)
-                ->whereNull('deleted_at')
-                ->find();
-
-            if ($existing) {
-                Db::name('operation_alerts')->where('id', (int)$existing['id'])->update($payload);
-                $rows[] = Db::name('operation_alerts')->where('id', (int)$existing['id'])->find();
-                continue;
-            }
-
-            $payload['status'] = 'unread';
-            $payload['created_at'] = $now;
-            $id = (int)Db::name('operation_alerts')->insertGetId($payload);
-            $rows[] = Db::name('operation_alerts')->where('id', $id)->find();
+        if (($gap = $this->operationAlertPersistenceSchemaGap()) !== null) {
+            throw new \RuntimeException($gap['message']);
+        }
+        if ($alerts === []) {
+            return [];
         }
 
-        return array_values(array_map([$this, 'normalizeAlertRow'], array_filter($rows)));
+        return Db::transaction(function () use ($alerts): array {
+            $hotelIds = array_values(array_unique(array_filter(array_map(
+                static fn(array $alert): int => (int)($alert['hotel_id'] ?? 0),
+                $alerts
+            ))));
+            sort($hotelIds);
+            if ($hotelIds === []) {
+                return [];
+            }
+            try {
+                $hotels = Db::name('hotels')->whereIn('id', $hotelIds)
+                    ->order('id', 'asc')->lock(true)->select()->toArray();
+            } catch (Throwable $exception) {
+                throw new \RuntimeException(
+                    'migration_required: operation alert hotel tenant scope cannot be locked',
+                    0,
+                    $exception
+                );
+            }
+            $tenantByHotel = [];
+            foreach ($hotels as $hotel) {
+                $lockedHotelId = (int)($hotel['id'] ?? 0);
+                $lockedTenantId = (int)($hotel['tenant_id'] ?? 0);
+                if ($lockedHotelId > 0 && $lockedTenantId > 0) {
+                    $tenantByHotel[$lockedHotelId] = $lockedTenantId;
+                }
+            }
+            if (count($tenantByHotel) !== count($hotelIds)) {
+                throw new \RuntimeException('operation alert hotel tenant scope is incomplete');
+            }
+
+            $now = $this->operationShanghaiNow();
+            $rows = [];
+            foreach ($alerts as $alert) {
+                $hotelId = (int)($alert['hotel_id'] ?? 0);
+                $type = trim((string)($alert['alert_type'] ?? ''));
+                if ($hotelId <= 0 || $type === '') {
+                    continue;
+                }
+                $tenantId = (int)($tenantByHotel[$hotelId] ?? 0);
+                $expectedTenantId = (int)($alert['tenant_id'] ?? $tenantId);
+                if ($tenantId <= 0 || $expectedTenantId <= 0 || $expectedTenantId !== $tenantId) {
+                    throw new \RuntimeException(
+                        'operation alert expected tenant changed before persistence; retry with fresh evidence'
+                    );
+                }
+                $source = trim((string)($alert['source'] ?? 'rule')) ?: 'rule';
+                $date = $this->operationStrictShanghaiDate(
+                    (string)($alert['related_date'] ?? $this->operationShanghaiToday()),
+                    'operation alert related_date'
+                )->format('Y-m-d');
+                $rawData = is_array($alert['raw_data'] ?? null) ? $alert['raw_data'] : [];
+                $actionSuggestion = $this->normalizeAlertSuggestion($alert);
+                if ($actionSuggestion !== '') {
+                    $rawData['action_suggestion'] = $actionSuggestion;
+                }
+                $payload = [
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'alert_type' => $type,
+                    'monitor_dedupe_key' => hash('sha256', implode('|', [
+                        $tenantId, $hotelId, $type, $source, $date,
+                    ])),
+                    'level' => (string)($alert['level'] ?? 'low'),
+                    'title' => (string)($alert['title'] ?? ''),
+                    'message' => (string)($alert['message'] ?? ''),
+                    'source' => $source,
+                    'related_date' => $date,
+                    'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+                    'updated_at' => $now,
+                ];
+                $existing = $this->findExactOperationAlertWinner($payload, true);
+                if (is_array($existing)) {
+                    if (!hash_equals(
+                        SourceBackedExecutionIntentIdentityService::operationAlertSnapshotDigest($existing),
+                        SourceBackedExecutionIntentIdentityService::operationAlertSnapshotDigest($payload)
+                    )) {
+                        $payload['status'] = 'unread';
+                    }
+                    $rows[] = $this->updateAndReadExactOperationAlertWinner($existing, $payload);
+                    continue;
+                }
+
+                $insert = $payload;
+                $insert['status'] = 'unread';
+                $insert['created_at'] = $now;
+                try {
+                    Db::name('operation_alerts')->insertGetId($insert);
+                } catch (Throwable $exception) {
+                    if (!$this->operationAlertDuplicateKeyError($exception)) {
+                        throw $exception;
+                    }
+                }
+                $winner = $this->findExactOperationAlertWinner($payload, true);
+                if (!is_array($winner)) {
+                    throw new \RuntimeException('operation alert exact duplicate winner could not be read back');
+                }
+                $rows[] = $this->updateAndReadExactOperationAlertWinner($winner, $payload);
+            }
+
+            return array_values(array_map([$this, 'normalizeAlertRow'], $rows));
+        });
     }
 
-    private function afterData(array $row): array
+    private function afterData(array $row, ?\DateTimeInterface $now = null): array
     {
-        $startDate = (string)$row['start_date'];
-        $endDate = (string)($row['end_date'] ?: date('Y-m-d'));
+        $window = $this->operationActionEffectWindow($row, $now);
         $hotelIds = [(int)$row['hotel_id']];
-        return $this->baseline($hotelIds, max(1, (int)((strtotime($endDate) - strtotime($startDate)) / 86400) + 1), date('Y-m-d', strtotime($endDate . ' +1 day')));
+        return $this->baseline($hotelIds, $window['days'], $window['as_of_date']);
     }
 
-    private function evaluateActionResult(array $row, array $before, array $after): array
+    private function evaluateActionResult(
+        array $row,
+        array $before,
+        array $after,
+        ?\DateTimeInterface $now = null
+    ): array
     {
-        $start = strtotime((string)$row['start_date']);
-        if ($start === false || time() - $start < 3 * 86400) {
+        $window = $this->operationActionEffectWindow($row, $now);
+        $shanghaiToday = $this->operationShanghaiDateTime($now)->setTime(0, 0);
+        $start = $this->operationStrictShanghaiDate($window['start_date'], 'operation action start_date');
+        $elapsedDays = (int)$start->diff($shanghaiToday)->format('%r%a');
+        if ($elapsedDays < 3) {
             return ['status' => 'observing', 'message' => '执行时间不足3天'];
         }
-        if (($after['data_status'] ?? '') !== self::DATA_OK) {
-            return ['status' => 'observing', 'message' => '暂无后续数据'];
-        }
-
         $targetMetric = (string)($row['target_metric'] ?: 'avg_orders');
-        $metricMap = [
-            'orders' => 'avg_orders',
-            'revenue' => 'avg_revenue',
-            'room_nights' => 'avg_room_nights',
-            'conversion' => 'avg_conversion',
-        ];
-        $metric = $metricMap[$targetMetric] ?? $targetMetric;
+        $comparability = $this->assessComparableActionEffectEvidence($targetMetric, $before, $after);
+        if (!$comparability['comparable']) {
+            return [
+                'status' => 'observing',
+                'message' => $comparability['message'],
+                'gap_code' => $comparability['gap_code'],
+                'data_gaps' => [[
+                    'code' => $comparability['gap_code'],
+                    'message' => $comparability['message'],
+                ]],
+            ];
+        }
+        $metric = 'avg_' . $comparability['metric'];
         $beforeValue = (float)($before[$metric] ?? 0);
         $afterValue = (float)($after[$metric] ?? 0);
         if (($row['target_change_rate'] ?? null) === null) {
@@ -279,13 +457,228 @@ trait OperationAlertConcern
         return ['status' => 'failed', 'message' => '观察期指标低于目标阈值的70%；不代表已证明动作因果', 'actual_change_rate' => round($actualRate, 2)];
     }
 
-    private function normalizeAlertRow(array $row): array
+    /** @return array{start_date:string,end_date:string,as_of_date:string,days:int} */
+    private function operationActionEffectWindow(array $row, ?\DateTimeInterface $now = null): array
     {
-        $row['id'] = (int)$row['id'];
-        $row['hotel_id'] = (int)$row['hotel_id'];
-        $row['raw_data'] = $this->decodeJson((string)($row['raw_data'] ?? ''));
-        $row['action_suggestion'] = $this->normalizeAlertSuggestion($row);
-        return $row;
+        $start = $this->operationStrictShanghaiDate(
+            (string)($row['start_date'] ?? ''),
+            'operation action start_date'
+        );
+        $rawEnd = trim((string)($row['end_date'] ?? ''));
+        $configuredEnd = $rawEnd === ''
+            ? $this->operationShanghaiDateTime($now)->setTime(0, 0)
+            : $this->operationStrictShanghaiDate($rawEnd, 'operation action end_date');
+        if ($configuredEnd < $start) {
+            throw new \InvalidArgumentException('operation action end_date must not be before start_date');
+        }
+        $today = $this->operationShanghaiDateTime($now)->setTime(0, 0);
+        $sevenDayEnd = $start->modify('+6 days');
+        $end = min($configuredEnd, $today, $sevenDayEnd);
+        if ($end < $start) {
+            $end = $start;
+        }
+
+        return [
+            'start_date' => $start->format('Y-m-d'),
+            'end_date' => $end->format('Y-m-d'),
+            'as_of_date' => $end->modify('+1 day')->format('Y-m-d'),
+            'days' => ((int)$start->diff($end)->format('%a')) + 1,
+        ];
+    }
+
+    private function operationAlertPersistenceSchemaGap(): ?array
+    {
+        if (($gap = $this->operationAlertTenantSchemaGap()) !== null) {
+            return $gap;
+        }
+        if (!$this->tableExists('operation_alerts')) {
+            return $this->operationAlertMigrationGap(
+                'operation_alerts_missing',
+                'operation alerts table is unavailable'
+            );
+        }
+        if (!$this->executionTenantSchemaHasColumn('operation_alerts', 'monitor_dedupe_key')) {
+            return $this->operationAlertMigrationGap(
+                'operation_alerts_dedupe_schema_missing',
+                'operation alerts must expose monitor_dedupe_key with a unique index'
+            );
+        }
+        if (!$this->operationAlertDedupeHasUniqueIndex()) {
+            return $this->operationAlertMigrationGap(
+                'operation_alerts_dedupe_unique_index_missing',
+                'operation alerts monitor_dedupe_key must have a unique index'
+            );
+        }
+
+        return null;
+    }
+
+    private function operationAlertDedupeHasUniqueIndex(): bool
+    {
+        try {
+            $indexes = Db::query('PRAGMA index_list(`operation_alerts`)');
+            foreach ($indexes as $index) {
+                if ((int)($index['unique'] ?? 0) !== 1) {
+                    continue;
+                }
+                $indexName = str_replace('`', '', (string)($index['name'] ?? ''));
+                if ($indexName === '') {
+                    continue;
+                }
+                $columns = array_map(
+                    static fn(array $column): string => (string)($column['name'] ?? ''),
+                    Db::query('PRAGMA index_info(`' . $indexName . '`)')
+                );
+                if ($columns === ['monitor_dedupe_key']) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable) {
+            // The production database is MySQL; SQLite is used by focused tests.
+        }
+
+        try {
+            return $this->operationAlertMySqlIndexRowsHaveExactDedupeUnique(
+                Db::query('SHOW INDEX FROM `operation_alerts`')
+            );
+        } catch (Throwable) {
+            return false;
+        }
+
+        return false;
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function operationAlertMySqlIndexRowsHaveExactDedupeUnique(array $rows): bool
+    {
+        $indexes = [];
+        foreach ($rows as $row) {
+            $name = (string)($row['Key_name'] ?? $row['key_name'] ?? '');
+            if ($name === '') {
+                continue;
+            }
+            $indexes[$name][] = [
+                'column' => (string)($row['Column_name'] ?? $row['column_name'] ?? ''),
+                'non_unique' => (int)($row['Non_unique'] ?? $row['non_unique'] ?? 1),
+                'sequence' => (int)($row['Seq_in_index'] ?? $row['seq_in_index'] ?? 0),
+                'prefix' => $row['Sub_part'] ?? $row['sub_part'] ?? null,
+            ];
+        }
+        foreach ($indexes as $parts) {
+            if (count($parts) !== 1) {
+                continue;
+            }
+            $part = $parts[0];
+            if ($part['non_unique'] === 0
+                && $part['sequence'] === 1
+                && $part['column'] === 'monitor_dedupe_key'
+                && ($part['prefix'] === null || $part['prefix'] === '')
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function operationAlertExpectedTenantId(int $hotelId): int
+    {
+        try {
+            $tenantId = (int)(Db::name('hotels')->where('id', $hotelId)->value('tenant_id') ?? 0);
+        } catch (Throwable $exception) {
+            throw new \RuntimeException(
+                'migration_required: operation alert hotel tenant scope cannot be read',
+                0,
+                $exception
+            );
+        }
+        if ($tenantId <= 0) {
+            throw new \RuntimeException('operation alert hotel has no authoritative tenant');
+        }
+
+        return $tenantId;
+    }
+
+    /** @param array<string,mixed> $identity */
+    private function findExactOperationAlertWinner(array $identity, bool $lock = false): ?array
+    {
+        $query = Db::name('operation_alerts')
+            ->where('monitor_dedupe_key', (string)$identity['monitor_dedupe_key'])
+            ->where('tenant_id', (int)$identity['tenant_id'])
+            ->where('hotel_id', (int)$identity['hotel_id'])
+            ->where('alert_type', (string)$identity['alert_type'])
+            ->where('source', (string)$identity['source'])
+            ->where('related_date', (string)$identity['related_date'])
+            ->whereNull('deleted_at');
+        if ($lock) {
+            $query->lock(true);
+        }
+        $row = $query->find();
+
+        return is_array($row) ? $row : null;
+    }
+
+    /** @param array<string,mixed> $winner @param array<string,mixed> $payload */
+    private function updateAndReadExactOperationAlertWinner(array $winner, array $payload): array
+    {
+        $id = (int)($winner['id'] ?? 0);
+        if ($id <= 0) {
+            throw new \RuntimeException('operation alert exact duplicate winner has no valid id');
+        }
+        Db::name('operation_alerts')
+            ->where('id', $id)
+            ->where('monitor_dedupe_key', (string)$payload['monitor_dedupe_key'])
+            ->where('tenant_id', (int)$payload['tenant_id'])
+            ->where('hotel_id', (int)$payload['hotel_id'])
+            ->where('alert_type', (string)$payload['alert_type'])
+            ->where('source', (string)$payload['source'])
+            ->where('related_date', (string)$payload['related_date'])
+            ->whereNull('deleted_at')
+            ->update($payload);
+        $readback = $this->findExactOperationAlertWinner($payload, true);
+        if (!is_array($readback) || (int)($readback['id'] ?? 0) !== $id) {
+            throw new \RuntimeException('operation alert exact duplicate winner readback changed');
+        }
+
+        return $readback;
+    }
+
+    private function operationAlertDuplicateKeyError(Throwable $exception): bool
+    {
+        $code = strtoupper(trim((string)$exception->getCode()));
+        $message = strtolower($exception->getMessage());
+        return in_array($code, ['23000', '23505'], true)
+            || str_contains($message, 'duplicate')
+            || str_contains($message, 'unique constraint');
+    }
+
+    private function operationShanghaiNow(?\DateTimeInterface $now = null): string
+    {
+        return $this->operationShanghaiDateTime($now)->format('Y-m-d H:i:s');
+    }
+
+    private function operationShanghaiDateTime(?\DateTimeInterface $now = null): DateTimeImmutable
+    {
+        $timezone = new DateTimeZone('Asia/Shanghai');
+        return $now === null
+            ? new DateTimeImmutable('now', $timezone)
+            : DateTimeImmutable::createFromInterface($now)->setTimezone($timezone);
+    }
+
+    private function operationStrictShanghaiDate(string $value, string $field): DateTimeImmutable
+    {
+        $value = trim($value);
+        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $value, new DateTimeZone('Asia/Shanghai'));
+        $errors = DateTimeImmutable::getLastErrors();
+        if ($parsed === false
+            || ($errors !== false && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0))
+            || $parsed->format('Y-m-d') !== $value
+        ) {
+            throw new \InvalidArgumentException($field . ' must be a valid YYYY-MM-DD calendar date');
+        }
+
+        return $parsed;
     }
 
     /** @param array<int,array<string,mixed>> $alerts */
@@ -294,42 +687,60 @@ trait OperationAlertConcern
         if ($alerts === []) {
             return [];
         }
-
         $executionReady = $persisted
             && $this->tableExists('operation_execution_intents')
             && $this->tableExists('operation_execution_tasks')
             && $this->tableExists('operation_execution_evidence');
         $intentByAlertKey = [];
         if ($executionReady) {
-            $alertIds = [];
-            $alertHotelIds = [];
-            $eligibleAlertKeys = [];
+            $alertIds = $alertHotelIds = $alertTenantIds = $eligibleAlertKeys = [];
             foreach ($alerts as $alert) {
                 $alertId = (int)($alert['id'] ?? 0);
+                $alertTenantId = (int)($alert['tenant_id'] ?? 0);
                 $alertHotelId = (int)($alert['hotel_id'] ?? 0);
-                if ($alertId <= 0 || $alertHotelId <= 0) {
+                if ($alertId <= 0 || $alertTenantId <= 0 || $alertHotelId <= 0) {
                     continue;
                 }
                 $alertIds[$alertId] = true;
+                $alertTenantIds[$alertTenantId] = true;
                 $alertHotelIds[$alertHotelId] = true;
-                $eligibleAlertKeys[$alertHotelId . ':' . $alertId] = true;
+                $eligibleAlertKeys[$alertTenantId . ':' . $alertHotelId . ':' . $alertId] = true;
             }
             if ($alertIds !== []) {
                 try {
                     $rows = Db::name('operation_execution_intents')
-                        ->where('source_module', 'operation_alert')
-                        ->whereIn('source_record_id', array_keys($alertIds))
-                        ->whereIn('hotel_id', array_keys($alertHotelIds))
+                        ->where('source_module', 'operation_alert')->whereIn('source_record_id', array_keys($alertIds))
+                        ->whereIn('tenant_id', array_keys($alertTenantIds))->whereIn('hotel_id', array_keys($alertHotelIds))
                         ->whereNull('deleted_at')
-                        ->field('id,source_record_id,hotel_id,status,blocked_reason,created_at,updated_at')
-                        ->order('id', 'desc')
-                        ->select()
-                        ->toArray();
+                        ->field('id,source_record_id,tenant_id,hotel_id,status,blocked_reason,evidence_json,created_at,updated_at')
+                        ->order('id', 'desc')->select()->toArray();
                     foreach ($rows as $row) {
                         $sourceRecordId = (int)($row['source_record_id'] ?? 0);
+                        $intentTenantId = (int)($row['tenant_id'] ?? 0);
                         $intentHotelId = (int)($row['hotel_id'] ?? 0);
-                        $key = $intentHotelId . ':' . $sourceRecordId;
-                        if (isset($eligibleAlertKeys[$key]) && !isset($intentByAlertKey[$key])) {
+                        $key = $intentTenantId . ':' . $intentHotelId . ':' . $sourceRecordId;
+                        $matchingAlert = null;
+                        foreach ($alerts as $candidateAlert) {
+                            if ((int)($candidateAlert['id'] ?? 0) === $sourceRecordId
+                                && (int)($candidateAlert['tenant_id'] ?? 0) === $intentTenantId
+                                && (int)($candidateAlert['hotel_id'] ?? 0) === $intentHotelId
+                            ) {
+                                $matchingAlert = $candidateAlert;
+                                break;
+                            }
+                        }
+                        $evidence = json_decode((string)($row['evidence_json'] ?? ''), true);
+                        $storedDigest = is_array($evidence)
+                            ? strtolower(trim((string)($evidence['source_snapshot_digest'] ?? '')))
+                            : '';
+                        $currentDigest = is_array($matchingAlert)
+                            ? SourceBackedExecutionIntentIdentityService::operationAlertSnapshotDigest($matchingAlert)
+                            : '';
+                        if (isset($eligibleAlertKeys[$key])
+                            && !isset($intentByAlertKey[$key])
+                            && preg_match('/^[a-f0-9]{64}$/D', $storedDigest) === 1
+                            && hash_equals($storedDigest, $currentDigest)
+                        ) {
                             $intentByAlertKey[$key] = $row;
                         }
                     }
@@ -341,8 +752,9 @@ trait OperationAlertConcern
 
         foreach ($alerts as &$alert) {
             $alertId = (int)($alert['id'] ?? 0);
+            $alertTenantId = (int)($alert['tenant_id'] ?? 0);
             $alertHotelId = (int)($alert['hotel_id'] ?? 0);
-            $intent = $intentByAlertKey[$alertHotelId . ':' . $alertId] ?? null;
+            $intent = $intentByAlertKey[$alertTenantId . ':' . $alertHotelId . ':' . $alertId] ?? null;
             if (is_array($intent)) {
                 $alert['task_bridge'] = $this->alertExecutionBridgeFromIntent($intent);
                 continue;
@@ -389,6 +801,9 @@ trait OperationAlertConcern
         $type = strtolower(trim((string)($alert['alert_type'] ?? '')));
         $source = strtolower(trim((string)($alert['source'] ?? '')));
         $rawData = is_array($alert['raw_data'] ?? null) ? $alert['raw_data'] : [];
+        if (strtolower(trim((string)($rawData['execution_bridge_policy'] ?? ''))) === 'alert_only') {
+            return '该信号只用于经营监控和停止/回滚提醒，不能直接转换为 OTA 执行任务';
+        }
         if ($source !== 'rule') {
             return '';
         }
@@ -414,19 +829,6 @@ trait OperationAlertConcern
         }
 
         return '';
-    }
-
-    /** @param array<string,mixed> $intent */
-    private function alertExecutionBridgeFromIntent(array $intent): array
-    {
-        return [
-            'can_convert' => false,
-            'linked' => (int)($intent['id'] ?? 0) > 0,
-            'intent_id' => (int)($intent['id'] ?? 0),
-            'intent_status' => (string)($intent['status'] ?? ''),
-            'blocked_reason' => (string)($intent['blocked_reason'] ?? ''),
-            'unavailable_reason' => '',
-        ];
     }
 
     /** @param array<string,mixed> $alert */
@@ -531,6 +933,7 @@ trait OperationAlertConcern
                 'protected_boundary' => '创建待审批运营任务，不自动批准、不自动执行、不写 OTA。',
                 'metric_scope' => 'ota_channel',
                 'auto_write_ota' => false,
+                'source_snapshot_digest' => SourceBackedExecutionIntentIdentityService::operationAlertSnapshotDigest($alert),
             ],
             'expected_metric' => trim((string)($rawData['metric_key'] ?? '')) ?: $expectedMetric,
             'expected_delta' => 0,
@@ -592,340 +995,5 @@ trait OperationAlertConcern
                 ? '先确认影响范围和责任模块，再安排负责人处理并在次日复盘数据变化。'
                 : '',
         };
-    }
-
-    private function cause(
-        string $type,
-        string $title,
-        int $priority,
-        float $ruleMatchWeight,
-        string $evidence,
-        string $suggestion,
-        array $referenceBasis = []
-    ): array
-    {
-        $detail = $this->causeDetail($type);
-        if (!empty($referenceBasis)) {
-            $referenceBasis['rule_version'] = 'operation_root_cause.v1';
-            $referenceDefinition = array_diff_key($referenceBasis, [
-                'measured_value' => true,
-                'reference_value' => true,
-            ]);
-            $referenceBasis['reference_version'] = hash('sha256', json_encode(
-                $referenceDefinition,
-                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
-            ) ?: '');
-        }
-        return [
-            'type' => $type,
-            'title' => $title,
-            'priority' => $priority,
-            'rule_match_weight' => $ruleMatchWeight,
-            'confidence' => $ruleMatchWeight,
-            'confidence_basis' => 'confidence 为兼容旧客户端保留，值等同 rule_match_weight；这是规则匹配权重，不是统计置信度或因果概率',
-            'evidence' => $evidence,
-            'reference_basis' => $referenceBasis,
-            'suggestion' => $suggestion,
-            'impact' => $detail['impact'],
-            'check_points' => $detail['check_points'],
-            'action_steps' => $detail['action_steps'],
-        ];
-    }
-
-    private function causeDetail(string $type): array
-    {
-        $details = [
-            'data_abnormal' => [
-                'impact' => '采集口径异常可能使漏斗和转化率失真，核验前不应用于价格、库存或投放决策。',
-                'check_points' => ['确认OTA配置是否绑定当前酒店', '检查Cookie或授权是否过期', '核对曝光、访客、订单字段映射和抓取日期'],
-                'action_steps' => ['重新同步当天OTA数据', '对比OTA后台原始值与系统入库值', '修正字段映射后重新执行可能影响因素分析'],
-            ],
-            'traffic_down' => [
-                'impact' => '曝光下降位于漏斗前端，可能缩小访客和订单触达范围；需继续核对排名、活动和供给展示证据。',
-                'check_points' => ['查看近7日曝光曲线和排名变化', '检查标题、首图、房型可售状态', '确认活动流量入口是否下线或预算不足'],
-                'action_steps' => ['先恢复可售房型和基础曝光入口', '优化首图标题并补齐活动位', '次日复看曝光、访客和订单是否同步恢复'],
-            ],
-            'view_conversion_low' => [
-                'impact' => '浏览转化偏低与详情页承接不足相关，但图片、卖点、价格展示或可售房型是否构成原因仍需逐项核验。',
-                'check_points' => ['复核首图、房型图和核心卖点是否清晰', '对比同圈层竞品的价格与权益展示', '检查可售房型、早餐、取消政策等关键卖点'],
-                'action_steps' => ['优先调整首图和房型展示顺序', '补充高频客群关注的卖点和权益', '观察浏览转化率是否在2到3天内回升'],
-            ],
-            'order_conversion_low' => [
-                'impact' => '订单转化偏低与价格竞争力、库存限制或预订政策阻力可能相关，现有规则不能确认具体原因。',
-                'check_points' => ['对比本店ADR与竞对均价', '检查取消政策、连住限制和库存余量', '确认促销、会员价和渠道价是否正常生效'],
-                'action_steps' => ['按房型做小幅跟价或权益补偿', '放开低风险库存和过严预订限制', '同步跟踪订单转化、ADR和RevPAR，避免只追单量'],
-            ],
-            'price_high' => [
-                'impact' => '较高价格可能削弱部分访客的下单意愿，但需结合房型、权益、评分和节假日窗口判断。',
-                'check_points' => ['按房型对齐竞品价格和权益', '确认高价是否由节假日、库存紧张或高评分支撑', '检查是否存在单渠道异常高价'],
-                'action_steps' => ['先处理明显高于竞品的房型', '用优惠权益替代直接降价时同步观察转化', '保留高需求日期的价格保护线'],
-            ],
-            'service_quality_low' => [
-                'impact' => '服务质量或PSI偏低可能与OTA流量承接和订单转化下降相关，仍需对照扣分项与同期漏斗验证。',
-                'check_points' => ['查看服务质量分和PSI扣分项', '核对履约、房态、库存和接口异常是否集中出现', '对比低分日期的曝光、访客和订单转化变化'],
-                'action_steps' => ['先处理可控的履约和房态问题', '把服务质量扣分项拆成门店任务并指定负责人', '次日复看服务质量、转化率和订单是否恢复'],
-            ],
-            'holiday_near' => [
-                'impact' => '节假日临近可能改变需求和价格弹性，库存、底价和活动节奏需结合预订进度提前复核。',
-                'check_points' => ['确认节假日库存、底价和连住策略', '对比竞对节假日价格带', '检查活动、预售和高需求日调价是否已生效'],
-                'action_steps' => ['先锁定高需求日底价和保留房量', '分阶段拉升价格并监控订单节奏', '节后复盘ADR、OCC和RevPAR表现'],
-            ],
-        ];
-
-        return $details[$type] ?? [
-            'impact' => '该因素可能影响经营结果，需要结合经营、OTA、竞对和服务质量数据复核。',
-            'check_points' => ['复核关联指标是否完整', '对比近7日和近30日趋势', '确认数据口径和酒店筛选是否一致'],
-            'action_steps' => ['先补齐关键数据', '按影响最大指标优先处理', '执行后持续跟踪订单、收入和转化变化'],
-        ];
-    }
-
-    private function extractRevenue(array $row, array $reportData): float
-    {
-        $revenue = $this->metricNumber($row['revenue'] ?? 0);
-        if ($revenue > 0) {
-            return $revenue;
-        }
-        foreach (['day_revenue', 'total_revenue', 'revenue', 'room_revenue'] as $key) {
-            $value = $this->metricNumber($reportData[$key] ?? 0);
-            if ($value > 0) {
-                return $value;
-            }
-        }
-        return $this->sumReportFields($reportData, [
-            'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue', 'qn_revenue', 'zx_revenue',
-            'booking_revenue', 'agoda_revenue', 'expedia_revenue',
-            'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue', 'wechat_revenue',
-            'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue',
-            'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue',
-        ]);
-    }
-
-    private function extractRoomNights(array $row, array $reportData): float
-    {
-        foreach (['room_nights', 'occupied_rooms', 'day_total_rooms', 'total_rooms'] as $key) {
-            $value = $this->numericMetricValue($reportData[$key] ?? null);
-            if ($value !== null) {
-                return $value;
-            }
-        }
-
-        $roomFields = [
-            'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms', 'qn_rooms', 'zx_rooms',
-            'booking_rooms', 'agoda_rooms', 'expedia_rooms',
-            'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms',
-            'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms',
-        ];
-        if ($this->hasAnyNumericMetric($reportData, $roomFields)) {
-            return $this->sumReportFields($reportData, $roomFields);
-        }
-
-        return 0.0;
-    }
-
-    /** @param array<string, mixed> $row @param array<string, mixed> $reportData */
-    private function dailyRevenueIsPresent(array $row, array $reportData): bool
-    {
-        return $this->hasAnyNumericMetric($row, ['revenue'])
-            || $this->hasAnyNumericMetric($reportData, [
-                'day_revenue', 'total_revenue', 'revenue', 'room_revenue',
-                'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue', 'qn_revenue', 'zx_revenue',
-                'booking_revenue', 'agoda_revenue', 'expedia_revenue',
-                'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue', 'wechat_revenue',
-                'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue',
-                'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue',
-            ]);
-    }
-
-    /** @param array<string, mixed> $reportData */
-    private function dailyRoomNightsArePresent(array $reportData): bool
-    {
-        return $this->hasAnyNumericMetric($reportData, [
-            'room_nights', 'occupied_rooms', 'day_total_rooms', 'total_rooms',
-            'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms', 'qn_rooms', 'zx_rooms',
-            'booking_rooms', 'agoda_rooms', 'expedia_rooms',
-            'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms',
-            'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms',
-        ]);
-    }
-
-    /** @param array<string, mixed> $row @param array<string, mixed> $reportData */
-    private function extractDailyOrders(array $row, array $reportData): ?float
-    {
-        foreach ([
-            [$row, ['orders', 'order_count', 'book_order_num']],
-            [$reportData, ['orders', 'order_count', 'book_order_num', 'bookOrderNum', 'booking_count', 'bookingCount']],
-        ] as [$source, $keys]) {
-            foreach ($keys as $key) {
-                if (!array_key_exists($key, $source)) {
-                    continue;
-                }
-                $value = $this->numericMetricValue($source[$key]);
-                if ($value !== null) {
-                    return $value;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /** @param array<string, mixed> $data @param array<int, string> $keys */
-    private function hasAnyNumericMetric(array $data, array $keys): bool
-    {
-        foreach ($keys as $key) {
-            if (array_key_exists($key, $data) && $this->numericMetricValue($data[$key]) !== null) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function numericMetricValue(mixed $value): ?float
-    {
-        if (is_int($value) || is_float($value)) {
-            return is_finite((float)$value) ? (float)$value : null;
-        }
-        if (!is_string($value)) {
-            return null;
-        }
-
-        $clean = str_replace([',', ' ', "\u{00A0}", '%'], '', trim($value));
-        return $clean !== '' && is_numeric($clean) ? (float)$clean : null;
-    }
-
-    /** @param array<string, bool> $coverage @param array<string, mixed> $row */
-    private function markDailyMetricCoverage(array &$coverage, array $row): void
-    {
-        $date = substr(trim((string)($row['report_date'] ?? '')), 0, 10);
-        if ($date === '') {
-            return;
-        }
-        $hotelId = (int)($row['hotel_id'] ?? 0);
-        $coverage[$hotelId > 0 ? $hotelId . ':' . $date : $date] = true;
-    }
-
-    /** @param array<string, bool> $coverage @param array<string, mixed> $onlineRow */
-    private function hasDailyMetricForOnlineRow(array $coverage, array $onlineRow): bool
-    {
-        $date = substr(trim((string)($onlineRow['data_date'] ?? '')), 0, 10);
-        if ($date === '') {
-            return false;
-        }
-        $systemHotelId = (int)($onlineRow['system_hotel_id'] ?? 0);
-        if ($systemHotelId > 0 && isset($coverage[$systemHotelId . ':' . $date])) {
-            return true;
-        }
-
-        return isset($coverage[$date]);
-    }
-
-    private function extractSalableRoomCount(array $row, array $reportData): float
-    {
-        foreach ([
-            $row['room_count'] ?? null,
-            $reportData['salable_rooms'] ?? null,
-            $reportData['salable_rooms_total'] ?? null,
-            $reportData['total_rooms_count'] ?? null,
-            $reportData['room_count'] ?? null,
-            $reportData['rooms_total'] ?? null,
-        ] as $value) {
-            $number = $this->metricNumber($value);
-            if ($number > 0) {
-                return $number;
-            }
-        }
-        return 0.0;
-    }
-
-    private function sumReportFields(array $reportData, array $fields): float
-    {
-        $total = 0.0;
-        foreach ($fields as $field) {
-            $total += $this->metricNumber($reportData[$field] ?? 0);
-        }
-        return $total;
-    }
-
-    private function metricNumber($value): float
-    {
-        if (is_int($value) || is_float($value)) {
-            return (float)$value;
-        }
-
-        if (!is_string($value)) {
-            return 0.0;
-        }
-
-        $clean = str_replace([',', ' ', "\u{00A0}", '%'], '', trim($value));
-        return is_numeric($clean) ? (float)$clean : 0.0;
-    }
-
-    private function buildDailyFinancialKeys(array $dailyRows): array
-    {
-        $keys = [];
-        foreach ($dailyRows as $row) {
-            $date = (string)($row['report_date'] ?? '');
-            if ($date === '') {
-                continue;
-            }
-            $hotelId = (int)($row['hotel_id'] ?? 0);
-            if ($hotelId > 0) {
-                $keys[$hotelId . ':' . $date] = true;
-            } else {
-                $keys[$date] = true;
-            }
-        }
-        return $keys;
-    }
-
-    private function hasDailyFinancialForOnlineRow(array $dailyFinancialKeys, array $onlineRow): bool
-    {
-        $date = (string)($onlineRow['data_date'] ?? '');
-        if ($date === '') {
-            return false;
-        }
-        $systemHotelId = (int)($onlineRow['system_hotel_id'] ?? 0);
-        if ($systemHotelId > 0 && isset($dailyFinancialKeys[$systemHotelId . ':' . $date])) {
-            return true;
-        }
-        return isset($dailyFinancialKeys[$date]);
-    }
-
-    private function decodeJson(string $json): array
-    {
-        $decoded = json_decode($json, true);
-        return is_array($decoded) ? $decoded : [];
-    }
-
-    private function avg(array $values): float
-    {
-        $values = array_values(array_filter($values, static fn($v): bool => is_numeric($v) && (float)$v > 0));
-        return empty($values) ? 0.0 : round(array_sum($values) / count($values), 2);
-    }
-
-    private function strategyName(string $type): string
-    {
-        return [
-            'price_adjust' => '价格调整',
-            'promotion' => '促销活动',
-            'room_inventory' => '房量库存',
-            'competitor_follow' => '竞对跟价',
-            'holiday_strategy' => '节假日策略',
-        ][$type] ?? '未知策略';
-    }
-
-    private function buildSimulationRecommendation(string $type, string $riskLevel): string
-    {
-        if ($riskLevel === 'high' || $riskLevel === 'medium_high') {
-            return '建议缩小调整幅度，先选择单渠道或少量房型试运行';
-        }
-        if ($riskLevel === 'unknown') {
-            return '规则未形成风险等级证据；请先人工核对价格、库存、竞对和日期环境，再决定是否小范围试行';
-        }
-        if ($type === 'holiday_strategy') {
-            return '建议结合节假日库存和竞对价格分阶段执行';
-        }
-        return '建议先小范围执行，并持续跟踪订单、收入和转化变化';
     }
 }

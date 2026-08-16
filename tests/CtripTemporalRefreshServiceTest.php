@@ -133,6 +133,57 @@ final class CtripTemporalRefreshServiceTest extends TestCase
         );
     }
 
+    public function testCurrentOnlyRefreshSkipsSupplementalFlows(): void
+    {
+        $date = date('Y-m-d');
+        $capturedAt = date('Y-m-d H:i:s');
+        $rows = [];
+        $flows = [];
+        $payloads = new CtripTemporalNotificationPayloadService(
+            static function () use (&$rows): array {
+                return $rows;
+            }
+        );
+        $service = new CtripTemporalRefreshService(
+            function (mixed $actor, int $sourceId, array $options) use (
+                &$flows,
+                &$rows,
+                $date,
+                $capturedAt
+            ): array {
+                $flows[] = (string)$options['collector_flow'];
+                $rows[] = $this->presentRow(6, 601, $date, $capturedAt);
+                return [
+                    'status' => 'success',
+                    'task_id' => 601,
+                    'saved_count' => 1,
+                    'readback_verified' => true,
+                ];
+            },
+            static fn(): array => ['id' => 25],
+            $payloads,
+            static function (): array {
+                throw new \RuntimeException('supplemental_flow_lookup_must_not_run');
+            }
+        );
+
+        $result = $service->refresh(
+            (object)['id' => 7],
+            9,
+            80,
+            'Dunhuang Molan',
+            $date,
+            new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')),
+            true
+        );
+
+        self::assertSame('ready', $result['status']);
+        self::assertSame(['realtime'], $flows);
+        self::assertSame('current_only', $result['refresh_scope']);
+        self::assertSame(601, $result['sync_task_id']);
+        self::assertSame(1, $result['saved_count']);
+    }
+
     public function testDailySupplementalFlowsAreNotRetriedAfterAnAttempt(): void
     {
         $date = date('Y-m-d');

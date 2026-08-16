@@ -1109,6 +1109,8 @@ class RevenuePricingRecommendationService
                 'data_status' => 'ok',
                 'source' => 'demand_forecasts',
                 'id' => (int)$forecast->id,
+                'room_type_id' => (int)$forecast->room_type_id,
+                'forecast_date' => (string)$forecast->forecast_date,
                 'predicted_occupancy' => $this->toFloat($forecast->predicted_occupancy ?? 0),
                 'predicted_demand' => (int)($forecast->predicted_demand ?? 0),
                 'confidence_score' => $this->toFloat($forecast->confidence_score ?? 0),

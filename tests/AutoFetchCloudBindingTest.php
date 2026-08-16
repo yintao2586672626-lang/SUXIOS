@@ -39,6 +39,19 @@ final class AutoFetchCloudBindingTest extends TestCase
             . 'system_hotel_id INTEGER, platform TEXT, ingestion_method TEXT, '
             . 'enabled INTEGER, status TEXT, config_json TEXT, update_time DATETIME)'
         );
+        Db::execute(
+            'CREATE TABLE users ('
+            . 'id INTEGER PRIMARY KEY, tenant_id INTEGER, status INTEGER, role_id INTEGER)'
+        );
+        Db::execute(
+            'CREATE TABLE hotels ('
+            . 'id INTEGER PRIMARY KEY, tenant_id INTEGER, status INTEGER)'
+        );
+        Db::execute(
+            'CREATE TABLE user_hotel_permissions ('
+            . 'id INTEGER PRIMARY KEY, user_id INTEGER, hotel_id INTEGER, tenant_id INTEGER, '
+            . 'can_fetch_online_data INTEGER, status TEXT, expires_at DATETIME NULL)'
+        );
     }
 
     public static function tearDownAfterClass(): void
@@ -55,6 +68,107 @@ final class AutoFetchCloudBindingTest extends TestCase
     {
         parent::setUp();
         Db::name('platform_data_sources')->delete(true);
+        Db::name('user_hotel_permissions')->delete(true);
+        Db::name('hotels')->delete(true);
+        Db::name('users')->delete(true);
+    }
+
+    public function testExplicitGrantedProductionHotelCanInitializeCloudScope(): void
+    {
+        Db::name('users')->insert([
+            'id' => 1,
+            'tenant_id' => 1,
+            'status' => 1,
+            'role_id' => 1,
+        ]);
+        Db::name('hotels')->insert([
+            'id' => 5,
+            'tenant_id' => 1,
+            'status' => 1,
+        ]);
+        Db::name('user_hotel_permissions')->insert([
+            'id' => 1,
+            'user_id' => 1,
+            'hotel_id' => 5,
+            'tenant_id' => 1,
+            'can_fetch_online_data' => 1,
+            'status' => 'active',
+            'expires_at' => null,
+        ]);
+
+        $sources = [
+            array_merge($this->source(5, 'ctrip', [
+                'stable_profile_id' => 'ctrip-profile',
+                'platform_hotel_id' => '130079194',
+            ]), [
+                'tenant_id' => 1,
+                'system_hotel_id' => 5,
+            ]),
+            array_merge($this->source(6, 'meituan', [
+                'store_id' => '1029642156589279',
+                'platform_hotel_id' => '1029642156589279',
+            ]), [
+                'tenant_id' => 1,
+                'system_hotel_id' => 5,
+            ]),
+        ];
+        foreach ($sources as $source) {
+            Db::name('platform_data_sources')->insert($source);
+        }
+
+        $command = new AutoFetchOnlineData();
+        $sourcesReadback = (new \ReflectionMethod(
+            $command,
+            'initializeCloudCollectorScope'
+        ))->invoke(
+            $command,
+            1,
+            'tencent-cloud-hotel-5',
+            5,
+            [5, 6],
+            ['ctrip', 'meituan'],
+            false
+        );
+        $scope = (new \ReflectionProperty($command, 'cloudCollectorScope'))
+            ->getValue($command);
+
+        self::assertCount(2, $sourcesReadback);
+        self::assertSame(1, $scope['tenant_id']);
+        self::assertSame(5, $scope['hotel_id']);
+        self::assertSame([5, 6], $scope['source_ids']);
+        self::assertSame('same_tenant_explicit_hotel_grant', $scope['authorization_mode']);
+    }
+
+    public function testProductionHotelWithoutExplicitGrantRemainsBlocked(): void
+    {
+        Db::name('users')->insert([
+            'id' => 1,
+            'tenant_id' => 1,
+            'status' => 1,
+            'role_id' => 1,
+        ]);
+        Db::name('hotels')->insert([
+            'id' => 5,
+            'tenant_id' => 1,
+            'status' => 1,
+        ]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'collector user has no active, unexpired, tenant-bound hotel fetch grant.'
+        );
+        (new \ReflectionMethod(
+            new AutoFetchOnlineData(),
+            'initializeCloudCollectorScope'
+        ))->invoke(
+            new AutoFetchOnlineData(),
+            1,
+            'tencent-cloud-hotel-5',
+            5,
+            [5, 6],
+            ['ctrip', 'meituan'],
+            false
+        );
     }
 
     public function testConfirmedBindingIsAtomicAndPreservesExistingProfileMetadata(): void
@@ -86,7 +200,10 @@ final class AutoFetchCloudBindingTest extends TestCase
             ]);
         }
 
-        $this->bind($sources, $this->scope('server-owner-device'), false);
+        $this->bind($sources, $this->scope('server-owner-device'), false, [
+            25 => 'ctrip-h80',
+            68 => 'meituan-h80',
+        ]);
 
         $ctrip = $this->storedConfig(25);
         $meituan = $this->storedConfig(68);
@@ -108,6 +225,16 @@ final class AutoFetchCloudBindingTest extends TestCase
             self::assertSame(1, $config['collector_user_id'], (string)$sourceId);
             self::assertSame(80, $config['collector_tenant_id'], (string)$sourceId);
             self::assertSame(80, $config['collector_hotel_id'], (string)$sourceId);
+            self::assertSame(
+                'explicit_single_user_local_binding',
+                $config['platform_hotel_identity_source'],
+                (string)$sourceId
+            );
+            self::assertSame(
+                $config['collector_bound_at'],
+                $config['platform_hotel_identity_checked_at'],
+                (string)$sourceId
+            );
         }
         self::assertSame('ctrip', $ctrip['collector_platform']);
         self::assertSame('meituan', $meituan['collector_platform']);
@@ -272,6 +399,27 @@ final class AutoFetchCloudBindingTest extends TestCase
         ], $method->invoke($command, $error));
     }
 
+    public function testCloudBindingDoesNotPromoteLegacyAliasWithoutExplicitCanonicalAnchor(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'cloudCollectorBoundSourceConfig');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'platform_hotel_id is required for every cloud collector source.'
+        );
+        $method->invoke(
+            $command,
+            ['id' => 68, 'platform' => 'meituan'],
+            [
+                'store_id' => 'legacy-store-id',
+                'poi_id' => 'legacy-store-id',
+            ],
+            $this->scope('server-owner-device'),
+            '2026-08-11 10:30:00'
+        );
+    }
+
     /** @return array<string, mixed> */
     private function source(int $id, string $platform, array $config): array
     {
@@ -307,11 +455,22 @@ final class AutoFetchCloudBindingTest extends TestCase
     }
 
     /** @param array<int, array<string, mixed>> $sources @param array<string, mixed> $scope */
-    private function bind(array $sources, array $scope, bool $allowRotation): void
+    private function bind(
+        array $sources,
+        array $scope,
+        bool $allowRotation,
+        array $platformHotelAnchors = []
+    ): void
     {
         $command = new AutoFetchOnlineData();
         $method = new \ReflectionMethod($command, 'bindCloudCollectorSources');
-        $method->invoke($command, $sources, $scope, $allowRotation);
+        $method->invoke(
+            $command,
+            $sources,
+            $scope,
+            $allowRotation,
+            $platformHotelAnchors
+        );
     }
 
     /** @return array<string, mixed> */

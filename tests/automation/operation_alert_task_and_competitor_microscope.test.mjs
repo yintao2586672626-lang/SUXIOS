@@ -16,13 +16,17 @@ const competitorPage = readFileSync('resources/frontend/templates/fragments/27-p
 const routes = readFileSync('route/app.php', 'utf8');
 const controller = readFileSync('app/controller/OperationManagement.php', 'utf8');
 const service = readSourceAggregate('app/service/OperationManagementService.php');
+const sourceIdentity = readFileSync('app/service/SourceBackedExecutionIntentIdentityService.php', 'utf8');
 const competitorModel = readFileSync('app/model/CompetitorAnalysis.php', 'utf8');
 const agentController = readSourceAggregate('app/controller/Agent.php');
 
 test('threshold alerts expose an idempotent pending-task bridge without automatic OTA execution', () => {
   assert.match(routes, /Route::post\('\/alerts\/:id\/execution-intent', 'OperationManagement\/alertExecutionIntent'\)/);
   assert.match(controller, /createExecutionIntentFromAlert/);
-  assert.match(service, /operation_alert_.*md5\('v1\|'/s);
+  assert.match(service, /SourceBackedExecutionIntentIdentityService::operationAlertSnapshotDigest\(\$alert\)/);
+  assert.match(sourceIdentity, /public static function operationAlertSnapshotDigest\(array \$source\): string/);
+  assert.match(sourceIdentity, /'tenant_id' => \(int\)\(\$source\['tenant_id'\]/);
+  assert.match(sourceIdentity, /return self::snapshotDigest\('operation_alert', \$snapshot\)/);
   assert.match(service, /pending_human_approval_no_automatic_ota_write/);
   assert.match(service, /'object_type' => 'operation_checklist'/);
   assert.match(service, /'auto_write_ota' => false/);

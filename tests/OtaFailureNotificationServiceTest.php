@@ -8,6 +8,8 @@ use app\controller\SystemNotificationController;
 use app\model\SystemNotification;
 use app\model\SystemNotificationUserState;
 use app\service\OtaFailureNotificationService;
+use app\service\OtaFailureWechatDeliveryLedgerService;
+use app\service\WechatRobotDeliveryService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionProperty;
@@ -64,6 +66,8 @@ final class OtaFailureNotificationServiceTest extends TestCase
     protected function setUp(): void
     {
         foreach ([
+            'ota_failure_wecom_deliveries',
+            'competitor_wechat_robot',
             'system_notification_user_states',
             'system_notifications',
             'operation_logs',
@@ -135,6 +139,83 @@ final class OtaFailureNotificationServiceTest extends TestCase
         self::assertSame(1, SystemNotification::where('hotel_id', 7)->where('platform', 'ctrip')->count());
         self::assertSame([], SystemNotificationUserState::statesByNotificationId([(int)$notification->id], 101));
         self::assertStringContainsString('2026-07-14', (string)SystemNotification::find((int)$notification->id)->message);
+    }
+
+    public function testWechatFailureDeliveryUsesDurableClaimBeforeSending(): void
+    {
+        $this->seedHotelAndUsers();
+        $this->grantHotel(101, 7);
+        $this->seedConfig(7, 'ctrip', 101);
+        $this->seedSharedRobot(7);
+        $calls = 0;
+        $delivery = new WechatRobotDeliveryService(
+            static function () use (&$calls): array {
+                $calls++;
+                return ['success' => true];
+            }
+        );
+        $service = new OtaFailureNotificationService(
+            $delivery,
+            new OtaFailureWechatDeliveryLedgerService()
+        );
+        $event = [
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'reason_code' => 'collection_failed',
+            'data_date' => '2026-08-13',
+            'task_id' => 901,
+            'notify_wecom' => true,
+            'success' => false,
+            'saved_count' => 0,
+        ];
+
+        $first = $service->recordCollectionOutcome($event);
+        $second = $service->recordCollectionOutcome($event);
+
+        self::assertSame('sent', $first['deliveries'][0]['wecom_delivery']['delivery_status']);
+        self::assertSame('deduplicated', $second['deliveries'][0]['wecom_delivery']['delivery_status']);
+        self::assertSame('sent', $second['deliveries'][0]['wecom_delivery']['original_delivery_status']);
+        self::assertSame(1, $calls);
+        self::assertSame(1, Db::name('ota_failure_wecom_deliveries')->count());
+        self::assertSame('sent', Db::name('ota_failure_wecom_deliveries')->value('status'));
+    }
+
+    public function testAmbiguousWechatResultIsNotBlindlyRetried(): void
+    {
+        $this->seedHotelAndUsers();
+        $this->grantHotel(101, 7);
+        $this->seedConfig(7, 'meituan', 101);
+        $this->seedSharedRobot(7);
+        $calls = 0;
+        $delivery = new WechatRobotDeliveryService(
+            static function () use (&$calls): array {
+                $calls++;
+                return ['success' => false, 'error' => 'timeout', 'ambiguous' => true];
+            }
+        );
+        $service = new OtaFailureNotificationService(
+            $delivery,
+            new OtaFailureWechatDeliveryLedgerService()
+        );
+        $event = [
+            'hotel_id' => 7,
+            'platform' => 'meituan',
+            'reason_code' => 'collection_failed',
+            'data_date' => '2026-08-13',
+            'task_id' => 902,
+            'notify_wecom' => true,
+            'success' => false,
+            'saved_count' => 0,
+        ];
+
+        $first = $service->recordCollectionOutcome($event);
+        $second = $service->recordCollectionOutcome($event);
+
+        self::assertSame('outcome_unknown', $first['deliveries'][0]['wecom_delivery']['delivery_status']);
+        self::assertSame('outcome_unknown', $second['deliveries'][0]['wecom_delivery']['delivery_status']);
+        self::assertTrue($second['deliveries'][0]['wecom_delivery']['retry_may_duplicate']);
+        self::assertSame(1, $calls);
+        self::assertSame('outcome_unknown', Db::name('ota_failure_wecom_deliveries')->value('status'));
     }
 
     public function testInvisibleConfigSubmitterDoesNotFallBackToUnrelatedHotelOwner(): void
@@ -660,6 +741,36 @@ final class OtaFailureNotificationServiceTest extends TestCase
             update_time TEXT DEFAULT NULL
         )");
         Db::execute('CREATE TABLE operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, user_id INTEGER, hotel_id INTEGER, module TEXT, action TEXT, description TEXT, error_info TEXT, extra_data TEXT, create_time TEXT)');
+        Db::execute("CREATE TABLE competitor_wechat_robot (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            store_id INTEGER NOT NULL,
+            owner_user_id INTEGER DEFAULT NULL,
+            notification_scope TEXT DEFAULT NULL,
+            name TEXT NOT NULL,
+            webhook TEXT NOT NULL,
+            status INTEGER NOT NULL DEFAULT 1
+        )");
+        Db::execute("CREATE TABLE ota_failure_wecom_deliveries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER DEFAULT NULL,
+            hotel_id INTEGER NOT NULL,
+            platform TEXT NOT NULL,
+            reason_code TEXT NOT NULL,
+            data_date TEXT NOT NULL,
+            collector_task_id INTEGER DEFAULT NULL,
+            dedupe_key TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL,
+            claim_token TEXT NOT NULL,
+            robot_count INTEGER NOT NULL DEFAULT 0,
+            sent_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            response_reference TEXT DEFAULT NULL,
+            result_code TEXT DEFAULT NULL,
+            requested_at TEXT NOT NULL,
+            completed_at TEXT DEFAULT NULL,
+            create_time TEXT NOT NULL,
+            update_time TEXT NOT NULL
+        )");
         Db::execute("CREATE TABLE system_notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             hotel_id INTEGER DEFAULT NULL,
@@ -693,5 +804,17 @@ final class OtaFailureNotificationServiceTest extends TestCase
             update_time TEXT DEFAULT NULL,
             UNIQUE(notification_id, user_id)
         )");
+    }
+
+    private function seedSharedRobot(int $hotelId): void
+    {
+        Db::name('competitor_wechat_robot')->insert([
+            'store_id' => $hotelId,
+            'owner_user_id' => null,
+            'notification_scope' => 'admin_shared',
+            'name' => 'OTA failure robot',
+            'webhook' => 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=1234567890abcdef',
+            'status' => 1,
+        ]);
     }
 }

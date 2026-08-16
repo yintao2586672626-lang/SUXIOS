@@ -191,7 +191,10 @@ trait AgentOtaDiagnosisPersistenceConcern
 
     private function persistOtaDiagnosisResult(array $result, int $hotelId, string $platform): array
     {
-        $schemaVersion = 2;
+        // Schema v4 binds the root-evidence-aware Ctrip operating radar to the exact readback
+        // identity. Radar-less diagnoses keep v2 so existing platform flows do
+        // not change their persistence contract.
+        $schemaVersion = is_array($result['operating_radar'] ?? null) ? 4 : 2;
         $resolvedHotelId = $hotelId > 0 ? $hotelId : (int)($result['hotel']['id'] ?? 0);
         if ($resolvedHotelId <= 0) {
             $result['saved_record'] = [
@@ -393,6 +396,16 @@ trait AgentOtaDiagnosisPersistenceConcern
         $endDate = trim((string)($requestedDateRange['end_date'] ?? ''));
         $expectedPlatforms = [];
 
+        if (is_array($snapshot['operating_radar'] ?? null)) {
+            $this->assertCtripOperatingRadarScope(
+                $snapshot['operating_radar'],
+                $snapshot,
+                $hotelId,
+                $platform,
+                ['start_date' => $startDate, 'end_date' => $endDate]
+            );
+        }
+
         foreach ((array)($snapshot['evidence_sources'] ?? []) as $source) {
             if (!is_array($source)
                 || ($source['decision_eligible'] ?? false) !== true
@@ -484,6 +497,142 @@ trait AgentOtaDiagnosisPersistenceConcern
                 || $rowDate > $endDate
             ) {
                 throw new \RuntimeException('OTA diagnosis decision evidence identity mismatch');
+            }
+        }
+    }
+
+    /** @param array<string,mixed> $radar @param array<string,mixed> $snapshot */
+    private function assertCtripOperatingRadarScope(
+        array $radar,
+        array $snapshot,
+        int $hotelId,
+        string $platform,
+        array $requestedDateRange
+    ): void {
+        $expectedDimensionKeys = [
+            'information_score',
+            'friendliness',
+            'quality',
+            'welcome',
+            'platform_technical_service_fee',
+        ];
+        $scope = is_array($radar['scope'] ?? null) ? $radar['scope'] : [];
+        $scorePolicy = is_array($radar['score_policy'] ?? null) ? $radar['score_policy'] : [];
+        $guards = is_array($radar['guards'] ?? null) ? $radar['guards'] : [];
+        $dimensions = array_values(array_filter((array)($radar['dimensions'] ?? []), 'is_array'));
+        $dimensionKeys = array_map(static fn(array $dimension): string => (string)($dimension['key'] ?? ''), $dimensions);
+        $platform = strtolower(trim($platform));
+
+        if ($platform !== 'ctrip'
+            || (int)($radar['schema_version'] ?? 0) !== 2
+            || (string)($radar['contract_version'] ?? '') !== 'ctrip_operating_radar.v2'
+            || (string)($radar['knowledge']['module_id'] ?? '') !== 'ctrip_hotel_operating_radar'
+            || (string)($radar['knowledge']['truth_profile_version'] ?? '') !== '2026-08-11.4'
+            || (int)($scope['hotel_id'] ?? 0) !== $hotelId
+            || strtolower(trim((string)($scope['platform'] ?? ''))) !== 'ctrip'
+            || (string)($scope['source_scope'] ?? '') !== 'ctrip_ota_channel_only'
+            || (string)($scope['requested_start_date'] ?? '') !== (string)($requestedDateRange['start_date'] ?? '')
+            || (string)($scope['requested_end_date'] ?? '') !== (string)($requestedDateRange['end_date'] ?? '')
+            || $dimensionKeys !== $expectedDimensionKeys
+        ) {
+            throw new \RuntimeException('Ctrip operating radar identity or dimension contract mismatch');
+        }
+
+        if (($scorePolicy['official_score_available'] ?? null) !== false
+            || ($scorePolicy['official_weights_available'] ?? null) !== false
+            || ($scorePolicy['official_formula_available'] ?? null) !== false
+            || array_key_exists('composite_score', $scorePolicy) === false
+            || $scorePolicy['composite_score'] !== null
+            || ($scorePolicy['single_dimension_determines_result'] ?? null) !== false
+        ) {
+            throw new \RuntimeException('Ctrip operating radar must not infer official scores, weights, formula, or ranking');
+        }
+
+        foreach ([
+            'decision_safe',
+            'task_draft_safe',
+            'external_write_authorized',
+            'automatic_pricing',
+            'automatic_inventory_change',
+            'automatic_commission_change',
+            'automatic_marketing',
+            'automatic_ota_write',
+            'automatic_pms_write',
+        ] as $guardKey) {
+            if (($guards[$guardKey] ?? null) !== false) {
+                throw new \RuntimeException('Ctrip operating radar safety guard mismatch: ' . $guardKey);
+            }
+        }
+
+        $evidenceSources = [];
+        foreach ((array)($snapshot['evidence_sources'] ?? []) as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $ref = trim((string)($source['ref'] ?? ''));
+            if ($ref !== '') {
+                $evidenceSources[$ref] = $source;
+            }
+        }
+        foreach ($dimensions as $dimension) {
+            if (!array_key_exists('official_score', $dimension) || $dimension['official_score'] !== null) {
+                throw new \RuntimeException('Ctrip operating radar dimension must not expose an inferred official score');
+            }
+            if (!in_array((string)($dimension['status'] ?? ''), ['observed_channel_signal', 'partial_evidence', 'blocked_by_data'], true)) {
+                throw new \RuntimeException('Ctrip operating radar dimension has an unsupported evidence status');
+            }
+            $metricKeys = [];
+            foreach ((array)($dimension['metrics'] ?? []) as $metric) {
+                if (is_array($metric)) {
+                    $metricKeys[] = (string)($metric['key'] ?? '');
+                }
+            }
+            if ((string)($dimension['key'] ?? '') === 'platform_technical_service_fee'
+                && in_array('commission_rate', $metricKeys, true)
+            ) {
+                throw new \RuntimeException('Ctrip commission rate must not substitute for technical service fee');
+            }
+            $validRootEvidenceRefs = [];
+            foreach ((array)($dimension['evidence_refs'] ?? []) as $refValue) {
+                $ref = trim((string)$refValue);
+                $source = $evidenceSources[$ref] ?? null;
+                if ($ref === '' || !is_array($source)) {
+                    throw new \RuntimeException('Ctrip operating radar evidence reference is not in the saved diagnosis snapshot');
+                }
+                $sourceTable = strtolower(trim((string)($source['table'] ?? '')));
+                if ($ref === 'source_summary') {
+                    if ($sourceTable !== 'derived') {
+                        throw new \RuntimeException('Ctrip operating radar source summary must remain derived channel evidence');
+                    }
+                    continue;
+                }
+                if (in_array($ref, ['ota_no_data_scope', 'ota_latest_available_not_target_date'], true)) {
+                    if ($sourceTable !== 'derived') {
+                        throw new \RuntimeException('Ctrip operating radar scope marker must remain derived evidence');
+                    }
+                    continue;
+                }
+                if (!str_starts_with($ref, 'online_daily_data#')
+                    || $sourceTable !== 'online_daily_data'
+                    || ($source['decision_eligible'] ?? false) !== true
+                    || strtolower(trim((string)($source['platform'] ?? ''))) !== 'ctrip'
+                ) {
+                    throw new \RuntimeException('Ctrip operating radar evidence must use only decision-eligible Ctrip channel rows');
+                }
+                $validRootEvidenceRefs[] = $ref;
+            }
+            $dimensionStatus = (string)($dimension['status'] ?? '');
+            $declaredRootRefs = array_values(array_map('strval', (array)($dimension['root_evidence_refs'] ?? [])));
+            sort($declaredRootRefs, SORT_STRING);
+            $validRootEvidenceRefs = array_values(array_unique($validRootEvidenceRefs));
+            sort($validRootEvidenceRefs, SORT_STRING);
+            if ($declaredRootRefs !== $validRootEvidenceRefs
+                || (string)($dimension['root_evidence_status'] ?? '') !== ($validRootEvidenceRefs === [] ? 'missing' : 'verified')
+            ) {
+                throw new \RuntimeException('Ctrip operating radar root evidence status mismatch');
+            }
+            if ($dimensionStatus !== 'blocked_by_data' && $validRootEvidenceRefs === []) {
+                throw new \RuntimeException('Ctrip operating radar non-blocked dimension requires a Ctrip channel root row');
             }
         }
     }
@@ -580,6 +729,7 @@ trait AgentOtaDiagnosisPersistenceConcern
             'evidence_report', 'no_action_reason', 'saved_record', 'record_status', 'superseded_by',
             'validation_status', 'invalid_reason', 'analysis_runtime', 'decision_route',
             'workflow_status', 'missing_fact_codes', 'reference_only_history',
+            'operating_radar',
         ];
         $snapshot = [];
         foreach ($allowed as $field) {
@@ -648,6 +798,18 @@ trait AgentOtaDiagnosisPersistenceConcern
                 is_array($snapshot['decision_route'] ?? null) ? $snapshot['decision_route'] : []
             );
         }
+        if ($schemaVersion >= 3) {
+            $canonicalRadar = $this->canonicalizeOtaDiagnosisReadbackIdentity(
+                is_array($snapshot['operating_radar'] ?? null) ? $snapshot['operating_radar'] : []
+            );
+            $identity['operating_radar_digest'] = hash('sha256', json_encode(
+                $canonicalRadar,
+                // AgentLog JSON storage normalizes integer-valued floats
+                // (for example 200.0 -> 200). Mirror that representation so
+                // an unchanged radar survives the database round trip.
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            ));
+        }
 
         return $this->canonicalizeOtaDiagnosisReadbackIdentity($identity);
     }
@@ -698,13 +860,27 @@ trait AgentOtaDiagnosisPersistenceConcern
         $storedDigest = trim((string)($context['readback_identity_digest'] ?? ''));
         $schemaVersion = (int)($context['schema_version'] ?? 0);
         if ($storedDigest === ''
-            || !in_array($schemaVersion, [1, 2], true)
+            || !in_array($schemaVersion, [1, 2, 3, 4], true)
             || (string)($context['record_status'] ?? '') !== 'active'
             || strtolower(trim((string)($context['platform'] ?? ''))) !== strtolower(trim($platform))
             || $this->normalizeOtaDiagnosisScopeDateRange((array)($context['requested_date_range'] ?? []))
                 !== $this->normalizeOtaDiagnosisScopeDateRange($requestedDateRange)
         ) {
             return false;
+        }
+
+        if ($schemaVersion >= 3 && is_array($snapshot['operating_radar'] ?? null)) {
+            try {
+                $this->assertCtripOperatingRadarScope(
+                    $snapshot['operating_radar'],
+                    $snapshot,
+                    $hotelId,
+                    $platform,
+                    $requestedDateRange
+                );
+            } catch (\Throwable) {
+                return false;
+            }
         }
 
         $identity = $this->otaDiagnosisReadbackIdentity($snapshot, $hotelId, $platform, $schemaVersion);

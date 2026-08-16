@@ -210,7 +210,7 @@ final class ManualNotificationDispatchLedgerService
         );
         if (!in_array(
             $status,
-            ['claimed', 'preparation_failed', 'blocked'],
+            ['claimed', 'preparation_failed', 'blocked', 'skipped'],
             true
         )) {
             throw new \InvalidArgumentException(
@@ -355,6 +355,44 @@ final class ManualNotificationDispatchLedgerService
                 'tested_plan_fingerprint'
             )) {
                 $update['tested_plan_fingerprint'] = null;
+            }
+            $conditionEvaluation = is_array(
+                $candidate['condition_evaluation'] ?? null
+            ) ? $candidate['condition_evaluation'] : [];
+            $conditionRuleFingerprint = trim((string)(
+                $conditionEvaluation['rule_fingerprint'] ?? ''
+            ));
+            if ($conditionRuleFingerprint !== ''
+                && preg_match('/^[a-f0-9]{64}$/D', $conditionRuleFingerprint) !== 1
+            ) {
+                throw new \InvalidArgumentException(
+                    'manual_notification_condition_fingerprint_invalid'
+                );
+            }
+            if ($this->tableHasColumn(
+                'manual_notification_schedule_dispatches',
+                'condition_rule_fingerprint'
+            )) {
+                $update['condition_rule_fingerprint'] =
+                    $conditionRuleFingerprint !== ''
+                        ? $conditionRuleFingerprint
+                        : null;
+            }
+            if ($this->tableHasColumn(
+                'manual_notification_schedule_dispatches',
+                'condition_trigger_bucket'
+            )) {
+                $update['condition_trigger_bucket'] = is_numeric(
+                    $conditionEvaluation['trigger_bucket'] ?? null
+                ) ? (float)$conditionEvaluation['trigger_bucket'] : null;
+            }
+            if ($this->tableHasColumn(
+                'manual_notification_schedule_dispatches',
+                'condition_observed_value'
+            )) {
+                $update['condition_observed_value'] = is_numeric(
+                    $conditionEvaluation['observed_value'] ?? null
+                ) ? (float)$conditionEvaluation['observed_value'] : null;
             }
             Db::name('manual_notification_schedule_dispatches')
                 ->where('id', $dispatchId)
@@ -596,6 +634,79 @@ final class ManualNotificationDispatchLedgerService
                 ]);
         });
 
+        return $this->present($this->findDispatch($dispatchId));
+    }
+
+    /** @return array<string,mixed> */
+    public function cancelAttemptBeforeSend(
+        int $dispatchId,
+        int $attemptId,
+        DateTimeImmutable $now,
+        string $reasonCode,
+        string $message
+    ): array {
+        $this->assertTables();
+        $reasonCode = $this->token(
+            $reasonCode,
+            64,
+            'manual_notification_dispatch_cancel_reason_invalid'
+        );
+        $message = $this->safeText($message, 255);
+        $timestamp = $now->format('Y-m-d H:i:s');
+        Db::transaction(function () use (
+            $dispatchId,
+            $attemptId,
+            $reasonCode,
+            $message,
+            $timestamp
+        ): void {
+            $dispatch = Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->lock(true)
+                ->find();
+            $attempt = Db::name('manual_notification_dispatch_attempts')
+                ->where('id', $attemptId)
+                ->where('dispatch_id', $dispatchId)
+                ->lock(true)
+                ->find();
+            if (!is_array($dispatch) || !is_array($attempt)) {
+                throw new \RuntimeException(
+                    'manual_notification_dispatch_attempt_not_found'
+                );
+            }
+            $isCurrentAttempt = strtolower(trim((string)(
+                $dispatch['status'] ?? ''
+            ))) === 'sending'
+                && strtolower(trim((string)($attempt['status'] ?? '')))
+                    === 'sending'
+                && (int)($attempt['attempt_no'] ?? 0)
+                    === (int)($dispatch['attempt_count'] ?? 0);
+            if (!$isCurrentAttempt) {
+                throw new \RuntimeException(
+                    'manual_notification_dispatch_attempt_lease_lost'
+                );
+            }
+            Db::name('manual_notification_dispatch_attempts')
+                ->where('id', $attemptId)
+                ->where('dispatch_id', $dispatchId)
+                ->update([
+                    'status' => 'skipped',
+                    'result_code' => $reasonCode,
+                    'result_message' => $message,
+                    'response_reference' => null,
+                ]);
+            Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->update([
+                    'status' => 'skipped',
+                    'result_code' => $reasonCode,
+                    'result_message' => $message,
+                    'response_reference' => null,
+                    'next_retry_at' => null,
+                    'dispatched_at' => $timestamp,
+                    'update_time' => $timestamp,
+                ]);
+        });
         return $this->present($this->findDispatch($dispatchId));
     }
 
@@ -1271,6 +1382,14 @@ final class ManualNotificationDispatchLedgerService
             'payload_fingerprint' => $row['payload_fingerprint'] ?? null,
             'tested_plan_fingerprint' =>
                 $row['tested_plan_fingerprint'] ?? null,
+            'condition_rule_fingerprint' =>
+                $row['condition_rule_fingerprint'] ?? null,
+            'condition_trigger_bucket' => is_numeric(
+                $row['condition_trigger_bucket'] ?? null
+            ) ? (float)$row['condition_trigger_bucket'] : null,
+            'condition_observed_value' => is_numeric(
+                $row['condition_observed_value'] ?? null
+            ) ? (float)$row['condition_observed_value'] : null,
             'source_snapshot_refs' => $sourceIntegrity['refs'],
             'source_snapshot_fingerprint' => $row['source_snapshot_fingerprint'] ?? null,
             'source_snapshot_integrity_status' =>

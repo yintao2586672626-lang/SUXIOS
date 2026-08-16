@@ -1,0 +1,28 @@
+[Unit]
+Description=SUXIOS Ctrip and Meituan current-day cloud Profile collection
+After=network-online.target mariadb.service php8.3-fpm.service suxios-cloud-browser-gateway.service
+Wants=network-online.target
+Requires=suxios-cloud-browser-gateway.service
+ConditionPathExists=/var/www/suxios/current/scripts/run_cloud_ota_profile_collection.php
+ConditionPathExists=/etc/suxios/ota-cloud-profile.env
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=/etc/suxios/ota-cloud-profile.env
+# The batch runner serializes both browser-heavy channels on the 2-core/2-GB
+# host, continues to the second source after a first-source failure, and exits
+# non-zero unless both sources independently save and read back.
+ExecStart=/usr/bin/php -d memory_limit=512M scripts/run_cloud_ota_profile_collection_batch.php
+LoadCredential=control-token:/etc/suxios-cloud-browser/control-token
+RuntimeDirectory=suxios-cloud-ota-profile-collection
+RuntimeDirectoryMode=0750
+Nice=10
+CPUQuota=70%
+MemoryMax=768M
+TasksMax=64
+TimeoutStartSec=30min
+UMask=0027

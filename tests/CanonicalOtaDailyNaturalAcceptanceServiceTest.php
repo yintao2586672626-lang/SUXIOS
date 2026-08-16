@@ -49,6 +49,7 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
         self::assertSame('verified', $result['natural_dispatch']['status']);
         self::assertSame('verified', $result['collection']['status']);
         self::assertSame('verified', $result['continuous_trust']['status']);
+        self::assertTrue($result['continuous_trust']['exact_run_claim_task_match']);
         self::assertSame('verified', $result['operations']['status']);
         self::assertSame(4, $result['operations']['trusted_analysis_check_count']);
         self::assertSame(0, $result['operations']['trusted_external_operation_count']);
@@ -883,6 +884,35 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
         self::assertContains('daily_platform_owner_readback_invalid', $result['reason_codes']);
     }
 
+    public function testCollectionRunReceiptPrefixPreservesTheExactChildFailure(): void
+    {
+        $fixture = $this->writeRun(
+            '2026-08-09',
+            '23232323-2323-4232-8232-232323232323',
+            78,
+            false,
+            [],
+            null,
+            0,
+            [],
+            ['status' => 'blocked'],
+            [],
+            'SUXIOS_COLLECTION_RUN_RECEIPT='
+        );
+        $result = $this->service()->inspect(
+            80,
+            '2026-08-09',
+            [25, 68],
+            ['ctrip', 'meituan'],
+            $fixture['path'],
+            $this->directory
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertContains('dispatcher_child_exit_nonzero', $result['reason_codes']);
+        self::assertNotContains('child_receipt_ambiguous', $result['reason_codes']);
+    }
+
     public function testManualOrUnprovenSourceTasksCannotBorrowCurrentNaturalRun(): void
     {
         $unproven = '33333333-3333-4333-8333-333333333333';
@@ -1308,6 +1338,7 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
         self::assertSame('verified', $result['status']);
         self::assertSame($priorRunId, $result['collection']['source_tasks']['ctrip']['dispatcher_run_id']);
         self::assertSame($priorRunId, $result['collection']['source_tasks']['meituan']['dispatcher_run_id']);
+        self::assertTrue($result['continuous_trust']['exact_run_claim_task_match']);
     }
 
     public function testHistoricalTaskReadbackDriftResetsTheNaturalStreak(): void
@@ -1734,6 +1765,35 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
         self::assertContains('dual_ota_continuous_trust_not_ready', $result['reason_codes']);
     }
 
+    public function testContinuousTrustCannotBorrowSameDateClaimsFromDifferentTasks(): void
+    {
+        $fixture = $this->writeRun(
+            '2026-08-09',
+            'eeeeeeee-6666-4666-8666-eeeeeeeeeeee',
+            0,
+            true
+        );
+        $result = $this->service(
+            continuousTaskIdentities: [
+                'ctrip' => ['data_source_id' => 25, 'sync_task_id' => 9001],
+                'meituan' => ['data_source_id' => 68, 'sync_task_id' => 9002],
+            ]
+        )->inspect(
+            80,
+            '2026-08-09',
+            [25, 68],
+            ['ctrip', 'meituan'],
+            $fixture['path'],
+            $this->directory
+        );
+
+        self::assertSame('verified', $result['collection']['status']);
+        self::assertSame('blocked', $result['continuous_trust']['status']);
+        self::assertFalse($result['continuous_trust']['exact_run_claim_task_match']);
+        self::assertContains('exact_run_claim_task_mismatch', $result['reason_codes']);
+        self::assertNotContains('dual_ota_continuous_trust_not_ready', $result['reason_codes']);
+    }
+
     /**
      * @param array<int,string> $staleTaskDates
      * @param array<int,string> $mismatchedStatsDates
@@ -1741,6 +1801,7 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
      * @param array<int,string> $continuousPlatforms
      * @param array<int,string> $incompleteCoreTaskDates
      * @param null|callable(array<string,mixed>,array<string,mixed>,string):array<string,mixed> $taskFactMutator
+     * @param array<string,array{data_source_id:int,sync_task_id:int}> $continuousTaskIdentities
      */
     private function service(
         array $staleTaskDates = [],
@@ -1749,9 +1810,14 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
         array $continuousPlatforms = ['ctrip', 'meituan'],
         array $incompleteCoreTaskDates = [],
         string $now = '2026-08-10 10:40:00',
-        ?callable $taskFactMutator = null
+        ?callable $taskFactMutator = null,
+        array $continuousTaskIdentities = []
     ): CanonicalOtaDailyNaturalAcceptanceService
     {
+        $continuousTaskIdentities = array_replace_recursive([
+            'ctrip' => ['data_source_id' => 25, 'sync_task_id' => 1001],
+            'meituan' => ['data_source_id' => 68, 'sync_task_id' => 1002],
+        ], $continuousTaskIdentities);
         return new CanonicalOtaDailyNaturalAcceptanceService(
             static fn(int $hotelId): int => $hotelId === 80 ? 80 : 0,
             static fn(array $receipt, string $date, int $hotelId, array $sources, array $platforms): bool =>
@@ -1760,18 +1826,42 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
                 && $sources === [25, 68]
                 && $platforms === ['ctrip', 'meituan']
                 && ($receipt['collection_complete'] ?? false) === true,
-            static fn(int $hotelId, string $startDate, string $endDate): array => [
-                'status' => 'verified',
-                'acceptance_status' => 'verified',
-                'verified_days' => 1,
-                'accepted_days' => 1,
-                'required_platforms' => $continuousPlatforms,
-                'days' => [[
-                    'date' => $startDate,
+            static function (int $hotelId, string $startDate, string $endDate) use (
+                $continuousPlatforms,
+                $continuousTaskIdentities
+            ): array {
+                $platformRows = [];
+                foreach ($continuousPlatforms as $platform) {
+                    $identity = $continuousTaskIdentities[$platform] ?? [];
+                    $platformRows[] = [
+                        'platform' => $platform,
+                        'status' => 'verified',
+                        'acceptance_status' => 'verified',
+                        'acceptance_receipt' => [
+                            'status' => 'verified',
+                            'system_hotel_id' => $hotelId,
+                            'platform' => $platform,
+                            'target_date' => $startDate,
+                            'data_source_id' => (int)($identity['data_source_id'] ?? 0),
+                            'sync_task_id' => (int)($identity['sync_task_id'] ?? 0),
+                            'claim_allowed' => true,
+                        ],
+                    ];
+                }
+                return [
                     'status' => 'verified',
                     'acceptance_status' => 'verified',
-                ]],
-            ],
+                    'verified_days' => 1,
+                    'accepted_days' => 1,
+                    'required_platforms' => $continuousPlatforms,
+                    'days' => [[
+                        'date' => $startDate,
+                        'status' => 'verified',
+                        'acceptance_status' => 'verified',
+                        'platforms' => $platformRows,
+                    ]],
+                ];
+            },
             static function (int $tenantId, int $hotelId, string $date, string $period): array {
                 $scope = self::operationScope($date);
                 $intentIds = [101, 102, 103, 104];
@@ -1889,7 +1979,8 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
         int $idOffset = 0,
         array $additionalSourceTasks = [],
         array $childOverrides = [],
-        array $startOverrides = []
+        array $startOverrides = [],
+        string $childPrefix = 'SUXIOS_AUTO_FETCH_RECEIPT='
     ): array {
         $sourceTaskRunId ??= $runId;
         $sourceTasks = [
@@ -1907,6 +1998,7 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
             'source_ids' => [25, 68],
             'required_platforms' => ['ctrip', 'meituan'],
             'status' => 'success',
+            'sensitive_values_exposed' => false,
             'collection_complete' => true,
             'exportable_snapshot_complete' => true,
             'authority_verifier_required' => true,
@@ -1933,7 +2025,7 @@ final class CanonicalOtaDailyNaturalAcceptanceServiceTest extends TestCase
             'canonical_operation_finalization' => $this->operationFinalization($date),
         ];
         $child = array_replace_recursive($child, $childOverrides);
-        $childLine = 'SUXIOS_AUTO_FETCH_RECEIPT=' . json_encode(
+        $childLine = $childPrefix . json_encode(
             $child,
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         );

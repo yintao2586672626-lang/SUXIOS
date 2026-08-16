@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { readAppMainContractSource } from './helpers/frontend_source.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = relative => readFileSync(path.join(repoRoot, relative), 'utf8');
@@ -13,7 +14,7 @@ const controller = read('app/controller/concern/CollectionReliabilityConcern.php
 const routes = read('route/app.php');
 const command = read('app/command/AutoFetchOnlineData.php');
 const cloud = read('app/service/CloudAutomationService.php');
-const app = read('public/app-main.js');
+const app = readAppMainContractSource();
 const template = read('resources/frontend/templates/fragments/35-page-online-data.html');
 
 test('continuous trust contract requires the exact eight-step dual-OTA loop', () => {
@@ -67,6 +68,15 @@ test('page targets the selected date and exposes verified blocked partial or unv
   assert.match(app, /receipt_identity_mismatch_count/);
   assert.match(app, /当前身份一致/);
   assert.match(app, /身份漂移/);
+  assert.match(app, /if \(!Array\.isArray\(value\)\) return '未返回'/);
+  assert.match(app, /if \(value\.length === 0\) return '无'/);
+  assert.match(app, /return normalized\.length \? normalized\.join\('、'\) : '未返回'/);
+  assert.match(app, /critical_fields_present: Array\.isArray\(receipt\?\.critical_fields\?\.complete\)/);
+  assert.match(app, /Array\.isArray\(receipt\?\.critical_fields\?\.missing\)/);
+  assert.match(app, /row\.critical_fields_present === true/);
+  assert.match(pageVerificationService, /!is_array\(\$fields\['complete'\] \?\? null\)/);
+  assert.match(pageVerificationService, /!is_array\(\$fields\['missing'\] \?\? null\)/);
+  assert.match(pageVerificationService, /missing critical-field evidence/);
   assert.match(template, /旧数据、空值或数值 0 不替代缺失证据/);
 
   const start = template.indexOf('data-testid="dual-ota-continuous-trust"');
@@ -143,7 +153,11 @@ test('page verification requires an explicit user click and exact persisted read
   assert.match(controller, /\$collectionRunReceipt\['page_acceptance'\]\['readback_verified'\]/);
   assert.match(controller, /force-read|force-read it|cache\(\$this->collectionReliabilityCacheKey/);
 
-  assert.match(pageVerificationService, /suxios\.dual_ota_page_verification\.v1/);
+  assert.match(pageVerificationService, /suxios\.dual_ota_page_verification\.v2/);
+  assert.match(pageVerificationService, /'run_readback_scope'/);
+  assert.match(pageVerificationService, /'p0_status'/);
+  assert.match(pageVerificationService, /'missing_metric_keys'/);
+  assert.match(pageVerificationService, /'failure_reason_digest'/);
   assert.match(pageVerificationService, /Db::transaction/);
   assert.match(pageVerificationService, /->lock\(true\)/);
   assert.match(pageVerificationService, /OperationLog::record/);

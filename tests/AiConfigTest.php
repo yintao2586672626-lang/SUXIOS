@@ -41,6 +41,41 @@ final class AiConfigTest extends TestCase
         }
     }
 
+    public function testDeepSeekQuickSetupUsesCurrentV4ProviderModelNames(): void
+    {
+        $definitions = $this->invokeNonPublic(
+            $this->controller(),
+            'providerModelDefinitions',
+            ['deepseek']
+        );
+
+        self::assertSame(['deepseek_chat', 'deepseek_reasoner'], array_column($definitions, 'model_key'));
+        self::assertSame(['deepseek-v4-flash', 'deepseek-v4-pro'], array_column($definitions, 'model_name'));
+        self::assertSame(['deepseek', 'deepseek'], array_column($definitions, 'provider'));
+        self::assertSame(
+            'deepseek-v4-flash',
+            $this->invokeNonPublic($this->controller(), 'resolvedProviderModelName', ['deepseek', 'deepseek-chat'])
+        );
+        self::assertSame(
+            'deepseek-v4-pro',
+            $this->invokeNonPublic($this->controller(), 'resolvedProviderModelName', ['deepseek', 'deepseek-reasoner'])
+        );
+    }
+
+    public function testDeepSeekV4MigrationOnlyRewritesKnownLegacyProviderModels(): void
+    {
+        $sql = (string)file_get_contents(
+            dirname(__DIR__) . '/database/migrations/20260812_zz_update_deepseek_v4_model_names.sql'
+        );
+
+        self::assertStringContainsString("`provider` = 'deepseek'", $sql);
+        self::assertStringContainsString("`model_key` = 'deepseek_chat'", $sql);
+        self::assertStringContainsString("`model_name` = 'deepseek-chat'", $sql);
+        self::assertStringContainsString("THEN 'deepseek-v4-flash'", $sql);
+        self::assertStringContainsString("THEN 'deepseek-v4-pro'", $sql);
+        self::assertStringNotContainsString('api_key', strtolower($sql));
+    }
+
     public function testProviderModelDefinitionsRequireCustomBaseUrlForGatewayBackedFamilies(): void
     {
         $controller = $this->controller();

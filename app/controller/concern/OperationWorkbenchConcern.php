@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\service\DailyWorkbenchPatrolService;
+use app\service\OperatingLoopKernelService;
 use app\service\OperationManagementService;
 use app\service\Phase3OperationEffectLoopService;
 use think\facade\Db;
@@ -1052,13 +1053,30 @@ trait OperationWorkbenchConcern
             $operationEvidence,
             $actions
         );
+        $hotelId = (int)($hotel['id'] ?? 0);
+        $tenantId = (int)($hotel['tenant_id'] ?? 0);
+        $operatingLoop = (new OperatingLoopKernelService())->currentForHotelDate(
+            $tenantId,
+            $hotelId,
+            $targetDate
+        );
+        $authorityState = (string)($operatingLoop['authoritative_state'] ?? 'not_started');
+        $authorityReadback = ($operatingLoop['readback_verified'] ?? false) === true;
 
         return [
-            'hotel_id' => (int)($hotel['id'] ?? 0),
+            'hotel_id' => $hotelId,
             'hotel_name' => (string)($hotel['name'] ?? ('Hotel ID ' . (int)($hotel['id'] ?? 0))),
             'target_date' => $targetDate,
             'metric_scope' => 'ota_channel',
-            'status' => (string)($closure['status'] ?? 'unknown'),
+            'status' => $authorityReadback ? $authorityState : 'unverified',
+            'component_status' => (string)($closure['status'] ?? 'unknown'),
+            'operating_loop' => $operatingLoop,
+            'authority_status' => [
+                'state' => $authorityState,
+                'readback_verified' => $authorityReadback,
+                'kernel_id' => $operatingLoop['kernel_id'] ?? null,
+                'revision' => (int)($operatingLoop['revision'] ?? 0),
+            ],
             'employee_questions' => [
                 'count' => count($questions),
                 'proved_count' => (int)($closure['proved_count'] ?? 0),
@@ -1110,11 +1128,16 @@ trait OperationWorkbenchConcern
                 'blocking_missing_codes' => array_values(array_filter(array_map('strval', (array)($operationEvidence['blocking_missing_codes'] ?? [])))),
                 'source_policy' => (string)($operationEvidence['source_policy'] ?? 'read_existing_operation_execution_state_only'),
             ],
-            'workflow_chain' => $workflowChain,
-            'next_action' => $topAction,
+            'workflow_chain' => (array)($operatingLoop['stages'] ?? []),
+            'diagnostic_workflow_chain' => $workflowChain,
+            'next_action' => is_array($operatingLoop['next_action'] ?? null)
+                ? $operatingLoop['next_action']
+                : [],
+            'component_next_action' => $topAction,
             'next_action_count' => count($actions),
             'high_priority_action_count' => count(array_filter($actions, static fn(array $row): bool => (string)($row['priority'] ?? '') === 'high')),
-            'source_policy' => 'read_existing_phase1_employee_question_rows_only',
+            'source_policy' => 'hotel_operating_cycle_kernel_only',
+            'drilldown_source_policy' => 'read_existing_phase1_employee_question_rows_only',
             'protected_boundary' => 'Do not change OTA acquisition; this row summarizes existing evidence only.',
         ];
     }

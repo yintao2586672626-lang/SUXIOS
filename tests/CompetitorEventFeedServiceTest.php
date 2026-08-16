@@ -390,6 +390,106 @@ final class CompetitorEventFeedServiceTest extends TestCase
         self::assertSame('partial', $result['platform_summaries'][0]['status']);
     }
 
+    public function testBuildsCurrentCompetitionCircleCollectionChecklistWithoutUpgradingPartialPrices(): void
+    {
+        $service = new CompetitorEventFeedService();
+        $rows = [
+            $this->completeRow([
+                'id' => 11,
+                'hotel_id' => 70,
+                'competitor_hotel_name' => '竞品甲',
+            ]),
+            $this->completeRow([
+                'id' => 12,
+                'hotel_id' => 71,
+                'ota_hotel_id' => '90002',
+                'competitor_ota_hotel_id' => '90002',
+                'competitor_hotel_name' => '竞品乙',
+                'validation_status' => 'incomplete',
+                'comparison_key' => '',
+                'source_method' => 'ctrip_public_nearby_card',
+            ]),
+        ];
+        $targets = [
+            ['id' => 70, 'store_id' => 7, 'platform' => 'xc', 'hotel_name' => '竞品甲', 'hotel_code' => '90001', 'status' => 1],
+            ['id' => 71, 'store_id' => 7, 'platform' => 'ctrip', 'hotel_name' => '竞品乙', 'hotel_code' => '90002', 'status' => 1],
+            ['id' => 72, 'store_id' => 7, 'platform' => 'xc', 'hotel_name' => '竞品丙', 'hotel_code' => '', 'status' => 1],
+            ['id' => 80, 'store_id' => 8, 'platform' => 'xc', 'hotel_name' => '其他门店竞品', 'hotel_code' => '99001', 'status' => 1],
+        ];
+
+        $result = $service->buildFromRows(
+            $rows,
+            7,
+            'ctrip',
+            '2026-07-20',
+            '',
+            '',
+            null,
+            $targets
+        );
+        $coverage = $result['collection_coverage'];
+
+        self::assertSame('partial', $coverage['status']);
+        self::assertSame(3, $coverage['target_count']);
+        self::assertSame(2, $coverage['observed_target_count']);
+        self::assertSame(1, $coverage['unobserved_target_count']);
+        self::assertSame(2, $coverage['availability_verified_target_count']);
+        self::assertSame(1, $coverage['price_comparable_target_count']);
+        self::assertFalse($coverage['is_complete_for_availability']);
+        self::assertSame('all_matching_events', $coverage['coverage_scope']);
+        $coverageByTarget = array_column($coverage['targets'], null, 'competitor_hotel_id');
+        self::assertSame('price_comparable', $coverageByTarget[70]['evidence_status']);
+        self::assertSame('availability_verified', $coverageByTarget[71]['evidence_status']);
+        self::assertTrue($coverageByTarget[71]['availability_verified']);
+        self::assertFalse($coverageByTarget[71]['price_comparable']);
+        self::assertSame('not_collected', $coverageByTarget[72]['evidence_status']);
+        self::assertTrue($coverageByTarget[72]['needs_identity_binding']);
+        self::assertSame('待采集', $coverageByTarget[72]['evidence_status_label']);
+        self::assertArrayNotHasKey('score', $coverage);
+    }
+
+    public function testCompleteCollectionChecklistRequiresEveryActiveTargetAndFailsClosedWhenWindowIsTruncated(): void
+    {
+        $service = new CompetitorEventFeedService();
+        $targets = [
+            ['id' => 70, 'store_id' => 7, 'platform' => 'xc', 'hotel_name' => '竞品甲', 'hotel_code' => '90001', 'status' => 1],
+            ['id' => 71, 'store_id' => 7, 'platform' => 'xc', 'hotel_name' => '竞品乙', 'hotel_code' => '90002', 'status' => 1],
+        ];
+        $rows = [
+            $this->completeRow(['id' => 20, 'hotel_id' => 70]),
+            $this->completeRow([
+                'id' => 21,
+                'hotel_id' => 71,
+                'ota_hotel_id' => '90002',
+                'competitor_ota_hotel_id' => '90002',
+            ]),
+        ];
+
+        $complete = $service->buildFromRows($rows, 7, 'ctrip', '2026-07-20', '', '', null, $targets);
+        self::assertSame('complete_comparable', $complete['collection_coverage']['status']);
+        self::assertTrue($complete['collection_coverage']['is_complete_for_availability']);
+
+        $truncated = $service->buildFromRows($rows, 7, 'ctrip', '2026-07-20', '', '', 3, $targets);
+        self::assertSame('partial_window', $truncated['collection_coverage']['status']);
+        self::assertFalse($truncated['collection_coverage']['is_complete_for_availability']);
+        self::assertNull($truncated['collection_coverage']['missing_target_count']);
+        self::assertSame('latest_returned_events_only', $truncated['collection_coverage']['coverage_scope']);
+    }
+
+    public function testCollectionChecklistShowsNotConfiguredInsteadOfInventingTargets(): void
+    {
+        $service = new CompetitorEventFeedService();
+
+        $result = $service->buildFromRows([], 7, 'ctrip', '2026-07-20');
+        $coverage = $result['collection_coverage'];
+
+        self::assertSame('not_configured', $coverage['status']);
+        self::assertSame(0, $coverage['target_count']);
+        self::assertSame([], $coverage['targets']);
+        self::assertFalse($coverage['is_complete_for_availability']);
+        self::assertSame('未配置竞圈', $coverage['status_label']);
+    }
+
     public function testRuntimeVerifierStrictModeRejectsPartialOrTruncatedWindows(): void
     {
         $verifier = (string)file_get_contents(

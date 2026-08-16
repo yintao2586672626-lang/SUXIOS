@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\BusinessClosureOverviewService;
+use app\service\OperatingGoalInterventionService;
 use app\service\OperatingMemoryService;
 use app\service\OperationManagementService;
 use think\Response;
@@ -13,19 +14,24 @@ class OperationManagement extends Base
 {
     private OperationManagementService $service;
     private OperatingMemoryService $memoryService;
+    private OperatingGoalInterventionService $goalInterventionService;
 
     public function __construct(\think\App $app)
     {
         parent::__construct($app);
         $this->service = new OperationManagementService();
         $this->memoryService = new OperatingMemoryService($this->service);
+        $this->goalInterventionService = new OperatingGoalInterventionService();
     }
 
     public function fullData(): Response
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope();
-            $date = $this->normalizeDate((string)$this->request->param('date', date('Y-m-d')));
+            $requestedDate = $this->request->param('date', null);
+            $date = $requestedDate === null
+                ? $this->currentBusinessDate()
+                : $this->normalizeDate((string)$requestedDate);
 
             return $this->success($this->service->fullData($hotelIds, $hotelId, $date));
         } catch (Throwable $e) {
@@ -38,7 +44,9 @@ class OperationManagement extends Base
         try {
             $input = $this->request->post();
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
-            $date = $this->normalizeDate((string)($input['date'] ?? date('Y-m-d')));
+            $date = array_key_exists('date', $input)
+                ? $this->normalizeDate((string)$input['date'])
+                : $this->currentBusinessDate();
             $problemType = trim((string)($input['problem_type'] ?? ''));
 
             return $this->success($this->service->rootCause($hotelIds, $hotelId, $date, $problemType));
@@ -76,7 +84,11 @@ class OperationManagement extends Base
             }
 
             [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
-            return $this->success(['updated' => $this->service->markAlertsRead($ids, $hotelIds)]);
+            $updated = $this->service->markAlertsRead($ids, $hotelIds);
+            if ($updated <= 0) {
+                return $this->error('未找到当前租户可标记的运营预警', 404);
+            }
+            return $this->success(['updated' => $updated]);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '标记预警已读失败'), 500);
         }
@@ -383,11 +395,152 @@ class OperationManagement extends Base
         }
     }
 
+    public function operatingGoalInterventionOverview(): Response
+    {
+        try {
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
+            if ($hotelId === null || $hotelId <= 0) {
+                throw new \InvalidArgumentException('请选择单个酒店查看经营目标与干预学习');
+            }
+
+            return $this->success($this->goalInterventionService->overview(
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                $hotelId
+            ));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, '经营目标与干预学习读取失败'),
+                $this->operationThrowableStatus($e)
+            );
+        }
+    }
+
+    public function createOperatingGoalContract(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelIds, $hotelId] = $this->resolveHotelScope(
+                (int)($input['hotel_id'] ?? 0),
+                'operation.execute'
+            );
+            if ($hotelId === null || $hotelId <= 0) {
+                throw new \InvalidArgumentException('请选择单个酒店保存经营目标合同');
+            }
+
+            return $this->success($this->goalInterventionService->createGoalContract(
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                $hotelId,
+                $input,
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, '经营目标合同保存失败'),
+                $this->operationThrowableStatus($e)
+            );
+        }
+    }
+
+    public function createManualIntervention(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelIds, $hotelId] = $this->resolveHotelScope(
+                (int)($input['hotel_id'] ?? 0),
+                'operation.execute'
+            );
+            if ($hotelId === null || $hotelId <= 0) {
+                throw new \InvalidArgumentException('请选择单个酒店发起经营干预');
+            }
+
+            return $this->success($this->goalInterventionService->createManualIntervention(
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                $hotelId,
+                $input,
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, '经营干预发起失败'),
+                $this->operationThrowableStatus($e)
+            );
+        }
+    }
+
+    public function saveExecutionIntentIntervention(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('执行意图ID无效', 422);
+            }
+            $input = $this->requestData();
+            [$hotelIds, $hotelId] = $this->resolveHotelScope(
+                (int)($input['hotel_id'] ?? 0),
+                'operation.execute'
+            );
+            if ($hotelId === null || $hotelId <= 0) {
+                throw new \InvalidArgumentException('请选择单个酒店保存经营干预合同');
+            }
+
+            return $this->success($this->goalInterventionService->createInterventionForIntent(
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                $hotelId,
+                $id,
+                $input,
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, '经营干预合同保存失败'),
+                $this->operationThrowableStatus($e)
+            );
+        }
+    }
+
+    public function assessExecutionTaskIntervention(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('执行任务ID无效', 422);
+            }
+            $input = $this->requestData();
+            [$hotelIds, $hotelId] = $this->resolveHotelScope(
+                (int)($input['hotel_id'] ?? 0),
+                'operation.execute'
+            );
+            if ($hotelId === null || $hotelId <= 0) {
+                throw new \InvalidArgumentException('请选择单个酒店保存学习判定');
+            }
+            return $this->success($this->goalInterventionService->createAssessmentForTask(
+                $this->currentOperatingMemoryTenantId(),
+                $hotelIds,
+                $hotelId,
+                $id,
+                $input,
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, '经营干预学习判定失败'),
+                $this->operationThrowableStatus($e)
+            );
+        }
+    }
+
     public function closureOverview(): Response
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
             $service = new BusinessClosureOverviewService();
+            $businessDate = trim((string)$this->request->param('business_date', ''));
+            $parsedBusinessDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $businessDate);
+            if ($parsedBusinessDate === false || $parsedBusinessDate->format('Y-m-d') !== $businessDate) {
+                throw new \InvalidArgumentException('business_date 必须是明确的 YYYY-MM-DD 业务日期');
+            }
             $platforms = preg_split(
                 '/[,|]/',
                 (string)$this->request->param('platform', $this->request->param('channel', ''))
@@ -398,7 +551,7 @@ class OperationManagement extends Base
                 $hotelId,
                 (int)($this->currentUser->id ?? 0),
                 $this->currentUser ? $this->currentUser->isSuperAdmin() : false,
-                (string)$this->request->param('business_date', ''),
+                $businessDate,
                 $platforms
             ));
         } catch (Throwable $e) {
@@ -410,6 +563,20 @@ class OperationManagement extends Base
     {
         try {
             $input = $this->requestData();
+            foreach (['effective_date', 'date_start', 'start_date', 'date_end', 'end_date'] as $field) {
+                if (array_key_exists($field, $input)) {
+                    $this->normalizeDate((string)$input[$field]);
+                }
+            }
+            if (!array_key_exists('effective_date', $input)
+                && !array_key_exists('date_start', $input)
+                && !array_key_exists('start_date', $input)
+            ) {
+                $input['date_start'] = $this->currentBusinessDate();
+                if (!array_key_exists('date_end', $input) && !array_key_exists('end_date', $input)) {
+                    $input['date_end'] = $input['date_start'];
+                }
+            }
             $input['source_module'] = 'manual';
             $input['source_record_id'] = 0;
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0), 'operation.execute');
@@ -541,12 +708,27 @@ class OperationManagement extends Base
 
     private function normalizeDate(string $date): string
     {
-        $timestamp = strtotime($date);
-        if ($timestamp === false) {
-            throw new \InvalidArgumentException('日期格式不正确');
+        $timezone = new \DateTimeZone('Asia/Shanghai');
+        $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, $timezone);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if ($parsed === false
+            || ($errors !== false && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0))
+            || $parsed->format('Y-m-d') !== $date
+        ) {
+            throw new \InvalidArgumentException('date must be a valid YYYY-MM-DD calendar date');
         }
 
-        return date('Y-m-d', $timestamp);
+        return $date;
+    }
+
+    private function currentBusinessDate(?\DateTimeInterface $now = null): string
+    {
+        $timezone = new \DateTimeZone('Asia/Shanghai');
+        $clock = $now === null
+            ? new \DateTimeImmutable('now', $timezone)
+            : \DateTimeImmutable::createFromInterface($now)->setTimezone($timezone);
+
+        return $clock->format('Y-m-d');
     }
 
     private function validateStrategySimulationInput(array &$input, string $strategyType): string
@@ -587,6 +769,7 @@ class OperationManagement extends Base
 
     private function buildStrategyExecutionIntentInput(array $input, array $result, string $strategyType, int $hotelId): array
     {
+        $businessDate = $this->currentBusinessDate();
         $objectType = match ($strategyType) {
             'price_adjust', 'competitor_follow', 'holiday_strategy' => 'price',
             'room_inventory' => 'inventory',
@@ -614,8 +797,8 @@ class OperationManagement extends Base
             'platform' => (string)($input['platform'] ?? $input['channel'] ?? ''),
             'object_type' => $objectType,
             'action_type' => $strategyType,
-            'date_start' => (string)($input['start_date'] ?? date('Y-m-d')),
-            'date_end' => (string)($input['end_date'] ?? $input['start_date'] ?? date('Y-m-d')),
+            'date_start' => (string)($input['start_date'] ?? $businessDate),
+            'date_end' => (string)($input['end_date'] ?? $input['start_date'] ?? $businessDate),
             'current_value' => $result['baseline'] ?? [],
             'target_value' => $targetValue,
             'evidence' => [

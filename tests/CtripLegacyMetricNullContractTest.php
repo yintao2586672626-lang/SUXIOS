@@ -39,6 +39,7 @@ final class CtripLegacyMetricNullContractTest extends TestCase
         self::assertStringContainsString('Ordinary scheduled collection is Profile-only.', $source);
         self::assertStringContainsString('private function scheduledIngestionMethods(', $source);
         self::assertStringContainsString("\$profileOnly = ['browser_profile'];", $source);
+        self::assertStringContainsString("->whereIn('ingestion_method', \$scheduledIngestionMethods)", $source);
         self::assertStringNotContainsString('private function sendHttpRequest(', $source);
         self::assertStringNotContainsString('private function parseAndSaveData(', $source);
         self::assertStringNotContainsString('legacyBusinessObservedMetrics(', $source);

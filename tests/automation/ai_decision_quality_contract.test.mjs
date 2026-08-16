@@ -29,7 +29,7 @@ test('user-facing AI recommendation backends apply the decision quality contract
   assert.match(contract, /if\s*\(!\$executionReady\)/);
   assert.match(contract, /human_confirmation_required['"]\s*=>\s*true/);
   assert.match(contract, /当前建议不得执行/);
-  assert.match(read('public/app-main.js'), /data-testid': 'ai-decision-quality-blocked'[\s\S]*质量门禁：不合格，不可执行/);
+  assert.match(read('public/components/system/app-main-components.js'), /data-testid': 'ai-decision-quality-blocked'[\s\S]*质量门禁：不合格，不可执行/);
 });
 
 test('AI decision surfaces show basis priority action effect and risk', () => {

@@ -154,7 +154,7 @@ final class Phase3OperationEffectLoopService
         if ((string)($sop['status'] ?? '') !== 'candidate') {
             throw new \InvalidArgumentException('Replication plan requires a ready SOP candidate.');
         }
-        if ((string)($replication['status'] ?? '') !== 'candidate') {
+        if (!in_array((string)($replication['status'] ?? ''), ['candidate', 'screening_only'], true)) {
             $reasonCodes = implode(', ', array_values(array_filter((array)($replication['reason_codes'] ?? []))));
             throw new \InvalidArgumentException('Replication candidate is not ready' . ($reasonCodes !== '' ? ': ' . $reasonCodes : '.'));
         }
@@ -163,7 +163,7 @@ final class Phase3OperationEffectLoopService
         $targets = array_values(array_filter((array)($replication['target_hotels'] ?? []), static fn($item): bool => is_array($item)));
         $entry = [
             'id' => $this->ledgerId('replication', (string)($row['tracking_key'] ?? '')),
-            'status' => 'draft',
+            'status' => 'draft_pending_applicability_profile',
             'source_run_id' => (string)($input['run_id'] ?? $row['run_id'] ?? ''),
             'source_tracking_key' => (string)($row['tracking_key'] ?? ''),
             'source_hotel_id' => (int)($row['hotel_id'] ?? 0),
@@ -176,12 +176,15 @@ final class Phase3OperationEffectLoopService
                     'hotel_id' => (int)($target['hotel_id'] ?? 0),
                     'hotel_name' => (string)($target['hotel_name'] ?? ''),
                     'matched_key' => (string)($target['matched_key'] ?? ''),
-                    'status' => 'pending_manual_confirmation',
+                    'status' => 'pending_applicability_profile',
+                    'match_basis' => 'same_issue_code_screening_only',
+                    'target_verified' => false,
                 ];
             }, $targets),
             'required_checks' => [
-                'Confirm target hotel has the same OTA anomaly pattern.',
-                'Confirm price, inventory, traffic, and conversion context are comparable.',
+                'Complete the target hotel operating profile before judging transferability.',
+                'Compare all declared applicability dimensions and disclose missing or conflicting conditions.',
+                'Check prior failed or stopped replications as counterexamples.',
                 'Assign an operator and evidence requirement before execution.',
                 'Review the target hotel effect window after execution.',
             ],
@@ -192,6 +195,7 @@ final class Phase3OperationEffectLoopService
             'raw_data_exposed' => false,
             'auto_apply_enabled' => false,
             'auto_decision_enabled' => false,
+            'target_validation_required' => true,
         ];
 
         return [
@@ -638,11 +642,14 @@ final class Phase3OperationEffectLoopService
         }
 
         return [
-            'status' => $targets === [] ? 'not_ready' : 'candidate',
+            'status' => $targets === [] ? 'not_ready' : 'screening_only',
             'target_hotels' => array_values($targets),
-            'reason_codes' => $targets === [] ? ['similar_hotel_missing_in_snapshot'] : [],
-            'source_policy' => 'similarity_from_same_patrol_snapshot_only',
+            'reason_codes' => $targets === []
+                ? ['similar_hotel_missing_in_snapshot']
+                : ['applicability_profile_and_counterexample_review_required'],
+            'source_policy' => 'same_issue_code_is_screening_only_not_replication_eligibility',
             'auto_apply_enabled' => false,
+            'target_validation_required' => true,
         ];
     }
 
@@ -680,7 +687,7 @@ final class Phase3OperationEffectLoopService
             if ((string)($sop['status'] ?? '') === 'candidate') {
                 $summary['sop_candidate_count']++;
             }
-            if ((string)($replication['status'] ?? '') === 'candidate') {
+            if (in_array((string)($replication['status'] ?? ''), ['candidate', 'screening_only'], true)) {
                 $summary['replication_candidate_count']++;
             }
         }
@@ -693,7 +700,8 @@ final class Phase3OperationEffectLoopService
         $candidates = [];
         foreach ($loopRows as $row) {
             $stagePayload = $row['stages'][$stage] ?? null;
-            if (!is_array($stagePayload) || (string)($stagePayload['status'] ?? '') !== 'candidate') {
+            $eligibleStatuses = $stage === 'replication' ? ['candidate', 'screening_only'] : ['candidate'];
+            if (!is_array($stagePayload) || !in_array((string)($stagePayload['status'] ?? ''), $eligibleStatuses, true)) {
                 continue;
             }
             $candidates[] = [

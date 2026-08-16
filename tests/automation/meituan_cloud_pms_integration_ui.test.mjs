@@ -127,6 +127,8 @@ test('Meituan Cloud PMS remains an independent source but hotel management owns 
   assert.match(gateway, /MEITUAN_CLOUD_PMS_READ_ONLY_POST_PATHS/);
   assert.match(gateway, /validate_pms_collection/);
   assert.match(collector, /businessOverview/);
+  assert.match(collector, /getHotelInfo/);
+  assert.match(collector, /Promise\.all/);
   assert.match(collector, /workbench\/room/);
   assert.match(collector, /raw_response_exposed:\s*false/);
   assert.match(runner, /saved_and_readback_verified/);

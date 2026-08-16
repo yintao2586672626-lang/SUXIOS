@@ -92,6 +92,43 @@ final class OperationEffectReviewServiceTest extends TestCase
         self::assertSame($first['review']['content_digest'], $list['list'][0]['content_digest']);
     }
 
+    public function testFrozenApprovalBaselineWinsForMultiDayIntent(): void
+    {
+        Db::name('operation_execution_intents')->where('id', 1)->update([
+            'date_start' => '2026-08-01',
+            'date_end' => '2026-08-07',
+        ]);
+        $evidence = Db::name('operation_execution_evidence')->where('id', 1)->find();
+        $sourceContext = json_decode(
+            (string)$evidence['platform_response_json'],
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $sourceContext['date_start'] = '2026-08-01';
+        $sourceContext['date_end'] = '2026-08-07';
+        Db::name('operation_execution_evidence')->where('id', 1)->update([
+            'platform_response_json' => json_encode(
+                $sourceContext,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            ),
+        ]);
+
+        $created = (new OperationEffectReviewService())->create(
+            42,
+            7,
+            1,
+            1,
+            $this->effectInput(),
+            3
+        );
+
+        self::assertTrue($created['created']);
+        self::assertSame('2026-08-07', $created['review']['baseline_business_date']);
+        self::assertTrue($created['review']['approval_contract_verified']);
+        self::assertSame('readback_verified', $created['persistence_status']);
+    }
+
     public function testCurrentApprovalTargetDriftKeepsOldReviewHistoricalButInactive(): void
     {
         $service = new OperationEffectReviewService();

@@ -1,0 +1,3 @@
+#!/bin/sh
+repo_root="$(git rev-parse --show-toplevel)" || exit 1
+exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repo_root/hooks/pre-commit.ps1"

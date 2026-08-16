@@ -143,6 +143,145 @@ final class OtaProfileBindingService
         });
     }
 
+    /**
+     * Rotate one hotel's legacy OTA binding to its exact cloud-browser Profile.
+     *
+     * This is intentionally narrower than claim(): the target must be an opaque
+     * cloud Profile id and every existing active binding must already belong to
+     * the same tenant, hotel and platform. The previous row remains as revoked
+     * audit evidence.
+     *
+     * @return array<string,mixed>
+     */
+    public function rotateLegacyToCloudProfile(
+        int $systemHotelId,
+        string $platform,
+        string $expectedLegacyProfileKey,
+        string $cloudProfileKey,
+        int $actorId = 0
+    ): array {
+        $expectedLegacyProfileKey = trim($expectedLegacyProfileKey);
+        if (preg_match('/^[0-9]{1,120}$/D', $expectedLegacyProfileKey) !== 1) {
+            throw new RuntimeException('Legacy OTA Profile binding key is invalid.', 422);
+        }
+        if (preg_match('/^cbp_[A-Za-z0-9_-]{16,64}$/D', trim($cloudProfileKey)) !== 1) {
+            throw new RuntimeException('Cloud OTA Profile binding key is invalid.', 422);
+        }
+
+        $scope = $this->hotelScope($systemHotelId);
+        $legacyIdentity = $this->profileIdentity($platform, $expectedLegacyProfileKey);
+        $identity = $this->profileIdentity($platform, $cloudProfileKey);
+        $this->assertBindingTableAvailable();
+
+        return Db::transaction(function () use ($scope, $legacyIdentity, $identity, $actorId): array {
+            $target = Db::name('ota_profile_bindings')
+                ->where('platform', $identity['platform'])
+                ->where('profile_key_hash', $identity['profile_key_hash'])
+                ->lock(true)
+                ->find();
+            if (is_array($target)) {
+                $this->assertBindingScopeMatches($target, $scope);
+            }
+
+            $activeRows = Db::name('ota_profile_bindings')
+                ->where('tenant_id', $scope['tenant_id'])
+                ->where('system_hotel_id', $scope['system_hotel_id'])
+                ->where('platform', $identity['platform'])
+                ->where('binding_status', 'active')
+                ->lock(true)
+                ->select()
+                ->toArray();
+            if (count($activeRows) > 1) {
+                throw new RuntimeException('Multiple active OTA Profile bindings require manual repair.', 409);
+            }
+            if (is_array($target)
+                && strtolower(trim((string)($target['binding_status'] ?? ''))) === 'active'
+            ) {
+                return $this->compactBinding($target);
+            }
+            if (count($activeRows) !== 1
+                || !hash_equals(
+                    $legacyIdentity['profile_key_hash'],
+                    strtolower(trim((string)($activeRows[0]['profile_key_hash'] ?? '')))
+                )
+            ) {
+                throw new RuntimeException('Legacy OTA Profile binding does not match the expected source identity.', 409);
+            }
+
+            $this->assertSourceMetadataDoesNotConflict($scope, $identity);
+            $now = date('Y-m-d H:i:s');
+            foreach ($activeRows as $activeRow) {
+                Db::name('ota_profile_bindings')->where('id', (int)$activeRow['id'])->update([
+                    'binding_status' => 'revoked',
+                    'revoked_by' => $actorId > 0 ? $actorId : null,
+                    'update_time' => $now,
+                ]);
+            }
+
+            if (is_array($target)) {
+                Db::name('ota_profile_bindings')->where('id', (int)$target['id'])->update([
+                    'binding_status' => 'active',
+                    'bound_by' => $actorId > 0 ? $actorId : null,
+                    'revoked_by' => null,
+                    'update_time' => $now,
+                ]);
+                $target['binding_status'] = 'active';
+                return $this->compactBinding($target);
+            }
+
+            try {
+                $id = (int)Db::name('ota_profile_bindings')->insertGetId([
+                    'tenant_id' => $scope['tenant_id'],
+                    'system_hotel_id' => $scope['system_hotel_id'],
+                    'platform' => $identity['platform'],
+                    'profile_key_hash' => $identity['profile_key_hash'],
+                    'binding_status' => 'active',
+                    'bound_by' => $actorId > 0 ? $actorId : null,
+                    'revoked_by' => null,
+                    'create_time' => $now,
+                    'update_time' => $now,
+                ]);
+            } catch (\Throwable $error) {
+                $raced = Db::name('ota_profile_bindings')
+                    ->where('platform', $identity['platform'])
+                    ->where('profile_key_hash', $identity['profile_key_hash'])
+                    ->lock(true)
+                    ->find();
+                if (!is_array($raced)) {
+                    throw new RuntimeException('Cloud OTA Profile binding could not be registered.', 409, $error);
+                }
+                $this->assertBindingScopeMatches($raced, $scope);
+                if (strtolower(trim((string)($raced['binding_status'] ?? ''))) !== 'active') {
+                    throw new RuntimeException('Cloud OTA Profile binding changed concurrently.', 409, $error);
+                }
+                return $this->compactBinding($raced);
+            }
+
+            $created = [
+                'id' => $id,
+                'tenant_id' => $scope['tenant_id'],
+                'system_hotel_id' => $scope['system_hotel_id'],
+                'platform' => $identity['platform'],
+                'profile_key_hash' => $identity['profile_key_hash'],
+                'binding_status' => 'active',
+            ];
+            $readback = Db::name('ota_profile_bindings')
+                ->where('id', $id)
+                ->where('binding_status', 'active')
+                ->find();
+            $activeCount = (int)Db::name('ota_profile_bindings')
+                ->where('tenant_id', $scope['tenant_id'])
+                ->where('system_hotel_id', $scope['system_hotel_id'])
+                ->where('platform', $identity['platform'])
+                ->where('binding_status', 'active')
+                ->count();
+            if (!is_array($readback) || $activeCount !== 1) {
+                throw new RuntimeException('Cloud OTA Profile binding rotation readback failed.', 409);
+            }
+            return $created;
+        });
+    }
+
     /** @return array{tenant_id:int,system_hotel_id:int} */
     private function hotelScope(int $systemHotelId): array
     {
@@ -246,8 +385,8 @@ final class OtaProfileBindingService
     private function sourceProfileKey(string $platform, array $config): string
     {
         $keys = $platform === 'meituan'
-            ? ['store_id', 'storeId', 'poi_id', 'poiId', 'profile_id', 'profileId']
-            : ['profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
+            ? ['profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'store_id', 'storeId', 'poi_id', 'poiId', 'profile_id', 'profileId']
+            : ['profile_binding_key', 'profileBindingKey', 'stable_profile_id', 'stableProfileId', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
         foreach ($keys as $key) {
             if (is_scalar($config[$key] ?? null) && trim((string)$config[$key]) !== '') {
                 return trim((string)$config[$key]);

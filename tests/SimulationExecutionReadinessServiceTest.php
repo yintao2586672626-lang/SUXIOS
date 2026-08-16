@@ -33,14 +33,14 @@ final class SimulationExecutionReadinessServiceTest extends TestCase
         $input = array_merge($this->quantInput(), [
             'source_evidence' => ['daily_report' => 'checked'],
             'review_status' => 'approved',
-            'operation_execution_intent_id' => 123,
         ]);
 
         $readiness = $service->buildQuantReadiness(
             $input,
             $this->quantResult(),
             $this->quantScenarios(),
-            []
+            [],
+            $this->verifiedBridgeProjection(123, 'quant_simulation', 41)
         );
 
         self::assertSame('execution_ready', $readiness['stage']);
@@ -93,7 +93,7 @@ final class SimulationExecutionReadinessServiceTest extends TestCase
         self::assertNotSame('', $summary['best_status_label']);
     }
 
-    public function testSummaryUsesTopLevelExecutionBridgeFromRows(): void
+    public function testSummaryDoesNotTrustUnverifiedTopLevelExecutionIdsFromRows(): void
     {
         $service = new SimulationExecutionReadinessService();
         $summary = $service->readinessSummaryFromRows([
@@ -123,8 +123,8 @@ final class SimulationExecutionReadinessServiceTest extends TestCase
         ]);
 
         self::assertSame(2, $summary['record_count']);
-        self::assertSame(2, $summary['execution_ready_count']);
-        self::assertSame('execution_ready', $summary['best_stage']);
+        self::assertSame(0, $summary['execution_ready_count']);
+        self::assertSame('approved_pending_execution', $summary['best_stage']);
     }
 
     public function testStrategyRecordBuildsCanonicalExecutionIntentInput(): void
@@ -136,6 +136,7 @@ final class SimulationExecutionReadinessServiceTest extends TestCase
             'project_name' => '虹桥新店',
             'input' => [
                 'project_name' => '虹桥新店',
+                'hotel_id' => 7,
                 'source_evidence' => ['site_visit' => 'checked'],
             ],
             'scores' => ['total_score' => 82, 'items' => []],
@@ -207,6 +208,7 @@ final class SimulationExecutionReadinessServiceTest extends TestCase
             'project_name' => '虹桥新店',
             'input' => [
                 'project_name' => '虹桥新店',
+                'hotel_id' => 7,
                 'source_evidence' => ['site_visit' => 'checked'],
             ],
             'scores' => ['total_score' => 82, 'items' => []],
@@ -235,9 +237,10 @@ final class SimulationExecutionReadinessServiceTest extends TestCase
         $input = $service->buildStrategyExecutionIntentInput([
             'id' => 91,
             'project_name' => 'Bridge Strategy',
-            'execution_intent_id' => 321,
+            ...$this->verifiedBridgeProjection(321, 'strategy_simulation', 91),
             'input' => [
                 'project_name' => 'Bridge Strategy',
+                'hotel_id' => 7,
                 'source_evidence' => ['site_visit' => 'checked'],
                 'review_status' => 'approved',
             ],
@@ -268,7 +271,7 @@ final class SimulationExecutionReadinessServiceTest extends TestCase
         $input = $service->buildQuantExecutionIntentInput([
             'id' => 92,
             'project_name' => 'Bridge Quant',
-            'execution_intent_id' => 322,
+            ...$this->verifiedBridgeProjection(322, 'quant_simulation', 92),
             'input' => $quantInput,
             'result' => $this->quantResult(),
             'scenarios' => $this->quantScenarios(),
@@ -282,9 +285,124 @@ final class SimulationExecutionReadinessServiceTest extends TestCase
         self::assertSame([], $input['evidence']['readiness_missing_evidence']);
     }
 
+    public function testArbitraryDomainTrackingIdsAndLinkedFlagsDoNotMakeSimulationExecutionReady(): void
+    {
+        $service = new SimulationExecutionReadinessService();
+        $input = array_merge($this->quantInput(), [
+            'source_evidence' => ['daily_report' => 'checked'],
+            'review_status' => 'approved',
+            'opening_project_id' => 901,
+            'tracking_record_id' => 902,
+            'post_decision_tracking_id' => 903,
+            'investment_tracking_id' => 904,
+            'execution_bridge_status' => 'linked',
+            'execution_ready' => true,
+        ]);
+
+        $readiness = $service->buildQuantReadiness($input, $this->quantResult(), $this->quantScenarios(), []);
+
+        self::assertSame('approved_pending_execution', $readiness['stage']);
+        self::assertFalse($readiness['execution_ready']);
+        self::assertContains('execution_bridge', array_column($readiness['missing_evidence'], 'code'));
+    }
+
+    public function testQuantBusinessSnapshotDropsOnlyScenarioMetricTruthProjection(): void
+    {
+        $snapshot = (new SimulationExecutionReadinessService())->quantExecutionBusinessSnapshot([
+            'id' => 92,
+            'project_name' => 'Persisted Quant',
+            'truth_context' => ['must_not_enter_snapshot' => true],
+            'execution_readiness' => ['stage' => 'execution_ready'],
+            'input' => ['hotel_id' => 7, 'business_field_named_execution_status' => 'persisted'],
+            'result' => ['monthlyNetCashflow' => 210000, 'truth_context' => ['persisted_result_field' => true]],
+            'scenarios' => [[
+                'scenarioType' => 'base',
+                'adr' => 320,
+                'occupancyRate' => 78,
+                'monthlyNetCashflow' => 210000,
+                'execution_tracking' => ['persisted_business_shape' => true],
+                'metric_truth' => ['monthlyNetCashflow' => ['display_value' => 'projection']],
+            ]],
+            'risk_hints' => [['type' => 'rent_ratio']],
+        ]);
+
+        self::assertSame(92, $snapshot['id']);
+        self::assertArrayNotHasKey('truth_context', $snapshot);
+        self::assertArrayNotHasKey('execution_readiness', $snapshot);
+        self::assertArrayNotHasKey('metric_truth', $snapshot['scenarios'][0]);
+        self::assertSame('persisted', $snapshot['input']['business_field_named_execution_status']);
+        self::assertTrue($snapshot['result']['truth_context']['persisted_result_field']);
+        self::assertTrue($snapshot['scenarios'][0]['execution_tracking']['persisted_business_shape']);
+    }
+
+    public function testStrategyExecutionHotelIsResolvedOnlyFromConsistentPersistedScope(): void
+    {
+        $service = new SimulationExecutionReadinessService();
+
+        self::assertSame(7, $service->strategyExecutionHotelId([
+            'input' => ['hotel_id' => 7, 'system_hotel_id' => 7],
+            'data_snapshot' => ['target_hotel_id' => 7],
+        ]));
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('scope conflict');
+        $service->strategyExecutionHotelId([
+            'input' => ['hotel_id' => 7],
+            'data_snapshot' => ['target_hotel_id' => 8],
+        ]);
+    }
+
+    public function testStrategyExecutionHotelFailsClosedWhenPersistedScopeIsMissing(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('scope is missing');
+
+        (new SimulationExecutionReadinessService())->strategyExecutionHotelId([
+            'input' => [],
+            'data_snapshot' => [],
+        ]);
+    }
+
+    public function testQuantExecutionHotelComesOnlyFromOnePersistedSourceScope(): void
+    {
+        $service = new SimulationExecutionReadinessService();
+        self::assertSame(7, $service->quantExecutionHotelId([
+            'input' => ['hotel_id' => 7],
+            'truth_context' => ['hotel_id' => 7],
+        ]));
+
+        try {
+            $service->quantExecutionHotelId(['input' => ['roomCount' => 80]]);
+            self::fail('A legacy quant record without persisted hotel identity must fail closed.');
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString('scope is missing', $e->getMessage());
+        }
+
+        try {
+            $service->buildQuantExecutionIntentInput([
+                'id' => 99,
+                'input' => $this->quantInput(),
+                'result' => $this->quantResult(),
+                'scenarios' => $this->quantScenarios(),
+            ], ['hotel_id' => 8]);
+            self::fail('A request hotel must not override the persisted quant source hotel.');
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString('scope mismatch', $e->getMessage());
+        }
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('scope conflict');
+        $service->quantExecutionHotelId([
+            'input' => ['hotel_id' => 7],
+            'result' => ['system_hotel_id' => 8],
+        ]);
+    }
+
     private function quantInput(): array
     {
         return [
+            'hotel_id' => 7,
+            'system_hotel_id' => 7,
             'roomCount' => 80,
             'adr' => 320,
             'occupancyRate' => 78,
@@ -299,6 +417,24 @@ final class SimulationExecutionReadinessServiceTest extends TestCase
             'furnitureInvestment' => 800000,
             'openingCost' => 300000,
             'otherInvestment' => 200000,
+        ];
+    }
+
+    private function verifiedBridgeProjection(int $intentId, string $sourceModule, int $sourceRecordId): array
+    {
+        return [
+            'execution_intent_id' => $intentId,
+            'operation_execution_intent_id' => $intentId,
+            'execution_bridge_status' => 'linked',
+            'execution_tracking' => [
+                '_source_bridge_verified' => true,
+                'intent_id' => $intentId,
+                'source_module' => $sourceModule,
+                'source_record_id' => $sourceRecordId,
+                'hotel_id' => 7,
+                'tenant_id' => 7,
+                'status' => 'approved',
+            ],
         ];
     }
 

@@ -187,7 +187,11 @@ trait OtaLocalCollectorLeaseConcern
                 $previousLeaseHash = (string)($row['lease_token_hash'] ?? '');
                 $previousExpiry = (string)($row['lease_expires_at'] ?? '');
                 $requiresUser = in_array($previousStatus, ['waiting_user_login', 'verification_required'], true);
-                $retry = !$requiresUser && $attempt < $maxAttempts;
+                $startedAt = strtotime((string)($row['started_at'] ?? ''));
+                $withinLoginHandoff = $requiresUser
+                    && $startedAt !== false
+                    && $startedAt >= strtotime($now) - self::LOGIN_HANDOFF_RECOVERY_SECONDS;
+                $retry = $withinLoginHandoff || (!$requiresUser && $attempt < $maxAttempts);
                 $terminalStatus = $previousStatus === 'waiting_user_login'
                     ? 'login_required'
                     : ($previousStatus === 'verification_required' ? 'verification_required' : 'failed');
@@ -195,9 +199,11 @@ trait OtaLocalCollectorLeaseConcern
                 $errorCode = $previousStatus === 'waiting_user_login'
                     ? 'login_required'
                     : ($previousStatus === 'verification_required' ? 'verification_required' : 'lease_expired');
-                $errorSummary = $requiresUser
-                    ? '本机人工登录或验证未在任务租约内完成，请重新发起登录任务。'
-                    : '本机采集器执行中断，任务租约已过期。';
+                $errorSummary = $withinLoginHandoff
+                    ? '原设备登录任务中断，保持同一设备、账号和酒店，设备恢复后重试。'
+                    : ($requiresUser
+                        ? '本机人工登录或验证未在任务租约内完成，请重新发起登录任务。'
+                        : '本机采集器执行中断，任务租约已过期。');
                 $taskValues = [
                     'status' => $retry ? 'retry_wait' : $terminalStatus,
                     'available_at' => $nextRetryAt ?: $now,

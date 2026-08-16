@@ -260,7 +260,7 @@ final class HotelCollectionRunReceiptService
     }
 
     /**
-     * Attach one independently verified Dingdandao PMS capture to the exact
+     * Attach one independently verified, configured PMS capture to the exact
      * parent run. OTA children and aggregate collection/trust state are not
      * part of this sidecar write.
      *
@@ -280,7 +280,8 @@ final class HotelCollectionRunReceiptService
         if ($dispatcherRunId === '' || $hotelId <= 0 || $businessDate === '' || $captureId <= 0) {
             throw new RuntimeException('hotel_collection_run_pms_capture_scope_invalid');
         }
-        if ($provider !== DingdandaoOperatingTargetCaptureService::PROVIDER) {
+        $captureTable = $this->pmsCaptureTable($provider);
+        if ($captureTable === '') {
             throw new RuntimeException('hotel_collection_run_pms_provider_unsupported');
         }
 
@@ -289,7 +290,8 @@ final class HotelCollectionRunReceiptService
             $hotelId,
             $businessDate,
             $provider,
-            $captureId
+            $captureId,
+            $captureTable
         ): array {
             $run = Db::name(self::RUN_TABLE)
                 ->where('dispatcher_run_id', $dispatcherRunId)
@@ -304,7 +306,7 @@ final class HotelCollectionRunReceiptService
                 throw new RuntimeException('hotel_collection_run_pms_provider_mismatch');
             }
 
-            $capture = Db::name('dingdandao_operating_target_captures')
+            $capture = Db::name($captureTable)
                 ->where('id', $captureId)
                 ->lock(true)
                 ->find();
@@ -385,6 +387,130 @@ final class HotelCollectionRunReceiptService
             (int)$context['tenant_id'],
             $hotelId,
             (string)$context['business_date']
+        );
+    }
+
+    /**
+     * Persist the terminal PMS outcome after the queue has exhausted only the
+     * explicitly safe retries. This uses the existing parent sidecar fields so
+     * a later same-day successful capture cannot hide the latest failed attempt.
+     * Raw browser or provider output is never accepted here.
+     *
+     * @param array<string,mixed> $outcome
+     * @return array<string,mixed>
+     */
+    public function recordPmsFailure(
+        string $dispatcherRunId,
+        int $hotelId,
+        string $businessDate,
+        string $provider,
+        array $outcome
+    ): array {
+        $this->assertTablesReady();
+        $dispatcherRunId = $this->uuid($dispatcherRunId);
+        $businessDate = $this->date($businessDate);
+        $provider = $this->code($provider);
+        $reasonCode = $this->code((string)($outcome['reason'] ?? $outcome['failure_code'] ?? ''));
+        if ($dispatcherRunId === ''
+            || $hotelId <= 0
+            || $businessDate === ''
+            || $this->pmsCaptureTable($provider) === ''
+            || $reasonCode === ''
+        ) {
+            throw new RuntimeException('hotel_collection_run_pms_failure_scope_invalid');
+        }
+
+        $attemptReceipt = [
+            'schema_version' => 1,
+            'provider' => $provider,
+            'status' => 'failed',
+            'reason_code' => $reasonCode,
+            'attempt_count' => max(1, (int)($outcome['attempt_count'] ?? 1)),
+            'retry_count' => max(0, (int)($outcome['retry_count'] ?? 0)),
+            'retry_stop_reason' => $this->code((string)($outcome['retry_stop_reason'] ?? 'terminal_failure')),
+            'timed_out' => ($outcome['timed_out'] ?? false) === true,
+            'business_data_persisted' => !array_key_exists('business_data_persisted', $outcome)
+                ? null
+                : (($outcome['business_data_persisted'] ?? null) === true
+                    ? true
+                    : (($outcome['business_data_persisted'] ?? null) === false ? false : null)),
+            'readback_verified' => false,
+            'message_sent' => false,
+            'sensitive_values_exposed' => false,
+        ];
+
+        $tenantId = Db::transaction(function () use (
+            $dispatcherRunId,
+            $hotelId,
+            $businessDate,
+            $provider,
+            $attemptReceipt
+        ): int {
+            $run = Db::name(self::RUN_TABLE)
+                ->where('dispatcher_run_id', $dispatcherRunId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('business_date', $businessDate)
+                ->lock(true)
+                ->find();
+            if (!is_array($run)) {
+                throw new RuntimeException('hotel_collection_run_receipt_missing');
+            }
+            if ((string)($run['pms_provider'] ?? '') !== $provider) {
+                throw new RuntimeException('hotel_collection_run_pms_provider_mismatch');
+            }
+            $receipt = $this->decodeJson((string)($run['receipt_json'] ?? ''));
+            $existingAttempt = is_array($receipt['pms_attempt'] ?? null)
+                ? $receipt['pms_attempt']
+                : [];
+            if ((string)($run['pms_status'] ?? '') === 'failed'
+                && (int)($run['pms_readback_verified'] ?? 0) === 0
+                && $existingAttempt === $attemptReceipt
+            ) {
+                return (int)$run['tenant_id'];
+            }
+            if ((string)($run['pms_status'] ?? 'not_run') !== 'not_run'
+                || trim((string)($run['pms_capture_id'] ?? '')) !== ''
+                || ($run['pms_readback_verified'] ?? null) !== null
+            ) {
+                throw new RuntimeException('hotel_collection_run_pms_failure_conflict');
+            }
+
+            $receipt['pms_attempt'] = $attemptReceipt;
+            $now = date('Y-m-d H:i:s');
+            $updated = Db::name(self::RUN_TABLE)
+                ->where('id', (int)$run['id'])
+                ->where('pms_status', 'not_run')
+                ->where('pms_provider', $provider)
+                ->whereNull('pms_capture_id')
+                ->whereNull('pms_readback_verified')
+                ->update([
+                    'pms_status' => 'failed',
+                    'pms_readback_verified' => 0,
+                    'receipt_json' => $this->json($receipt),
+                    'update_time' => $now,
+                ]);
+            if ((int)$updated !== 1) {
+                throw new RuntimeException('hotel_collection_run_pms_failure_conflict');
+            }
+            $written = Db::name(self::RUN_TABLE)->where('id', (int)$run['id'])->find();
+            $writtenReceipt = is_array($written)
+                ? $this->decodeJson((string)($written['receipt_json'] ?? ''))
+                : [];
+            if (!is_array($written)
+                || (string)($written['pms_status'] ?? '') !== 'failed'
+                || (int)($written['pms_readback_verified'] ?? 1) !== 0
+                || ($writtenReceipt['pms_attempt'] ?? null) !== $attemptReceipt
+            ) {
+                throw new RuntimeException('hotel_collection_run_pms_failure_readback_mismatch');
+            }
+            return (int)$run['tenant_id'];
+        });
+
+        return $this->readGroup(
+            $dispatcherRunId,
+            $tenantId,
+            $hotelId,
+            $businessDate
         );
     }
 
@@ -829,7 +955,13 @@ final class HotelCollectionRunReceiptService
                 $readbackCount = max(0, (int)($result['readback_count'] ?? count($rowIds)));
                 $readbackVerified = ($readback['readback_verified'] ?? false) === true
                     && ($result['readback_verified'] ?? false) === true;
+                $rowCountsVerified = $this->rowCountsMatch(
+                    $savedCount,
+                    $readbackCount,
+                    $rowIds
+                );
                 $persistenceVerified = $readbackVerified
+                    && $rowCountsVerified
                     && $this->persistedSourceEvidenceMatches(
                         $run,
                         $stored,
@@ -865,7 +997,9 @@ final class HotelCollectionRunReceiptService
                     ?? $result['message']
                     ?? ''
                 ));
-                if (($result['success'] ?? false) === true && !$persistenceVerified) {
+                if (($result['success'] ?? false) === true && !$rowCountsVerified) {
+                    $failureCode = 'collection_row_count_mismatch';
+                } elseif (($result['success'] ?? false) === true && !$persistenceVerified) {
                     $failureCode = 'collection_persistence_evidence_mismatch';
                 }
                 if (!$strictSuccess && $failureCode === '') {
@@ -1053,11 +1187,25 @@ final class HotelCollectionRunReceiptService
                     $expectedTrigger = (string)($child['ingestion_method'] ?? '') === 'local_collector'
                         ? 'local_collector_upload'
                         : 'daily_profile_reuse';
-                    if (!is_array($child)
-                        || !is_array($task)
-                        || !is_array($rawTask)
-                        || (string)($child['status'] ?? '') !== 'success'
+                    if (!is_array($child) || !is_array($task) || !is_array($rawTask)) {
+                        $exactSources = false;
+                        break;
+                    }
+                    $taskRowIds = $this->positiveIds($task['row_ids'] ?? []);
+                    $taskSavedCount = max(0, (int)($rawTask['saved_count'] ?? 0));
+                    $taskReadbackCount = max(0, (int)($rawTask['readback_count'] ?? 0));
+                    $childSavedCount = max(0, (int)($child['saved_row_count'] ?? 0));
+                    $childReadbackCount = max(0, (int)($child['readback_row_count'] ?? 0));
+                    if ((string)($child['status'] ?? '') !== 'success'
                         || (int)($child['readback_verified'] ?? 0) !== 1
+                        || !$this->rowCountsMatch(
+                            $taskSavedCount,
+                            $taskReadbackCount,
+                            $taskRowIds
+                        )
+                        || $childSavedCount !== $taskSavedCount
+                        || $childReadbackCount !== $taskReadbackCount
+                        || ($rawTask['readback_verified'] ?? false) !== true
                         || (int)($child['data_source_id'] ?? 0) !== (int)$task['data_source_id']
                         || (int)($child['platform_sync_task_id'] ?? 0) !== (int)$task['sync_task_id']
                         || $this->code((string)($task['collection_status'] ?? '')) !== 'success'
@@ -1081,6 +1229,7 @@ final class HotelCollectionRunReceiptService
                             (int)($child['local_collector_task_id'] ?? 0),
                             (array)$task['row_ids']
                         )
+                        || !$this->successfulSourceReceiptVerified($run, $child)
                     ) {
                         $exactSources = false;
                         break;
@@ -2126,7 +2275,7 @@ final class HotelCollectionRunReceiptService
             ->where('sync_task_id', $syncTaskId)
             ->where('system_hotel_id', $hotelId)
             ->where('data_date', $businessDate)
-            ->where('data_period', 'historical_daily')
+            ->where('data_period', $this->runDataPeriod($run))
             ->where('readback_verified', 1);
         if (isset($dailyColumns['platform'])) {
             $query->where('platform', $platform);
@@ -2225,28 +2374,92 @@ final class HotelCollectionRunReceiptService
     private function publicPmsReceipt(array $run): array
     {
         $provider = $this->code((string)($run['pms_provider'] ?? ''));
+        $captureTable = $this->pmsCaptureTable($provider);
         $status = (string)($run['pms_status'] ?? 'not_run');
         $captureId = trim((string)($run['pms_capture_id'] ?? ''));
         $rawReadbackVerified = (int)($run['pms_readback_verified'] ?? 0) === 1;
-        if ($provider === 'dingdandao_pms'
+        if ($captureTable !== ''
             && $status === 'verified'
             && $captureId !== ''
             && $rawReadbackVerified
         ) {
+            $capture = null;
+            try {
+                $capture = ctype_digit($captureId) && (int)$captureId > 0
+                    ? Db::name($captureTable)
+                        ->where('id', (int)$captureId)
+                        ->find()
+                    : null;
+            } catch (\Throwable) {
+                $capture = null;
+            }
+            if (is_array($capture)
+                && (int)($capture['tenant_id'] ?? 0) === (int)($run['tenant_id'] ?? 0)
+                && (int)($capture['hotel_id'] ?? 0) === (int)($run['system_hotel_id'] ?? 0)
+                && $this->date((string)($capture['business_date'] ?? ''))
+                    === $this->date((string)($run['business_date'] ?? ''))
+                && $this->code((string)($capture['provider'] ?? '')) === $provider
+                && (string)($capture['identity_status'] ?? '') === 'matched'
+                && (string)($capture['capture_status'] ?? '') === 'verified'
+                && (string)($capture['quality_status'] ?? '') === 'verified'
+                && (string)($capture['reconciliation_status'] ?? '') === 'matched'
+                && (string)($capture['readback_status'] ?? '') === 'readback_verified'
+            ) {
+                return [
+                    'provider' => $provider,
+                    'status' => 'verified',
+                    'capture_id' => $captureId,
+                    'readback_verified' => true,
+                ];
+            }
             return [
-                'provider' => 'dingdandao_pms',
-                'status' => 'verified',
-                'capture_id' => $captureId,
-                'readback_verified' => true,
+                'provider' => null,
+                'status' => 'conflict',
+                'capture_id' => null,
+                'readback_verified' => false,
+                'reason_code' => 'pms_capture_evidence_drifted',
             ];
         }
-        if (($provider === '' || $provider === 'dingdandao_pms')
+        if ($captureTable !== '' && $status === 'failed'
+            && $captureId === '' && !$rawReadbackVerified
+        ) {
+            $receipt = $this->decodeJson((string)($run['receipt_json'] ?? ''));
+            $attempt = is_array($receipt['pms_attempt'] ?? null) ? $receipt['pms_attempt'] : [];
+            $reasonCode = $this->code((string)($attempt['reason_code'] ?? ''));
+            if ((string)($attempt['provider'] ?? '') === $provider
+                && (string)($attempt['status'] ?? '') === 'failed'
+                && $reasonCode !== ''
+                && ($attempt['readback_verified'] ?? null) === false
+                && ($attempt['message_sent'] ?? null) === false
+                && ($attempt['sensitive_values_exposed'] ?? null) === false
+            ) {
+                return [
+                    'provider' => $provider,
+                    'status' => 'failed',
+                    'capture_id' => null,
+                    'readback_verified' => false,
+                    'reason_code' => $reasonCode,
+                    'attempt_count' => max(1, (int)($attempt['attempt_count'] ?? 1)),
+                    'retry_count' => max(0, (int)($attempt['retry_count'] ?? 0)),
+                    'retry_stop_reason' => $this->code((string)($attempt['retry_stop_reason'] ?? '')),
+                    'business_data_persisted' => $attempt['business_data_persisted'] ?? null,
+                ];
+            }
+            return [
+                'provider' => null,
+                'status' => 'conflict',
+                'capture_id' => null,
+                'readback_verified' => false,
+                'reason_code' => 'pms_failure_receipt_inconsistent',
+            ];
+        }
+        if (($provider === '' || $captureTable !== '')
             && $status === 'not_run'
             && $captureId === ''
             && !$rawReadbackVerified
         ) {
             return [
-                'provider' => $provider === 'dingdandao_pms' ? $provider : null,
+                'provider' => $captureTable !== '' ? $provider : null,
                 'status' => 'not_run',
                 'capture_id' => null,
                 'readback_verified' => false,
@@ -2262,6 +2475,23 @@ final class HotelCollectionRunReceiptService
             'readback_verified' => false,
             'reason_code' => 'pms_receipt_evidence_inconsistent',
         ];
+    }
+
+    private function pmsCaptureTable(string $provider): string
+    {
+        return match ($provider) {
+            DingdandaoOperatingTargetCaptureService::PROVIDER => 'dingdandao_operating_target_captures',
+            MeituanCloudPmsCaptureService::PROVIDER => 'meituan_cloud_pms_captures',
+            default => '',
+        };
+    }
+
+    /** @param array<string,mixed> $run */
+    private function runDataPeriod(array $run): string
+    {
+        return (string)($run['run_mode'] ?? '') === 'realtime'
+            ? 'realtime_snapshot'
+            : 'historical_daily';
     }
 
     /**
@@ -2334,7 +2564,10 @@ final class HotelCollectionRunReceiptService
             || (string)($log['module'] ?? '') !== DualOtaPageVerificationService::MODULE
             || (string)($log['action'] ?? '') !== DualOtaPageVerificationService::ACTION
             || (string)($log['description'] ?? '')
-                !== 'dual_ota_page:v1:' . $businessDate . ':' . $contractHash
+                !== DualOtaPageVerificationService::DESCRIPTION_PREFIX
+                    . $businessDate
+                    . ':'
+                    . $contractHash
         ) {
             return false;
         }
@@ -2431,6 +2664,14 @@ final class HotelCollectionRunReceiptService
     private function firstIssueCode(array $issues, string $fallback): string
     {
         return (string)($issues[0]['code'] ?? $fallback);
+    }
+
+    /** @param array<int,mixed> $rowIds */
+    private function rowCountsMatch(int $savedCount, int $readbackCount, array $rowIds): bool
+    {
+        return $savedCount > 0
+            && $savedCount === $readbackCount
+            && $readbackCount === count($this->positiveIds($rowIds));
     }
 
     /** @param mixed $values @return array<int,int> */
@@ -2607,7 +2848,7 @@ final class HotelCollectionRunReceiptService
             ->where('sync_task_id', $syncTaskId)
             ->where('system_hotel_id', $hotelId)
             ->where('data_date', $businessDate)
-            ->where('data_period', 'historical_daily')
+            ->where('data_period', $this->runDataPeriod($run))
             ->where('readback_verified', 1);
         if (isset($dailyColumns['platform'])) {
             $dailyQuery->where('platform', $platform);

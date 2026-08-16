@@ -17,8 +17,11 @@ $node = [string]$nodeCommand.Source
 $collectorScript = Join-Path $PSScriptRoot 'ota_local_collector.mjs'
 $arguments = @($collectorScript, 'serve', "--server=$Server", "--port=$Port")
 
+$collectorFile = Split-Path -Leaf $collectorScript
 $existing = Get-CimInstance Win32_Process | Where-Object {
-    $_.CommandLine -like "*$collectorScript*serve*--port=$Port*"
+    $commandLine = [string]$_.CommandLine
+    $commandLine -like "*$collectorFile*" -and
+        $commandLine -match '(?i)(^|\s)(run|serve)(\s|$)'
 } | Select-Object -First 1
 if ($existing) {
     Write-Output "SUXIOS collector is already running: $($existing.ProcessId)"

@@ -92,6 +92,46 @@ final class CanonicalOtaScheduledAnalysisAuthorizationProvisioningServiceTest ex
         $service->execute(80, 80, 'meituan', 'hotel80_meituan_daily_goal_019fe32a_v1');
     }
 
+    public function testExactLifecycleManagedAnalysisMarkerAuthorizesAnalysisOnlyWithoutLegacyFetchFlag(): void
+    {
+        $status = [
+            'enabled' => false,
+            'lifecycle_managed_analysis_enabled' => true,
+            'lifecycle_managed_tenant_id' => 80,
+            'lifecycle_managed_hotel_id' => 80,
+            'lifecycle_external_action_allowed' => false,
+        ];
+        $writes = 0;
+        $service = $this->service($status, $writes);
+
+        $receipt = $service->execute(
+            80,
+            80,
+            'ctrip',
+            'hotel-lifecycle-80-80-aaaaaaaaaaaaaaaaaaaa'
+        );
+
+        self::assertSame('saved', $receipt['status']);
+        self::assertTrue($receipt['readback_verified']);
+        self::assertTrue($receipt['analysis_only']);
+        self::assertFalse($receipt['external_action_allowed']);
+        self::assertFalse($status['enabled']);
+        self::assertSame(1, $writes);
+
+        $status = [
+            'enabled' => false,
+            'lifecycle_managed_analysis_enabled' => true,
+            'lifecycle_managed_tenant_id' => 81,
+            'lifecycle_managed_hotel_id' => 80,
+            'lifecycle_external_action_allowed' => false,
+        ];
+        $writes = 0;
+        $service = $this->service($status, $writes);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('canonical_scheduled_analysis_status_not_enabled');
+        $service->execute(80, 80, 'ctrip', 'hotel-lifecycle-80-80-bbbbbbbbbbbbbbbbbbbb');
+    }
+
     private function service(array &$status, int &$writes): CanonicalOtaScheduledAnalysisAuthorizationProvisioningService
     {
         return new CanonicalOtaScheduledAnalysisAuthorizationProvisioningService(

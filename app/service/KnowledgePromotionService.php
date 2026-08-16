@@ -227,6 +227,11 @@ final class KnowledgePromotionService
                     'stop_conditions' => $desired['stop_conditions'],
                     'applicable_data_types' => $desired['applicability']['applicable_data_types'] ?? [],
                     'metric_definitions' => $desired['applicability']['metric_definitions'] ?? [],
+                    'applicability_profile' => $desired['applicability']['applicability_profile'] ?? [],
+                    'action_parameters' => $desired['applicability']['action_parameters'] ?? [],
+                    'success_conditions' => $desired['applicability']['success_conditions'] ?? [],
+                    'failure_samples' => $desired['applicability']['failure_samples'] ?? [],
+                    'evidence_valid_until' => $desired['applicability']['evidence_valid_until'] ?? null,
                 ],
                 $actorId
             );
@@ -1160,6 +1165,14 @@ final class KnowledgePromotionService
             'evidence_date_end' => $sourceScope['evidence_date_end'] ?? null,
             'applicable_data_types' => array_values((array)($sourceScope['applicable_data_types'] ?? [])),
             'metric_definitions' => array_values((array)($sourceScope['metric_definitions'] ?? [])),
+            'applicability_contract_version' => (string)($sourceScope['applicability_contract_version'] ?? ''),
+            'applicability_profile' => OperatingNetworkService::normalizeProfileDimensions(
+                $sourceScope['applicability_profile'] ?? []
+            ),
+            'action_parameters' => array_values((array)($sourceScope['action_parameters'] ?? [])),
+            'success_conditions' => array_values((array)($sourceScope['success_conditions'] ?? [])),
+            'failure_samples' => array_values((array)($sourceScope['failure_samples'] ?? [])),
+            'evidence_valid_until' => $sourceScope['evidence_valid_until'] ?? null,
             'replication_scope' => (string)($sourceScope['replication_scope'] ?? 'same_tenant_draft_only'),
         ];
         $scope = [
@@ -1244,6 +1257,29 @@ final class KnowledgePromotionService
                 }
                 $applicability[$field] = $this->textRefs((array)$input[$field]);
             }
+        }
+        if (array_key_exists('applicability_profile', $input)) {
+            if (!is_array($input['applicability_profile'])) {
+                throw new InvalidArgumentException('applicability_profile必须是对象');
+            }
+            $applicability['applicability_profile'] = OperatingNetworkService::normalizeProfileDimensions(
+                $input['applicability_profile']
+            );
+            $applicability['applicability_contract_version'] = OperatingNetworkService::CONTRACT_VERSION;
+        }
+        foreach (['action_parameters', 'success_conditions', 'failure_samples'] as $field) {
+            if (array_key_exists($field, $input)) {
+                if (!is_array($input[$field])) {
+                    throw new InvalidArgumentException($field . '必须是数组');
+                }
+                $applicability[$field] = OperatingNetworkService::textItems($input[$field], 30, 500);
+            }
+        }
+        if (array_key_exists('evidence_valid_until', $input)) {
+            $applicability['evidence_valid_until'] = $this->optionalDate(
+                (string)$input['evidence_valid_until'],
+                '经验证据有效期'
+            );
         }
         $steps = array_key_exists('steps', $input) ? $this->contentList($input['steps'], 'SOP步骤', true) : $current['steps'];
         $stopConditions = array_key_exists('stop_conditions', $input)
@@ -1478,6 +1514,14 @@ final class KnowledgePromotionService
             'source_scope' => strtolower(trim((string)($applicability['source_scope'] ?? ''))),
             'applicable_data_types' => array_values((array)($applicability['applicable_data_types'] ?? [])),
             'metric_definitions' => array_values((array)($applicability['metric_definitions'] ?? [])),
+            'applicability_contract_version' => (string)($applicability['applicability_contract_version'] ?? ''),
+            'applicability_profile' => OperatingNetworkService::normalizeProfileDimensions(
+                $applicability['applicability_profile'] ?? []
+            ),
+            'action_parameters' => array_values((array)($applicability['action_parameters'] ?? [])),
+            'success_conditions' => array_values((array)($applicability['success_conditions'] ?? [])),
+            'failure_samples' => array_values((array)($applicability['failure_samples'] ?? [])),
+            'evidence_valid_until' => $applicability['evidence_valid_until'] ?? null,
             'replication_scope' => (string)($applicability['replication_scope'] ?? ''),
         ];
         $actual = [
@@ -1489,6 +1533,14 @@ final class KnowledgePromotionService
             'source_scope' => strtolower(trim((string)($scope['source_scope'] ?? ''))),
             'applicable_data_types' => array_values((array)($scope['applicable_data_types'] ?? [])),
             'metric_definitions' => array_values((array)($scope['metric_definitions'] ?? [])),
+            'applicability_contract_version' => (string)($scope['applicability_contract_version'] ?? ''),
+            'applicability_profile' => OperatingNetworkService::normalizeProfileDimensions(
+                $scope['applicability_profile'] ?? []
+            ),
+            'action_parameters' => array_values((array)($scope['action_parameters'] ?? [])),
+            'success_conditions' => array_values((array)($scope['success_conditions'] ?? [])),
+            'failure_samples' => array_values((array)($scope['failure_samples'] ?? [])),
+            'evidence_valid_until' => $scope['evidence_valid_until'] ?? null,
             'replication_scope' => (string)($scope['replication_scope'] ?? ''),
         ];
         if (!hash_equals($this->digest($reviewed), $this->digest($actual))) {
@@ -1834,6 +1886,18 @@ final class KnowledgePromotionService
             throw new InvalidArgumentException($label . '格式无效');
         }
         return date('Y-m-d H:i:s', $timestamp);
+    }
+
+    private function optionalDate(string $value, string $label): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) !== 1) {
+            throw new InvalidArgumentException($label . '格式必须是 YYYY-MM-DD');
+        }
+        return $value;
     }
 
     /** @return list<string> */

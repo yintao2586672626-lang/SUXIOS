@@ -25,7 +25,7 @@ function passingReport(networkProfile = 'none') {
     verification_status: 'verified',
     attempt_count: 1,
     metrics: { total_requests: 29 },
-    api: { sample_count: 3, repeated_routes: [] },
+    api: { sample_count: 4, repeated_routes: [] },
   }));
   return {
     schema_version: 2,
@@ -58,6 +58,8 @@ test('verified five-run authenticated report passes the default local runtime bu
   assert.deepEqual(assessment.failures, []);
   assert.deepEqual(assessment.warnings, []);
   assert.equal(assessment.observed.max_total_requests_per_run, 29);
+  assert.equal(assessment.observed.max_api_samples_per_run, 4);
+  assert.equal(assessment.observed.max_repeated_api_requests_per_run, 0);
 });
 
 test('CI isolates static contracts from runtime performance and preserves authenticated evidence', () => {
@@ -163,6 +165,21 @@ test('runtime budget fails closed on missing or unverified measurements', () => 
   assert(metrics.includes('unverified_run_count'));
   assert(metrics.includes('verified_run_count'));
   assert(metrics.includes('lcp_p95_ms'));
+});
+
+test('runtime budget fails closed when a verified run has no LCP sample', () => {
+  const report = passingReport();
+  report.aggregate.metrics.lcp_ms.sample_count = 4;
+
+  const failure = evaluateFrontendRuntimeBudget(report).failures.find(
+    (entry) => entry.metric === 'lcp_sample_count'
+  );
+  assert.deepEqual(failure, {
+    metric: 'lcp_sample_count',
+    actual: 4,
+    limit: 5,
+    reason: 'incomplete_measurement_samples',
+  });
 });
 
 test('runtime budget requires top-level and per-run authenticated evidence', () => {

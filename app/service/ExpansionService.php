@@ -776,6 +776,16 @@ class ExpansionService
         $input = $this->decodeJson($record['input'] ?? $record['input_json'] ?? []);
         $result = $this->decodeJson($record['result'] ?? $record['result_json'] ?? []);
         $recordType = trim((string)($record['record_type'] ?? ''));
+        if ($recordType === 'market' && is_array($result['ai_evaluation'] ?? null)) {
+            $result['ai_evaluation'] = $this->normalizeMarketAiEvaluation($result['ai_evaluation'], [
+                'decision_quality_context' => $this->expansionDecisionQualityContext($input, $result, 'market'),
+            ]);
+        }
+        if ($recordType === 'benchmark' && is_array($result['ai_evaluation'] ?? null)) {
+            $result['ai_evaluation'] = $this->normalizeBenchmarkAiEvaluation($result['ai_evaluation'], [
+                'decision_quality_context' => $this->expansionDecisionQualityContext($input, $result, 'benchmark'),
+            ]);
+        }
         $readiness = is_array($record['project_readiness'] ?? null)
             ? $record['project_readiness']
             : $this->buildProjectReadiness($recordType, $input, $result);
@@ -792,6 +802,16 @@ class ExpansionService
         if ($projectName === '') {
             $projectName = 'expansion_record_' . (int)($record['id'] ?? 0);
         }
+        $sourceSnapshotDigest = SourceBackedExecutionIntentIdentityService::snapshotDigest('expansion', [
+            'id' => (int)($record['id'] ?? 0),
+            'record_type' => $recordType,
+            'project_name' => (string)($record['project_name'] ?? ''),
+            'city_area' => (string)($record['city_area'] ?? ''),
+            'decision' => (string)($record['decision'] ?? ''),
+            'risk_level' => (string)($record['risk_level'] ?? ''),
+            'input' => $input,
+            'result' => $result,
+        ]);
 
         return [
             'source_module' => 'expansion',
@@ -818,6 +838,7 @@ class ExpansionService
                 'next_action' => (string)($readiness['next_action'] ?? ''),
             ],
             'evidence' => [
+                'source_snapshot_digest' => $sourceSnapshotDigest,
                 'record_type' => $recordType,
                 'readiness_stage' => $readinessStage,
                 'readiness_score' => (int)($readiness['score'] ?? 0),
@@ -847,20 +868,62 @@ class ExpansionService
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
         }
+        $query->lock(true);
 
         $row = $query->find();
         if (!$row) {
             throw new RuntimeException('扩张记录不存在或无权访问');
         }
 
+        $intent = Db::name('operation_execution_intents')
+            ->where('id', $intentId)
+            ->whereRaw('LOWER(TRIM(`source_module`)) = ?', ['expansion'])
+            ->where('source_record_id', $id)
+            ->whereNull('deleted_at')
+            ->find();
+        if (!is_array($intent)) {
+            throw new InvalidArgumentException('current expansion execution intent is required');
+        }
+        $intentHotelId = (int)($intent['hotel_id'] ?? 0);
+        $trackingHotelId = (int)($tracking['hotel_id'] ?? 0);
+        $recordTenantId = (int)($row['tenant_id'] ?? 0);
+        $intentTenantId = (int)($intent['tenant_id'] ?? 0);
+        $hotelTenantId = $intentHotelId > 0
+            ? (int)(Db::name('hotels')->where('id', $intentHotelId)->value('tenant_id') ?: 0)
+            : 0;
+        if ($intentHotelId <= 0
+            || $trackingHotelId !== $intentHotelId
+            || $recordTenantId <= 0
+            || $intentTenantId !== $recordTenantId
+            || $hotelTenantId !== $recordTenantId
+        ) {
+            throw new InvalidArgumentException('expansion execution intent is outside the current hotel tenant scope');
+        }
+
+        $currentInput = $this->buildExecutionIntentInput($this->formatRecord($row, true), $intentHotelId, [
+            'date_start' => (string)($intent['date_start'] ?? ''),
+            'date_end' => (string)($intent['date_end'] ?? ''),
+        ]);
+        $intentEvidence = $this->decodeJson($intent['evidence_json'] ?? '');
+        $currentEvidence = is_array($currentInput['evidence'] ?? null) ? $currentInput['evidence'] : [];
+        $intentDigest = strtolower(trim((string)($intentEvidence['source_snapshot_digest'] ?? '')));
+        $currentDigest = strtolower(trim((string)($currentEvidence['source_snapshot_digest'] ?? '')));
+        if (preg_match('/^[a-f0-9]{64}$/D', $intentDigest) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $currentDigest) !== 1
+            || !hash_equals($intentDigest, $currentDigest)
+        ) {
+            throw new InvalidArgumentException('expansion execution source snapshot changed; link the current lifecycle only');
+        }
+
         $result = $this->decodeJson($row['result_json'] ?? '');
         $linkedIntentId = (int)($result['operation_execution_intent_id'] ?? $result['execution_intent_id'] ?? 0);
         if ($linkedIntentId > 0) {
-            if ($linkedIntentId !== $intentId) {
-                throw new RuntimeException('expansion record is already linked to a different execution intent', 409);
+            if ($linkedIntentId === $intentId) {
+                return $this->formatRecord($row, true);
             }
-
-            return $this->formatRecord($row, true);
+            if ($intentId <= $linkedIntentId) {
+                throw new RuntimeException('expansion record can only advance to a newer current execution lifecycle', 409);
+            }
         }
 
         $now = date('Y-m-d H:i:s');

@@ -54,6 +54,8 @@ final class AiOperationStrictPersistencePendingTest extends TestCase
         Db::name('operation_execution_evidence')->delete(true);
         Db::name('operation_execution_tasks')->delete(true);
         Db::name('operation_execution_intents')->delete(true);
+        Db::name('hotels')->delete(true);
+        Db::name('hotels')->insert(['id' => 7, 'tenant_id' => 1]);
     }
 
     public function testMissingPriceMappingThrowsAndLeavesIntentTableUnchanged(): void
@@ -300,6 +302,12 @@ final class AiOperationStrictPersistencePendingTest extends TestCase
 
     private static function createSchema(): void
     {
+        Db::execute(<<<'SQL'
+CREATE TABLE hotels (
+    id INTEGER PRIMARY KEY,
+    tenant_id INTEGER NOT NULL
+)
+SQL);
         Db::execute(<<<'SQL'
 CREATE TABLE operation_execution_intents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

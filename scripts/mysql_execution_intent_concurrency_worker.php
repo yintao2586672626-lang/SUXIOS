@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 
+use app\service\ExpansionService;
 use app\service\OperationManagementService;
 use think\App;
 use think\facade\Db;
@@ -37,9 +38,16 @@ try {
     }
 
     $hotelId = filter_var(getenv('SUXI_CI_HOTEL_ID'), FILTER_VALIDATE_INT);
+    $tenantId = filter_var(getenv('SUXI_CI_TENANT_ID'), FILTER_VALIDATE_INT);
+    $userId = filter_var(getenv('SUXI_CI_USER_ID'), FILTER_VALIDATE_INT);
     $sourceRecordId = filter_var(getenv('SUXI_CI_SOURCE_RECORD_ID'), FILTER_VALIDATE_INT);
     $worker = filter_var(getenv('SUXI_CI_WORKER_INDEX'), FILTER_VALIDATE_INT);
-    if ($hotelId === false || $hotelId <= 0 || $sourceRecordId === false || $sourceRecordId <= 0 || $worker === false) {
+    if ($hotelId === false || $hotelId <= 0
+        || $tenantId === false || $tenantId <= 0
+        || $userId === false || $userId <= 0
+        || $sourceRecordId === false || $sourceRecordId <= 0
+        || $worker === false
+    ) {
         throw new RuntimeException('Worker input is invalid');
     }
 
@@ -60,41 +68,37 @@ try {
         usleep(10000);
     }
 
-    $input = [
-        'source_module' => 'expansion',
-        'source_record_id' => $sourceRecordId,
-        'hotel_id' => $hotelId,
-        'platform' => 'investment',
-        'object_type' => 'expansion',
-        'action_type' => 'expansion_post_decision_tracking',
-        'date_start' => '2026-07-16',
-        'date_end' => '2026-07-31',
-        'current_value' => [
-            'project_name' => 'CI expansion project ' . $sourceRecordId,
-            'readiness_stage' => 'review_ready',
-        ],
-        'target_value' => [
-            'project_name' => 'CI expansion project ' . $sourceRecordId,
-            'tracking_status' => 'pending_expansion_post_decision_tracking',
-            'target_metric' => 'expansion_project_closure',
-        ],
-        'evidence' => [
-            'readiness_stage' => 'review_ready',
-            'source_scope' => 'expansion_screening_and_project_decision',
-        ],
-        'expected_metric' => 'expansion_project_closure',
-        'expected_delta' => 0,
-        'risk_level' => 'medium',
-        'status' => 'pending_approval',
-    ];
+    $result = Db::transaction(static function () use ($hotelId, $tenantId, $userId, $sourceRecordId): array {
+        $hotel = Db::name('hotels')
+            ->where('id', $hotelId)
+            ->where('tenant_id', $tenantId)
+            ->lock(true)
+            ->find();
+        if (!is_array($hotel)) {
+            throw new RuntimeException('Tenant-bound hotel fixture is unavailable');
+        }
+        $sourceRecord = Db::name('expansion_records')
+            ->where('id', $sourceRecordId)
+            ->where('tenant_id', $tenantId)
+            ->whereNull('deleted_at')
+            ->lock(true)
+            ->find();
+        if (!is_array($sourceRecord)) {
+            throw new RuntimeException('Tenant-bound expansion source fixture is unavailable');
+        }
+        $input = (new ExpansionService())->buildExecutionIntentInput($sourceRecord, $hotelId, [
+            'date_start' => '2026-07-16',
+            'date_end' => '2026-07-31',
+        ]);
 
-    $result = (new OperationManagementService())->createExecutionIntent(
-        [$hotelId],
-        $hotelId,
-        $input,
-        1,
-        trustedExpansionSource: true
-    );
+        return (new OperationManagementService())->createExecutionIntent(
+            [$hotelId],
+            $hotelId,
+            $input,
+            $userId,
+            trustedExpansionSource: true
+        );
+    });
     $intentId = (int)($result['id'] ?? 0);
     if ($intentId <= 0) {
         throw new RuntimeException('Worker did not receive an execution intent id');

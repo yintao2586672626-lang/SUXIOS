@@ -10,6 +10,7 @@ const opsTrackPage = read('resources/frontend/templates/fragments/17-page-ops-tr
 const controller = readSourceAggregate('app/controller/Agent.php');
 const userController = read('app/controller/User.php');
 const operationService = readSourceAggregate('app/service/OperationManagementService.php');
+const operationExecutionTenantConcern = read('app/service/operation/OperationExecutionTenantConcern.php');
 
 test('saved OTA diagnosis requires an assigned execution and review schedule before handoff', () => {
   assert.match(agentPage, /data-testid="ota-diagnosis-execution-schedule"/);
@@ -37,7 +38,8 @@ test('OTA diagnosis execution schedule is persisted in target and evidence paylo
   assert.match(controller, /\$atomicIdempotencyKey = \$idempotencyKey \. ':attempt:' \. \$retryAttempt/);
   assert.match(operationService, /\?string \$trustedIdempotencyKey = null/);
   assert.match(operationService, /replayTrustedExecutionIntent/);
-  assert.match(operationService, /'idempotency_key'\] = \$idempotencyKey/);
+  assert.match(operationService, /persistExecutionIntentPayload/);
+  assert.match(operationExecutionTenantConcern, /'idempotency_key'\] = \$idempotencyKey/);
 });
 
 test('assignee options and backend validation use operation execute permission for the selected hotel', () => {

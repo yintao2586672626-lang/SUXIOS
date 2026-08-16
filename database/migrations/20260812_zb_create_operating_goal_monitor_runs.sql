@@ -1,0 +1,26 @@
+-- 经营目标智能监控心跳与精确回读。相同状态按摘要幂等更新最后观察时间。
+CREATE TABLE IF NOT EXISTS `operating_goal_monitor_runs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id` INT UNSIGNED NOT NULL COMMENT '租户ID',
+  `hotel_id` INT UNSIGNED NOT NULL COMMENT '宿析系统酒店ID',
+  `business_date` DATE NOT NULL COMMENT '被监控经营日',
+  `goal_contract_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '当前目标合同ID；缺失时为0',
+  `goal_contract_version_no` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '当前目标合同版本；缺失时为0',
+  `monitor_state` VARCHAR(30) NOT NULL COMMENT 'inactive/monitoring/attention',
+  `primary_snapshot_json` JSON NOT NULL COMMENT '首要指标可信快照；缺失时为空对象',
+  `guard_results_json` JSON NOT NULL COMMENT '保护指标逐项结果',
+  `intervention_states_json` JSON NOT NULL COMMENT '干预观察与三态判定结果',
+  `signal_codes_json` JSON NOT NULL COMMENT '本轮信号代码',
+  `data_gaps_json` JSON NOT NULL COMMENT '未满足的来源、口径或证据条件',
+  `content_digest` CHAR(64) NOT NULL COMMENT '不含时间的规范状态摘要',
+  `first_observed_at` DATETIME NOT NULL COMMENT '首次观察到该状态的时间',
+  `last_observed_at` DATETIME NOT NULL COMMENT '最近一次观察到该状态的时间',
+  `run_count` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT '相同状态被重复核验次数',
+  `alert_count` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '本轮已精确回读的本地预警数',
+  `assessment_count` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '本轮已生成或命中的判定数',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_operating_goal_monitor_state` (`tenant_id`, `hotel_id`, `business_date`, `content_digest`),
+  KEY `idx_operating_goal_monitor_latest` (`tenant_id`, `hotel_id`, `last_observed_at`),
+  KEY `idx_operating_goal_monitor_attention` (`tenant_id`, `monitor_state`, `business_date`),
+  KEY `idx_operating_goal_monitor_goal` (`tenant_id`, `hotel_id`, `goal_contract_id`, `business_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='经营目标智能监控状态与心跳';

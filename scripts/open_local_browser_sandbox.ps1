@@ -324,6 +324,67 @@ if ($bindExitCode -ne 0 -or $null -eq $bindResult) {
 }
 
 $status = [string]$bindResult.status
+$windowTargetActivated = $false
+$windowTargetReused = $null
+$windowForegroundRequested = $false
+$activatedTargetScope = ''
+if ($InteractiveLogin) {
+    $handoffArguments = @(
+        $binderPath,
+        "--cdp-url=$cdpUrl",
+        "--sandbox-id=$SandboxId",
+        "--platform=$Platform",
+        '--mode=handoff'
+    )
+    $handoffOutput = @(& $resolvedNode @handoffArguments 2>&1)
+    $handoffExitCode = $LASTEXITCODE
+    $handoffResult = Get-LastJsonObject -Lines $handoffOutput
+    if ($handoffExitCode -ne 0 -or $null -eq $handoffResult) {
+        $reason = if ($null -ne $handoffResult -and $handoffResult.PSObject.Properties['reason']) {
+            [string]$handoffResult.reason
+        } else {
+            'local_browser_sandbox_handoff_failed'
+        }
+        throw $reason
+    }
+    $activatedTargetScope = [string]$handoffResult.activated_target_scope
+    if ([string]$handoffResult.status -ne 'handoff_ready' -or
+        [string]$handoffResult.platform -ne $Platform -or
+        [string]$handoffResult.sandbox_id -ne $SandboxId -or
+        [string]$handoffResult.isolation -ne 'process_profile' -or
+        [bool]$handoffResult.target_activated -ne $true -or
+        @('exact_start', 'pms_manage', 'login_entry') -notcontains $activatedTargetScope -or
+        [bool]$handoffResult.session_material_exposed -ne $false -or
+        [bool]$handoffResult.sensitive_values_exposed -ne $false
+    ) {
+        throw 'local_browser_sandbox_handoff_receipt_invalid'
+    }
+    $status = [string]$handoffResult.status
+    $windowTargetActivated = $true
+    $windowTargetReused = [bool]$handoffResult.target_reused
+
+    $browserHost = Get-DedicatedBrowserHost `
+        -ExpectedPort $Port `
+        -ExpectedProfilePath $profilePath
+    if ($null -eq $browserHost -or
+        -not [bool]$browserHost.Trusted -or
+        [bool]$browserHost.Headless
+    ) {
+        throw 'local_browser_sandbox_handoff_host_invalid'
+    }
+    try {
+        $windowShell = New-Object -ComObject WScript.Shell
+        $windowForegroundRequested = [bool]$windowShell.AppActivate(
+            [int]$browserHost.ProcessId
+        )
+        [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject(
+            $windowShell
+        )
+    } catch {
+        $windowForegroundRequested = $false
+    }
+}
+
 $result = [ordered]@{
     status = $status
     cdp_status = 'ready'
@@ -336,22 +397,29 @@ $result = [ordered]@{
     sandbox_id = $SandboxId
     isolation = [string]$bindResult.isolation
     start_url = [string]$bindResult.start_url
-    session_status = if ($status -eq 'awaiting_login') {
+    session_status = if ($InteractiveLogin) {
         'login_required'
     } else {
         'unverified'
     }
-    login_required = if ($status -eq 'awaiting_login') { $true } else { $null }
-    next_action = if ($status -eq 'awaiting_login' -and $InteractiveLogin) {
-        'complete_login_in_opened_browser'
+    login_required = if ($InteractiveLogin) { $true } else { $null }
+    window_target_activated = $windowTargetActivated
+    window_target_reused = $windowTargetReused
+    activated_target_scope = if ($InteractiveLogin) { $activatedTargetScope } else { $null }
+    window_foreground_requested = $windowForegroundRequested
+    next_action = if ($InteractiveLogin) {
+        'complete_login_in_bound_browser_then_retry'
     } elseif ($status -eq 'awaiting_login') {
         'rerun_launcher_with_interactive_login'
     } else {
         'run_fast_collection_to_verify_session'
     }
+    automatic_device_substitution = $false
+    profile_material_copied = $false
+    browser_process_exposed = $false
     raw_response_exposed = $false
     session_material_exposed = $false
     sensitive_values_exposed = $false
 }
 
-$result | ConvertTo-Json -Depth 5
+$result | ConvertTo-Json -Depth 5 -Compress

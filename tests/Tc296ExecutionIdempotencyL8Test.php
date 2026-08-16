@@ -215,6 +215,15 @@ final class Tc296ExecutionIdempotencyL8Test extends TestCase
 
     private static function createSchema(): void
     {
+        Db::execute('CREATE TABLE hotels (
+            id INTEGER PRIMARY KEY,
+            tenant_id INTEGER NOT NULL
+        )');
+        Db::name('hotels')->insert([
+            'id' => self::HOTEL_ID,
+            'tenant_id' => self::TENANT_ID,
+        ]);
+
         Db::execute('CREATE TABLE operation_execution_intents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tenant_id INTEGER,

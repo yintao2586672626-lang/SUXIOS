@@ -79,7 +79,9 @@ final class RevenueForecastReadinessServiceTest extends TestCase
         ]);
 
         self::assertSame('forecast_pricing_closed', $readiness['stage']);
-        self::assertTrue($readiness['closed_loop']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertTrue($readiness['component_closed_loop']);
+        self::assertSame('diagnostic_only', $readiness['authority_status']);
         self::assertTrue($readiness['execution_ready']);
         self::assertSame(2, $readiness['suggestion_count']);
     }

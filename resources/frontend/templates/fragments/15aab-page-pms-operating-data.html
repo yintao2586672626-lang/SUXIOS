@@ -33,7 +33,7 @@
     </div>
   </section>
 
-  <p v-if="operatingPmsRealtimeSyncResult" class="pms-realtime-sync-result" :class="operatingPmsRealtimeResultClass" data-testid="pms-realtime-sync-result" role="status">{{ operatingPmsRealtimeResultText }}</p>
+  <pms-realtime-sync-result />
   <p v-if="operatingTargetError" data-testid="pms-operating-data-error" class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ operatingTargetError }}</p>
   <p v-if="operatingHotelPmsBindingError" data-testid="pms-binding-read-error" class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ operatingHotelPmsBindingError }}</p>
 

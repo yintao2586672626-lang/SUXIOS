@@ -34,7 +34,7 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'page-knowledge-center', domain: 'knowledge', path: 'fragments/20-page-knowledge-center.html', anchor: '<div v-if="currentPage === \'knowledge-center\'" class="max-w-6xl mx-auto space-y-4">' },
   { id: 'page-users', domain: 'system-admin', path: 'fragments/21-page-users.html', anchor: '<div v-if="currentPage === \'users\'">' },
   { id: 'page-roles', domain: 'system-admin', path: 'fragments/22-page-roles.html', anchor: '<div v-if="currentPage === \'roles\'">' },
-  { id: 'home-shell-open', domain: 'decision-workbench', path: 'fragments/23-page-home-shell-open.html', anchor: '<div v-if="currentPage === \'ai-workbench\' || currentPage === \'compass\'" class="compass-dashboard suxi-dashboard-scope">' },
+  { id: 'home-shell-open', domain: 'decision-workbench', path: 'fragments/23-page-home-shell-open.html', anchor: '<div v-if="currentPage === \'compass\'" class="compass-dashboard suxi-dashboard-scope">' },
   { id: 'page-compass-summary', domain: 'decision-workbench', path: 'fragments/23a-page-compass-summary.html', anchor: '<section v-if="currentPage === \'compass\'" class="compass-hero-bezel" data-testid="home-executive-answer">' },
   { id: 'page-ai-workbench', domain: 'decision-workbench', path: 'fragments/23b-page-ai-workbench.html', anchor: '<div v-if="currentPage === \'ai-workbench\'" class="dual-ota-home order-first" data-testid="home-ai-workbench">' },
   { id: 'page-compass-detail', domain: 'decision-workbench', path: 'fragments/23c-page-compass-detail.html', anchor: '<details v-if="currentPage === \'compass\'" class="suxi-evidence-fold" data-testid="home-full-detail-fold">' },
@@ -69,12 +69,28 @@ export const FRONTEND_TEMPLATE_MANIFEST_RELATIVE_PATH = 'resources/frontend/temp
 
 const BUSINESS_CLOSURE_TEMPLATE_VIEW_DEFINITIONS = Object.freeze([
   Object.freeze({
+    id: 'knowledge-feature-finder',
+    fragmentId: 'page-knowledge-center',
+    componentKey: 'KnowledgeFeatureFinderBody',
+    start: '                        <section data-testid="knowledge-feature-finder"',
+    end: '                        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 space-y-4">',
+    wrapper: '                        <knowledge-feature-finder-view :ctx="$root"></knowledge-feature-finder-view>\n\n',
+  }),
+  Object.freeze({
     id: 'knowledge-promotion-workbench',
     fragmentId: 'page-knowledge-center',
     componentKey: 'KnowledgePromotionWorkbenchBody',
     start: '                        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 space-y-4">',
     end: '                        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">',
     wrapper: '                        <knowledge-promotion-workbench-view :ctx="$root"></knowledge-promotion-workbench-view>\n\n',
+  }),
+  Object.freeze({
+    id: 'operating-goal-intervention',
+    fragmentId: 'page-ops-track',
+    componentKey: 'OperatingGoalInterventionBody',
+    start: '                        <div data-testid="operating-goal-intervention-learning"',
+    end: '                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">',
+    wrapper: '                        <operating-goal-intervention-view :ctx="$root"></operating-goal-intervention-view>\n\n',
   }),
   Object.freeze({
     id: 'home-temporal-trial',

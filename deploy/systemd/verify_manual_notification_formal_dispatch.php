@@ -25,6 +25,7 @@ try {
         'manual_notification_dispatch_attempts',
         'manual_notification_schedule_runs',
         'manual_notification_schedule_run_scopes',
+        'manual_notification_rule_states',
         'competitor_wechat_robot',
     ] as $table) {
         Db::query('SELECT 1 FROM `' . $table . '` WHERE 1 = 0');
@@ -37,14 +38,20 @@ try {
         . ' FROM `competitor_wechat_robot` WHERE 1 = 0'
     );
     Db::query(
-        'SELECT `schedule_run_id`'
+        'SELECT `schedule_run_id`,`condition_rule_fingerprint`,'
+        . '`condition_trigger_bucket`,`condition_observed_value`'
         . ' FROM `manual_notification_schedule_dispatches` WHERE 1 = 0'
     );
     Db::query(
         'SELECT `source_scope`,`content_sections`,`business_date_rule`,`active_weekdays`,'
         . '`effective_from`,`effective_to`,`hourly_start_time`,`hourly_end_time`,'
-        . '`interval_minutes`,`last_test_status`,`last_tested_at`,`update_time`'
+        . '`interval_minutes`,`condition_type`,`condition_threshold`,`condition_step`,'
+        . '`last_test_status`,`last_tested_at`,`update_time`'
         . ' FROM `manual_notifications` WHERE 1 = 0'
+    );
+    Db::query(
+        'SELECT `pending_trigger_bucket`,`pending_dispatch_id`,`pending_claimed_at`'
+        . ' FROM `manual_notification_rule_states` WHERE 1 = 0'
     );
 
     $records = Db::name('manual_notifications')
@@ -60,6 +67,8 @@ try {
         ->field(
             'notification.id,notification.tenant_id,notification.hotel_id,'
             . 'notification.notification_type,notification.template_type,'
+            . 'notification.source_scope,notification.content_sections,'
+            . 'notification.business_date_rule,notification.send_method,'
             . 'notification.trigger_type,'
             . 'notification.planned_send_at,notification.active_weekdays,'
             . 'notification.effective_from,notification.effective_to,'
@@ -87,6 +96,10 @@ try {
                 $templateType
             ) || ManualNotificationService::isOperatingDailyTriggerAllowed(
                 $triggerType
+            ) || ManualNotificationService::isStrictThreeSourceIntervalPlan(
+                $record
+            ) || ManualNotificationService::isStrictThreeSourceHourlyPlan(
+                $record
             );
             if (!$allowed) {
                 $policyBlocked[] = (int)($record['id'] ?? 0);

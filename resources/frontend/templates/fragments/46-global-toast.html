@@ -32,6 +32,9 @@
             </form>
         </div>
 
+        <!-- 全局智能咨询：复用经营问答的酒店/平台/日期证据闭环 -->
+        <operating-question-consultant v-if="isLoggedIn" :ctx="$root"></operating-question-consultant>
+
         <!-- Toast 提示 -->
         <div v-if="toast.show" class="fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-slide-in" :class="{
                 'bg-green-500 text-white': toast.type === 'success',

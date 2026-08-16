@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace app\service;
 
-use app\model\User;
 use DateTimeImmutable;
 use DateTimeZone;
 use think\facade\Db;
@@ -43,6 +42,9 @@ final class ManualNotificationScheduleService
     /** @var array<string, array<string, mixed>> */
     private array $pmsPreparationCache = [];
 
+    /** @var array<string, array<string, mixed>> */
+    private array $executionActorCache = [];
+
     public function __construct(
         ?callable $sender = null,
         private readonly ?OperatingTargetNotificationPayloadService $operatingTargetPayloads = null,
@@ -54,7 +56,10 @@ final class ManualNotificationScheduleService
         ?callable $meituanTemporalRefresher = null,
         private readonly ?CtripTemporalNotificationPayloadService $ctripTemporalPayloads = null,
         ?callable $ctripTemporalRefresher = null,
-        ?callable $pmsSourceRefresher = null
+        ?callable $pmsSourceRefresher = null,
+        private readonly ?ManualNotificationConditionRuleService $conditionRuleService = null,
+        private readonly ?ManualNotificationExecutionActorService $executionActorService = null,
+        private readonly ?CloudThreeSourceHourlyPayloadService $cloudThreeSourcePayloads = null
     ) {
         $this->sender = $sender;
         $this->meituanTemporalRefresher = $meituanTemporalRefresher;
@@ -80,29 +85,47 @@ final class ManualNotificationScheduleService
             $observedAt,
             true
         );
+        if (($pms['status'] ?? '') === 'blocked') {
+            return [
+                'status' => 'blocked',
+                'reason_code' => (string)($pms['reason_code']
+                    ?? 'source_preparation_blocked'),
+                'pms' => $pms,
+                'meituan' => $this->sourceNotAttemptedAfterBlocker('pms'),
+                'ctrip' => $this->sourceNotAttemptedAfterBlocker('pms'),
+            ];
+        }
         $meituan = $this->prepareMeituanSource(
             $row,
             $businessDate,
             $observedAt,
             true
         );
+        if (($meituan['status'] ?? '') === 'blocked') {
+            return [
+                'status' => 'blocked',
+                'reason_code' => (string)($meituan['reason_code']
+                    ?? 'source_preparation_blocked'),
+                'pms' => $pms,
+                'meituan' => $meituan,
+                'ctrip' => $this->sourceNotAttemptedAfterBlocker('meituan'),
+            ];
+        }
         $ctrip = $this->prepareCtripSource(
             $row,
             $businessDate,
             $observedAt,
             true
         );
-        foreach ([$pms, $meituan, $ctrip] as $preparation) {
-            if (($preparation['status'] ?? '') === 'blocked') {
-                return [
-                    'status' => 'blocked',
-                    'reason_code' => (string)($preparation['reason_code']
-                        ?? 'source_preparation_blocked'),
-                    'pms' => $pms,
-                    'meituan' => $meituan,
-                    'ctrip' => $ctrip,
-                ];
-            }
+        if (($ctrip['status'] ?? '') === 'blocked') {
+            return [
+                'status' => 'blocked',
+                'reason_code' => (string)($ctrip['reason_code']
+                    ?? 'source_preparation_blocked'),
+                'pms' => $pms,
+                'meituan' => $meituan,
+                'ctrip' => $ctrip,
+            ];
         }
         return [
             'status' => 'ready',
@@ -110,6 +133,16 @@ final class ManualNotificationScheduleService
             'pms' => $pms,
             'meituan' => $meituan,
             'ctrip' => $ctrip,
+        ];
+    }
+
+    /** @return array{status:string,reason_code:string,blocked_by:string} */
+    private function sourceNotAttemptedAfterBlocker(string $blockedBy): array
+    {
+        return [
+            'status' => 'not_attempted',
+            'reason_code' => 'prior_source_preparation_blocked',
+            'blocked_by' => $blockedBy,
         ];
     }
 
@@ -290,6 +323,8 @@ final class ManualNotificationScheduleService
         $triggerType = trim((string)($row['trigger_type'] ?? ''));
         if (!ManualNotificationService::isOperatingDailyReportType($templateType)
             || ManualNotificationService::isOperatingDailyTriggerAllowed($triggerType)
+            || ManualNotificationService::isStrictThreeSourceIntervalPlan($row)
+            || ManualNotificationService::isStrictThreeSourceHourlyPlan($row)
         ) {
             return null;
         }
@@ -446,7 +481,26 @@ final class ManualNotificationScheduleService
                 'delivery_attempted' => false,
             ];
         }
-        $preparations = ($identity['eligible'] ?? false) === true
+        $cloudThreeSourceHourly =
+            ManualNotificationService::isStrictThreeSourceHourlyPlan($row);
+        $preparations = $cloudThreeSourceHourly
+            ? [
+                'status' => 'ready',
+                'reason_code' => 'cloud_collectors_run_before_hour',
+                'pms' => [
+                    'status' => 'not_required',
+                    'reason_code' => 'payload_validates_recent_cloud_readback',
+                ],
+                'meituan' => [
+                    'status' => 'not_required',
+                    'reason_code' => 'payload_validates_recent_cloud_readback',
+                ],
+                'ctrip' => [
+                    'status' => 'not_required',
+                    'reason_code' => 'payload_validates_recent_cloud_readback',
+                ],
+            ]
+            : (($identity['eligible'] ?? false) === true
             ? ($dispatch
                 ? $this->prepareSourcesForDelivery(
                     $row,
@@ -490,7 +544,7 @@ final class ManualNotificationScheduleService
                     'status' => 'skipped',
                     'reason_code' => 'target_identity_not_ready',
                 ],
-            ];
+            ]);
         $pmsPreparation = $preparations['pms'];
         $base['pms_source_preparation'] = $pmsPreparation;
         $sourcePreparation = $preparations['meituan'];
@@ -620,6 +674,78 @@ final class ManualNotificationScheduleService
                 ];
             }
         }
+        $conditionEvaluation = null;
+        if (($identity['eligible'] ?? false) === true
+            && ($candidate['status'] ?? '') === 'ready'
+        ) {
+            try {
+                $conditionEvaluation = $this->conditionRules()->evaluate(
+                    $row,
+                    $candidate,
+                    $businessDate,
+                    $now
+                );
+                $base['condition_evaluation'] = $conditionEvaluation;
+                if (($conditionEvaluation['status'] ?? '') === 'blocked') {
+                    $reasonCode = (string)($conditionEvaluation['reason_code']
+                        ?? 'manual_notification_condition_evaluation_blocked');
+                    $candidate = [
+                        ...$candidate,
+                        'status' => 'blocked',
+                        'reason_code' => $reasonCode,
+                        'payload' => null,
+                        'formal_send_gate' => [
+                            'allowed' => false,
+                            'status' => 'formal_send_blocked',
+                            'blockers' => [[
+                                'code' => $reasonCode,
+                                'message' => (string)($conditionEvaluation['message']
+                                    ?? '自动推送条件缺少可信经营事实。'),
+                            ]],
+                        ],
+                    ];
+                } elseif (($conditionEvaluation['matched'] ?? false) === true) {
+                    $candidate = $this->conditionRules()->decorateCandidate(
+                        $candidate,
+                        $conditionEvaluation
+                    );
+                }
+                if ($dispatch
+                    && ($conditionEvaluation['status'] ?? '') !== 'blocked'
+                ) {
+                    $this->conditionRules()->recordObservation(
+                        $row,
+                        $conditionEvaluation,
+                        $now
+                    );
+                }
+            } catch (\Throwable $error) {
+                $conditionEvaluation = [
+                    'condition_type' => (string)($row['condition_type']
+                        ?? ManualNotificationConditionRuleService::ALWAYS),
+                    'status' => 'blocked',
+                    'matched' => false,
+                    'reason_code' => 'manual_notification_condition_evaluation_failed',
+                    'message' => '自动推送条件无法可靠计算，本轮未发送。',
+                    'error_reference' => substr(hash('sha256', $error->getMessage()), 0, 12),
+                ];
+                $base['condition_evaluation'] = $conditionEvaluation;
+                $candidate = [
+                    ...$candidate,
+                    'status' => 'blocked',
+                    'reason_code' => 'manual_notification_condition_evaluation_failed',
+                    'payload' => null,
+                    'formal_send_gate' => [
+                        'allowed' => false,
+                        'status' => 'formal_send_blocked',
+                        'blockers' => [[
+                            'code' => 'manual_notification_condition_evaluation_failed',
+                            'message' => '自动推送条件无法可靠计算，本轮未发送。',
+                        ]],
+                    ],
+                ];
+            }
+        }
         if (!$dispatch) {
             if (($identity['eligible'] ?? false) !== true) {
                 return $base + [
@@ -645,15 +771,81 @@ final class ManualNotificationScheduleService
             ];
         }
 
+        $conditionTriggerClaim = null;
+        if (is_array($conditionEvaluation)
+            && ($conditionEvaluation['matched'] ?? false) === true
+            && ($conditionEvaluation['state_commit_required'] ?? false) === true
+            && ($candidate['status'] ?? '') === 'ready'
+            && is_array($reservedDispatch)
+        ) {
+            try {
+                $conditionTriggerClaim = $this->conditionRules()->claimTrigger(
+                    $row,
+                    $conditionEvaluation,
+                    (int)$reservedDispatch['id'],
+                    $now
+                );
+                $conditionEvaluation['trigger_claim'] =
+                    $conditionTriggerClaim;
+                $base['condition_evaluation'] = $conditionEvaluation;
+                if (($conditionTriggerClaim['allowed'] ?? false) !== true) {
+                    $conditionEvaluation['status'] = 'not_matched';
+                    $conditionEvaluation['matched'] = false;
+                    $conditionEvaluation['reason_code'] = (string)(
+                        $conditionTriggerClaim['reason_code']
+                        ?? 'manual_notification_condition_trigger_in_flight'
+                    );
+                    $conditionEvaluation['message'] =
+                        $conditionEvaluation['reason_code']
+                            === 'manual_notification_condition_level_already_sent'
+                            ? '该经营规则档位已有成功回执，本次不重复发送。'
+                            : '该经营规则档位正在由另一执行窗口发送，本次不重复发送。';
+                    $base['condition_evaluation'] = $conditionEvaluation;
+                }
+            } catch (\Throwable $error) {
+                $conditionEvaluation = [
+                    ...$conditionEvaluation,
+                    'status' => 'blocked',
+                    'matched' => false,
+                    'reason_code' =>
+                        'manual_notification_condition_claim_failed',
+                    'message' =>
+                        '自动推送条件无法取得原子发送认领，本轮未发送。',
+                    'error_reference' => substr(
+                        hash('sha256', $error->getMessage()),
+                        0,
+                        12
+                    ),
+                ];
+                $base['condition_evaluation'] = $conditionEvaluation;
+                $candidate = [
+                    ...$candidate,
+                    'status' => 'blocked',
+                    'reason_code' =>
+                        'manual_notification_condition_claim_failed',
+                    'payload' => null,
+                ];
+            }
+        }
+
         $blockedReason = null;
         $blockedMessage = null;
+        $skippedReason = is_array($conditionEvaluation)
+            && ($conditionEvaluation['status'] ?? '') === 'not_matched'
+            ? (string)($conditionEvaluation['reason_code']
+                ?? 'manual_notification_condition_not_met')
+            : null;
+        $skippedMessage = $skippedReason === null
+            ? null
+            : (string)($conditionEvaluation['message']
+                ?? '当前经营事实未命中自动推送条件。');
         if (($identity['eligible'] ?? false) !== true) {
             $blockedReason = (string)($identity['reason_code'] ?? 'target_binding_missing');
             $blockedMessage = '企业微信机器人身份、作用域或酒店归属未通过校验。';
         } elseif (($candidate['status'] ?? '') !== 'ready' || !is_array($candidate['payload'] ?? null)) {
             $blockedReason = (string)($candidate['reason_code'] ?? 'report_gate_blocked');
             $blockedMessage = $this->candidateBlockerMessage($candidate);
-        } elseif ($this->sender === null) {
+        } elseif ($skippedReason === null && $this->sender === null) {
             $blockedReason = 'explicit_sender_missing';
             $blockedMessage = '云端调度未注入真实发送器。';
         }
@@ -665,17 +857,31 @@ final class ManualNotificationScheduleService
         }
         $candidate['business_date'] = $businessDate;
         $candidate['tested_plan_fingerprint'] = $planFingerprint;
+        if (is_array($conditionEvaluation)) {
+            $candidate['condition_evaluation'] = $conditionEvaluation;
+        }
+        $attachmentStatus = $skippedReason !== null
+            ? 'skipped'
+            : ($blockedReason === null ? 'claimed' : 'preparation_failed');
         $attached = $this->dispatchLedger()->attachCandidateToClaim(
             (int)$reservedDispatch['id'],
             $claimLease,
             $candidate,
             $now,
-            $blockedReason === null ? 'claimed' : 'preparation_failed',
-            $blockedReason ?? 'dispatch_candidate_attached',
-            $blockedMessage
+            $attachmentStatus,
+            $skippedReason ?? $blockedReason ?? 'dispatch_candidate_attached',
+            $skippedMessage ?? $blockedMessage
         );
         $claimedDispatch = $attached['dispatch'];
         if (($attached['allowed'] ?? false) !== true) {
+            if (($conditionTriggerClaim['claimed'] ?? false) === true) {
+                $this->conditionRules()->releaseTriggerClaim(
+                    $row,
+                    $conditionEvaluation ?? [],
+                    (int)$reservedDispatch['id'],
+                    $now
+                );
+            }
             return $base + [
                 'status' => 'blocked',
                 'reason_code' => (string)($attached['reason_code']
@@ -692,17 +898,98 @@ final class ManualNotificationScheduleService
                 'report_gate' => $candidate['formal_send_gate'] ?? null,
             ];
         }
+        if ($skippedReason !== null) {
+            return $base + [
+                'status' => 'skipped',
+                'reason_code' => $skippedReason,
+                'message' => $skippedMessage,
+                'dispatch_id' => (int)$claimedDispatch['id'],
+                'delivery_attempted' => false,
+                'target_robot_id' => $robotId,
+                'target_robot_name' => $robotName,
+            ];
+        }
 
         $attempt = $this->dispatchLedger()->beginAttempt(
             (int)$claimedDispatch['id'],
             $now
         );
         if (($attempt['allowed'] ?? false) !== true) {
+            if (($conditionTriggerClaim['claimed'] ?? false) === true) {
+                $this->conditionRules()->releaseTriggerClaim(
+                    $row,
+                    $conditionEvaluation ?? [],
+                    (int)$claimedDispatch['id'],
+                    $now
+                );
+            }
             return $base + [
                 'status' => 'blocked',
                 'reason_code' => (string)$attempt['reason_code'],
                 'dispatch_id' => (int)$claimedDispatch['id'],
             ];
+        }
+
+        if (is_array($conditionEvaluation)
+            && ($conditionEvaluation['state_commit_required'] ?? false) === true
+        ) {
+            try {
+                $confirmedClaim = $this->conditionRules()
+                    ->confirmTriggerClaim(
+                        $row,
+                        $conditionEvaluation,
+                        (int)$claimedDispatch['id'],
+                        $now
+                    );
+                $conditionEvaluation['trigger_claim_confirmation'] =
+                    $confirmedClaim;
+                $base['condition_evaluation'] = $conditionEvaluation;
+            } catch (\Throwable $error) {
+                $confirmedClaim = [
+                    'allowed' => false,
+                    'reason_code' =>
+                        'manual_notification_condition_claim_failed',
+                    'confirmed' => false,
+                    'error_reference' => substr(
+                        hash('sha256', $error->getMessage()),
+                        0,
+                        12
+                    ),
+                ];
+            }
+            if (($confirmedClaim['allowed'] ?? false) !== true) {
+                $reasonCode = (string)(
+                    $confirmedClaim['reason_code']
+                    ?? 'manual_notification_condition_trigger_claim_fenced'
+                );
+                $message = $reasonCode
+                    === 'manual_notification_condition_level_already_sent'
+                        ? '该经营规则档位已有成功回执，发送前已取消本次调用。'
+                        : '该经营规则档位已被新执行窗口接管，发送前已取消本次调用。';
+                $cancelled = $this->dispatchLedger()
+                    ->cancelAttemptBeforeSend(
+                        (int)$claimedDispatch['id'],
+                        (int)$attempt['attempt_id'],
+                        $now,
+                        $reasonCode,
+                        $message
+                    );
+                $this->conditionRules()->releaseTriggerClaim(
+                    $row,
+                    $conditionEvaluation,
+                    (int)$claimedDispatch['id'],
+                    $now
+                );
+                return $base + [
+                    'status' => 'skipped',
+                    'reason_code' => $reasonCode,
+                    'message' => $message,
+                    'dispatch_id' => (int)$cancelled['id'],
+                    'delivery_attempted' => false,
+                    'target_robot_id' => $robotId,
+                    'target_robot_name' => $robotName,
+                ];
+            }
         }
 
         $delivery = [];
@@ -736,11 +1023,51 @@ final class ManualNotificationScheduleService
             $now,
             $exception
         );
+        $conditionStateCommitted = false;
+        if ((string)($finished['status'] ?? '') === 'sent'
+            && is_array($conditionEvaluation)
+            && ($conditionEvaluation['state_commit_required'] ?? false) === true
+        ) {
+            try {
+                $this->conditionRules()->commitSuccessfulDelivery(
+                    $row,
+                    $conditionEvaluation,
+                    (int)$finished['id'],
+                    $now
+                );
+                $conditionStateCommitted = true;
+            } catch (\Throwable $error) {
+                return $base + [
+                    'dispatch_id' => (int)$finished['id'],
+                    'status' => 'outcome_unknown',
+                    'reason_code' => 'manual_notification_condition_state_commit_failed',
+                    'message' => '消息已确认送达，但规则状态提交失败；已保留发送回执并禁止把本轮标为完整成功。',
+                    'delivery_attempted' => true,
+                    'delivery_status' => 'sent',
+                    'condition_state_committed' => false,
+                    'error_reference' => substr(hash('sha256', $error->getMessage()), 0, 12),
+                    'target_robot_id' => $robotId,
+                    'target_robot_name' => $robotName,
+                    'payload_fingerprint' => $finished['payload_fingerprint'] ?? null,
+                ];
+            }
+        } elseif ((string)($finished['status'] ?? '') === 'failed'
+            && is_array($conditionEvaluation)
+            && ($conditionTriggerClaim['claimed'] ?? false) === true
+        ) {
+            $this->conditionRules()->releaseTriggerClaim(
+                $row,
+                $conditionEvaluation,
+                (int)$finished['id'],
+                $now
+            );
+        }
         return $base + [
             'dispatch_id' => (int)$finished['id'],
             'status' => (string)$finished['status'],
             'reason_code' => (string)$finished['result_code'],
             'delivery_attempted' => true,
+            'condition_state_committed' => $conditionStateCommitted,
             'target_robot_id' => $robotId,
             'target_robot_name' => $robotName,
             'payload_fingerprint' => $finished['payload_fingerprint'] ?? null,
@@ -847,28 +1174,29 @@ final class ManualNotificationScheduleService
         }
 
         $hotelId = (int)($row['hotel_id'] ?? 0);
-        $actorId = (int)($row['created_by'] ?? 0);
-        if ($hotelId <= 0 || $actorId <= 0) {
-            return [
-                'status' => 'blocked',
-                'reason_code' => 'meituan_schedule_actor_scope_missing',
-            ];
-        }
-        $actor = User::where('id', $actorId)->where('status', 1)->find();
-        if (!$actor) {
+        $actorResolution = $this->executionActor($row);
+        $actorMetadata = $this->executionActorMetadata($actorResolution);
+        $actor = $actorResolution['actor'] ?? null;
+        if (($actorResolution['status'] ?? '') !== 'ready' || !is_object($actor)) {
             return [
                 'status' => 'blocked',
                 'reason_code' => 'meituan_schedule_actor_missing',
+                'execution_actor_reason_code' => (string)(
+                    $actorResolution['reason_code']
+                        ?? 'manual_notification_execution_actor_missing'
+                ),
+                ...$actorMetadata,
             ];
         }
 
         $service = new MeituanTemporalService();
-        $refresh = $service->refresh($actor, $hotelId, $businessDate);
+        $refresh = $service->refresh($actor, $hotelId, $businessDate, true);
         if (($refresh['status'] ?? '') === 'blocked') {
             return [
                 'status' => 'blocked',
                 'reason_code' => (string)($refresh['reason_code']
                     ?? 'meituan_current_capture_blocked'),
+                ...$actorMetadata,
             ];
         }
 
@@ -892,6 +1220,7 @@ final class ManualNotificationScheduleService
                 'status' => 'blocked',
                 'reason_code' => (string)($todayTask['reason_code']
                     ?? 'meituan_current_capture_readback_missing'),
+                ...$actorMetadata,
             ];
         }
 
@@ -914,6 +1243,7 @@ final class ManualNotificationScheduleService
             return [
                 'status' => 'blocked',
                 'reason_code' => 'meituan_current_summary_not_verified',
+                ...$actorMetadata,
             ];
         }
 
@@ -927,6 +1257,7 @@ final class ManualNotificationScheduleService
             'sync_task_id' => (int)($todayTask['sync_task_id'] ?? 0),
             'saved_count' => (int)($todayTask['saved_count'] ?? 0),
             'readback_verified' => true,
+            ...$actorMetadata,
         ];
     }
 
@@ -1096,14 +1427,18 @@ final class ManualNotificationScheduleService
                 ];
             }
         } else {
-            $actorId = (int)($row['created_by'] ?? 0);
-            $actor = $actorId > 0
-                ? User::where('id', $actorId)->where('status', 1)->find()
-                : null;
-            if (!$actor) {
+            $actorResolution = $this->executionActor($row);
+            $actorMetadata = $this->executionActorMetadata($actorResolution);
+            $actor = $actorResolution['actor'] ?? null;
+            if (($actorResolution['status'] ?? '') !== 'ready' || !is_object($actor)) {
                 $result = [
                     'status' => 'blocked',
                     'reason_code' => 'ctrip_schedule_actor_missing',
+                    'execution_actor_reason_code' => (string)(
+                        $actorResolution['reason_code']
+                            ?? 'manual_notification_execution_actor_missing'
+                    ),
+                    ...$actorMetadata,
                 ];
             } else {
                 try {
@@ -1113,7 +1448,12 @@ final class ManualNotificationScheduleService
                         $hotelId,
                         $this->hotelName($hotelId),
                         $businessDate,
-                        $observedAt
+                        $observedAt,
+                        ManualNotificationService::isOperatingDailyReportType(
+                            (string)($row['template_type']
+                                ?? $row['notification_type']
+                                ?? '')
+                        )
                     );
                     $result = is_array($result) ? $result : [];
                 } catch (\Throwable) {
@@ -1122,6 +1462,7 @@ final class ManualNotificationScheduleService
                         'reason_code' => 'ctrip_current_capture_failed',
                     ];
                 }
+                $result = [...$result, ...$actorMetadata];
             }
         }
 
@@ -1247,11 +1588,25 @@ final class ManualNotificationScheduleService
         }
         $tenantId = (int)($row['tenant_id'] ?? 0);
         $hotelId = (int)($row['hotel_id'] ?? 0);
-        $actorId = (int)($row['created_by'] ?? 0);
-        if ($tenantId <= 0 || $hotelId <= 0 || $actorId <= 0) {
+        if ($tenantId <= 0 || $hotelId <= 0) {
             return [
                 'status' => 'blocked',
                 'reason_code' => 'pms_schedule_actor_scope_missing',
+            ];
+        }
+
+        $actorResolution = $this->executionActor($row);
+        $actorMetadata = $this->executionActorMetadata($actorResolution);
+        $actorId = (int)($actorResolution['actor_id'] ?? 0);
+        if (($actorResolution['status'] ?? '') !== 'ready' || $actorId <= 0) {
+            return [
+                'status' => 'blocked',
+                'reason_code' => 'pms_schedule_actor_missing',
+                'execution_actor_reason_code' => (string)(
+                    $actorResolution['reason_code']
+                        ?? 'manual_notification_execution_actor_missing'
+                ),
+                ...$actorMetadata,
             ];
         }
 
@@ -1274,6 +1629,7 @@ final class ManualNotificationScheduleService
                 'reason_code' => (string)($sync['reason_code']
                     ?? $sync['downstream_blocker_code']
                     ?? 'pms_current_capture_readback_missing'),
+                ...$actorMetadata,
             ];
         }
         return [
@@ -1285,6 +1641,7 @@ final class ManualNotificationScheduleService
             'capture_id' => (int)$sync['capture_id'],
             'saved_count' => 1,
             'readback_verified' => true,
+            ...$actorMetadata,
         ];
     }
 
@@ -1303,6 +1660,13 @@ final class ManualNotificationScheduleService
         array $candidate,
         array $preparations
     ): array {
+        if (ManualNotificationService::isStrictThreeSourceHourlyPlan($row)) {
+            return [
+                'allowed' => true,
+                'reason_code' => 'cloud_three_source_payload_self_verified',
+                'message' => '',
+            ];
+        }
         if (!ManualNotificationService::isOperatingDailyReportType(
             (string)($row['template_type']
                 ?? $row['notification_type']
@@ -1503,6 +1867,41 @@ final class ManualNotificationScheduleService
             if (ManualNotificationService::isOperatingDailyReportType(
                 $templateType
             )) {
+                if (ManualNotificationService::isStrictThreeSourceHourlyPlan($row)) {
+                    $actorResolution = $this->executionActor($row);
+                    $actorId = (int)($actorResolution['actor_id'] ?? 0);
+                    if (($actorResolution['status'] ?? '') !== 'ready' || $actorId <= 0) {
+                        $reasonCode = (string)(
+                            $actorResolution['reason_code']
+                                ?? 'manual_notification_execution_actor_missing'
+                        );
+                        return [
+                            'status' => 'blocked',
+                            'reason_code' => $reasonCode,
+                            'business_date' => $businessDate,
+                            'payload' => null,
+                            'formal_send_gate' => [
+                                'allowed' => false,
+                                'status' => 'formal_send_blocked',
+                                'blockers' => [[
+                                    'code' => $reasonCode,
+                                    'message' => 'No authorized hotel execution actor is available for this plan.',
+                                ]],
+                            ],
+                            ...$this->executionActorMetadata($actorResolution),
+                        ];
+                    }
+                    $candidate = $this->cloudThreeSourcePayloads()->build(
+                        $tenantId,
+                        $hotelId,
+                        $hotelName,
+                        $businessDate,
+                        $actorId
+                    );
+                    return $mode === self::MODE_FORMAL
+                        ? $this->formalizeDynamicCandidate($candidate)
+                        : $candidate;
+                }
                 $contractBlocker =
                     ManualNotificationService::
                     operatingDailyCustomContractBlocker(
@@ -1867,6 +2266,50 @@ final class ManualNotificationScheduleService
             ?? new ManualNotificationBusinessPayloadService();
     }
 
+    private function cloudThreeSourcePayloads(): CloudThreeSourceHourlyPayloadService
+    {
+        return $this->cloudThreeSourcePayloads
+            ?? new CloudThreeSourceHourlyPayloadService();
+    }
+
+    private function conditionRules(): ManualNotificationConditionRuleService
+    {
+        return $this->conditionRuleService
+            ?? new ManualNotificationConditionRuleService();
+    }
+
+    /** @param array<string, mixed> $row @return array<string, mixed> */
+    private function executionActor(array $row): array
+    {
+        $cacheKey = implode('|', [
+            (int)($row['tenant_id'] ?? 0),
+            (int)($row['hotel_id'] ?? 0),
+            (int)($row['created_by'] ?? 0),
+        ]);
+        if (!isset($this->executionActorCache[$cacheKey])) {
+            $resolver = $this->executionActorService
+                ?? new ManualNotificationExecutionActorService();
+            $this->executionActorCache[$cacheKey] = $resolver->resolve($row);
+        }
+        return $this->executionActorCache[$cacheKey];
+    }
+
+    /**
+     * @param array<string, mixed> $resolution
+     * @return array<string, int|string|bool>
+     */
+    private function executionActorMetadata(array $resolution): array
+    {
+        return [
+            'execution_actor_id' => (int)($resolution['actor_id'] ?? 0),
+            'execution_actor_resolution' => (string)(
+                $resolution['resolution'] ?? 'unresolved'
+            ),
+            'plan_creator_id' => (int)($resolution['plan_creator_id'] ?? 0),
+            'creator_replaced' => (bool)($resolution['creator_replaced'] ?? false),
+        ];
+    }
+
     private function ctripTemporalPayloads(): CtripTemporalNotificationPayloadService
     {
         return $this->ctripTemporalPayloads
@@ -1931,9 +2374,9 @@ final class ManualNotificationScheduleService
             ->where('robot_id', $robotId)
             ->where('robot_name', trim($robotName))
             ->where('render_contract_version', $contractVersion)
-            ->where(
+            ->whereIn(
                 'tested_plan_fingerprint',
-                ManualNotificationService::planFingerprint($row)
+                ManualNotificationService::acceptedPlanFingerprints($row)
             )
             ->where('status', 'sent')
             ->where('dispatched_at', '>=', $planUpdatedAt)

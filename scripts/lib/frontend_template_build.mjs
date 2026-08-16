@@ -105,8 +105,8 @@ export async function buildDataConfigDialogsComponent(template) {
 }
 
 export async function buildBusinessClosureViewsComponent(views) {
-  if (!Array.isArray(views) || views.length !== 3) {
-    throw new Error('Business closure component build requires exactly three extracted views.');
+  if (!Array.isArray(views) || views.length !== 5) {
+    throw new Error('Business closure component build requires exactly five extracted views.');
   }
   const componentKeys = new Set();
   const definitions = views.map((view) => {
@@ -276,7 +276,9 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
     failures.push('The data-config dialogs component template is missing the preserved modal body.');
   }
   for (const wrapper of [
+    '<knowledge-feature-finder-view :ctx="$root"></knowledge-feature-finder-view>',
     '<knowledge-promotion-workbench-view :ctx="$root"></knowledge-promotion-workbench-view>',
+    '<operating-goal-intervention-view :ctx="$root"></operating-goal-intervention-view>',
     '<home-temporal-trial-view v-if="!dualOtaPmsSelected" :ctx="$root"></home-temporal-trial-view>',
     '<knowledge-xlsx-import-dialog-view v-if="showKnowledgeCenterImportModal" :ctx="$root"></knowledge-xlsx-import-dialog-view>',
   ]) {
@@ -285,7 +287,9 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
     }
   }
   for (const componentKey of [
+    'KnowledgeFeatureFinderBody',
     'KnowledgePromotionWorkbenchBody',
+    'OperatingGoalInterventionBody',
     'HomeTemporalTrialBody',
     'KnowledgeXlsxImportDialogBody',
   ]) {

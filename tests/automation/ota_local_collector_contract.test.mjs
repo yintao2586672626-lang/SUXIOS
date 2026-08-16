@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { readAppMainContractSource } from './helpers/frontend_source.mjs';
 import {
   accountProfileDirectoryName,
   buildCaptureResultSummary,
@@ -222,7 +223,7 @@ test('server contract exposes paired device endpoints and never accepts central 
     read('scripts/start_local_collector.ps1'),
     read('scripts/register_local_collector_autostart.ps1'),
     read('resources/frontend/templates/fragments/35-page-online-data.html'),
-    read('public/app-main.js'),
+    readAppMainContractSource(),
     read('database/migrations/20260802_allow_ota_local_collector_account_reassignment.sql'),
     read('app/service/OtaFailureNotificationService.php'),
   ]);
@@ -265,13 +266,35 @@ test('server contract exposes paired device endpoints and never accepts central 
   assert.match(controller, /function unbindHotel/);
   assert.match(ctrip, /ctrip_account_profile_/);
   assert.match(localAgent, /--sequential-sections=true/);
+  assert.match(localAgent, /const INTERACTIVE_LOGIN_TIMEOUT_MS = 600_000/);
+  assert.match(localAgent, /--login-timeout-ms=\$\{INTERACTIVE_LOGIN_TIMEOUT_MS\}/);
+  assert.match(localAgent, /task\.task_type === 'login' \? 'waiting_user_login' : 'running'/);
+  assert.match(localAgent, /原设备、原账号和原酒店 Profile/);
   assert.match(localAgent, /createLocalConnectServer/);
   assert.match(localAgent, /Access-Control-Allow-Private-Network/);
   assert.match(starter, /serve/);
   assert.match(starter, /--port=\$Port/);
+  assert.match(starter, /\(run\|serve\)/);
+  assert.match(starter, /SUXIOS collector is already running/);
   assert.match(autoStart, /ONLOGON/);
   assert.match(meituan, /meituan_account_profile_/);
   assert.match(template, /data-testid="local-collector-account-center"/);
+  assert.match(template, /<local-collector-login-handoff \/>/);
+  const localCollectorLoginHandoffSurface = `${template}\n${appMain}`;
+  for (const testid of [
+    'local-collector-login-handoff',
+    'local-collector-login-task-status',
+    'local-collector-login-task-hotel',
+    'local-collector-login-task-device',
+    'local-collector-login-task-progress',
+    'local-collector-login-task-recovery',
+  ]) {
+    assert.match(localCollectorLoginHandoffSurface, new RegExp(`['"]data-testid['"]\\s*:\\s*['"]${testid}`));
+  }
+  assert.match(appMain, /每3秒刷新/);
+  assert.match(appMain, /最长约10分钟/);
+  assert.match(appMain, /专用Profile窗口/);
+  assert.match(appMain, /ctx\.refreshLocalCollectorStatus\?\.\(\)/);
   assert.match(template, /data-testid="local-collector-unbind-hotel"/);
   assert.match(template, /连接此电脑/);
   assert.doesNotMatch(template, /生成 10 分钟配对码/);
@@ -294,4 +317,96 @@ test('server contract exposes paired device endpoints and never accepts central 
   assert.doesNotMatch(reassignmentMigration, /^UPDATE\s/im);
   assert.match(notifications, /buildOtaCollectionFailurePayload/);
   assert.match(notifications, /notify_wecom/);
+});
+
+test('waiting local login is visible on the exact original task without claiming that a window opened', async () => {
+  const [appMain, template] = await Promise.all([
+    readAppMainContractSource(),
+    read('resources/frontend/templates/fragments/35-page-online-data.html'),
+  ]);
+  const rowsStart = appMain.indexOf('const LOCAL_COLLECTOR_TASK_POLL_INTERVAL_MS = 3000;');
+  const rowsEnd = appMain.indexOf('const localCollectorOrderedCollection = computed', rowsStart);
+  assert.ok(rowsStart >= 0 && rowsEnd > rowsStart, 'local collector login task rows must be defined');
+  const rowsSource = appMain.slice(rowsStart, rowsEnd);
+  const localCollectorStatus = {
+    value: {
+      devices: [{ id: 1, device_name: '酒店80运营电脑' }],
+      accounts: [{
+        id: 2,
+        device_id: 1,
+        platform: 'ctrip',
+        account_alias: '酒店80携程账户',
+        hotels: [{
+          system_hotel_id: 80,
+          platform: 'ctrip',
+          platform_hotel_id: '130079194',
+          platform_hotel_name: '敦煌漠蓝新',
+        }],
+      }],
+      tasks: [{
+        id: 42,
+        account_id: 2,
+        device_id: 1,
+        system_hotel_id: 80,
+        platform: 'ctrip',
+        task_type: 'login',
+        status: 'waiting_user_login',
+        error_summary: '等待运营人员在原设备、原账号和原酒店 Profile 完成登录。',
+        recovery: { next_action: '继续原设备登录，不切换酒店或设备。' },
+      }],
+    },
+  };
+  const result = Function(
+    'computed',
+    'localCollectorStatus',
+    'localCollectorPlatformText',
+    'localCollectorStatusText',
+    'localCollectorStatusClass',
+    'getHotelNameById',
+    `${rowsSource}
+return { localCollectorHasPollableTasks, localCollectorLoginTaskRows };`,
+  )(
+    factory => ({ get value() { return factory(); } }),
+    localCollectorStatus,
+    platform => ({ ctrip: '携程', meituan: '美团' }[platform] || platform),
+    status => ({ waiting_user_login: '等待本机登录' }[status] || status),
+    () => 'status-class',
+    hotelId => ({ 80: '敦煌漠蓝新' }[hotelId] || ''),
+  );
+
+  assert.equal(result.localCollectorHasPollableTasks.value, true);
+  assert.equal(result.localCollectorLoginTaskRows.value.length, 1);
+  const row = result.localCollectorLoginTaskRows.value[0];
+  assert.equal(row.taskId, 42);
+  assert.equal(row.deviceName, '酒店80运营电脑');
+  assert.equal(row.statusText, '等待本机登录');
+  assert.match(row.hotelText, /敦煌漠蓝新（系统酒店 #80）/);
+  assert.match(row.hotelText, /ID 130079194/);
+  assert.match(row.handoffText, /原设备“酒店80运营电脑”已领取登录任务/);
+  assert.match(row.handoffText, /携程专用 Profile 窗口/);
+  assert.doesNotMatch(row.handoffText, /窗口已打开|窗口已经打开/);
+  assert.equal(row.progressText, '等待运营人员在原设备、原账号和原酒店 Profile 完成登录。');
+  assert.equal(row.recoveryAction, '继续原设备登录，不切换酒店或设备。');
+
+  localCollectorStatus.value.tasks = [
+    { id: 43, task_type: 'collect', status: 'queued' },
+    { id: 44, task_type: 'backfill', status: 'running' },
+  ];
+  assert.equal(
+    result.localCollectorHasPollableTasks.value,
+    false,
+    'ordinary collect/backfill tasks must not start the login handoff poller',
+  );
+
+  const pollingStart = appMain.indexOf('let localCollectorTaskPollTimer = null;');
+  const pollingEnd = appMain.indexOf('const connectLocalCollector = async', pollingStart);
+  assert.ok(pollingStart >= 0 && pollingEnd > pollingStart, 'bounded local task polling must be defined');
+  const pollingSource = appMain.slice(pollingStart, pollingEnd);
+  assert.match(appMain, /const LOCAL_COLLECTOR_TASK_POLL_MAX_ATTEMPTS = 200;/);
+  assert.match(pollingSource, /loadLocalCollectorStatus\(\{ silent: true \}\)/);
+  assert.match(pollingSource, /currentPage\.value === 'online-data'/);
+  assert.match(pollingSource, /onlineDataTab\.value === 'platform-sources'/);
+  assert.doesNotMatch(pollingSource, /createLocalCollectorTask/);
+  assert.doesNotMatch(rowsSource, /窗口已打开|窗口已经打开/);
+  assert.doesNotMatch(template, /窗口已打开|窗口已经打开/);
 });

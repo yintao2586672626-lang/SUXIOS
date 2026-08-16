@@ -57,7 +57,7 @@ final class PriceSuggestionCliTenantScopeTest extends TestCase
         Db::connect(null, true);
 
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(100), status INTEGER)');
-        Db::execute('CREATE TABLE price_suggestions (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, room_type_id INTEGER, demand_forecast_id INTEGER, suggestion_date DATE, suggestion_type INTEGER, current_price DECIMAL(10,2), suggested_price DECIMAL(10,2), min_price DECIMAL(10,2), max_price DECIMAL(10,2), competitor_data TEXT, factors TEXT, status INTEGER, applied_by INTEGER, remark TEXT, create_time DATETIME, update_time DATETIME)');
+        Db::execute('CREATE TABLE price_suggestions (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, room_type_id INTEGER, demand_forecast_id INTEGER, suggestion_date DATE, suggestion_type INTEGER, current_price DECIMAL(10,2), suggested_price DECIMAL(10,2), min_price DECIMAL(10,2), max_price DECIMAL(10,2), competitor_data TEXT, factors TEXT, active_dedupe_key TEXT NULL UNIQUE, status INTEGER, applied_by INTEGER, remark TEXT, create_time DATETIME, update_time DATETIME)');
         Db::name('hotels')->insert(['id' => 20, 'tenant_id' => 10, 'name' => 'Tenant 10 Hotel', 'status' => 1]);
         $common = [
             'hotel_id' => 20,

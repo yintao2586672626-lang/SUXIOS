@@ -987,8 +987,10 @@ final class OperationEffectReviewService
 
     private function intentBaselineDate(array $intent): ?string
     {
-        foreach (['date_end', 'date_start'] as $field) {
-            $date = trim((string)($intent[$field] ?? ''));
+        $evidence = $this->decodeJson($intent['evidence_json'] ?? null);
+        $approvalTarget = $this->arrayValue($evidence['approval_target'] ?? []);
+        foreach ([$approvalTarget['baseline_business_date'] ?? null, $intent['date_end'] ?? null, $intent['date_start'] ?? null] as $value) {
+            $date = trim((string)$value);
             if ($date !== '' && $this->isDate($date)) {
                 return $date;
             }
