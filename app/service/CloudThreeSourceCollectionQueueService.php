@@ -120,6 +120,7 @@ final class CloudThreeSourceCollectionQueueService
         $now = $this->now();
         $targetDate = trim((string)($options['target_date'] ?? $now->format('Y-m-d')));
         $childTimeoutSeconds = max(60, min(900, (int)($options['child_timeout_seconds'] ?? 540)));
+        $otaCaptureTimeoutSeconds = max(60, $childTimeoutSeconds - 180);
         $deadlineSeconds = max(60, min(3300, (int)($options['deadline_seconds'] ?? 1500)));
         $controlTokenFile = trim((string)($options['control_token_file']
             ?? self::CONTROL_TOKEN_FILES[0]));
@@ -459,7 +460,7 @@ final class CloudThreeSourceCollectionQueueService
                 '--profile-id=' . $profiles['ctrip']['profile_public_id'],
                 '--target-date=' . $targetDate,
                 '--control-token-file=' . $controlTokenFile,
-                '--timeout-seconds=' . $childTimeoutSeconds,
+                '--timeout-seconds=' . $otaCaptureTimeoutSeconds,
                 '--dispatcher-run-id=' . $dispatcherRunId,
             ],
             'meituan' => [
@@ -472,7 +473,7 @@ final class CloudThreeSourceCollectionQueueService
                 '--profile-id=' . $profiles['meituan']['profile_public_id'],
                 '--target-date=' . $targetDate,
                 '--control-token-file=' . $controlTokenFile,
-                '--timeout-seconds=' . $childTimeoutSeconds,
+                '--timeout-seconds=' . $otaCaptureTimeoutSeconds,
                 '--dispatcher-run-id=' . $dispatcherRunId,
             ],
         ];
