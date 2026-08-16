@@ -27,6 +27,7 @@ test('cloud OTA runner binds one source/Profile/date and persists only after cur
   assert.match(runner, /isCurrentVerified\(\$proofSource\)/);
   assert.match(runner, /current_session_proof_readback_verified/);
   assert.match(runner, /BrowserProfileProcessOutputSanitizer::sanitizeMessage/);
+  assert.match(runner, /\$statusCode = \(string\)\(\$messageParts\[0\]/);
   assert.match(runner, /\['capture_sections'\]\s*=\s*'traffic'/);
   assert.match(runner, /\['capture_mode'\]\s*=\s*'temporal_summary'/);
   assert.match(runner, /'require_current_run_session_probe'\s*=>\s*true/);
