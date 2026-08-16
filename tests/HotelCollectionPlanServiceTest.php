@@ -707,6 +707,7 @@ final class HotelCollectionPlanServiceTest extends TestCase
                 'quality_status' => 'verified',
                 'reconciliation_status' => 'matched',
                 'readback_status' => 'readback_verified',
+                'detail_row_count' => 1,
             ]);
         }
     }
@@ -824,7 +825,8 @@ final class HotelCollectionPlanServiceTest extends TestCase
             capture_status TEXT NOT NULL,
             quality_status TEXT NOT NULL,
             reconciliation_status TEXT NOT NULL,
-            readback_status TEXT NOT NULL
+            readback_status TEXT NOT NULL,
+            detail_row_count INTEGER NOT NULL
         )');
     }
 }
