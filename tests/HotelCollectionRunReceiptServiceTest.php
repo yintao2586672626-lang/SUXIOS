@@ -145,6 +145,40 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
         self::assertFalse($receipt['readback_verified']);
         self::assertSame(['success', 'success'], array_column($receipt['source_receipts'], 'status'));
         self::assertSame([true, true], array_column($receipt['source_receipts'], 'readback_verified'));
+
+        $trustReceipt = $this->exactReceipt($dispatcherRunId, [$ctrip, $meituan], [], true);
+        foreach ($trustReceipt['source_tasks'] as &$task) {
+            $task['historical_core_contract_status'] = 'not_required';
+        }
+        unset($task);
+        $trustReceipt['collection_anchor_hash'] = OtaCollectionAnchorService::hash(
+            $trustReceipt['source_tasks']
+        );
+        $finalized = $service->finalizeCollection(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            $trustReceipt,
+            true
+        );
+        self::assertSame('succeeded', $finalized['status']);
+        self::assertTrue($finalized['readback_verified']);
+    }
+
+    public function testRunScopeRejectsDateTimeAndTrailingDateCharacters(): void
+    {
+        foreach (['2026-08-09junk', '2026-08-09T23:00:00'] as $index => $businessDate) {
+            $dispatcherRunId = sprintf(
+                '1d000000-0000-4000-8000-%012d',
+                100 + $index
+            );
+            $this->assertRuntimeFailure(
+                'hotel_collection_run_receipt_scope_invalid',
+                fn() => (new HotelCollectionRunReceiptService())->begin(
+                    $this->gate($dispatcherRunId, true, self::HOTEL_ID, $businessDate)
+                )
+            );
+        }
     }
 
     public function testBlockedBeginPersistsParentAndTwoOtaChildrenWithoutAnchor(): void
@@ -788,6 +822,48 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
         self::assertSame('pms_capture_evidence_drifted', $readback['pms_receipt']['reason_code']);
         self::assertSame('succeeded', $readback['status']);
         self::assertTrue($readback['readback_verified']);
+    }
+
+    public function testPmsCaptureRequiresPositiveDetailRowsOnWriteAndPublicReadback(): void
+    {
+        $dispatcherRunId = '2f000000-0000-4000-8000-000000000005';
+        $service = new HotelCollectionRunReceiptService();
+        $gate = $this->gate($dispatcherRunId, true);
+        $gate['sources']['pms'] = ['provider' => 'dingdandao_pms'];
+        $service->begin($gate);
+
+        $this->seedPmsCapture(8302, self::HOTEL_ID, self::BUSINESS_DATE, 'readback_verified', 0);
+        $this->assertRuntimeFailure(
+            'hotel_collection_run_pms_capture_not_verified',
+            static fn() => $service->recordPmsCapture(
+                $dispatcherRunId,
+                self::HOTEL_ID,
+                self::BUSINESS_DATE,
+                'dingdandao_pms',
+                8302
+            )
+        );
+
+        $this->seedPmsCapture(8303);
+        $service->recordPmsCapture(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE,
+            'dingdandao_pms',
+            8303
+        );
+        Db::name('dingdandao_operating_target_captures')
+            ->where('id', 8303)
+            ->update(['detail_row_count' => 0]);
+
+        $readback = $service->readExact(
+            $dispatcherRunId,
+            self::HOTEL_ID,
+            self::BUSINESS_DATE
+        );
+        self::assertSame('conflict', $readback['pms_receipt']['status']);
+        self::assertFalse($readback['pms_receipt']['readback_verified']);
+        self::assertSame('pms_capture_evidence_drifted', $readback['pms_receipt']['reason_code']);
     }
 
     public function testPmsCaptureRejectsProviderScopeAndReadbackDriftWithoutMutation(): void
@@ -2406,7 +2482,8 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
         int $captureId,
         int $hotelId = self::HOTEL_ID,
         string $businessDate = self::BUSINESS_DATE,
-        string $readbackStatus = 'readback_verified'
+        string $readbackStatus = 'readback_verified',
+        int $detailRowCount = 1
     ): void {
         Db::name('dingdandao_operating_target_captures')->insert([
             'id' => $captureId,
@@ -2419,6 +2496,7 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
             'quality_status' => 'verified',
             'reconciliation_status' => 'matched',
             'readback_status' => $readbackStatus,
+            'detail_row_count' => $detailRowCount,
         ]);
     }
 
@@ -2596,7 +2674,8 @@ final class HotelCollectionRunReceiptServiceTest extends TestCase
             capture_status TEXT NOT NULL,
             quality_status TEXT NOT NULL,
             reconciliation_status TEXT NOT NULL,
-            readback_status TEXT NOT NULL
+            readback_status TEXT NOT NULL,
+            detail_row_count INTEGER NOT NULL DEFAULT 0
         )');
         Db::execute('CREATE TABLE operation_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

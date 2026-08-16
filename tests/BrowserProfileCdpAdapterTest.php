@@ -30,6 +30,10 @@ final class BrowserProfileCdpAdapterTest extends TestCase
 
             self::assertSame('failed', $result['status']);
             self::assertContains('--cdp-url=http://127.0.0.1:9223', $capturedArgs);
+            self::assertCount(1, array_filter(
+                $capturedArgs,
+                static fn(string $arg): bool => str_starts_with($arg, '--cdp-url=')
+            ));
             self::assertContains('--section-concurrency=1', $capturedArgs);
             self::assertCount(1, array_filter(
                 $capturedArgs,
@@ -66,6 +70,10 @@ final class BrowserProfileCdpAdapterTest extends TestCase
 
             self::assertSame('failed', $result['status']);
             self::assertContains('--cdp-url=http://127.0.0.1:9223', $capturedArgs);
+            self::assertCount(1, array_filter(
+                $capturedArgs,
+                static fn(string $arg): bool => str_starts_with($arg, '--cdp-url=')
+            ));
             self::assertCount(1, array_filter(
                 $capturedArgs,
                 static fn(string $arg): bool => str_starts_with($arg, '--report-dir=')

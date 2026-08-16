@@ -74,6 +74,25 @@ test('installed queue refresh preserves enabled and active independently without
   );
 });
 
+test('disabled inactive installed queue does not require an unused Node runtime', () => {
+  const releaseRuntimeGuard = releaseInstaller.slice(
+    releaseInstaller.indexOf('CLOUD_NODE_RUNTIME_ENABLED='),
+    releaseInstaller.indexOf('if [[ "$CLOUD_NODE_RUNTIME_ENABLED" == "1" ]]')
+  );
+
+  assert.match(releaseRuntimeGuard, /systemctl is-enabled --quiet "\$THREE_SOURCE_QUEUE_TIMER"/);
+  assert.match(releaseRuntimeGuard, /systemctl is-active --quiet "\$THREE_SOURCE_QUEUE_TIMER"/);
+  assert.doesNotMatch(releaseRuntimeGuard, /systemctl cat/);
+  assert.match(
+    queueInstaller,
+    /PRESERVE_LIFECYCLE -eq 1[\s\S]*! systemctl is-enabled --quiet "\$TIMER_NAME"[\s\S]*! systemctl is-active --quiet "\$TIMER_NAME"[\s\S]*QUEUE_RUNTIME_REQUIRED=0/
+  );
+  assert.match(
+    queueInstaller,
+    /if \[\[ \$QUEUE_RUNTIME_REQUIRED -eq 1 \]\]; then\s+command -v node/
+  );
+});
+
 test('disabled inactive queue remains disabled and inactive after refresh', () => {
   const lifecycleFunction = functionBody('restore_three_source_queue_lifecycle');
 

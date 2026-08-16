@@ -55,9 +55,19 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         }
         self::assertCount(1, array_unique($dispatcherIds[80]));
         self::assertCount(1, array_unique($dispatcherIds[81]));
-        self::assertSame('collected', $receipt['hotels'][0]['run_receipt_status']);
+        self::assertSame('succeeded', $receipt['hotels'][0]['run_receipt_status']);
         self::assertTrue($receipt['hotels'][0]['run_receipt_structure_verified']);
-        self::assertFalse($receipt['hotels'][0]['run_receipt_readback_verified']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_readback_verified']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_finalized']);
+        self::assertTrue($receipt['hotels'][0]['canonical_history_complete']);
+        self::assertMatchesRegularExpression(
+            '/^[a-f0-9]{64}$/',
+            (string)$receipt['hotels'][0]['collection_anchor_hash']
+        );
+        self::assertMatchesRegularExpression(
+            '/^[a-f0-9]{64}$/',
+            (string)$receipt['hotels'][0]['trust_receipt_digest']
+        );
         self::assertFalse($receipt['message_sent']);
         $encoded = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         self::assertStringNotContainsString('cbp_', $encoded);
@@ -93,7 +103,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                     ],
                 ];
             }
-            return $this->successChild($source);
+            return $this->successChild($source, $context);
         };
 
         $receipt = $this->service($plans, $calls, $child)->run([
@@ -112,6 +122,186 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         self::assertSame('partial', $receipt['hotels'][0]['run_receipt_status']);
         self::assertTrue($receipt['hotels'][0]['run_receipt_structure_verified']);
         self::assertFalse($receipt['message_sent']);
+    }
+
+    public function testCanonicalFinalizationMustVerifyBeforeQueueReportsSuccess(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $canonicalFinalizer = static function (
+            array $receipt,
+            int $tenantId,
+            int $hotelId
+        ): array {
+            return [
+                'status' => 'blocked',
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'target_date' => (string)($receipt['target_date'] ?? ''),
+                'required_platforms' => ['ctrip', 'meituan'],
+                'promoted_platforms' => [],
+                'collection_anchor_hash' => (string)($receipt['collection_anchor_hash'] ?? ''),
+                'canonical_history_complete' => false,
+                'sensitive_values_exposed' => false,
+            ];
+        };
+
+        $receipt = $this->service(
+            $plans,
+            $calls,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $canonicalFinalizer
+        )->run(['target_date' => '2026-08-14']);
+
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertSame(0, $receipt['verified_hotel_count']);
+        self::assertSame('partial', $receipt['hotels'][0]['run_receipt_status']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_readback_verified']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_finalized']);
+        self::assertFalse($receipt['hotels'][0]['canonical_history_complete']);
+        self::assertNull($receipt['hotels'][0]['collection_anchor_hash']);
+        self::assertNull($receipt['hotels'][0]['trust_receipt_digest']);
+    }
+
+    public function testCanonicalFinalizationIsSkippedWhenQueueDeadlineCannotReserveFinalReceipt(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $now = 1000.0;
+        $finalizerCalls = 0;
+        $child = function (
+            string $source,
+            array $command,
+            int $timeoutSeconds,
+            array $context
+        ) use (&$calls, &$now): array {
+            $calls[] = $source;
+            if ($source === 'meituan') {
+                $now = 1106.0;
+            }
+            return $this->successChild($source, $context);
+        };
+        $finalizer = static function () use (&$finalizerCalls): array {
+            $finalizerCalls++;
+            return [];
+        };
+
+        $receipt = $this->service(
+            $plans,
+            $calls,
+            childRunner: $child,
+            canonicalHistoryFinalizer: $finalizer,
+            monotonicClock: static function () use (&$now): float {
+                return $now;
+            }
+        )->run([
+            'target_date' => '2026-08-14',
+            'deadline_seconds' => 120,
+        ]);
+
+        self::assertSame(['pms', 'ctrip', 'meituan'], $calls);
+        self::assertSame(1106.0, $now);
+        self::assertSame(0, $finalizerCalls);
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertTrue($receipt['deadline_reached']);
+        self::assertSame('partial', $receipt['hotels'][0]['run_receipt_status']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_finalized']);
+        self::assertFalse($receipt['hotels'][0]['canonical_history_complete']);
+        self::assertSame(
+            'queue_deadline_insufficient_for_canonical_finalization',
+            $receipt['hotels'][0]['canonical_history_finalization_reason']
+        );
+        self::assertNull($receipt['hotels'][0]['collection_anchor_hash']);
+        self::assertNull($receipt['hotels'][0]['trust_receipt_digest']);
+    }
+
+    public function testCanonicalFinalizationBudgetAndPostDeadlineCheckFailClosed(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $now = 1000.0;
+        $receivedBudget = 0;
+        $finalizer = static function (
+            array $receipt,
+            int $tenantId,
+            int $hotelId,
+            int $timeoutSeconds
+        ) use (&$now, &$receivedBudget): array {
+            $receivedBudget = $timeoutSeconds;
+            $now = 1121.0;
+            return [
+                'status' => 'verified',
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'target_date' => (string)($receipt['target_date'] ?? ''),
+                'required_platforms' => ['ctrip', 'meituan'],
+                'promoted_platforms' => ['ctrip', 'meituan'],
+                'collection_anchor_hash' => (string)($receipt['collection_anchor_hash'] ?? ''),
+                'canonical_history_complete' => true,
+                'sensitive_values_exposed' => false,
+            ];
+        };
+
+        $receipt = $this->service(
+            $plans,
+            $calls,
+            canonicalHistoryFinalizer: $finalizer,
+            monotonicClock: static function () use (&$now): float {
+                return $now;
+            }
+        )->run([
+            'target_date' => '2026-08-14',
+            'deadline_seconds' => 120,
+        ]);
+
+        self::assertSame(105, $receivedBudget);
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertTrue($receipt['deadline_reached']);
+        self::assertSame('partial', $receipt['hotels'][0]['run_receipt_status']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_finalized']);
+        self::assertFalse($receipt['hotels'][0]['canonical_history_complete']);
+        self::assertSame(
+            'queue_deadline_reached_during_canonical_finalization',
+            $receipt['hotels'][0]['canonical_history_finalization_reason']
+        );
+        self::assertNull($receipt['hotels'][0]['collection_anchor_hash']);
+        self::assertNull($receipt['hotels'][0]['trust_receipt_digest']);
+    }
+
+    public function testOtaChildCannotBorrowAReadbackFromAnotherBusinessDate(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $child = function (
+            string $source,
+            array $command,
+            int $timeoutSeconds,
+            array $context
+        ) use (&$calls): array {
+            $calls[] = $source;
+            $result = $this->successChild($source, $context);
+            if ($source === 'ctrip') {
+                $result['receipt']['run_readback']['target_date'] = '2026-08-13';
+            }
+            return $result;
+        };
+
+        $receipt = $this->service($plans, $calls, $child)->run([
+            'target_date' => '2026-08-14',
+        ]);
+
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertSame('blocked', $receipt['hotels'][0]['sources'][1]['status']);
+        self::assertSame(
+            'collection_child_unverified',
+            $receipt['hotels'][0]['sources'][1]['reason']
+        );
+        self::assertNotSame('succeeded', $receipt['hotels'][0]['run_receipt_status']);
     }
 
     public function testMeituanCloudPmsPlanUsesItsExactProfileAndNoPushRunner(): void
@@ -294,7 +484,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                     ],
                 ];
             }
-            return $this->successChild($source);
+            return $this->successChild($source, $context);
         };
         $sleeper = static function (int $seconds) use (&$delays): void {
             $delays[] = $seconds;
@@ -321,7 +511,12 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         $plans = [$this->plan(1, 80, 21, 22)];
         $calls = [];
         $delays = [];
-        $child = function (string $source) use (&$calls): array {
+        $child = function (
+            string $source,
+            array $command,
+            int $timeoutSeconds,
+            array $context
+        ) use (&$calls): array {
             $calls[] = $source;
             if ($source === 'ctrip') {
                 return [
@@ -336,7 +531,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                     ],
                 ];
             }
-            return $this->successChild($source);
+            return $this->successChild($source, $context);
         };
         $sleeper = static function (int $seconds) use (&$delays): void {
             $delays[] = $seconds;
@@ -361,7 +556,12 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         $plans = [$this->plan(1, 80, 21, 22)];
         $calls = [];
         $delays = [];
-        $child = function (string $source) use (&$calls): array {
+        $child = function (
+            string $source,
+            array $command,
+            int $timeoutSeconds,
+            array $context
+        ) use (&$calls): array {
             $calls[] = $source;
             if ($source === 'ctrip') {
                 return [
@@ -376,7 +576,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                     ],
                 ];
             }
-            return $this->successChild($source);
+            return $this->successChild($source, $context);
         };
 
         $receipt = $this->service(
@@ -400,7 +600,12 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         $plans = [$this->plan(1, 80, 21, 22)];
         $calls = [];
         $delays = [];
-        $child = function (string $source) use (&$calls): array {
+        $child = function (
+            string $source,
+            array $command,
+            int $timeoutSeconds,
+            array $context
+        ) use (&$calls): array {
             $calls[] = $source;
             if ($source === 'meituan') {
                 return [
@@ -414,7 +619,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                     ],
                 ];
             }
-            return $this->successChild($source);
+            return $this->successChild($source, $context);
         };
 
         $receipt = $this->service(
@@ -486,7 +691,12 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         $calls = [];
         $delays = [];
         $attempt = 0;
-        $child = function (string $source) use (&$calls, &$attempt): array {
+        $child = function (
+            string $source,
+            array $command,
+            int $timeoutSeconds,
+            array $context
+        ) use (&$calls, &$attempt): array {
             $calls[] = $source;
             if ($source === 'pms' && ++$attempt === 1) {
                 return [
@@ -501,7 +711,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                     ],
                 ];
             }
-            return $this->successChild($source);
+            return $this->successChild($source, $context);
         };
 
         $receipt = $this->service(
@@ -532,7 +742,9 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         ?callable $collectionAborter = null,
         ?callable $sleeper = null,
         ?callable $runReceiptWriter = null,
-        ?callable $authorizationLoader = null
+        ?callable $authorizationLoader = null,
+        ?callable $canonicalHistoryFinalizer = null,
+        ?callable $monotonicClock = null
     ): CloudThreeSourceCollectionQueueService {
         $planByHotel = [];
         foreach ($plans as $plan) {
@@ -552,7 +764,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                 'command' => $command,
                 'timeout_seconds' => $timeoutSeconds,
             ];
-            return $this->successChild($source);
+            return $this->successChild($source, $context);
         };
         if ($runReceiptWriter === null) {
             $ledger = [];
@@ -575,7 +787,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                             'capture_id' => null,
                             'readback_verified' => false,
                         ],
-                        'sources' => [
+                            'sources' => [
                             'ctrip' => [
                                 'platform' => 'ctrip',
                                 'data_source_id' => (int)($gate['sources']['ctrip']['data_source_id'] ?? 0),
@@ -594,8 +806,10 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                                 'platform_sync_task_id' => null,
                                 'readback_verified' => false,
                             ],
-                        ],
-                    ];
+                            ],
+                            'collection_anchor_hash' => null,
+                            'trust_receipt_digest' => null,
+                        ];
                 } else {
                     $runId = (string)($context['dispatcher_run_id'] ?? '');
                     if (!isset($ledger[$runId])) {
@@ -641,6 +855,24 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                         } else {
                             $ledger[$runId]['status'] = 'failed';
                         }
+                    } elseif ($action === 'finalize') {
+                        $receipt = (array)($context['receipt'] ?? []);
+                        if (($context['trusted_ready'] ?? false) === true) {
+                            $ledger[$runId]['status'] = 'succeeded';
+                            $ledger[$runId]['collection_anchor_hash'] =
+                                (string)($receipt['collection_anchor_hash'] ?? '');
+                            $ledger[$runId]['trust_receipt_digest'] = hash(
+                                'sha256',
+                                $runId . ':' . $ledger[$runId]['collection_anchor_hash']
+                            );
+                        } else {
+                            $statuses = array_column($ledger[$runId]['sources'], 'status');
+                            $ledger[$runId]['status'] = in_array('success', $statuses, true)
+                                ? 'partial'
+                                : 'failed';
+                            $ledger[$runId]['collection_anchor_hash'] = null;
+                            $ledger[$runId]['trust_receipt_digest'] = null;
+                        }
                     } elseif ($action !== 'read') {
                         throw new \RuntimeException('test_run_receipt_action_invalid');
                     }
@@ -658,8 +890,14 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                     'status' => $state['status'],
                     'pms_receipt' => $state['pms_receipt'],
                     'source_receipts' => array_values($state['sources']),
+                    'collection_anchor_hash' => $state['collection_anchor_hash'],
+                    'trust_receipt_digest' => $state['trust_receipt_digest'],
                     'ledger_structure_verified' => true,
-                    'readback_verified' => in_array($state['status'], ['blocked', 'partial', 'failed'], true),
+                    'readback_verified' => in_array(
+                        $state['status'],
+                        ['succeeded', 'blocked', 'partial', 'failed'],
+                        true
+                    ),
                 ];
             };
         }
@@ -687,6 +925,23 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                 'actual_platforms' => $platforms,
             ];
         };
+        $canonicalHistoryFinalizer ??= static function (
+            array $receipt,
+            int $tenantId,
+            int $hotelId
+        ): array {
+            return [
+                'status' => 'verified',
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'target_date' => (string)($receipt['target_date'] ?? ''),
+                'required_platforms' => ['ctrip', 'meituan'],
+                'promoted_platforms' => ['ctrip', 'meituan'],
+                'collection_anchor_hash' => (string)($receipt['collection_anchor_hash'] ?? ''),
+                'canonical_history_complete' => true,
+                'sensitive_values_exposed' => false,
+            ];
+        };
 
         return new CloudThreeSourceCollectionQueueService(
             static fn(): array => $plans,
@@ -700,11 +955,12 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
             $profileLoader,
             $childRunner,
             static fn(): \DateTimeImmutable => new \DateTimeImmutable('2026-08-14 10:30:00'),
-            static fn(): float => 1000.0,
+            $monotonicClock ?? static fn(): float => 1000.0,
             'D:/suxios',
             $collectionAborter,
             $sleeper,
-            $runReceiptWriter
+            $runReceiptWriter,
+            $canonicalHistoryFinalizer
         );
     }
 
@@ -763,7 +1019,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
     }
 
     /** @return array<string,mixed> */
-    private function successChild(string $source): array
+    private function successChild(string $source, array $context): array
     {
         if ($source === 'pms') {
             return [
@@ -782,16 +1038,38 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                 ],
             ];
         }
+        $sourceId = (int)($context['data_source_id'] ?? 0);
+        $taskId = 1000 + $sourceId;
+        $rowIds = [2000 + ($sourceId * 10), 2001 + ($sourceId * 10), 2002 + ($sourceId * 10)];
         return [
             'exit_code' => 0,
             'timed_out' => false,
             'receipt' => [
                 'status' => 'saved_and_readback_verified',
+                'task_id' => $taskId,
                 'saved_count' => 3,
                 'readback_count' => 3,
                 'readback_verified' => true,
                 'business_data_persisted' => true,
                 'gateway_receipt_readback_verified' => true,
+                'run_readback' => [
+                    'dispatcher_run_id' => (string)($context['dispatcher_run_id'] ?? ''),
+                    'trigger_type' => 'daily_profile_reuse',
+                    'sync_task_id' => $taskId,
+                    'data_source_id' => $sourceId,
+                    'system_hotel_id' => (int)($context['system_hotel_id'] ?? 0),
+                    'platform' => $source,
+                    'target_date' => (string)($context['target_date'] ?? ''),
+                    'started_at' => '2026-08-14 10:30:00',
+                    'p0_status' => 'ready',
+                    'field_fact_status' => 'ready',
+                    'page_field_fact_status' => 'ready',
+                    'platform_hotel_identifier_status' => 'ready',
+                    'missing_traffic_metric_keys' => [],
+                    'readback_count' => 3,
+                    'row_ids' => $rowIds,
+                    'readback_verified' => true,
+                ],
                 'message_sent' => false,
             ],
         ];

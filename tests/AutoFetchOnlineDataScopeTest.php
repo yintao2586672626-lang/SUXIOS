@@ -1618,6 +1618,8 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             'success' => $success,
             'data_source_id' => $sourceId,
             'platform' => $platform,
+            'saved_count' => 1,
+            'readback_count' => 1,
             'historical_core_contract_status' => 'ready',
             'run_readback' => [
                 'readback_verified' => true,

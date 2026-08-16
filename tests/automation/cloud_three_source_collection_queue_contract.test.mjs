@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const queueService = readFileSync('app/service/CloudThreeSourceCollectionQueueService.php', 'utf8');
+const canonicalCoordinator = readFileSync('app/service/OtaCanonicalHistoryPromotionCoordinator.php', 'utf8');
+const canonicalPromotion = readFileSync('app/service/OtaCanonicalHistoryPromotionService.php', 'utf8');
+const runReceiptService = readFileSync('app/service/HotelCollectionRunReceiptService.php', 'utf8');
 const queueRunner = readFileSync('scripts/run_cloud_three_source_collection_queue.php', 'utf8');
 const systemdService = readFileSync('deploy/systemd/suxios-cloud-three-source-queue.service', 'utf8');
 const systemdTimer = readFileSync('deploy/systemd/suxios-cloud-three-source-queue.timer', 'utf8');
@@ -46,6 +49,19 @@ test('queue runner holds one nonblocking process-lifetime flock and bounds every
   assert.match(queueService, /continue;/);
 });
 
+test('canonical promotion and final ledger persistence consume the queue deadline budget', () => {
+  assert.match(canonicalCoordinator, /promoterSupportsBudget/);
+  assert.match(canonicalCoordinator, /canonical_history_promotion_budget_unsupported/);
+  assert.match(canonicalCoordinator, /\$expectedHotelId,\s*\$timeoutSeconds\s*\)/);
+  assert.match(canonicalPromotion, /canonical_history_promotion_deadline_reached/);
+  assert.match(canonicalPromotion, /SET SESSION innodb_lock_wait_timeout/);
+  assert.match(canonicalPromotion, /SET SESSION lock_wait_timeout/);
+  assert.match(queueService, /'timeout_seconds' => \$finalReceiptBudgetSeconds/);
+  assert.match(runReceiptService, /int \$timeoutSeconds = 0/);
+  assert.match(runReceiptService, /hotel_collection_run_final_receipt_deadline_reached/);
+  assert.match(runReceiptService, /SET SESSION innodb_lock_wait_timeout/);
+});
+
 test('new systemd timer is standalone and does not replace or invoke message dispatch', () => {
   assert.match(systemdService, /Type=oneshot/);
   assert.match(systemdService, /run_cloud_three_source_collection_queue\.php/);
@@ -61,12 +77,26 @@ test('new systemd timer is standalone and does not replace or invoke message dis
 });
 
 test('queue installer makes legacy collector shutdown explicit and never starts collection during install', () => {
+  const activation = installer.slice(
+    installer.indexOf('if ! systemctl enable --now "$TIMER_NAME"'),
+    installer.indexOf('echo "INSTALLED_AND_ENABLED')
+  );
+  const enableQueue = activation.indexOf('systemctl enable --now "$TIMER_NAME"');
+  const verifyEnabled = activation.indexOf('systemctl is-enabled --quiet "$TIMER_NAME"');
+  const verifyActive = activation.indexOf('systemctl is-active --quiet "$TIMER_NAME"');
+  const disableLegacy = activation.indexOf('! disable_legacy_collectors');
+
   assert.match(installer, /--disable-legacy-collectors/);
   assert.match(installer, /--disable-legacy-collectors requires --enable/);
   assert.match(installer, /systemd-analyze verify/);
   assert.match(installer, /systemctl enable --now "\$TIMER_NAME"/);
   assert.match(installer, /suxios-dingdandao-collection\.timer/);
   assert.match(installer, /suxios-cloud-ota-profile-collection\.timer/);
+  assert.ok(enableQueue >= 0 && enableQueue < disableLegacy);
+  assert.ok(verifyEnabled > enableQueue && verifyEnabled < disableLegacy);
+  assert.ok(verifyActive > enableQueue && verifyActive < disableLegacy);
+  assert.match(activation, /systemctl disable --now "\$TIMER_NAME"/);
+  assert.match(installer, /restore_legacy_collectors/);
   assert.doesNotMatch(installer, /systemctl start "\$SERVICE_NAME"/);
 });
 

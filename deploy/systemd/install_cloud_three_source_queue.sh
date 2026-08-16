@@ -72,6 +72,34 @@ done
   echo "Cloud browser control credential is missing." >&2
   exit 78
 }
+command -v php >/dev/null
+QUEUE_RUNTIME_REQUIRED=1
+if [[ $PRESERVE_LIFECYCLE -eq 1 ]] \
+  && ! systemctl is-enabled --quiet "$TIMER_NAME" \
+  && ! systemctl is-active --quiet "$TIMER_NAME"; then
+  QUEUE_RUNTIME_REQUIRED=0
+fi
+if [[ $QUEUE_RUNTIME_REQUIRED -eq 1 ]]; then
+  command -v node >/dev/null
+fi
+[[ -x /usr/bin/setsid ]] || {
+  echo "The queue requires /usr/bin/setsid." >&2
+  exit 78
+}
+/usr/bin/setsid --help 2>&1 | grep -q -- '--wait' || {
+  echo "The queue requires setsid --wait support." >&2
+  exit 78
+}
+php -r 'exit(function_exists("proc_open") && function_exists("posix_kill") ? 0 : 1);' || {
+  echo "The queue requires PHP proc_open and posix_kill." >&2
+  exit 78
+}
+if [[ $QUEUE_RUNTIME_REQUIRED -eq 1 ]]; then
+  (
+    cd "$RELEASE_ROOT"
+    node --input-type=module -e "await import('playwright-core'); await import('cloakbrowser')"
+  )
+fi
 
 for script in \
   scripts/run_cloud_three_source_collection_queue.php \
@@ -113,10 +141,91 @@ if [[ $ENABLE -ne 1 ]]; then
   exit 0
 fi
 
-systemctl enable --now "$TIMER_NAME"
-systemctl is-enabled "$TIMER_NAME" >/dev/null
-systemctl is-active "$TIMER_NAME" >/dev/null
+LEGACY_INSTALLED=()
+LEGACY_WAS_ENABLED=()
+LEGACY_WAS_ACTIVE=()
+
+snapshot_legacy_collectors() {
+  local legacy_timer=""
+  for legacy_timer in "${LEGACY_TIMERS[@]}"; do
+    if systemctl cat "$legacy_timer" >/dev/null 2>&1; then
+      LEGACY_INSTALLED+=(1)
+    else
+      LEGACY_INSTALLED+=(0)
+    fi
+    if systemctl is-enabled --quiet "$legacy_timer"; then
+      LEGACY_WAS_ENABLED+=(1)
+    else
+      LEGACY_WAS_ENABLED+=(0)
+    fi
+    if systemctl is-active --quiet "$legacy_timer"; then
+      LEGACY_WAS_ACTIVE+=(1)
+    else
+      LEGACY_WAS_ACTIVE+=(0)
+    fi
+  done
+}
+
+restore_legacy_collectors() {
+  local restored=1
+  local index=0
+  local legacy_timer=""
+  for index in "${!LEGACY_TIMERS[@]}"; do
+    [[ "${LEGACY_INSTALLED[$index]:-0}" == "1" ]] || continue
+    legacy_timer="${LEGACY_TIMERS[$index]}"
+    if [[ "${LEGACY_WAS_ENABLED[$index]:-0}" == "1" ]]; then
+      systemctl enable "$legacy_timer" >/dev/null 2>&1 || restored=0
+    else
+      systemctl disable "$legacy_timer" >/dev/null 2>&1 || restored=0
+    fi
+    if [[ "${LEGACY_WAS_ACTIVE[$index]:-0}" == "1" ]]; then
+      systemctl start "$legacy_timer" >/dev/null 2>&1 || restored=0
+    else
+      systemctl stop "$legacy_timer" >/dev/null 2>&1 || restored=0
+    fi
+    if [[ "${LEGACY_WAS_ENABLED[$index]:-0}" == "1" ]]; then
+      systemctl is-enabled --quiet "$legacy_timer" || restored=0
+    elif systemctl is-enabled --quiet "$legacy_timer"; then
+      restored=0
+    fi
+    if [[ "${LEGACY_WAS_ACTIVE[$index]:-0}" == "1" ]]; then
+      systemctl is-active --quiet "$legacy_timer" || restored=0
+    elif systemctl is-active --quiet "$legacy_timer"; then
+      restored=0
+    fi
+  done
+  [[ $restored -eq 1 ]]
+}
+
+disable_legacy_collectors() {
+  local index=0
+  local legacy_timer=""
+  for index in "${!LEGACY_TIMERS[@]}"; do
+    [[ "${LEGACY_INSTALLED[$index]:-0}" == "1" ]] || continue
+    legacy_timer="${LEGACY_TIMERS[$index]}"
+    systemctl disable --now "$legacy_timer" || return 1
+    ! systemctl is-enabled --quiet "$legacy_timer" || return 1
+    ! systemctl is-active --quiet "$legacy_timer" || return 1
+  done
+}
+
 if [[ $DISABLE_LEGACY -eq 1 ]]; then
-  systemctl disable --now "${LEGACY_TIMERS[@]}" >/dev/null 2>&1 || true
+  snapshot_legacy_collectors
+fi
+if ! systemctl enable --now "$TIMER_NAME" \
+  || ! systemctl is-enabled --quiet "$TIMER_NAME" \
+  || ! systemctl is-active --quiet "$TIMER_NAME"; then
+  systemctl disable --now "$TIMER_NAME" >/dev/null 2>&1 || true
+  echo "Failed to enable and verify the three-source queue; legacy collectors were unchanged." >&2
+  exit 79
+fi
+if [[ $DISABLE_LEGACY -eq 1 ]] && ! disable_legacy_collectors; then
+  systemctl disable --now "$TIMER_NAME" >/dev/null 2>&1 || true
+  if ! restore_legacy_collectors; then
+    echo "Failed to disable legacy collectors and could not fully restore their lifecycle." >&2
+    exit 80
+  fi
+  echo "Failed to disable legacy collectors; their lifecycle was restored." >&2
+  exit 79
 fi
 echo "INSTALLED_AND_ENABLED release=$RELEASE_ROOT legacy_collectors_disabled=$DISABLE_LEGACY"

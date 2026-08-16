@@ -254,6 +254,7 @@ final class HotelAutopilotLatestRunSelectionTest extends TestCase
             'quality_status' => 'verified',
             'reconciliation_status' => 'matched',
             'readback_status' => 'readback_verified',
+            'detail_row_count' => 1,
         ]);
 
         foreach ([
@@ -485,7 +486,8 @@ final class HotelAutopilotLatestRunSelectionTest extends TestCase
             capture_status TEXT NOT NULL,
             quality_status TEXT NOT NULL,
             reconciliation_status TEXT NOT NULL,
-            readback_status TEXT NOT NULL
+            readback_status TEXT NOT NULL,
+            detail_row_count INTEGER NOT NULL
         )');
         Db::execute('CREATE TABLE hotel_collection_plan_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

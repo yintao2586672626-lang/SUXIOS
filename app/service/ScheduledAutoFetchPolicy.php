@@ -386,6 +386,7 @@ final class ScheduledAutoFetchPolicy
             }
             $platformReadbackVerified = ($platformResult['readback_verified'] ?? false) === true
                 || ($readback['readback_verified'] ?? false) === true;
+            $platformSavedCount = max(0, (int)($platformResult['saved_count'] ?? 0));
             $platformReadbackCount = max(
                 0,
                 (int)($platformResult['readback_count'] ?? count(
@@ -407,6 +408,7 @@ final class ScheduledAutoFetchPolicy
                     'target_date' => $targetDate,
                     'status' => $platformResultStatus !== '' ? $platformResultStatus : 'failed',
                     'failure_reason' => $failureReason !== '' ? $failureReason : 'collection_not_verified',
+                    'saved_count' => $platformSavedCount,
                     'readback_count' => $platformReadbackCount,
                     'readback_verified' => $platformReadbackVerified,
                     'historical_core_contract_status' => $historicalCoreStatus,
@@ -446,6 +448,9 @@ final class ScheduledAutoFetchPolicy
                 || $receiptDate !== $targetDate
                 || !in_array($platform, self::REQUIRED_DAILY_PLATFORMS, true)
                 || $rowIds === []
+                || $platformSavedCount <= 0
+                || $platformSavedCount !== $platformReadbackCount
+                || $platformReadbackCount !== count($rowIds)
                 || !$producerIdentityReady
             ) {
                 continue;
@@ -458,6 +463,8 @@ final class ScheduledAutoFetchPolicy
                 'p0_status' => $p0Status !== '' ? $p0Status : 'not_ready',
                 'historical_core_contract_status' => $historicalCoreStatus,
                 'row_ids' => $rowIds,
+                'saved_count' => $platformSavedCount,
+                'readback_count' => $platformReadbackCount,
                 'readback_verified' => true,
             ];
             if ($ingestionMethod !== '') {

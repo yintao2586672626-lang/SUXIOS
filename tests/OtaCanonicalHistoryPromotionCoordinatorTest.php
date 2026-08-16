@@ -40,6 +40,74 @@ final class OtaCanonicalHistoryPromotionCoordinatorTest extends TestCase
         self::assertSame([[80, ['ctrip'], 'ctrip']], $promoteCalls);
     }
 
+    public function testFinalizationBudgetBoundsVerifierTimeout(): void
+    {
+        $verifierTimeouts = [];
+        $promotionTimeouts = [];
+        $coordinator = new OtaCanonicalHistoryPromotionCoordinator(
+            function (
+                int $hotelId,
+                string $date,
+                array $platforms,
+                string $anchor,
+                int $timeoutSeconds
+            ) use (&$verifierTimeouts): array {
+                $verifierTimeouts[] = $timeoutSeconds;
+                return $this->verifier($platforms, $anchor);
+            },
+            function (
+                array $collection,
+                array $verifier,
+                string $platform,
+                int $tenantId,
+                int $hotelId,
+                int $timeoutSeconds
+            ) use (&$promotionTimeouts): array {
+                $promotionTimeouts[] = $timeoutSeconds;
+                return $this->promotion($platform);
+            }
+        );
+
+        $result = $coordinator->finalize($this->collection(['ctrip']), 80, 80, 7);
+
+        self::assertSame('verified', $result['status']);
+        self::assertCount(1, $verifierTimeouts);
+        self::assertGreaterThanOrEqual(1, $verifierTimeouts[0]);
+        self::assertLessThanOrEqual(7, $verifierTimeouts[0]);
+        self::assertCount(1, $promotionTimeouts);
+        self::assertGreaterThanOrEqual(1, $promotionTimeouts[0]);
+        self::assertLessThanOrEqual(5, $promotionTimeouts[0]);
+    }
+
+    public function testBudgetedFinalizationRejectsLegacyPromoterWithoutCallingIt(): void
+    {
+        $promoteCalled = false;
+        $coordinator = new OtaCanonicalHistoryPromotionCoordinator(
+            fn(int $hotelId, string $date, array $platforms, string $anchor): array =>
+                $this->verifier($platforms, $anchor),
+            function (
+                array $collection,
+                array $verifier,
+                string $platform,
+                int $tenantId,
+                int $hotelId
+            ) use (&$promoteCalled): array {
+                $promoteCalled = true;
+                return $this->promotion($platform);
+            }
+        );
+
+        $result = $coordinator->finalize($this->collection(['ctrip']), 80, 80, 7);
+
+        self::assertFalse($promoteCalled);
+        self::assertFalse($result['canonical_history_complete']);
+        self::assertSame('blocked', $result['status']);
+        self::assertSame(
+            'canonical_history_promotion_budget_unsupported',
+            $result['platform_results']['ctrip']['promotion']['reason']
+        );
+    }
+
     public function testDualPlatformPromotesOnlyIndependentlyVerifiedPlatform(): void
     {
         $verifyCalls = [];
