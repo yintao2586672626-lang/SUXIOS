@@ -1218,6 +1218,9 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /collector_read_only_contract: OTA_RECEIPT_PLATFORM_PATTERN\.test/);
   assert.match(gateway, /Runtime\.evaluate/);
   assert.match(gateway, /read_only_navigation_not_ready/);
+  assert.match(gateway, /reason\.startsWith\('browser_'\)/);
+  assert.match(gateway, /reason\.startsWith\('read_only_'\)/);
+  assert.match(gateway, /reason\.startsWith\('snap_chromium_'\)/);
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/open'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/close'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /function claimCapacity\([\s\S]{0,220}capacitySlot !== null/);

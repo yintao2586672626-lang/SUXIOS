@@ -1416,9 +1416,13 @@ export async function createGateway(env = process.env, dependencies = {}) {
           if (session.abortRequested === true) {
             throw new GatewayError('collection_open_aborted', 409);
           }
-          if (publicError(error).startsWith('collection_')
-            || publicError(error).startsWith('profile_')
-            || publicError(error).startsWith('gateway_')) {
+          const reason = publicError(error);
+          if (reason.startsWith('collection_')
+            || reason.startsWith('profile_')
+            || reason.startsWith('gateway_')
+            || reason.startsWith('browser_')
+            || reason.startsWith('read_only_')
+            || reason.startsWith('snap_chromium_')) {
             throw error;
           }
           throw new GatewayError('read_only_policy_setup_failed', 500);
