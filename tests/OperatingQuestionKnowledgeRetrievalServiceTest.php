@@ -108,6 +108,24 @@ final class OperatingQuestionKnowledgeRetrievalServiceTest extends TestCase
         }
     }
 
+    public function testAbsoluteBusinessDateTermsRemainStringsDuringScoring(): void
+    {
+        $service = new OperatingQuestionKnowledgeRetrievalService();
+        $result = $service->buildFromRows(
+            [$this->unit(1, 20, 7, '美团订单复核')],
+            [$this->chunk(101, 1, '美团订单复核步骤', ['platforms' => ['meituan']])],
+            [
+                'hotel_id' => 20,
+                'user_id' => 7,
+                'platform' => 'meituan',
+                'question' => '2026-08-09 美团订单数是多少？',
+            ]
+        );
+
+        self::assertSame('matched', $result['status']);
+        self::assertSame(['knowledge_chunks#101'], array_column($result['items'], 'ref'));
+    }
+
     /** @return array<string,mixed> */
     private function unit(
         int $unitId,
