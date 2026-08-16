@@ -41102,34 +41102,10 @@
             });
             const operatingQuestionForm = ref(createOperatingQuestionForm());
             const operatingQuestionState = ref(createOperatingQuestionState());
-            const operatingQuestionDirectCallReady = (runtime = {}) => (
-                String(runtime?.provider || '').trim().toLowerCase() === 'deepseek'
-                && String(runtime?.model_key || '') === 'deepseek_v4_pro'
-                && String(runtime?.configured_model || '').trim().toLowerCase() === 'deepseek-v4-pro'
-                && String(runtime?.response_model || '').trim().toLowerCase() === 'deepseek-v4-pro'
-                && String(runtime?.provider_response_id || '').trim() !== ''
-                && Number(runtime?.provider_created_at || 0) > 0
-                && Math.abs(Math.floor(Date.now() / 1000) - Number(runtime?.provider_created_at || 0)) <= 900
-                && runtime?.provider_response_fresh === true
-                && String(runtime?.provider_endpoint_origin || '').trim().toLowerCase() === 'https://api.deepseek.com'
-                && String(runtime?.provider_endpoint_host || '').trim().toLowerCase() === 'api.deepseek.com'
-                && runtime?.provider_endpoint_official === true
-                && /^[a-f0-9]{64}$/.test(String(runtime?.provider_config_digest || '').trim().toLowerCase())
-                && String(runtime?.direct_call_nonce || '').trim() !== ''
-                && String(runtime?.direct_call_nonce || '').trim() === String(runtime?.transport_request_id || '').trim()
-                && Number(runtime?.transport_retry_attempts ?? -1) === 0
-                && runtime?.upstream_idempotency_key_sent === false
-                && Number(runtime?.http_status || 0) === 200
-                && Number(runtime?.provider_attempt_count || 0) === 1
-                && runtime?.idempotent_replay === false
-                && runtime?.direct_request_proof === true
-                && String(runtime?.thinking_mode || '').trim().toLowerCase() === 'enabled'
-                && String(runtime?.reasoning_effort || '').trim().toLowerCase() === 'high'
-                && String(runtime?.finish_reason || '').trim().toLowerCase() === 'stop'
-                && runtime?.fallback_used === false
-                && runtime?.cache_hit === false
-                && runtime?.degraded === false
-            );
+            const operatingQuestionDirectCallReady = (runtime = {}) => {
+                const text = (key) => String(runtime?.[key] ?? '').trim().toLowerCase(), createdAt = Number(runtime?.provider_created_at || 0), exact = { provider: 'deepseek', model_key: 'deepseek_v4_pro', configured_model: 'deepseek-v4-pro', response_model: 'deepseek-v4-pro', provider_endpoint_origin: 'https://api.deepseek.com', provider_endpoint_host: 'api.deepseek.com', thinking_mode: 'enabled', reasoning_effort: 'high', finish_reason: 'stop' }, requiredTrue = ['provider_response_fresh', 'provider_endpoint_official', 'direct_request_proof'], requiredFalse = ['upstream_idempotency_key_sent', 'idempotent_replay', 'fallback_used', 'cache_hit', 'degraded'];
+                return Object.entries(exact).every(([key, value]) => text(key) === value) && requiredTrue.every((key) => runtime?.[key] === true) && requiredFalse.every((key) => runtime?.[key] === false) && String(runtime?.provider_response_id || '').trim() !== '' && /^[a-f0-9]{64}$/.test(text('provider_config_digest')) && String(runtime?.direct_call_nonce || '').trim() !== '' && String(runtime?.direct_call_nonce || '').trim() === String(runtime?.transport_request_id || '').trim() && createdAt > 0 && Math.abs(Math.floor(Date.now() / 1000) - createdAt) <= 900 && Number(runtime?.transport_retry_attempts ?? -1) === 0 && Number(runtime?.http_status || 0) === 200 && Number(runtime?.provider_attempt_count || 0) === 1;
+            };
             const operatingQuestionActionIsCurrent = (result = {}, action = {}, form = {}) => {
                 const answer = result?.answer || {};
                 const runtime = answer?.ai_runtime || {};
