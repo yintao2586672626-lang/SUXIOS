@@ -34,11 +34,13 @@ final class P0OtaFieldLoopVerifierRunner
         int $hotelId,
         string $targetDate,
         array $platforms = ['ctrip', 'meituan'],
-        string $collectionAnchorHash = ''
+        string $collectionAnchorHash = '',
+        int $timeoutSeconds = 60
     ): array
     {
         $platforms = $this->platformList($platforms);
         $collectionAnchorHash = strtolower(trim($collectionAnchorHash));
+        $timeoutSeconds = max(1, min(60, $timeoutSeconds));
         if ($hotelId <= 0
             || !$this->validDate($targetDate)
             || $platforms === []
@@ -75,8 +77,8 @@ final class P0OtaFieldLoopVerifierRunner
 
         try {
             $process = is_callable($this->processRunner)
-                ? (array)($this->processRunner)($arguments, $root, 60)
-                : $this->runProcess($arguments, $root, 60);
+                ? (array)($this->processRunner)($arguments, $root, $timeoutSeconds)
+                : $this->runProcess($arguments, $root, $timeoutSeconds);
         } catch (\Throwable $exception) {
             return $this->failedReceipt(
                 $hotelId,

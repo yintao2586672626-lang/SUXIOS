@@ -40,6 +40,37 @@ final class OtaCanonicalHistoryPromotionCoordinatorTest extends TestCase
         self::assertSame([[80, ['ctrip'], 'ctrip']], $promoteCalls);
     }
 
+    public function testFinalizationBudgetBoundsVerifierTimeout(): void
+    {
+        $timeouts = [];
+        $coordinator = new OtaCanonicalHistoryPromotionCoordinator(
+            function (
+                int $hotelId,
+                string $date,
+                array $platforms,
+                string $anchor,
+                int $timeoutSeconds
+            ) use (&$timeouts): array {
+                $timeouts[] = $timeoutSeconds;
+                return $this->verifier($platforms, $anchor);
+            },
+            fn(
+                array $collection,
+                array $verifier,
+                string $platform,
+                int $tenantId,
+                int $hotelId
+            ): array => $this->promotion($platform)
+        );
+
+        $result = $coordinator->finalize($this->collection(['ctrip']), 80, 80, 7);
+
+        self::assertSame('verified', $result['status']);
+        self::assertCount(1, $timeouts);
+        self::assertGreaterThanOrEqual(1, $timeouts[0]);
+        self::assertLessThanOrEqual(7, $timeouts[0]);
+    }
+
     public function testDualPlatformPromotesOnlyIndependentlyVerifiedPlatform(): void
     {
         $verifyCalls = [];

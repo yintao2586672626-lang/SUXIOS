@@ -61,12 +61,26 @@ test('new systemd timer is standalone and does not replace or invoke message dis
 });
 
 test('queue installer makes legacy collector shutdown explicit and never starts collection during install', () => {
+  const activation = installer.slice(
+    installer.indexOf('if ! systemctl enable --now "$TIMER_NAME"'),
+    installer.indexOf('echo "INSTALLED_AND_ENABLED')
+  );
+  const enableQueue = activation.indexOf('systemctl enable --now "$TIMER_NAME"');
+  const verifyEnabled = activation.indexOf('systemctl is-enabled --quiet "$TIMER_NAME"');
+  const verifyActive = activation.indexOf('systemctl is-active --quiet "$TIMER_NAME"');
+  const disableLegacy = activation.indexOf('! disable_legacy_collectors');
+
   assert.match(installer, /--disable-legacy-collectors/);
   assert.match(installer, /--disable-legacy-collectors requires --enable/);
   assert.match(installer, /systemd-analyze verify/);
   assert.match(installer, /systemctl enable --now "\$TIMER_NAME"/);
   assert.match(installer, /suxios-dingdandao-collection\.timer/);
   assert.match(installer, /suxios-cloud-ota-profile-collection\.timer/);
+  assert.ok(enableQueue >= 0 && enableQueue < disableLegacy);
+  assert.ok(verifyEnabled > enableQueue && verifyEnabled < disableLegacy);
+  assert.ok(verifyActive > enableQueue && verifyActive < disableLegacy);
+  assert.match(activation, /systemctl disable --now "\$TIMER_NAME"/);
+  assert.match(installer, /restore_legacy_collectors/);
   assert.doesNotMatch(installer, /systemctl start "\$SERVICE_NAME"/);
 });
 

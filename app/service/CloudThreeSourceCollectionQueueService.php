@@ -39,6 +39,7 @@ final class CloudThreeSourceCollectionQueueService
     private const MAX_TRANSIENT_RETRIES = 2;
     private const RETRY_BACKOFF_SECONDS = [30, 90];
     private const CLEANUP_RESERVE_SECONDS = 15;
+    private const FINALIZATION_RECEIPT_RESERVE_SECONDS = 15;
     private const MIN_CHILD_WINDOW_SECONDS = 60;
     private const TRANSIENT_FAILURE_CODES = [
         'gateway_collection_capacity_busy',
@@ -663,11 +664,35 @@ final class CloudThreeSourceCollectionQueueService
                     [$ctripSourceId, $meituanSourceId],
                     $sourceReceipts
                 );
-                $canonicalFinalization = $this->finalizeCanonicalHistory(
-                    $finalizationReceipt,
-                    $tenantId,
-                    $hotelId
-                );
+                $finalizationBudgetSeconds = (int)floor(
+                    $deadlineAt - $this->monotonicNow()
+                ) - self::FINALIZATION_RECEIPT_RESERVE_SECONDS;
+                if ($finalizationBudgetSeconds <= 0) {
+                    $deadlineReached = true;
+                    $canonicalFinalization = $this->blockedCanonicalHistoryFinalization(
+                        $finalizationReceipt,
+                        $tenantId,
+                        $hotelId,
+                        'queue_deadline_insufficient_for_canonical_finalization'
+                    );
+                } else {
+                    $canonicalFinalization = $this->finalizeCanonicalHistory(
+                        $finalizationReceipt,
+                        $tenantId,
+                        $hotelId,
+                        $finalizationBudgetSeconds
+                    );
+                    if ($this->monotonicNow() >= $deadlineAt) {
+                        $deadlineReached = true;
+                        $canonicalFinalization['status'] =
+                            (array)($canonicalFinalization['promoted_platforms'] ?? []) !== []
+                                ? 'partial'
+                                : 'blocked';
+                        $canonicalFinalization['reason'] =
+                            'queue_deadline_reached_during_canonical_finalization';
+                        $canonicalFinalization['canonical_history_complete'] = false;
+                    }
+                }
                 $finalizationReceipt['canonical_history_finalization'] = $canonicalFinalization;
                 $finalizationReceipt['canonical_history_complete'] =
                     ($canonicalFinalization['canonical_history_complete'] ?? false) === true;
@@ -745,6 +770,9 @@ final class CloudThreeSourceCollectionQueueService
                 : null,
             'canonical_history_complete' => $trustedReady
                 && ($finalizationReceipt['canonical_history_complete'] ?? false) === true,
+            'canonical_history_finalization_reason' => $this->safeCode(
+                (string)($canonicalFinalization['reason'] ?? '')
+            ),
             'message_sent' => false,
             'sensitive_values_exposed' => false,
         ];
@@ -1529,10 +1557,21 @@ final class CloudThreeSourceCollectionQueueService
     }
 
     /** @param array<string,mixed> $receipt @return array<string,mixed> */
-    private function finalizeCanonicalHistory(array $receipt, int $tenantId, int $hotelId): array
+    private function finalizeCanonicalHistory(
+        array $receipt,
+        int $tenantId,
+        int $hotelId,
+        int $timeoutSeconds
+    ): array
     {
         if ($this->canonicalHistoryFinalizer !== null) {
-            $result = call_user_func($this->canonicalHistoryFinalizer, $receipt, $tenantId, $hotelId);
+            $result = call_user_func(
+                $this->canonicalHistoryFinalizer,
+                $receipt,
+                $tenantId,
+                $hotelId,
+                max(1, $timeoutSeconds)
+            );
             if (!is_array($result)) {
                 throw new RuntimeException('canonical_history_finalizer_invalid');
             }
@@ -1541,8 +1580,36 @@ final class CloudThreeSourceCollectionQueueService
         return (new OtaCanonicalHistoryPromotionCoordinator())->finalize(
             $receipt,
             $tenantId,
-            $hotelId
+            $hotelId,
+            max(1, $timeoutSeconds)
         );
+    }
+
+    /** @param array<string,mixed> $receipt @return array<string,mixed> */
+    private function blockedCanonicalHistoryFinalization(
+        array $receipt,
+        int $tenantId,
+        int $hotelId,
+        string $reason
+    ): array {
+        return [
+            'schema_version' => 1,
+            'status' => 'blocked',
+            'reason' => $this->safeCode($reason),
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'target_date' => (string)($receipt['target_date'] ?? ''),
+            'required_platforms' => ['ctrip', 'meituan'],
+            'promoted_platforms' => [],
+            'blocked_platforms' => ['ctrip', 'meituan'],
+            'collection_anchor_contract_version' =>
+                (string)($receipt['collection_anchor_contract_version'] ?? ''),
+            'collection_anchor_hash' => (string)($receipt['collection_anchor_hash'] ?? ''),
+            'overall_verifier' => [],
+            'platform_results' => [],
+            'canonical_history_complete' => false,
+            'sensitive_values_exposed' => false,
+        ];
     }
 
     /** @param array<string,mixed> $finalization @param array<string,mixed> $receipt */

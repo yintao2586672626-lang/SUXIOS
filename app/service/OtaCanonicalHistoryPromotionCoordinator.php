@@ -11,7 +11,7 @@ namespace app\service;
  */
 final class OtaCanonicalHistoryPromotionCoordinator
 {
-    /** @var callable(int,string,array<int,string>,string):array<string,mixed> */
+    /** @var callable(int,string,array<int,string>,string,int):array<string,mixed> */
     private $verifier;
 
     /** @var callable(array<string,mixed>,array<string,mixed>,string,int,int):array<string,mixed> */
@@ -23,12 +23,14 @@ final class OtaCanonicalHistoryPromotionCoordinator
             int $hotelId,
             string $targetDate,
             array $platforms,
-            string $anchorHash
+            string $anchorHash,
+            int $timeoutSeconds
         ): array => (new P0OtaFieldLoopVerifierRunner())->verify(
             $hotelId,
             $targetDate,
             $platforms,
-            $anchorHash
+            $anchorHash,
+            $timeoutSeconds
         );
         $this->promoter = $promoter ?? static fn(
             array $collectionReceipt,
@@ -49,9 +51,13 @@ final class OtaCanonicalHistoryPromotionCoordinator
     public function finalize(
         array $collectionReceipt,
         int $expectedTenantId,
-        int $expectedHotelId
+        int $expectedHotelId,
+        int $timeoutSeconds = 0
     ): array
     {
+        $deadlineAt = $timeoutSeconds > 0
+            ? microtime(true) + max(1, $timeoutSeconds)
+            : null;
         $hotelId = (int)($collectionReceipt['hotel_id'] ?? 0);
         $targetDate = substr(trim((string)($collectionReceipt['target_date'] ?? '')), 0, 10);
         $dataPeriod = strtolower(trim((string)($collectionReceipt['data_period'] ?? '')));
@@ -123,14 +129,18 @@ final class OtaCanonicalHistoryPromotionCoordinator
                 $hotelId,
                 $targetDate,
                 $requiredPlatforms,
-                $anchorHash
+                $anchorHash,
+                $deadlineAt
             )
             : [];
         $platformResults = [];
         $promotedPlatforms = [];
         $blockedPlatforms = [];
         foreach ($requiredPlatforms as $platform) {
-            if ((int)($sourceTaskPlatforms[$platform] ?? 0) !== 1) {
+            if ($this->deadlineReached($deadlineAt)) {
+                $platformVerifier = [];
+                $promotion = $this->deadlineBlockedPromotion();
+            } elseif ((int)($sourceTaskPlatforms[$platform] ?? 0) !== 1) {
                 $platformVerifier = [];
                 $promotion = [
                     'status' => 'blocked',
@@ -151,28 +161,41 @@ final class OtaCanonicalHistoryPromotionCoordinator
             } else {
                 $platformVerifier = count($requiredPlatforms) === 1
                     ? $overallVerifier
-                    : $this->verify($hotelId, $targetDate, [$platform], $anchorHash);
-                $promotion = $this->verifierReady(
-                    $platformVerifier,
-                    $hotelId,
-                    $targetDate,
-                    [$platform],
-                    $anchorHash
-                )
-                    ? $this->promote(
-                        $collectionReceipt,
+                    : $this->verify(
+                        $hotelId,
+                        $targetDate,
+                        [$platform],
+                        $anchorHash,
+                        $deadlineAt
+                    );
+                if ($this->deadlineReached($deadlineAt)) {
+                    $promotion = $this->deadlineBlockedPromotion();
+                } else {
+                    $promotion = $this->verifierReady(
                         $platformVerifier,
-                        $platform,
-                        $expectedTenantId,
-                        $expectedHotelId
+                        $hotelId,
+                        $targetDate,
+                        [$platform],
+                        $anchorHash
                     )
-                    : [
-                        'status' => 'blocked',
-                        'reason' => 'canonical_history_platform_verifier_not_ready',
-                        'promoted_count' => 0,
-                        'readback_verified' => false,
-                        'sensitive_values_exposed' => false,
-                    ];
+                        ? $this->promote(
+                            $collectionReceipt,
+                            $platformVerifier,
+                            $platform,
+                            $expectedTenantId,
+                            $expectedHotelId
+                        )
+                        : [
+                            'status' => 'blocked',
+                            'reason' => 'canonical_history_platform_verifier_not_ready',
+                            'promoted_count' => 0,
+                            'readback_verified' => false,
+                            'sensitive_values_exposed' => false,
+                        ];
+                    if ($this->deadlineReached($deadlineAt)) {
+                        $promotion = $this->deadlineBlockedPromotion();
+                    }
+                }
             }
             $promotionReady = strtolower(trim((string)($promotion['status'] ?? ''))) === 'verified'
                 && ($promotion['readback_verified'] ?? false) === true
@@ -201,12 +224,19 @@ final class OtaCanonicalHistoryPromotionCoordinator
             $requiredPlatforms,
             $anchorHash
         );
-        $complete = $overallReady && $promotedPlatforms === $requiredPlatforms;
+        $deadlineReached = $this->deadlineReached($deadlineAt);
+        $complete = !$deadlineReached
+            && $overallReady
+            && $promotedPlatforms === $requiredPlatforms;
 
         return [
             'schema_version' => 1,
             'status' => $complete ? 'verified' : ($promotedPlatforms !== [] ? 'partial' : 'blocked'),
-            'reason' => $complete ? '' : 'canonical_history_platforms_incomplete',
+            'reason' => $complete
+                ? ''
+                : ($deadlineReached
+                    ? 'canonical_history_finalization_deadline_reached'
+                    : 'canonical_history_platforms_incomplete'),
             'hotel_id' => $hotelId,
             'tenant_id' => $expectedTenantId,
             'target_date' => $targetDate,
@@ -227,14 +257,46 @@ final class OtaCanonicalHistoryPromotionCoordinator
         int $hotelId,
         string $targetDate,
         array $platforms,
-        string $anchorHash
+        string $anchorHash,
+        ?float $deadlineAt = null
     ): array {
         try {
-            $result = ($this->verifier)($hotelId, $targetDate, $platforms, $anchorHash);
+            $timeoutSeconds = 60;
+            if ($deadlineAt !== null) {
+                $remainingSeconds = (int)floor($deadlineAt - microtime(true));
+                if ($remainingSeconds <= 0) {
+                    return [];
+                }
+                $timeoutSeconds = max(1, min(60, $remainingSeconds));
+            }
+            $result = ($this->verifier)(
+                $hotelId,
+                $targetDate,
+                $platforms,
+                $anchorHash,
+                $timeoutSeconds
+            );
             return is_array($result) ? $result : [];
         } catch (\Throwable) {
             return [];
         }
+    }
+
+    /** @return array<string,mixed> */
+    private function deadlineBlockedPromotion(): array
+    {
+        return [
+            'status' => 'blocked',
+            'reason' => 'canonical_history_finalization_deadline_reached',
+            'promoted_count' => 0,
+            'readback_verified' => false,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    private function deadlineReached(?float $deadlineAt): bool
+    {
+        return $deadlineAt !== null && microtime(true) >= $deadlineAt;
     }
 
     /** @return array<string,mixed> */

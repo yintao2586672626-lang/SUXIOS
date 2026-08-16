@@ -49,6 +49,30 @@ final class P0OtaFieldLoopVerifierRunnerTest extends TestCase
         self::assertContains('--system-hotel-id=58', $argumentsSeen);
     }
 
+    public function testCallerCanBoundVerifierProcessTimeout(): void
+    {
+        $timeoutSeen = 0;
+        $runner = new P0OtaFieldLoopVerifierRunner(
+            static function (array $arguments, string $cwd, int $timeout) use (&$timeoutSeen): array {
+                $timeoutSeen = $timeout;
+                return ['exit_code' => 2, 'stdout' => 'invalid', 'stderr' => ''];
+            },
+            static fn(): array => []
+        );
+
+        $receipt = $runner->verify(
+            58,
+            '2026-07-23',
+            ['ctrip'],
+            str_repeat('c', 64),
+            7
+        );
+
+        self::assertSame(7, $timeoutSeen);
+        self::assertSame('failed', $receipt['status']);
+        self::assertFalse($receipt['authority_ready']);
+    }
+
     public function testMockedPassedOutputCannotOpenGateForWrongHotelOrMissingRawTrust(): void
     {
         $report = $this->verifierReport();

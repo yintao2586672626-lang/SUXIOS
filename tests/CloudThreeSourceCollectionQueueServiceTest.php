@@ -168,6 +168,111 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         self::assertNull($receipt['hotels'][0]['trust_receipt_digest']);
     }
 
+    public function testCanonicalFinalizationIsSkippedWhenQueueDeadlineCannotReserveFinalReceipt(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $now = 1000.0;
+        $finalizerCalls = 0;
+        $child = function (
+            string $source,
+            array $command,
+            int $timeoutSeconds,
+            array $context
+        ) use (&$calls, &$now): array {
+            $calls[] = $source;
+            if ($source === 'meituan') {
+                $now = 1106.0;
+            }
+            return $this->successChild($source, $context);
+        };
+        $finalizer = static function () use (&$finalizerCalls): array {
+            $finalizerCalls++;
+            return [];
+        };
+
+        $receipt = $this->service(
+            $plans,
+            $calls,
+            childRunner: $child,
+            canonicalHistoryFinalizer: $finalizer,
+            monotonicClock: static function () use (&$now): float {
+                return $now;
+            }
+        )->run([
+            'target_date' => '2026-08-14',
+            'deadline_seconds' => 120,
+        ]);
+
+        self::assertSame(['pms', 'ctrip', 'meituan'], $calls);
+        self::assertSame(1106.0, $now);
+        self::assertSame(0, $finalizerCalls);
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertTrue($receipt['deadline_reached']);
+        self::assertSame('partial', $receipt['hotels'][0]['run_receipt_status']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_finalized']);
+        self::assertFalse($receipt['hotels'][0]['canonical_history_complete']);
+        self::assertSame(
+            'queue_deadline_insufficient_for_canonical_finalization',
+            $receipt['hotels'][0]['canonical_history_finalization_reason']
+        );
+        self::assertNull($receipt['hotels'][0]['collection_anchor_hash']);
+        self::assertNull($receipt['hotels'][0]['trust_receipt_digest']);
+    }
+
+    public function testCanonicalFinalizationBudgetAndPostDeadlineCheckFailClosed(): void
+    {
+        $plans = [$this->plan(1, 80, 21, 22)];
+        $calls = [];
+        $now = 1000.0;
+        $receivedBudget = 0;
+        $finalizer = static function (
+            array $receipt,
+            int $tenantId,
+            int $hotelId,
+            int $timeoutSeconds
+        ) use (&$now, &$receivedBudget): array {
+            $receivedBudget = $timeoutSeconds;
+            $now = 1121.0;
+            return [
+                'status' => 'verified',
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'target_date' => (string)($receipt['target_date'] ?? ''),
+                'required_platforms' => ['ctrip', 'meituan'],
+                'promoted_platforms' => ['ctrip', 'meituan'],
+                'collection_anchor_hash' => (string)($receipt['collection_anchor_hash'] ?? ''),
+                'canonical_history_complete' => true,
+                'sensitive_values_exposed' => false,
+            ];
+        };
+
+        $receipt = $this->service(
+            $plans,
+            $calls,
+            canonicalHistoryFinalizer: $finalizer,
+            monotonicClock: static function () use (&$now): float {
+                return $now;
+            }
+        )->run([
+            'target_date' => '2026-08-14',
+            'deadline_seconds' => 120,
+        ]);
+
+        self::assertSame(105, $receivedBudget);
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertTrue($receipt['deadline_reached']);
+        self::assertSame('partial', $receipt['hotels'][0]['run_receipt_status']);
+        self::assertTrue($receipt['hotels'][0]['run_receipt_finalized']);
+        self::assertFalse($receipt['hotels'][0]['canonical_history_complete']);
+        self::assertSame(
+            'queue_deadline_reached_during_canonical_finalization',
+            $receipt['hotels'][0]['canonical_history_finalization_reason']
+        );
+        self::assertNull($receipt['hotels'][0]['collection_anchor_hash']);
+        self::assertNull($receipt['hotels'][0]['trust_receipt_digest']);
+    }
+
     public function testOtaChildCannotBorrowAReadbackFromAnotherBusinessDate(): void
     {
         $plans = [$this->plan(1, 80, 21, 22)];
@@ -638,7 +743,8 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         ?callable $sleeper = null,
         ?callable $runReceiptWriter = null,
         ?callable $authorizationLoader = null,
-        ?callable $canonicalHistoryFinalizer = null
+        ?callable $canonicalHistoryFinalizer = null,
+        ?callable $monotonicClock = null
     ): CloudThreeSourceCollectionQueueService {
         $planByHotel = [];
         foreach ($plans as $plan) {
@@ -849,7 +955,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
             $profileLoader,
             $childRunner,
             static fn(): \DateTimeImmutable => new \DateTimeImmutable('2026-08-14 10:30:00'),
-            static fn(): float => 1000.0,
+            $monotonicClock ?? static fn(): float => 1000.0,
             'D:/suxios',
             $collectionAborter,
             $sleeper,
