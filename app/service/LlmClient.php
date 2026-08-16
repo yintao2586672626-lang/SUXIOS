@@ -253,6 +253,27 @@ class LlmClient
     /** @return array<string, mixed> */
     private function executeProviderAttempt(array $config, string $prompt, array $meta, array $options): array
     {
+        if (($options['required_direct_deepseek_v4_pro'] ?? false) === true
+            && !$this->directDeepSeekV4ProConfigReady($config)
+        ) {
+            $message = 'Direct DeepSeek V4 Pro configuration rejected before request.';
+            return [
+                'success' => false,
+                'circuit_failure' => false,
+                'response' => '',
+                'http_status' => 0,
+                'retry_attempts' => 0,
+                'payload_size' => 0,
+                'error_type' => 'direct_provider_config_rejected',
+                'error_message' => $message,
+                'result' => [
+                    'ok' => false,
+                    'message' => $message,
+                    'code' => 422,
+                    'data' => $this->debug('direct_provider_config_rejected', $config, 0, '', $prompt, '', $message, $meta),
+                ],
+            ];
+        }
         $payload = $this->chatPayload($config, $prompt, $options);
         $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
         if ($payloadJson === false) {
@@ -465,6 +486,7 @@ class LlmClient
             }
         }
 
+        $reportedModel = $responseModel !== '' ? $responseModel : (string)$config['model'];
         return [
             'success' => true,
             'circuit_failure' => false,
@@ -478,7 +500,7 @@ class LlmClient
                 'ok' => true,
                 'code' => 200,
                 'content' => $content,
-                'model' => $config['model'],
+                'model' => $reportedModel,
                 'configured_model' => (string)($config['configured_model'] ?? $config['model']),
                 'response_model' => $responseModel,
                 'model_key' => $config['model_key'],
@@ -494,7 +516,7 @@ class LlmClient
                     'debug' => [
                         'provider' => (string)$config['provider'],
                         'model_key' => (string)$config['model_key'],
-                        'model' => (string)$config['model'],
+                        'model' => $reportedModel,
                         'model_name' => (string)$config['model'],
                         'configured_model' => (string)($config['configured_model'] ?? $config['model']),
                         'response_model' => $responseModel,
@@ -816,6 +838,7 @@ class LlmClient
             'response_cache_enabled' => false,
             'idempotency_enabled' => false,
             'send_idempotency_key' => false,
+            'required_direct_deepseek_v4_pro' => $deepSeekProRequest,
             'deepseek_thinking' => $thinkingMode,
             'reasoning_effort' => $reasoningEffort,
             'user_id' => $anonymousUserId,
@@ -846,6 +869,7 @@ class LlmClient
             : [];
         $configuredModel = mb_substr(trim((string)($result['configured_model'] ?? $debug['configured_model'] ?? $result['model'] ?? '')), 0, 150);
         $responseModel = mb_substr(trim((string)($result['response_model'] ?? $debug['response_model'] ?? '')), 0, 150);
+        $reportedModel = mb_substr(trim((string)($result['model'] ?? $debug['model'] ?? $responseModel)), 0, 150);
         $providerResponseId = $this->normalizeProviderResponseId(
             $result['provider_response_id'] ?? $debug['provider_response_id'] ?? null
         );
@@ -891,7 +915,7 @@ class LlmClient
             'meta' => [
                 'provider' => mb_substr(trim((string)($result['provider'] ?? $debug['provider'] ?? '')), 0, 50),
                 'model_key' => mb_substr(trim((string)($result['model_key'] ?? $debug['model_key'] ?? $modelKey)), 0, 100),
-                'model' => $responseModel,
+                'model' => $reportedModel,
                 'configured_model' => $configuredModel,
                 'response_model' => $responseModel,
                 'provider_response_id' => $providerResponseId,
@@ -1013,6 +1037,7 @@ class LlmClient
             'base_url' => $baseUrl,
             'api_key' => $apiKey,
             'model' => $modelName,
+            'configured_model_key' => $modelKey,
             'configured_model' => $configuredModelName,
             'model_compatibility_mapped' => $configuredModelName !== $modelName,
             'model_key' => $requestedModelKey,
@@ -1642,10 +1667,12 @@ class LlmClient
         $normalizedBaseUrl = $origin . $path;
         $provider = strtolower(trim((string)($config['provider'] ?? '')));
         $modelKey = trim((string)($config['model_key'] ?? ''));
+        $configuredModelKey = trim((string)($config['configured_model_key'] ?? $modelKey));
         $modelName = trim((string)($config['configured_model'] ?? $config['model'] ?? ''));
         $digest = hash('sha256', implode("\n", [
             'provider=' . $provider,
             'model_key=' . $modelKey,
+            'configured_model_key=' . $configuredModelKey,
             'model_name=' . $modelName,
             'base_url=' . $normalizedBaseUrl,
         ]));
@@ -1660,6 +1687,20 @@ class LlmClient
             'official' => $official,
             'config_digest' => $digest,
         ];
+    }
+
+    private function directDeepSeekV4ProConfigReady(array $config): bool
+    {
+        $proof = $this->providerEndpointProof($config);
+        return strtolower(trim((string)($config['provider'] ?? ''))) === 'deepseek'
+            && strtolower(trim((string)($config['model_key'] ?? ''))) === 'deepseek_v4_pro'
+            && strtolower(trim((string)($config['configured_model_key'] ?? ''))) === 'deepseek_v4_pro'
+            && strtolower(trim((string)($config['configured_model'] ?? ''))) === 'deepseek-v4-pro'
+            && strtolower(trim((string)($config['model'] ?? ''))) === 'deepseek-v4-pro'
+            && ($proof['official'] ?? false) === true
+            && strtolower(trim((string)($proof['origin'] ?? ''))) === 'https://api.deepseek.com'
+            && strtolower(trim((string)($proof['host'] ?? ''))) === 'api.deepseek.com'
+            && preg_match('/^[a-f0-9]{64}$/D', strtolower(trim((string)($proof['config_digest'] ?? '')))) === 1;
     }
 
     private function nativeJsonSchemaResponseFormat(array $config, array $options): array

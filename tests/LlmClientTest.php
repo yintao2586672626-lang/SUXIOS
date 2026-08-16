@@ -270,30 +270,82 @@ final class LlmClientTest extends TestCase
     public function testDirectStructuredEnvelopeRejectsGatewayAndStaleProviderReceiptProof(): void
     {
         $primary = ScriptedLlmClient::modelConfig('deepseek_v4_pro', 'deepseek');
-        $primary['base_url'] = 'https://gateway.example.com/v1';
+        $primary['base_url'] = 'https://api.deepseek.com/v1';
         $primary['model'] = 'deepseek-v4-pro';
         $primary['configured_model'] = 'deepseek-v4-pro';
-        $gateway = new ScriptedLlmClient($primary, [], [
-            'deepseek_v4_pro' => [ScriptedLlmClient::success('{"summary":"ok"}', 'stop', 'resp-gateway-v4-0001', time(), 'deepseek-v4-pro')],
-        ]);
         $schema = [
             'type' => 'object',
             'required' => ['summary'],
             'properties' => ['summary' => ['type' => 'string']],
         ];
 
-        $gatewayEnvelope = $gateway->createJsonResponseEnvelope([], $schema, 'deepseek_v4_pro');
-        self::assertSame('gateway.example.com', $gatewayEnvelope['meta']['provider_endpoint_host']);
-        self::assertFalse($gatewayEnvelope['meta']['provider_endpoint_official']);
-        self::assertFalse($gatewayEnvelope['meta']['direct_request_proof']);
+        $invalidConfigs = [
+            'gateway' => ['base_url' => 'https://gateway.example.com/v1'],
+            'http_endpoint' => ['base_url' => 'http://api.deepseek.com/v1'],
+            'non_standard_port' => ['base_url' => 'https://api.deepseek.com:444/v1'],
+            'provider' => ['provider' => 'openai'],
+            'requested_key' => ['model_key' => 'deepseek_reasoner'],
+            'configured_key' => ['configured_model_key' => 'deepseek_reasoner'],
+            'configured_model' => ['configured_model' => 'deepseek-reasoner'],
+            'resolved_model' => ['model' => 'deepseek-reasoner'],
+        ];
+        foreach ($invalidConfigs as $label => $mutation) {
+            $rejected = new ScriptedLlmClient(array_merge($primary, $mutation), [], [
+                'deepseek_v4_pro' => [ScriptedLlmClient::success('{"summary":"ok"}', 'stop', 'resp-' . $label . '-0001', time(), 'deepseek-v4-pro')],
+            ]);
+            try {
+                $rejected->createJsonResponseEnvelope([], $schema, 'deepseek_v4_pro');
+                self::fail($label . ' must be rejected before hotel evidence is transmitted');
+            } catch (\RuntimeException) {
+                self::assertCount(0, $rejected->calls, $label);
+            }
+        }
 
-        $primary['base_url'] = 'https://api.deepseek.com/v1';
         $stale = new ScriptedLlmClient($primary, [], [
             'deepseek_v4_pro' => [ScriptedLlmClient::success('{"summary":"old"}', 'stop', 'resp-stale-v4-0001', time() - 901, 'deepseek-v4-pro')],
         ]);
         $staleEnvelope = $stale->createJsonResponseEnvelope([], $schema, 'deepseek_v4_pro');
         self::assertFalse($staleEnvelope['meta']['provider_response_fresh']);
         self::assertFalse($staleEnvelope['meta']['direct_request_proof']);
+    }
+
+    public function testSuccessfulChatKeepsActualProviderModelAtTopLevel(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('primary_model', 'deepseek');
+        $client = new ScriptedLlmClient($primary, [], [
+            'primary_model' => [ScriptedLlmClient::success(
+                'ok',
+                'stop',
+                'resp-model-audit-0001',
+                time(),
+                'actual-provider-model'
+            )],
+        ]);
+
+        $result = $client->chat('model audit', 'primary_model', [], [
+            'idempotency_enabled' => false,
+            'response_cache_enabled' => false,
+        ]);
+
+        self::assertTrue($result['ok']);
+        self::assertSame('actual-provider-model', $result['model']);
+        self::assertSame('primary_model-api-model', $result['configured_model']);
+        self::assertSame('actual-provider-model', $result['response_model']);
+        self::assertSame('actual-provider-model', $result['data']['debug']['model']);
+        self::assertSame('primary_model-api-model', $result['data']['debug']['model_name']);
+
+        $withoutReportedModel = new ScriptedLlmClient(
+            ScriptedLlmClient::modelConfig('deepseek_chat', 'deepseek'),
+            [],
+            ['deepseek_chat' => [ScriptedLlmClient::success('{"summary":"ok"}', 'stop', 'resp-model-empty-0001', time(), '')]]
+        );
+        $envelope = $withoutReportedModel->createJsonResponseEnvelope([], [
+            'type' => 'object',
+            'required' => ['summary'],
+            'properties' => ['summary' => ['type' => 'string']],
+        ], 'deepseek_chat');
+        self::assertSame('deepseek_chat-api-model', $envelope['meta']['model']);
+        self::assertSame('', $envelope['meta']['response_model']);
     }
 
     public function testProviderResponseReceiptIsExactAndInvalidIdsFailClosed(): void
@@ -799,6 +851,7 @@ final class ScriptedLlmClient extends LlmClient
                 : 'https://' . $provider . '.example.com/v1',
             'api_key' => 'unit-test-key',
             'model' => $modelKey . '-api-model',
+            'configured_model_key' => $modelKey,
             'model_key' => $modelKey,
             'source' => 'database',
         ];
