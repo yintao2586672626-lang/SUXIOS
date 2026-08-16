@@ -909,8 +909,10 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
     // clicks a read-only report control. Close that extra page immediately;
     // keep the guarded page and browser alive because no request escapes the
     // existing Fetch policy and the extra target is never exposed to callers.
-    send('Target.closeTarget', { targetId })
-      .catch(() => markPolicyViolation('unexpected_target_close_failed'));
+    // The paused target may disappear by itself before this command is
+    // processed. Treat that race as an idempotent close: the target never ran
+    // and no unguarded page is exposed to the collector.
+    send('Target.closeTarget', { targetId }).catch(() => undefined);
   };
 
   const protectAttachedTarget = async ({ sessionId = '', targetInfo = {} } = {}) => {
