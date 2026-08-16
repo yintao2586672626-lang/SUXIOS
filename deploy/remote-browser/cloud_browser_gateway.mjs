@@ -1019,7 +1019,16 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
           : ['interactive', 'complete'];
         sourcePageReady = trustedCollectionPageLocation(value.href, platform)
           && acceptedReadyStates.includes(String(value.readyState || ''));
-        if (sourcePageReady) break;
+        if (sourcePageReady) {
+          // The Ctrip SPA may replace its execution context while still in
+          // `loading`. Only accept readiness once the lease marker succeeds
+          // in that same stable context; otherwise retry within the deadline.
+          await send('Runtime.evaluate', {
+            expression: "window.name='suxios_profile_lease_guarded'",
+            returnByValue: true,
+          });
+          break;
+        }
       } catch (error) {
         sourcePageReady = false;
         navigationFailure = error?.message === 'read_only_policy_connection_closed'
@@ -1029,10 +1038,6 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
       await delay(100);
     }
     if (!sourcePageReady) throw new Error(navigationFailure);
-    await send('Runtime.evaluate', {
-      expression: "window.name='suxios_profile_lease_guarded'",
-      returnByValue: true,
-    });
   } catch (error) {
     closed = true;
     socket.close();
