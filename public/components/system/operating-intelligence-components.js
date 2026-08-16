@@ -885,10 +885,10 @@
         return 'guide';
     };
     const singleAbsoluteOperatingDateFromQuery = (query) => {
-        const matches = Array.from(
+        const matches = Array.from(new Set(Array.from(
             String(query || '').matchAll(/(^|[^\d])(\d{4}-\d{2}-\d{2})(?=$|[^\d])/g),
             (match) => String(match[2] || '')
-        );
+        )));
         if (matches.length !== 1) return '';
         const candidate = matches[0];
         const parsed = new Date(`${candidate}T00:00:00.000Z`);
@@ -1702,6 +1702,13 @@
                         ...guideResult,
                         operating_result: null,
                         operating_error: '专业经营问答入口尚未加载，请进入酒店 AI 工具箱后重试。',
+                    };
+                }
+                if (questionState.loading) {
+                    return {
+                        ...guideResult,
+                        operating_result: null,
+                        operating_error: '已有经营问题正在处理中，请等待完成后再提交。',
                     };
                 }
                 ctx.ensureOperatingQuestionScope?.();

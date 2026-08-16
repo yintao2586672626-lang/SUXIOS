@@ -119,7 +119,7 @@ test('floating operating workflow binds only one valid absolute question date to
     onUnmounted: () => {},
   });
 
-  const submit = async (query) => {
+  const submit = async (query, { questionLoading = false } = {}) => {
     const form = {
       hotel_id: 80,
       platform: 'ctrip',
@@ -130,11 +130,12 @@ test('floating operating workflow binds only one valid absolute question date to
       question: '',
       result: null,
       error: '',
-      loading: false,
+      loading: questionLoading,
       action_intents: {},
     };
     let resolveCaptured;
     const captured = new Promise((resolve) => { resolveCaptured = resolve; });
+    let askCount = 0;
     const ctx = {
       currentPage: 'compass',
       pageTitle: '今日经营看板',
@@ -149,6 +150,7 @@ test('floating operating workflow binds only one valid absolute question date to
         journey: ['revenue-report'],
       }),
       askOperatingQuestion: async () => {
+        askCount += 1;
         const snapshot = {
           question: questionState.question,
           platform: form.platform,
@@ -177,6 +179,16 @@ test('floating operating workflow binds only one valid absolute question date to
       isComposing: false,
       preventDefault: () => {},
     });
+    if (questionLoading) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return {
+        question: questionState.question,
+        platform: form.platform,
+        date_start: form.date_start,
+        date_end: form.date_end,
+        ask_count: askCount,
+      };
+    }
     return captured;
   };
 
@@ -187,6 +199,25 @@ test('floating operating workflow binds only one valid absolute question date to
       platform: 'meituan',
       date_start: '2026-08-09',
       date_end: '2026-08-09',
+    },
+  );
+  assert.deepEqual(
+    await submit('按2026-08-09订单数分析2026-08-09美团经营结论'),
+    {
+      question: '按2026-08-09订单数分析2026-08-09美团经营结论',
+      platform: 'meituan',
+      date_start: '2026-08-09',
+      date_end: '2026-08-09',
+    },
+  );
+  assert.deepEqual(
+    await submit('请给我2026-08-09美团订单数的经营结论', { questionLoading: true }),
+    {
+      question: '',
+      platform: 'ctrip',
+      date_start: '2026-08-16',
+      date_end: '2026-08-16',
+      ask_count: 0,
     },
   );
   for (const query of [

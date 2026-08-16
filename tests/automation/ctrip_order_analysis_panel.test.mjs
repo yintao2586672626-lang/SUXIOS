@@ -290,7 +290,7 @@ test('deferred component bridges discard a failed manifest script before retryin
     {
       filename: 'operating-intelligence-loader.js',
       source: operatingIntelligenceLoader,
-      fullScript: 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-hdadd9b311e',
+      fullScript: 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h85ac5e9b03',
       bridgeKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS',
       fullKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL',
       componentKey: 'operatingQuestionPanel',

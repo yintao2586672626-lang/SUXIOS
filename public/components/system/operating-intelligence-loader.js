@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-hdadd9b311e';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h85ac5e9b03';
     let fullScriptPromise = null;
 
     const loadFullScript = async () => {
