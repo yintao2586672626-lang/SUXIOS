@@ -21,6 +21,7 @@ export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
   'compass-static.js',
   'home-static.js',
   'dual-ota-home-static.js',
+  'ai-daily-report-static.js',
 ]);
 export const FRONTEND_DEFERRED_HELPER_SOURCES = Object.freeze([
   'data-health-static.js',

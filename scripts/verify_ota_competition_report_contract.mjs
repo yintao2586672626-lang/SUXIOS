@@ -20,6 +20,7 @@ const wecomVisualCard = read('app/service/WechatCompetitionVisualCardService.php
 const wecomVisualRenderer = read('scripts/render_wechat_competition_visual_card.mjs');
 const cloudAutomation = read('app/service/CloudAutomationService.php');
 const frontend = read('public/app-main.js');
+const aiDailyStatic = read('public/ai-daily-report-static.js');
 const template = read('resources/frontend/templates/fragments/16-page-ai-daily-report.html');
 const workflow = read('.github/workflows/php.yml');
 const packageJson = JSON.parse(read('package.json'));
@@ -113,11 +114,15 @@ const scripts = packageJson.scripts ?? {};
   ['downloadAiDailyCompetitionReportHtml', 'offline HTML report export'],
   ['copyAiDailyCompetitionXiaohongshuDraft', 'Xiaohongshu draft copy action'],
   ['hasCompetitionReport && !downloadAiDailyCompetitionReportHtml()', 'report delivery is bound to identity-checked result package action'],
+  ["facts.competitor_count ?? '—'", 'missing competitor count display boundary'],
+].forEach(([needle, label]) => assertContains(frontend, needle, label));
+
+[
   ['report.render_contract?.bundle_id', 'report export bundle identity check'],
   ['data-bundle-id=', 'report export embeds bundle identity'],
-  ["facts.competitor_count ?? '—'", 'missing competitor count display boundary'],
+  ['competition_report_identity_mismatch', 'report export mismatch failure contract'],
   ['auto_write_ota=false', 'manual execution boundary copy'],
-].forEach(([needle, label]) => assertContains(frontend, needle, label));
+].forEach(([needle, label]) => assertContains(aiDailyStatic, needle, label));
 
 [
   ['value="lite"', 'lite option'],
