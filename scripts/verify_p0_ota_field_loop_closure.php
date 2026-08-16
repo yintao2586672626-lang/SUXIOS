@@ -6618,8 +6618,14 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     $dataSourceId = (int)($storageScope['data_source_id'] ?? 0);
     $syncTaskId = (int)($storageScope['sync_task_id'] ?? 0);
     $dataPeriod = strtolower(trim((string)($storageScope['run_readback']['data_period'] ?? '')));
-    $requiredMetricKeys = p0_required_traffic_metric_keys($platform, $dataPeriod);
-    $requiredStorageFields = p0_required_traffic_storage_field_map($platform, $dataPeriod);
+    $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+    $metricDataPeriod = $platform === 'ctrip'
+        && $dataPeriod === 'realtime_snapshot'
+        && $targetDate === $today
+        ? $dataPeriod
+        : '';
+    $requiredMetricKeys = p0_required_traffic_metric_keys($platform, $metricDataPeriod);
+    $requiredStorageFields = p0_required_traffic_storage_field_map($platform, $metricDataPeriod);
     $base['required_metric_keys'] = $requiredMetricKeys;
     $base['required_storage_fields'] = array_values($requiredStorageFields);
     $base['missing_metric_keys'] = $requiredMetricKeys;
@@ -6811,7 +6817,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
             $base['ui_status_incomplete_rows']++;
             continue;
         }
-        $rowRequiredMetricKeys = $platform === 'ctrip' && $dataPeriod === 'realtime_snapshot'
+        $rowRequiredMetricKeys = $platform === 'ctrip' && $metricDataPeriod === 'realtime_snapshot'
             ? p0_ctrip_realtime_endpoint_metric_keys($row)
             : $requiredMetricKeys;
         if ($rowRequiredMetricKeys === []) {
@@ -6827,7 +6833,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
             $raw,
             $platform,
             $rowRequiredMetricKeys,
-            $platform === 'ctrip' && $dataPeriod === 'realtime_snapshot'
+            $platform === 'ctrip' && $metricDataPeriod === 'realtime_snapshot'
         );
         $observedProvenanceReady = (string)($observedProvenance['status'] ?? '') === 'ready';
         if ($observedProvenanceReady) {
