@@ -491,6 +491,7 @@ Route::group('api/ota-standard', function () {
 // ==================== Revenue AI 首页只读总览 API ====================
 Route::group('api/revenue-ai', function () {
     Route::get('/overview', 'RevenueAi/overview');
+    Route::post('/cockpit/pending-approval', 'RevenueAi/createCockpitPendingApproval');
     Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion');
     Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent');
 })->middleware(\app\middleware\Auth::class);
@@ -589,6 +590,7 @@ Route::group('api/operation', function () {
     Route::post('/alerts/:id/execution-intent', 'OperationManagement/alertExecutionIntent');
     Route::post('/strategy-simulation', 'OperationManagement/strategySimulation');
     Route::post('/execution-intents/:id/approve', 'OperationManagement/approveExecutionIntent');
+    Route::post('/execution-intents/:id/cancel', 'OperationManagement/cancelExecutionIntent');
     Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
     Route::post('/execution-tasks/:id/evidence', 'OperationManagement/executionTaskEvidence');
     Route::post('/execution-tasks/:id/intervention-assessments', 'OperationManagement/assessExecutionTaskIntervention');
@@ -823,6 +825,7 @@ Route::group('api/agent', function () {
     Route::post('/ota-diagnosis', 'Agent/otaDiagnosis');
     Route::post('/ota-diagnoses/:id/actions/:actionIndex/execution-intent', 'Agent/createOtaDiagnosisExecutionIntent');
     Route::post('/system-guidance', 'SystemGuidance/guide');
+    Route::get('/operating-question-scopes', 'OperatingIntelligence/questionScopeOptions');
     Route::get('/operating-questions/:id', 'OperatingIntelligence/readQuestion');
     Route::get('/operating-questions', 'OperatingIntelligence/questions');
     Route::post('/operating-questions', 'OperatingIntelligence/createQuestion');

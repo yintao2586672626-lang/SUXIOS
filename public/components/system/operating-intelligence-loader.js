@@ -1,7 +1,8 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h85ac5e9b03';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260816-decision-frame-hea7bb357f0';
+    const fullStyle = 'style.min.css';
     let fullScriptPromise = null;
 
     const loadFullScript = async () => {
@@ -9,7 +10,7 @@
             return window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL;
         }
         if (fullScriptPromise) return fullScriptPromise;
-        fullScriptPromise = new Promise((resolve, reject) => {
+        const startScriptLoad = () => new Promise((resolve, reject) => {
             const resolvedSrc = new URL(fullScript, document.baseURI).href;
             const existing = [...document.scripts].find(script => script.src === resolvedSrc);
             const script = existing || document.createElement('script');
@@ -38,6 +39,13 @@
                 reject(new Error('经营问答完整组件加载失败'));
             }, { once: true });
             if (!existing) document.head.appendChild(script);
+        });
+        const styleLoader = window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET;
+        fullScriptPromise = typeof styleLoader === 'function'
+            ? Promise.resolve(styleLoader(fullStyle)).then(startScriptLoad)
+            : startScriptLoad();
+        fullScriptPromise.catch(() => {
+            fullScriptPromise = null;
         });
         return fullScriptPromise;
     };

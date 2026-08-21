@@ -18,6 +18,7 @@ final class SystemUsageAssistantServiceTest extends TestCase
             public array $messages = [];
             /** @var array<string,mixed> */
             public array $schema = [];
+            public string $modelKey = '';
 
             public function createJsonResponseEnvelope(
                 array $messages,
@@ -27,6 +28,7 @@ final class SystemUsageAssistantServiceTest extends TestCase
                 $this->calls++;
                 $this->messages = $messages;
                 $this->schema = $schema;
+                $this->modelKey = $modelKey;
                 return [
                     'data' => [
                         'assistant_mode' => 'guide',
@@ -49,12 +51,14 @@ final class SystemUsageAssistantServiceTest extends TestCase
             {
                 return [
                     'provider' => 'deepseek',
-                    'model_key' => 'deepseek_chat',
-                    'model' => 'deepseek-v4-flash',
+                    'model_key' => 'deepseek_v4_pro',
+                    'model' => 'deepseek-v4-pro',
                     'finish_reason' => 'stop',
                     'fallback_used' => false,
                     'cache_hit' => false,
                     'degraded' => false,
+                    'thinking_mode' => 'enabled',
+                    'reasoning_effort' => 'high',
                 ];
             }
         };
@@ -63,7 +67,20 @@ final class SystemUsageAssistantServiceTest extends TestCase
             'query' => '我刚接手这家店，携程数据一直没进来，我应该先做什么？',
             'current_page' => 'compass',
             'page_title' => '今日经营看板',
+            'current_scope' => [
+                'hotel_id' => 80,
+                'hotel_name' => '敦煌漠蓝新',
+                'platform' => 'ctrip',
+                'date_start' => '2026-08-14',
+                'date_end' => '2026-08-14',
+            ],
             'visible_topic_keys' => ['data-health', 'revenue-report', 'ai-daily-report', 'task-navigation'],
+            'active_journey' => [
+                'goal' => '恢复携程数据后生成经营日报',
+                'active_key' => 'data-health',
+                'journey_keys' => ['data-health', 'ai-daily-report'],
+                'current_step_status' => 'blocked',
+            ],
             'history' => [
                 ['role' => 'user', 'content' => '我想先看今天的经营情况'],
                 ['role' => 'assistant', 'content' => '可以先确认数据是否可用。'],
@@ -72,6 +89,7 @@ final class SystemUsageAssistantServiceTest extends TestCase
         ]);
 
         self::assertSame(1, $client->calls);
+        self::assertSame('deepseek_v4_pro', $client->modelKey);
         self::assertSame('intelligent', $result['mode']);
         self::assertSame('guide', $result['assistant_mode']);
         self::assertSame('ready', $result['status']);
@@ -83,7 +101,9 @@ final class SystemUsageAssistantServiceTest extends TestCase
         self::assertStringContainsString('精确回读', $result['journey'][0]['success_marker']);
         self::assertSame('online-data', $result['action']['target_page']);
         self::assertSame('data-health', $result['action']['action_key']);
-        self::assertSame('deepseek-v4-flash', $result['runtime']['model']);
+        self::assertSame('deepseek-v4-pro', $result['runtime']['model']);
+        self::assertSame('enabled', $result['runtime']['thinking_mode']);
+        self::assertSame('high', $result['runtime']['reasoning_effort']);
         self::assertTrue($result['runtime']['external_llm_called']);
         self::assertSame(
             ['data-health', 'revenue-report', 'ai-daily-report', 'task-navigation', 'clarify'],
@@ -97,9 +117,49 @@ final class SystemUsageAssistantServiceTest extends TestCase
 
         $prompt = json_decode($client->messages[1]['content'], true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('compass', $prompt['current_context']['page_key']);
+        self::assertSame(80, $prompt['current_scope_context']['hotel_id']);
+        self::assertSame('ctrip', $prompt['current_scope_context']['platform']);
+        self::assertArrayHasKey('current_page_recommended_topic_keys', $prompt);
+        self::assertSame('恢复携程数据后生成经营日报', $prompt['active_journey_context']['goal']);
+        self::assertSame(['data-health', 'ai-daily-report'], $prompt['active_journey_context']['journey_keys']);
+        self::assertSame('blocked', $prompt['active_journey_context']['current_step_status']);
         self::assertCount(4, $prompt['trusted_feature_catalog']);
         self::assertCount(2, $prompt['untrusted_recent_conversation']);
         self::assertStringContainsString('携程数据一直没进来', $prompt['untrusted_user_query']);
+        self::assertStringContainsString('不得提及模型', $client->messages[0]['content']);
+    }
+
+    public function testCatalogCoversEveryLeanNavigationDestination(): void
+    {
+        $targets = array_values(array_unique(array_column(SystemUsageAssistantService::catalog(), 'target_page')));
+
+        foreach ([
+            'compass',
+            'online-data',
+            'revenue-research-center',
+            'operation-optimizer',
+            'operating-targets',
+            'ai-daily-report',
+            'ctrip-ebooking',
+            'meituan-ebooking',
+            'pms-operating-data',
+            'wechat-notification',
+            'automation-monitor',
+            'ops-track',
+            'operating-growth-archive',
+            'hotels',
+            'knowledge-center',
+            'agent-center',
+            'ai-governance',
+            'ai-model-config',
+            'users',
+            'roles',
+            'operation-logs',
+            'system-config',
+            'data-config',
+        ] as $target) {
+            self::assertContains($target, $targets, sprintf('Missing assistant route for %s', $target));
+        }
     }
 
     public function testAmbiguousIntentReturnsOneClarifyingQuestionWithoutAction(): void
@@ -125,8 +185,8 @@ final class SystemUsageAssistantServiceTest extends TestCase
                     ],
                     'meta' => [
                         'provider' => 'deepseek',
-                        'model_key' => 'deepseek_chat',
-                        'model' => 'deepseek-v4-flash',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
                         'finish_reason' => 'stop',
                         'fallback_used' => false,
                         'cache_hit' => false,
@@ -172,8 +232,8 @@ final class SystemUsageAssistantServiceTest extends TestCase
                     ],
                     'meta' => [
                         'provider' => 'deepseek',
-                        'model_key' => 'deepseek_chat',
-                        'model' => 'deepseek-v4-flash',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
                         'finish_reason' => 'stop',
                         'fallback_used' => false,
                         'cache_hit' => false,
@@ -227,6 +287,128 @@ final class SystemUsageAssistantServiceTest extends TestCase
         self::assertStringContainsString('[REDACTED]', $promptText);
     }
 
+    public function testFallbackStillRoutesMeituanQuestionToTheRealInternalPage(): void
+    {
+        $client = new class extends LlmClient {
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                throw new RuntimeException('provider timeout');
+            }
+        };
+
+        $result = (new SystemUsageAssistantService($client))->guide([
+            'query' => '美团订单和流量去哪里看？',
+            'visible_topic_keys' => ['meituan-data', 'task-navigation'],
+        ]);
+
+        self::assertSame('fallback', $result['mode']);
+        self::assertSame('meituan-data', $result['topic_key']);
+        self::assertSame('meituan-ebooking', $result['action']['target_page']);
+    }
+
+    public function testFallbackPreservesACompoundCtripToOperationsRoute(): void
+    {
+        $client = new class extends LlmClient {
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                throw new RuntimeException('provider timeout');
+            }
+        };
+
+        $result = (new SystemUsageAssistantService($client))->guide([
+            'query' => '我想先看携程经营数据，再形成运营方案，应该怎么做？',
+            'visible_topic_keys' => ['ctrip-data', 'revenue-report', 'operation-optimizer', 'task-navigation'],
+        ]);
+
+        self::assertSame('ctrip-data', $result['topic_key']);
+        self::assertSame(
+            ['ctrip-data', 'revenue-report', 'operation-optimizer'],
+            array_column($result['journey'], 'key')
+        );
+    }
+
+    public function testFallbackContinuesThePersistedJourneyInsteadOfStartingOver(): void
+    {
+        $client = new class extends LlmClient {
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                throw new RuntimeException('provider timeout');
+            }
+        };
+
+        $result = (new SystemUsageAssistantService($client))->guide([
+            'query' => '继续，下一步做什么？',
+            'visible_topic_keys' => ['ctrip-data', 'revenue-report', 'operation-optimizer'],
+            'active_journey' => [
+                'goal' => '形成可复核的携程运营方案',
+                'active_key' => 'revenue-report',
+                'journey_keys' => ['ctrip-data', 'revenue-report', 'operation-optimizer'],
+                'current_step_status' => 'in_progress',
+            ],
+        ]);
+
+        self::assertSame('revenue-report', $result['topic_key']);
+        self::assertSame('形成可复核的携程运营方案', $result['goal']);
+        self::assertSame(
+            ['ctrip-data', 'revenue-report', 'operation-optimizer'],
+            array_column($result['journey'], 'key')
+        );
+    }
+
+    public function testRuntimeIdentityDisclosureIsRejectedBeforeItCanReachTheUser(): void
+    {
+        $client = new class extends LlmClient {
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                return [
+                    'data' => [
+                        'assistant_mode' => 'guide',
+                        'assistant_message' => '这是由 DeepSeek 模型生成的引导。',
+                        'intent_summary' => '检查数据状态',
+                        'goal' => '检查数据状态',
+                        'topic_key' => 'data-health',
+                        'journey_topic_keys' => ['data-health'],
+                        'steps' => ['打开数据健康'],
+                        'clarifying_question' => '',
+                        'follow_up_questions' => [],
+                        'confidence' => 'high',
+                    ],
+                    'meta' => [
+                        'provider' => 'deepseek',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
+                        'finish_reason' => 'stop',
+                        'fallback_used' => false,
+                        'cache_hit' => false,
+                        'degraded' => false,
+                    ],
+                ];
+            }
+        };
+
+        $result = (new SystemUsageAssistantService($client))->guide([
+            'query' => '帮我检查数据是否可用',
+            'visible_topic_keys' => ['data-health', 'task-navigation'],
+        ]);
+
+        self::assertSame('fallback', $result['mode']);
+        self::assertSame('data-health', $result['topic_key']);
+        self::assertStringNotContainsString('DeepSeek', $result['assistant_message']);
+        self::assertStringNotContainsString('模型', $result['assistant_message']);
+    }
+
     public function testJourneyDropsInventedAndDuplicateStepsButKeepsPrimaryFirst(): void
     {
         $client = new class extends LlmClient {
@@ -250,8 +432,8 @@ final class SystemUsageAssistantServiceTest extends TestCase
                     ],
                     'meta' => [
                         'provider' => 'deepseek',
-                        'model_key' => 'deepseek_chat',
-                        'model' => 'deepseek-v4-flash',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
                         'finish_reason' => 'stop',
                         'fallback_used' => false,
                         'cache_hit' => false,
@@ -298,8 +480,8 @@ final class SystemUsageAssistantServiceTest extends TestCase
                     ],
                     'meta' => [
                         'provider' => 'deepseek',
-                        'model_key' => 'deepseek_chat',
-                        'model' => 'deepseek-v4-flash',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
                         'finish_reason' => 'stop',
                         'fallback_used' => false,
                         'cache_hit' => false,

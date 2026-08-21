@@ -233,7 +233,8 @@ window.SUXI_OPERATION_STATIC = (() => {
     const operationCanExecuteWithEvidence = (item) => {
         if (operationIsProtectedSystemAnalysis(item)) return false;
         const status = item?.execution?.status || '';
-        const canStartExecution = ['pending_execute', 'executing'].includes(status);
+        const isManagedAction = item?.action_management?.contract_version === 'operation_action_card.v1';
+        const canStartExecution = status === 'executing' || (status === 'pending_execute' && !isManagedAction);
         const canSupplementManualEvidence = status === 'executed'
             && item?.recommendation?.object_type !== 'price'
             && item?.next_action?.key === 'record_evidence';
@@ -247,7 +248,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         && item?.execution?.status === 'executed'
         && item?.review?.is_available === true
         && item?.evidence_truth?.source_verified !== true
-        && item?.recommendation?.source_module === 'ota_diagnosis_saved'
+        && ['ota_diagnosis_saved', 'operating_question'].includes(item?.recommendation?.source_module)
         && !['success', 'near_success', 'failed'].includes(item?.review?.status || '')
         && Number(item?.execution?.task_id || 0) > 0;
     const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
@@ -302,12 +303,16 @@ window.SUXI_OPERATION_STATIC = (() => {
             return sourceRecordId > 0 ? `${platformText}权威数据核查 · 源行 #${sourceRecordId}` : `${platformText}权威数据核查`;
         }
         if (sourceKey.startsWith('ota_diagnosis_saved')) return 'OTA诊断行动';
+        if (sourceKey.startsWith('operating_question')) return '真实经营问题行动';
         if (sourceKey.startsWith('daily_workbench_patrol')) return '巡检补证任务';
         if (sourceKey.startsWith('ota_diagnosis')) return '历史OTA诊断行动';
         if (sourceKey.startsWith('temporal_forecast_recommendation')) return '预测运营建议';
         return resolved || '来源未返回';
     };
     const operationExecutionActionText = (item, helpers = {}) => {
+        const actionCard = item?.action_management?.action_card || {};
+        const cardTitle = String(actionCard?.action?.title || '').trim();
+        if (cardTitle) return cardTitle;
         const recommendation = item?.recommendation || {};
         const actionType = String(recommendation.action_type || '');
         const legacyOperationCheckTypes = [
@@ -340,6 +345,19 @@ window.SUXI_OPERATION_STATIC = (() => {
         return `${objectText} · ${actionText}`;
     };
     const operationExecutionReviewText = (item, helpers = {}) => {
+        const managedReview = item?.action_management?.latest_review;
+        if (managedReview && typeof managedReview === 'object') {
+            const sufficiency = ({ sufficient: '证据充分', insufficient: '证据不足', mismatched: '口径不匹配' }[
+                String(managedReview.evidence_sufficiency || '')
+            ] || '证据待核验');
+            const change = ({ increased: '指标上升', decreased: '指标下降', unchanged: '指标未变', unknown: '变化未知' }[
+                String(managedReview.metric_change_status || '')
+            ] || '变化未知');
+            const recommendation = ({ continue: '建议继续', adjust: '建议调整', stop: '建议停止' }[
+                String(managedReview.recommendation || '')
+            ] || '建议待定');
+            return `${sufficiency} · ${change} · ${recommendation}`;
+        }
         const review = item?.review || {};
         const statusLabel = typeof helpers.statusLabel === 'function' ? helpers.statusLabel : (status => status || '-');
         const label = statusLabel(review.status);

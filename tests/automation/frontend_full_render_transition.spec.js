@@ -118,7 +118,7 @@ test('five focus pages paint their heading within 300ms on first switch and revi
 
   const targets = [
     { label: '门店管理', heading: '酒店管理' },
-    { label: '自动采集任务', heading: '昨日经营闭环', groups: ['OTA数据与采集'] },
+    { label: '自动采集任务', heading: '线上数据与采集', groups: ['OTA数据与采集'] },
     { label: '员工管理', heading: '员工管理', groups: ['系统与工具', '系统与权限'] },
     { label: '系统配置', heading: '系统配置', groups: ['系统与工具', '系统与权限'] },
   ];
@@ -192,5 +192,60 @@ test('five focus pages paint their heading within 300ms on first switch and revi
   expect(dashboardMark?.headingMs, `dashboard heading: ${JSON.stringify(dashboardMark)}`).toBeLessThanOrEqual(300);
   evidence.push({ label: '今日经营看板', cachedMs: dashboardMark.headingMs });
   test.info().annotations.push({ type: 'transition-evidence', description: JSON.stringify(evidence) });
+  expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});
+
+test('new-hotel three-source wizard loads after demand and renders the truthful first step', async ({ page }) => {
+  test.setTimeout(30000);
+  const pageErrors = [];
+  let onboardingBundleRequests = 0;
+  page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.endsWith('/components/system/app-main-components.js')) {
+      onboardingBundleRequests += 1;
+    }
+  });
+
+  await page.addInitScript((profile) => {
+    sessionStorage.setItem('token', 'transition-probe-token');
+    localStorage.setItem('suxios_auth_user_cache_v1', JSON.stringify({
+      saved_at: Date.now(),
+      user: profile,
+    }));
+  }, user);
+
+  await page.route('**/api/**', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    let data = { list: [], items: [], total: 0 };
+    if (pathname === '/api/auth/info') data = user;
+    if (pathname === '/api/hotels') {
+      data = {
+        list: [{ id: 7, name: 'Transition Probe Hotel', tenant_id: 7, status: 1 }],
+        total: 1,
+      };
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data, message: 'ok' }),
+    });
+  });
+
+  await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: '今日经营看板', exact: true }).first()).toBeVisible({ timeout: 15000 });
+  expect(onboardingBundleRequests, 'onboarding component bundle must stay off the landing-page startup path').toBe(0);
+
+  await page.getByText('门店管理', { exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: '酒店管理', exact: true }).first()).toBeVisible({ timeout: 5000 });
+  expect(onboardingBundleRequests, 'hotel list alone must not load the onboarding component bundle').toBe(0);
+
+  await page.getByRole('button', { name: '新增门店', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: '新增门店接入', exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByTestId('hotel-onboarding-steps')).toContainText('1 门店资料');
+  await expect(page.getByTestId('hotel-onboarding-steps')).toContainText('4 完成');
+  await expect(page.getByTestId('hotel-onboarding-hotel-step')).toBeVisible();
+  await expect(page.getByTestId('hotel-onboarding-hotel-step')).toContainText('创建、授权或保存身份不会自动采集，也不会向企业微信发送消息。');
+  await expect(page.getByTestId('hotel-onboarding-create')).toHaveText('创建门店并继续');
+  expect(onboardingBundleRequests, 'onboarding component bundle should be requested exactly once on demand').toBe(1);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });

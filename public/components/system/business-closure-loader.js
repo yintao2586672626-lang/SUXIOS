@@ -1,6 +1,6 @@
 (() => {
     const registry = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
-    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h547ecb43c4';
+    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h16c73bcb0e';
     let loadPromise = null;
 
     const loadBodies = () => {

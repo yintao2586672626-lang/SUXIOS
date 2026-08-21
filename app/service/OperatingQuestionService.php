@@ -240,7 +240,8 @@ final class OperatingQuestionService
         string $dateStart,
         string $dateEnd,
         int $createdBy,
-        string $modelKey = OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY
+        string $modelKey = OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY,
+        string $decisionObject = ''
     ): array {
         $this->assertTableReady();
         $this->assertHotelIdentity($tenantId, $hotelId);
@@ -494,6 +495,11 @@ final class OperatingQuestionService
                 'automatic_execution' => false,
             ],
         ];
+        $answer['decision_frame'] = (new RevenueDecisionFrameService())->build(
+            $question,
+            $decisionObject,
+            $answer
+        );
         // Only the already accepted platform facts and current exact diagnoses
         // may enter the model context; rejected rows remain excluded even when
         // a custom evidence loader supplied them.
@@ -730,6 +736,141 @@ final class OperatingQuestionService
             'list' => array_map([$this, 'normalizeRow'], $rows),
             'count' => count($rows),
             'data_gaps' => [],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    public function scopeOptions(int $tenantId, int $hotelId): array
+    {
+        $this->assertHotelIdentity($tenantId, $hotelId);
+        $contractVersion = 'operating_question_scope_options.v1';
+        $boundary = [
+            'source_scope' => 'ota_channel',
+            'strict_gate' => 'history_success+validation_verified+readback_verified',
+            'silent_date_fallback' => false,
+            'pms_included' => false,
+            'whole_hotel_conclusion' => false,
+        ];
+        if (!$this->tableExists('online_daily_data')) {
+            return [
+                'contract_version' => $contractVersion,
+                'data_status' => 'migration_required',
+                'hotel_id' => $hotelId,
+                'recommended' => null,
+                'platforms' => [],
+                'boundary' => $boundary,
+                'data_gaps' => [['code' => 'online_daily_data_missing']],
+            ];
+        }
+        foreach (['history_status', 'readback_verified', 'validation_status'] as $requiredColumn) {
+            if (!$this->columnExists('online_daily_data', $requiredColumn)) {
+                return [
+                    'contract_version' => $contractVersion,
+                    'data_status' => 'migration_required',
+                    'hotel_id' => $hotelId,
+                    'recommended' => null,
+                    'platforms' => [],
+                    'boundary' => $boundary,
+                    'data_gaps' => [[
+                        'code' => 'online_daily_data_truth_column_missing',
+                        'column' => $requiredColumn,
+                    ]],
+                ];
+            }
+        }
+
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $dateFloor = '2000-01-01';
+        $platforms = [];
+        $datesByPlatform = [];
+        foreach (self::ALL_OTA_REQUIRED_PLATFORMS as $platform) {
+            $dates = $this->factQuery($tenantId, $hotelId, $platform, $dateFloor, $today)
+                ->group('data_date')
+                ->order('data_date', 'desc')
+                ->limit(30)
+                ->column('data_date');
+            $dates = array_values(array_unique(array_filter(array_map(
+                static fn(mixed $value): string => substr(trim((string)$value), 0, 10),
+                $dates
+            ), static fn(string $value): bool => preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) === 1)));
+            if ($dates === []) {
+                continue;
+            }
+            $latestDate = $dates[0];
+            $factCount = (int)$this->factQuery(
+                $tenantId,
+                $hotelId,
+                $platform,
+                $latestDate,
+                $latestDate
+            )->count();
+            $datesByPlatform[$platform] = $dates;
+            $platforms[] = [
+                'platform' => $platform,
+                'latest_verified_date' => $latestDate,
+                'verified_fact_count' => $factCount,
+                'available_dates' => $dates,
+                'available_date_count' => count($dates),
+            ];
+        }
+
+        if (isset($datesByPlatform['ctrip'], $datesByPlatform['meituan'])) {
+            $sharedDates = array_values(array_intersect(
+                $datesByPlatform['ctrip'],
+                $datesByPlatform['meituan']
+            ));
+            rsort($sharedDates, SORT_STRING);
+            if ($sharedDates !== []) {
+                $latestDate = $sharedDates[0];
+                $platforms[] = [
+                    'platform' => 'all_ota',
+                    'latest_verified_date' => $latestDate,
+                    'verified_fact_count' => (int)$this->factQuery(
+                        $tenantId,
+                        $hotelId,
+                        'all_ota',
+                        $latestDate,
+                        $latestDate
+                    )->count(),
+                    'available_dates' => array_slice($sharedDates, 0, 30),
+                    'available_date_count' => count($sharedDates),
+                ];
+            }
+        }
+
+        usort($platforms, static function (array $left, array $right): int {
+            $dateOrder = strcmp(
+                (string)($right['latest_verified_date'] ?? ''),
+                (string)($left['latest_verified_date'] ?? '')
+            );
+            if ($dateOrder !== 0) {
+                return $dateOrder;
+            }
+            $priority = ['all_ota' => 0, 'ctrip' => 1, 'meituan' => 2];
+            return ($priority[(string)($left['platform'] ?? '')] ?? 9)
+                <=> ($priority[(string)($right['platform'] ?? '')] ?? 9);
+        });
+        $first = $platforms[0] ?? null;
+        $recommended = is_array($first) ? [
+            'hotel_id' => $hotelId,
+            'platform' => (string)$first['platform'],
+            'date_start' => (string)$first['latest_verified_date'],
+            'date_end' => (string)$first['latest_verified_date'],
+            'verified_fact_count' => (int)$first['verified_fact_count'],
+            'selection_reason' => 'latest_strict_readback',
+            'is_today' => (string)$first['latest_verified_date'] === $today,
+        ] : null;
+
+        return [
+            'contract_version' => $contractVersion,
+            'data_status' => $recommended === null ? 'empty' : 'ready',
+            'hotel_id' => $hotelId,
+            'recommended' => $recommended,
+            'platforms' => $platforms,
+            'boundary' => $boundary,
+            'data_gaps' => $recommended === null
+                ? [['code' => 'strict_readback_fact_scope_missing']]
+                : [],
         ];
     }
 

@@ -128,9 +128,16 @@
                                             <td class="px-4 py-3">
                                                 <div class="font-medium text-gray-900">{{ operationExecutionSourceText(item) }}</div>
                                                 <div class="text-xs text-gray-400">任务 #{{ item.id }} · {{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
+                                                <span v-if="item.action_management" :class="operationExecutionStatusClass(item.action_management.lifecycle?.status)" class="mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium">{{ operationExecutionStatusLabel(item.action_management.lifecycle?.status) }}</span>
                                             </td>
                                             <td class="px-4 py-3">
                                                 <div>{{ operationExecutionActionText(item) }}</div>
+                                                <div v-if="item.action_management?.action_card" data-testid="operation-action-card" class="mt-2 max-w-sm space-y-1 rounded-lg border border-[#d8e4df] bg-[#f6faf8] p-2 text-[11px] leading-4 text-slate-600">
+                                                    <div><b class="text-slate-700">原因：</b>{{ item.action_management.action_card.reason || '-' }}</div>
+                                                    <div><b class="text-slate-700">风险：</b>{{ item.action_management.action_card.risk?.summary || '-' }}</div>
+                                                    <div><b class="text-slate-700">事实：</b>{{ (item.action_management.action_card.fact_refs || []).join('、') || '-' }}</div>
+                                                    <div><b class="text-slate-700">指标：</b>{{ item.action_management.action_card.metric_contract?.metric_key || '-' }} · {{ item.action_management.action_card.metric_contract?.unit || '单位缺失' }}</div>
+                                                </div>
                                                 <div class="mt-2 max-w-xs" data-testid="operation-intervention-learning-state">
                                                     <span :class="['inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium', operationInterventionLearningModelForItem(item).className]">{{ operationInterventionLearningModelForItem(item).label }}</span>
                                                     <div class="mt-1 text-[11px] leading-4 text-slate-500">{{ operationInterventionLearningModelForItem(item).summary }}</div>
@@ -147,7 +154,10 @@
                                             </td>
                                             <td class="px-4 py-3">{{ operationExecutionStatusLabel(item.execution?.status) }}</td>
                                             <td class="px-4 py-3">{{ nodeText(item) }}</td>
-                                            <td class="px-4 py-3 text-gray-600">{{ operationExecutionReviewText(item) }}</td>
+                                            <td class="px-4 py-3 text-gray-600">
+                                                <div>{{ operationExecutionReviewText(item) }}</div>
+                                                <div v-if="item.action_management?.latest_review?.non_attribution_reasons?.length" class="mt-1 max-w-xs text-[11px] leading-4 text-amber-700">非归因：{{ item.action_management.latest_review.non_attribution_reasons.join('、') }}</div>
+                                            </td>
                                             <td class="px-4 py-3">
                                                 <span :class="item.roi?.status === 'ready' ? 'text-green-700 font-semibold' : 'text-gray-400'">{{ operationExecutionRoiText(item.roi) }}</span>
                                             </td>
@@ -156,10 +166,12 @@
                                             </td>
                                             <td class="px-4 py-3">
                                                 <div class="flex flex-wrap gap-2">
-                                                    <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs hover:bg-green-700">审批</button>
-                                                    <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, false)" class="px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">驳回</button>
+                                                    <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs hover:bg-green-700">{{ operationApprovalText(item) }}</button>
+                                                    <button v-if="operationCanApproveExecution(item)" @click="rejectOrCancelOperationApproval(item)" class="px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">{{ operationRejectText(item) }}</button>
+                                                    <button v-if="operationCanStartExecution(item)" data-testid="operation-start-task" @click="startOperationExecutionTask(item)" class="rounded-lg bg-[#315d50] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#264a40]">开始任务</button>
                                                     <button v-if="operationCanRecordNodeCheck(item)" data-testid="operation-node-check-action" @click="recordOperationRevenueNodeCheck(item)" class="px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs hover:bg-blue-100">{{ item.evidence_summary?.node_record?.status === 'available' ? '更新节点' : '节点检查' }}</button>
                                                     <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">录证据</button>
+                                                    <button v-if="operationCanCancelExecution(item) &amp;&amp; !operationCanApproveExecution(item)" data-testid="operation-cancel-action" @click="cancelOperationExecution(item)" class="rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-700 hover:bg-rose-50">取消</button>
                                                     <button v-if="operationCanReconcileExecution(item) || operationCanReviewExecution(item)" data-testid="operation-review-action" @click="operationCanReconcileExecution(item) ? reconcileOperationExecutionReview(item) : reviewOperationExecutionTask(item)" class="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">{{ operationCanReconcileExecution(item) ? '读取事实' : '复盘' }}</button>
                                                     <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_at || item.review.available_on || '次日' }} 可读取</span>
                                                     <button v-if="operationCanDefineIntervention(item)" type="button" @click="openOperatingInterventionForm(item)" class="rounded-lg border border-[#315d50] bg-white px-2.5 py-1 text-xs font-medium text-[#315d50] hover:bg-emerald-50">定义干预</button>

@@ -12,6 +12,10 @@ const index = fs.readFileSync('public/index.html', 'utf8');
 const bootstrap = fs.readFileSync('public/app-bootstrap.js', 'utf8');
 const bootstrapRuntime = fs.readFileSync('public/app-bootstrap.min.js', 'utf8');
 const appMain = fs.readFileSync('public/app-main.js', 'utf8');
+const appMainComponents = fs.readFileSync('public/components/system/app-main-components.js', 'utf8');
+const appMainComponentsLoader = fs.readFileSync('public/components/system/app-main-components-loader.js', 'utf8');
+const operatingIntelligenceComponents = fs.readFileSync('public/components/system/operating-intelligence-components.js', 'utf8');
+const operatingIntelligenceLoader = fs.readFileSync('public/components/system/operating-intelligence-loader.js', 'utf8');
 const systemStatic = fs.readFileSync('public/system-static.js', 'utf8');
 const style = fs.readFileSync('public/style.css', 'utf8');
 
@@ -25,7 +29,7 @@ test('public login shell defers the authenticated application asset chain', () =
   const styleAssets = entries
     .filter((entry) => entry.type === 'style')
     .map((entry) => stripFrontendAssetQuery(entry.src));
-  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style.min.css', 'ai-custom.css']);
+  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style-startup.min.css', 'style.min.css', 'ai-custom.css']);
   assert.match(index, /<link rel="stylesheet" href="login-critical\.css\?v=[^"]+"/);
   assert.doesNotMatch(index, /<link[^>]+href="(?:tailwind\.min|style|ai-custom)\.css/);
   assert.equal(scriptAssets[0], 'vue.runtime.global.prod.js');
@@ -33,16 +37,21 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.equal(scriptAssets.at(-2), 'app-render.min.js');
   assert.equal(scriptAssets.at(-1), 'app-main.min.js');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-render.min.js')?.phase, 'after-first-paint');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style-startup.min.css')?.phase, 'startup');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style.min.css')?.phase, 'after-first-paint');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'ai-custom.css')?.phase, 'after-first-paint');
   assert.equal(
     entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-deferred-helpers.min.js')?.phase,
     'after-first-paint',
-    'non-startup domain helpers must stay off the authenticated first paint',
+    'full-page domain helpers must stay off the authenticated first paint',
   );
   assert(
     scriptAssets.indexOf('app-deferred-helpers.min.js') < scriptAssets.indexOf('app-render.min.js'),
-    'deferred domain helpers must load before the full render artifact',
+    'deferred domain helpers must precede the full render',
   );
   for (const deferredAsset of [
+    'components/system/app-main-components.js',
+    'components/system/operating-intelligence-components.js',
     'ctrip-search-opportunity-static.js',
     'user-admin-static.js',
   ]) {
@@ -60,11 +69,12 @@ test('public login shell defers the authenticated application asset chain', () =
     'ctrip-static.js',
     'meituan-static.js',
     'data-health-static.js',
-    'ai-daily-report-static.js',
     'system-static.js',
     'compass-static.js',
     'home-static.js',
     'dual-ota-home-static.js',
+    'components/system/app-main-components-loader.js',
+    'components/system/operating-intelligence-loader.js',
   ]) {
     assert(!assets.includes(sourceAsset), `${sourceAsset} must stay out of the runtime manifest`);
   }
@@ -164,7 +174,7 @@ test('authenticated interactive readiness is reset and republished for every log
   );
 });
 
-test('authenticated startup keeps the full render off the network until a non-startup page needs it', () => {
+test('authenticated startup paints the compact page before progressively hydrating the current full page', () => {
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'vue\.runtime\.global\.prod\.js'/);
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'app-main\.min\.js'/);
   assert.match(bootstrap, /asset\.phase === ASSET_PHASE_STARTUP/);
@@ -173,7 +183,6 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.match(bootstrap, /await Promise\.all\(prerequisites\.map\(\(src\) => loadScript\(src\)\)\);/);
   assert.match(bootstrap, /await loadScript\(entry\);/);
   assert.match(bootstrap, /await waitForFirstAuthenticatedPaint\(\);/);
-  assert.match(bootstrap, /await Promise\.all\(assets\.map\(\(asset\) => loadAuthenticatedAsset\(asset\)\)\);/);
   assert.match(bootstrap, /suxi:full-render-ready/);
   assert.match(bootstrap, /const resolvedSrc = resolveAssetUrl\(src\);/);
   assert.match(
@@ -190,6 +199,9 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert(deferredReadyMarker >= 0 && deferredReadyEvent > deferredReadyMarker, 'ready marker must follow all loads and precede the ready event');
   assert.match(bootstrap, /const loadDeferredAuthenticatedAssetManifest = \(\) => \{/);
   assert.match(bootstrap, /window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS = loadDeferredAuthenticatedAssetManifest;/);
+  assert.match(bootstrap, /const loadDeferredAuthenticatedManifestAsset = \(assetName\) => \{/);
+  assert.match(bootstrap, /waitForFirstAuthenticatedPaint\(\)\.then\(\(\) => loadAuthenticatedAsset\(asset\)\)/);
+  assert.match(bootstrap, /window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET = loadDeferredAuthenticatedManifestAsset;/);
   assert.match(
     bootstrap,
     /const fullRenderAsset = assets\.find\([\s\S]*?assetBaseName\(asset\.src\) === 'app-render\.min\.js'[\s\S]*?preloadAuthenticatedAsset\(fullRenderAsset, 'high'\)/,
@@ -202,18 +214,13 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.match(appMain, /requestSuxiFullRenderForPage = \(page\) => \{[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS\(\)/);
   assert.match(
     appMain,
+    /if \(!normalizedPage\s*\|\| normalizedPage === 'compass'\s*\|\| document\.documentElement\.dataset\.suxiRenderPhase === 'full'\)/,
+    'the startup compass must not pull the full-page asset manifest before a real page transition',
+  );
+  assert.match(
+    appMain,
     /const promoteSuxiFullRender = \(\) => \{[\s\S]*!fullRenderRuntimeReady\(\)\) return false;/,
     'full render must not mount while deferred helper namespaces are still loading',
-  );
-  assert.match(appMain, /\['createMeituanRankingForm',[\s\S]*'getMeituanOrderFlowPeriods'\]\.every\(key => typeof meituanStatic\?\.\[key\] === 'function'\)/);
-  const fullRenderPromotionStart = appMain.indexOf('const promoteSuxiFullRender = () => {');
-  const fullRenderPromotionEnd = appMain.indexOf('\n    requestSuxiFullRenderForPage =', fullRenderPromotionStart);
-  const fullRenderPromotion = appMain.slice(fullRenderPromotionStart, fullRenderPromotionEnd);
-  const unmountOffset = fullRenderPromotion.indexOf('suxiApp?.unmount();');
-  const remountOffset = fullRenderPromotion.indexOf('mountSuxiApp();');
-  assert(
-    unmountOffset >= 0 && remountOffset > unmountOffset,
-    'full-render promotion must remount setup after every deferred helper is ready',
   );
   assert.match(
     appMain,
@@ -234,7 +241,20 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
 });
 
-test('data-health helper calls stay lazy while their namespace loads before the authenticated shell mounts', () => {
+test('deferred component bridges keep startup components small and preserve full factories', () => {
+  assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS = Object\.freeze\(\{ create \}\)/);
+  assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS_FULL/);
+  assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{ create \}\)/);
+  assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL/);
+  assert.match(operatingIntelligenceLoader, /SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET/);
+  assert.match(operatingIntelligenceLoader, /style\.min\.css/);
+  assert.match(appMainComponents, /window\.SUXI_APP_MAIN_COMPONENTS_FULL = exportedFactory/);
+  assert.match(operatingIntelligenceComponents, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL = exportedFactory/);
+  assert.match(operatingIntelligenceComponents, /const create = \(\{ ref, computed, inject, h, nextTick, onMounted, onUnmounted \}\) => \{/);
+  assert.match(appMain, /\{\s*Vue, ref, computed, inject, h, nextTick, onMounted, onUnmounted,\s*\}/);
+});
+
+test('data-health helper calls stay lazy until the progressive full-page bundle is ready', () => {
   assert.match(systemStatic, /const requireDeferredStaticFunction = \(namespace, key, missingMessage, onAccess = null\)/);
   assert.match(systemStatic, /const createLazyFactoryMethods = \(factory, methods = \[\]\)/);
   assert.match(
@@ -316,7 +336,7 @@ test('authenticated login lands on the today operating dashboard through one ent
   const mountedStart = appMain.indexOf('onMounted(() => {');
   const mountedEnd = appMain.indexOf('\n            onUnmounted', mountedStart);
   const mountedFlow = appMain.slice(mountedStart, mountedEnd);
-  assert.match(mountedFlow, /if \(token\.value\) \{\s*requestSuxiFullRenderForPage\(currentPage\.value\);/, 'remembered sessions must promote a deferred default page even when currentPage does not change');
+  assert.match(mountedFlow, /if \(token\.value\) \{\s*requestSuxiFullRenderForPage\(currentPage\.value\);/, 'remembered sessions must route the initial page through the startup/full-render gate');
   assert.match(
     mountedFlow,
     /const primaryPageLoad = isCompassDataPage\(\)\s*\? activateCoreOperationsAfterLogin\(\)\s*: nextTick\(\);\s*scheduleHotelManagementPrewarmAfter\(primaryPageLoad\);/,

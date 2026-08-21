@@ -235,6 +235,43 @@ test('execution approval uses an in-page two-click confirmation without a native
   );
 });
 
+test('managed operating actions expose the versioned card lifecycle start cancel and review readback', () => {
+  assert.match(routes, /Route::post\('\/execution-intents\/:id\/cancel', 'OperationManagement\/cancelExecutionIntent'\)/);
+  assert.match(trackPage, /data-testid="operation-action-card"/);
+  assert.match(trackPage, /action_card\.fact_refs/);
+  assert.match(trackPage, /action_card\.metric_contract\?\.unit/);
+  assert.match(trackPage, /data-testid="operation-start-task"/);
+  assert.match(trackPage, /startOperationExecutionTask\(item\)/);
+  assert.match(trackPage, /data-testid="operation-cancel-action"/);
+  assert.match(trackPage, /cancelOperationExecution\(item\)/);
+  assert.match(trackPage, /latest_review\.non_attribution_reasons/);
+
+  const start = appMain.indexOf('const startOperationExecutionTask = async');
+  const cancel = appMain.indexOf('const cancelOperationExecution = async', start);
+  const end = appMain.indexOf('const recordOperationRevenueNodeCheck = async', cancel);
+  assert.ok(start > 0 && cancel > start && end > cancel, 'managed lifecycle handlers must be present');
+  const startFlow = appMain.slice(start, cancel);
+  assert.match(startFlow, /status: 'executing'/);
+  assert.match(startFlow, /readOperationExecutionTask\(taskId, executionHotelId\)/);
+  assert.match(startFlow, /lifecycle\?\.status \|\| ''\) !== 'in_progress'/);
+  assert.doesNotMatch(startFlow, /price-update|inventory-update|automatic_ota_write/i);
+
+  const cancelFlow = appMain.slice(cancel, end);
+  assert.match(cancelFlow, /\/operation\/execution-intents\/\$\{Number\(item\.id\)\}\/cancel/);
+  assert.match(cancelFlow, /readOperationExecutionIntent\(Number\(item\.id\)\)/);
+  assert.match(cancelFlow, /lifecycle\?\.status \|\| ''\) !== 'cancelled'/);
+  assert.match(cancelFlow, /历史版本仍完整保留/);
+
+  const reviewStart = appMain.indexOf('const submitOperationExecutionReview = async');
+  const reviewEnd = appMain.indexOf('const finishOperationAction = async', reviewStart);
+  const reviewFlow = appMain.slice(reviewStart, reviewEnd);
+  assert.match(reviewFlow, /\['ota_diagnosis_saved', 'operating_question'\]/);
+  assert.match(reviewFlow, /latest_review/);
+  assert.match(reviewFlow, /\['sufficient', 'insufficient', 'mismatched'\]/);
+  assert.match(reviewFlow, /\['continue', 'adjust', 'stop'\]/);
+  assert.match(reviewFlow, /managedReview\.causality_claimed !== false/);
+});
+
 test('effect review uses an in-page form and preserves the observing state when evidence is pending', () => {
   assert.match(trackPage, /data-testid="operation-review-modal"/);
   assert.match(trackPage, /没有次日同口径数据时请选择“继续观察”/);

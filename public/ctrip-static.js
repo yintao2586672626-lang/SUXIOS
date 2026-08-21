@@ -3035,7 +3035,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 formula: formulas.totalOrdersIncludingCancelled,
                 scope: 'all_orders_including_cancelled_estimate',
                 unit: 'orders',
-                caveat: '默认按75%有效率换算；总平台订单大于0且渠道残差未形成正值时，逐级改用72.5%、70%、67.5%、65%、62.5%、60%有效率，非平台直接返回字段',
+                caveat: '默认按 0.75 换算；若渠道残差为负，逐级改用 0.725、0.7，非平台直接返回字段',
             },
             ctripOrders: {
                 kind: 'derived',
@@ -3089,50 +3089,38 @@ window.SUXI_CTRIP_STATIC = (() => {
             : Math.round(qunarVisitors * qunarRate / 100);
         const hasAllInputs = totalOrders !== null && ctripOrders !== null && qunarOrders !== null;
         let residualOrders = hasAllInputs ? totalOrdersIncludingCancelled - ctripOrders - qunarOrders : null;
-        const shouldSeekPositiveResidual = hasAllInputs && totalOrders > 0 && residualOrders <= 0;
-        if (shouldSeekPositiveResidual) {
-            for (const fallbackRatio of [0.725, 0.7, 0.675, 0.65, 0.625, 0.6]) {
+        if (hasAllInputs && residualOrders < 0) {
+            for (const fallbackRatio of [0.725, 0.7]) {
                 totalOrderConversionRatio = fallbackRatio;
                 totalOrdersIncludingCancelled = Math.round(totalOrders / totalOrderConversionRatio);
                 residualOrders = totalOrdersIncludingCancelled - ctripOrders - qunarOrders;
-                if (residualOrders > 0) break;
+                if (residualOrders >= 0) break;
             }
             formulas.totalOrdersIncludingCancelled = `四舍五入（总平台订单 ÷ ${totalOrderConversionRatioText()}）`;
             provenance.totalOrdersIncludingCancelled.formula = formulas.totalOrdersIncludingCancelled;
-            provenance.totalOrdersIncludingCancelled.caveat = `默认75%有效率未形成正残差，本行逐级改用${String(totalOrderConversionRatio * 100).replace(/\.0$/, '')}%有效率；非平台直接返回字段`;
-        }
-        const residualConflict = hasAllInputs && totalOrders > 0 && residualOrders <= 0;
-        const displayResidualOrders = residualConflict ? null : residualOrders;
-        if (residualConflict) {
-            provenance.ctripUndistributedOrders.caveat = '按75%、72.5%、70%、67.5%、65%、62.5%、60%有效率均未形成正残差；未将0或负值展示为同程及分销订单事实';
+            provenance.totalOrdersIncludingCancelled.caveat = `默认75%有效率计算后同程及分销渠道为负，本行逐级改用${totalOrderConversionRatioText()}有效率；非平台直接返回字段`;
         }
         const ctripEstimateExcessOrders = !hasAllInputs
             ? null
             : Math.max(0, -residualOrders);
-        const signedResidualLabel = displayResidualOrders === null
+        const signedResidualLabel = residualOrders === null
             ? ''
-            : `${displayResidualOrders > 0 ? '+' : ''}${displayResidualOrders}`;
+            : `${residualOrders > 0 ? '+' : ''}${residualOrders}`;
         const sourceLabel = !hasAllInputs
             ? `缺少推算输入：${missingInputs.join('、')}；未用 0 或旧数据补位`
-            : residualConflict
-                ? '本行按75%、72.5%、70%、67.5%、65%、62.5%、60%有效率均未形成正残差，渠道口径冲突；未将0或负值展示为同程及分销订单事实'
-                : `总订单（含取消）按总平台订单÷${totalOrderConversionRatioText()} 四舍五入推算${totalOrderConversionRatio === 0.75 ? '' : `；本行75%有效率未形成正残差，已逐级改用${String(totalOrderConversionRatio * 100).replace(/\.0$/, '')}%有效率`}；同程艺龙和携程小程序以及其他分销渠道（含取消）为该总数减去携程APP、去哪儿含取消推算订单的残差，非平台返回明细`;
+            : `总订单（含取消）按总平台订单÷${totalOrderConversionRatioText()} 四舍五入推算${totalOrderConversionRatio === 0.75 ? '' : `；本行默认计算为负，已逐级改用${totalOrderConversionRatioText()}有效率`}；同程艺龙和携程小程序以及其他分销渠道（含取消）为该总数减去携程APP、去哪儿含取消推算订单的残差，非平台返回明细`;
 
         return {
             totalOrdersIncludingCancelled,
             totalOrderConversionRatio,
             ctripOrders,
             qunarOrders,
-            ctripUndistributedOrders: displayResidualOrders,
+            ctripUndistributedOrders: residualOrders,
             ctripEstimateExcessOrders,
-            status: !hasAllInputs
-                ? 'input_missing'
-                : (residualConflict ? 'ctrip_ecosystem_total_conflict' : 'derived'),
+            status: !hasAllInputs ? 'input_missing' : 'derived',
             displayLabel: !hasAllInputs
                 ? '输入缺失'
-                : (residualConflict
-                    ? '渠道口径冲突：最低60%有效率下仍未形成正残差'
-                    : `同程及分销推算 ${signedResidualLabel} 单`),
+                : `同程及分销推算 ${signedResidualLabel} 单`,
             sourceLabel,
             formulas,
             inputs,

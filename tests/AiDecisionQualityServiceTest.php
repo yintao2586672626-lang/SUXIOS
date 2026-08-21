@@ -486,6 +486,39 @@ final class AiDecisionQualityServiceTest extends TestCase
         self::assertTrue($genericPlatform['can_create_execution_intent']);
     }
 
+    public function testSharedListExposureMetricNeverMislabelsMeituanAsCtrip(): void
+    {
+        $item = (new AiDecisionQualityService())->enrichRecommendations([[
+            'title' => '人工复核美团曝光用户数',
+            'action' => '按同酒店、同渠道、同日期复核美团曝光用户数并记录差异。',
+            'expected_metric' => 'list_exposure',
+        ]], [
+            'scope' => 'ota_channel',
+            'hotel_id' => 80,
+            'platform' => 'meituan',
+            'data_date' => '2026-08-09',
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#88382',
+                'source' => 'online_daily_data',
+                'hotel_id' => 80,
+                'platform' => 'meituan',
+                'data_date' => '2026-08-09',
+                'quality_status' => 'readback_verified',
+            ]],
+            'expected_effect_policy' => [
+                'status' => 'verification_target',
+                'metric' => 'list_exposure',
+                'direction' => 'verify',
+                'summary' => '按同酒店、同渠道、同日期口径复核 list_exposure；当前不承诺提升幅度。',
+                'review_window' => '人工审批前重新读取同范围事实。',
+            ],
+        ])[0];
+
+        self::assertSame(AiDecisionQualityService::LIST_EXPOSURE_METRIC_LABEL, $item['expected_effect']['metric_label']);
+        self::assertStringNotContainsString('携程', $item['expected_effect']['metric_label']);
+        self::assertSame('meituan', $item['data_basis']['platform']);
+    }
+
     public function testInferredEffectAndPriorityExposeTheirEvidenceLimits(): void
     {
         $item = (new AiDecisionQualityService())->enrichRecommendations([[

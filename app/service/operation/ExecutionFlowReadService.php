@@ -402,6 +402,7 @@ final class ExecutionFlowReadService
             'reviewed' => 0,
             'blocked' => 0,
             'rejected' => 0,
+            'cancelled' => 0,
             'failed' => 0,
         ];
         $roiPercentValues = [];
@@ -762,6 +763,12 @@ final class ExecutionFlowReadService
                 'priority' => 'high',
                 'target_id' => (int)($task['id'] ?? 0),
             ],
+            'cancelled', 'rejected' => [
+                'key' => 'none',
+                'label' => '行动已取消',
+                'priority' => 'low',
+                'target_id' => 0,
+            ],
             default => [
                 'key' => 'none',
                 'label' => '无需操作',
@@ -800,6 +807,8 @@ final class ExecutionFlowReadService
             'reviewed' => 'ROI确认',
             'blocked' => '阻塞',
             'failed' => '失败',
+            'cancelled' => '已取消',
+            'rejected' => '已驳回',
         ][$stage] ?? '';
     }
 
@@ -846,6 +855,9 @@ final class ExecutionFlowReadService
         }
         if ($intentStatus === 'rejected') {
             return 'rejected';
+        }
+        if ($intentStatus === 'cancelled') {
+            return 'cancelled';
         }
         if (!$this->intentExecutionAuthorized($intent)) {
             return 'approval';

@@ -220,12 +220,22 @@ final class ControllerRouteContractTest extends TestCase
             $source,
             'Scheduled execution readback must use the scoped operation service'
         );
+        self::assertStringContainsString(
+            '$this->service->cancelExecutionIntent(',
+            $source,
+            'Managed action cancellation must use the scoped operation service'
+        );
 
         $routes = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
         self::assertStringContainsString(
             "Route::post('/execution-tasks/:id/reconcile-review', 'OperationManagement/reconcileExecutionTaskReview')",
             $routes,
             'Scheduled execution readback must expose an authenticated operation route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/execution-intents/:id/cancel', 'OperationManagement/cancelExecutionIntent')",
+            $routes,
+            'Managed action cancellation must expose an authenticated operation route'
         );
     }
 

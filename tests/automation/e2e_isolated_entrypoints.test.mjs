@@ -9,6 +9,7 @@ const {
   MODULE,
   classifyRequestFailureText,
   moduleNavLabel,
+  modulePath,
 } = require('./e2e-helpers.js');
 
 const packageJson = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
@@ -67,6 +68,7 @@ test('every Playwright spec is classified by the isolated runner', () => {
 });
 
 test('E2E navigation follows the current visible boss menu labels', () => {
+  assert.equal(modulePath(MODULE.AI_WORKBENCH), 'compass');
   assert.equal(moduleNavLabel(MODULE.DATA_TRUST), '昨日经营闭环');
   assert.equal(moduleNavLabel(MODULE.AI_DAILY_REPORT), 'AI经营日报');
   assert.equal(moduleNavLabel(MODULE.EXECUTION_TRACKING), '任务执行与复盘');
@@ -83,6 +85,10 @@ test('diagnostics separate intentional browser cancellation from API failure', (
   assert.equal(classifyRequestFailureText('net::ERR_CONNECTION_RESET'), 'api-error');
   assert.equal(classifyRequestFailureText(null), 'api-error');
   assert.match(helpers, /activeReads: new Set\(\), expectedNavigationCancellations: new WeakSet\(\)/);
+  assert.match(helpers, /navigationCancellationActive = true/);
+  assert.match(helpers, /navigationCancellationExpiresAt = Date\.now\(\) \+ 1000/);
+  assert.match(helpers, /if \(lifecycle\.navigationCancellationActive \|\| Date\.now\(\) <= lifecycle\.navigationCancellationExpiresAt\) \{\s*lifecycle\.expectedNavigationCancellations\.add\(request\)/);
+  assert.match(helpers, /finishExpectedApiReadCancellationsForNavigation\(page\)/);
   assert.match(helpers, /expectedNavigationCancellations\.add\(request\)/);
   assert.match(helpers, /expectedNavigationCancellations\.has\(request\)/);
   assert.match(helpers, /expectActiveApiReadCancellationsForNavigation\(page\);\s*await navItem\.click/);

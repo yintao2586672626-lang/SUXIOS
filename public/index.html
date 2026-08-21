@@ -48,9 +48,25 @@
         (() => {
             const fontAwesomeStylesheet = 'font-awesome.min.css?v=20260628-static-router-fix';
             const FONT_AWESOME_FALLBACK_MS = 8000;
+            let fontAwesomeFallbackTimer = null;
             const loadFontAwesomeStylesheet = ({ force = false } = {}) => {
-                if (!force && document.documentElement.dataset.suxiAuthenticatedInteractiveReady !== '1') return;
                 if (document.querySelector('link[data-suxi-fontawesome="1"]')) return;
+                if (!force && document.documentElement.dataset.suxiAuthenticatedInteractiveReady !== '1') {
+                    window.addEventListener(
+                        'suxi:authenticated-interactive-ready',
+                        loadFontAwesomeStylesheet,
+                        { once: true }
+                    );
+                    fontAwesomeFallbackTimer ||= window.setTimeout(
+                        () => loadFontAwesomeStylesheet({ force: true }),
+                        FONT_AWESOME_FALLBACK_MS
+                    );
+                    return;
+                }
+                if (fontAwesomeFallbackTimer !== null) {
+                    window.clearTimeout(fontAwesomeFallbackTimer);
+                    fontAwesomeFallbackTimer = null;
+                }
                 const link = document.createElement('link');
                 link.rel = 'stylesheet';
                 link.href = fontAwesomeStylesheet;
@@ -58,18 +74,7 @@
                 document.head.appendChild(link);
             };
             const scheduleFontAwesomeStylesheetLoad = () => {
-                const run = () => {
-                    const loadAfterInteractiveReady = () => window.setTimeout(loadFontAwesomeStylesheet, 1600);
-                    if (document.documentElement.dataset.suxiAuthenticatedInteractiveReady !== '1') {
-                        window.addEventListener('suxi:authenticated-interactive-ready', loadAfterInteractiveReady, { once: true });
-                    } else {
-                        loadAfterInteractiveReady();
-                    }
-                    window.setTimeout(
-                        () => loadFontAwesomeStylesheet({ force: true }),
-                        FONT_AWESOME_FALLBACK_MS,
-                    );
-                };
+                const run = () => window.setTimeout(loadFontAwesomeStylesheet, 1600);
                 if (document.readyState === 'loading') {
                     document.addEventListener('DOMContentLoaded', run, { once: true });
                     return;
@@ -112,27 +117,28 @@
     <script type="application/json" id="suxi-authenticated-assets">
         [
             {
-                "src": "tailwind.min.css?v=20260717-login-usability-h940549cd4b",
+                "src": "tailwind.min.css?v=20260717-login-usability-hdcea609038",
                 "type": "style"
             },
             {
-                "src": "style.min.css?v=20260804-authenticated-style-he7794c0ea7",
+                "src": "style-startup.min.css?v=20260821-startup-style-h4df12d3a15",
                 "type": "style"
             },
             {
-                "src": "ai-custom.css?v=20260628-static-router-fix",
-                "type": "style"
-            },
-            "vue.runtime.global.prod.js?v=20260713-runtime-h039d03af6b",
-            "app-startup-helpers.min.js?v=20260725-startup-bundle-h0b1a7fbc55",
-            "components/system/business-closure-loader.js?v=20260803-business-closure-loader-h8ee6775901",
-            "components/online-data/ctrip-order-analysis-loader.js?v=20260816-runtime-closure-h4259b4e1fe",
-            {
-                "src": "components/system/app-main-components.js?v=20260816-runtime-closure-h69f30ff2c7",
+                "src": "style.min.css?v=20260804-authenticated-style-he44dc7b2d1",
+                "type": "style",
                 "phase": "after-first-paint"
             },
             {
-                "src": "components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h85ac5e9b03",
+                "src": "ai-custom.css?v=20260628-static-router-fix",
+                "type": "style",
+                "phase": "after-first-paint"
+            },
+            "vue.runtime.global.prod.js?v=20260713-runtime-h039d03af6b",
+            "app-startup-helpers.min.js?v=20260725-startup-bundle-h27627934ed",
+            "components/system/business-closure-loader.js?v=20260803-business-closure-loader-hc6fbe1ae3b",
+            {
+                "src": "components/online-data/ctrip-order-analysis-loader.js?v=20260813-order-analysis-h4259b4e1fe",
                 "phase": "after-first-paint"
             },
             {
@@ -147,14 +153,22 @@
                 "src": "app-deferred-helpers.min.js?v=20260731-deferred-domain-hbce26db683",
                 "phase": "after-first-paint"
             },
-            "app-startup-render.min.js?v=20260717-home-first-h4d1c24ead5",
             {
-                "src": "app-render.min.js?v=20260717-ai-daily-result-ha6dd31a0a7",
+                "src": "components/system/app-main-components.js?v=20260821-hotel-onboarding-habdb5ce45a",
                 "phase": "after-first-paint"
             },
-            "app-main.min.js?v=20260716-login-flow-h93b56e1551"
+            {
+                "src": "components/system/operating-intelligence-components.js?v=20260816-decision-frame-hea7bb357f0",
+                "phase": "after-first-paint"
+            },
+            "app-startup-render.min.js?v=20260717-home-first-h9e3e82a981",
+            {
+                "src": "app-render.min.js?v=20260717-ai-daily-result-haee7bf3277",
+                "phase": "after-first-paint"
+            },
+            "app-main.min.js?v=20260716-login-flow-hee7e83485f"
         ]
     </script>
-    <script defer src="app-bootstrap.min.js?v=20260717-login-warmup-h5cbcd7a631" data-suxi-critical-asset="app-bootstrap.js"></script>
+    <script defer src="app-bootstrap.min.js?v=20260717-login-warmup-hda8457891b" data-suxi-critical-asset="app-bootstrap.js"></script>
 </body>
 </html>

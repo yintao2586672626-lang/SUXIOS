@@ -35,6 +35,9 @@ final class RevenueAiControllerTest extends TestCase
         self::assertSame(['ctrip', 'meituan'], $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[
             'enabled_channels' => ['ctrip', 'meituan'],
         ]]));
+        self::assertSame(['ctrip', 'meituan'], $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[
+            'platform' => 'all_ota',
+        ]]));
         self::assertSame([], $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[]]));
     }
 

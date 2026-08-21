@@ -387,6 +387,18 @@
         return loadDeferredAuthenticatedAssets(deferredAssets);
     };
 
+    const loadDeferredAuthenticatedManifestAsset = (assetName) => {
+        const normalizedName = assetBaseName(assetName);
+        const asset = authenticatedAssets().find((entry) => (
+            entry.phase === ASSET_PHASE_AFTER_FIRST_PAINT
+                && assetBaseName(entry.src) === normalizedName
+        ));
+        if (!asset) {
+            return Promise.reject(new Error(`延迟资源不在认证清单中：${normalizedName || 'unknown'}`));
+        }
+        return waitForFirstAuthenticatedPaint().then(() => loadAuthenticatedAsset(asset));
+    };
+
     const loadAuthenticatedApp = () => {
         if (authenticatedAppPromise) return authenticatedAppPromise;
         authenticatedAppPromise = (async () => {
@@ -952,6 +964,7 @@
 
     window.SUXI_LOAD_AUTHENTICATED_APP = loadAuthenticatedApp;
     window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS = loadDeferredAuthenticatedAssetManifest;
+    window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET = loadDeferredAuthenticatedManifestAsset;
     window.SUXI_MARK_LOGIN_AUTH_SUCCESS = markLoginAuthSuccess;
     window.SUXI_MARK_LOGIN_INTERACTIVE = markLoginInteractive;
     window.SUXI_MARK_LOGIN_INTERACTIVE_AFTER_PAINT = markLoginInteractiveAfterPaint;

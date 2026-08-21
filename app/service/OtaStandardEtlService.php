@@ -812,6 +812,7 @@ class OtaStandardEtlService
             'status',
             'save_status',
             'validation_status',
+            'history_status',
             'validation_flags',
             'readback_verified',
             'readback_verified_at',
@@ -830,6 +831,25 @@ class OtaStandardEtlService
         ], array_keys($columns)));
 
         $query = Db::name('online_daily_data')->field($fields ?: '*');
+        $strictReadbackOnly = in_array(
+            $filters['strict_readback_only'] ?? false,
+            [true, 1, '1', 'true'],
+            true
+        );
+        if ($strictReadbackOnly) {
+            foreach (['history_status', 'validation_status', 'readback_verified'] as $requiredColumn) {
+                if (!isset($columns[$requiredColumn])) {
+                    throw new RuntimeException(
+                        'strict_readback_only requires online_daily_data.' . $requiredColumn,
+                        422
+                    );
+                }
+            }
+            $query
+                ->where('history_status', 'success')
+                ->where('validation_status', 'verified')
+                ->where('readback_verified', 1);
+        }
         if (isset($columns['readback_verified'])) {
             $query->where('readback_verified', 1);
         }

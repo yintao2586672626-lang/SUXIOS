@@ -50,7 +50,8 @@ final class OperatingIntelligence extends Base
                 (string)($input['date_start'] ?? ''),
                 (string)($input['date_end'] ?? ''),
                 (int)($this->currentUser->id ?? 0),
-                OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY
+                OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY,
+                (string)($input['decision_object'] ?? '')
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '经营问题保存失败'), $this->status($e));
@@ -76,15 +77,34 @@ final class OperatingIntelligence extends Base
         }
     }
 
+    public function questionScopeOptions(): Response
+    {
+        try {
+            [$hotelId, $tenantId] = $this->resolveHotel(
+                (int)$this->request->param('hotel_id', 0),
+                'operation.view'
+            );
+            return $this->success($this->questionService->scopeOptions($tenantId, $hotelId));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '经营问题可用数据范围查询失败'), $this->status($e));
+        }
+    }
+
     public function readQuestion(int $id): Response
     {
         try {
             $hotelIds = $this->accessibleHotels('operation.view');
-            return $this->success($this->questionService->read(
+            $question = $this->questionService->read(
                 $id,
                 $this->currentTenantId(),
                 $hotelIds
-            ));
+            );
+            $question['action_intent_readback'] = $this->questionExecutionBridge->readExistingIntents(
+                $id,
+                $this->currentTenantId(),
+                $hotelIds
+            );
+            return $this->success($question);
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '经营问题回读失败'), $this->status($e));
         }

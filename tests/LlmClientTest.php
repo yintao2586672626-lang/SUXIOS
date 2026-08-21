@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\exception\LlmDirectRequestException;
 use app\service\LlmClient;
 use app\service\LlmEndpoint;
 use app\service\OutboundUrlGuard;
@@ -260,6 +261,8 @@ final class LlmClientTest extends TestCase
         self::assertSame(['type' => 'json_object'], $client->calls[0]['payload']['response_format']);
         self::assertSame(['type' => 'enabled'], $client->calls[0]['payload']['thinking']);
         self::assertSame('high', $client->calls[0]['payload']['reasoning_effort']);
+        self::assertSame(8192, $client->calls[0]['payload']['max_tokens']);
+        self::assertArrayNotHasKey('temperature', $client->calls[0]['payload']);
         self::assertMatchesRegularExpression('/^[A-Za-z0-9_-]{1,128}$/', $client->calls[0]['payload']['user_id']);
         self::assertSame($envelope['meta']['direct_call_nonce'], $client->calls[0]['request_id']);
         self::assertNotSame('inbound-request-id-must-not-be-reused', $client->calls[0]['request_id']);
@@ -285,7 +288,7 @@ final class LlmClientTest extends TestCase
             'non_standard_port' => ['base_url' => 'https://api.deepseek.com:444/v1'],
             'provider' => ['provider' => 'openai'],
             'requested_key' => ['model_key' => 'deepseek_reasoner'],
-            'configured_key' => ['configured_model_key' => 'deepseek_reasoner'],
+            'configured_key' => ['configured_model_key' => 'deepseek_chat'],
             'configured_model' => ['configured_model' => 'deepseek-reasoner'],
             'resolved_model' => ['model' => 'deepseek-reasoner'],
         ];
@@ -307,6 +310,54 @@ final class LlmClientTest extends TestCase
         $staleEnvelope = $stale->createJsonResponseEnvelope([], $schema, 'deepseek_v4_pro');
         self::assertFalse($staleEnvelope['meta']['provider_response_fresh']);
         self::assertFalse($staleEnvelope['meta']['direct_request_proof']);
+    }
+
+    public function testDirectStructuredEnvelopeAllowsLegacyLocalProKeyAndPreservesRejectedResponseReceipt(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('deepseek_v4_pro', 'deepseek');
+        $primary['configured_model_key'] = 'deepseek_reasoner';
+        $primary['configured_model'] = 'deepseek-v4-pro';
+        $primary['model'] = 'deepseek-v4-pro';
+        $client = new ScriptedLlmClient($primary, [], [
+            'deepseek_v4_pro' => [ScriptedLlmClient::success(
+                '',
+                'length',
+                'resp-reasoning-only-v4-pro-0001',
+                time(),
+                'deepseek-v4-pro'
+            )],
+        ]);
+
+        try {
+            $client->createJsonResponseEnvelope([], [
+                'type' => 'object',
+                'required' => ['summary'],
+                'properties' => ['summary' => ['type' => 'string']],
+            ], 'deepseek_v4_pro');
+            self::fail('reasoning-only response must not become an operating answer');
+        } catch (LlmDirectRequestException $exception) {
+            $receipt = $exception->receipt();
+            self::assertSame('empty_content', $receipt['failure_reason']);
+            self::assertSame('deepseek_v4_pro', $receipt['model_key']);
+            self::assertSame('deepseek', $receipt['provider']);
+            self::assertSame('deepseek-v4-pro', $receipt['configured_model']);
+            self::assertSame('deepseek-v4-pro', $receipt['response_model']);
+            self::assertSame('resp-reasoning-only-v4-pro-0001', $receipt['provider_response_id']);
+            self::assertSame(200, $receipt['http_status']);
+            self::assertSame(1, $receipt['provider_attempt_count']);
+            self::assertSame(0, $receipt['transport_retry_attempts']);
+            self::assertTrue($receipt['external_llm_called']);
+            self::assertSame('response_rejected_after_direct_call', $receipt['external_llm_call_status']);
+            self::assertSame('length', $receipt['finish_reason']);
+            self::assertFalse($receipt['direct_request_proof']);
+            self::assertFalse($receipt['fallback_used']);
+            self::assertFalse($receipt['cache_hit']);
+            self::assertSame($receipt['direct_call_nonce'], $receipt['transport_request_id']);
+        }
+
+        self::assertCount(1, $client->calls);
+        self::assertSame(8192, $client->calls[0]['payload']['max_tokens']);
+        self::assertArrayNotHasKey('temperature', $client->calls[0]['payload']);
     }
 
     public function testSuccessfulChatKeepsActualProviderModelAtTopLevel(): void
