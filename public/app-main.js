@@ -41110,8 +41110,8 @@
                 state.scope_auto_applied = false;
                 state.scope_loaded_hotel_id = '';
                 state.history_loaded_hotel_id = '';
-                void loadOperatingQuestionScopeOptions({ force: true, applyRecommendation: true });
                 if (operatingQuestionPanelIsActive()) {
+                    void loadOperatingQuestionScopeOptions({ force: true, applyRecommendation: true });
                     void loadOperatingQuestionHistory({ force: true });
                 }
             });
@@ -44535,10 +44535,9 @@
                 void nextTick().then(() => {
                     if (!user.value?.id || !token.value || otaDiagnosisHotelOptions.value.length === 0) return;
                     if (!ensureOperatingQuestionScope()) return;
+                    if (!operatingQuestionPanelIsActive()) return;
                     void loadOperatingQuestionScopeOptions({ force: true, applyRecommendation: true });
-                    if (operatingQuestionPanelIsActive()) {
-                        void loadOperatingQuestionHistory({ force: true });
-                    }
+                    void loadOperatingQuestionHistory({ force: true });
                 });
 
                 priceSuggestions.value = [];
@@ -45196,8 +45195,8 @@
                         state.scope_loaded_hotel_id = '';
                         state.history_loaded_hotel_id = '';
                     }
-                    void loadOperatingQuestionScopeOptions({ applyRecommendation: true });
                     if (operatingQuestionPanelIsActive()) {
+                        void loadOperatingQuestionScopeOptions({ applyRecommendation: true });
                         void loadOperatingQuestionHistory();
                     }
                 },

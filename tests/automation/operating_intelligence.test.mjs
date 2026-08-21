@@ -17,7 +17,8 @@ const sops = read('app/service/OperatingSopService.php');
 const controller = read('app/controller/OperatingIntelligence.php');
 const routes = read('route/app.php');
 const operatingIntelligenceComponents = read('public/components/system/operating-intelligence-components.js');
-const frontend = `${read('public/app-main.js')}\n${operatingIntelligenceComponents}`;
+const appMain = read('public/app-main.js');
+const frontend = `${appMain}\n${operatingIntelligenceComponents}`;
 const agentPage = read('resources/frontend/templates/fragments/27-page-agent-center.html');
 const globalShell = read('resources/frontend/templates/fragments/46-global-toast.html');
 const style = read('public/style.css');
@@ -55,6 +56,17 @@ test('unified Agent operating question saves and performs an exact second readba
   assert.match(frontend, /content_digest/);
   assert.match(agentPage, /<oq><\/oq>/);
   assert.match(frontend, /['"]data-testid['"]:\s*['"]operating-question-entry['"]/);
+});
+
+test('operating-question scope reads stay deferred until their Agent panel is active', () => {
+  const activeScopeLoads = appMain.match(
+    /if \(!?operatingQuestionPanelIsActive\(\)\)[\s\S]{0,120}loadOperatingQuestionScopeOptions/g,
+  ) || [];
+  assert.equal(activeScopeLoads.length, 3);
+  assert.match(
+    operatingIntelligenceComponents,
+    /onMounted\(\(\) => \{[\s\S]{0,160}loadScopeOptions\?\.\(\{ applyRecommendation: true \}\)/,
+  );
 });
 
 test('question evidence keeps facts, memory, knowledge, Agent and execution references separate', () => {

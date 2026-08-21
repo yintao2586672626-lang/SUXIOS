@@ -231,9 +231,18 @@ test('grounded operating answer submits one evidence-locked action for human app
   await installAuthenticatedMocks(page, calls);
 
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('nav-lean-more')).toBeVisible({ timeout: 15000 });
+  await page.waitForTimeout(300);
+  const scopeReadCount = () => calls.filter(
+    call => call.method === 'GET' && call.pathname === '/api/agent/operating-question-scopes',
+  ).length;
+  expect(scopeReadCount(), 'Compass startup must not prefetch the inactive Agent scope').toBe(0);
   await page.getByTestId('nav-lean-more').click();
   await page.getByTestId('nav-agent-center').click();
   await expect(page.getByTestId('operating-question-entry')).toBeVisible({ timeout: 15000 });
+  await expect.poll(scopeReadCount, { timeout: 5000 }).toBe(1);
+  await page.waitForTimeout(300);
+  expect(scopeReadCount(), 'Agent scope must remain a single read after the panel settles').toBe(1);
   await setFixedQuestionBusinessDate(page);
 
   await page.getByPlaceholder('例如：这家店今天最需要复核什么？').fill(question.question_text);

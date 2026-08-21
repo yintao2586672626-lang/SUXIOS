@@ -22,7 +22,7 @@
 5. 在代码冻结后执行完整 PHP、Node、前端入口、业务规则、OTA 报告和数据库迁移行为验证。
 6. 把代码、测试和本报告保存到 GitHub 的独立分支与 Draft PR；不部署、不触发真实 OTA 写入、不迁移生产数据库。
 
-最终冻结快照没有开放 P0/P1。完整 PHPUnit `4,672/4,672`、Node `1,709/1,709`、P0 守卫、前端入口、业务页面合同、OTA 竞争报告和一次性 MariaDB 迁移行为均已通过；审查发现的主要 P1/P2 功能问题已完成最小修复。当前只有明确且非阻断的 P2 架构余量债务。不能外推为生产完成：真实酒店、真实 OTA 账号、真实 DeepSeek、真实生产数据库和部署后运行仍未验证。
+最终冻结快照没有开放 P0/P1。完整 PHPUnit `4,672/4,672`、Node `1,711/1,711`、P0 守卫、前端入口、业务页面合同、OTA 竞争报告、认证首页五轮性能预算和一次性 MariaDB 迁移行为均已通过；审查及远端 CI 发现的主要 P1/P2 功能问题已完成最小修复。当前只有明确且非阻断的 P2 架构余量债务。不能外推为生产完成：真实酒店、真实 OTA 账号、真实 DeepSeek、真实生产数据库和部署后运行仍未验证。
 
 ## 2. 合并策略与工作区保护
 
@@ -50,7 +50,7 @@
 
 本轮合并审计的关键事实：
 
-- 合并约 185 个符合范围的源代码路径；
+- 相对冻结 `origin/main`，最终集成分支包含 192 个符合范围的源代码、测试与审查文档路径；
 - 处理 23 个路径级冲突；
 - 最终未保留未解决 Git 冲突；
 - 有意拒绝 `app/service/OperationActionAiReviewService.php`：该服务未接入真实调用链，却包含把 AI 结果推进为审批的危险语义，违背“审批必须由用户主动触发”的产品边界；
@@ -368,6 +368,32 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 - 新增静态回归，固定别名映射和 mock 数据形状；
 - 使用隔离工作树自己的 `public/index.html` 与临时 loopback 端口复测，`45` 个登录后页面键、`76` 个视觉状态全部通过；该证据仍明确为 mock，不提升为现场验收。
 
+### F-18 — P1 — Compass 登录首屏误预取 Agent scope，触发重复 API 与远端性能预算失败
+
+#### 复现与根因
+
+首次推送到 GitHub 的 PR head 在认证首页性能 job 中稳定出现 `6` 个 API 样本和 `1` 条重复路由，超过既有 `4/0` 预算；重复项为 `/api/agent/operating-question-scopes?hotel_id=...`。代码追踪确认这不是后端重试或测量器重复记账，而是三个自动入口在 Agent 面板未激活时预取 scope：酒店上下文 watcher、认证状态重建后的 `nextTick`、scope source watcher。认证重建又会替换经营问答 state，使旧对象上的 in-flight 标记失效，因而发出第二个真实 GET。
+
+#### 业务与稳定性影响
+
+- 用户只进入 Compass，也会为不可见 Agent 模块承担请求与解析成本；
+- 认证状态重建时产生重复读，弱网络或大酒店范围下会放大首屏波动；
+- 远端 CI 的真实运行预算因此失败，证明“静态测试全绿”不足以覆盖启动生命周期。
+
+#### 修复
+
+- 三个自动入口统一增加 `operatingQuestionPanelIsActive()` 边界，面板未激活时只清空或同步本地状态，不读 Agent scope/history；
+- 保留面板组件 `onMounted()` 的首次 scope/history 加载，保证用户真正进入 Agent 后功能可用；
+- 保留用户在经营问答面板显式切换酒店时的强制刷新，不改变业务语义；
+- 没有通过缓存、延长 TTL 或提高预算掩盖问题，性能合同继续保持每轮最多 `4` 个 API 样本、重复路由 `0`。
+
+#### 验证
+
+- 新增静态回归，约束三个自动入口必须服从 Agent 面板激活条件；
+- 新增真实 Playwright 生命周期断言：Compass 稳定后 scope GET 严格为 `0`，首次进入 Agent 后最终并持续为 `1`；
+- 经营问题隔离 E2E `7/7` 通过，保存、回读、待人工审批等原业务闭环未回归，清理后测试数据为 `0`；
+- 与 CI 同合同的认证首页测量连续 `5/5` 轮通过、无重试：每轮 API `4`、重复路由 `0`、运行预算 `failures=[]`。
+
 ## 5. 审批和真实经营动作边界
 
 本轮明确拒绝“AI 自动审批”路径。最终保留的闭环是：
@@ -446,7 +472,7 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 
 #### A. 前端启动热点
 
-`public/app-main.js` 仍有 55,806 行，已贴住 ratchet，长期目标债务 5,872 行。它同时承担路由、状态、权限、数据请求、页面 glue 和大量业务 helper；任何小功能都可能进入启动链并推高 gzip。
+`public/app-main.js` 仍有 55,805 行，距离 55,806 行 ratchet 只有 1 行余量，长期目标债务 5,871 行。它同时承担路由、状态、权限、数据请求、页面 glue 和大量业务 helper；任何小功能都可能进入启动链并推高 gzip。
 
 建议后续按行为保持的小边界拆分：
 
@@ -485,14 +511,29 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 
 | 指标 | 结果 |
 |---|---:|
-| `startup_gzip_bytes` | 618,766 B |
+| `startup_gzip_bytes` | 618,767 B |
 | 目标 | 620,000 B |
-| 目标余量 | 1,234 B |
+| 目标余量 | 1,233 B |
 | hard limit | 650,000 B |
-| hard-limit 余量 | 31,234 B |
+| hard-limit 余量 | 31,233 B |
 | 状态 | `within_target` |
 
 结论：当前通过，但余量很薄。任何进入启动链的新逻辑都可能再次越过目标。后续应 defer/split，不应把预算提高到适配代码增长。
+
+远端首次认证性能 CI 对本轮起到了真实回归门作用：它发现了 F-18，而不是被本地静态全绿掩盖。修复后的同合同五轮隔离测量如下：
+
+| 认证首页运行指标 | 修复后结果 | 合同判断 |
+|---|---:|---|
+| verified runs / retries | `5/5` / `0` | 通过 |
+| API samples per run | `4` | 达到上限但未超限 |
+| repeated API routes per run | `0` | 通过 |
+| total requests max | `21` | 通过 |
+| FCP/LCP p95 | `396 ms` | 通过 |
+| login click → interactive p95 | `785 ms` | 通过 |
+| authenticated → interactive p95 | `284 ms` | 通过 |
+| longest task p95 | `253 ms` | 高于 200 ms 目标提示、低于 550 ms hard limit |
+| API latency p95 | `377 ms` | 通过 |
+| runtime budget failures | `[]` | 通过 |
 
 ## 9. 数据库与迁移审查
 
@@ -558,7 +599,7 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 | 携程公开资料前端合同 | `8/8` 通过 |
 | 运营动作前端闭环 | `16/16` 通过 |
 | 公开页面隔离 E2E | `1/1` 通过；保存/回读/待审批/调整/拒绝/重试完整，清理后计数 0 |
-| 经营问题隔离 E2E | `7/7` 通过，清理后计数 0 |
+| 经营问题隔离 E2E | `7/7` 通过；Compass scope GET `0`，首次进入 Agent 后稳定为 `1`；清理后计数 0 |
 | 快速业务隔离 E2E | `5/5` 通过，清理后计数 0 |
 | business-page contract | `87/87` 通过 |
 | context assets | 通过 |
@@ -574,9 +615,10 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 | 验证 | 最终结果 |
 |---|---|
 | PHPUnit 全量 | `4,672/4,672` 通过；`42,966 assertions`；`skipped 1` |
-| Node automation 全量 | `1,710/1,710` 通过；0 fail / 0 skipped |
+| Node automation 全量 | `1,711/1,711` 通过；0 fail / 0 skipped |
 | `verify:p0-guards` | 通过；含 business page `87/87`、Revenue AI `51/51`、closure `1,767 checks`、E2E static contract `2,286 checks` |
-| `verify:public-entry` | 通过；`startup_gzip_bytes=618,766`，目标余量 `1,234 B` |
+| `verify:public-entry` | 通过；`startup_gzip_bytes=618,767`，目标余量 `1,233 B` |
+| 认证首页运行预算 | 同合同 `5/5` 轮 verified、0 retries；每轮 API `4`、重复路由 `0`、`failures=[]` |
 | `verify:taste-coverage` / `verify:taste-visual` | `45/45` 页面键；隔离入口 mock `45` 个页面键、`76` 个视觉状态通过 |
 | `verify:source-hotspot-budget` | 通过；`failures=[]`，已知债务继续受 ratchet 约束 |
 | `verify:business-page-contract` | `87/87` 通过 |
@@ -596,14 +638,14 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 4. 真实用户在原设备主动批准经营动作。
 5. 真实 OTA 改价、房态、促销、消息发送及效果回看。
 6. 生产数据库迁移窗口、备份恢复、writer 停止、锁时长和 post-commit 验收。
-7. GitHub CI 最终完成状态，以及后续部署环境健康与业务页面验收。
+7. 后续 PR 更新仍必须保持 GitHub CI 全绿；部署环境健康与业务页面验收尚未执行。
 8. 跨浏览器、长时间运行、负载、故障恢复和多实例一致性。
 
 ## 13. 最终判断
 
-最终冻结快照没有开放 P0/P1 功能、稳定性、兼容性、权限、跨酒店或数据库迁移阻断。审查发现的并发旧投影、促销公式、经营机会死端/回读、OTA 证据引用、公开资料酒店选择、运营按钮竞态、云酒店 ID 迁移、视觉 smoke 隔离及陈旧测试合同均已修复并获得对应回归。
+最终冻结快照没有开放 P0/P1 功能、稳定性、兼容性、权限、跨酒店或数据库迁移阻断。审查发现的并发旧投影、促销公式、经营机会死端/回读、OTA 证据引用、公开资料酒店选择、运营按钮竞态、云酒店 ID 迁移、视觉 smoke 隔离、陈旧测试合同及 Compass 误预取 Agent 数据均已修复并获得对应回归。
 
-当前保留两类非阻断 P2：多个热点源文件贴住零增长 ratchet；启动 gzip 距 620,000 B 目标仅余 1,234 B。后续应通过按业务域抽取和 split/defer 缓解，不应提高预算。
+当前保留两类非阻断 P2：多个热点源文件贴住零增长 ratchet；启动 gzip 距 620,000 B 目标仅余 1,233 B。后续应通过按业务域抽取和 split/defer 缓解，不应提高预算。
 
 本轮可准确标记为 `integration_pass`，具备保存到 GitHub Draft PR 并进入现场验收的条件；不具备 `field_validated` 或生产完成证据。
 
