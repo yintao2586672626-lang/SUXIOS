@@ -46,19 +46,23 @@ class RevenueAi extends Base
         try {
             $filters = $this->filters();
             $hotelId = (int)($filters['hotel_id'] ?? 0);
-            $tenantId = (int)($this->currentUser->tenant_id ?? 0);
             $actorId = (int)($this->currentUser->id ?? 0);
             $businessDate = trim((string)($filters['business_date'] ?? ''));
             $platform = strtolower(trim((string)($filters['platform'] ?? '')));
-            if ($hotelId <= 0 || $tenantId <= 0 || $actorId <= 0 || $businessDate === '') {
+            if ($hotelId <= 0 || $actorId <= 0 || $businessDate === '') {
                 throw new InvalidArgumentException('revenue_cockpit_approval_scope_invalid');
             }
             if (!in_array($platform, ['ctrip', 'meituan', 'all_ota'], true)) {
                 throw new InvalidArgumentException('revenue_cockpit_approval_platform_invalid');
             }
+            $this->assertRevenueAiHotelCapability($hotelId, self::EXECUTION_PERMISSION);
             $filters['strict_readback_only'] = true;
             $overview = (new RevenueAiOverviewService())->overview($filters);
             $overview = $this->withCockpitStrictEvidence($overview, $filters);
+            $tenantId = (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0);
+            if ($tenantId <= 0) {
+                throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
+            }
             $payload = (new RevenueCockpitApprovalService())->createFromOverview(
                 $overview,
                 $tenantId,
@@ -86,8 +90,13 @@ class RevenueAi extends Base
     /** @param array<string,mixed> $overview @param array<string,mixed> $filters @return array<string,mixed> */
     private function withCockpitStrictEvidence(array $overview, array $filters): array
     {
-        $tenantId = (int)($this->currentUser->tenant_id ?? 0);
         $hotelId = (int)($filters['hotel_id'] ?? 0);
+        $tenantId = $this->cockpitFactTenantId(
+            $overview,
+            $hotelId,
+            (int)($this->currentUser->tenant_id ?? 0),
+            $this->currentUser?->isSuperAdmin() === true
+        );
         $businessDate = trim((string)($filters['business_date'] ?? ''));
         $platform = strtolower(trim((string)($filters['platform'] ?? '')));
         if ($platform === '') {
@@ -107,6 +116,33 @@ class RevenueAi extends Base
             $platform
         );
         return $overview;
+    }
+
+    /** @param array<string,mixed> $overview */
+    private function cockpitFactTenantId(
+        array $overview,
+        int $hotelId,
+        int $actorTenantId,
+        bool $isSuperAdmin
+    ): int
+    {
+        if ($hotelId <= 0) {
+            throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
+        }
+        $factLayer = is_array($overview['three_source_fact_layer'] ?? null)
+            ? $overview['three_source_fact_layer']
+            : [];
+        $hotel = is_array($factLayer['hotel'] ?? null) ? $factLayer['hotel'] : [];
+        $factTenantId = (int)($hotel['tenant_id'] ?? 0);
+        if ($factTenantId <= 0 || (int)($hotel['system_hotel_id'] ?? 0) !== $hotelId) {
+            throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
+        }
+
+        if (!$isSuperAdmin && $actorTenantId !== $factTenantId) {
+            throw new RuntimeException('revenue_cockpit_tenant_scope_mismatch', 403);
+        }
+
+        return $factTenantId;
     }
 
     public function reviewPriceSuggestion(int $id = 0): Response

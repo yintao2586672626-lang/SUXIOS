@@ -637,7 +637,7 @@ async function holdInteractiveLoginWindow(context, currentPage, platformName) {
   )));
   const enabled = booleanArg(args.interactiveLogin) || waitMs > 0;
   if (!enabled) {
-    return;
+    return currentPage;
   }
   const effectiveWaitMs = waitMs > 0 ? waitMs : 120000;
   console.log(`${platformName} login session is ready. Keeping browser open for ${Math.round(effectiveWaitMs / 1000)} seconds.`);

@@ -212,6 +212,7 @@ test('authenticated startup paints the compact page before progressively hydrati
   assert.doesNotMatch(authenticatedLoad, /void loadDeferredAuthenticatedAssets\(/);
   assert.match(authenticatedLoad, /await loadScript\(entry\);/);
   assert.match(appMain, /requestSuxiFullRenderForPage = \(page\) => \{[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS\(\)/);
+  assert.doesNotMatch(appMain, /startupRenderPages\.has\(normalizedPage\)/);
   assert.match(
     appMain,
     /if \(!normalizedPage\s*\|\| normalizedPage === 'compass'\s*\|\| document\.documentElement\.dataset\.suxiRenderPhase === 'full'\)/,

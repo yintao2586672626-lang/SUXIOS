@@ -233,6 +233,50 @@ test('execution approval uses an in-page two-click confirmation without a native
     onlineDataPage,
     /:disabled="operationLoading\.actions"\s+@click="rejectOrCancelOperationApproval\(item\)"/,
   );
+  assert.match(
+    trackPage,
+    /:disabled="operationLoading\.actions"\s+@click="approveOperationExecutionIntent\(item, true\)"/,
+  );
+  assert.match(
+    trackPage,
+    /:disabled="operationLoading\.actions"\s+@click="rejectOrCancelOperationApproval\(item\)"/,
+  );
+});
+
+test('verification-only operating questions approve an observation window without inventing a numeric target', () => {
+  const start = appMain.indexOf('const operationApprovalConfirming =');
+  const end = appMain.indexOf('const recordOperationExecutionEvidence = async', start);
+  const approvalFlow = appMain.slice(start, end);
+  assert.match(approvalFlow, /const isVerificationOnlyOperatingQuestion = isManagedOperatingQuestion/);
+  assert.match(approvalFlow, /expectedEffect\?\.status[\s\S]*verification_target/);
+  assert.match(approvalFlow, /expectedEffect\?\.direction[\s\S]*verify/);
+  assert.match(approvalFlow, /value: 'observe'/);
+  assert.match(approvalFlow, /value: 'observation'/);
+  assert.match(approvalFlow, /仅观察变化（不承诺提升）/);
+  assert.match(approvalFlow, /\.\.\.\(isVerificationOnlyOperatingQuestion \? \[\] : \[/);
+  assert.match(approvalFlow, /targetType === 'absolute' \? \{ target_value: absoluteTarget \} : \{\}/);
+  assert.match(approvalFlow, /核验型行动只能按“仅观察变化”口径审批/);
+});
+
+test('managed operating questions create only a human-approved pending intent with zero tasks', () => {
+  const readinessStart = appMain.indexOf('const operatingQuestionActionIsCurrent =');
+  const readinessEnd = appMain.indexOf('const otaDiagnosisLoading =', readinessStart);
+  assert.ok(readinessStart > 0 && readinessEnd > readinessStart, 'operating-question readiness gate must exist');
+  const readiness = appMain.slice(readinessStart, readinessEnd);
+  assert.match(readiness, /operating_question_grounded_ai\.zh-CN\.v4/);
+  assert.match(readiness, /operating_question_action_draft\.v2/);
+  assert.match(readiness, /ready_for_human_review/);
+  assert.match(readiness, /human_confirmation_required === true/);
+  assert.doesNotMatch(readiness, /ready_for_ai_review|independent_ai_review_required|human_confirmation_required === false/);
+
+  const start = appMain.indexOf('const createOperatingQuestionActionIntent = async');
+  const end = appMain.indexOf('const openOperatingQuestionActionIntent = async', start);
+  assert.ok(start > 0 && end > start, 'operating-question pending-intent bridge must exist');
+  const bridge = appMain.slice(start, end);
+  assert.match(bridge, /human_reviewed_operating_check/);
+  assert.match(bridge, /pending_approval/);
+  assert.match(bridge, /tasks\.length !== 0/);
+  assert.doesNotMatch(bridge, /ai_independent_review|intentStatus === 'approved'|AI 独立评审/);
 });
 
 test('managed operating actions expose the versioned card lifecycle start cancel and review readback', () => {

@@ -18,7 +18,6 @@ test('authenticated startup stylesheet scans first-paint sources only', () => {
   assert.ok(!FRONTEND_AUTHENTICATED_STARTUP_STYLE_CONTENT_PATHS.includes('system-static.js'));
   assert.ok(!FRONTEND_AUTHENTICATED_STARTUP_STYLE_CONTENT_PATHS.includes('ctrip-static.js'));
 });
-
 test('authenticated stylesheet build removes only non-license comments and formatting whitespace', () => {
   const source = `
     /*! keep license */

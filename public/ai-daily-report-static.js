@@ -507,10 +507,16 @@ window.SUXI_AI_DAILY_REPORT_STATIC = (() => {
             };
         }
 
+        const explicitEdition = String(input.requestedEdition || '').trim().toLowerCase();
+        const reportEdition = String(report.render_contract?.requested_edition || '').trim().toLowerCase();
+        const normalizedEdition = (explicitEdition || reportEdition) === 'flagship' ? 'flagship' : 'lite';
+        const editionLabel = normalizedEdition === 'flagship' ? '旗舰版' : '简版';
+        const flagship = normalizedEdition === 'flagship';
+
         const platformRows = list(input.platforms).map(platform => {
             const section = report.platform_sections?.[platform.platform] || {};
             const status = section.status === 'ready_for_review' ? '可人工研判' : '证据不足';
-            return `<section><h2>${escapeHtml(platform.label)}</h2><p class="status">${escapeHtml(status)}</p><p>${escapeHtml(platform.factText)}</p><p><strong>渠道角色：</strong>${escapeHtml(section.channel_role || '不输出')}</p><p><strong>第一矛盾：</strong>${escapeHtml(section.first_conflict || '不输出')}</p>${platform.gapText ? `<p class="gap"><strong>数据缺口：</strong>${escapeHtml(platform.gapText)}</p>` : ''}</section>`;
+            return `<section><h2>${escapeHtml(platform.label)}</h2><p class="status">${escapeHtml(status)}</p><p>${escapeHtml(platform.factText)}</p><p><strong>第一矛盾：</strong>${escapeHtml(section.first_conflict || '不输出')}</p>${flagship ? `<p><strong>渠道角色：</strong>${escapeHtml(section.channel_role || '不输出')}</p>${platform.gapText ? `<p class="gap"><strong>数据缺口：</strong>${escapeHtml(platform.gapText)}</p>` : ''}` : ''}</section>`;
         }).join('');
         const groupRows = list(input.groups).map(group => (
             `<tr><td>${escapeHtml(group.label)}</td><td>${escapeHtml(group.namesText)}</td></tr>`
@@ -521,15 +527,26 @@ window.SUXI_AI_DAILY_REPORT_STATIC = (() => {
         const gapRows = objectList(report.data_gaps).map(gap => (
             `<li><strong>${escapeHtml(gap.code || 'data_gap')}</strong>：${escapeHtml(gap.message || '')}<small>${escapeHtml(gap.source_ref || '')}</small></li>`
         )).join('');
-        const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(report.title || 'OTA竞争商圈经营报告')}</title><style>
+        const liteActionRows = objectList(report.actions).slice(0, 3).map(action => (
+            `<li><strong>${escapeHtml(action.title || '待人工确认')}</strong>：${escapeHtml(action.action || '')}</li>`
+        )).join('');
+        const liteGapRows = objectList(report.data_gaps).slice(0, 3).map(gap => (
+            `<li>${escapeHtml(gap.message || gap.code || '数据缺口')}</li>`
+        )).join('');
+        const detailSections = flagship
+            ? `<h3>竞品分组</h3>${groupRows ? `<table><thead><tr><th>分组</th><th>候选酒店</th></tr></thead><tbody>${groupRows}</tbody></table>` : '<p class="gap">当前没有达到展示门槛的竞品分组。</p>'}<h3>人工确认动作</h3>${actionRows ? `<table><thead><tr><th>平台</th><th>事项</th><th>动作</th><th>回滚</th></tr></thead><tbody>${actionRows}</tbody></table>` : '<p class="gap">行动门槛未通过，不输出执行建议。</p>'}<h3>数据缺口</h3>${gapRows ? `<ul>${gapRows}</ul>` : '<p>未发现显式数据缺口。</p>'}`
+            : `<h3>优先动作</h3>${liteActionRows ? `<ol>${liteActionRows}</ol>` : '<p class="gap">行动门槛未通过，不输出执行建议。</p>'}<h3>关键数据缺口</h3>${liteGapRows ? `<ul>${liteGapRows}</ul>` : '<p>未发现显式数据缺口。</p>'}`;
+        const title = `${report.title || 'OTA竞争商圈经营报告'} · ${editionLabel}`;
+        const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>
             :root{color-scheme:light;--ink:#10231d;--muted:#64748b;--gold:#9a7b43;--line:#e5e7eb;--soft:#f7f7f4;--gap:#92400e}*{box-sizing:border-box}body{margin:0;background:#eef1ed;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;line-height:1.65}main{max-width:980px;margin:32px auto;background:#fff;padding:44px;border-radius:18px;box-shadow:0 18px 45px rgba(6,17,13,.12)}header{border-bottom:2px solid var(--gold);padding-bottom:22px;margin-bottom:26px}.eyebrow{color:var(--gold);font-size:12px;font-weight:700;letter-spacing:.12em}h1{margin:6px 0 4px;font-size:30px}h2{font-size:19px;margin:0 0 8px}h3{font-size:16px;margin-top:28px}p{margin:7px 0}.meta,.limit,small{color:var(--muted);font-size:12px}.identity{word-break:break-all}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.grid section{border:1px solid var(--line);border-radius:12px;padding:18px;background:var(--soft)}.status{display:inline-block;border:1px solid #d6c59e;border-radius:999px;padding:2px 9px;color:#6f572f;font-size:12px}.gap{color:var(--gap)}table{width:100%;border-collapse:collapse;margin:10px 0 22px}th,td{border:1px solid var(--line);padding:9px;text-align:left;vertical-align:top;font-size:13px}th{background:var(--soft)}li{margin:7px 0}li small{display:block}.limit{margin-top:30px;border-top:1px solid var(--line);padding-top:16px}@media(max-width:720px){main{margin:0;padding:24px;border-radius:0}.grid{grid-template-columns:1fr}}@media print{body{background:#fff}main{margin:0;max-width:none;box-shadow:none}}
-        </style></head><body><main data-report-id="${escapeHtml(reportId)}" data-bundle-id="${escapeHtml(bundleId)}" data-source-fingerprint="${escapeHtml(fingerprint)}"><header><div class="eyebrow">SUXIOS · OTA CHANNEL REPORT</div><h1>${escapeHtml(report.title || 'OTA竞争商圈经营报告')}</h1><div class="meta">业务日期：${escapeHtml(report.scope?.data_date || input.fallbackReportDate || '未返回')}　质量：${escapeHtml(input.qualityText || '')}　版本：${escapeHtml(input.editionText || '')}</div><div class="meta identity">日报记录 ID：${escapeHtml(reportId)}<br>Bundle ID：${escapeHtml(bundleId)}<br>来源指纹：${escapeHtml(fingerprint)}</div></header><h3>管理层快照</h3><p>可研判平台 ${escapeHtml(report.management_snapshot?.platforms_ready ?? 0)} / ${escapeHtml(report.management_snapshot?.platforms_total ?? 2)}；人工确认动作 ${escapeHtml(report.management_snapshot?.action_count ?? 0)} 项。</p><div class="grid">${platformRows}</div><h3>竞品分组</h3>${groupRows ? `<table><thead><tr><th>分组</th><th>候选酒店</th></tr></thead><tbody>${groupRows}</tbody></table>` : '<p class="gap">当前没有达到展示门槛的竞品分组。</p>'}<h3>人工确认动作</h3>${actionRows ? `<table><thead><tr><th>平台</th><th>事项</th><th>动作</th><th>回滚</th></tr></thead><tbody>${actionRows}</tbody></table>` : '<p class="gap">行动门槛未通过，不输出执行建议。</p>'}<h3>数据缺口</h3>${gapRows ? `<ul>${gapRows}</ul>` : '<p>未发现显式数据缺口。</p>'}<p class="limit">${escapeHtml(report.render_contract?.commercial_boundary || '')}<br>本文件是从已保存并回读的同一 competition bundle 本地导出的界面版；不触发 OTA、飞书或小红书写入，auto_write_ota=false。</p></main></body></html>`;
+        </style></head><body><main data-report-id="${escapeHtml(reportId)}" data-bundle-id="${escapeHtml(bundleId)}" data-source-fingerprint="${escapeHtml(fingerprint)}" data-report-edition="${escapeHtml(normalizedEdition)}"><header><div class="eyebrow">SUXIOS · OTA CHANNEL REPORT · ${escapeHtml(editionLabel)}</div><h1>${escapeHtml(title)}</h1><div class="meta">业务日期：${escapeHtml(report.scope?.data_date || input.fallbackReportDate || '未返回')}　质量：${escapeHtml(input.qualityText || '')}　版本：${escapeHtml(editionLabel)}</div><div class="meta identity">日报记录 ID：${escapeHtml(reportId)}<br>Bundle ID：${escapeHtml(bundleId)}<br>来源指纹：${escapeHtml(fingerprint)}</div></header><h3>管理层快照</h3><p>可研判平台 ${escapeHtml(report.management_snapshot?.platforms_ready ?? 0)} / ${escapeHtml(report.management_snapshot?.platforms_total ?? 2)}；人工确认动作 ${escapeHtml(report.management_snapshot?.action_count ?? 0)} 项。</p><div class="grid">${platformRows}</div>${detailSections}<p class="limit">${escapeHtml(report.render_contract?.commercial_boundary || '')}<br>${escapeHtml(editionLabel)}只读取同一份已保存并精确回读的 competition bundle；不触发 OTA、飞书或小红书写入，auto_write_ota=false。</p></main></body></html>`;
         const dateToken = filenameToken(report.scope?.data_date || input.fallbackReportDate, 'report');
         const bundleToken = filenameToken(bundleId.slice(-12), 'bundle');
         return {
             ok: true,
+            edition: normalizedEdition,
             html,
-            filename: `suxios-ota-competition-${dateToken}-r${reportId}-${bundleToken}.html`,
+            filename: `suxios-ota-competition-${normalizedEdition}-${dateToken}-r${reportId}-${bundleToken}.html`,
         };
     };
 

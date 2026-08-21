@@ -19,6 +19,7 @@ final class AuthHotelPermissionScopeTest extends TestCase
         'can_view_online_data',
         'can_fetch_online_data',
         'can_delete_online_data',
+        'can_execute_operation',
     ];
 
     public function testNormalUserPermissionPayloadIsScopedToCurrentHotel(): void
@@ -104,7 +105,7 @@ final class AuthHotelPermissionScopeTest extends TestCase
             ->disableOriginalConstructor()
             ->onlyMethods(['getPermissionList', 'getAttr', '__get'])
             ->getMock();
-        $role->method('getPermissionList')->willReturn(self::HOTEL_PERMISSIONS);
+        $role->method('getPermissionList')->willReturn(array_merge(self::HOTEL_PERMISSIONS, ['operation.execute']));
         $role->method('getAttr')->willReturnCallback(
             static fn(string $key) => match ($key) {
                 'id' => Role::BETA_USER,
@@ -138,7 +139,7 @@ final class AuthHotelPermissionScopeTest extends TestCase
         $user->method('isSuperAdmin')->willReturn(false);
         $user->method('hasHotelPermission')->willReturnCallback(
             static fn(int $hotelId, string $permission): bool => $hotelId === 80
-                && in_array($permission, self::HOTEL_PERMISSIONS, true)
+                && in_array($permission, array_merge(self::HOTEL_PERMISSIONS, ['operation.execute']), true)
         );
         $user->method('canManageOwnHotels')->willReturn(false);
         $user->method('canManageUser')->willReturn(false);

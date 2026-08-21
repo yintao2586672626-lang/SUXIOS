@@ -228,7 +228,10 @@ window.SUXI_OPERATION_STATIC = (() => {
     const operationIsProtectedSystemAnalysis = (item) => item?.recommendation?.source_module === 'canonical_ota_investigation'
         || item?.execution?.mode === 'analysis_only'
         || item?.approval?.status === 'system_authorized_analysis';
+    const operationUsesIndependentAiReview = (item) => item?.action_management?.contract_version === 'operation_action_card.v1'
+        && item?.recommendation?.source_module === 'operating_question';
     const operationCanApproveExecution = (item) => !operationIsProtectedSystemAnalysis(item)
+        && !operationUsesIndependentAiReview(item)
         && item?.approval?.status === 'pending_approval';
     const operationCanExecuteWithEvidence = (item) => {
         if (operationIsProtectedSystemAnalysis(item)) return false;
@@ -688,10 +691,10 @@ window.SUXI_OPERATION_STATIC = (() => {
             },
             {
                 key: 'approval',
-                label: '人工审批',
-                value: total ? `${approved}/${total}` : '待审批',
+                label: '行动评审',
+                value: total ? `${approved}/${total}` : '待评审',
                 className: approved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100',
-                detail: '涉及价格、房态、活动的动作必须先确认，驳回原因应保留在记录中。',
+                detail: '经营问答行动由独立 AI 评审；其他外部操作仍按对应人工授权规则处理，驳回原因保留在记录中。',
             },
             {
                 key: 'evidence',

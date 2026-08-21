@@ -18,6 +18,10 @@ const menuGroupOnlyKeys = new Set([
   'ai-transfer',
 ]);
 
+const canonicalPageAliases = new Map([
+  ['ai-workbench', 'compass'],
+]);
+
 const requiredPageKeys = [...pageKeys]
   .filter((key) => !menuGroupOnlyKeys.has(key))
   .sort();
@@ -64,7 +68,11 @@ function safeName(value) {
 }
 
 function buildVisualStates(keys) {
-  const states = keys.map((pageKey) => ({ label: pageKey, pageKey }));
+  const states = keys.map((pageKey) => ({
+    label: pageKey,
+    pageKey,
+    expectedPageKey: canonicalPageAliases.get(pageKey) || pageKey,
+  }));
 
   for (const onlineDataTab of [
     'data-health',
@@ -145,7 +153,8 @@ async function login(page) {
   if (authMode === 'mock') {
     await page.route('**/api/**', async (route) => {
       const url = route.request().url();
-      const data = url.includes('/api/auth/info')
+      const pathname = new URL(url).pathname;
+      const data = pathname.endsWith('/api/auth/info')
         ? {
             id: 999001,
             username: 'taste_visual_probe',
@@ -168,8 +177,10 @@ async function login(page) {
               can_delete_online_data: true,
             },
           }
-        : url.includes('/api/hotels')
+        : pathname.endsWith('/api/hotels')
           ? [{ id: 1, name: '视觉验证门店', hotel_name: '视觉验证门店' }]
+          : pathname.endsWith('/api/online-data/manual-fetch-evidence')
+            ? { rows: [] }
           : [];
 
       await route.fulfill({
@@ -249,6 +260,7 @@ async function inspectPage(page, state) {
     return {
       label: targetState.label,
       pageKey: targetState.pageKey,
+      expectedPageKey: targetState.expectedPageKey || targetState.pageKey,
       onlineDataTab: targetState.onlineDataTab || '',
       downloadCenterTab: targetState.downloadCenterTab || '',
       ctripTableTab: targetState.ctripTableTab || '',
@@ -277,8 +289,8 @@ async function inspectPage(page, state) {
 
 function validatePageResult(result) {
   const issues = [];
-  if (result.activePage !== result.pageKey) {
-    issues.push(`expected active page ${result.pageKey}, got ${result.activePage || '(empty)'}`);
+  if (result.activePage !== result.expectedPageKey) {
+    issues.push(`expected active page ${result.expectedPageKey}, got ${result.activePage || '(empty)'}`);
   }
   if (!result.hasShell) issues.push('missing .suxi-app-shell');
   if (result.hasLogin) issues.push('login page is present during logged-in visual smoke');

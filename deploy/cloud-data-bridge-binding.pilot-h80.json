@@ -1,7 +1,7 @@
 {
   "contract_version": "suxios.cloud_ota_binding.v1",
   "source_system_hotel_id": 80,
-  "destination_system_hotel_id": 5,
+  "destination_system_hotel_id": 80,
   "bindings": [
     {
       "platform": "ctrip",

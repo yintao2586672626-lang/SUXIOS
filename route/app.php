@@ -579,9 +579,26 @@ Route::group('api/operating-loop', function () {
     Route::get('/:id', 'OperatingLoop/read');
 })->middleware(\app\middleware\Auth::class);
 
+// Five user-visible operating opportunity features. All writes are scoped
+// calculation records; none of these endpoints execute OTA/PMS actions.
+Route::group('api/operating-opportunities', function () {
+    Route::get('/overview', 'OperatingOpportunity/overview');
+    Route::get('/runs/:id', 'OperatingOpportunity/read');
+    Route::post('/evaluate', 'OperatingOpportunity/evaluate');
+    Route::post('/priority', 'OperatingOpportunity/priority');
+})->middleware(\app\middleware\Auth::class);
+
 Route::group('api/operation', function () {
     Route::get('/full-data', 'OperationManagement/fullData');
     Route::post('/root-cause', 'OperationManagement/rootCause');
+    Route::get('/manager-capability/managers', 'ManagerCapability/managers');
+    Route::get('/manager-capability/profile', 'ManagerCapability/profile');
+    Route::get('/manager-capability/followup-queue', 'ManagerCapability/followupQueue');
+    Route::get('/manager-capability/cases/:id', 'ManagerCapability/readCase');
+    Route::post('/manager-capability/cases/:id/followups', 'ManagerCapability/createFollowup');
+    Route::post('/manager-capability/cases/:id/adjustments', 'ManagerCapability/createAdjustment');
+    Route::post('/manager-capability/cases/:id/score-reviews', 'ManagerCapability/createScoreReview');
+    Route::post('/manager-capability/cases', 'ManagerCapability/createCase');
     Route::get('/goal-intervention-overview', 'OperationManagement/operatingGoalInterventionOverview');
     Route::post('/goal-contracts', 'OperationManagement/createOperatingGoalContract');
     Route::post('/interventions', 'OperationManagement/createManualIntervention');

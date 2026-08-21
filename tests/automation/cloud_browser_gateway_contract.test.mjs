@@ -239,6 +239,143 @@ test('login reserves global capacity before async validation and readiness failu
   }
 });
 
+test('login opening capacity is reserved before request-body await and parse failure releases it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-login-opening-reservation-'));
+  let server;
+  let slowBodyController;
+  let slowBodyClosed = false;
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    const token = 'r'.repeat(48);
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, token);
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN: join(root, 'receipts', 'chain.jsonl'),
+    }, {
+      bridge: async (action) => {
+        if (action !== 'validate_login') throw new Error('unexpected_bridge_action');
+        return { profile: { platform: 'ctrip' }, login_entry: { validated: true } };
+      },
+      startBrowser: async () => ({ exitCode: null }),
+      waitForBrowserPage: async () => ({ type: 'page' }),
+      stopBrowser: async () => {},
+    });
+    server = gateway.server;
+    const port = await listenLoopback(server);
+    const base = `http://127.0.0.1:${port}`;
+    const firstLogin = {
+      profile_id: 'cbp_openingprofileaaa',
+      session_id: 'cbls_openingsessionaaa',
+      ticket: 'o'.repeat(32),
+      platform: 'ctrip',
+    };
+    const serialized = JSON.stringify(firstLogin);
+    const splitAt = Math.floor(serialized.length / 2);
+    const encoder = new TextEncoder();
+    const slowBody = new ReadableStream({
+      start(controller) {
+        slowBodyController = controller;
+        controller.enqueue(encoder.encode(serialized.slice(0, splitAt)));
+      },
+    });
+    const firstOpen = fetch(`${base}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: slowBody,
+      duplex: 'half',
+    });
+
+    let openingHealth = null;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      openingHealth = await fetch(`${base}/health`).then((response) => response.json());
+      if (openingHealth.active_login_sessions === 1) break;
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+    }
+    assert.equal(openingHealth?.active_login_sessions, 1);
+    assert.equal(openingHealth?.active_browser_sessions, 1);
+
+    const busy = await fetch(`${base}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...firstLogin,
+        profile_id: 'cbp_openingprofilebbb',
+        session_id: 'cbls_openingsessionbbb',
+        ticket: 'p'.repeat(32),
+      }),
+    });
+    assert.equal(busy.status, 409);
+    assert.equal((await busy.json()).reason, 'gateway_login_capacity_busy');
+
+    slowBodyController.enqueue(encoder.encode(serialized.slice(splitAt)));
+    slowBodyController.close();
+    slowBodyClosed = true;
+    const opened = await firstOpen;
+    assert.equal(opened.status, 201);
+    await opened.json();
+    const cancelled = await fetch(`${base}/v1/login/cancel`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profile_id: firstLogin.profile_id,
+        session_id: firstLogin.session_id,
+        platform: firstLogin.platform,
+      }),
+    });
+    assert.equal(cancelled.status, 200);
+
+    const malformed = await fetch(`${base}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{"profile_id":',
+    });
+    assert.equal(malformed.status, 422);
+    const releasedHealth = await fetch(`${base}/health`).then((response) => response.json());
+    assert.equal(releasedHealth.active_browser_sessions, 0);
+
+    const retryLogin = {
+      ...firstLogin,
+      profile_id: 'cbp_openingprofileccc',
+      session_id: 'cbls_openingsessionccc',
+      ticket: 'q'.repeat(32),
+    };
+    const retry = await fetch(`${base}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(retryLogin),
+    });
+    assert.equal(retry.status, 201);
+    await retry.json();
+    const retryCancelled = await fetch(`${base}/v1/login/cancel`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profile_id: retryLogin.profile_id,
+        session_id: retryLogin.session_id,
+        platform: retryLogin.platform,
+      }),
+    });
+    assert.equal(retryCancelled.status, 200);
+  } finally {
+    if (!slowBodyClosed && slowBodyController) {
+      try {
+        slowBodyController.error(new Error('test_cleanup'));
+      } catch {
+        // The stream was already finalized by the request path.
+      }
+    }
+    await closeListeningServer(server);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('viewer WebSocket is exact-session scoped and is forcibly disconnected before capacity reuse', async () => {
   const root = await mkdtemp(join(tmpdir(), 'suxios-viewer-lifecycle-'));
   let gatewayServer;
@@ -1248,8 +1385,11 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/open'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/close'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /function claimCapacity\([\s\S]{0,220}capacitySlot !== null/);
-  assert.match(gateway, /claimCapacity\(session, 'gateway_login_capacity_busy'\)/);
-  assert.match(gateway, /claimCapacity\(session, 'gateway_collection_capacity_busy'\)/);
+  assert.match(gateway, /function reserveOpeningCapacity\([\s\S]{0,260}claimCapacity\(reservation, busyReason\)/);
+  assert.match(gateway, /reserveOpeningCapacity\('login', 'gateway_login_capacity_busy'\)[\s\S]{0,180}await jsonBody\(request\)/);
+  assert.match(gateway, /reserveOpeningCapacity\('collection', 'gateway_collection_capacity_busy'\)[\s\S]{0,180}await jsonBody\(request\)/);
+  assert.match(gateway, /promoteOpeningCapacity\(openingReservation, session\)/);
+  assert.match(gateway, /finally \{\s*releaseCapacity\(openingReservation\)/);
   assert.match(gateway, /waitForBrowserPageCall\(config, session\.browser\)/);
   assert.match(gateway, /Math\.max\(900, Number\.parseInt\(env\.SUXIOS_CLOUD_BROWSER_COLLECTION_TTL_SECONDS/);
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/abort'/);

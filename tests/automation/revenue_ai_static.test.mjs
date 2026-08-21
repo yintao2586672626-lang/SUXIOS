@@ -3430,6 +3430,7 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
     selectedPlatform: 'all_ota',
     businessDate: '2026-08-20',
     today: '2026-08-21',
+    canExecuteOperation: true,
   });
 
   assert.equal(model.status, 'partial');
@@ -3445,6 +3446,18 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
   assert.equal(allCards.find((card) => card.key === 'compare:ctrip_ota:revenue').display, '+¥50.00（+33.33%）');
   assert.match(allCards.find((card) => card.key === 'compare:ctrip_ota:revenue').reasonText, /同一指标与同一单位/);
   assert.equal(model.canCreatePendingApproval, true);
+
+  const permissionBlockedModel = helpers.buildRevenueCockpitModel({
+    overview: overviewFor('2026-08-20', 200, 300),
+    comparisonOverview: overviewFor('2026-08-18', 150, 280),
+    scope,
+    selectedPlatform: 'all_ota',
+    businessDate: '2026-08-20',
+    today: '2026-08-21',
+    canExecuteOperation: false,
+  });
+  assert.equal(permissionBlockedModel.canCreatePendingApproval, false);
+  assert.match(permissionBlockedModel.actionDisabledReason, /运营执行权限/);
 
   const expectedLabels = Array.from(model.visibleSections).flatMap(
     (section) => Array.from(section.cards, (card) => card.label),
@@ -3465,6 +3478,7 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
   assert.equal(question.ok, true);
   assert.equal(question.hotelId, '80');
   assert.equal(question.platform, 'all_ota');
+  assert.equal(question.decisionObject, 'channel');
   assert.match(question.question, /存在数据缺口/);
   assert.match(
     helpers.buildRevenueCockpitOverviewEndpoint(80, '2026-08-20', 'all_ota'),
@@ -3575,6 +3589,7 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
     selectedPlatform: 'meituan',
     businessDate: '2026-08-20',
     today: '2026-08-21',
+    canExecuteOperation: true,
   });
   const rejectedCards = rejectedModel.visibleSections.flatMap((section) => section.cards);
   const rejectedRevenue = rejectedCards.find((card) => card.key === 'meituan_ota:revenue');
@@ -3584,19 +3599,45 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
   assert.match(rejectedRevenue.reasonText, /严格事实闸门/);
   assert.match(rejectedRevenue.evidenceLines.join('；'), /拒绝 #201/);
   assert.equal(rejectedModel.canCreatePendingApproval, false);
+  const loadingModel = helpers.buildRevenueCockpitModel({ loading: true });
+  assert.equal(loadingModel.status, 'loading');
+  assert.equal(loadingModel.visibleSections.length, 0);
+  assert.equal(loadingModel.canCreatePendingApproval, false);
+  const failedModel = helpers.buildRevenueCockpitModel({ error: 'strict readback failed' });
+  assert.equal(failedModel.status, 'failed');
+  assert.match(failedModel.summary, /strict readback failed/);
+  assert.equal(failedModel.visibleSections.length, 0);
+  const emptyModel = helpers.buildRevenueCockpitModel({
+    scope: { notice: '没有严格可用日期' },
+    selectedPlatform: 'meituan',
+  });
+  assert.equal(emptyModel.status, 'empty');
+  assert.match(emptyModel.summary, /没有严格可用日期/);
+  assert.equal(emptyModel.canAskQuestion, false);
 });
 
 test('daily revenue cockpit template exposes unified context, evidence, download and human-gated handoffs', () => {
   const cockpitRuntime = readFileSync('public/revenue-ai-static.js', 'utf8');
+  const appMain = readFileSync('public/app-main.js', 'utf8');
+  const scopeCallStart = appMain.indexOf('revenueAiResolveCockpitScope({');
+  const modelCallStart = appMain.indexOf('revenueAiBuildCockpitModel({');
+  const scopeCall = appMain.slice(scopeCallStart, appMain.indexOf('}));', scopeCallStart) + 4);
+  const modelCall = appMain.slice(modelCallStart, appMain.indexOf('}));', modelCallStart) + 4);
+  assert.doesNotMatch(scopeCall, /canExecuteOperation/);
+  assert.match(modelCall, /canExecuteOperation:\s*userHasPermission\('can_execute_operation'\)/);
   for (const marker of [
     'data-testid="revenue-daily-cockpit"',
     'data-testid="revenue-cockpit-hotel"',
     'data-testid="revenue-cockpit-platform"',
     'data-testid="revenue-cockpit-business-date"',
     'data-testid="revenue-cockpit-download"',
+    'data-testid="revenue-cockpit-loading"',
+    'data-testid="revenue-cockpit-error"',
+    'data-testid="revenue-cockpit-empty"',
     'data-testid="revenue-cockpit-evidence"',
     'data-testid="revenue-cockpit-to-question"',
     'data-testid="revenue-cockpit-create-approval"',
+    'data-testid="revenue-cockpit-approval-readback"',
   ]) {
     assert.ok(appTemplate.includes(marker), `${marker} must remain in the generated template snapshot`);
   }
@@ -3608,4 +3649,9 @@ test('daily revenue cockpit template exposes unified context, evidence, download
   assert.match(cockpitRuntime, /execution_task_created !== false/);
   assert.match(cockpitRuntime, /external_action_triggered !== false/);
   assert.match(cockpitRuntime, /tasks\.length !== 0/);
+  assert.match(
+    appTemplate,
+    /data-testid="revenue-cockpit-hotel"[\s\S]{0,600}\{\{ item\.name \}\}/,
+    'cockpit hotel selector must render the actual hotel option name',
+  );
 });

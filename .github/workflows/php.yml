@@ -150,7 +150,7 @@ jobs:
   node_business_chain:
     name: Node and business-chain runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     services:
       mysql:
@@ -229,6 +229,19 @@ jobs:
           DB_USER: root
           DB_PASS: suxi-ci-root
         run: npm run test:e2e:transition
+
+      - name: Verify operating-question approval and floating-assistant journeys
+        timeout-minutes: 4
+        env:
+          SUXI_PHP: php
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: npm run test:e2e:operating-question
 
       - name: Verify notification and security-monitoring stability journeys
         timeout-minutes: 4

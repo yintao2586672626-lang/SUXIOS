@@ -256,6 +256,8 @@ final class LlmClientTest extends TestCase
         self::assertFalse($envelope['meta']['idempotent_replay']);
         self::assertTrue($envelope['meta']['direct_request_proof']);
         self::assertSame('stop', $envelope['meta']['finish_reason']);
+        self::assertSame('enabled', $envelope['meta']['thinking_mode']);
+        self::assertSame('high', $envelope['meta']['reasoning_effort']);
         self::assertFalse($envelope['meta']['fallback_used']);
         self::assertCount(1, $client->calls);
         self::assertSame(['type' => 'json_object'], $client->calls[0]['payload']['response_format']);
@@ -263,6 +265,7 @@ final class LlmClientTest extends TestCase
         self::assertSame('high', $client->calls[0]['payload']['reasoning_effort']);
         self::assertSame(8192, $client->calls[0]['payload']['max_tokens']);
         self::assertArrayNotHasKey('temperature', $client->calls[0]['payload']);
+        self::assertSame(60, $client->calls[0]['timeout']);
         self::assertMatchesRegularExpression('/^[A-Za-z0-9_-]{1,128}$/', $client->calls[0]['payload']['user_id']);
         self::assertSame($envelope['meta']['direct_call_nonce'], $client->calls[0]['request_id']);
         self::assertNotSame('inbound-request-id-must-not-be-reused', $client->calls[0]['request_id']);
@@ -442,6 +445,8 @@ final class LlmClientTest extends TestCase
             self::fail('missing required field must be rejected');
         } catch (\RuntimeException) {
             self::assertCount(1, $missing->calls);
+            self::assertSame(45, $missing->calls[0]['timeout']);
+            self::assertSame(2048, $missing->calls[0]['payload']['max_tokens']);
         }
 
         $truncated = new ScriptedLlmClient($primary, [], [
@@ -449,6 +454,27 @@ final class LlmClientTest extends TestCase
         ]);
         $this->expectException(\RuntimeException::class);
         $truncated->createJsonResponseEnvelope([], $schema, 'deepseek_chat');
+    }
+
+    public function testDirectStructuredEnvelopeDoesNotRetryAmbiguousTransportFailure(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('deepseek_v4_pro', 'deepseek');
+        $primary['model'] = 'deepseek-v4-pro';
+        $primary['configured_model'] = 'deepseek-v4-pro';
+        $client = new ScriptedLlmClient($primary, [], [
+            'deepseek_v4_pro' => [ScriptedLlmClient::transportFailure(CURLE_OPERATION_TIMEDOUT)],
+        ]);
+
+        try {
+            $client->createJsonResponseEnvelope([], [
+                'type' => 'object',
+                'required' => ['summary'],
+                'properties' => ['summary' => ['type' => 'string']],
+            ], 'deepseek_v4_pro');
+            self::fail('ambiguous direct transport failure must not be accepted');
+        } catch (\RuntimeException) {
+            self::assertCount(1, $client->calls);
+        }
     }
 
     public function testNormalizeKnowledgeSourcesAcceptsStringLists(): void
@@ -971,6 +997,7 @@ final class ScriptedLlmClient extends LlmClient
             'request_id' => (string)($options['request_id'] ?? ''),
             'max_retries' => (int)($options['max_retries'] ?? -1),
             'send_idempotency_key' => ($options['send_idempotency_key'] ?? true) === true,
+            'timeout' => (int)($options['timeout'] ?? 0),
             'payload' => json_decode($payloadJson, true),
         ];
         $response = array_shift($this->scripts[$modelKey]);

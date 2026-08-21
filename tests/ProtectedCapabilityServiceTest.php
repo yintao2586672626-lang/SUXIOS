@@ -459,6 +459,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
             'default_enabled_modules' => ['operation_decision'],
         ]);
         $paths = [
+            '/api/revenue-ai/cockpit/pending-approval',
             '/api/agent/feasibility-report/9/execution-intent',
             '/api/agent/price-suggestions/9/execution-intent',
             '/api/ai-daily-reports/9/actions/0/execution-intent',
@@ -512,6 +513,107 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertSame('operation.view', $detail['permission']);
         self::assertTrue($service->authorizeContext($viewer, $detail, ['hotel_id' => 7])['allowed']);
         self::assertFalse($service->authorizeContext($executor, $detail, ['hotel_id' => 7])['allowed']);
+    }
+
+    public function testManagerCapabilityCaseAndFollowupWritesRequireOperationExecute(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['operation_decision'],
+        ]);
+        $viewer = $this->userWithPermissions(['operation.view']);
+        $executor = $this->userWithPermissions(['operation.execute']);
+
+        foreach ([
+            '/api/operation/manager-capability/cases',
+            '/api/operation/manager-capability/cases/81/followups',
+            '/api/operation/manager-capability/cases/81/adjustments',
+            '/api/operation/manager-capability/cases/81/score-reviews',
+        ] as $path) {
+            $capability = $service->classifyPath('POST', $path);
+            self::assertIsArray($capability, $path);
+            self::assertSame('operation_execution', $capability['key'], $path);
+            self::assertSame('operation.execute', $capability['permission'], $path);
+            self::assertFalse($service->authorizeContext($viewer, $capability, ['hotel_id' => 7])['allowed'], $path);
+            self::assertTrue($service->authorizeContext($executor, $capability, ['hotel_id' => 7])['allowed'], $path);
+        }
+    }
+
+    public function testOperatingOpportunityReadsAndWritesUseSeparateOperationPermissions(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['operation_decision'],
+        ]);
+        $viewer = $this->userWithPermissions(['operation.view']);
+        $executor = $this->userWithPermissions(['operation.execute']);
+
+        foreach ([
+            '/api/operating-opportunities/overview',
+            '/api/operating-opportunities/runs/81',
+        ] as $path) {
+            $capability = $service->classifyPath('GET', $path);
+            self::assertIsArray($capability, $path);
+            self::assertSame('operation_decision', $capability['key'], $path);
+            self::assertSame('operation.view', $capability['permission'], $path);
+            self::assertSame('summary_only', $capability['response_mode'], $path);
+            self::assertTrue($service->authorizeContext($viewer, $capability, ['hotel_id' => 7])['allowed'], $path);
+            self::assertFalse($service->authorizeContext($executor, $capability, ['hotel_id' => 7])['allowed'], $path);
+        }
+
+        foreach ([
+            '/api/operating-opportunities/evaluate',
+            '/api/operating-opportunities/priority',
+        ] as $path) {
+            $capability = $service->classifyPath('POST', $path);
+            self::assertIsArray($capability, $path);
+            self::assertSame('operation_execution', $capability['key'], $path);
+            self::assertSame('operation.execute', $capability['permission'], $path);
+            self::assertSame('summary_only', $capability['response_mode'], $path);
+            self::assertTrue($capability['controller_hotel_scope'], $path);
+            self::assertFalse($service->authorizeContext($viewer, $capability, ['hotel_id' => 7])['allowed'], $path);
+            self::assertTrue($service->authorizeContext($executor, $capability, ['hotel_id' => 7])['allowed'], $path);
+        }
+
+        self::assertNull(
+            $service->classifyPath('POST', '/api/operating-opportunities/runs/81'),
+            'an undeclared write must not inherit operation.view from the read prefix'
+        );
+    }
+
+    public function testOperatingOpportunitySummaryRedactionKeepsUsableMetricsAndRemovesSensitiveDetail(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['operation_decision'],
+        ]);
+        $capability = $service->classifyPath('GET', '/api/operating-opportunities/overview');
+        self::assertIsArray($capability);
+
+        $payload = $service->redactPayload([
+            'code' => 200,
+            'message' => 'ok',
+            'data' => [
+                'business_date' => '2026-08-22',
+                'result' => [
+                    'calculation_status' => 'provisional_manual_estimate',
+                    'decision_eligible' => false,
+                    'can_execute' => false,
+                    'provisional_metrics' => ['incremental_room_nights' => 12.5],
+                    'raw_payload' => ['private' => 'must-not-return'],
+                    'source_path' => '$.internal.evidence',
+                ],
+            ],
+        ], $capability, 'req-opportunity-001');
+
+        self::assertTrue($payload['redacted']);
+        self::assertSame('operation_decision', $payload['protected_capability']);
+        self::assertSame('req-opportunity-001', $payload['reference_id']);
+        self::assertSame(
+            12.5,
+            $payload['data']['result']['provisional_metrics']['incremental_room_nights']
+        );
+        self::assertFalse($payload['data']['result']['decision_eligible']);
+        self::assertFalse($payload['data']['result']['can_execute']);
+        self::assertArrayNotHasKey('raw_payload', $payload['data']['result']);
+        self::assertArrayNotHasKey('source_path', $payload['data']['result']);
     }
 
     /**

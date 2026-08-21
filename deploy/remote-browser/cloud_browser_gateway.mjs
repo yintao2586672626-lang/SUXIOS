@@ -1119,6 +1119,23 @@ export async function createGateway(env = process.env, dependencies = {}) {
     capacitySlot = session;
   }
 
+  function reserveOpeningCapacity(kind, busyReason) {
+    const reservation = {
+      kind,
+      state: 'opening',
+      openingReservation: true,
+    };
+    claimCapacity(reservation, busyReason);
+    return reservation;
+  }
+
+  function promoteOpeningCapacity(reservation, session) {
+    if (capacitySlot !== reservation || reservation.openingReservation !== true) {
+      throw new GatewayError('gateway_capacity_reservation_lost', 409);
+    }
+    capacitySlot = session;
+  }
+
   function releaseCapacity(session) {
     if (capacitySlot === session) capacitySlot = null;
   }
@@ -1196,28 +1213,35 @@ export async function createGateway(env = process.env, dependencies = {}) {
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/login/open') {
-        const login = validateLoginRequest(await jsonBody(request));
-        const session = {
-          ...login,
-          kind: 'login',
-          key: login.sessionId,
-          ticketHash: sha256(login.ticket),
-          state: 'opening',
-          browser: null,
-          guard: null,
-          runtimeTouched: false,
-          profileRestored: false,
-          viewerConnections: new Set(),
-          cancelRequested: false,
-          abortController: new AbortController(),
-          openedAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + config.loginTtlSeconds * 1000).toISOString(),
-        };
+        const openingReservation = reserveOpeningCapacity('login', 'gateway_login_capacity_busy');
+        let login;
+        let session;
         let settleOpening;
-        session.openingSettled = new Promise((resolvePromise) => {
-          settleOpening = resolvePromise;
-        });
-        claimCapacity(session, 'gateway_login_capacity_busy');
+        try {
+          login = validateLoginRequest(await jsonBody(request));
+          session = {
+            ...login,
+            kind: 'login',
+            key: login.sessionId,
+            ticketHash: sha256(login.ticket),
+            state: 'opening',
+            browser: null,
+            guard: null,
+            runtimeTouched: false,
+            profileRestored: false,
+            viewerConnections: new Set(),
+            cancelRequested: false,
+            abortController: new AbortController(),
+            openedAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + config.loginTtlSeconds * 1000).toISOString(),
+          };
+          session.openingSettled = new Promise((resolvePromise) => {
+            settleOpening = resolvePromise;
+          });
+          promoteOpeningCapacity(openingReservation, session);
+        } finally {
+          releaseCapacity(openingReservation);
+        }
         try {
           const validated = await bridgeCall('validate_login', {
             profile_id: login.profileId,
@@ -1388,29 +1412,37 @@ export async function createGateway(env = process.env, dependencies = {}) {
           jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
           return;
         }
-        const collection = validateCollectionOpenRequest(await jsonBody(request));
-        const collectionSessionId = `cbcs_${randomBytes(18).toString('base64url')}`;
-        const session = {
-          ...collection,
-          kind: 'collection',
-          key: collectionSessionId,
-          collectionSessionId,
-          state: 'opening',
-          browser: null,
-          guard: null,
-          runtimeTouched: false,
-          profileRestored: false,
-          viewerConnections: new Set(),
-          abortRequested: false,
-          abortController: new AbortController(),
-          openedAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + config.collectionTtlSeconds * 1000).toISOString(),
-        };
+        const openingReservation = reserveOpeningCapacity('collection', 'gateway_collection_capacity_busy');
+        let collection;
+        let collectionSessionId;
+        let session;
         let settleOpening;
-        session.openingSettled = new Promise((resolvePromise) => {
-          settleOpening = resolvePromise;
-        });
-        claimCapacity(session, 'gateway_collection_capacity_busy');
+        try {
+          collection = validateCollectionOpenRequest(await jsonBody(request));
+          collectionSessionId = `cbcs_${randomBytes(18).toString('base64url')}`;
+          session = {
+            ...collection,
+            kind: 'collection',
+            key: collectionSessionId,
+            collectionSessionId,
+            state: 'opening',
+            browser: null,
+            guard: null,
+            runtimeTouched: false,
+            profileRestored: false,
+            viewerConnections: new Set(),
+            abortRequested: false,
+            abortController: new AbortController(),
+            openedAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + config.collectionTtlSeconds * 1000).toISOString(),
+          };
+          session.openingSettled = new Promise((resolvePromise) => {
+            settleOpening = resolvePromise;
+          });
+          promoteOpeningCapacity(openingReservation, session);
+        } finally {
+          releaseCapacity(openingReservation);
+        }
         let validated;
         try {
           const validationAction = OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform)

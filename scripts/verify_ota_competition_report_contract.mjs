@@ -9,6 +9,11 @@ const assertContains = (content, needle, label) => {
     throw new Error(`${label} is missing: ${needle}`);
   }
 };
+const assertNotContains = (content, needle, label) => {
+  if (content.includes(needle)) {
+    throw new Error(`${label} must not remain: ${needle}`);
+  }
+};
 
 const controller = read('app/controller/AiDailyReport.php');
 const reportService = read('app/service/AiDailyReportService.php');
@@ -22,6 +27,7 @@ const cloudAutomation = read('app/service/CloudAutomationService.php');
 const frontend = read('public/app-main.js');
 const aiDailyStatic = read('public/ai-daily-report-static.js');
 const template = read('resources/frontend/templates/fragments/16-page-ai-daily-report.html');
+const ctripTemplate = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
 const workflow = read('.github/workflows/php.yml');
 const packageJson = JSON.parse(read('package.json'));
 const scripts = packageJson.scripts ?? {};
@@ -102,8 +108,16 @@ const scripts = packageJson.scripts ?? {};
 ].forEach(([needle, label]) => assertContains(cloudAutomation, needle, label));
 
 [
-  ["edition: 'lite'", 'frontend lite default'],
-  ["edition: aiDailyReportForm.value.edition || 'lite'", 'edition request payload'],
+  ['aiDailyCompetitionInputRows', 'Ctrip and Meituan competition-source rows'],
+  ['aiDailyCompetitionInputsReady', 'dual competition-source generation gate'],
+  ['aiDailyCompetitionInputStatusText', 'truthful competition-source readiness copy'],
+  ['syncAiDailyCompetitionInputs', 'hotel and date changes automatically refresh competition sources'],
+  ['generateCtripCompetitionReport', 'Ctrip competition toolbar report action'],
+  ["testId: 'ctrip-competition-report-lite'", 'Ctrip toolbar lite report action'],
+  ["testId: 'ctrip-competition-report-flagship'", 'Ctrip toolbar flagship report action'],
+  ["testId: 'ctrip-business-download-button'", 'existing Ctrip data download action'],
+  ['edition: requestedEdition', 'explicit quick-report edition request'],
+  ['requestedEdition: edition', 'explicit edition forwarded to the deferred exporter'],
   ["JSON.stringify({ edition: requestedEdition })", 'WeCom edition request payload'],
   ['aiDailyReportWecomConfirmOpen.value = true', 'in-app WeCom confirmation entry'],
   ['confirmAiDailyReportWecomSend', 'confirmed WeCom delivery action'],
@@ -117,17 +131,22 @@ const scripts = packageJson.scripts ?? {};
 ].forEach(([needle, label]) => assertContains(frontend, needle, label));
 
 [
+  ['const detailSections = flagship', 'lite and flagship HTML structures'],
+  ['suxios-ota-competition-${normalizedEdition}', 'edition-specific report filename'],
+  ['data-report-edition=', 'edition identity embedded in offline HTML'],
   ['report.render_contract?.bundle_id', 'report export bundle identity check'],
   ['data-bundle-id=', 'report export embeds bundle identity'],
   ["facts.competitor_count ?? '—'", 'missing competitor count display boundary'],
   ['auto_write_ota=false', 'manual execution boundary copy'],
 ].forEach(([needle, label]) => assertContains(aiDailyStatic, needle, label));
 
+assertNotContains(frontend, 'edition: aiDailyReportForm.value.edition', 'generation edition request payload');
+
 [
-  ['value="lite"', 'lite option'],
-  ['<optgroup v-if="user?.is_super_admin">', 'admin-only flagship options'],
-  ['value="flagship"', 'flagship option'],
-  ['value="both"', 'dual option'],
+  ['v-for="row in aiDailyCompetitionInputRows"', 'Ctrip and Meituan competition-source status rows'],
+  ['data-testid="ai-daily-competition-input-status"', 'competition-source readiness status'],
+  [':disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling || !aiDailyCompetitionInputsReady"', 'generation is gated by both competition sources'],
+  ['>生成分析报告</span>', 'competition report generation action'],
   ['data-testid="ai-daily-report-wecom-edition"', 'WeCom edition selector'],
   ['data-testid="ai-daily-report-wecom-result"', 'WeCom delivery result'],
   ['data-testid="ai-daily-report-wecom-part-results"', 'WeCom part delivery result'],
@@ -139,6 +158,21 @@ const scripts = packageJson.scripts ?? {};
   ['>产出报告</button>', 'user-facing report output action'],
   ['v-else-if="!aiDailyReportCompetitorChanges.length"', 'truthful competition empty state'],
 ].forEach(([needle, label]) => assertContains(template, needle, label));
+
+assertNotContains(template, 'v-model="aiDailyReportForm.edition"', 'generation edition selector');
+assertNotContains(template, 'value="both"', 'misleading dual-generation option');
+
+[
+  ['v-for="action in ctripBusinessToolbarActions"', 'Ctrip toolbar action loop'],
+  ['handleCtripBusinessToolbarAction(action)', 'edition-specific toolbar action binding'],
+].forEach(([needle, label]) => assertContains(ctripTemplate, needle, label));
+
+const liteButtonIndex = frontend.indexOf("testId: 'ctrip-competition-report-lite'");
+const flagshipButtonIndex = frontend.indexOf("testId: 'ctrip-competition-report-flagship'");
+const downloadButtonIndex = frontend.indexOf("testId: 'ctrip-business-download-button'");
+if (!(liteButtonIndex < flagshipButtonIndex && flagshipButtonIndex < downloadButtonIndex)) {
+  throw new Error('Ctrip report actions must appear immediately left of data download');
+}
 
 assertContains(
   String(scripts['verify:ota-competition-python'] ?? ''),
@@ -166,6 +200,11 @@ process.stdout.write(JSON.stringify({
     one_bundle_save_readback: true,
     lite_default: true,
     flagship_admin_only: true,
+    competition_sources_auto_read: true,
+    dual_source_generation_gate: true,
+    generation_edition_hidden: true,
+    ctrip_toolbar_report_entry: true,
+    lite_and_flagship_outputs: true,
     synthetic_guard: true,
     no_ota_auto_write: true,
     wecom_lite_for_hotel_user: true,

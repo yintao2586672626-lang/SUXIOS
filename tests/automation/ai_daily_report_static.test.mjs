@@ -258,6 +258,7 @@ test('AI daily competition export stays identity-bound and escapes rendered fact
 
   const input = {
     reportId: 17,
+    requestedEdition: 'flagship',
     fallbackReportDate: '2026-08-16',
     qualityText: '可信 <待复核>',
     editionText: '旗舰版',
@@ -288,13 +289,27 @@ test('AI daily competition export stays identity-bound and escapes rendered fact
   const result = build(input);
 
   assert.equal(result.ok, true);
-  assert.equal(result.filename, 'suxios-ota-competition-2026-08-15-r17-efghijklmnop.html');
+  assert.equal(result.edition, 'flagship');
+  assert.equal(result.filename, 'suxios-ota-competition-flagship-2026-08-15-r17-efghijklmnop.html');
+  assert.match(result.html, /data-report-edition="flagship"/);
+  assert.match(result.html, /竞品分组/);
+  assert.match(result.html, /渠道角色/);
   assert.match(result.html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.match(result.html, /&lt;携程&gt;/);
   assert.match(result.html, /事实 &amp; 证据/);
   assert.match(result.html, /legacy gap/);
   assert.match(result.html, /&lt;缺口&gt;/);
   assert.doesNotMatch(result.html, /<script>alert\(1\)<\/script>/);
+
+  const lite = build({ ...input, requestedEdition: 'lite', editionText: '旗舰版' });
+  assert.equal(lite.ok, true);
+  assert.equal(lite.edition, 'lite');
+  assert.equal(lite.filename, 'suxios-ota-competition-lite-2026-08-15-r17-efghijklmnop.html');
+  assert.match(lite.html, /data-report-edition="lite"/);
+  assert.match(lite.html, /优先动作/);
+  assert.match(lite.html, /关键数据缺口/);
+  assert.doesNotMatch(lite.html, /<h3>竞品分组<\/h3>/);
+  assert.doesNotMatch(lite.html, /渠道角色/);
 
   const mismatch = build({
     ...input,

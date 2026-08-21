@@ -98,7 +98,7 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(aiAnswers, /unknown_after_client_attempt/);
   assert.match(aiAnswers, /不得改价、改库存、创建任务、外发消息/);
   assert.match(aiAnswers, /DIRECT_MODEL_KEY = 'deepseek_v4_pro'/);
-  assert.match(aiAnswers, /operating_question_grounded_ai\.zh-CN\.v4/);
+  assert.match(aiAnswers, /PROMPT_VERSION = 'operating_question_grounded_ai\.zh-CN\.v4'/);
   assert.match(aiAnswers, /decision_frame 只是用户选择或问题关键词推断的分析组织框架/);
   assert.match(questions, /RevenueDecisionFrameService/);
   assert.match(controller, /decision_object/);
@@ -108,6 +108,10 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(questions, /whereIn\('platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
   assert.match(questions, /whereIn\('i\.platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
   assert.match(questions, /where\('quality_status', 'verified'\)/);
+  assert.match(operatingIntelligenceComponents, /AI 行动草案 · 待人工确认/);
+  assert.match(operatingIntelligenceComponents, /点击只提交本地待审批意图/);
+  assert.match(operatingIntelligenceComponents, /不会自动批准、采集或写 OTA/);
+  assert.doesNotMatch(operatingIntelligenceComponents, /提交独立评审|AI 独立评审已通过/);
 
   assert.match(globalShell, /<operating-question-consultant v-if="isLoggedIn" :ctx="\$root"><\/operating-question-consultant>/);
   assert.match(routes, /Route::post\('\/system-guidance', 'SystemGuidance\/guide'\)/);

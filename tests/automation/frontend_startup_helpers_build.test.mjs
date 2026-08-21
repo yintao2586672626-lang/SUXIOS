@@ -142,6 +142,7 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
   const aiDailyReportStatic = artifactSandbox.window.SUXI_AI_DAILY_REPORT_STATIC;
   const competitionExportInput = {
     reportId: 23,
+    requestedEdition: 'flagship',
     fallbackReportDate: '2026-08-16',
     qualityText: '可信',
     editionText: '旗舰版',
@@ -165,7 +166,7 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
   assert.equal(competitionExport.ok, true);
   assert.equal(
     competitionExport.filename,
-    'suxios-ota-competition-2026-08-16-r23-efghijklmnop.html',
+    'suxios-ota-competition-flagship-2026-08-16-r23-efghijklmnop.html',
   );
   assert.match(competitionExport.html, /&lt;可信报告&gt;/);
   assert.match(competitionExport.html, /legacy gap/);

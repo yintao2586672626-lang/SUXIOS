@@ -281,9 +281,7 @@ test('intelligent system assistant understands natural language and opens the re
   await expect(restoredJourney).toContainText('恢复携程数据后生成一份给店长查看的 AI 经营日报');
   await expect(restoredJourney).toContainText('生成和查看 AI 经营日报');
   await expect(panel.getByRole('button', { name: '继续当前任务' })).toBeVisible();
-  const operatingQuestionCalls = apiCalls.filter(call => call.pathname === '/api/agent/operating-questions');
-  expect(operatingQuestionCalls.filter(call => call.method === 'POST')).toEqual([]);
-  expect(operatingQuestionCalls.filter(call => call.method === 'GET').length).toBeGreaterThan(0);
+  expect(apiCalls.filter(call => call.pathname === '/api/agent/operating-questions')).toEqual([]);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
@@ -369,6 +367,7 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await mockAuthenticatedApi(page, apiCalls, guidanceRequests);
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('html')).toHaveAttribute('data-suxi-authenticated-interactive-ready', '1', { timeout: 15000 });
 
   const entry = page.getByTestId('system-guide-floating-entry');
   const launcher = page.getByTestId('system-guide-floating-launcher');
@@ -378,7 +377,7 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await expect(launcher).toContainText('打开助手');
   await expect(launcher.locator('.fa-chevron-up')).toHaveCount(0);
 
-  const initial = await entry.boundingBox();
+  const initial = await launcher.boundingBox();
   const launcherBox = await launcher.boundingBox();
   expect(initial).toBeTruthy();
   expect(launcherBox).toBeTruthy();
@@ -392,7 +391,7 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await page.mouse.up();
 
   await expect(entry).not.toHaveAttribute('open', '');
-  const draggedLauncher = await entry.boundingBox();
+  const draggedLauncher = await launcher.boundingBox();
   expect(draggedLauncher.x).toBeLessThan(initial.x - 150);
   expect(draggedLauncher.y).toBeLessThan(initial.y - 90);
   expect(draggedLauncher.x).toBeGreaterThanOrEqual(7);
@@ -401,8 +400,10 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   expect(draggedLauncher.y + draggedLauncher.height).toBeLessThanOrEqual(793);
 
   await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('html')).toHaveAttribute('data-suxi-authenticated-interactive-ready', '1', { timeout: 15000 });
   await expect(launcher).toBeVisible({ timeout: 15000 });
-  const restoredLauncher = await entry.boundingBox();
+  const restoredLauncher = await launcher.boundingBox();
+  expect(restoredLauncher).toBeTruthy();
   expect(Math.abs(restoredLauncher.x - draggedLauncher.x)).toBeLessThanOrEqual(2);
   expect(Math.abs(restoredLauncher.y - draggedLauncher.y)).toBeLessThanOrEqual(2);
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\HotelScopeService;
+use app\service\OperationManagementService;
 use app\service\OperatingNetworkService;
 use app\service\OperatingQuestionAiAnswerService;
 use app\service\OperatingQuestionExecutionBridgeService;
@@ -31,7 +32,10 @@ final class OperatingIntelligence extends Base
             null,
             static fn(array $payload): array => $aiAnswerService->generate($payload)
         );
-        $this->questionExecutionBridge = new OperatingQuestionExecutionBridgeService($this->questionService);
+        $this->questionExecutionBridge = new OperatingQuestionExecutionBridgeService(
+            $this->questionService,
+            new OperationManagementService()
+        );
         $this->sopService = new OperatingSopService();
         $this->networkService = new OperatingNetworkService();
         $this->hotelScope = new HotelScopeService();

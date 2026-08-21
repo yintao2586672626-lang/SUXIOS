@@ -318,6 +318,71 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         );
     }
 
+    public function testLifecycleEventContentRetryKeepsOneStableSequenceMarker(): void
+    {
+        $questionService = $this->readyQuestionService();
+        $saved = $questionService->create(
+            10,
+            20,
+            '2026-08-12 携程列表曝光用户数应复核什么？',
+            'ctrip',
+            '2026-08-12',
+            '2026-08-12',
+            7
+        );
+        $created = (new OperatingQuestionExecutionBridgeService(
+            $questionService,
+            new OperationManagementService()
+        ))->createIntent((int)$saved['question']['id'], 0, 10, [20], 7);
+        $intent = $created['execution_intent'];
+        $lifecycle = new OperationActionLifecycleService();
+        $payload = [
+            'marker' => 'manual_review_opened',
+            'external_action_performed' => false,
+        ];
+
+        $first = $lifecycle->appendEvent(
+            $intent,
+            0,
+            'pending_approval',
+            'pending_approval',
+            'manual_review_opened',
+            7,
+            $payload
+        );
+        $retry = $lifecycle->appendEvent(
+            $intent,
+            0,
+            'pending_approval',
+            'pending_approval',
+            'manual_review_opened',
+            7,
+            $payload
+        );
+
+        self::assertSame($first['id'], $retry['id']);
+        self::assertSame($first['sequence_no'], $retry['sequence_no']);
+        self::assertSame($first['content_digest'], $retry['content_digest']);
+        self::assertSame(3, $retry['sequence_no']);
+
+        $events = $lifecycle->eventsForIntent(10, 20, (int)$intent['id']);
+        self::assertCount(3, $events);
+        self::assertSame([1, 2, 3], array_column($events, 'sequence_no'));
+        self::assertSame(
+            1,
+            count(array_filter(
+                $events,
+                static fn(array $event): bool => (string)$event['event_type'] === 'manual_review_opened'
+            ))
+        );
+        self::assertSame('pending_approval', $lifecycle->currentStatus($intent, $events));
+
+        $readback = (new OperationManagementService())->readExecutionIntent((int)$intent['id'], [20]);
+        self::assertSame('pending_approval', $readback['action_management']['lifecycle']['status']);
+        self::assertSame('verified', $readback['action_management']['lifecycle']['integrity_status']);
+        self::assertSame(3, $readback['action_management']['lifecycle']['event_count']);
+    }
+
     public function testMissingFactsAndSourceDriftNeverCreateOrApproveAnIntent(): void
     {
         $missingService = new OperatingQuestionService(static fn(): array => []);

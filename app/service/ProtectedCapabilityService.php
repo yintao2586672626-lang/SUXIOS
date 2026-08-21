@@ -170,6 +170,7 @@ class ProtectedCapabilityService
                     'module' => 'operation_decision',
                     'controller_hotel_scope' => true,
                     'paths' => [
+                        ['path' => 'api/revenue-ai/cockpit/pending-approval', 'methods' => ['POST']],
                         [
                             'path' => 'api/revenue-ai/price-suggestions/*/execution-intent',
                             'methods' => ['POST'],
@@ -194,6 +195,12 @@ class ProtectedCapabilityService
                         ['path' => 'api/ota-standard/operation-optimizer/execution-intent', 'methods' => ['POST']],
                         ['path' => 'api/operation/alerts/*/execution-intent', 'methods' => ['POST']],
                         ['path' => 'api/operation/operating-sop-replications/*/execution-intent', 'methods' => ['POST']],
+                        ['path' => 'api/operation/manager-capability/cases', 'methods' => ['POST']],
+                        ['path' => 'api/operation/manager-capability/cases/*/followups', 'methods' => ['POST']],
+                        ['path' => 'api/operation/manager-capability/cases/*/adjustments', 'methods' => ['POST']],
+                        ['path' => 'api/operation/manager-capability/cases/*/score-reviews', 'methods' => ['POST']],
+                        ['path' => 'api/operating-opportunities/evaluate', 'methods' => ['POST']],
+                        ['path' => 'api/operating-opportunities/priority', 'methods' => ['POST']],
                         ['path' => 'api/operation/execution-intents', 'methods' => ['POST']],
                         ['path' => 'api/operation/execution-tasks/*', 'methods' => ['POST']],
                         ['path' => 'api/online-data/public-page-diagnosis/execution-intent', 'methods' => ['POST']],
@@ -223,6 +230,7 @@ class ProtectedCapabilityService
                     'paths' => [
                         'api/operation',
                         'api/operating-loop',
+                        ['path' => 'api/operating-opportunities', 'methods' => ['GET']],
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_operation', 'limit' => 60, 'window' => 3600],

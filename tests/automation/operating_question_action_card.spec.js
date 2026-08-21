@@ -9,12 +9,7 @@ test.use({
 });
 
 const appUrl = process.env.E2E_BASE_URL || 'http://127.0.0.1:8080/';
-const currentDate = new Date();
-const businessDate = [
-  currentDate.getFullYear(),
-  String(currentDate.getMonth() + 1).padStart(2, '0'),
-  String(currentDate.getDate()).padStart(2, '0'),
-].join('-');
+const businessDate = '2026-08-22';
 const questionDigest = 'a'.repeat(64);
 const actionDigest = 'b'.repeat(64);
 const user = {
@@ -44,7 +39,7 @@ const user = {
 };
 
 const action = {
-  contract_version: 'operating_question_action_draft.v1',
+  contract_version: 'operating_question_action_draft.v2',
   title: '复核携程曝光到详情访问链路',
   action: '人工复核目标日携程列表曝光、详情曝光和页面展示配置，并保存核对记录。',
   action_object: '携程曝光到详情访问链路',
@@ -104,8 +99,8 @@ const question = {
     ai_runtime: {
       status: 'ready',
       provider: 'deepseek',
-      model_key: 'deepseek_v4_default',
-      model: 'deepseek-v4-flash',
+      model_key: 'deepseek_v4_pro',
+      model: 'deepseek-v4-pro',
       prompt_version: 'operating_question_grounded_ai.zh-CN.v4',
       finish_reason: 'stop',
       external_llm_called: true,
@@ -223,6 +218,11 @@ const installAuthenticatedMocks = async (page, calls, {
   });
 };
 
+const setFixedQuestionBusinessDate = async (page) => {
+  await page.getByTestId('operating-question-date-start').fill(businessDate);
+  await page.getByTestId('operating-question-date-end').fill(businessDate);
+};
+
 test('grounded operating answer submits one evidence-locked action for human approval only', async ({ page }) => {
   test.setTimeout(45000);
   const calls = [];
@@ -234,6 +234,7 @@ test('grounded operating answer submits one evidence-locked action for human app
   await page.getByTestId('nav-lean-more').click();
   await page.getByTestId('nav-agent-center').click();
   await expect(page.getByTestId('operating-question-entry')).toBeVisible({ timeout: 15000 });
+  await setFixedQuestionBusinessDate(page);
 
   await page.getByPlaceholder('例如：这家店今天最需要复核什么？').fill(question.question_text);
   await page.getByRole('button', { name: '提交并回读' }).click();
@@ -255,7 +256,7 @@ test('grounded operating answer submits one evidence-locked action for human app
     '/api/agent/operating-questions',
     '/api/agent/operating-questions/71/action-drafts/0/execution-intent',
   ]);
-  expect(calls.some(call => /approve|collect|fetch|apply/.test(call.pathname) && call.method === 'POST')).toBe(false);
+  expect(calls.some(call => /approve|collect|fetch|apply|price|inventory|message/.test(call.pathname) && call.method === 'POST')).toBe(false);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
@@ -270,6 +271,7 @@ test('stale or low-confidence action remains blocked in the UI and never posts a
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
   await page.getByTestId('nav-lean-more').click();
   await page.getByTestId('nav-agent-center').click();
+  await setFixedQuestionBusinessDate(page);
   await page.getByPlaceholder('例如：这家店今天最需要复核什么？').fill(staleQuestion.question_text);
   await page.getByRole('button', { name: '提交并回读' }).click();
 

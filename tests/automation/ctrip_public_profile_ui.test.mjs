@@ -76,6 +76,9 @@ test('Ctrip public profile UI calls scoped add, read, and refresh endpoints', ()
   assert.match(source, /role,\s+replace,/);
   assert.match(source, /businessContext: \{ hotelId: systemHotelId, platform: 'ctrip' \}/);
   assert.match(source, /binding_saved_collection_failed/);
+  assert.match(source, /const options = ctripPublicProfileHotelOptions\.value;/);
+  assert.match(source, /\['ctrip-public-profiles', 'ctrip-market-competition'\]\.includes\(onlineDataTab\.value\) \? ctripPublicProfileHotelOptions\.value : ctripTargetHotelOptions\.value/);
+  assert.match(read('resources/frontend/templates/fragments/00-app-shell.html'), /\|\| !platformHotelOptions\.length/);
   assert.match(source, /mutationSeq !== ctripPublicProfileMutationSeq[\s\S]*systemHotelId !== String\(selectedCtripHotelId\.value/);
   assert.match(source, /const ctripPublicProfileBusy = computed\(\(\) => ctripPublicProfileLoading\.value[\s\S]*ctripPublicProfileArchivingId\.value\)/);
   assert.doesNotMatch(template, /ctrip-public-profile-hotel-select/);

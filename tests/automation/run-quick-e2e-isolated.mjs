@@ -75,6 +75,7 @@ const edgeOnly = process.argv.includes('--edge-only');
 const uiOnly = process.argv.includes('--ui-only');
 const moduleOnly = process.argv.includes('--module-only');
 const publicPageOnly = process.argv.includes('--public-page-only');
+const operatingQuestionOnly = process.argv.includes('--operating-question-only');
 const transitionOnly = process.argv.includes('--transition-only');
 const stabilityOnly = process.argv.includes('--stability-only');
 const fullClick = process.argv.includes('--full-click') || process.argv.includes('--full-click-bounded');
@@ -119,7 +120,12 @@ if (!/^[a-zA-Z0-9._-]+$/.test(performanceLabel)) {
 if (!['0', '1'].includes(performanceEnforceBudget)) {
   throw new Error('--performance-enforce-budget must be 0 or 1');
 }
-const specs = stabilityOnly
+const specs = operatingQuestionOnly
+  ? [
+      'tests/automation/operating_question_action_card.spec.js',
+      'tests/automation/operating_question_floating.spec.js',
+    ]
+  : stabilityOnly
   ? [
       'tests/automation/ota-auth-strong-reminder.spec.js',
       'tests/automation/security_monitoring_page.spec.js',

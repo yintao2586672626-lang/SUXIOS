@@ -368,56 +368,112 @@ final class OperationActionLifecycleService
         if ($tenantId <= 0 || $hotelId <= 0 || $intentId <= 0) {
             throw new InvalidArgumentException('运营行动生命周期身份无效');
         }
-        $latest = Db::name(self::EVENT_TABLE)
-            ->where('tenant_id', $tenantId)
-            ->where('hotel_id', $hotelId)
-            ->where('intent_id', $intentId)
-            ->order('sequence_no', 'desc')
-            ->lock(true)
-            ->find();
-        $sequence = (int)($latest['sequence_no'] ?? 0) + 1;
-        $previousDigest = strtolower(trim((string)($latest['content_digest'] ?? '')));
-        if ($fromStatus !== '' && is_array($latest)
-            && (string)($latest['to_status'] ?? '') !== $fromStatus
-        ) {
-            throw new InvalidArgumentException('运营行动生命周期已变化，请刷新后重试');
-        }
-        $createdAt = date('Y-m-d H:i:s');
-        $digestPayload = [
-            'tenant_id' => $tenantId,
-            'hotel_id' => $hotelId,
-            'intent_id' => $intentId,
-            'task_id' => max(0, $taskId),
-            'sequence_no' => $sequence,
-            'event_type' => trim($eventType),
-            'from_status' => $fromStatus,
-            'to_status' => $toStatus,
-            'actor_id' => max(0, $actorId),
-            'event_payload' => $payload,
-            'previous_digest' => $previousDigest,
-            'created_at' => $createdAt,
-        ];
-        $digest = hash('sha256', $this->canonicalJson($digestPayload));
-        $id = (int)Db::name(self::EVENT_TABLE)->insertGetId([
-            'tenant_id' => $tenantId,
-            'hotel_id' => $hotelId,
-            'intent_id' => $intentId,
-            'task_id' => max(0, $taskId),
-            'sequence_no' => $sequence,
-            'event_type' => trim($eventType),
-            'from_status' => $fromStatus,
-            'to_status' => $toStatus,
-            'actor_id' => max(0, $actorId),
-            'event_payload_json' => $this->canonicalJson($payload),
-            'previous_digest' => $previousDigest,
-            'content_digest' => $digest,
-            'created_at' => $createdAt,
-        ]);
-        $row = Db::name(self::EVENT_TABLE)->where('id', $id)->find();
-        if (!is_array($row) || !hash_equals($digest, strtolower(trim((string)($row['content_digest'] ?? ''))))) {
-            throw new RuntimeException('运营行动生命周期事件保存后回读失败');
-        }
-        return $this->normalizeEvent($row);
+        $eventType = trim($eventType);
+        $taskId = max(0, $taskId);
+        $actorId = max(0, $actorId);
+        $payloadJson = $this->canonicalJson($payload);
+
+        return Db::transaction(function () use (
+            $tenantId,
+            $hotelId,
+            $intentId,
+            $taskId,
+            $fromStatus,
+            $toStatus,
+            $eventType,
+            $actorId,
+            $payload,
+            $payloadJson
+        ): array {
+            // Lock the stable parent row before reading the latest event. A
+            // SELECT ... FOR UPDATE on an empty event set does not reliably
+            // serialize two first-event writers across supported databases.
+            $lockedIntent = Db::name('operation_execution_intents')
+                ->where('id', $intentId)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->lock(true)
+                ->find();
+            if (!is_array($lockedIntent)) {
+                throw new RuntimeException('运营行动执行意图不存在或范围已变化');
+            }
+
+            $latest = Db::name(self::EVENT_TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('intent_id', $intentId)
+                ->order('sequence_no', 'desc')
+                ->lock(true)
+                ->find();
+
+            // Content identity is the retry key. This makes a response-loss
+            // retry safe without accepting a different payload or skipping a
+            // later state transition.
+            $replayed = Db::name(self::EVENT_TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('intent_id', $intentId)
+                ->where('task_id', $taskId)
+                ->where('event_type', $eventType)
+                ->where('from_status', $fromStatus)
+                ->where('to_status', $toStatus)
+                ->where('actor_id', $actorId)
+                ->where('event_payload_json', $payloadJson)
+                ->order('sequence_no', 'desc')
+                ->find();
+            if (is_array($replayed)) {
+                return $this->normalizeEvent($replayed);
+            }
+
+            if (is_array($latest)) {
+                if ($fromStatus === '' || (string)($latest['to_status'] ?? '') !== $fromStatus) {
+                    throw new InvalidArgumentException('运营行动生命周期已变化，请刷新后重试');
+                }
+            } elseif ($fromStatus !== '') {
+                throw new InvalidArgumentException('运营行动生命周期尚未初始化');
+            }
+
+            $sequence = (int)($latest['sequence_no'] ?? 0) + 1;
+            $previousDigest = strtolower(trim((string)($latest['content_digest'] ?? '')));
+            $createdAt = date('Y-m-d H:i:s');
+            $digestPayload = [
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'intent_id' => $intentId,
+                'task_id' => $taskId,
+                'sequence_no' => $sequence,
+                'event_type' => $eventType,
+                'from_status' => $fromStatus,
+                'to_status' => $toStatus,
+                'actor_id' => $actorId,
+                'event_payload' => $payload,
+                'previous_digest' => $previousDigest,
+                'created_at' => $createdAt,
+            ];
+            $digest = hash('sha256', $this->canonicalJson($digestPayload));
+            $id = (int)Db::name(self::EVENT_TABLE)->insertGetId([
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'intent_id' => $intentId,
+                'task_id' => $taskId,
+                'sequence_no' => $sequence,
+                'event_type' => $eventType,
+                'from_status' => $fromStatus,
+                'to_status' => $toStatus,
+                'actor_id' => $actorId,
+                'event_payload_json' => $payloadJson,
+                'previous_digest' => $previousDigest,
+                'content_digest' => $digest,
+                'created_at' => $createdAt,
+            ]);
+            $row = Db::name(self::EVENT_TABLE)->where('id', $id)->find();
+            if (!is_array($row)
+                || !hash_equals($digest, strtolower(trim((string)($row['content_digest'] ?? ''))))
+            ) {
+                throw new RuntimeException('运营行动生命周期事件保存后回读失败');
+            }
+            return $this->normalizeEvent($row);
+        });
     }
 
     /**

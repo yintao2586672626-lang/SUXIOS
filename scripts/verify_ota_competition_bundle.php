@@ -13,6 +13,25 @@ function assertContract(bool $condition, string $message): void
     }
 }
 
+/** Resolve an RFC 6901 JSON Pointer against the canonical bundle root. */
+function resolveBundlePointer(array $bundle, string $pointer): mixed
+{
+    if ($pointer === '') {
+        return $bundle;
+    }
+    assertContract(str_starts_with($pointer, '/'), 'bundle source ref must be a JSON Pointer: ' . $pointer);
+    $current = $bundle;
+    foreach (explode('/', substr($pointer, 1)) as $encodedToken) {
+        $token = str_replace(['~1', '~0'], ['/', '~'], $encodedToken);
+        assertContract(
+            is_array($current) && array_key_exists($token, $current),
+            'bundle source ref does not resolve: ' . $pointer . ' (missing ' . $token . ')'
+        );
+        $current = $current[$token];
+    }
+    return $current;
+}
+
 function expectDenied(string $edition): void
 {
     try {
@@ -25,6 +44,19 @@ function expectDenied(string $edition): void
         return;
     }
     throw new RuntimeException($edition . ' must be denied for ordinary users');
+}
+
+/** @param class-string<Throwable> $expectedClass */
+function expectBuildThrowable(callable $callback, string $expectedClass, string $expectedMessage): void
+{
+    try {
+        $callback();
+    } catch (Throwable $error) {
+        assertContract($error instanceof $expectedClass, 'unexpected technical exception type: ' . get_debug_type($error));
+        assertContract($error->getMessage() === $expectedMessage, 'unexpected technical exception message');
+        return;
+    }
+    throw new RuntimeException('technical exception must not be disguised as collection_failed');
 }
 
 $date = '2026-07-23';
@@ -221,6 +253,94 @@ assertContract(
 assertContract(
     ($live['report_document']['render_contract']['commercial_release_ready'] ?? true) === false,
     'interactive report must not claim the commercial DOCX/HTML page gates'
+);
+foreach (['ctrip', 'meituan'] as $platform) {
+    $refs = (array)($live['report_document']['platform_sections'][$platform]['source_refs'] ?? []);
+    assertContract(
+        array_keys($refs) === ['facts', 'derived_metrics', 'analysis', 'candidates', 'quality'],
+        $platform . ' report section must expose the complete evidence-ref set'
+    );
+    foreach ($refs as $kind => $pointer) {
+        $resolved = resolveBundlePointer($live, (string)$pointer);
+        assertContract(
+            is_array($resolved),
+            $platform . ' ' . $kind . ' source ref must resolve to a bundle object'
+        );
+    }
+    assertContract(
+        resolveBundlePointer($live, (string)$refs['facts']) === ($live['facts'][$platform] ?? null),
+        $platform . ' facts source ref must resolve to the exact returned facts object'
+    );
+    assertContract(
+        resolveBundlePointer($live, (string)$refs['analysis']) === ($live['analysis'][$platform] ?? null),
+        $platform . ' analysis source ref must resolve to the exact returned analysis object'
+    );
+    assertContract(
+        resolveBundlePointer($live, (string)$refs['quality']) === ($live['quality'] ?? null),
+        $platform . ' quality source ref must resolve to the exact returned quality object'
+    );
+}
+foreach ((array)($live['recommendations']['items'] ?? []) as $item) {
+    assertContract(is_array($item), 'every recommendation must be an object');
+    $platform = (string)($item['platform'] ?? '');
+    assertContract(in_array($platform, ['ctrip', 'meituan'], true), 'recommendation platform is invalid');
+    $refs = array_values((array)($item['source_refs'] ?? []));
+    assertContract(
+        $refs === ['/analysis/' . $platform, '/facts/' . $platform, '/quality'],
+        $platform . ' recommendation must reference its analysis, facts and shared quality objects'
+    );
+    foreach ($refs as $pointer) {
+        assertContract(
+            is_array(resolveBundlePointer($live, (string)$pointer)),
+            $platform . ' recommendation source ref must resolve: ' . $pointer
+        );
+    }
+}
+
+$snapshotWithVerifiedMeituan = [
+    'input_trust' => ['readback_verified' => true],
+    'operation' => ['competitors' => ['meituan_rank_summary' => $meituan]],
+];
+$knownUnavailable = (new OtaCompetitionAnalysisBundleService(
+    null,
+    static fn(int $hotelId, string $startDate, string $endDate): array => [
+        'status' => 'data_missing',
+        'context' => [
+            'system_hotel_id' => $hotelId,
+            'binding_status' => 'binding_missing',
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ],
+        'business_comparison' => [],
+        'data_coverage' => ['decision_eligible_row_count' => 0],
+    ]
+))->build(80, $date, $snapshotWithVerifiedMeituan);
+assertContract(
+    ($knownUnavailable['quality']['status'] ?? '') === 'partial'
+        && ($knownUnavailable['quality']['eligible_platforms'] ?? []) === ['meituan']
+        && in_array(
+            'ctrip_source_missing',
+            array_column((array)($knownUnavailable['quality']['data_gaps'] ?? []), 'code'),
+            true
+        ),
+    'explicit Ctrip data_missing must remain a partial bundle with Meituan-only eligibility'
+);
+
+expectBuildThrowable(
+    static fn(): array => (new OtaCompetitionAnalysisBundleService(
+        null,
+        static fn(): array => throw new TypeError('ctrip_schema_type_error')
+    ))->build(80, $date, $snapshotWithVerifiedMeituan),
+    TypeError::class,
+    'ctrip_schema_type_error'
+);
+expectBuildThrowable(
+    static fn(): array => (new OtaCompetitionAnalysisBundleService(
+        null,
+        static fn(): array => throw new RuntimeException('unexpected_ctrip_storage_bug')
+    ))->build(80, $date, $snapshotWithVerifiedMeituan),
+    RuntimeException::class,
+    'unexpected_ctrip_storage_bug'
 );
 assertContract(
     ($live['content_drafts']['xiaohongshu']['status'] ?? '') === 'ready_for_human_review'

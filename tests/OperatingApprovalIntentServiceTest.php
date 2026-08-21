@@ -56,10 +56,16 @@ final class OperatingApprovalIntentServiceTest extends TestCase
             'operation_execution_intents',
             'user_hotel_permissions',
             'users',
+            'roles',
             'hotels',
         ] as $table) {
             Db::name($table)->delete(true);
         }
+
+        Db::name('roles')->insertAll([
+            ['id' => 1, 'name' => 'admin', 'level' => 1, 'permissions' => '["all"]', 'status' => 1],
+            ['id' => 3, 'name' => 'normal_user', 'level' => 3, 'permissions' => '[]', 'status' => 1],
+        ]);
 
         Db::name('hotels')->insertAll([
             [
@@ -80,9 +86,10 @@ final class OperatingApprovalIntentServiceTest extends TestCase
             ],
         ]);
         Db::name('users')->insertAll([
-            ['id' => 7, 'tenant_id' => 10, 'status' => 1],
-            ['id' => 8, 'tenant_id' => 10, 'status' => 1],
-            ['id' => 9, 'tenant_id' => 11, 'status' => 1],
+            ['id' => 1, 'tenant_id' => 7, 'role_id' => 1, 'status' => 1],
+            ['id' => 7, 'tenant_id' => 10, 'role_id' => 3, 'status' => 1],
+            ['id' => 8, 'tenant_id' => 10, 'role_id' => 3, 'status' => 1],
+            ['id' => 9, 'tenant_id' => 11, 'role_id' => 3, 'status' => 1],
         ]);
         Db::name('user_hotel_permissions')->insert([
             'tenant_id' => 10,
@@ -193,6 +200,27 @@ final class OperatingApprovalIntentServiceTest extends TestCase
         self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
     }
 
+    public function testVerifiedSuperAdminCanCreateCrossTenantPendingApprovalWithoutExecution(): void
+    {
+        $created = (new OperatingApprovalIntentService())->createPendingApproval(
+            10,
+            20,
+            '2026-08-12',
+            1,
+            self::evidenceRefs()
+        );
+
+        self::assertSame('pending_approval', $created['status']);
+        self::assertSame('readback_verified', $created['persistence_status']);
+        self::assertSame(10, $created['execution_intent']['tenant_id']);
+        self::assertSame(20, $created['execution_intent']['hotel_id']);
+        self::assertSame(1, $created['execution_intent']['created_by']);
+        self::assertSame([], $created['execution_intent']['tasks']);
+        self::assertFalse($created['execution_task_created']);
+        self::assertFalse($created['external_action_triggered']);
+        self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
+    }
+
     public function testReplayFailsClosedIfApprovalStateOrTaskHasDrifted(): void
     {
         $service = new OperatingApprovalIntentService();
@@ -260,8 +288,13 @@ final class OperatingApprovalIntentServiceTest extends TestCase
             . 'owner_user_id INTEGER NOT NULL DEFAULT 0, created_by INTEGER NOT NULL DEFAULT 0)'
         );
         Db::execute(
+            'CREATE TABLE roles ('
+            . 'id INTEGER PRIMARY KEY, name TEXT NOT NULL, level INTEGER NOT NULL, '
+            . 'permissions TEXT NOT NULL, status INTEGER NOT NULL)'
+        );
+        Db::execute(
             'CREATE TABLE users ('
-            . 'id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, status INTEGER NOT NULL)'
+            . 'id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, role_id INTEGER NOT NULL, status INTEGER NOT NULL)'
         );
         Db::execute(
             'CREATE TABLE user_hotel_permissions ('

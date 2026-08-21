@@ -194,6 +194,13 @@
                 children.push(h('details', {
                     class: 'mt-3 rounded-lg border border-indigo-100 bg-white px-3 py-2',
                     'data-testid': 'operating-question-history',
+                    onToggle: (event) => {
+                        if (event?.currentTarget?.open
+                            && (state.history_error || !state.history_loaded_hotel_id)
+                        ) {
+                            void ui?.loadHistory?.({ force: true });
+                        }
+                    },
                 }, [
                     h('summary', { class: 'cursor-pointer text-xs font-semibold text-indigo-800' }, `最近保存问答${state.history_loading ? '（读取中…）' : `（${history.length}）`}`),
                     state.history_error

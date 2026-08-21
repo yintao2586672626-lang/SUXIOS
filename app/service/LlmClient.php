@@ -814,6 +814,7 @@ class LlmClient
         array $schema,
         string $modelKey = 'deepseek_v4_pro'
     ): array {
+        $useDeepSeekProThinking = $this->isDeepSeekV4ProKey($modelKey);
         $governanceMeta = $this->schemaGovernanceMeta($schema);
         $schemaForPrompt = $this->schemaWithoutGovernance($schema);
         $prompt = $this->messagesToPrompt($messages, $schemaForPrompt);
@@ -843,9 +844,15 @@ class LlmClient
             'request_id' => $directCallNonce,
         ]), [
             'temperature' => 0.1,
-            'timeout' => 60,
-            'max_tokens' => 8192,
-            'max_retries' => 0,
+            'timeout' => $useDeepSeekProThinking ? 60 : 45,
+            // DeepSeek reasoning tokens share this budget with the final JSON.
+            // A 2K cap can finish the reasoning phase with an HTTP 200 yet leave
+            // choices[0].message.content empty, so reserve enough room for the
+            // bounded operating-question schema as well.
+            'max_tokens' => $useDeepSeekProThinking ? 8192 : 2048,
+            // A structured operating answer becomes approval evidence. Do not
+            // issue an ambiguous second provider call after a transport timeout.
+            'max_retries' => $useDeepSeekProThinking ? 0 : 1,
             'retry_base_delay_ms' => 500,
             'retry_max_delay_ms' => 1000,
             'retry_jitter_ms' => 0,
@@ -1099,6 +1106,16 @@ class LlmClient
             'external_llm_call_status' => $externalCallStatus,
             'required_direct_deepseek_v4_pro' => $deepSeekProRequest,
         ];
+    }
+
+    private function isDeepSeekV4ProKey(string $modelKey): bool
+    {
+        return in_array(strtolower(trim($modelKey)), [
+            'deepseek_v4_pro',
+            'deepseek_reasoner',
+            'deepseek-v4-pro',
+            'deepseek-reasoner',
+        ], true);
     }
 
     public function isConfiguredModelKey(string $modelKey): bool

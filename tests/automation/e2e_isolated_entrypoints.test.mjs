@@ -13,6 +13,7 @@ const {
 } = require('./e2e-helpers.js');
 
 const packageJson = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+const workflow = readFileSync(new URL('../../.github/workflows/php.yml', import.meta.url), 'utf8');
 const isolatedRunner = readFileSync(new URL('./run-quick-e2e-isolated.mjs', import.meta.url), 'utf8');
 const helpers = readFileSync(new URL('./e2e-helpers.js', import.meta.url), 'utf8');
 const businessChains = readFileSync(new URL('./business-chains.spec.js', import.meta.url), 'utf8');
@@ -32,6 +33,7 @@ test('all package E2E write-capable entrypoints route through the dedicated isol
     'test:e2e:business',
     'test:e2e:temporal',
     'test:e2e:public-page',
+    'test:e2e:operating-question',
     'test:e2e:transition',
     'test:e2e:stability',
     'test:e2e:quick',
@@ -58,6 +60,8 @@ test('every Playwright spec is classified by the isolated runner', () => {
     'frontend_full_render_transition.spec.js',
     'full-click-coverage.spec.js',
     'module-smoke.spec.js',
+    'operating_question_action_card.spec.js',
+    'operating_question_floating.spec.js',
     'ota-auth-strong-reminder.spec.js',
     'public-page-task-bridge.spec.js',
     'security_monitoring_page.spec.js',
@@ -123,6 +127,18 @@ test('public-page task bridge has a dedicated authenticated browser entrypoint',
   assert.match(publicPageTaskBridge, /调整排期并打开/);
   assert.match(publicPageTaskBridge, /重新创建待审批任务/);
   assert.match(publicPageTaskBridge, /intent_id/);
+});
+
+test('operating-question browser journeys share the dedicated isolated entrypoint', () => {
+  assert.match(isolatedRunner, /--operating-question-only/);
+  assert.match(isolatedRunner, /operating_question_action_card\.spec\.js/);
+  assert.match(isolatedRunner, /operating_question_floating\.spec\.js/);
+  assert.equal(
+    packageJson.scripts['test:e2e:operating-question'],
+    'node tests/automation/run-quick-e2e-isolated.mjs --operating-question-only',
+  );
+  assert.match(workflow, /Verify operating-question approval and floating-assistant journeys/);
+  assert.match(workflow, /run:\s+npm run test:e2e:operating-question/);
 });
 
 test('isolated runner always selects a dedicated database and self-hosted loopback server', () => {

@@ -4098,6 +4098,7 @@
         selectedPlatform = '',
         businessDate = '',
         today = '',
+        canExecuteOperation = false,
         loading = false,
         error = '',
     } = {}) => {
@@ -4481,10 +4482,12 @@
             sections,
             visibleSections: sections,
             canAskQuestion: Number(factLayer?.hotel?.system_hotel_id || overview?.hotel_id || 0) > 0 && !!date,
-            canCreatePendingApproval: requiredOtaSourcesReady,
-            actionDisabledReason: requiredOtaSourcesReady
-                ? ''
-                : '所选 OTA 范围尚未同时返回可追溯记录ID和严格回读状态，不能生成待审批行动。',
+            canCreatePendingApproval: requiredOtaSourcesReady && canExecuteOperation,
+            actionDisabledReason: !canExecuteOperation
+                ? '当前账号没有该酒店的运营执行权限，不能生成待审批行动。'
+                : (requiredOtaSourcesReady
+                    ? ''
+                    : '所选 OTA 范围尚未同时返回可追溯记录ID和严格回读状态，不能生成待审批行动。'),
         };
     };
 
@@ -4564,7 +4567,7 @@
             hotelId: String(normalizedHotelId),
             platform: String(model.selectedPlatform),
             businessDate: String(model.businessDate),
-            decisionObject: '当日经营状态与下一步人工动作',
+            decisionObject: 'channel',
             question: `${model.businessDate} ${model.selectedPlatformLabel}经营状态如何？当前${incompleteText}，最需要复核的异常、原因和人工动作是什么？`,
             notice: `已从经营驾驶舱带入：${model.selectedPlatformLabel} · ${model.businessDate}；尚未提交问题。`,
             message: '经营问题范围和问题草稿已带入，请人工确认后提交',

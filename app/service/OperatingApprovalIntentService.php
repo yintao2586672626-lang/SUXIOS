@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\model\User;
 use DateTimeImmutable;
 use InvalidArgumentException;
 use RuntimeException;
@@ -264,7 +265,7 @@ final class OperatingApprovalIntentService
 
     private function assertSchemaReady(): void
     {
-        foreach (['hotels', 'users', 'user_hotel_permissions', 'operation_execution_intents', 'operation_execution_tasks'] as $table) {
+        foreach (['hotels', 'users', 'roles', 'user_hotel_permissions', 'operation_execution_intents', 'operation_execution_tasks'] as $table) {
             try {
                 Db::query('SELECT 1 FROM `' . $table . '` LIMIT 1');
             } catch (Throwable $exception) {
@@ -284,13 +285,17 @@ final class OperatingApprovalIntentService
         if (!is_array($hotel)) {
             throw new InvalidArgumentException('operating_approval_hotel_scope_mismatch');
         }
-        $actor = Db::name('users')
-            ->where('id', $actorId)
-            ->where('tenant_id', $tenantId)
+        $actor = User::where('id', $actorId)
             ->where('status', 1)
-            ->field('id')
+            ->field('id,tenant_id,role_id,status')
             ->find();
-        if (!is_array($actor)) {
+        if (!$actor instanceof User) {
+            throw new InvalidArgumentException('operating_approval_actor_scope_mismatch');
+        }
+        if ($actor->isSuperAdmin()) {
+            return;
+        }
+        if ((int)$actor->tenant_id !== $tenantId) {
             throw new InvalidArgumentException('operating_approval_actor_scope_mismatch');
         }
         if (in_array($actorId, [(int)$hotel['owner_user_id'], (int)$hotel['created_by']], true)) {

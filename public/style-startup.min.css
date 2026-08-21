@@ -693,6 +693,7 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metric{backgr
 .suxi-app-shell main[data-current-page="lifecycle"]{--sx-page-accent:#0891b2;--sx-page-accent-dark:#0e7490;--sx-page-accent-soft:#cffafe;--sx-page-glow-rgb:8, 145, 178
 }.suxi-app-shell main[data-current-page="operation-optimizer"],
 .suxi-app-shell main[data-current-page="operating-growth-archive"],
+.suxi-app-shell main[data-current-page="operating-opportunities"],
 .suxi-app-shell main[data-current-page="ops-source"],
 .suxi-app-shell main[data-current-page="ops-analysis"],
 .suxi-app-shell main[data-current-page="ops-insight"],

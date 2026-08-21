@@ -833,7 +833,7 @@
                                                     <span class="mb-1.5 block text-xs font-medium" style="color:rgba(236,253,245,.65)">酒店</span>
                                                     <select v-model="filterReportHotel" :disabled="revenueCockpitLoading" class="w-full rounded-lg border px-3 py-2 text-sm text-white outline-none focus:border-amber-300 disabled:opacity-50" style="border-color:rgba(255,255,255,.15);background:rgba(255,255,255,.1)" data-testid="revenue-cockpit-hotel">
                                                         <option value="" class="text-slate-900">请选择酒店</option>
-                                                        <option v-for="item in otaDiagnosisHotelOptions" :key="`cockpit-hotel-${item.value}`" :value="item.value" class="text-slate-900">{{ item.label }}</option>
+                                                        <option v-for="item in otaDiagnosisHotelOptions" :key="`cockpit-hotel-${item.value}`" :value="item.value" class="text-slate-900">{{ item.name }}</option>
                                                     </select>
                                                 </label>
                                                 <label class="block">
