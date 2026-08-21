@@ -24,6 +24,7 @@ function isolatedAppUrl(value) {
 }
 
 const appUrl = isolatedAppUrl(process.env.E2E_BASE_URL || 'http://127.0.0.1:8080/');
+const FULL_RENDER_PROMOTION_TIMEOUT_MS = 15000;
 
 const user = {
   id: 701,
@@ -46,7 +47,7 @@ const user = {
 };
 
 test('five focus pages paint their heading within 300ms on first switch and revisit', async ({ page }) => {
-  test.setTimeout(45000);
+  test.setTimeout(60000);
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
   const deferredAssetNames = [
@@ -55,12 +56,36 @@ test('five focus pages paint their heading within 300ms on first switch and revi
     'app-render.min.js',
   ];
   const deferredRequestCounts = new Map(deferredAssetNames.map(name => [name, 0]));
+  const deferredManifestAssetNames = new Set();
+  const deferredAssetLifecycle = [];
+  const transitionStartedAt = Date.now();
+  const recordDeferredAssetEvent = (type, request, detail = {}) => {
+    const assetName = new URL(request.url()).pathname.split('/').at(-1);
+    if (!deferredManifestAssetNames.has(assetName)) return;
+    deferredAssetLifecycle.push({
+      type,
+      assetName,
+      elapsedMs: Date.now() - transitionStartedAt,
+      ...detail,
+    });
+  };
   page.on('request', request => {
     const assetName = new URL(request.url()).pathname.split('/').at(-1);
     if (deferredRequestCounts.has(assetName)) {
       deferredRequestCounts.set(assetName, deferredRequestCounts.get(assetName) + 1);
     }
+    recordDeferredAssetEvent('request', request);
   });
+  page.on('response', response => recordDeferredAssetEvent(
+    'response',
+    response.request(),
+    { status: response.status() },
+  ));
+  page.on('requestfailed', request => recordDeferredAssetEvent(
+    'requestfailed',
+    request,
+    { failure: request.failure()?.errorText || 'unknown' },
+  ));
 
   await page.addInitScript((profile) => {
     sessionStorage.setItem('token', 'transition-probe-token');
@@ -143,6 +168,37 @@ test('five focus pages paint their heading within 300ms on first switch and revi
     await targetControl.click();
     await expect(page.getByRole('heading', { name: target.heading, exact: true }).first()).toBeVisible({ timeout: 5000 });
   };
+  const readFullRenderDiagnostics = async () => page.evaluate(() => ({
+    renderPhase: document.documentElement.dataset.suxiRenderPhase || '',
+    fullRenderReady: document.documentElement.dataset.suxiFullRenderReady || '',
+    interactiveError: document.documentElement.dataset.suxiAuthenticatedInteractiveError || '',
+    assets: Array.from(document.querySelectorAll('[data-suxi-authenticated-asset]'), node => ({
+      name: node.dataset.suxiAuthenticatedAsset || '',
+      loaded: node.dataset.suxiAssetLoaded || '',
+    })),
+  })).catch(() => ({ unavailable: true }));
+  const waitForFullRender = async ({ cold = false } = {}) => {
+    const timeout = cold ? FULL_RENDER_PROMOTION_TIMEOUT_MS : 5000;
+    try {
+      await page.waitForFunction(() => (
+        document.documentElement.dataset.suxiRenderPhase === 'full'
+        || Boolean(document.documentElement.dataset.suxiAuthenticatedInteractiveError)
+      ), null, { timeout });
+    } catch (error) {
+      const diagnostics = await readFullRenderDiagnostics();
+      throw new Error(`${error.message}\nfull-render diagnostics: ${JSON.stringify({
+        ...diagnostics,
+        lifecycle: deferredAssetLifecycle,
+      })}`);
+    }
+    const diagnostics = await readFullRenderDiagnostics();
+    if (diagnostics.renderPhase !== 'full') {
+      throw new Error(`full-render failed: ${JSON.stringify({
+        ...diagnostics,
+        lifecycle: deferredAssetLifecycle,
+      })}`);
+    }
+  };
 
   for (const target of targets) {
     deferredRequestCounts.forEach((_, assetName) => deferredRequestCounts.set(assetName, 0));
@@ -157,10 +213,15 @@ test('five focus pages paint their heading within 300ms on first switch and revi
         link => new URL(link.href).pathname.split('/').at(-1),
       ).filter(name => names.includes(name)), deferredAssetNames);
       expect(deferredPreloads).toEqual([]);
+      const manifestNames = await page.evaluate(() => JSON.parse(
+        document.getElementById('suxi-authenticated-assets')?.textContent || '[]',
+      ).filter(asset => typeof asset === 'object' && asset?.phase === 'after-first-paint')
+        .map(asset => new URL(asset.src, document.baseURI).pathname.split('/').at(-1)));
+      manifestNames.forEach(name => deferredManifestAssetNames.add(name));
     }
     await expect(page.getByRole('heading', { name: '今日经营看板', exact: true }).first()).toBeVisible({ timeout: 15000 });
     await openTarget(target);
-    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.suxiRenderPhase)).toBe('full');
+    await waitForFullRender({ cold: evidence.length === 0 });
     for (const assetName of deferredAssetNames) {
       expect(deferredRequestCounts.get(assetName), `${assetName} must load for the first full-render page`).toBeGreaterThan(0);
     }

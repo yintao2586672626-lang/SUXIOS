@@ -394,6 +394,27 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 - 经营问题隔离 E2E `7/7` 通过，保存、回读、待人工审批等原业务闭环未回归，清理后测试数据为 `0`；
 - 与 CI 同合同的认证首页测量连续 `5/5` 轮通过、无重试：每轮 API `4`、重复路由 `0`、运行预算 `failures=[]`。
 
+### F-19 — P1（CI 合同稳定性）— 完整样式延迟后，旧 transition 测试在冷资源尚未落终态时中断
+
+#### 复现与根因
+
+两个不同 PR head 的 GitHub Node job 都在同一位置失败：首个非 Compass 页面标题已经可见，但 `suxiRenderPhase` 在 Playwright 隐式 `5 s` poll 内仍为 `startup`；测试随即关闭页面，中断尚未结束的 deferred 请求，复用同一个单进程 PHP origin 的下一用例又发生 `page.goto` 超时。该失败早于 F-18 修复，因此可排除经营问答 scope gating 的因果关系。
+
+相对旧 `main`，`style.min.css`（约 432 KB）和 `ai-custom.css` 已从启动链移到 `after-first-paint`，这是守住启动 gzip 目标所需的正确 split/defer；但 transition 测试仍沿用旧资产图下的隐式 5 秒资源 settle。旧 `main` 的同一测试在 GitHub 冷环境总耗时已约 `5.1 s`，新资产图继续把完整样式成本强塞进同一隐式窗口并不自洽。
+
+#### 修复
+
+- 保留真正面向用户的标题首显 `≤300 ms` 硬断言，不恢复完整样式到启动链，也不在 Compass 无条件预热；
+- 把“标题响应 SLA”和“隔离冷 origin 的完整资源收敛”拆成两个合同：冷首轮允许 `15 s`，后续缓存切换仍保持 `5 s`；
+- 测试必须等待 `full` 或显式 `suxiAuthenticatedInteractiveError` 终态后才能结束，避免把中断中的静态请求级联给下一测试；
+- 失败证据新增 deferred manifest 每个资源的 request、response status、requestfailed、相对耗时，以及 render phase、full-render-ready、interactive error 和 DOM asset loaded 状态。
+
+#### 验证与边界
+
+- Windows 隔离 origin 的暖缓存与临时冷 gzip 缓存均 `2/2` 通过；测试数据清理后为 `0`；
+- 该修复没有改产品加载策略、没有提高启动 gzip/运行 API 预算，也没有把冷资源 settle 写成用户交互性能达标；
+- `app-bootstrap` 的单资产加载 Promise 仍没有自身有界超时，属于非阻断 P2：若浏览器既不触发 `load` 也不触发 `error`，完整渲染可长期 pending。后续应在 loader 内增加带资产名的 terminal timeout，并单独验证，不应把它与本轮 CI 时序合同混为一谈。
+
 ## 5. 审批和真实经营动作边界
 
 本轮明确拒绝“AI 自动审批”路径。最终保留的闭环是：
@@ -601,6 +622,7 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 | 公开页面隔离 E2E | `1/1` 通过；保存/回读/待审批/调整/拒绝/重试完整，清理后计数 0 |
 | 经营问题隔离 E2E | `7/7` 通过；Compass scope GET `0`，首次进入 Agent 后稳定为 `1`；清理后计数 0 |
 | 快速业务隔离 E2E | `5/5` 通过，清理后计数 0 |
+| 完整渲染切换 E2E | `2/2` 通过；标题 `≤300 ms` 合同保持，冷/暖资源 settle 分离，清理后计数 0 |
 | business-page contract | `87/87` 通过 |
 | context assets | 通过 |
 | source hotspot budget | 通过 |
