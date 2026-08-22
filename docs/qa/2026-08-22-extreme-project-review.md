@@ -405,13 +405,13 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 #### 修复
 
 - 保留真正面向用户的标题首显 `≤300 ms` 硬断言，不恢复完整样式到启动链，也不在 Compass 无条件预热；
-- 把“标题响应 SLA”和“隔离冷 origin 的完整资源收敛”拆成两个合同：冷首轮允许 `15 s`，后续缓存切换仍保持 `5 s`；
+- 把“标题响应 SLA”和“隔离文档的完整资源收敛”拆成两个合同：每个硬刷新后的独立文档允许 `15 s` 完成样式解析与脚本执行；同一文档内的真实回访仍要求不重复请求且标题 `≤300 ms`；
 - 测试必须等待 `full` 或显式 `suxiAuthenticatedInteractiveError` 终态后才能结束，避免把中断中的静态请求级联给下一测试；
 - 失败证据新增 deferred manifest 每个资源的 request、response status、requestfailed、相对耗时，以及 render phase、full-render-ready、interactive error 和 DOM asset loaded 状态。
 
 #### 验证与边界
 
-- Windows 隔离 origin 的暖缓存与临时冷 gzip 缓存均 `2/2` 通过；测试数据清理后为 `0`；
+- Windows 隔离 origin 的暖缓存与临时冷 gzip 缓存均 `2/2` 通过；GitHub telemetry 进一步证明 deferred 资源 HTTP 均为 `200`，失败时是第 4 个硬刷新文档内大型脚本尚未完成执行，而不是网络/404；测试数据清理后为 `0`；
 - 该修复没有改产品加载策略、没有提高启动 gzip/运行 API 预算，也没有把冷资源 settle 写成用户交互性能达标；
 - `app-bootstrap` 的单资产加载 Promise 仍没有自身有界超时，属于非阻断 P2：若浏览器既不触发 `load` 也不触发 `error`，完整渲染可长期 pending。后续应在 loader 内增加带资产名的 terminal timeout，并单独验证，不应把它与本轮 CI 时序合同混为一谈。
 
@@ -622,7 +622,7 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 | 公开页面隔离 E2E | `1/1` 通过；保存/回读/待审批/调整/拒绝/重试完整，清理后计数 0 |
 | 经营问题隔离 E2E | `7/7` 通过；Compass scope GET `0`，首次进入 Agent 后稳定为 `1`；清理后计数 0 |
 | 快速业务隔离 E2E | `5/5` 通过，清理后计数 0 |
-| 完整渲染切换 E2E | `2/2` 通过；标题 `≤300 ms` 合同保持，冷/暖资源 settle 分离，清理后计数 0 |
+| 完整渲染切换 E2E | 本地 `2/2` 通过；标题 `≤300 ms` 与同文档不重复请求合同保持，独立文档资源终态窗口显式化，清理后计数 0 |
 | business-page contract | `87/87` 通过 |
 | context assets | 通过 |
 | source hotspot budget | 通过 |

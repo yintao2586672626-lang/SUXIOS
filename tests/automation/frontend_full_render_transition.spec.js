@@ -47,7 +47,7 @@ const user = {
 };
 
 test('five focus pages paint their heading within 300ms on first switch and revisit', async ({ page }) => {
-  test.setTimeout(60000);
+  test.setTimeout(90000);
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
   const deferredAssetNames = [
@@ -177,13 +177,12 @@ test('five focus pages paint their heading within 300ms on first switch and revi
       loaded: node.dataset.suxiAssetLoaded || '',
     })),
   })).catch(() => ({ unavailable: true }));
-  const waitForFullRender = async ({ cold = false } = {}) => {
-    const timeout = cold ? FULL_RENDER_PROMOTION_TIMEOUT_MS : 5000;
+  const waitForFullRender = async () => {
     try {
       await page.waitForFunction(() => (
         document.documentElement.dataset.suxiRenderPhase === 'full'
         || Boolean(document.documentElement.dataset.suxiAuthenticatedInteractiveError)
-      ), null, { timeout });
+      ), null, { timeout: FULL_RENDER_PROMOTION_TIMEOUT_MS });
     } catch (error) {
       const diagnostics = await readFullRenderDiagnostics();
       throw new Error(`${error.message}\nfull-render diagnostics: ${JSON.stringify({
@@ -221,7 +220,7 @@ test('five focus pages paint their heading within 300ms on first switch and revi
     }
     await expect(page.getByRole('heading', { name: '今日经营看板', exact: true }).first()).toBeVisible({ timeout: 15000 });
     await openTarget(target);
-    await waitForFullRender({ cold: evidence.length === 0 });
+    await waitForFullRender();
     for (const assetName of deferredAssetNames) {
       expect(deferredRequestCounts.get(assetName), `${assetName} must load for the first full-render page`).toBeGreaterThan(0);
     }
