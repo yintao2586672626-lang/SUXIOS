@@ -1,13 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
+import { startLocalOriginServer } from '../../scripts/local_origin_server.mjs';
 import { formatHealthFailure } from './e2e-health-diagnostics.mjs';
 
 const root = process.cwd();
 const php = process.env.SUXI_PHP || 'C:\\xampp\\php\\php.exe';
 const helper = path.join(root, 'tests', 'automation', 'e2e-isolation-helper.php');
 const performanceOnly = process.argv.includes('--performance-only');
+const e2eHelperTimeoutMs = 10_000;
 
 function loopbackBaseURL(value) {
   const parsed = new URL(value);
@@ -30,6 +33,13 @@ const selfHosted = true;
 const appPort = Number(process.env.SUXI_E2E_APP_PORT || 18080);
 if (!Number.isInteger(appPort) || appPort < 1024 || appPort > 65535) {
   throw new Error('SUXI_E2E_APP_PORT must be an integer between 1024 and 65535');
+}
+const backendPort = Number(process.env.SUXI_E2E_BACKEND_PORT || (appPort < 65535 ? appPort + 1 : appPort - 1));
+if (!Number.isInteger(backendPort)
+  || backendPort < 1024
+  || backendPort > 65535
+  || backendPort === appPort) {
+  throw new Error('SUXI_E2E_BACKEND_PORT must be a different integer between 1024 and 65535');
 }
 const baseURL = loopbackBaseURL(
   process.env.E2E_BASE_URL || `http://127.0.0.1:${selfHosted ? appPort : 8080}/`,
@@ -195,6 +205,7 @@ function runHelper(action) {
     env,
     encoding: 'utf8',
     windowsHide: true,
+    timeout: e2eHelperTimeoutMs,
   });
   return parseHelperOutput(action, result);
 }
@@ -209,72 +220,84 @@ function appendServerLog(server, chunk) {
   server.suxiLog = `${server.suxiLog || ''}${String(chunk || '')}`.slice(-3000);
 }
 
-function startIsolatedServer() {
-  const useProcessGroup = process.platform !== 'win32';
-  const serverEnv = process.platform === 'win32'
-    ? e2eProcessEnv
-    : {
-        ...e2eProcessEnv,
-        PHP_CLI_SERVER_WORKERS: String(e2eProcessEnv.PHP_CLI_SERVER_WORKERS || '4'),
-      };
-  const server = spawn(php, ['-S', `127.0.0.1:${appPort}`, '-t', 'public', 'public/router.php'], {
+async function startIsolatedServer() {
+  const occupiedPorts = [];
+  for (const port of [appPort, backendPort]) {
+    if (await isolatedServerPortReachable(port)) occupiedPorts.push(port);
+  }
+  if (occupiedPorts.length > 0) {
+    throw new Error(`Isolated E2E requires free origin/backend ports: ${occupiedPorts.join('/')}`);
+  }
+  const server = spawn(php, ['-S', `127.0.0.1:${backendPort}`, '-t', 'public', 'public/router.php'], {
     cwd: root,
-    env: serverEnv,
-    detached: useProcessGroup,
+    env: e2eProcessEnv,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.suxiLog = '';
   server.suxiSpawnError = null;
-  server.suxiUsesProcessGroup = useProcessGroup;
+  server.suxiClosed = false;
+  server.suxiOriginServer = null;
   server.stdout?.on('data', (chunk) => appendServerLog(server, chunk));
   server.stderr?.on('data', (chunk) => appendServerLog(server, chunk));
   server.on('error', (error) => {
     server.suxiSpawnError = error;
   });
+  server.once('close', () => {
+    server.suxiClosed = true;
+  });
+  try {
+    server.suxiOriginServer = await startLocalOriginServer({
+      host: '127.0.0.1',
+      port: appPort,
+      publicRoot: path.join(root, 'public'),
+      backendUrl: `http://127.0.0.1:${backendPort}`,
+    });
+  } catch (error) {
+    try {
+      await stopIsolatedBackend(server);
+      await waitForIsolatedPortsReleased([backendPort], 'backend');
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `Local origin failed to start and PHP backend cleanup also failed: ${cleanupError.message}`,
+      );
+    }
+    throw error;
+  }
   return server;
 }
 
 function isolatedServerProcessAlive(server) {
-  if (!server) return false;
-  if (!server.suxiUsesProcessGroup || !Number.isInteger(server.pid)) {
-    return server.exitCode === null;
-  }
-  try {
-    process.kill(-server.pid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code === 'ESRCH') return false;
-    throw error;
-  }
+  return Boolean(server) && server.suxiClosed !== true;
 }
 
 function signalIsolatedServer(server, signal) {
   try {
-    if (server.suxiUsesProcessGroup && Number.isInteger(server.pid)) {
-      process.kill(-server.pid, signal);
-    } else {
-      server.kill(signal);
-    }
+    server.kill(signal);
   } catch (error) {
     if (error?.code !== 'ESRCH') throw error;
   }
 }
 
-async function isolatedServerPortReachable() {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 250);
-  try {
-    await fetch(baseURL, { signal: controller.signal });
-    return true;
-  } catch (error) {
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
+async function isolatedServerPortReachable(port) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: '127.0.0.1', port });
+    let settled = false;
+    const finish = (reachable) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(reachable);
+    };
+    socket.setTimeout(250);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(true));
+    socket.once('error', (error) => finish(error?.code !== 'ECONNREFUSED'));
+  });
 }
 
-async function stopIsolatedServer(server) {
+async function stopIsolatedBackend(server) {
   if (!server) return;
   if (isolatedServerProcessAlive(server)) signalIsolatedServer(server, 'SIGTERM');
   for (let attempt = 0; attempt < 30 && isolatedServerProcessAlive(server); attempt += 1) {
@@ -288,17 +311,40 @@ async function stopIsolatedServer(server) {
   }
   server.stdout?.destroy();
   server.stderr?.destroy();
-  if (server.suxiUsesProcessGroup && isolatedServerProcessAlive(server)) {
-    throw new Error('Isolated E2E server process group did not stop within 5 seconds');
+  if (isolatedServerProcessAlive(server)) {
+    throw new Error('Isolated E2E PHP backend did not stop within 5 seconds');
   }
+}
+
+async function waitForIsolatedPortsReleased(ports, label = 'ports') {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (!(await isolatedServerPortReachable())) {
-      server.unref();
-      return;
-    }
+    const reachable = await Promise.all(ports.map((port) => isolatedServerPortReachable(port)));
+    if (reachable.every((value) => !value)) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`Isolated E2E server port ${appPort} remained reachable after process shutdown`);
+  throw new Error(`Isolated E2E ${label} ports ${ports.join('/')} remained bound after process shutdown`);
+}
+
+async function stopIsolatedServer(server) {
+  if (!server) return;
+  if (server.suxiOriginServer) {
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = setTimeout(finish, 2_000);
+      server.suxiOriginServer.close(finish);
+      server.suxiOriginServer.closeIdleConnections?.();
+      server.suxiOriginServer.closeAllConnections?.();
+    });
+  }
+  await stopIsolatedBackend(server);
+  await waitForIsolatedPortsReleased([appPort, backendPort], 'origin/backend');
+  server.unref();
 }
 
 async function verifyHealth(server = null) {
@@ -399,7 +445,158 @@ async function verifyIsolatedIdentity(seed) {
   console.log(`[e2e-isolation] preflight role_id=${seed.role_id} is_super_admin=false permissions=all permitted_hotels=1 tenant_id=${seed.tenant_id}`);
 }
 
-function runPlaywright(seed) {
+let activeNodeChild = null;
+let activeNodeChildKillTimer = null;
+let requestedShutdownSignal = null;
+let controllerShutdownRequested = false;
+let controllerShutdownReleaseResolver = null;
+let normalControllerDisconnectInitiated = false;
+let cleanupSequenceFinished = false;
+const controllerShutdownRequestType = 'suxi-isolated-shutdown-request';
+const controllerShutdownCompleteType = 'suxi-isolated-shutdown-complete';
+const controllerShutdownReleaseType = 'suxi-isolated-shutdown-release';
+
+function forceStopNodeChildTree(child) {
+  if (!child || !Number.isInteger(child.pid)) return;
+  if (process.platform === 'win32') {
+    if (child.exitCode !== null) return;
+    spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    return;
+  }
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+  }
+}
+
+function requestActiveNodeChildShutdown() {
+  const child = activeNodeChild;
+  if (!child || child.exitCode !== null) return;
+  if (process.platform === 'win32') {
+    forceStopNodeChildTree(child);
+    return;
+  }
+  try {
+    process.kill(-child.pid, 'SIGTERM');
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+  }
+  if (activeNodeChildKillTimer === null) {
+    activeNodeChildKillTimer = setTimeout(() => forceStopNodeChildTree(child), 5_000);
+  }
+}
+
+function handleProcessShutdownSignal(signal) {
+  requestedShutdownSignal ||= signal;
+  requestActiveNodeChildShutdown();
+}
+
+process.on('SIGINT', () => handleProcessShutdownSignal('SIGINT'));
+process.on('SIGTERM', () => handleProcessShutdownSignal('SIGTERM'));
+process.on('message', (message) => {
+  if (message?.type === controllerShutdownRequestType) {
+    controllerShutdownRequested = true;
+    handleProcessShutdownSignal(message.signal === 'SIGINT' ? 'SIGINT' : 'SIGTERM');
+    return;
+  }
+  if (message?.type === controllerShutdownReleaseType) {
+    controllerShutdownReleaseResolver?.();
+  }
+});
+process.on('disconnect', () => {
+  if (!normalControllerDisconnectInitiated && !cleanupSequenceFinished) {
+    controllerShutdownRequested = true;
+    handleProcessShutdownSignal('SIGTERM');
+  }
+});
+
+async function acknowledgeControllerShutdown(cleanupComplete) {
+  if (!process.connected) return;
+  if (!controllerShutdownRequested || typeof process.send !== 'function') {
+    normalControllerDisconnectInitiated = true;
+    process.disconnect();
+    return;
+  }
+  await new Promise((resolve) => {
+    let settled = false;
+    const onDisconnect = () => finish();
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      process.off('disconnect', onDisconnect);
+      if (controllerShutdownReleaseResolver === finish) controllerShutdownReleaseResolver = null;
+      resolve();
+    };
+    const timeout = setTimeout(finish, 5_000);
+    controllerShutdownReleaseResolver = finish;
+    process.once('disconnect', onDisconnect);
+    try {
+      process.send({
+        type: controllerShutdownCompleteType,
+        cleanup_complete: cleanupComplete,
+        origin_port: appPort,
+        backend_port: backendPort,
+      }, (error) => {
+        if (error) finish();
+      });
+    } catch (error) {
+      finish();
+    }
+  });
+  if (process.connected) {
+    normalControllerDisconnectInitiated = true;
+    process.disconnect();
+  }
+}
+
+function runNodeChild(args, env) {
+  return new Promise((resolve) => {
+    if (requestedShutdownSignal) {
+      resolve({ error: null, status: null, signal: requestedShutdownSignal });
+      return;
+    }
+    if (activeNodeChild) {
+      resolve({
+        error: new Error('Isolated E2E runner already owns an active Node child'),
+        status: null,
+        signal: null,
+      });
+      return;
+    }
+    const child = spawn(process.execPath, args, {
+      cwd: root,
+      stdio: 'inherit',
+      detached: process.platform !== 'win32',
+      windowsHide: true,
+      env,
+    });
+    activeNodeChild = child;
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (requestedShutdownSignal && process.platform !== 'win32') {
+        forceStopNodeChildTree(child);
+      }
+      if (activeNodeChild === child) activeNodeChild = null;
+      if (activeNodeChildKillTimer !== null) {
+        clearTimeout(activeNodeChildKillTimer);
+        activeNodeChildKillTimer = null;
+      }
+      resolve(result);
+    };
+    child.once('error', (error) => finish({ error, status: null, signal: null }));
+    child.once('close', (status, signal) => finish({ error: null, status, signal }));
+    if (requestedShutdownSignal) requestActiveNodeChildShutdown();
+  });
+}
+
+async function runPlaywright(seed) {
   const isolatedEnv = {
     ...e2eProcessEnv,
     E2E_BASE_URL: baseURL,
@@ -412,19 +609,14 @@ function runPlaywright(seed) {
     SUXI_E2E_ISOLATED_RUNNER: '1',
   };
   if (codexProfile) {
-    return spawnSync(process.execPath, [
+    return runNodeChild([
       'scripts/codex_automation_runner.mjs',
       `--profile=${codexProfile}`,
       `--iterations=${codexIterations || (codexProfile === 'quick' ? '1' : '10')}`,
-    ], {
-      cwd: root,
-      stdio: 'inherit',
-      windowsHide: true,
-      env: isolatedEnv,
-    });
+    ], isolatedEnv);
   }
   if (performanceOnly) {
-    return spawnSync(process.execPath, [
+    return runNodeChild([
       'scripts/measure_frontend_performance.mjs',
       `--url=${baseURL}`,
       `--label=${performanceLabel}`,
@@ -433,12 +625,7 @@ function runPlaywright(seed) {
       `--network=${performanceNetwork}`,
       '--require-verified=1',
       `--enforce-budget=${performanceEnforceBudget}`,
-    ], {
-      cwd: root,
-      stdio: 'inherit',
-      windowsHide: true,
-      env: isolatedEnv,
-    });
+    ], isolatedEnv);
   }
 
   const cli = path.join(root, 'node_modules', '@playwright', 'test', 'cli.js');
@@ -454,57 +641,84 @@ function runPlaywright(seed) {
       E2E_LOOP: process.env.E2E_LOOP || process.env.E2E_FULL_MAX_LOOP || '3',
     } : {}),
   } : {};
-  return spawnSync(process.execPath, [cli, 'test', ...specs, ...focusArgs, '--workers=1', '--reporter=list'], {
-    cwd: root,
-    stdio: 'inherit',
-    windowsHide: true,
-    env: {
+  return runNodeChild(
+    [cli, 'test', ...specs, ...focusArgs, '--workers=1', '--reporter=list'],
+    {
       ...isolatedEnv,
       ...fullClickEnv,
     },
-  });
+  );
+}
+
+class ControlledShutdownError extends Error {}
+
+function assertRunContinues() {
+  if (requestedShutdownSignal) {
+    throw new ControlledShutdownError(`shutdown requested by ${requestedShutdownSignal}`);
+  }
 }
 
 let exitCode = 1;
 let primaryError = null;
 let databaseGuardPassed = false;
 let isolatedServer = null;
+let databaseCleanupVerified = false;
+let serverCleanupVerified = !selfHosted;
+let localStateCleanupVerified = false;
 try {
   const databaseSafety = runHelper('guard');
   databaseGuardPassed = true;
   console.log(`[e2e-isolation] database-guard mode=${databaseSafety.mode} host_scope=${databaseSafety.database_host_scope} schema=${databaseSafety.schema_contract}`);
+  assertRunContinues();
   if (selfHosted) {
-    isolatedServer = startIsolatedServer();
-    console.log(`[e2e-isolation] server database=${dedicatedDatabaseName} base_url=${baseURL}`);
+    isolatedServer = await startIsolatedServer();
+    console.log(`[e2e-isolation] server database=${dedicatedDatabaseName} base_url=${baseURL} backend_port=${backendPort}`);
   }
+  assertRunContinues();
   await verifyHealth(isolatedServer);
+  assertRunContinues();
   const baseline = runHelper('count');
   formatCounts('baseline', baseline);
   if (Number(baseline.total || 0) !== 0) {
     throw new Error('Fresh E2E prefix unexpectedly matches existing data');
   }
+  assertRunContinues();
 
   const seed = runHelper('seed');
   seededHotelId = Number(seed.hotel_id || 0);
   seededUserId = Number(seed.user_id || 0);
   seededTenantId = Number(seed.tenant_id || 0);
   console.log(`[e2e-isolation] seeded prefix=${objectPrefix} tenant_id=${seed.tenant_id} user_id=${seed.user_id} hotel_id=${seed.hotel_id}`);
+  assertRunContinues();
   await verifyIsolatedIdentity(seed);
+  assertRunContinues();
   if (preflightOnly) {
     exitCode = 0;
   } else {
-    const result = runPlaywright(seed);
+    // Keep the parent event loop live while the child runs because the local
+    // origin server is hosted by this process.
+    const result = await runPlaywright(seed);
     if (result.error) {
       throw new Error(`Playwright could not start: ${result.error.message}`);
     }
     if (result.signal) {
-      throw new Error(`Playwright stopped by signal ${result.signal}`);
+      if (requestedShutdownSignal) {
+        exitCode = requestedShutdownSignal === 'SIGINT' ? 130 : 143;
+      } else {
+        throw new Error(`Playwright stopped by signal ${result.signal}`);
+      }
+    } else {
+      exitCode = Number.isInteger(result.status) ? result.status : 1;
     }
-    exitCode = Number.isInteger(result.status) ? result.status : 1;
   }
 } catch (error) {
-  primaryError = error;
-  console.error(`[e2e-isolation] ${error.message}`);
+  if (error instanceof ControlledShutdownError) {
+    exitCode = requestedShutdownSignal === 'SIGINT' ? 130 : 143;
+    console.log(`[e2e-isolation] ${error.message}`);
+  } else {
+    primaryError = error;
+    console.error(`[e2e-isolation] ${error.message}`);
+  }
 } finally {
   if (!databaseGuardPassed) {
     console.error('[e2e-isolation] cleanup skipped because the database safety guard did not pass');
@@ -535,6 +749,7 @@ try {
     if (Number(afterCleanup.total || 0) !== 0) {
       throw new Error(`Cleanup left ${afterCleanup.total} prefixed object(s)`);
     }
+    databaseCleanupVerified = true;
   } catch (error) {
     primaryError ||= error;
     exitCode = 1;
@@ -543,7 +758,14 @@ try {
   }
 
   if (isolatedServer) {
-    await stopIsolatedServer(isolatedServer);
+    try {
+      await stopIsolatedServer(isolatedServer);
+      serverCleanupVerified = true;
+    } catch (error) {
+      primaryError ||= error;
+      exitCode = 1;
+      console.error(`[e2e-isolation] server cleanup failed: ${error.message}`);
+    }
   }
 
   try {
@@ -551,6 +773,7 @@ try {
       throw new Error('Refusing to remove an E2E state path outside runtime/e2e-state');
     }
     rmSync(isolatedStateRoot, { recursive: true, force: true });
+    localStateCleanupVerified = true;
     console.log(`[e2e-isolation] local-state-cleanup prefix=${objectPrefix} removed=1`);
   } catch (error) {
     primaryError ||= error;
@@ -559,7 +782,18 @@ try {
   }
 }
 
+cleanupSequenceFinished = true;
+
+await acknowledgeControllerShutdown(
+  databaseCleanupVerified
+    && serverCleanupVerified
+    && localStateCleanupVerified
+    && activeNodeChild === null,
+);
+
 if (primaryError) {
   exitCode = 1;
+} else if (requestedShutdownSignal) {
+  exitCode = requestedShutdownSignal === 'SIGINT' ? 130 : 143;
 }
 process.exitCode = exitCode;

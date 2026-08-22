@@ -330,6 +330,7 @@
         for (let attempt = 0; attempt <= DEFERRED_AUTHENTICATED_ASSET_RETRY_LIMIT; attempt += 1) {
             const remainingMs = remainingDeferredManifestMs(deadlineEpochMs);
             if (remainingMs <= 0) throw createDeferredManifestTimeoutError();
+            const assetTimeoutMs = Math.min(DEFERRED_AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS, remainingMs);
             try {
                 // The loop below is the execution-order barrier for scripts, so
                 // each inserted deferred script can use the browser's independent
@@ -340,9 +341,16 @@
                 }, {
                     ordered: false,
                     canonicalSrc: asset.src,
-                    timeoutMs: Math.min(DEFERRED_AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS, remainingMs),
+                    timeoutMs: assetTimeoutMs,
                 });
             } catch (error) {
+                // When the manifest's remaining lifetime shortened this asset's
+                // timer, both timers represent the same terminal deadline. Keep
+                // the externally visible failure deterministic even if the event
+                // loop happens to dispatch the asset timer first.
+                if (error?.cause === 2 && assetTimeoutMs === remainingMs) {
+                    throw createDeferredManifestTimeoutError();
+                }
                 lastError = error;
                 if (error?.cause !== 1) throw error;
             }

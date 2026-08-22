@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -13,32 +13,191 @@ const outputDir = path.resolve(root, 'output', 'performance');
 const aggregateLabel = 'isolated-authenticated-baseline';
 const isolationRunCount = 5;
 const isolationRunTimeoutMs = 120_000;
+const isolationRunShutdownGraceMs = 45_000;
+const childOutputLimit = 10 * 1024 * 1024;
+const controllerShutdownRequestType = 'suxi-isolated-shutdown-request';
+const controllerShutdownCompleteType = 'suxi-isolated-shutdown-complete';
+const controllerShutdownReleaseType = 'suxi-isolated-shutdown-release';
 const reports = [];
 const runs = [];
 let expectedNetworkProfile = '';
 let expectedUrl = '';
 let expectedArtifactDigest = '';
+let activeIsolationShutdown = null;
+let parentShutdownSignal = null;
 
 fs.mkdirSync(outputDir, { recursive: true });
 
+function appendBoundedOutput(current, chunk) {
+  const combined = `${current}${String(chunk || '')}`;
+  return combined.length > childOutputLimit ? combined.slice(-childOutputLimit) : combined;
+}
+
+function signalChildTree(child, signal) {
+  if (!child || !Number.isInteger(child.pid)) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+  }
+}
+
+function forceStopChildTree(child) {
+  if (!child || !Number.isInteger(child.pid)) return;
+  if (process.platform === 'win32') {
+    if (child.exitCode !== null) return;
+    spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    return;
+  }
+  signalChildTree(child, 'SIGKILL');
+}
+
+function requestIsolatedPerformanceShutdown(child, signal = 'SIGTERM') {
+  if (child?.connected && typeof child.send === 'function') {
+    try {
+      child.send({
+        type: controllerShutdownRequestType,
+        signal: signal === 'SIGINT' ? 'SIGINT' : 'SIGTERM',
+      }, (error) => {
+        if (error) forceStopChildTree(child);
+      });
+      return true;
+    } catch (error) {
+      // Fall through to the process-group safety net on POSIX.
+    }
+  }
+  if (process.platform !== 'win32') {
+    signalChildTree(child, signal);
+    return true;
+  }
+  return false;
+}
+
+function runIsolatedPerformanceChild(args) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, args, {
+      cwd: root,
+      env: process.env,
+      detached: process.platform !== 'win32',
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let timedOut = false;
+    let forceTimer = null;
+    let cleanupAcknowledged = false;
+    let pendingCloseResult = null;
+    let shutdownStarted = false;
+    child.stdout?.on('data', (chunk) => {
+      stdout = appendBoundedOutput(stdout, chunk);
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr = appendBoundedOutput(stderr, chunk);
+    });
+    child.on('message', (message) => {
+      if (!shutdownStarted || message?.type !== controllerShutdownCompleteType) return;
+      if (message.cleanup_complete !== true) {
+        forceStopChildTree(child);
+        if (forceTimer !== null) {
+          clearTimeout(forceTimer);
+          forceTimer = null;
+        }
+        return;
+      }
+      cleanupAcknowledged = true;
+      if (forceTimer !== null) {
+        clearTimeout(forceTimer);
+        forceTimer = null;
+      }
+      try {
+        child.send({ type: controllerShutdownReleaseType }, (error) => {
+          if (error) forceStopChildTree(child);
+        });
+      } catch (error) {
+        forceStopChildTree(child);
+      }
+      if (pendingCloseResult !== null) {
+        const result = pendingCloseResult;
+        pendingCloseResult = null;
+        finish(result);
+      }
+    });
+    const beginShutdown = (signal, timeoutFailure = false) => {
+      if (shutdownStarted) return;
+      shutdownStarted = true;
+      timedOut = timeoutFailure;
+      if (!requestIsolatedPerformanceShutdown(child, signal)) {
+        forceStopChildTree(child);
+        return;
+      }
+      forceTimer = setTimeout(() => {
+        forceTimer = null;
+        forceStopChildTree(child);
+        if (pendingCloseResult !== null) {
+          const result = pendingCloseResult;
+          pendingCloseResult = null;
+          finish(result);
+        }
+      }, isolationRunShutdownGraceMs);
+    };
+    activeIsolationShutdown = (signal) => beginShutdown(signal, false);
+    const timeout = setTimeout(() => beginShutdown('SIGTERM', true), isolationRunTimeoutMs);
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (forceTimer !== null) clearTimeout(forceTimer);
+      if (activeIsolationShutdown !== null) activeIsolationShutdown = null;
+      resolve({ ...result, stdout, stderr, cleanupAcknowledged });
+    };
+    child.once('error', (error) => finish({ error, status: null, signal: null }));
+    child.once('close', (status, signal) => {
+      const error = timedOut
+        ? Object.assign(new Error(`isolated child exceeded ${isolationRunTimeoutMs} ms`), { code: 'ETIMEDOUT' })
+        : null;
+      const result = { error, status, signal };
+      if (shutdownStarted && !cleanupAcknowledged && forceTimer !== null) {
+        pendingCloseResult = result;
+        return;
+      }
+      finish(result);
+    });
+  });
+}
+
+function handleParentShutdownSignal(signal) {
+  parentShutdownSignal ||= signal;
+  process.exitCode = parentShutdownSignal === 'SIGINT' ? 130 : 143;
+  activeIsolationShutdown?.(parentShutdownSignal);
+}
+
+process.on('SIGINT', () => handleParentShutdownSignal('SIGINT'));
+process.on('SIGTERM', () => handleParentShutdownSignal('SIGTERM'));
+
+performanceMeasurement: {
 for (let isolationRun = 1; isolationRun <= isolationRunCount; isolationRun += 1) {
+  if (parentShutdownSignal) {
+    process.exitCode = parentShutdownSignal === 'SIGINT' ? 130 : 143;
+    break performanceMeasurement;
+  }
   const fragmentLabel = `ci-isolated-authenticated-${isolationRun}`;
   console.log(`[frontend-performance-ci] isolation_run=${isolationRun} phase=start`);
-  const child = spawnSync(process.execPath, [
+  const child = await runIsolatedPerformanceChild([
     'tests/automation/run-quick-e2e-isolated.mjs',
     '--performance-only',
     '--performance-iterations=1',
     `--performance-label=${fragmentLabel}`,
     '--performance-enforce-budget=0',
-  ], {
-    cwd: root,
-    env: process.env,
-    encoding: 'utf8',
-    timeout: isolationRunTimeoutMs,
-    killSignal: 'SIGKILL',
-    maxBuffer: 10 * 1024 * 1024,
-    windowsHide: true,
-  });
+  ]);
+  if (parentShutdownSignal) {
+    process.exitCode = parentShutdownSignal === 'SIGINT' ? 130 : 143;
+    break performanceMeasurement;
+  }
   if (child.error || child.signal || child.status !== 0) {
     const detail = `${child.stderr || ''}\n${child.stdout || ''}`.trim().slice(-4_000);
     throw new Error(
@@ -89,6 +248,11 @@ for (let isolationRun = 1; isolationRun <= isolationRunCount; isolationRun += 1)
   );
 }
 
+if (parentShutdownSignal) {
+  process.exitCode = parentShutdownSignal === 'SIGINT' ? 130 : 143;
+  break performanceMeasurement;
+}
+
 const aggregate = summarizeFrontendPerformanceRuns(runs);
 const firstReport = reports[0] || {};
 const firstRun = runs[0] || {};
@@ -134,4 +298,5 @@ console.log(JSON.stringify({
 
 if (aggregate.unverified_run_count > 0) {
   process.exitCode = 2;
+}
 }
