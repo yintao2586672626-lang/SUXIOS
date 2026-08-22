@@ -117,6 +117,11 @@ test('CI isolates static contracts from runtime performance and preserves authen
   assert.match(ciMeasurement, /fresh_server_seed_and_browser_per_run/);
   assert.match(ciMeasurement, /summarizeFrontendPerformanceRuns\(runs\)/);
   assert.match(ciMeasurement, /evaluateFrontendRuntimeBudget\(result\)/);
+  assert.doesNotMatch(
+    ciMeasurement,
+    /runtime_budget\.failures\.length[\s\S]*process\.exitCode\s*=\s*3/,
+    'measurement must preserve the report so the independent verifier is the budget gate',
+  );
   assert.match(ciMeasurement, /expectedArtifactDigest/);
   assert.match(measurement, /const maxMeasurementAttempts = 2/);
   assert.match(measurement, /browser = await chromium\.launch/);
@@ -126,6 +131,9 @@ test('CI isolates static contracts from runtime performance and preserves authen
   assert.match(measurement, /page\.on\('pageerror'/);
   assert.match(measurement, /text\.startsWith\('\[SUXIOS\]'\)/);
   assert.match(measurement, /startup_diagnostics: startupDiagnostics/);
+  assert.match(measurement, /long_tasks: snapshot\.longTasks\.slice\(0, 100\)/);
+  assert.match(measurement, /same_origin_asset_timings:/);
+  assert.match(measurement, /browser_launch_ms: browserLaunchMs/);
   assert.match(measurement, /\|\| startupDiagnostics\.length > 0\s*\? 'unverified'/);
   assert.match(measurement, /artifactIdentityStarted = captureFrontendPerformanceIdentity\(\)/);
   assert.match(measurement, /artifact_identity_stable: artifactIdentityStarted\.digest === artifactIdentityCompleted\.digest/);

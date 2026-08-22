@@ -81,6 +81,12 @@ test('five focus pages paint their heading within 300ms on first switch and revi
     response.request(),
     { status: response.status() },
   ));
+  page.on('requestfinished', request => {
+    const timing = request.timing();
+    recordDeferredAssetEvent('requestfinished', request, {
+      responseEndMs: Number(timing?.responseEnd ?? -1),
+    });
+  });
   page.on('requestfailed', request => recordDeferredAssetEvent(
     'requestfailed',
     request,
@@ -175,6 +181,8 @@ test('five focus pages paint their heading within 300ms on first switch and revi
     assets: Array.from(document.querySelectorAll('[data-suxi-authenticated-asset]'), node => ({
       name: node.dataset.suxiAuthenticatedAsset || '',
       loaded: node.dataset.suxiAssetLoaded || '',
+      failed: node.dataset.suxiAssetFailed || '',
+      async: node.tagName === 'SCRIPT' ? Boolean(node.async) : null,
     })),
   })).catch(() => ({ unavailable: true }));
   const waitForFullRender = async () => {
@@ -307,5 +315,61 @@ test('new-hotel three-source wizard loads after demand and renders the truthful 
   await expect(page.getByTestId('hotel-onboarding-hotel-step')).toContainText('创建、授权或保存身份不会自动采集，也不会向企业微信发送消息。');
   await expect(page.getByTestId('hotel-onboarding-create')).toHaveText('创建门店并继续');
   expect(onboardingBundleRequests, 'onboarding component bundle should be requested exactly once on demand').toBe(1);
+  expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});
+
+test('a user can retry an exhausted deferred manifest from the visible error surface', async ({ page }) => {
+  test.setTimeout(30000);
+  const pageErrors = [];
+  let failedAssetRequests = 0;
+  page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
+
+  await page.addInitScript((profile) => {
+    sessionStorage.setItem('token', 'transition-probe-token');
+    localStorage.setItem('suxios_auth_user_cache_v1', JSON.stringify({
+      saved_at: Date.now(),
+      user: profile,
+    }));
+  }, user);
+
+  await page.route('**/user-admin-static.js*', async route => {
+    failedAssetRequests += 1;
+    if (failedAssetRequests <= 2) {
+      await route.abort('failed');
+      return;
+    }
+    await route.continue();
+  });
+  await page.route('**/api/**', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    let data = { list: [], items: [], total: 0 };
+    if (pathname === '/api/auth/info') data = user;
+    if (pathname === '/api/hotels') {
+      data = {
+        list: [{ id: 7, name: 'Transition Probe Hotel', tenant_id: 7, status: 1 }],
+        total: 1,
+      };
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data, message: 'ok' }),
+    });
+  });
+
+  await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: '今日经营看板', exact: true }).first()).toBeVisible({ timeout: 15000 });
+  await page.getByText('门店管理', { exact: true }).first().click();
+  await expect(page.getByRole('button', { name: '重试完整资源', exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText('完整资源加载失败，可在当前页面重试。', { exact: true })).toBeVisible();
+  expect(failedAssetRequests).toBe(2);
+
+  await page.getByRole('button', { name: '重试完整资源', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '酒店管理', exact: true }).first()).toBeVisible({ timeout: 15000 });
+  await expect.poll(
+    () => page.evaluate(() => document.documentElement.dataset.suxiRenderPhase || ''),
+  ).toBe('full');
+  expect(failedAssetRequests).toBe(3);
+  expect(await page.evaluate(() => document.documentElement.dataset.suxiAuthenticatedInteractiveError || '')).toBe('');
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });

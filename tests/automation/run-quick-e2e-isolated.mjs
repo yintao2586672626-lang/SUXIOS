@@ -210,9 +210,15 @@ function appendServerLog(server, chunk) {
 }
 
 function startIsolatedServer() {
+  const serverEnv = process.platform === 'win32'
+    ? e2eProcessEnv
+    : {
+        ...e2eProcessEnv,
+        PHP_CLI_SERVER_WORKERS: String(e2eProcessEnv.PHP_CLI_SERVER_WORKERS || '4'),
+      };
   const server = spawn(php, ['-S', `127.0.0.1:${appPort}`, '-t', 'public', 'public/router.php'], {
     cwd: root,
-    env: e2eProcessEnv,
+    env: serverEnv,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

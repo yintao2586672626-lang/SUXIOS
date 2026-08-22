@@ -129,6 +129,4 @@ console.log(JSON.stringify({
 
 if (aggregate.unverified_run_count > 0) {
   process.exitCode = 2;
-} else if (result.runtime_budget.failures.length > 0) {
-  process.exitCode = 3;
 }

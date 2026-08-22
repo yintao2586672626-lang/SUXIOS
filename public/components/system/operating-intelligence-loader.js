@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260822-human-review-h78d2ed0355';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260822-human-review-hefb4f4c426';
     const fullStyle = 'style.min.css';
     let fullScriptPromise = null;
 
@@ -84,18 +84,42 @@
                 onClick: requestFullComponents,
             }, '加载经营问答'),
         };
-        const consultantLoading = {
-            inheritAttrs: false,
-            render: () => h('button', {
-                type: 'button',
-                class: 'fixed bottom-5 right-5 z-40 rounded-full bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg',
-                'data-testid': 'operating-question-consultant-load',
-                onClick: requestFullComponents,
-            }, '经营助手'),
+        const consultantGate = {
+            name: 'OperatingQuestionConsultantGate',
+            props: {
+                ctx: { type: Object, required: true },
+            },
+            setup(props) {
+                const fullComponent = Vue.shallowRef(null);
+                const loading = Vue.ref(false);
+                const loadError = Vue.ref('');
+                const openConsultant = async () => {
+                    if (loading.value || fullComponent.value) return;
+                    loading.value = true;
+                    loadError.value = '';
+                    try {
+                        fullComponent.value = await loadComponent('operatingQuestionConsultant');
+                    } catch (error) {
+                        loadError.value = '经营助手加载失败，点击重试';
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+                return () => fullComponent.value
+                    ? h(fullComponent.value, { ctx: props.ctx, openOnMount: true })
+                    : h('button', {
+                        type: 'button',
+                        class: 'fixed bottom-5 right-5 z-40 rounded-full bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg',
+                        'data-testid': 'operating-question-consultant-load',
+                        disabled: loading.value,
+                        'aria-busy': loading.value ? 'true' : 'false',
+                        onClick: openConsultant,
+                    }, loading.value ? '正在加载经营助手...' : (loadError.value || '经营助手'));
+            },
         };
         return Object.freeze({
             operatingQuestionPanel: buildLazyComponent('operatingQuestionPanel', panelLoading),
-            operatingQuestionConsultant: buildLazyComponent('operatingQuestionConsultant', consultantLoading),
+            operatingQuestionConsultant: consultantGate,
         });
     };
 

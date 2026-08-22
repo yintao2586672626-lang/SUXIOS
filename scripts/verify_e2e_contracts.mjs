@@ -194,7 +194,7 @@ requireNoText('public/index.html', '<link href="font-awesome.min.css" rel="style
 requireText('public/index.html', "const fontAwesomeStylesheet = 'font-awesome.min.css?v=20260628-static-router-fix';", 'entry keeps explicit versioned FontAwesome idle loader');
 requireText('public/index.html', 'window.setTimeout(loadFontAwesomeStylesheet, 1600);', 'FontAwesome icon font loads after core shell first second');
 requireText('public/index.html', 'let suxiApp = null;', 'entry keeps the replaceable Vue app instance available before mount');
-requireText('public/index.html', 'const renderSuxiStartupError = (error) => {', 'entry renders fatal startup initialization failures explicitly');
+requirePattern('public/index.html', /const renderSuxiStartupError = \(error(?:, \{ retry = null \} = \{\})?\) => \{/, 'entry renders fatal startup initialization failures explicitly and may expose a bounded retry action');
 requireText('public/index.html', 'let recoverSuxiRuntimeError = null;', 'entry reserves a runtime recovery bridge before Vue setup');
 requireText('public/index.html', 'recoverSuxiRuntimeError = ({ error, info }) => {', 'entry isolates recoverable page and operation errors');
 requireText('public/index.html', 'app.config.errorHandler = (error, _instance, info) => {', 'entry classifies Vue runtime errors before using the fatal startup surface');

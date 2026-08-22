@@ -1544,6 +1544,7 @@
         name: 'IntelligentSystemUsageAssistant',
         props: {
             ctx: { type: Object, required: true },
+            openOnMount: { type: Boolean, default: false },
         },
         setup(props) {
             const state = ref({
@@ -2597,6 +2598,7 @@
             onMounted(() => {
                 state.value.active_journey = readActiveJourney();
                 readWidgetState();
+                if (props.openOnMount) widgetOpen.value = true;
                 window.addEventListener('resize', handleWidgetViewportResize, { passive: true });
                 nextTick(() => {
                     clampWidgetPosition(false);

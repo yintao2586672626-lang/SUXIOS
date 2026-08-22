@@ -48,9 +48,11 @@ function safeResourceName(value) {
   }
 }
 
-async function measureRun(browser, runIndex) {
+async function measureRun(browser, runIndex, browserLaunchMs = null) {
+  const contextStartedAt = Date.now();
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await context.newPage();
+  const contextPageCreateMs = Date.now() - contextStartedAt;
   const startupDiagnostics = [];
   const recordStartupDiagnostic = (type, value) => {
     if (startupDiagnostics.length >= 8) return;
@@ -122,7 +124,9 @@ async function measureRun(browser, runIndex) {
       } catch (_error) {}
     }, { debugDomPatches });
 
+    const gotoStartedAt = Date.now();
     await page.goto(baseURL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    const gotoDomContentLoadedMs = Date.now() - gotoStartedAt;
     let authTransitionMs = null;
     let loginClickToInteractiveMs = null;
     let authStartPerformanceMs = 0;
@@ -184,7 +188,10 @@ async function measureRun(browser, runIndex) {
         initiatorType: entry.initiatorType,
         startTime: entry.startTime,
         transferSize: entry.transferSize,
+        encodedBodySize: entry.encodedBodySize,
+        decodedBodySize: entry.decodedBodySize,
         duration: entry.duration,
+        responseEnd: entry.responseEnd,
         responseStatus: entry.responseStatus,
       })),
       lcp: window.__SUXI_PERFORMANCE?.lcp ?? null,
@@ -213,6 +220,24 @@ async function measureRun(browser, runIndex) {
       login_handoff: snapshot.loginHandoff,
       metrics,
       api,
+      timing_diagnostics: {
+        browser_launch_ms: browserLaunchMs,
+        context_page_create_ms: contextPageCreateMs,
+        goto_domcontentloaded_ms: gotoDomContentLoadedMs,
+        auth_start_performance_ms: authStartPerformanceMs,
+      },
+      long_tasks: snapshot.longTasks.slice(0, 100).map((entry) => ({
+        start_time_ms: Number(Number(entry?.startTime || 0).toFixed(2)),
+        duration_ms: Number(Number(entry?.duration || 0).toFixed(2)),
+      })),
+      same_origin_asset_timings: snapshot.resources.filter((entry) => {
+        try {
+          const resource = new URL(String(entry?.name || ''), baseURL);
+          return resource.origin === baseOrigin && /\.(?:css|js)$/i.test(resource.pathname);
+        } catch (_error) {
+          return false;
+        }
+      }).slice(0, 100).map((entry) => ({ ...entry, name: safeResourceName(entry.name) })),
       largest_resources: [...snapshot.resources]
         .sort((left, right) => Number(right.transferSize || 0) - Number(left.transferSize || 0))
         .slice(0, 15)
@@ -228,8 +253,10 @@ async function measureRunWithRetry(runIndex) {
   for (let attempt = 1; attempt <= maxMeasurementAttempts; attempt += 1) {
     let browser = null;
     try {
+      const browserLaunchStartedAt = Date.now();
       browser = await chromium.launch({ channel: 'chrome', headless: true });
-      const run = await measureRun(browser, runIndex);
+      const browserLaunchMs = Date.now() - browserLaunchStartedAt;
+      const run = await measureRun(browser, runIndex, browserLaunchMs);
       return {
         ...run,
         attempt_count: attempt,

@@ -78,6 +78,8 @@ test('authenticated runtime loads the hashed lazy order-analysis component betwe
   assert.match(appMainComponents, /window\.SUXI_APP_MAIN_COMPONENTS_FULL\s*=\s*exportedFactory/);
   assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS\s*=\s*Object\.freeze/);
   assert.match(operatingIntelligenceComponents, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL\s*=\s*exportedFactory/);
+  assert.match(operatingIntelligenceComponents, /openOnMount:\s*\{ type: Boolean, default: false \}/);
+  assert.match(operatingIntelligenceComponents, /if \(props\.openOnMount\) widgetOpen\.value = true/);
   assert.match(appMainComponentsLoader, /script\.dataset\.suxiAssetLoaded = '1'/);
   assert.match(operatingIntelligenceLoader, /script\.dataset\.suxiAssetLoaded = '1'/);
   assert.match(
@@ -151,7 +153,7 @@ test('a dynamically loaded component script remains reusable by the deferred man
   await deferredManifestReuse;
 });
 
-test('floating operating consultant requests its full component before any full-render transition', async () => {
+test('floating operating consultant loads only after the user opens it and opens on the first click', async () => {
   const scripts = [];
   const createScript = () => {
     const handlers = new Map();
@@ -188,17 +190,27 @@ test('floating operating consultant requests its full component before any full-
     defineAsyncComponent: definition => (
       typeof definition === 'function' ? { loader: definition } : definition
     ),
+    shallowRef: value => ({ value }),
+    ref: value => ({ value }),
   };
-  const components = window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS.create({ Vue, h: () => null });
+  const h = (type, props, children) => ({ type, props: props || {}, children });
+  const components = window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS.create({ Vue, h });
 
-  const componentPromise = components.operatingQuestionConsultant.loader();
+  assert.equal(scripts.length, 0, 'mounting the global entry must not fetch the full assistant');
+  const render = components.operatingQuestionConsultant.setup({ ctx: { currentPage: 'compass' } });
+  const gate = render();
+  assert.equal(gate.type, 'button');
+  const componentPromise = gate.props.onClick();
   await Promise.resolve();
-  assert.equal(scripts.length, 1, 'the mounted floating consultant must start its full script immediately');
+  assert.equal(scripts.length, 1, 'the first explicit click starts the full assistant load');
   window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL = {
     create: () => ({ operatingQuestionConsultant: { name: 'OperatingQuestionConsultant' } }),
   };
   scripts[0].dispatch('load');
-  assert.equal((await componentPromise).name, 'OperatingQuestionConsultant');
+  await componentPromise;
+  const opened = render();
+  assert.equal(opened.type.name, 'OperatingQuestionConsultant');
+  assert.equal(opened.props.openOnMount, true, 'the first click must open the loaded assistant without a second click');
 });
 
 test('deferred component bridges replace a completed script that did not register its factory', async () => {

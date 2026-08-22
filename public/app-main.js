@@ -55629,16 +55629,22 @@
         },
     };
     let suxiApp = null;
-    const renderSuxiStartupError = (error) => {
+    const renderSuxiStartupError = (error, { retry = null } = {}) => {
         const appRoot = document.getElementById('app');
         if (!appRoot) return;
         if (appRoot.dataset.startupErrorRendered === '1') return;
         appRoot.dataset.startupErrorRendered = '1';
         const stack = String(error?.stack || '').split('\n').slice(0, 8).join('\n');
-        const message = [String(error?.message || error || 'unknown startup error'), stack].filter(Boolean).join('\n')
-            .replace(/[<>&"']/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[char]));
-        appRoot.innerHTML = `<div class="min-h-screen flex items-center justify-center bg-slate-50 px-4"><div class="max-w-xl w-full bg-white border border-red-100 rounded-lg shadow-sm p-6"><div class="text-lg font-semibold text-red-700 mb-2">项目启动失败</div><div class="text-sm text-gray-600 mb-4">前端初始化被异常中断，请刷新页面；如果仍失败，请保留下面错误信息。</div><pre class="text-xs whitespace-pre-wrap break-words bg-red-50 text-red-700 border border-red-100 rounded p-3">${message}</pre></div></div>
-        `;
+        const message = [String(error?.message || error || 'unknown startup error'), stack].filter(Boolean).join('\n').replace(/[<>&"']/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[char]));
+        const canRetry = typeof retry === 'function';
+        const retryMarkup = canRetry ? `<div class="mt-4"><button class="bg-slate-900 px-4 py-2 text-white">重试完整资源</button><span>完整资源加载失败，可在当前页面重试。</span></div>` : '';
+        const helpText = canRetry ? '前端初始化中断。' : '前端初始化中断，请刷新页面。';
+        appRoot.innerHTML = `<div class="min-h-screen flex items-center justify-center bg-slate-50 px-4"><div class="max-w-xl w-full bg-white border border-red-100 rounded-lg shadow-sm p-6"><div class="text-lg font-semibold text-red-700 mb-2">项目启动失败</div><div class="text-sm text-gray-600 mb-4">${helpText}</div><pre class="text-xs whitespace-pre-wrap break-words bg-red-50 text-red-700 border border-red-100 rounded p-3">${message}</pre>${retryMarkup}</div></div>`;
+        if (!canRetry) return; const retryButton = appRoot.querySelector('button');
+        retryButton.onclick = async () => {
+            if (retryButton.disabled) return; retryButton.disabled = true; retryButton.nextElementSibling.textContent = '正在重新加载...'; delete appRoot.dataset.startupErrorRendered;
+            try { await retry(); } finally { if (retryButton.isConnected) retryButton.disabled = false; }
+        };
     };
     let suxiFatalErrorQueued = false;
     const scheduleSuxiStartupError = (error) => {
@@ -55772,34 +55778,29 @@
         }
         return true;
     };
-    const failSuxiFullRender = (asset, message) => {
-        delete document.documentElement.dataset.suxiFullRenderReady;
-        document.documentElement.dataset.suxiAuthenticatedInteractiveError = `${asset}: ${message}`;
-        try {
-            suxiApp?.unmount();
-        } catch (error) {
-            console.error('[SUXIOS] Failed to unmount after deferred render error:', error);
-        }
-        renderSuxiStartupError(new Error(`${asset}: ${message}`));
+    const clearSuxiFullRenderAttempt = () => { window.removeEventListener('suxi:full-render-ready', handleSuxiFullRenderReady); window.removeEventListener('suxi:full-render-error', handleSuxiFullRenderError); };
+    const bindSuxiFullRenderAttempt = () => { clearSuxiFullRenderAttempt(); window.addEventListener('suxi:full-render-ready', handleSuxiFullRenderReady); window.addEventListener('suxi:full-render-error', handleSuxiFullRenderError); };
+    const failSuxiFullRender = (asset, message) => { delete document.documentElement.dataset.suxiFullRenderReady; document.documentElement.dataset.suxiAuthenticatedInteractiveError = `${asset}: ${message}`;
+        try { suxiApp?.unmount(); } catch (error) { console.error('[SUXIOS] Failed to unmount after deferred render error:', error); }
+        suxiApp = null; renderSuxiStartupError(new Error(`${asset}: ${message}`), { retry: retrySuxiFullRender });
     };
-    const handleSuxiFullRenderReady = () => {
-        if (!fullRenderRuntimeReady()) {
-            failSuxiFullRender(
-                'app-deferred-helpers.min.js',
-                '完整页面资源版本不一致，请刷新页面后重试'
-            );
-            return;
+    const handleSuxiFullRenderReady = () => { clearSuxiFullRenderAttempt(); if (!fullRenderRuntimeReady()) {
+            failSuxiFullRender('app-deferred-helpers.min.js', '完整页面资源版本不一致，请刷新页面后重试'); return;
         }
-        publishDataHealthStaticReady();
-        if (pendingFullRenderPage) requestSuxiFullRenderForPage(pendingFullRenderPage);
+        delete document.documentElement.dataset.suxiAuthenticatedInteractiveError; const appRoot = document.getElementById('app'); if (appRoot) delete appRoot.dataset.startupErrorRendered;
+        publishDataHealthStaticReady(); if (pendingFullRenderPage) requestSuxiFullRenderForPage(pendingFullRenderPage);
     };
     const handleSuxiFullRenderError = (event) => {
-        const asset = String(event?.detail?.asset || 'app-render.min.js');
-        const message = String(event?.detail?.message || '完整页面资源加载失败');
-        failSuxiFullRender(asset, message);
+        clearSuxiFullRenderAttempt(); const asset = String(event?.detail?.asset || 'app-render.min.js'); const message = String(event?.detail?.message || '完整页面资源加载失败'); failSuxiFullRender(asset, message);
     };
-    window.addEventListener('suxi:full-render-ready', handleSuxiFullRenderReady, { once: true });
-    window.addEventListener('suxi:full-render-error', handleSuxiFullRenderError, { once: true });
-    document.documentElement.dataset.suxiRenderPhase = 'startup';
-    mountSuxiApp();
-    if (fullRenderRuntimeReady()) handleSuxiFullRenderReady();
+    const retrySuxiFullRender = async () => {
+        delete document.documentElement.dataset.suxiAuthenticatedInteractiveError; delete document.documentElement.dataset.suxiFullRenderReady; bindSuxiFullRenderAttempt();
+        try {
+            await window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS?.();
+            if (!fullRenderRuntimeReady()) throw new Error('完整页面资源重试完成，但运行时仍不完整');
+        } catch (error) {
+            if (!document.documentElement.dataset.suxiAuthenticatedInteractiveError) { clearSuxiFullRenderAttempt(); failSuxiFullRender('deferred-authenticated-manifest', error?.message || String(error)); }
+        }
+    };
+    bindSuxiFullRenderAttempt(); document.documentElement.dataset.suxiRenderPhase = 'startup'; mountSuxiApp();
+    if (fullRenderRuntimeReady()) { clearSuxiFullRenderAttempt(); handleSuxiFullRenderReady(); }

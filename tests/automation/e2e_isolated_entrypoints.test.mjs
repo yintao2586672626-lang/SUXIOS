@@ -148,6 +148,8 @@ test('isolated runner always selects a dedicated database and self-hosted loopba
   assert.match(isolatedRunner, /const selfHosted = true;/);
   assert.match(isolatedRunner, /SUXI_E2E_DB_OVERRIDE: '1'/);
   assert.match(isolatedRunner, /SUXI_E2E_ISOLATED_RUNNER: '1'/);
+  assert.match(isolatedRunner, /process\.platform === 'win32'/);
+  assert.match(isolatedRunner, /PHP_CLI_SERVER_WORKERS: String\(e2eProcessEnv\.PHP_CLI_SERVER_WORKERS \|\| '4'\)/);
   assert.doesNotMatch(isolatedRunner, /SUXI_E2E_ALLOW_SHARED_DB/);
 });
 
