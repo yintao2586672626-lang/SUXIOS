@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  FRONTEND_PERCENTILE_METHOD,
   percentile,
   resolveFrontendNetworkProfile,
   summarizeApiPerformance,
@@ -8,9 +9,9 @@ import {
   summarizeFrontendPerformanceRuns,
 } from '../../scripts/lib/frontend_performance_metrics.mjs';
 
-test('percentile uses the nearest-rank value from finite samples', () => {
-  assert.equal(percentile([50, 10, 30, 20, 40], 0.95), 50);
-  assert.equal(percentile([10, Number.NaN, 20], 0.5), 10);
+test('percentile uses deterministic R-7 linear interpolation over finite samples', () => {
+  assert.equal(percentile([50, 10, 30, 20, 40], 0.95), 48);
+  assert.equal(percentile([10, Number.NaN, 20], 0.5), 15);
   assert.equal(percentile([null, undefined, '', 20], 0.5), 20);
   assert.equal(percentile([], 0.95), null);
 });
@@ -126,8 +127,8 @@ test('summarizeApiPerformance keeps only post-boundary API timings and hides que
     repeated_routes: summary.repeated_routes,
   }, {
     sample_count: 2,
-    p50_ms: 210,
-    p95_ms: 410,
+    p50_ms: 310,
+    p95_ms: 400,
     max_ms: 410,
     repeated_routes: [{
       route: '/api/revenue/analysis?date&hotel_id',
@@ -173,11 +174,13 @@ test('summarizeFrontendPerformanceRuns reports verified counts and P95 distribut
   ]);
 
   assert.equal(aggregate.run_count, 2);
+  assert.equal(aggregate.percentile_method, FRONTEND_PERCENTILE_METHOD);
+  assert.equal(aggregate.api.percentile_method, FRONTEND_PERCENTILE_METHOD);
   assert.equal(aggregate.verified_run_count, 1);
   assert.equal(aggregate.unverified_run_count, 1);
-  assert.equal(aggregate.metrics.fcp_ms.p95_ms, 150);
+  assert.equal(aggregate.metrics.fcp_ms.p95_ms, 148);
   assert.equal(aggregate.metrics.login_click_to_interactive_ms.p95_ms, 450);
   assert.equal(aggregate.metrics.login_click_to_interactive_ms.sample_count, 1);
   assert.equal(aggregate.metrics.auth_to_interactive_ms.sample_count, 1);
-  assert.equal(aggregate.api.p95_ms, 320);
+  assert.equal(aggregate.api.p95_ms, 310);
 });

@@ -7,6 +7,10 @@ import {
   DEFAULT_FRONTEND_RUNTIME_BUDGETS,
   evaluateFrontendRuntimeBudget,
 } from '../../scripts/lib/frontend_runtime_performance_budget.mjs';
+import {
+  FRONTEND_PERCENTILE_METHOD,
+  summarizeFrontendPerformanceRuns,
+} from '../../scripts/lib/frontend_performance_metrics.mjs';
 import { evaluateFrontendPerformanceEvidence } from '../../scripts/lib/frontend_performance_evidence_identity.mjs';
 import { extractGithubActionsJob } from './helpers/github_actions_workflow.mjs';
 
@@ -24,17 +28,19 @@ function passingReport(networkProfile = 'none') {
     authenticated: true,
     verification_status: 'verified',
     attempt_count: 1,
-    metrics: { total_requests: 29 },
+    metrics: { total_requests: 29, longest_task_ms: 150 },
     api: { sample_count: 4, repeated_routes: [] },
   }));
   return {
     schema_version: 2,
+    percentile_method: FRONTEND_PERCENTILE_METHOD,
     authenticated_requested: true,
     authenticated: true,
     artifact_identity_stable: true,
     verification_status: 'verified',
     network_profile: networkProfile,
     aggregate: {
+      percentile_method: FRONTEND_PERCENTILE_METHOD,
       run_count: 5,
       verified_run_count: 5,
       unverified_run_count: 0,
@@ -298,6 +304,64 @@ test('longest task keeps the device target separate from the isolated CI ceiling
     evaluateFrontendRuntimeBudget(report).failures
       .some((failure) => failure.metric === 'longest_task_p95_ms'),
   );
+});
+
+function reportFromLongestTaskRuns(longestTasks) {
+  const report = passingReport();
+  report.runs = longestTasks.map((longestTask, index) => ({
+    run: index + 1,
+    authenticated: true,
+    verification_status: 'verified',
+    attempt_count: 1,
+    metrics: {
+      total_requests: 19,
+      fcp_ms: 300,
+      lcp_ms: 300,
+      login_click_to_interactive_ms: 700,
+      auth_to_interactive_ms: 320,
+      longest_task_ms: longestTask,
+    },
+    api: {
+      sample_count: 4,
+      repeated_routes: [],
+      samples: [
+        { route: '/api/auth/login', duration_ms: 200, transfer_bytes: 1, status: 200 },
+        { route: '/api/auth/info', duration_ms: 100, transfer_bytes: 1, status: 200 },
+        { route: '/api/dashboard/revenue-facts', duration_ms: 150, transfer_bytes: 1, status: 200 },
+        { route: '/api/compass', duration_ms: 180, transfer_bytes: 1, status: 200 },
+      ],
+    },
+  }));
+  report.aggregate = summarizeFrontendPerformanceRuns(report.runs);
+  report.percentile_method = report.aggregate.percentile_method;
+  return report;
+}
+
+test('linear P95 keeps an isolated cold-run max visible without hiding serious or repeated stalls', () => {
+  const isolatedColdRun = evaluateFrontendRuntimeBudget(
+    reportFromLongestTaskRuns([214, 217, 219, 226, 603]),
+  );
+  assert.deepEqual(isolatedColdRun.failures, []);
+  assert.equal(isolatedColdRun.observed.longest_task_p95_ms, 528);
+  assert.equal(isolatedColdRun.observed.longest_task_max_ms, 603);
+  assert(isolatedColdRun.warnings.some((warning) => (
+    warning.metric === 'longest_task_max_ms'
+      && warning.actual === 603
+      && warning.target === 550
+      && warning.reason === 'isolated_run_outlier_above_p95_ceiling'
+  )));
+
+  const severeColdRun = evaluateFrontendRuntimeBudget(
+    reportFromLongestTaskRuns([214, 217, 219, 226, 1_000]),
+  );
+  assert.equal(severeColdRun.observed.longest_task_p95_ms, 845);
+  assert(severeColdRun.failures.some((failure) => failure.metric === 'longest_task_p95_ms'));
+
+  const repeatedColdRuns = evaluateFrontendRuntimeBudget(
+    reportFromLongestTaskRuns([214, 217, 219, 603, 603]),
+  );
+  assert.equal(repeatedColdRuns.observed.longest_task_p95_ms, 603);
+  assert(repeatedColdRuns.failures.some((failure) => failure.metric === 'longest_task_p95_ms'));
 });
 
 test('a bounded measurement retry is retained as a warning instead of disappearing', () => {

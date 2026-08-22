@@ -312,6 +312,7 @@ const completedAt = new Date().toISOString();
 const artifactIdentityCompleted = captureFrontendPerformanceIdentity();
 const result = {
   schema_version: 2,
+  percentile_method: aggregate.percentile_method,
   label,
   url: baseURL,
   iterations,

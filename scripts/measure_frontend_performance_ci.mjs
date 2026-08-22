@@ -258,6 +258,7 @@ const firstReport = reports[0] || {};
 const firstRun = runs[0] || {};
 const result = {
   schema_version: 2,
+  percentile_method: aggregate.percentile_method,
   label: aggregateLabel,
   url: firstReport.url || null,
   iterations: isolationRunCount,
