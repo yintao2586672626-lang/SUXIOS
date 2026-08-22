@@ -49,10 +49,6 @@
         });
         return fullScriptPromise;
     };
-    const requestFullComponents = () => {
-        void loadFullScript().catch(() => {});
-    };
-
     const create = (createOptions) => {
         const { h, Vue } = createOptions;
         if (!Vue?.defineAsyncComponent) throw new Error('经营问答启动桥缺少 Vue 运行时');
@@ -77,11 +73,9 @@
         });
         const panelLoading = {
             inheritAttrs: false,
-            render: () => h('button', {
-                type: 'button',
+            render: () => h('div', {
                 class: 'w-full rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700',
                 'data-testid': 'operating-question-panel-load',
-                onClick: requestFullComponents,
             }, '加载经营问答'),
         };
         const consultantGate = {
@@ -109,7 +103,8 @@
                     ? h(fullComponent.value, { ctx: props.ctx, openOnMount: true })
                     : h('button', {
                         type: 'button',
-                        class: 'fixed bottom-5 right-5 z-40 rounded-full bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg',
+                        class: 'sx-ai-consultant sx-ai-consultant-launcher fixed bottom-5 right-5',
+                        style: 'z-index:75',
                         'data-testid': 'operating-question-consultant-load',
                         disabled: loading.value,
                         'aria-busy': loading.value ? 'true' : 'false',

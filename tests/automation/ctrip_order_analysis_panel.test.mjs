@@ -201,6 +201,9 @@ test('floating operating consultant loads only after the user opens it and opens
   const render = components.operatingQuestionConsultant.setup({ ctx: { currentPage: 'compass' } });
   const gate = render();
   assert.equal(gate.type, 'button');
+  assert.match(gate.props.class, /sx-ai-consultant/, 'the demand-load entry must reuse the mobile-safe assistant layer');
+  assert.doesNotMatch(gate.props.class, /\bz-40\b/, 'the Tailwind z-40 utility must not override the mobile-safe assistant layer');
+  assert.equal(gate.props.style, 'z-index:75', 'the lightweight entry must remain above the mobile navigation before deferred styles load');
   const componentPromise = gate.props.onClick();
   await Promise.resolve();
   assert.equal(scripts.length, 1, 'the first explicit click starts the full assistant load');

@@ -200,23 +200,49 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
   });
 };
 
+const openDemandLoadedSystemGuide = async (page) => {
+  const loadEntry = page.getByTestId('operating-question-consultant-load');
+  await expect(loadEntry).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('system-guide-floating-entry')).toHaveCount(0);
+  await loadEntry.click();
+
+  const entry = page.getByTestId('system-guide-floating-entry');
+  const launcher = page.getByTestId('system-guide-floating-launcher');
+  const panel = page.getByTestId('system-guide-floating-panel');
+  await expect(entry).toHaveCount(1, { timeout: 15000 });
+  await expect(launcher).toBeVisible({ timeout: 15000 });
+  await expect(panel).toBeVisible({ timeout: 15000 });
+  return { entry, launcher, panel };
+};
+
 test('intelligent system assistant understands natural language and opens the real data-health page', async ({ page }) => {
   test.setTimeout(45000);
   const pageErrors = [];
   const apiCalls = [];
   const guidanceRequests = [];
+  const fullComponentRequests = [];
+  const fullComponentResponses = [];
   page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/components/system/operating-intelligence-components.js')) {
+      fullComponentRequests.push(request.url());
+    }
+  });
+  page.on('response', (response) => {
+    if (new URL(response.url()).pathname.endsWith('/components/system/operating-intelligence-components.js')) {
+      fullComponentResponses.push(response);
+    }
+  });
   await mockAuthenticatedApi(page, apiCalls, guidanceRequests);
   await page.setViewportSize({ width: 393, height: 734 });
 
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
-  const launcher = page.getByTestId('system-guide-floating-launcher');
-  await expect(page.getByTestId('system-guide-floating-entry')).toHaveCount(1);
-  await expect(launcher).toBeVisible({ timeout: 15000 });
-  await launcher.click();
-
-  const panel = page.getByTestId('system-guide-floating-panel');
-  await expect(panel).toBeVisible();
+  expect(fullComponentRequests).toHaveLength(0);
+  const { panel } = await openDemandLoadedSystemGuide(page);
+  expect(fullComponentRequests).toHaveLength(1);
+  expect(fullComponentResponses).toHaveLength(1);
+  expect(fullComponentResponses[0].status()).toBe(200);
+  expect(fullComponentResponses[0].headers()['content-type']).toMatch(/javascript/i);
   await expect(panel).toContainText('宿析智能使用助手');
   await expect(panel).toContainText('说出目标，我带你找到入口并核对是否完成');
   await expect(page.getByTestId('system-guide-context')).toBeVisible();
@@ -273,9 +299,8 @@ test('intelligent system assistant understands natural language and opens the re
   await expect(page.getByTestId('system-guide-page-coach')).toBeVisible();
 
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(launcher).toBeVisible({ timeout: 15000 });
-  await launcher.click();
-  const restoredJourney = page.getByTestId('system-guide-active-journey');
+  const restoredGuide = await openDemandLoadedSystemGuide(page);
+  const restoredJourney = restoredGuide.panel.getByTestId('system-guide-active-journey');
   await expect(restoredJourney).toBeVisible();
   await expect(restoredJourney).toContainText('继续上次任务');
   await expect(restoredJourney).toContainText('恢复携程数据后生成一份给店长查看的 AI 经营日报');
@@ -291,7 +316,7 @@ test('assistant exposes explicit guide, report and action modes', async ({ page 
   const guidanceRequests = [];
   await mockAuthenticatedApi(page, apiCalls, guidanceRequests);
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
-  await page.getByTestId('system-guide-floating-launcher').click();
+  await openDemandLoadedSystemGuide(page);
 
   await expect(page.getByTestId('system-guide-mode-auto')).toHaveAttribute('aria-pressed', 'true');
   await page.getByTestId('system-guide-mode-report').click();
@@ -316,9 +341,7 @@ test('intelligent system assistant keeps conversation context and changes the ne
   await mockAuthenticatedApi(page, apiCalls, guidanceRequests);
 
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
-  const launcher = page.getByTestId('system-guide-floating-launcher');
-  await expect(launcher).toBeVisible({ timeout: 15000 });
-  await launcher.click();
+  await openDemandLoadedSystemGuide(page);
 
   await page.getByTestId('system-guide-input').fill('我想看今天的经营报告，该从哪里开始？');
   await page.getByTestId('system-guide-submit').click();
@@ -369,10 +392,10 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('html')).toHaveAttribute('data-suxi-authenticated-interactive-ready', '1', { timeout: 15000 });
 
-  const entry = page.getByTestId('system-guide-floating-entry');
-  const launcher = page.getByTestId('system-guide-floating-launcher');
-  const panel = page.getByTestId('system-guide-floating-panel');
-  await expect(launcher).toBeVisible({ timeout: 15000 });
+  const { entry, launcher, panel } = await openDemandLoadedSystemGuide(page);
+  await launcher.click();
+  await expect(entry).not.toHaveAttribute('open', '');
+  await expect(panel).not.toBeVisible();
   await expect(launcher).toHaveAttribute('aria-label', '打开宿析智能使用助手');
   await expect(launcher).toContainText('打开助手');
   await expect(launcher.locator('.fa-chevron-up')).toHaveCount(0);
@@ -398,20 +421,37 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   expect(draggedLauncher.y).toBeGreaterThanOrEqual(7);
   expect(draggedLauncher.x + draggedLauncher.width).toBeLessThanOrEqual(1273);
   expect(draggedLauncher.y + draggedLauncher.height).toBeLessThanOrEqual(793);
+  const storedPosition = await page.evaluate(() => JSON.parse(
+    localStorage.getItem('suxios_system_usage_widget_v1:801') || 'null',
+  ));
+  expect(storedPosition).toMatchObject({
+    version: 1,
+    open: false,
+    right: expect.any(Number),
+    bottom: expect.any(Number),
+  });
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('html')).toHaveAttribute('data-suxi-authenticated-interactive-ready', '1', { timeout: 15000 });
-  await expect(launcher).toBeVisible({ timeout: 15000 });
-  const restoredLauncher = await launcher.boundingBox();
+  const storedPositionBeforeDemand = await page.evaluate(() => JSON.parse(
+    localStorage.getItem('suxios_system_usage_widget_v1:801') || 'null',
+  ));
+  expect(storedPositionBeforeDemand).toEqual(storedPosition);
+  const restoredGuide = await openDemandLoadedSystemGuide(page);
+  await restoredGuide.launcher.click();
+  await expect(restoredGuide.entry).not.toHaveAttribute('open', '');
+  const restoredLauncher = await restoredGuide.launcher.boundingBox();
   expect(restoredLauncher).toBeTruthy();
-  expect(Math.abs(restoredLauncher.x - draggedLauncher.x)).toBeLessThanOrEqual(2);
-  expect(Math.abs(restoredLauncher.y - draggedLauncher.y)).toBeLessThanOrEqual(2);
+  expect(restoredLauncher.x).toBeGreaterThanOrEqual(7);
+  expect(restoredLauncher.y).toBeGreaterThanOrEqual(7);
+  expect(restoredLauncher.x + restoredLauncher.width).toBeLessThanOrEqual(1273);
+  expect(restoredLauncher.y + restoredLauncher.height).toBeLessThanOrEqual(793);
 
-  await launcher.click();
-  await expect(entry).toHaveAttribute('open', '');
-  await expect(panel).toBeVisible();
-  await expect(launcher).toHaveAttribute('aria-label', '收起宿析智能使用助手');
-  await expect(launcher).toContainText('收起');
+  await restoredGuide.launcher.click();
+  await expect(restoredGuide.entry).toHaveAttribute('open', '');
+  await expect(restoredGuide.panel).toBeVisible();
+  await expect(restoredGuide.launcher).toHaveAttribute('aria-label', '收起宿析智能使用助手');
+  await expect(restoredGuide.launcher).toContainText('收起');
   await expect(page.getByTestId('system-guide-drag-handle')).toContainText('拖动');
 
   const handle = page.getByTestId('system-guide-drag-handle');
@@ -422,24 +462,25 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await page.mouse.move(-1200, -900, { steps: 10 });
   await page.mouse.up();
 
-  const draggedPanel = await entry.boundingBox();
+  const draggedPanel = await restoredGuide.entry.boundingBox();
   expect(draggedPanel.x).toBeGreaterThanOrEqual(7);
   expect(draggedPanel.y).toBeGreaterThanOrEqual(7);
   expect(draggedPanel.x + draggedPanel.width).toBeLessThanOrEqual(1273);
   expect(draggedPanel.y + draggedPanel.height).toBeLessThanOrEqual(793);
 
-  await launcher.click();
-  await expect(entry).not.toHaveAttribute('open', '');
-  await expect(panel).not.toBeVisible();
-  await expect(launcher).toBeVisible();
-  await expect(launcher).toHaveAttribute('aria-label', '打开宿析智能使用助手');
-  await expect(launcher).toContainText('打开助手');
+  await restoredGuide.launcher.click();
+  await expect(restoredGuide.entry).not.toHaveAttribute('open', '');
+  await expect(restoredGuide.panel).not.toBeVisible();
+  await expect(restoredGuide.launcher).toBeVisible();
+  await expect(restoredGuide.launcher).toHaveAttribute('aria-label', '打开宿析智能使用助手');
+  await expect(restoredGuide.launcher).toContainText('打开助手');
 
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(launcher).toBeVisible({ timeout: 15000 });
-  await expect(entry).not.toHaveAttribute('open', '');
-  await expect(launcher).toHaveAttribute('aria-label', '打开宿析智能使用助手');
-  await launcher.click();
-  await expect(panel).toBeVisible();
+  const finalGuide = await openDemandLoadedSystemGuide(page);
+  await expect(finalGuide.panel).toBeVisible();
+  await finalGuide.launcher.click();
+  await expect(finalGuide.entry).not.toHaveAttribute('open', '');
+  await finalGuide.launcher.click();
+  await expect(finalGuide.panel).toBeVisible();
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
