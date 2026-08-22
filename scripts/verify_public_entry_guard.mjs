@@ -275,9 +275,11 @@ if (!fs.existsSync(indexPath)) {
     || phaseFor('app-main.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
     || phaseFor('app-deferred-helpers.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
     || phaseFor('components/system/app-main-components.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
-    || phaseFor('components/system/operating-intelligence-components.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
     || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
     failures.push('public/index.html must keep the compact home bridge at startup and defer full-page helpers, components, and render code.');
+  }
+  if (phaseFor('components/system/operating-intelligence-components.js') !== undefined) {
+    failures.push('public/index.html must keep the optional operating-intelligence full component outside the global full-render manifest.');
   }
   failures.push(...inspectPublicEntryRuntimeContracts({
     appBootstrapSource: appBootstrapContent,

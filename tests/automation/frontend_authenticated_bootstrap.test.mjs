@@ -164,27 +164,53 @@ test('authenticated asset loads share in-flight work and recover after error or 
     type: 'script',
     src: 'deferred-retry.js?v=1',
   });
-  const firstDeferredScript = loader.scripts.find(node => node.src.startsWith('deferred-retry.js'));
+  const firstDeferredScript = loader.scripts.find(node => node.src.includes('deferred-retry.js'));
   assert.equal(firstDeferredScript.async, true, 'JS-sequential deferred scripts must not join the native ordered queue');
   firstDeferredScript.emit('error');
   await new Promise(resolve => setImmediate(resolve));
-  const retriedDeferredScript = loader.scripts.find(node => node.src.startsWith('deferred-retry.js'));
+  const retriedDeferredScript = loader.scripts.find(node => node.src.includes('deferred-retry.js'));
   assert.notEqual(retriedDeferredScript, firstDeferredScript, 'a deferred asset gets one fresh bounded retry');
   assert.equal(retriedDeferredScript.async, true);
+  assert.equal(new URL(retriedDeferredScript.src).searchParams.get('suxi_retry'), '1');
+  assert.equal(
+    retriedDeferredScript.dataset.suxiCanonicalSrc,
+    'http://127.0.0.1:8080/deferred-retry.js?v=1',
+    'the retry transport must retain the original versioned resource identity',
+  );
   retriedDeferredScript.emit('load');
   await deferredRetry;
 
   const stalledLoad = loader.loadScript('stalled.js?v=1');
   const stalledScript = loader.scripts.find(node => node.src.startsWith('stalled.js'));
   await assert.rejects(stalledLoad, /stalled\.js 加载超时/);
-  assert.equal(stalledScript.dataset.suxiAssetFailed, '1');
-  assert(!loader.scripts.includes(stalledScript), 'a timed-out script must be removable and retryable');
+  assert.equal(stalledScript.dataset.suxiAssetFailed, undefined);
+  assert(loader.scripts.includes(stalledScript), 'a timed-out script must remain canonical while its transport is pending');
 
   const retryStalledLoad = loader.loadScript('stalled.js?v=1');
   const retriedScript = loader.scripts.find(node => node.src.startsWith('stalled.js'));
-  assert.notEqual(retriedScript, stalledScript);
-  retriedScript.emit('load');
+  assert.equal(retriedScript, stalledScript, 'a retry after timeout must observe the original transport');
+  assert.equal(loader.scripts.filter(node => node.src.includes('stalled.js')).length, 1);
+  stalledScript.emit('load');
   await retryStalledLoad;
+  assert.equal(stalledScript.dataset.suxiAssetLoaded, '1');
+});
+
+test('a deferred timeout never creates a second script transport or duplicate execution path', async () => {
+  const loader = createAuthenticatedAssetLoaderHarness(10, 80);
+  const asset = { type: 'script', src: 'slow-canonical.js?v=1' };
+
+  await assert.rejects(
+    loader.loadDeferredAuthenticatedAssetWithRetry(asset),
+    /slow-canonical\.js 加载超时/,
+  );
+  assert.equal(loader.scripts.length, 1, 'timeout must not consume the network-error retry allowance');
+  assert.equal(new URL(loader.scripts[0].src, loader.document.baseURI).searchParams.has('suxi_retry'), false);
+
+  const recovery = loader.loadDeferredAuthenticatedAssetWithRetry(asset);
+  assert.equal(loader.scripts.length, 1, 'recovery must attach to the same canonical script node');
+  loader.scripts[0].emit('load');
+  await recovery;
+  assert.equal(loader.scripts[0].dataset.suxiAssetLoaded, '1');
 });
 
 test('deferred manifest resets a rejected attempt and enforces one shared terminal deadline', async () => {
@@ -193,11 +219,12 @@ test('deferred manifest resets a rejected attempt and enforces one shared termin
 
   const firstManifestLoad = retryLoader.loadDeferredAuthenticatedAssets(assets);
   await new Promise(resolve => setImmediate(resolve));
-  const firstAttempt = retryLoader.scripts.find(node => node.src.startsWith('manifest-retry.js'));
+  const firstAttempt = retryLoader.scripts.find(node => node.src.includes('manifest-retry.js'));
   firstAttempt.emit('error');
   await new Promise(resolve => setImmediate(resolve));
-  const automaticRetry = retryLoader.scripts.find(node => node.src.startsWith('manifest-retry.js'));
+  const automaticRetry = retryLoader.scripts.find(node => node.src.includes('manifest-retry.js'));
   assert.notEqual(automaticRetry, firstAttempt);
+  assert.equal(new URL(automaticRetry.src).searchParams.get('suxi_retry'), '1');
   automaticRetry.emit('error');
   await assert.rejects(firstManifestLoad, /manifest-retry\.js 加载失败/);
   assert.equal(
@@ -209,7 +236,7 @@ test('deferred manifest resets a rejected attempt and enforces one shared termin
   const secondManifestLoad = retryLoader.loadDeferredAuthenticatedAssets(assets);
   assert.notEqual(secondManifestLoad, firstManifestLoad, 'a rejected manifest must create a fresh top-level Promise');
   await new Promise(resolve => setImmediate(resolve));
-  const explicitRetry = retryLoader.scripts.find(node => node.src.startsWith('manifest-retry.js'));
+  const explicitRetry = retryLoader.scripts.find(node => node.src.includes('manifest-retry.js'));
   assert.notEqual(explicitRetry, automaticRetry, 'an explicit manifest retry must create a fresh failed asset node');
   explicitRetry.emit('load');
   await secondManifestLoad;
@@ -276,7 +303,6 @@ test('public login shell defers the authenticated application asset chain', () =
     'user-admin-static.js',
     'app-deferred-helpers.min.js',
     'components/system/app-main-components.js',
-    'components/system/operating-intelligence-components.js',
     'app-render.min.js',
   ];
   const deferredScriptIndexes = deferredScriptOrder.map((asset) => scriptAssets.indexOf(asset));
@@ -291,7 +317,6 @@ test('public login shell defers the authenticated application asset chain', () =
   );
   for (const deferredAsset of [
     'components/system/app-main-components.js',
-    'components/system/operating-intelligence-components.js',
     'ctrip-search-opportunity-static.js',
     'user-admin-static.js',
   ]) {
@@ -302,6 +327,10 @@ test('public login shell defers the authenticated application asset chain', () =
     );
   }
   assert(!assets.includes('ota-browser-assist-static.js'), 'OTA browser assist must load only after its copy action');
+  assert(
+    !assets.includes('components/system/operating-intelligence-components.js'),
+    'the optional operating-intelligence full component must load only after explicit user demand',
+  );
   assert(assets.includes('app-startup-helpers.min.js'));
   assert(assets.includes('app-deferred-helpers.min.js'));
   for (const sourceAsset of [
@@ -434,6 +463,11 @@ test('authenticated startup paints the compact page before progressively hydrati
     bootstrap,
     /find\(\(script\) => assetBaseName\(script\.getAttribute\('src'\)\) === assetName\)/,
   );
+  assert.match(bootstrap, /url\.searchParams\.set\('suxi_retry', attempt\)/);
+  assert.match(bootstrap, /canonicalSrc: asset\.src/);
+  assert.match(bootstrap, /suxiCanonicalSrc = canonicalResolvedSrc/);
+  assert.match(bootstrap, /error\?\.cause === 2/);
+  assert.match(bootstrap, /error\?\.cause !== 1/);
   const deferredReadyMarker = bootstrap.indexOf("document.documentElement.dataset.suxiFullRenderReady = '1';");
   const deferredReadyEvent = bootstrap.indexOf("window.dispatchEvent(new CustomEvent('suxi:full-render-ready'", deferredReadyMarker);
   assert(deferredReadyMarker >= 0 && deferredReadyEvent > deferredReadyMarker, 'ready marker must follow all loads and precede the ready event');

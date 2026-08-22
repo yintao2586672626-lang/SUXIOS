@@ -12,6 +12,7 @@ const root = process.cwd();
 const outputDir = path.resolve(root, 'output', 'performance');
 const aggregateLabel = 'isolated-authenticated-baseline';
 const isolationRunCount = 5;
+const isolationRunTimeoutMs = 120_000;
 const reports = [];
 const runs = [];
 let expectedNetworkProfile = '';
@@ -22,6 +23,7 @@ fs.mkdirSync(outputDir, { recursive: true });
 
 for (let isolationRun = 1; isolationRun <= isolationRunCount; isolationRun += 1) {
   const fragmentLabel = `ci-isolated-authenticated-${isolationRun}`;
+  console.log(`[frontend-performance-ci] isolation_run=${isolationRun} phase=start`);
   const child = spawnSync(process.execPath, [
     'tests/automation/run-quick-e2e-isolated.mjs',
     '--performance-only',
@@ -32,6 +34,8 @@ for (let isolationRun = 1; isolationRun <= isolationRunCount; isolationRun += 1)
     cwd: root,
     env: process.env,
     encoding: 'utf8',
+    timeout: isolationRunTimeoutMs,
+    killSignal: 'SIGKILL',
     maxBuffer: 10 * 1024 * 1024,
     windowsHide: true,
   });
@@ -41,6 +45,7 @@ for (let isolationRun = 1; isolationRun <= isolationRunCount; isolationRun += 1)
       `Fresh isolated frontend performance run ${isolationRun} failed`
       + (child.error ? `: ${child.error.message}` : '')
       + (child.signal ? `: signal ${child.signal}` : '')
+      + (child.error?.code === 'ETIMEDOUT' ? ` after ${isolationRunTimeoutMs} ms` : '')
       + (detail ? `\n${detail}` : ''),
     );
   }

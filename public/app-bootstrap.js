@@ -164,6 +164,12 @@
             return String(src || '');
         }
     };
+    const retryAuthenticatedAssetSource = (src, attempt) => {
+        if (!attempt) return src;
+        const url = new URL(String(src || ''), document.baseURI);
+        url.searchParams.set('suxi_retry', attempt);
+        return url.href;
+    };
     const loadAssetElement = (
         cacheKey,
         assetName,
@@ -195,29 +201,47 @@
                 if (settled) return;
                 settled = true;
                 if (timeoutId !== null) window.clearTimeout(timeoutId);
-                element.removeEventListener('load', onLoad);
-                element.removeEventListener('error', onError);
+                const preservePendingElement = error?.cause === 2;
+                if (!preservePendingElement) {
+                    element.removeEventListener('load', onLoad);
+                    element.removeEventListener('error', onError);
+                }
                 if (authenticatedAssetLoadPromises.get(cacheKey) === loadPromise) {
                     authenticatedAssetLoadPromises.delete(cacheKey);
                 }
                 if (error) {
-                    element.dataset.suxiAssetFailed = '1';
-                    element.remove();
+                    if (!preservePendingElement) {
+                        element.dataset.suxiAssetFailed = '1';
+                        element.remove();
+                    }
                     reject(error);
                     return;
                 }
-                element.dataset.suxiAssetLoaded = '1';
                 resolve();
             };
-            const onLoad = () => finish();
-            const onError = () => finish(new Error(`${assetName} 加载失败`));
+            const onLoad = () => {
+                element.dataset.suxiAssetLoaded = '1';
+                element.removeEventListener('error', onError);
+                finish();
+            };
+            const onError = () => {
+                const error = new Error(`${assetName} 加载失败`);
+                error.cause = 1;
+                if (settled) {
+                    element.dataset.suxiAssetFailed = '1';
+                    element.remove();
+                    return;
+                }
+                finish(error);
+            };
             failLoad = onError;
             element.addEventListener('load', onLoad, { once: true });
             element.addEventListener('error', onError, { once: true });
-            timeoutId = window.setTimeout(
-                () => finish(new Error(`${assetName} 加载超时`)),
-                timeoutMs,
-            );
+            timeoutId = window.setTimeout(() => {
+                const error = new Error(`${assetName} 加载超时`);
+                error.cause = 2;
+                finish(error);
+            }, timeoutMs);
         });
         authenticatedAssetLoadPromises.set(cacheKey, loadPromise);
         if (shouldAppend) {
@@ -230,14 +254,20 @@
         return loadPromise;
     };
 
-    const loadScript = (src, { ordered = true, timeoutMs = AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS } = {}) => {
-        const assetName = assetBaseName(src);
+    const loadScript = (src, {
+        ordered = true,
+        timeoutMs = AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS,
+        canonicalSrc = src,
+    } = {}) => {
+        const assetName = assetBaseName(canonicalSrc);
         const resolvedSrc = resolveAssetUrl(src);
+        const canonicalResolvedSrc = resolveAssetUrl(canonicalSrc);
         const existing = [...document.scripts].find(
             (script) => resolveAssetUrl(script.getAttribute('src')) === resolvedSrc
+                || script.dataset.suxiCanonicalSrc === canonicalResolvedSrc
         );
         return loadAssetElement(
-            `script:${resolvedSrc}`,
+            `script:${canonicalResolvedSrc}`,
             assetName,
             existing,
             (script) => script.dataset.suxiAssetLoaded === '1',
@@ -246,6 +276,7 @@
                 script.src = src;
                 script.async = !ordered;
                 script.dataset.suxiAuthenticatedAsset = assetName;
+                script.dataset.suxiCanonicalSrc = canonicalResolvedSrc;
                 return script;
             },
             (script) => document.body.appendChild(script),
@@ -253,13 +284,18 @@
         );
     };
 
-    const loadStylesheet = (src, { timeoutMs = AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS } = {}) => {
-        const assetName = assetBaseName(src);
+    const loadStylesheet = (src, {
+        timeoutMs = AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS,
+        canonicalSrc = src,
+    } = {}) => {
+        const assetName = assetBaseName(canonicalSrc);
         const resolvedSrc = resolveAssetUrl(src);
+        const canonicalResolvedSrc = resolveAssetUrl(canonicalSrc);
         const existing = [...document.querySelectorAll('link[rel="stylesheet"]')]
-            .find((link) => resolveAssetUrl(link.getAttribute('href')) === resolvedSrc);
+            .find((link) => resolveAssetUrl(link.getAttribute('href')) === resolvedSrc
+                || link.dataset.suxiCanonicalSrc === canonicalResolvedSrc);
         return loadAssetElement(
-            `style:${resolvedSrc}`,
+            `style:${canonicalResolvedSrc}`,
             assetName,
             existing,
             (link) => link.dataset.suxiAssetLoaded === '1' || Boolean(link.sheet),
@@ -268,6 +304,7 @@
                 link.rel = 'stylesheet';
                 link.href = src;
                 link.dataset.suxiAuthenticatedAsset = assetName;
+                link.dataset.suxiCanonicalSrc = canonicalResolvedSrc;
                 return link;
             },
             (link) => document.head.appendChild(link),
@@ -297,12 +334,17 @@
                 // The loop below is the execution-order barrier for scripts, so
                 // each inserted deferred script can use the browser's independent
                 // queue instead of becoming coupled to a stale ordered-script job.
-                return await loadAuthenticatedAsset(asset, {
+                return await loadAuthenticatedAsset({
+                    ...asset,
+                    src: retryAuthenticatedAssetSource(asset.src, attempt),
+                }, {
                     ordered: false,
+                    canonicalSrc: asset.src,
                     timeoutMs: Math.min(DEFERRED_AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS, remainingMs),
                 });
             } catch (error) {
                 lastError = error;
+                if (error?.cause !== 1) throw error;
             }
         }
         if (remainingDeferredManifestMs(deadlineEpochMs) <= 0) {

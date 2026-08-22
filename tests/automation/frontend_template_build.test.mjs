@@ -295,13 +295,19 @@ test('authenticated asset manifest loads the hashed runtime Vue and render befor
   for (const deferredAsset of [
     'app-deferred-helpers.min.js',
     'components/system/app-main-components.js',
-    'components/system/operating-intelligence-components.js',
   ]) {
     assert.equal(
       authenticatedEntries.find((entry) => stripFrontendAssetQuery(entry.src) === deferredAsset)?.phase,
       'after-first-paint',
     );
   }
+  assert.equal(
+    authenticatedEntries.find(
+      (entry) => stripFrontendAssetQuery(entry.src) === 'components/system/operating-intelligence-components.js',
+    ),
+    undefined,
+    'the optional operating-intelligence full component must stay outside the global full-render manifest',
+  );
   assert.match(appMain, /const suxiActiveRender = shallowRef\(requireSuxiAppRender\(\)\)/);
   assert.match(appMain, /return activeRender\.apply\(this, renderArgs\)/);
 

@@ -60,16 +60,17 @@ test('authenticated runtime loads the hashed lazy order-analysis component betwe
   assert.equal(bodyReference[1], contentHash(panel), 'lazy body hash must match panel contents');
   assert.ok(panel.length > 1_000, 'lazy panel body must not be an empty placeholder');
 
-  for (const [asset, source] of [
-    ['components/system/app-main-components.js', appMainComponents],
-    ['components/system/operating-intelligence-components.js', operatingIntelligenceComponents],
-  ]) {
-    const reference = indexHtml.match(new RegExp(`${asset.replaceAll('.', '\\.') }\\?v=[^"']*-h([a-f0-9]{10})`));
-    assert.ok(reference, `${asset} must be present in the authenticated runtime manifest`);
-    assert.equal(reference[1], contentHash(source), `${asset} content hash must match its manifest URL`);
-  }
+  const appMainComponentsReference = indexHtml.match(
+    /components\/system\/app-main-components\.js\?v=[^"']*-h([a-f0-9]{10})/,
+  );
+  assert.ok(appMainComponentsReference, 'app-main-components.js must be present in the authenticated runtime manifest');
+  assert.equal(appMainComponentsReference[1], contentHash(appMainComponents));
   assert.match(indexHtml, /"src": "components\/system\/app-main-components\.js\?v=[^"]+"[\s\S]*?"phase": "after-first-paint"/);
-  assert.match(indexHtml, /"src": "components\/system\/operating-intelligence-components\.js\?v=[^"]+"[\s\S]*?"phase": "after-first-paint"/);
+  assert.doesNotMatch(indexHtml, /components\/system\/operating-intelligence-components\.js/);
+  assert.match(
+    operatingIntelligenceLoader,
+    new RegExp(`components/system/operating-intelligence-components\\.js\\?v=[^"']*-h${contentHash(operatingIntelligenceComponents)}`),
+  );
   assert.match(startupHelperBuild, /'components\/system\/app-main-components-loader\.js'/);
   assert.match(startupHelperBuild, /'components\/system\/operating-intelligence-loader\.js'/);
   assert.match(startupHelperBundle, /SUXI_APP_MAIN_COMPONENTS/);

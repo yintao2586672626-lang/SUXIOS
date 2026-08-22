@@ -150,6 +150,14 @@ test('isolated runner always selects a dedicated database and self-hosted loopba
   assert.match(isolatedRunner, /SUXI_E2E_ISOLATED_RUNNER: '1'/);
   assert.match(isolatedRunner, /process\.platform === 'win32'/);
   assert.match(isolatedRunner, /PHP_CLI_SERVER_WORKERS: String\(e2eProcessEnv\.PHP_CLI_SERVER_WORKERS \|\| '4'\)/);
+  assert.match(isolatedRunner, /detached: useProcessGroup/);
+  assert.match(isolatedRunner, /process\.kill\(-server\.pid, signal\)/);
+  assert.match(isolatedRunner, /process\.kill\(-server\.pid, 0\)/);
+  assert.match(isolatedRunner, /signalIsolatedServer\(server, 'SIGKILL'\)/);
+  assert.match(isolatedRunner, /server\.stdout\?\.destroy\(\)/);
+  assert.match(isolatedRunner, /server\.stderr\?\.destroy\(\)/);
+  assert.match(isolatedRunner, /async function isolatedServerPortReachable\(\)/);
+  assert.match(isolatedRunner, /server port \$\{appPort\} remained reachable after process shutdown/);
   assert.doesNotMatch(isolatedRunner, /SUXI_E2E_ALLOW_SHARED_DB/);
 });
 

@@ -112,6 +112,10 @@ test('CI isolates static contracts from runtime performance and preserves authen
     'node scripts/measure_frontend_performance_ci.mjs',
   );
   assert.match(ciMeasurement, /const isolationRunCount = 5/);
+  assert.match(ciMeasurement, /const isolationRunTimeoutMs = 120_000/);
+  assert.match(ciMeasurement, /timeout: isolationRunTimeoutMs/);
+  assert.match(ciMeasurement, /killSignal: 'SIGKILL'/);
+  assert.match(ciMeasurement, /isolation_run=\$\{isolationRun\} phase=start/);
   assert.match(ciMeasurement, /--performance-iterations=1/);
   assert.match(ciMeasurement, /--performance-enforce-budget=0/);
   assert.match(ciMeasurement, /fresh_server_seed_and_browser_per_run/);

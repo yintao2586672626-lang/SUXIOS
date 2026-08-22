@@ -365,9 +365,11 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
     || phaseFor('components/system/business-closure-loader.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
     || phaseFor('app-deferred-helpers.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
     || phaseFor('components/system/app-main-components.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
-    || phaseFor('components/system/operating-intelligence-components.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
     || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
     failures.push('The home startup render and bridge must load at startup while full-page helpers, components, and render code wait until after first paint.');
+  }
+  if (phaseFor('components/system/operating-intelligence-components.js') !== undefined) {
+    failures.push('The optional operating-intelligence full component must load on user demand instead of blocking the global full-render manifest.');
   }
   const renderBytes = Buffer.byteLength(artifact);
   const renderGzipBytes = artifact ? gzipSync(artifact, { level: 6 }).length : 0;

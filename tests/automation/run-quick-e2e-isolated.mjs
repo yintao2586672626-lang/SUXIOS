@@ -210,6 +210,7 @@ function appendServerLog(server, chunk) {
 }
 
 function startIsolatedServer() {
+  const useProcessGroup = process.platform !== 'win32';
   const serverEnv = process.platform === 'win32'
     ? e2eProcessEnv
     : {
@@ -219,11 +220,13 @@ function startIsolatedServer() {
   const server = spawn(php, ['-S', `127.0.0.1:${appPort}`, '-t', 'public', 'public/router.php'], {
     cwd: root,
     env: serverEnv,
+    detached: useProcessGroup,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.suxiLog = '';
   server.suxiSpawnError = null;
+  server.suxiUsesProcessGroup = useProcessGroup;
   server.stdout?.on('data', (chunk) => appendServerLog(server, chunk));
   server.stderr?.on('data', (chunk) => appendServerLog(server, chunk));
   server.on('error', (error) => {
@@ -232,17 +235,70 @@ function startIsolatedServer() {
   return server;
 }
 
-async function stopIsolatedServer(server) {
-  if (!server || server.exitCode !== null) {
-    return;
+function isolatedServerProcessAlive(server) {
+  if (!server) return false;
+  if (!server.suxiUsesProcessGroup || !Number.isInteger(server.pid)) {
+    return server.exitCode === null;
   }
-  server.kill();
-  for (let attempt = 0; attempt < 30 && server.exitCode === null; attempt += 1) {
+  try {
+    process.kill(-server.pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
+function signalIsolatedServer(server, signal) {
+  try {
+    if (server.suxiUsesProcessGroup && Number.isInteger(server.pid)) {
+      process.kill(-server.pid, signal);
+    } else {
+      server.kill(signal);
+    }
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+  }
+}
+
+async function isolatedServerPortReachable() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 250);
+  try {
+    await fetch(baseURL, { signal: controller.signal });
+    return true;
+  } catch (error) {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function stopIsolatedServer(server) {
+  if (!server) return;
+  if (isolatedServerProcessAlive(server)) signalIsolatedServer(server, 'SIGTERM');
+  for (let attempt = 0; attempt < 30 && isolatedServerProcessAlive(server); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  if (server.exitCode === null) {
-    server.kill('SIGKILL');
+  if (isolatedServerProcessAlive(server)) {
+    signalIsolatedServer(server, 'SIGKILL');
+    for (let attempt = 0; attempt < 20 && isolatedServerProcessAlive(server); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
+  server.stdout?.destroy();
+  server.stderr?.destroy();
+  if (server.suxiUsesProcessGroup && isolatedServerProcessAlive(server)) {
+    throw new Error('Isolated E2E server process group did not stop within 5 seconds');
+  }
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (!(await isolatedServerPortReachable())) {
+      server.unref();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Isolated E2E server port ${appPort} remained reachable after process shutdown`);
 }
 
 async function verifyHealth(server = null) {

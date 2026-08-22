@@ -373,3 +373,60 @@ test('a user can retry an exhausted deferred manifest from the visible error sur
   expect(await page.evaluate(() => document.documentElement.dataset.suxiAuthenticatedInteractiveError || '')).toBe('');
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
+
+test('a late classic script executes once when the user recovers after its soft timeout', async ({ page }) => {
+  test.setTimeout(45000);
+  const pageErrors = [];
+  let delayedAssetRequests = 0;
+  page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
+
+  await page.addInitScript((profile) => {
+    sessionStorage.setItem('token', 'transition-probe-token');
+    localStorage.setItem('suxios_auth_user_cache_v1', JSON.stringify({
+      saved_at: Date.now(),
+      user: profile,
+    }));
+    window.__suxiLateClassicScriptExecCount = 0;
+  }, user);
+
+  await page.route('**/user-admin-static.js*', async route => {
+    delayedAssetRequests += 1;
+    const response = await route.fetch();
+    const body = await response.text();
+    await new Promise(resolve => setTimeout(resolve, 6000));
+    await route.fulfill({
+      response,
+      body: `window.__suxiLateClassicScriptExecCount += 1;\n${body}`,
+    });
+  });
+  await page.route('**/api/**', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    let data = { list: [], items: [], total: 0 };
+    if (pathname === '/api/auth/info') data = user;
+    if (pathname === '/api/hotels') {
+      data = {
+        list: [{ id: 7, name: 'Transition Probe Hotel', tenant_id: 7, status: 1 }],
+        total: 1,
+      };
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data, message: 'ok' }),
+    });
+  });
+
+  await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: '今日经营看板', exact: true }).first()).toBeVisible({ timeout: 15000 });
+  await page.getByText('门店管理', { exact: true }).first().click();
+  await expect(page.getByRole('button', { name: '重试完整资源', exact: true })).toBeVisible({ timeout: 15000 });
+  await page.getByRole('button', { name: '重试完整资源', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '酒店管理', exact: true }).first()).toBeVisible({ timeout: 15000 });
+  await expect.poll(
+    () => page.evaluate(() => document.documentElement.dataset.suxiRenderPhase || ''),
+  ).toBe('full');
+
+  expect(delayedAssetRequests, 'a timeout recovery must reuse the pending canonical request').toBe(1);
+  expect(await page.evaluate(() => window.__suxiLateClassicScriptExecCount)).toBe(1);
+  expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});

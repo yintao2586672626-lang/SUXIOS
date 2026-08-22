@@ -112,7 +112,7 @@ test('authenticated page dependency receives Vue ref and pins the repaired asset
   assert.ok(operatingComponents.includes('const create = ({ ref, computed, inject, h, nextTick, onMounted, onUnmounted })'));
   const loaderVersion = `20260822-human-review-h${contentHash(operatingComponents)}`;
   assert.ok(operatingLoader.includes(`components/system/operating-intelligence-components.js?v=${loaderVersion}`));
-  assert.ok(indexHtml.includes(`components/system/operating-intelligence-components.js?v=${loaderVersion}`));
+  assert.ok(!indexHtml.includes('components/system/operating-intelligence-components.js'));
 });
 
 test('backend keeps the score within operation permissions and tenant hotel scope', () => {
