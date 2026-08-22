@@ -22,7 +22,7 @@
 5. 在代码冻结后执行完整 PHP、Node、前端入口、业务规则、OTA 报告和数据库迁移行为验证。
 6. 把代码、测试和本报告保存到 GitHub 的独立分支与 Draft PR；不部署、不触发真实 OTA 写入、不迁移生产数据库。
 
-最终冻结快照没有开放 P0/P1。完整 PHPUnit `4,672/4,672`、Node `1,711/1,711`、P0 守卫、前端入口、业务页面合同、OTA 竞争报告、认证首页五轮性能预算和一次性 MariaDB 迁移行为均已通过；审查及远端 CI 发现的主要 P1/P2 功能问题已完成最小修复。当前只有明确且非阻断的 P2 架构余量债务。不能外推为生产完成：真实酒店、真实 OTA 账号、真实 DeepSeek、真实生产数据库和部署后运行仍未验证。
+最终冻结快照没有开放 P0/P1。完整 PHPUnit `4,672/4,672`、Node `1,712/1,712`、P0 守卫、前端入口、业务页面合同、OTA 竞争报告、认证首页五轮性能预算和一次性 MariaDB 迁移行为均已通过；审查及远端 CI 发现的主要 P1/P2 功能问题已完成最小修复。当前只有明确且非阻断的 P2 架构余量债务。不能外推为生产完成：真实酒店、真实 OTA 账号、真实 DeepSeek、真实生产数据库和部署后运行仍未验证。
 
 ## 2. 合并策略与工作区保护
 
@@ -394,26 +394,55 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 - 经营问题隔离 E2E `7/7` 通过，保存、回读、待人工审批等原业务闭环未回归，清理后测试数据为 `0`；
 - 与 CI 同合同的认证首页测量连续 `5/5` 轮通过、无重试：每轮 API `4`、重复路由 `0`、运行预算 `failures=[]`。
 
-### F-19 — P1（CI 合同稳定性）— 完整样式延迟后，旧 transition 测试在冷资源尚未落终态时中断
+### F-19 — P1（运行时稳定性）— 延迟资源全并发与有序动态脚本终态不确定性叠加，连续新文档出现完整渲染 pending
 
 #### 复现与根因
 
-两个不同 PR head 的 GitHub Node job 都在同一位置失败：首个非 Compass 页面标题已经可见，但 `suxiRenderPhase` 在 Playwright 隐式 `5 s` poll 内仍为 `startup`；测试随即关闭页面，中断尚未结束的 deferred 请求，复用同一个单进程 PHP origin 的下一用例又发生 `page.goto` 超时。该失败早于 F-18 修复，因此可排除经营问答 scope gating 的因果关系。
+多个不同 PR head 的 GitHub Node job 都在同一条完整渲染切换路径失败；该失败早于 F-18 修复，因此可排除经营问答 scope gating 的因果关系。最初的 `5 s` 隐式 poll 确实不足以区分标题响应与资源终态，但把独立文档的终态窗口显式扩大为 `15 s` 后，第四个连续新文档仍保持 `suxiRenderPhase=startup`，证明“只放宽测试等待”不是修复。
 
-相对旧 `main`，`style.min.css`（约 432 KB）和 `ai-custom.css` 已从启动链移到 `after-first-paint`，这是守住启动 gzip 目标所需的正确 split/defer；但 transition 测试仍沿用旧资产图下的隐式 5 秒资源 settle。旧 `main` 的同一测试在 GitHub 冷环境总耗时已约 `5.1 s`，新资产图继续把完整样式成本强塞进同一隐式窗口并不自洽。
+新增 lifecycle telemetry 显示：前三轮同类资源均在约 `1.3–1.6 s` 内收敛；第四轮 `app-render.min.js`、deferred helper 等多数响应仍为 HTTP `200`，但 `app-main-components.js` 已发出 request 却没有 response/load 终态，后续 `operating-intelligence-components.js` 没有进入当前文档的 DOM，`app-render.min.js` 也没有 load 标记。产品 loader 当时使用 `Promise.all(assets.map(...))`，在 first paint 后一次把 `2` 个样式和 `7` 个具有 manifest 依赖顺序的动态脚本压入浏览器连接池/执行队列；任一早期脚本不落终态，整个 full-render barrier 就不会完成。下一用例的 `page.goto` 超时与该未收敛文档直接相邻，可判为级联表现，而不是第二条独立产品缺陷。
+
+现有日志不能直接观测 Chromium 连接池、脚本执行队列和单进程 PHP origin 的内部因果顺序，因此不能把“全并发”写成已排他证明的唯一根因。证据支持的最强诊断是：全资源并发把网络排队、动态 `async=false` 执行顺序和连续新文档耦合在一起，造成可重复的终态不确定性；独立代码审查同时排除了 manifest Promise 环和反向依赖。脚本顺序化是针对该最强诊断的最小风险干预，CI 通过也只能证明干预后回归关闭，不能反推唯一底层原因。
+
+相对旧 `main`，`style.min.css`（约 432 KB）和 `ai-custom.css` 从启动链移到 `after-first-paint` 仍是守住启动 gzip 目标所需的正确 split/defer；问题在延迟资源调度，而不是应该把完整样式恢复到启动链。
 
 #### 修复
 
 - 保留真正面向用户的标题首显 `≤300 ms` 硬断言，不恢复完整样式到启动链，也不在 Compass 无条件预热；
-- 把“标题响应 SLA”和“隔离文档的完整资源收敛”拆成两个合同：每个硬刷新后的独立文档允许 `15 s` 完成样式解析与脚本执行；同一文档内的真实回访仍要求不重复请求且标题 `≤300 ms`；
+- 在 `app-bootstrap` 中把 after-first-paint manifest 按 type 分组：两个样式保持并行下载，脚本按清单原始顺序逐个 `await`，两组通过同一个外层 barrier 汇合后才发布 `suxiFullRenderReady=1`；
+- 保留 `app-render.min.js` 的 high-priority preload，因此最大的约 `260 KB gzip` 脚本仍可与前置脚本链并行取回；前置脚本约 `184 KB gzip`，以少量 RTT 换取确定的依赖/终态顺序；
+- 把“标题响应 SLA”和“隔离文档的完整资源收敛”拆成两个合同：每个硬刷新后的独立文档允许 `15 s` 到达 full 或显式 error 终态；同一文档内的真实回访仍要求不重复请求且标题 `≤300 ms`；
 - 测试必须等待 `full` 或显式 `suxiAuthenticatedInteractiveError` 终态后才能结束，避免把中断中的静态请求级联给下一测试；
 - 失败证据新增 deferred manifest 每个资源的 request、response status、requestfailed、相对耗时，以及 render phase、full-render-ready、interactive error 和 DOM asset loaded 状态。
+- 新增静态合同，锁定样式并发、脚本顺序、禁止恢复全资源 `Promise.all`，并固定 deferred helper → component factories → `app-render` 的核心 manifest 偏序。
 
 #### 验证与边界
 
-- Windows 隔离 origin 的暖缓存与临时冷 gzip 缓存均 `2/2` 通过；GitHub telemetry 进一步证明 deferred 资源 HTTP 均为 `200`，失败时是第 4 个硬刷新文档内大型脚本尚未完成执行，而不是网络/404；测试数据清理后为 `0`；
-- 该修复没有改产品加载策略、没有提高启动 gzip/运行 API 预算，也没有把冷资源 settle 写成用户交互性能达标；
-- `app-bootstrap` 的单资产加载 Promise 仍没有自身有界超时，属于非阻断 P2：若浏览器既不触发 `load` 也不触发 `error`，完整渲染可长期 pending。后续应在 loader 内增加带资产名的 terminal timeout，并单独验证，不应把它与本轮 CI 时序合同混为一谈。
+- Windows 隔离 origin 在调度修复后连续 `3` 轮、每轮 `2/2` 通过：四个目标页首次/回访和完整终态用例每轮约 `4.3–4.4 s`，新增门店按需 bundle 用例每轮约 `1.1 s`；每轮测试数据清理后为 `0`；
+- bootstrap 定向与失败恢复合同 `18/18` 通过；source → minified artifact → `index.html` 内容 hash 已受控重建；`startup_gzip_bytes=618,951`，仍低于 `620,000` 目标，余量 `1,049 B`；
+- 该修复没有恢复完整样式到启动链、没有提高启动 gzip/运行 API 预算，也没有把后台资源 settle 写成用户交互性能达标；
+- GitHub Linux 的最终闭环必须以本次 exact-head Node runtime job 为准；本报告保留上述可证诊断边界，不以本地通过替代远端结果，也不以 CI 通过反推唯一底层根因。
+
+### F-20 — P2（加载恢复）— 动态资产失败节点残留，同页面重试会等待一个已结束的事件
+
+#### 复现与根因
+
+独立终审对 `loadScript()` / `loadStylesheet()` 做失败重入探针时确认：旧实现的 `error` 分支只 reject Promise，不标记 terminal failure，也不移除失败节点。第二次调用会从 DOM 找到同 URL 的旧节点，再为它追加 `load/error` listener；但旧节点的 terminal `error` 已经发生，不会再次派发，重试因此永久 pending。若浏览器既不派发 `load` 也不派发 `error`，首次调用自身也没有有界终态。该缺口不是 F-19 的顺序化改动引入，但会直接破坏经营问答等按需组件对 `style.min.css` 的同页面恢复能力。
+
+#### 修复
+
+- 统一 script/style 的 settle-once 状态机，并按 `type + resolved URL` 共享同一 in-flight Promise，避免并发调用重复创建节点；
+- `error` 或 `30 s` timeout 会携带资产名 reject、标记 terminal failure、移除节点并同步释放 in-flight key；下一次调用必须创建新节点；
+- 成功时清理 listener/timer、标记 loaded 并释放 in-flight key；已加载节点仍可快速复用；
+- stylesheet 复用从 basename 比较升级为完整 versioned URL，避免旧版本节点误命中；
+- 保留现有 `suxi:full-render-error` 与显式交互错误路径，不把失败吞成空成功。
+
+#### 验证
+
+- 新增从当前 bootstrap 源精确抽取 loader 的行为测试：`error → reject → 节点移除 → 新节点 retry → load resolve`；
+- 覆盖无事件时 timeout reject 与节点可重试，以及两个同 URL 并发调用严格共享同一 Promise/节点；
+- bootstrap 定向套件 `18/18` 通过，连续三轮真实浏览器 transition 每轮 `2/2` 通过，测试数据每轮清理为 `0`；
+- 受控重建后的 minified artifact、入口内容 hash 和公开入口门禁通过；启动 gzip 仍在目标内。
 
 ## 5. 审批和真实经营动作边界
 
@@ -532,11 +561,11 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 
 | 指标 | 结果 |
 |---|---:|
-| `startup_gzip_bytes` | 618,767 B |
+| `startup_gzip_bytes` | 618,951 B |
 | 目标 | 620,000 B |
-| 目标余量 | 1,233 B |
+| 目标余量 | 1,049 B |
 | hard limit | 650,000 B |
-| hard-limit 余量 | 31,233 B |
+| hard-limit 余量 | 31,049 B |
 | 状态 | `within_target` |
 
 结论：当前通过，但余量很薄。任何进入启动链的新逻辑都可能再次越过目标。后续应 defer/split，不应把预算提高到适配代码增长。
@@ -549,11 +578,11 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 | API samples per run | `4` | 达到上限但未超限 |
 | repeated API routes per run | `0` | 通过 |
 | total requests max | `21` | 通过 |
-| FCP/LCP p95 | `396 ms` | 通过 |
-| login click → interactive p95 | `785 ms` | 通过 |
-| authenticated → interactive p95 | `284 ms` | 通过 |
-| longest task p95 | `253 ms` | 高于 200 ms 目标提示、低于 550 ms hard limit |
-| API latency p95 | `377 ms` | 通过 |
+| FCP/LCP p95 | `388 ms` | 通过 |
+| login click → interactive p95 | `798 ms` | 通过 |
+| authenticated → interactive p95 | `277 ms` | 通过 |
+| longest task p95 | `241 ms` | 高于 200 ms 目标提示、低于 550 ms hard limit |
+| API latency p95 | `379 ms` | 通过 |
 | runtime budget failures | `[]` | 通过 |
 
 ## 9. 数据库与迁移审查
@@ -622,8 +651,8 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 | 公开页面隔离 E2E | `1/1` 通过；保存/回读/待审批/调整/拒绝/重试完整，清理后计数 0 |
 | 经营问题隔离 E2E | `7/7` 通过；Compass scope GET `0`，首次进入 Agent 后稳定为 `1`；清理后计数 0 |
 | 快速业务隔离 E2E | `5/5` 通过，清理后计数 0 |
-| 完整渲染切换 E2E | 本地 `2/2` 通过；标题 `≤300 ms` 与同文档不重复请求合同保持，独立文档资源终态窗口显式化，清理后计数 0 |
-| business-page contract | `87/87` 通过 |
+| 完整渲染切换 E2E | 本地连续 `3` 轮、每轮 `2/2` 通过；标题 `≤300 ms`、依赖脚本顺序与同文档不重复请求合同保持，清理后计数 0 |
+| business-page contract | `89/89` 通过 |
 | context assets | 通过 |
 | source hotspot budget | 通过 |
 | public entry | 通过 |
@@ -632,18 +661,18 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 | 云酒店 ID 静态/兼容合同 | `35/35` 通过，其中迁移核心合同 `22/22` |
 | 云酒店 ID MariaDB 行为 | `17/17` 通过；`cleanup_remaining=0`、临时数据库残留 0、命名锁已释放 |
 
-### 11.2 代码冻结后的最终验证
+### 11.2 各相关代码域冻结后的最终验证
 
 | 验证 | 最终结果 |
 |---|---|
-| PHPUnit 全量 | `4,672/4,672` 通过；`42,966 assertions`；`skipped 1` |
-| Node automation 全量 | `1,711/1,711` 通过；0 fail / 0 skipped |
-| `verify:p0-guards` | 通过；含 business page `87/87`、Revenue AI `51/51`、closure `1,767 checks`、E2E static contract `2,286 checks` |
-| `verify:public-entry` | 通过；`startup_gzip_bytes=618,767`，目标余量 `1,233 B` |
+| PHPUnit 全量 | PHP/SQL 域冻结后 `4,672/4,672` 通过；`42,966 assertions`；`skipped 1`；其后最终六文件修复只涉及前端 bootstrap、生成引用、Node 合同和本报告 |
+| Node automation 全量 | 最终前端调度与失败恢复修复后 `1,712/1,712` 通过；0 fail / 0 skipped |
+| `verify:p0-guards` | 通过；含 business page `89/89`、Revenue AI `51/51`、closure `1,767 checks`、E2E static contract `2,286 checks` |
+| `verify:public-entry` | 通过；`startup_gzip_bytes=618,951`，目标余量 `1,049 B` |
 | 认证首页运行预算 | 同合同 `5/5` 轮 verified、0 retries；每轮 API `4`、重复路由 `0`、`failures=[]` |
 | `verify:taste-coverage` / `verify:taste-visual` | `45/45` 页面键；隔离入口 mock `45` 个页面键、`76` 个视觉状态通过 |
 | `verify:source-hotspot-budget` | 通过；`failures=[]`，已知债务继续受 ratchet 约束 |
-| `verify:business-page-contract` | `87/87` 通过 |
+| `verify:business-page-contract` | `89/89` 通过 |
 | `verify:context-assets` | 通过 |
 | `verify:ota-competition-report` | Python `9/9` + PHP bundle + report contract 全部通过；synthetic 动作 0、live review 动作 2、blocked withheld |
 | PHP lint（迁移脚本） | `4/4` 通过 |
@@ -665,9 +694,9 @@ Controller 自身已有酒店与权限检查，但统一 capability 分类返回
 
 ## 13. 最终判断
 
-最终冻结快照没有开放 P0/P1 功能、稳定性、兼容性、权限、跨酒店或数据库迁移阻断。审查发现的并发旧投影、促销公式、经营机会死端/回读、OTA 证据引用、公开资料酒店选择、运营按钮竞态、云酒店 ID 迁移、视觉 smoke 隔离、陈旧测试合同及 Compass 误预取 Agent 数据均已修复并获得对应回归。
+最终冻结快照没有开放 P0/P1 功能、稳定性、兼容性、权限、跨酒店或数据库迁移阻断。审查发现的并发旧投影、促销公式、经营机会死端/回读、OTA 证据引用、公开资料酒店选择、运营按钮竞态、云酒店 ID 迁移、视觉 smoke 隔离、陈旧测试合同、Compass 误预取 Agent 数据、延迟脚本终态不确定性及失败资产无法重试均已修复并获得对应回归。
 
-当前保留两类非阻断 P2：多个热点源文件贴住零增长 ratchet；启动 gzip 距 620,000 B 目标仅余 1,233 B。后续应通过按业务域抽取和 split/defer 缓解，不应提高预算。
+当前保留两类非阻断 P2：多个热点源文件贴住零增长 ratchet；启动 gzip 距 620,000 B 目标仅余 `1,049 B`。后续应通过按业务域抽取和继续 split/defer 缓解，不应提高预算。
 
 本轮可准确标记为 `integration_pass`，具备保存到 GitHub Draft PR 并进入现场验收的条件；不具备 `field_validated` 或生产完成证据。
 

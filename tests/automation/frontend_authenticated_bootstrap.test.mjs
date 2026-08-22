@@ -19,6 +19,126 @@ const operatingIntelligenceLoader = fs.readFileSync('public/components/system/op
 const systemStatic = fs.readFileSync('public/system-static.js', 'utf8');
 const style = fs.readFileSync('public/style.css', 'utf8');
 
+function createAuthenticatedAssetLoaderHarness(timeoutMs = 20) {
+  const loaderStart = bootstrap.indexOf('const resolveAssetUrl = (src) => {');
+  const loaderEnd = bootstrap.indexOf('\n\n    const waitForFirstAuthenticatedPaint', loaderStart);
+  assert(loaderStart >= 0 && loaderEnd > loaderStart, 'authenticated asset loader source must be extractable');
+
+  const scripts = [];
+  const styles = [];
+  const removeNode = (collection, node) => {
+    const index = collection.indexOf(node);
+    if (index >= 0) collection.splice(index, 1);
+  };
+  const createNode = (tagName) => {
+    const listeners = new Map();
+    const collection = tagName === 'script' ? scripts : styles;
+    return {
+      tagName,
+      dataset: {},
+      sheet: null,
+      src: '',
+      href: '',
+      rel: '',
+      async: true,
+      addEventListener(type, listener) {
+        const bucket = listeners.get(type) || new Set();
+        bucket.add(listener);
+        listeners.set(type, bucket);
+      },
+      removeEventListener(type, listener) {
+        listeners.get(type)?.delete(listener);
+      },
+      getAttribute(name) {
+        return Object.hasOwn(this, name) ? this[name] : null;
+      },
+      emit(type) {
+        for (const listener of [...(listeners.get(type) || [])]) listener({ type, target: this });
+      },
+      remove() {
+        removeNode(collection, this);
+      },
+    };
+  };
+  const appendNode = (collection, node) => {
+    if (!collection.includes(node)) collection.push(node);
+    return node;
+  };
+  const documentMock = {
+    baseURI: 'http://127.0.0.1:8080/',
+    scripts,
+    body: { appendChild: node => appendNode(scripts, node) },
+    head: { appendChild: node => appendNode(styles, node) },
+    createElement: createNode,
+    querySelectorAll: selector => (selector === 'link[rel="stylesheet"]' ? styles : []),
+  };
+  const windowMock = {
+    setTimeout: (callback, delay) => setTimeout(callback, delay),
+    clearTimeout: timerId => clearTimeout(timerId),
+  };
+  const loaderFactory = Function(
+    'document',
+    'window',
+    'assetBaseName',
+    'ASSET_TYPE_STYLE',
+    'ASSET_TYPE_SCRIPT',
+    'AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS',
+    `"use strict";
+     const authenticatedAssetLoadPromises = new Map();
+     ${bootstrap.slice(loaderStart, loaderEnd)}
+     return { loadScript, loadStylesheet };`,
+  );
+  return {
+    ...loaderFactory(
+      documentMock,
+      windowMock,
+      src => String(src || '').split(/[?#]/, 1)[0],
+      'style',
+      'script',
+      timeoutMs,
+    ),
+    scripts,
+    styles,
+  };
+}
+
+test('authenticated asset loads share in-flight work and recover after error or timeout', async () => {
+  const loader = createAuthenticatedAssetLoaderHarness(10);
+
+  const firstStyleLoad = loader.loadStylesheet('style.min.css?v=retry');
+  const failedStyle = loader.styles[0];
+  failedStyle.emit('error');
+  await assert.rejects(firstStyleLoad, /style\.min\.css 加载失败/);
+  assert.equal(failedStyle.dataset.suxiAssetFailed, '1');
+  assert.equal(loader.styles.length, 0, 'a failed stylesheet must leave no terminal DOM node');
+
+  const retryStyleLoad = loader.loadStylesheet('style.min.css?v=retry');
+  const retriedStyle = loader.styles[0];
+  assert.notEqual(retriedStyle, failedStyle, 'a retry must create a fresh stylesheet node');
+  retriedStyle.emit('load');
+  await retryStyleLoad;
+  assert.equal(retriedStyle.dataset.suxiAssetLoaded, '1');
+
+  const firstSharedLoad = loader.loadScript('shared.js?v=1');
+  const secondSharedLoad = loader.loadScript('shared.js?v=1');
+  assert.equal(firstSharedLoad, secondSharedLoad, 'concurrent callers must share one in-flight asset promise');
+  assert.equal(loader.scripts.length, 1);
+  loader.scripts[0].emit('load');
+  await Promise.all([firstSharedLoad, secondSharedLoad]);
+
+  const stalledLoad = loader.loadScript('stalled.js?v=1');
+  const stalledScript = loader.scripts.find(node => node.src.startsWith('stalled.js'));
+  await assert.rejects(stalledLoad, /stalled\.js 加载超时/);
+  assert.equal(stalledScript.dataset.suxiAssetFailed, '1');
+  assert(!loader.scripts.includes(stalledScript), 'a timed-out script must be removable and retryable');
+
+  const retryStalledLoad = loader.loadScript('stalled.js?v=1');
+  const retriedScript = loader.scripts.find(node => node.src.startsWith('stalled.js'));
+  assert.notEqual(retriedScript, stalledScript);
+  retriedScript.emit('load');
+  await retryStalledLoad;
+});
+
 test('public login shell defers the authenticated application asset chain', () => {
   const references = extractAuthenticatedAssetReferences(index);
   const entries = extractAuthenticatedAssetEntries(index);
@@ -48,6 +168,25 @@ test('public login shell defers the authenticated application asset chain', () =
   assert(
     scriptAssets.indexOf('app-deferred-helpers.min.js') < scriptAssets.indexOf('app-render.min.js'),
     'deferred domain helpers must precede the full render',
+  );
+  const deferredScriptOrder = [
+    'components/online-data/ctrip-order-analysis-loader.js',
+    'ctrip-search-opportunity-static.js',
+    'user-admin-static.js',
+    'app-deferred-helpers.min.js',
+    'components/system/app-main-components.js',
+    'components/system/operating-intelligence-components.js',
+    'app-render.min.js',
+  ];
+  const deferredScriptIndexes = deferredScriptOrder.map((asset) => scriptAssets.indexOf(asset));
+  assert(
+    deferredScriptIndexes.every((index) => index >= 0),
+    `deferred script chain is incomplete: ${JSON.stringify(deferredScriptIndexes)}`,
+  );
+  assert.deepEqual(
+    deferredScriptIndexes,
+    [...deferredScriptIndexes].sort((left, right) => left - right),
+    'deferred helper, component factory, and full-render scripts must preserve manifest dependency order',
   );
   for (const deferredAsset of [
     'components/system/app-main-components.js',
@@ -205,6 +344,22 @@ test('authenticated startup paints the compact page before progressively hydrati
   assert.match(
     bootstrap,
     /const fullRenderAsset = assets\.find\([\s\S]*?assetBaseName\(asset\.src\) === 'app-render\.min\.js'[\s\S]*?preloadAuthenticatedAsset\(fullRenderAsset, 'high'\)/,
+  );
+  const deferredLoadStart = bootstrap.indexOf('const loadDeferredAuthenticatedAssets = (assets = []) => {');
+  const deferredLoadEnd = bootstrap.indexOf('\n\n    const loadDeferredAuthenticatedAssetManifest', deferredLoadStart);
+  const deferredLoad = bootstrap.slice(deferredLoadStart, deferredLoadEnd);
+  assert.match(deferredLoad, /const styles = assets\.filter\(\(asset\) => asset\.type === ASSET_TYPE_STYLE\);/);
+  assert.match(deferredLoad, /const scripts = assets\.filter\(\(asset\) => asset\.type === ASSET_TYPE_SCRIPT\);/);
+  assert.match(deferredLoad, /Promise\.all\(styles\.map\(\(asset\) => loadAuthenticatedAsset\(asset\)\)\)/);
+  assert.match(
+    deferredLoad,
+    /for \(const asset of scripts\) \{\s*await loadAuthenticatedAsset\(asset\);\s*\}/,
+    'dependent deferred scripts must settle in manifest order while styles may download in parallel',
+  );
+  assert.doesNotMatch(
+    deferredLoad,
+    /Promise\.all\(assets\.map\(/,
+    'the deferred manifest must not saturate the origin with every dependent script at once',
   );
   const authenticatedLoadStart = bootstrap.indexOf('const loadAuthenticatedApp = () => {');
   const authenticatedLoadEnd = bootstrap.indexOf('\n\n    const loginMarkup', authenticatedLoadStart);

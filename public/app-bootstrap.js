@@ -12,6 +12,7 @@
     const LOGIN_CONNECTION_WARMUP_MIN_GAP_MS = 15000;
     const LOGIN_PASSWORD_SAVE_TIMEOUT_MS = 1500;
     const AUTHENTICATED_FIRST_PAINT_FALLBACK_MS = 240;
+    const AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS = 30000;
     const LOGIN_HANDOFF_EVENT = 'suxi:login-handoff-metric';
     const ASSET_PHASE_STARTUP = 'startup';
     const ASSET_PHASE_AFTER_FIRST_PAINT = 'after-first-paint';
@@ -20,6 +21,7 @@
     let authenticatedAppPromise = null;
     let deferredAuthenticatedAssetsPromise = null;
     const authenticatedStartupPreloadLinks = new Map();
+    const authenticatedAssetLoadPromises = new Map();
     let loginHandoffStartedAt = null;
     let loginHandoffMetrics = null;
     let disposeLoginShell = null;
@@ -158,59 +160,106 @@
             return String(src || '');
         }
     };
-    const loadScript = (src) => new Promise((resolve, reject) => {
+    const loadAssetElement = (cacheKey, assetName, element, isLoaded, createElement, appendElement) => {
+        const activeLoad = authenticatedAssetLoadPromises.get(cacheKey);
+        if (activeLoad) return activeLoad;
+        if (element?.dataset.suxiAssetFailed === '1') {
+            element.remove();
+            element = null;
+        }
+        if (element && isLoaded(element)) {
+            element.dataset.suxiAssetLoaded = '1';
+            return Promise.resolve();
+        }
+
+        const shouldAppend = !element;
+        if (shouldAppend) element = createElement();
+        let loadPromise;
+        let failLoad;
+        loadPromise = new Promise((resolve, reject) => {
+            let settled = false;
+            let timeoutId = null;
+            const finish = (error = null) => {
+                if (settled) return;
+                settled = true;
+                if (timeoutId !== null) window.clearTimeout(timeoutId);
+                element.removeEventListener('load', onLoad);
+                element.removeEventListener('error', onError);
+                if (authenticatedAssetLoadPromises.get(cacheKey) === loadPromise) {
+                    authenticatedAssetLoadPromises.delete(cacheKey);
+                }
+                if (error) {
+                    element.dataset.suxiAssetFailed = '1';
+                    element.remove();
+                    reject(error);
+                    return;
+                }
+                element.dataset.suxiAssetLoaded = '1';
+                resolve();
+            };
+            const onLoad = () => finish();
+            const onError = () => finish(new Error(`${assetName} 加载失败`));
+            failLoad = onError;
+            element.addEventListener('load', onLoad, { once: true });
+            element.addEventListener('error', onError, { once: true });
+            timeoutId = window.setTimeout(
+                () => finish(new Error(`${assetName} 加载超时`)),
+                AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS,
+            );
+        });
+        authenticatedAssetLoadPromises.set(cacheKey, loadPromise);
+        if (shouldAppend) {
+            try {
+                appendElement(element);
+            } catch (error) {
+                failLoad();
+            }
+        }
+        return loadPromise;
+    };
+
+    const loadScript = (src) => {
         const assetName = assetBaseName(src);
         const resolvedSrc = resolveAssetUrl(src);
         const existing = [...document.scripts].find(
             (script) => resolveAssetUrl(script.getAttribute('src')) === resolvedSrc
         );
-        if (existing) {
-            if (existing.dataset.suxiAssetLoaded === '1') {
-                resolve();
-                return;
-            }
-            existing.addEventListener('load', resolve, { once: true });
-            existing.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
-            return;
-        }
+        return loadAssetElement(
+            `script:${resolvedSrc}`,
+            assetName,
+            existing,
+            (script) => script.dataset.suxiAssetLoaded === '1',
+            () => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = false;
+                script.dataset.suxiAuthenticatedAsset = assetName;
+                return script;
+            },
+            (script) => document.body.appendChild(script),
+        );
+    };
 
-        const script = document.createElement('script');
-        script.src = src;
-        script.async = false;
-        script.dataset.suxiAuthenticatedAsset = assetName;
-        script.addEventListener('load', () => {
-            script.dataset.suxiAssetLoaded = '1';
-            resolve();
-        }, { once: true });
-        script.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
-        document.body.appendChild(script);
-    });
-
-    const loadStylesheet = (src) => new Promise((resolve, reject) => {
+    const loadStylesheet = (src) => {
         const assetName = assetBaseName(src);
+        const resolvedSrc = resolveAssetUrl(src);
         const existing = [...document.querySelectorAll('link[rel="stylesheet"]')]
-            .find((link) => assetBaseName(link.getAttribute('href')) === assetName);
-        if (existing) {
-            if (existing.dataset.suxiAssetLoaded === '1' || existing.sheet) {
-                resolve();
-                return;
-            }
-            existing.addEventListener('load', resolve, { once: true });
-            existing.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
-            return;
-        }
-
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = src;
-        link.dataset.suxiAuthenticatedAsset = assetName;
-        link.addEventListener('load', () => {
-            link.dataset.suxiAssetLoaded = '1';
-            resolve();
-        }, { once: true });
-        link.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
-        document.head.appendChild(link);
-    });
+            .find((link) => resolveAssetUrl(link.getAttribute('href')) === resolvedSrc);
+        return loadAssetElement(
+            `style:${resolvedSrc}`,
+            assetName,
+            existing,
+            (link) => link.dataset.suxiAssetLoaded === '1' || Boolean(link.sheet),
+            () => {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = src;
+                link.dataset.suxiAuthenticatedAsset = assetName;
+                return link;
+            },
+            (link) => document.head.appendChild(link),
+        );
+    };
 
     const loadAuthenticatedAsset = (asset) => (
         asset.type === ASSET_TYPE_STYLE ? loadStylesheet(asset.src) : loadScript(asset.src)
@@ -363,7 +412,19 @@
             if (fullRenderAsset) preloadAuthenticatedAsset(fullRenderAsset, 'high');
             await waitForFirstAuthenticatedPaint();
             try {
-                await Promise.all(assets.map((asset) => loadAuthenticatedAsset(asset)));
+                const styles = assets.filter((asset) => asset.type === ASSET_TYPE_STYLE);
+                const scripts = assets.filter((asset) => asset.type === ASSET_TYPE_SCRIPT);
+                await Promise.all([
+                    Promise.all(styles.map((asset) => loadAuthenticatedAsset(asset))),
+                    (async () => {
+                        // Deferred bundles share globals in manifest order. Loading
+                        // them one at a time avoids connection-pool and execution-
+                        // queue stalls while styles continue downloading in parallel.
+                        for (const asset of scripts) {
+                            await loadAuthenticatedAsset(asset);
+                        }
+                    })(),
+                ]);
                 document.documentElement.dataset.suxiFullRenderReady = '1';
                 window.dispatchEvent(new CustomEvent('suxi:full-render-ready', {
                     detail: { assets: assets.map((asset) => assetBaseName(asset.src)) },

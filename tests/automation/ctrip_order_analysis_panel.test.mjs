@@ -134,7 +134,11 @@ test('a dynamically loaded component script remains reusable by the deferred man
   scripts[0].dispatch('load');
   assert.equal((await componentPromise).name, 'AiDecisionQualityDetails');
   assert.equal(scripts[0].dataset.suxiAssetLoaded, '1');
-  assert.match(appBootstrap, /if \(existing\.dataset\.suxiAssetLoaded === '1'\) \{\s*resolve\(\);/);
+  assert.match(
+    appBootstrap,
+    /if \(element && isLoaded\(element\)\) \{\s*element\.dataset\.suxiAssetLoaded = '1';\s*return Promise\.resolve\(\);/,
+    'the shared asset state machine must reuse a script already completed by an async component loader',
+  );
 
   const deferredManifestReuse = new Promise((resolve, reject) => {
     if (scripts[0].dataset.suxiAssetLoaded === '1') {
