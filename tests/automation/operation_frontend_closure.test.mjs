@@ -233,6 +233,87 @@ test('execution approval uses an in-page two-click confirmation without a native
     onlineDataPage,
     /:disabled="operationLoading\.actions"\s+@click="rejectOrCancelOperationApproval\(item\)"/,
   );
+  assert.match(
+    trackPage,
+    /:disabled="operationLoading\.actions"\s+@click="approveOperationExecutionIntent\(item, true\)"/,
+  );
+  assert.match(
+    trackPage,
+    /:disabled="operationLoading\.actions"\s+@click="rejectOrCancelOperationApproval\(item\)"/,
+  );
+});
+
+test('verification-only operating questions approve an observation window without inventing a numeric target', () => {
+  const start = appMain.indexOf('const operationApprovalConfirming =');
+  const end = appMain.indexOf('const recordOperationExecutionEvidence = async', start);
+  const approvalFlow = appMain.slice(start, end);
+  assert.match(approvalFlow, /const isVerificationOnlyOperatingQuestion = isManagedOperatingQuestion/);
+  assert.match(approvalFlow, /expectedEffect\?\.status[\s\S]*verification_target/);
+  assert.match(approvalFlow, /expectedEffect\?\.direction[\s\S]*verify/);
+  assert.match(approvalFlow, /value: 'observe'/);
+  assert.match(approvalFlow, /value: 'observation'/);
+  assert.match(approvalFlow, /仅观察变化（不承诺提升）/);
+  assert.match(approvalFlow, /\.\.\.\(isVerificationOnlyOperatingQuestion \? \[\] : \[/);
+  assert.match(approvalFlow, /targetType === 'absolute' \? \{ target_value: absoluteTarget \} : \{\}/);
+  assert.match(approvalFlow, /核验型行动只能按“仅观察变化”口径审批/);
+});
+
+test('managed operating questions create only a human-approved pending intent with zero tasks', () => {
+  const readinessStart = appMain.indexOf('const operatingQuestionActionIsCurrent =');
+  const readinessEnd = appMain.indexOf('const otaDiagnosisLoading =', readinessStart);
+  assert.ok(readinessStart > 0 && readinessEnd > readinessStart, 'operating-question readiness gate must exist');
+  const readiness = appMain.slice(readinessStart, readinessEnd);
+  assert.match(readiness, /operating_question_grounded_ai\.zh-CN\.v4/);
+  assert.match(readiness, /operating_question_action_draft\.v2/);
+  assert.match(readiness, /ready_for_human_review/);
+  assert.match(readiness, /human_confirmation_required === true/);
+  assert.doesNotMatch(readiness, /ready_for_ai_review|independent_ai_review_required|human_confirmation_required === false/);
+
+  const start = appMain.indexOf('const createOperatingQuestionActionIntent = async');
+  const end = appMain.indexOf('const openOperatingQuestionActionIntent = async', start);
+  assert.ok(start > 0 && end > start, 'operating-question pending-intent bridge must exist');
+  const bridge = appMain.slice(start, end);
+  assert.match(bridge, /human_reviewed_operating_check/);
+  assert.match(bridge, /pending_approval/);
+  assert.match(bridge, /tasks\.length !== 0/);
+  assert.doesNotMatch(bridge, /ai_independent_review|intentStatus === 'approved'|AI 独立评审/);
+});
+
+test('managed operating actions expose the versioned card lifecycle start cancel and review readback', () => {
+  assert.match(routes, /Route::post\('\/execution-intents\/:id\/cancel', 'OperationManagement\/cancelExecutionIntent'\)/);
+  assert.match(trackPage, /data-testid="operation-action-card"/);
+  assert.match(trackPage, /action_card\.fact_refs/);
+  assert.match(trackPage, /action_card\.metric_contract\?\.unit/);
+  assert.match(trackPage, /data-testid="operation-start-task"/);
+  assert.match(trackPage, /startOperationExecutionTask\(item\)/);
+  assert.match(trackPage, /data-testid="operation-cancel-action"/);
+  assert.match(trackPage, /cancelOperationExecution\(item\)/);
+  assert.match(trackPage, /latest_review\.non_attribution_reasons/);
+
+  const start = appMain.indexOf('const startOperationExecutionTask = async');
+  const cancel = appMain.indexOf('const cancelOperationExecution = async', start);
+  const end = appMain.indexOf('const recordOperationRevenueNodeCheck = async', cancel);
+  assert.ok(start > 0 && cancel > start && end > cancel, 'managed lifecycle handlers must be present');
+  const startFlow = appMain.slice(start, cancel);
+  assert.match(startFlow, /status: 'executing'/);
+  assert.match(startFlow, /readOperationExecutionTask\(taskId, executionHotelId\)/);
+  assert.match(startFlow, /lifecycle\?\.status \|\| ''\) !== 'in_progress'/);
+  assert.doesNotMatch(startFlow, /price-update|inventory-update|automatic_ota_write/i);
+
+  const cancelFlow = appMain.slice(cancel, end);
+  assert.match(cancelFlow, /\/operation\/execution-intents\/\$\{Number\(item\.id\)\}\/cancel/);
+  assert.match(cancelFlow, /readOperationExecutionIntent\(Number\(item\.id\)\)/);
+  assert.match(cancelFlow, /lifecycle\?\.status \|\| ''\) !== 'cancelled'/);
+  assert.match(cancelFlow, /历史版本仍完整保留/);
+
+  const reviewStart = appMain.indexOf('const submitOperationExecutionReview = async');
+  const reviewEnd = appMain.indexOf('const finishOperationAction = async', reviewStart);
+  const reviewFlow = appMain.slice(reviewStart, reviewEnd);
+  assert.match(reviewFlow, /\['ota_diagnosis_saved', 'operating_question'\]/);
+  assert.match(reviewFlow, /latest_review/);
+  assert.match(reviewFlow, /\['sufficient', 'insufficient', 'mismatched'\]/);
+  assert.match(reviewFlow, /\['continue', 'adjust', 'stop'\]/);
+  assert.match(reviewFlow, /managedReview\.causality_claimed !== false/);
 });
 
 test('effect review uses an in-page form and preserves the observing state when evidence is pending', () => {

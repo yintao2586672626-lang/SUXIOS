@@ -10,6 +10,8 @@ const isFiniteMeasurement = (value) => (
   && Number.isFinite(Number(value))
 );
 
+export const FRONTEND_PERCENTILE_METHOD = 'linear_interpolation_r7';
+
 const frontendNetworkProfiles = Object.freeze({
   none: null,
   'slow-4g': Object.freeze({
@@ -45,17 +47,27 @@ export function percentile(values, ratio = 0.95) {
     .sort((left, right) => left - right);
   if (!samples.length) return null;
   const boundedRatio = Math.min(1, Math.max(0, Number(ratio) || 0));
-  const index = Math.max(0, Math.ceil(samples.length * boundedRatio) - 1);
-  return samples[index];
+  // R-7 keeps the five-run CI P95 distinct from max; max remains explicit in
+  // every duration summary and in the runtime-budget evidence.
+  const rank = (samples.length - 1) * boundedRatio;
+  const lowerIndex = Math.floor(rank);
+  const upperIndex = Math.ceil(rank);
+  const lower = samples[lowerIndex];
+  const upper = samples[upperIndex];
+  return lower + ((upper - lower) * (rank - lowerIndex));
 }
 
 function summarizeDurationSamples(values = []) {
   const samples = finiteSamples(values);
+  const roundedPercentile = (ratio) => {
+    const value = percentile(samples, ratio);
+    return value === null ? null : rounded(value);
+  };
   return {
     sample_count: samples.length,
-    p50_ms: percentile(samples, 0.5),
-    p95_ms: percentile(samples, 0.95),
-    max_ms: percentile(samples, 1),
+    p50_ms: roundedPercentile(0.5),
+    p95_ms: roundedPercentile(0.95),
+    max_ms: roundedPercentile(1),
   };
 }
 
@@ -109,6 +121,7 @@ export function summarizeApiPerformance(resources = [], options = {}) {
     ));
 
   return {
+    percentile_method: FRONTEND_PERCENTILE_METHOD,
     ...summarizeDurationSamples(samples.map((sample) => sample.duration_ms)),
     samples,
     by_route: byRoute,
@@ -140,6 +153,7 @@ export function summarizeFrontendPerformanceRuns(runs = []) {
   ));
 
   return {
+    percentile_method: FRONTEND_PERCENTILE_METHOD,
     run_count: rows.length,
     verified_run_count: rows.filter((run) => run?.verification_status === 'verified').length,
     unverified_run_count: rows.filter((run) => run?.verification_status !== 'verified').length,

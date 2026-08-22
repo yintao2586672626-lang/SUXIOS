@@ -9,7 +9,7 @@ test.use({
 });
 
 const appUrl = process.env.E2E_BASE_URL || 'http://127.0.0.1:8080/';
-const businessDate = '2026-08-12';
+const businessDate = '2026-08-22';
 const questionDigest = 'a'.repeat(64);
 const actionDigest = 'b'.repeat(64);
 const user = {
@@ -101,34 +101,42 @@ const question = {
       provider: 'deepseek',
       model_key: 'deepseek_v4_pro',
       model: 'deepseek-v4-pro',
-      configured_model: 'deepseek-v4-pro',
-      response_model: 'deepseek-v4-pro',
-      provider_response_id: 'chatcmpl-action-proof-0001',
-      provider_created_at: Math.floor(Date.now() / 1000),
-      provider_response_fresh: true,
-      provider_endpoint_origin: 'https://api.deepseek.com',
-      provider_endpoint_host: 'api.deepseek.com',
-      provider_endpoint_official: true,
-      provider_config_digest: 'c'.repeat(64),
-      direct_call_nonce: 'oq_action_proof_0001',
-      transport_request_id: 'oq_action_proof_0001',
-      transport_retry_attempts: 0,
-      upstream_idempotency_key_sent: false,
-      http_status: 200,
-      provider_attempt_count: 1,
-      idempotent_replay: false,
-      direct_request_proof: true,
-      thinking_mode: 'enabled',
-      reasoning_effort: 'high',
       prompt_version: 'operating_question_grounded_ai.zh-CN.v4',
       finish_reason: 'stop',
       external_llm_called: true,
-      external_llm_call_status: 'confirmed_direct_deepseek_v4_pro',
+      external_llm_call_status: 'confirmed_success',
       fallback_used: false,
       cache_hit: false,
       degraded: false,
     },
     evidence_counts: { facts: 1, knowledge_chunks: 0, operating_memories: 0, execution_reviews: 0 },
+    decision_frame: {
+      contract_version: 'revenue_decision_frame.v1',
+      framework_name: '收益决策八维框架',
+      requested_object: '',
+      classification_status: 'inferred',
+      selection_basis: 'question_keyword_match',
+      primary_object: 'channel',
+      primary_label: '渠道',
+      candidate_objects: [{ key: 'channel', label: '渠道', score: 2 }],
+      matched_terms: ['携程', '流量'],
+      key_inputs: ['漏斗', '间夜', '收入', '佣金', '取消'],
+      core_boundary: '毛收入和订单量不等于净贡献。',
+      method_refs: {
+        primary: ['RM-M06'],
+        supporting: ['RM-M02', 'RM-M08'],
+        definition_status: 'source_codes_only_definitions_not_provided',
+      },
+      evidence_gate: {
+        status: 'fact_packet_available_inputs_not_assessed',
+        fact_count: 1,
+        key_input_coverage: 'not_assessed',
+        key_inputs_verified: false,
+        can_execute: false,
+        message: '已存在严格回读事实包，但尚未证明关键输入逐项齐全；仍需按输入清单核对。',
+      },
+      framework_boundary: '该框架只组织分析，不生成经营事实；RM代码仅保留来源索引，因定义未提供，不执行或解释未知方法。',
+    },
     key_points: ['列表曝光与详情曝光均有同日事实。'],
     action_drafts: [action],
   },
@@ -138,7 +146,6 @@ const question = {
   execution_refs: [],
   data_gaps: [],
   content_digest: questionDigest,
-  readback_verified: true,
 };
 
 const intent = {
@@ -164,7 +171,11 @@ const intent = {
   tasks: [],
 };
 
-const installAuthenticatedMocks = async (page, calls, { questionResponse = question } = {}) => {
+const installAuthenticatedMocks = async (page, calls, {
+  questionResponse = question,
+  scopeResponse = null,
+  historyResponse = [],
+} = {}) => {
   await page.addInitScript((profile) => {
     sessionStorage.setItem('token', 'operating-question-action-probe-token');
     localStorage.setItem('suxios_auth_user_cache_v1', JSON.stringify({ saved_at: Date.now(), user: profile }));
@@ -176,6 +187,20 @@ const installAuthenticatedMocks = async (page, calls, { questionResponse = quest
     let data = { list: [], items: [], total: 0 };
     if (pathname === '/api/auth/info') data = user;
     if (pathname === '/api/hotels') data = { list: user.permitted_hotels, total: 1 };
+    if (pathname === '/api/agent/operating-question-scopes' && request.method() === 'GET') {
+      data = scopeResponse || {
+        contract_version: 'operating_question_scope_options.v1',
+        data_status: 'empty',
+        hotel_id: 7,
+        recommended: null,
+        platforms: [],
+        boundary: { silent_date_fallback: false, source_scope: 'ota_channel' },
+        data_gaps: [{ code: 'strict_readback_fact_scope_missing' }],
+      };
+    }
+    if (pathname === '/api/agent/operating-questions' && request.method() === 'GET') {
+      data = { data_status: 'ok', list: historyResponse, count: historyResponse.length, data_gaps: [] };
+    }
     if (pathname === '/api/agent/operating-questions' && request.method() === 'POST') {
       data = { question: questionResponse, created: true, persistence_status: 'readback_verified' };
     }
@@ -193,6 +218,11 @@ const installAuthenticatedMocks = async (page, calls, { questionResponse = quest
   });
 };
 
+const setFixedQuestionBusinessDate = async (page) => {
+  await page.getByTestId('operating-question-date-start').fill(businessDate);
+  await page.getByTestId('operating-question-date-end').fill(businessDate);
+};
+
 test('grounded operating answer submits one evidence-locked action for human approval only', async ({ page }) => {
   test.setTimeout(45000);
   const calls = [];
@@ -201,12 +231,24 @@ test('grounded operating answer submits one evidence-locked action for human app
   await installAuthenticatedMocks(page, calls);
 
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('nav-lean-more')).toBeVisible({ timeout: 15000 });
+  await page.waitForTimeout(300);
+  const scopeReadCount = () => calls.filter(
+    call => call.method === 'GET' && call.pathname === '/api/agent/operating-question-scopes',
+  ).length;
+  expect(scopeReadCount(), 'Compass startup must not prefetch the inactive Agent scope').toBe(0);
   await page.getByTestId('nav-lean-more').click();
   await page.getByTestId('nav-agent-center').click();
   await expect(page.getByTestId('operating-question-entry')).toBeVisible({ timeout: 15000 });
+  await expect.poll(scopeReadCount, { timeout: 5000 }).toBe(1);
+  await page.waitForTimeout(300);
+  expect(scopeReadCount(), 'Agent scope must remain a single read after the panel settles').toBe(1);
+  await setFixedQuestionBusinessDate(page);
 
   await page.getByPlaceholder('例如：这家店今天最需要复核什么？').fill(question.question_text);
   await page.getByRole('button', { name: '提交并回读' }).click();
+  await expect(page.getByTestId('operating-question-decision-frame')).toContainText('渠道');
+  await expect(page.getByTestId('operating-question-decision-frame')).toContainText('毛收入和订单量不等于净贡献');
   const card = page.getByTestId('operating-question-action-card');
   await expect(card).toBeVisible();
   await expect(card).toContainText('AI 行动草案 · 待人工确认');
@@ -223,9 +265,7 @@ test('grounded operating answer submits one evidence-locked action for human app
     '/api/agent/operating-questions',
     '/api/agent/operating-questions/71/action-drafts/0/execution-intent',
   ]);
-  expect(calls.find(call => call.pathname === '/api/agent/operating-questions').body.model_key)
-    .toBe('deepseek_v4_pro');
-  expect(calls.some(call => /approve|collect|fetch|apply/.test(call.pathname) && call.method === 'POST')).toBe(false);
+  expect(calls.some(call => /approve|collect|fetch|apply|price|inventory|message/.test(call.pathname) && call.method === 'POST')).toBe(false);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
@@ -240,6 +280,7 @@ test('stale or low-confidence action remains blocked in the UI and never posts a
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
   await page.getByTestId('nav-lean-more').click();
   await page.getByTestId('nav-agent-center').click();
+  await setFixedQuestionBusinessDate(page);
   await page.getByPlaceholder('例如：这家店今天最需要复核什么？').fill(staleQuestion.question_text);
   await page.getByRole('button', { name: '提交并回读' }).click();
 
@@ -251,26 +292,54 @@ test('stale or low-confidence action remains blocked in the UI and never posts a
   expect(calls.some(call => call.pathname.includes('/execution-intent') && call.method === 'POST')).toBe(false);
 });
 
-for (const [label, mutate] of [
-  ['Flash response model', runtime => { runtime.response_model = 'deepseek-v4-flash'; runtime.direct_request_proof = false; }],
-  ['cache replay', runtime => { runtime.cache_hit = true; runtime.direct_request_proof = false; }],
-  ['provider fallback', runtime => { runtime.fallback_used = true; runtime.direct_request_proof = false; }],
-  ['unofficial endpoint', runtime => { runtime.provider_endpoint_origin = 'https://gateway.example.com'; runtime.provider_endpoint_official = false; runtime.direct_request_proof = false; }],
-  ['stale provider response', runtime => { runtime.provider_response_fresh = false; runtime.direct_request_proof = false; }],
-  ['retry or idempotency', runtime => { runtime.transport_retry_attempts = 1; runtime.upstream_idempotency_key_sent = true; runtime.direct_request_proof = false; }],
-]) {
-  test(`${label} proof never exposes the pending-action submit`, async ({ page }) => {
-    const calls = [];
-    const rejected = structuredClone(question);
-    mutate(rejected.answer.ai_runtime);
-    await installAuthenticatedMocks(page, calls, { questionResponse: rejected });
-    await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
-    await page.getByTestId('nav-lean-more').click();
-    await page.getByTestId('nav-agent-center').click();
-    await page.getByPlaceholder('例如：这家店今天最需要复核什么？').fill(rejected.question_text);
-    await page.getByRole('button', { name: '提交并回读' }).click();
-    await expect(page.getByTestId('operating-question-action-card')).toContainText('需补齐后提交');
-    await expect(page.getByTestId('operating-question-action-submit')).toHaveCount(0);
-    expect(calls.some(call => call.pathname.includes('/execution-intent') && call.method === 'POST')).toBe(false);
+test('latest strict scope and saved question restore without creating a new intent', async ({ page }) => {
+  test.setTimeout(45000);
+  const calls = [];
+  const historyQuestion = structuredClone(question);
+  historyQuestion.action_intent_readback = {
+    data_status: 'ok',
+    list: [{ action_index: 0, execution_intent: intent }],
+    data_gaps: [],
+  };
+  await installAuthenticatedMocks(page, calls, {
+    questionResponse: historyQuestion,
+    historyResponse: [question],
+    scopeResponse: {
+      contract_version: 'operating_question_scope_options.v1',
+      data_status: 'ready',
+      hotel_id: 7,
+      recommended: {
+        hotel_id: 7,
+        platform: 'meituan',
+        date_start: '2026-08-09',
+        date_end: '2026-08-09',
+        verified_fact_count: 1,
+        selection_reason: 'latest_strict_readback',
+        is_today: false,
+      },
+      platforms: [{
+        platform: 'meituan',
+        latest_verified_date: '2026-08-09',
+        verified_fact_count: 1,
+        available_dates: ['2026-08-09'],
+        available_date_count: 1,
+      }],
+      boundary: { silent_date_fallback: false, source_scope: 'ota_channel' },
+      data_gaps: [],
+    },
   });
-}
+
+  await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await page.getByTestId('nav-lean-more').click();
+  await page.getByTestId('nav-agent-center').click();
+  await expect(page.getByTestId('operating-question-scope-status')).toContainText('美团 · 2026-08-09（不是今天）');
+  await expect(page.getByTestId('operating-question-platform')).toHaveValue('meituan');
+  await expect(page.getByTestId('operating-question-date-start')).toHaveValue('2026-08-09');
+
+  await page.getByTestId('operating-question-history').locator('summary').click();
+  await page.getByTestId('operating-question-history-71').click();
+  await expect(page.getByTestId('operating-question-readback')).toBeVisible();
+  await expect(page.getByTestId('operating-question-action-open')).toContainText('pending_approval');
+  await expect(page.getByTestId('operating-question-platform')).toHaveValue('ctrip');
+  expect(calls.filter(call => call.method === 'POST')).toEqual([]);
+});

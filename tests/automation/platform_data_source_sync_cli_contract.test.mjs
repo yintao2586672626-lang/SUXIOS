@@ -34,6 +34,12 @@ test('operator sync keeps business date and data period mutually consistent', ()
   assert.match(source, /'snapshot_time' => \$dataPeriod === 'realtime_snapshot'/);
 });
 
+test('operator sync reads identity proof from bounded full Ctrip captures', () => {
+  assert.match(source, /\$maxIdentityCaptureBytes = 16 \* 1024 \* 1024;/);
+  assert.match(source, /\$resolvedCaptureOutputSize <= \$maxIdentityCaptureBytes/);
+  assert.match(source, /'platform_identity_validation' => \$decodedCapture\['platform_identity_validation'\] \?\? null/);
+});
+
 test('operator sync reports and exits from the exact run readback instead of aggregate task counts', () => {
   assert.match(source, /\$receipt = is_array\(\$taskStats\['run_readback'\]/);
   assert.match(source, /->where\('data_period', \$dataPeriod\)/);

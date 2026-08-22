@@ -1,0 +1,840 @@
+# 宿析OS 全量修改合并、极限审查与修复报告
+
+- 审查日期：2026-08-22（Asia/Shanghai）
+- 应用范围：`HOTEL/`
+- 原始工作区：`D:\桌面\SUXIOS\宿析OS初始版\HOTEL`
+- 隔离集成工作树：`D:\桌面\SUXIOS\宿析OS初始版\.review-worktrees\extreme-merge-20260822`
+- 集成分支：`review/extreme-merge-20260822`
+- `origin/main` 冻结基线：`b42fc9e7e4ad971c27be8505bd3276a98472e3cc`
+- 合并检查点：`2d7e2ab8ce7e9e2bd9782c2c280a33d97735c908`
+- 最终代码候选：`5ae475c4336acbf884297b726f99576045424ad7`；本报告在代码 CI 全绿后作为独立文档提交保存
+- GitHub Draft PR：`https://github.com/yintao2586672626-lang/SUXIOS/pull/34`
+- 最终代码候选关联 CI：`https://github.com/yintao2586672626-lang/SUXIOS/actions/runs/32554434165`（6 个 job 全部成功）
+- 最终成熟度：`integration_pass`
+- 最终审查结论：`VERDICT: PASS` / `PROCESS_STATUS: READY`
+
+## 1. 执行摘要
+
+本轮工作的目标不是做一次“看过代码”的静态报告，而是完成以下闭环：
+
+1. 在不污染原始脏工作区的前提下，把当前可纳入版本控制的功能修改合并到独立工作树。
+2. 以真实功能链路为主线审查：已验证 OTA 数据 → 收益分析 → AI 判断 → 运营管理。
+3. 对能够用代码、测试或一次性本地数据库证明的问题直接修复。
+4. 用独立只读 reviewer 复核主要业务域和最终集成结果。
+5. 在代码冻结后执行完整 PHP、Node、前端入口、业务规则、OTA 报告和数据库迁移行为验证。
+6. 把代码、测试和本报告保存到 GitHub 的独立分支与 Draft PR；不部署、不触发真实 OTA 写入、不迁移生产数据库。
+
+最终冻结快照没有开放 P0/P1。完整 PHPUnit `4,672/4,672`、Node `1,716/1,716`、P0 守卫、前端入口、业务页面合同、OTA 竞争报告、认证首页五轮性能预算、跨平台 E2E 进程生命周期和一次性 MariaDB 迁移行为均已通过；审查及远端 CI 发现的主要 P1/P2 功能问题已完成最小修复。当前只有明确且非阻断的 P2 架构、性能余量和极端进程监管债务。不能外推为生产完成：真实酒店、真实 OTA 账号、真实 DeepSeek、真实生产数据库、部署后负载与经营结果仍未验证。
+
+## 2. 合并策略与工作区保护
+
+### 2.1 为什么使用隔离工作树
+
+原始 `HOTEL` 工作区在任务开始时已经包含大量用户和并行任务修改。直接在原目录执行全量暂存、提交或清理会产生三类风险：
+
+- 把运行时数据、报告、浏览器采集资产或本地状态误提交到 GitHub；
+- 覆盖用户尚未提交的工作，无法区分本轮修复与原有修改；
+- 在前端构建、依赖目录和迁移脚本上产生不可复现的混合快照。
+
+因此，本轮从冻结的 `origin/main` 建立独立工作树，只把符合源代码范围的修改汇入。原始工作区不执行 `reset`、`clean`、提交、推送或部署。
+
+### 2.2 纳入、排除与冲突处理
+
+纳入范围：应用源代码、路由、受控前端源码与生成产物、数据库迁移、部署模板、规则、hooks、测试、验证脚本和文档。
+
+明确排除：
+
+- `storage/`、`runtime/`、`reports/`、`output/`、`test-results/`；
+- 浏览器 Profile、Cookie、localStorage、令牌、原始账号响应或敏感 HAR；
+- `node_modules/`、`vendor/` 等本机依赖目录；
+- 原始 OTA 捕获大文件、备份、压缩包和本地自动化状态；
+- 任何真实平台写入、真实审批、真实酒店状态变更或生产发布。
+
+本轮合并审计的关键事实：
+
+- 相对冻结 `origin/main`，最终集成快照包含 199 个符合范围的源代码、测试与审查文档路径；本报告已在该路径集合内，本次独立文档提交只冻结最终证据，不虚增“第 200 个路径”；
+- 处理 23 个路径级冲突；
+- 最终未保留未解决 Git 冲突；
+- 有意拒绝 `app/service/OperationActionAiReviewService.php`：该服务未接入真实调用链，却包含把 AI 结果推进为审批的危险语义，违背“审批必须由用户主动触发”的产品边界；
+- 不使用 `git add .` 或 `git add -A`，最终只会显式暂存经检查的路径。
+
+### 2.3 原始工作区保护证据
+
+任务开始时原始工作区：
+
+- 分支：`agent/fix-daily-review-gates`
+- HEAD：`8200d04dadb99d34d5bedb7bee1a5cfa55c10ae6`
+
+最终提交前会再次读取原始分支、HEAD 和状态，确认本轮 Git 操作只发生在隔离工作树。
+
+## 3. 审查方法与证据等级
+
+本轮按四层证据分开结论，避免把低层证明写成生产完成：
+
+| 等级 | 本轮含义 | 可以证明 | 不能证明 |
+|---|---|---|---|
+| 静态合同 | 源码、schema、规则、lint、确定性脚本 | 接口形状、权限分类、失败状态、引用路径、迁移分类 | 真实数据库版本、真实并发、真实账号返回 |
+| 本地功能 | PHPUnit、Node、一次性 MariaDB、隔离 E2E | 本地请求、保存、精确回读、页面交互、失败关闭 | 云环境、生产定时器、真实 OTA/模型结果 |
+| `integration_pass` | 全量回归与主要链路同时通过 | 当前集成快照具备继续发布验收的条件 | 生产部署和现场经营结果 |
+| `field_validated` | 同酒店、同日期、真实账号、正式保存与回读 | 真实业务闭环 | 本轮未达到 |
+
+审查顺序遵循：复现或构造反例 → 定位根因 → 最小修改 → 定向验证 → 全量回归 → 独立只读复核。
+
+## 4. 重大功能与稳定性发现
+
+### F-01 — P1 — Manager follow-up 并发写入可能基于过期案例覆盖新状态
+
+#### 根因
+
+旧路径在事务外读取案例投影，请求进入事务后只锁原始案例行，却继续使用之前的可变投影。如果另一个请求在两者之间完成纠错、作废、恢复或复核，后到请求可能基于过期事实生成 follow-up，甚至覆盖更新后的状态。
+
+#### 业务影响
+
+- 经理能力评分和待跟进列表可能与最新纠错状态不一致；
+- 同一个案例的两个合法请求可能出现“后写覆盖正确结果”；
+- 幂等重放与数据库死锁/序列化失败可能被混淆。
+
+#### 修复
+
+- 保存可变案例摘要，在事务内加锁后重新读取完整有效投影；
+- 使用摘要 CAS 判断事务外读取是否已漂移；
+- follow-up、adjustment、review 三条写路径统一应用同类校验；
+- 事件时间升级为 `DATETIME(6)`，减少同秒事件排序歧义；
+- 对 duplicate、deadlock、lock wait、serialization failure 做有界重试，并精确回读并发胜者；
+- 达到重试上限后保留真实数据库异常，不伪装成幂等成功。
+
+#### 验证
+
+- 定向 PHPUnit 覆盖死锁不被误认成 replay、有限重试、并发胜者回读；
+- Manager profile 和 follow-up 合同通过；
+- 尚未执行两个真实生产连接通过 barrier 同时写同一案例的现场测试，因此结论仍是集成级。
+
+### F-02 — P1 — 促销增量使用原始间夜 DID，组规模不一致时可能反转结论
+
+#### 根因
+
+旧公式直接计算两组原始间夜差分：`(参与后-参与前) - (对照后-对照前)`，没有用可售间夜 exposure 归一化。参与组和对照组规模不同时，绝对增量会把组规模误当促销效果。
+
+典型反例：参与组 `100→120`，对照组 `50→60`。两组都增长 20%，归一化效果应为 0；旧公式却返回 10，可能产生错误的正增量结论。
+
+#### 修复
+
+- 升级为 `promotion_incrementality.v2`；
+- 要求参与组和对照组前后四个可售间夜 exposure；
+- 先计算每组转化/占用率变化，再执行 exposure-normalized DID；
+- 返回组内率、增量率和 exposure assessment；
+- 缺少 exposure 时明确 `indeterminate`，不回退到旧公式；
+- 明确说明估计器不自动等同因果证明。
+
+#### 验证
+
+- 覆盖“不同规模、相同增长率、增量为 0”；
+- 覆盖旧输入没有 exposure 时失败关闭；
+- 页面增加四个必填 exposure 字段及解释。
+
+### F-03 — P1 — 云端酒店 ID `5→80` 迁移最初不能证明完整、正确和可回滚判断
+
+#### 根因
+
+最初的迁移脚本依赖手写列名和部分表名，无法完整区分：
+
+- 宿析OS 本地 `system_hotel_id`；
+- 携程、美团、PMS 等外部平台 `hotel_id`；
+- 活跃配置 JSON 内嵌的本地酒店 ID；
+- 不可变历史证据中的旧 ID；
+- 只读派生列；
+- 运行中采集器、systemd 环境和数据库身份之间的漂移。
+
+此外，最初只更新关系列，不能证明：
+
+- `system_configs.config_value` 的活跃 JSON 已迁移；
+- `platform_data_sources.config_json` 的本地 collector ID 已迁移，而外部 `platform_hotel_id` 保持不变；
+- 命名锁在 commit 后独立连接审计结束前仍然有效；
+- 未登记的旧 ID 引用会阻断而不是被遗漏；
+- `hotels.id` 更新到 80 后 `AUTO_INCREMENT` 不会在未来撞 80。
+
+#### 业务影响
+
+这类遗漏会造成最危险的数据问题之一：代码表面显示“酒店 80”，但配置、采集器或部分事实仍指向 5；或者把外部平台酒店 ID 误改成 80，直接串错来源。若主键序列未越过 80，未来创建酒店还可能发生主键冲突。
+
+#### 修复
+
+- 从数据库 schema 关系和明确策略构建正向/负向酒店 ID registry，而不是按模糊命名猜测；
+- 当前登记 122 个本地系统酒店列、14 个外部 ID 负向列、1 个只读派生本地酒店列；
+- 关系列只更新登记的正向列，外部/provider/platform ID 明确保持不变；
+- 可选表只有在 schema 中真实存在且通过分类时才更新；
+- `hotels.id` 最后更新；
+- 使用 dedicated connection 持有命名锁，覆盖事务、commit 和 post-commit 独立连接审计；
+- 事务使用 serializable 语义，执行前后都检查身份、from/to 冲突、列计数和精确回读；
+- `ALL_WRITERS_PAUSED` 仅作为操作者声明，不再伪装成系统已证明所有 writer 停止；
+- Dingdandao runtime env、timer/service 停止状态、systemd 示例和安装脚本都进入目标 ID 漂移门禁；
+- 对 `system_configs.config_value` 和 `platform_data_sources.config_json` 使用表级 JSON 策略：只变更明确的本地 ID key，保留值类型，并保持 `platform_hotel_id` 等外部 ID 不变；
+- 活跃配置使用“行身份 + 旧原始字节”CAS 更新与精确回读；回执只记录摘要，不泄露完整配置 JSON；
+- 不可变历史证据不改写，只记录旧 ID 匹配行的多重集摘要，并在迁移后证明原始字节与摘要未变化；
+- 未登记、非历史 JSON 引用旧 ID 时失败关闭；目标 ID 已存在于可变配置时失败关闭，避免重复绑定；
+- 一次性 MariaDB 行为测试覆盖关系列、活跃 JSON、外部 ID、不明引用、目标冲突、不可变历史、可选表和主键自增序列。
+
+#### 仍然受限
+
+本轮不会连接或修改真实 `hotelx_cloud`，不会停止真实定时器，也不会执行生产迁移。一次性 MariaDB 只能证明脚本在本机兼容数据库上的行为，不证明生产表规模、锁时长、版本差异和现场 writer 已经停止。
+
+### F-04 — P1 — 携程公开资料与市场竞争页错误依赖“已配置实时采集”
+
+#### 根因
+
+公开资料和市场竞争页使用了普通携程采集页的酒店选项集合。该集合只包含已经配置携程实时采集的酒店，导致用户即使有酒店权限、已有人工导入或公开事实，也无法在这两个页面选择酒店。
+
+#### 修复
+
+- 只在 `ctrip-public-profiles` 和 `ctrip-market-competition` 两个页面使用完整的授权酒店集合；
+- 普通携程采集标签仍维持“必须配置实时采集”的严格集合；
+- 统一页面选择、存储上下文和 disabled 条件，避免显示有酒店但控件仍禁用；
+- 更新源码模板后重新生成受控前端与压缩产物。
+
+#### 验证
+
+- 携程公开资料 Node 契约 `8/8`；
+- 一次隔离 E2E 完成公开美团证据保存、精确回读、待审批意图、计划调整、拒绝和重试意图；
+- E2E 后测试数据清理为 0。
+
+### F-05 — P1 — 运营动作按钮在后台刷新期间可见可点，但点击会被静默丢弃
+
+#### 根因
+
+用户完成计划调整后，页面先结束一个请求，再继续刷新动作状态。旧按钮只看局部 loading 标记；在动作列表仍刷新时按钮可能恢复可点，但 handler 会因为全局 `operationLoading.actions` 直接返回，造成“看起来点了，实际什么都没发生”。
+
+#### 修复
+
+- 审批和拒绝按钮同时绑定动作刷新状态；
+- 后台动作刷新结束前控件保持 disabled；
+- 保留服务端 `pending_approval` 和当前卡片摘要校验，不以 UI 禁用代替后端保护。
+
+#### 验证
+
+- operation frontend closure `16/16`；
+- 隔离 E2E 的 reschedule → reject → retry 完整通过。
+
+### F-06 — P2 — 经营机会页面原来形成“只能保存缺口”的功能死端
+
+#### 根因
+
+页面把人工输入正确标记为 `manual_unverified`，四个正式计算器又正确拒绝把未验证输入升级为正式事实。但二者叠加后，用户无论输入什么都只能得到 blocked/indeterminate，无法得到可核对的中间结果。
+
+#### 修复
+
+- 为人工输入生成 `provisional_manual_estimate`；
+- 只展示用户能够自行复算的指标；
+- 强制 `metric_provenance=manual_estimate`、`formal_conclusion=null`、`decision_eligible=false`、`can_execute=false`；
+- 页面明确提示“人工输入估算，仅供核对；不形成正式结论，也不能执行经营动作”。
+
+这保留了数据真实性，同时让功能真正可用，而不是用虚假的“正式结论”换取页面有数字。
+
+### F-07 — P2 — 经营机会精确回读没有重算 JSON，也没有核对顶层元数据
+
+#### 根因
+
+旧回读只比较数据库摘要列，没有重新 canonicalize `input_json/result_json`，也没有完整比较 tenant、hotel、feature、business date、source quality、source reference 和 created_by。JSON 被截断、损坏或顶层范围漂移时仍可能返回 `readback_verified=true`。
+
+#### 修复
+
+- 对关联数组稳定排序后生成 canonical JSON；
+- 回读时重新计算 input/result digest；
+- 同时比较计算值、数据库摘要和本次保存的预期摘要；
+- 精确比较全部业务范围元数据；
+- 损坏或标量 JSON 直接失败，不降级为空数组。
+
+### F-08 — P2 — Manager profile/queue 先截断 1000 条再投影，可能静默漏案例
+
+#### 根因
+
+旧查询先截取 1000 条原始案例，再应用 append-only adjustment 投影和日期过滤。超过 1000 条时，纠正后进入当前日期窗的老案例或排在后面的 overdue 案例会被漏掉，但接口仍表现为完整结果。
+
+#### 修复
+
+- 使用固定最大 case ID 边界的 keyset scan；
+- 每页 250，先形成有效投影再执行日期过滤；
+- 最多扫描 20,000 条；
+- 未完成时显式返回 `data_status=partial`、`profile_status=data_incomplete`、`overall_score=null` 和 `case_scan_incomplete`；
+- 不把子集伪装成完整评分。
+
+#### 验证
+
+- 覆盖 1001 条跨页完整扫描；
+- 覆盖达到上限后的 partial metadata；
+- 覆盖 adjustment 修改业务日期后再过滤。
+
+### F-09 — P1/P2 — OTA competition 证据引用无效，未知技术异常被伪装成采集失败
+
+#### 根因
+
+报告和建议曾引用不存在的 `competition_circle_bundle.platforms.*` 对象；同时构建器捕获所有 `Throwable` 并统一转换成 `collection_failed`，使 TypeError、schema 错误等程序故障看起来像普通缺数。
+
+#### 修复
+
+- 所有引用改成相对 bundle root 的 RFC 6901 JSON Pointer；
+- verifier 实际解析每个 section 和 recommendation 引用，要求落到本次返回对象；
+- Ctrip 读取要求返回数组；未知技术异常直接传播；
+- 正常缺数继续由明确的 `data_missing/unverified` 状态表达；
+- synthetic 数据不能产生真实动作，blocked 情况必须 withheld。
+
+### F-10 — P2 — 经营机会 API 未进入统一 ProtectedCapability 分类
+
+#### 根因
+
+Controller 自身已有酒店与权限检查，但统一 capability 分类返回 null，导致 Auth 的一致授权、摘要裁剪和受保护模块审计语义绕过该新业务域。
+
+#### 修复
+
+- GET 读取分类为 `operation_decision`，要求 `operation.view`；
+- evaluate/priority 写入分类为 `operation_execution`，要求 `operation.execute`；
+- 未知 POST 不使用宽泛路径误匹配；
+- 摘要裁剪后仍保留页面需要的 provisional 指标。
+
+### F-11 — P2 — 经营机会输入没有容量边界
+
+#### 根因与影响
+
+大量 observations、references 或超长字符串会触发同步遍历、重复 JSON 编码/摘要和 LONGTEXT 写入。即使 HTTP 层最终限制 body，也会产生不必要的延迟与存储膨胀。
+
+#### 修复
+
+- 输入 JSON 最大 256 KB；
+- observations 最大 100 条；
+- references 最大 50 条；
+- 单个字符串最大 1000 字符；
+- 在 schema 查询和数据库保存前先拒绝超限输入。
+
+### F-12 — P1 — DeepSeek V4 Pro 证明与不确定重试必须严格
+
+#### 审查结论
+
+- V4 Pro 使用 8192 token、60 秒超时；
+- transport 层不自动重试可能已经到达模型的请求，避免同一个经营审批证据被重复生成；
+- direct proof 同时要求 configured model 与实际返回 model 都是 `deepseek-v4-pro`；
+- 所有受支持的 Pro alias 使用相同策略；
+- Revenue AI 待审批使用事实层酒店的 tenant，不直接相信操作者传入 tenant；
+- 本轮没有真实调用 DeepSeek，因而只证明请求和元数据合同，不证明供应商现场可用。
+
+### F-13 — P1/P2 — Cloud browser gateway 存在重复会话、容量和 profile 范围竞态
+
+#### 修复范围
+
+- 对同 profile/酒店会话做重复与竞态保护；
+- 容量判断与创建路径保持一致；
+- profile scope 不跨酒店复用；
+- CDP 只允许 loopback 目标；
+- 对创建失败和已有会话回读保持明确状态，不用 fallback 隐藏失败。
+
+这些验证是本地 contract 级；没有重新连接真实云端浏览器或真实 OTA 账号。
+
+### F-14 — P2 — AI 日报旗舰版与轻量版输出合同可能混淆
+
+#### 修复
+
+- exporter 严格绑定 report、bundle 和 fingerprint；
+- 旗舰版保留完整详情，轻量版只输出 top 3 与 gaps；
+- 版本、数据范围和证据引用不允许跨报告复用；
+- 前端静态合同和 OTA competition verifier 同时覆盖。
+
+### F-15 — P2 — 前端合法演进后，部分 E2E 仍断言旧启动与执行语义
+
+#### 修复
+
+- operating-question floating spec 改为验证认证 bridge ready，不要求初始阶段已渲染完整业务结果；
+- business-chains spec 使用 `manual_execution` 前后状态作为执行证据，不再把财务收入/成本数字当成动作已执行；
+- 只更新陈旧测试合同，没有降低权限、事实来源或审批门禁。
+
+### F-16 — P2 — 新经营机会页面缺少显式视觉覆盖声明
+
+#### 根因
+
+页面、路由、业务合同和功能测试已经接入，但 `public/style.css` 的登录后页面主题覆盖清单没有登记 `operating-opportunities`。全量功能测试不会修改 Git 索引，因此未触发这一 staged-only 提交合同；真正提交时门禁正确阻断。
+
+#### 修复
+
+- 将经营机会页加入现有运营域绿色主题组；
+- 从 `public/style.css` 受控生成 authenticated/full CSS 与入口版本；
+- 运行 `verify:taste-coverage`、视觉 smoke、公开入口和索引级提交钩子；
+- 不为通过门禁增加空白例外，也不把该页排除出覆盖集合。
+
+### F-17 — P2 — 视觉 smoke 把兼容别名当成独立页面，模拟响应形状落后于前端合同
+
+#### 根因
+
+`ai-workbench` 已明确归一化为 `compass`，但视觉 smoke 仍要求激活页等于旧别名；同时 `/api/online-data/manual-fetch-evidence` 被通用空数组模拟，前端实际要求 `{ rows: [] }`，因此产生非产品 console error。首次运行还复用了 8080 上的原工作区实例，不能作为隔离分支的最终页面证据。
+
+#### 修复
+
+- 为视觉状态显式声明兼容别名的 canonical 预期，继续验证别名会落到 `compass`；
+- 为 manual-fetch-evidence 返回符合前端合同的空证据结构；
+- 新增静态回归，固定别名映射和 mock 数据形状；
+- 使用隔离工作树自己的 `public/index.html` 与临时 loopback 端口复测，`45` 个登录后页面键、`76` 个视觉状态全部通过；该证据仍明确为 mock，不提升为现场验收。
+
+### F-18 — P1 — Compass 登录首屏误预取 Agent scope，触发重复 API 与远端性能预算失败
+
+#### 复现与根因
+
+首次推送到 GitHub 的 PR head 在认证首页性能 job 中稳定出现 `6` 个 API 样本和 `1` 条重复路由，超过既有 `4/0` 预算；重复项为 `/api/agent/operating-question-scopes?hotel_id=...`。代码追踪确认这不是后端重试或测量器重复记账，而是三个自动入口在 Agent 面板未激活时预取 scope：酒店上下文 watcher、认证状态重建后的 `nextTick`、scope source watcher。认证重建又会替换经营问答 state，使旧对象上的 in-flight 标记失效，因而发出第二个真实 GET。
+
+#### 业务与稳定性影响
+
+- 用户只进入 Compass，也会为不可见 Agent 模块承担请求与解析成本；
+- 认证状态重建时产生重复读，弱网络或大酒店范围下会放大首屏波动；
+- 远端 CI 的真实运行预算因此失败，证明“静态测试全绿”不足以覆盖启动生命周期。
+
+#### 修复
+
+- 三个自动入口统一增加 `operatingQuestionPanelIsActive()` 边界，面板未激活时只清空或同步本地状态，不读 Agent scope/history；
+- 保留面板组件 `onMounted()` 的首次 scope/history 加载，保证用户真正进入 Agent 后功能可用；
+- 保留用户在经营问答面板显式切换酒店时的强制刷新，不改变业务语义；
+- 没有通过缓存、延长 TTL 或提高预算掩盖问题，性能合同继续保持每轮最多 `4` 个 API 样本、重复路由 `0`。
+
+#### 验证
+
+- 新增静态回归，约束三个自动入口必须服从 Agent 面板激活条件；
+- 新增真实 Playwright 生命周期断言：Compass 稳定后 scope GET 严格为 `0`，首次进入 Agent 后最终并持续为 `1`；
+- 经营问题隔离 E2E `7/7` 通过，保存、回读、待人工审批等原业务闭环未回归，清理后测试数据为 `0`；
+- 最终本地认证首页测量也按每轮 fresh server/seed/browser 隔离，连续 `5/5` 轮通过、无重试：每轮 API `4`、重复路由 `0`、运行预算 `failures=[]`；隔离合同与 CI 一致，但本地 Windows runner 不能替代 GitHub Linux runner。
+
+### F-19 — P1（运行时稳定性）— 连续新文档出现静态资源终态卡住，完整渲染缺少有界自动恢复
+
+#### 复现与根因
+
+多个不同 PR head 的 GitHub Node job 都在同一条完整渲染切换路径失败；该失败早于 F-18 修复，因此可以排除经营问答 scope GET 重复是它的起因。最初的 `5 s` 隐式 poll 确实不足以区分标题响应与资源终态，但把独立文档的终态窗口显式固定为 `15 s` 后，第四个连续新文档仍保持 `suxiRenderPhase=startup`，证明“继续放宽等待”不是修复。
+
+第一轮修复前，第四个文档停在 `app-main-components.js`；把延迟脚本改为按 manifest 顺序逐个 `await` 后，exact head `30aad177` 的 GitHub run `32541972227` 仍在第四个文档停在更早的 `user-admin-static.js`。本次日志只有 request，没有 response；前一轮部分资源虽然出现 HTTP `200`，但 telemetry 当时只记录响应头，没有 `requestfinished`，不能证明响应体完整或 `<script load>` 已发生。停滞资源随调度移动，排除了“某个固定脚本内容损坏”这种简单解释。下一条 wizard 用例连根导航超时，是前一文档资源状态未收敛后的级联证据，不是已证明的第二个向导缺陷。
+
+现有证据不能唯一分离 Chromium 连接复用、GitHub runner 调度、PHP CLI 单 worker 静态响应、动态脚本队列和操作系统缓存的贡献，因此根因归属保持 `INDETERMINATE`。可以确定的产品缺口是：旧 loader 对延迟资源沿用 `30 s` 单次超时，超过页面 `15 s` 体验门槛；任一资源失败后，顶层 `deferredAuthenticatedAssetsPromise` 还会永久缓存 rejected Promise。于是一次瞬态故障足以让当前页面永久无法进入 full render。
+
+相对旧 `main`，`style.min.css`（约 432 KB）和 `ai-custom.css` 从启动链移到 `after-first-paint` 仍是守住启动 gzip 目标所需的正确 split/defer；问题在延迟资源调度，而不是应该把完整样式恢复到启动链。
+
+#### 修复
+
+- 保留真正面向用户的标题首显 `≤300 ms` 硬断言，不恢复完整样式到启动链，也不在 Compass 无条件预热；
+- 在 `app-bootstrap` 中把 after-first-paint manifest 按 type 分组：两个样式保持并行下载，脚本按清单原始顺序逐个 `await`，两组通过同一个外层 barrier 汇合后才发布 `suxiFullRenderReady=1`；
+- 延迟脚本的依赖顺序由 JavaScript `await` 屏障保证；每次只插入一个脚本，因此其 DOM 节点使用独立异步队列，不再额外加入浏览器的全局有序动态脚本队列。认证启动 prerequisites 仍保留原有 ordered 语义；
+- 整份 after-first-paint manifest 从调用开始共享 `15 s` deadline；每个延迟资源单次最多使用 `5 s`，但实际 timeout 必须取 `min(5 s, remaining deadline)`，因此晚序资源不会重新获得一段完整窗口；全局 timer 与每个资源的剩余时间共同保证健康完成或显式 error 的有界终态；
+- 在剩余 deadline 允许时，每个资源最多自动重试一次；失败节点和 in-flight key 必须先清理，最终失败仍发布显式 `suxi:full-render-error`，不吞成空成功；
+- 顶层 manifest Promise 失败时按 Promise identity 重置为 `null`，避免旧失败异步清掉新任务；完整资源错误页新增用户可见“重试完整资源”动作，重新绑定本 attempt 的 ready/error listener 并显式调用整份 manifest，成功后回到原目标页面，失败则重新呈现真实错误；
+- `app-render.min.js` 继续预取，但 fetch priority 从 `high` 调整为 `low`，避免约 `260 KB gzip` 的低时效资源压过前置小脚本；
+- 把“标题响应 SLA”和“隔离文档的完整资源收敛”拆成两个合同：每个硬刷新后的独立文档允许 `15 s` 到达 full 或显式 error 终态；同一文档内的真实回访仍要求不重复请求且标题 `≤300 ms`；
+- 测试必须等待 `full` 或显式 `suxiAuthenticatedInteractiveError` 终态后才能结束，避免把中断中的静态请求级联给下一测试；
+- 失败证据新增 deferred manifest 每个资源的 request、response、`requestfinished`、requestfailed、相对耗时，以及 render phase、full-render-ready、interactive error、DOM asset loaded/failed/async 状态；
+- 隔离 E2E 最终不再让 PHP CLI server 同时承担大静态文件和 API：Node 异步 origin 负责静态文件、gzip、MIME 与缓存，单个 PHP backend 只处理 API；这样既避免直接 PHP origin 的静态队头阻塞，也避免引入多 worker 无法完整回收的进程树。
+- 新增静态合同，锁定样式并发、脚本顺序、禁止恢复全资源 `Promise.all`，并固定 deferred helper → component factories → `app-render` 的核心 manifest 偏序。
+
+#### 验证与边界
+
+- Windows 隔离 origin 在最终恢复修复后完整 transition 套件 `4/4` 通过：四个目标页首次/回访约 `4.2 s`，新增门店按需 bundle 约 `1.1 s`，两次故障后由可见按钮恢复原目标页约 `0.784 s`，延迟 classic script 单传输/单执行约 `6.9 s`；测试数据清理后为 `0`；
+- bootstrap、组件桥、E2E runner 与性能合同定向验证 `56/56` 通过；其中执行当前 bootstrap 源的行为测试覆盖“整清单失败 → 顶层 Promise reset → 新节点 → ready”“前序慢成功 → 晚序 stall → 共享 deadline error”以及“timeout 不产生第二条脚本 transport/执行路径”；source → minified artifact → `index.html` 内容 hash 已受控重建；最终 `startup_gzip_bytes=619,972`，低于 `620,000` 目标，余量 `28 B`；
+- 该修复没有恢复完整样式到启动链、没有提高启动 gzip/运行 API 预算，也没有把后台资源 settle 写成用户交互性能达标；
+- 本报告保留 run `32541972227` 的失败证据；后续 run `32545938742`、`32548295158` 又分别暴露 Linux PHP worker 泄漏和连续新文档 worker 池耗尽，最终由 F-22 的 origin/生命周期修复关闭。PR workflow 的普通 job 检出 GitHub 生成的 merge ref，因此准确口径是“对应 PR head 的 merge-ref CI”，只有 branch-freshness job 显式检出 raw PR head；不能把二者混写成 raw exact-head 执行。
+
+### F-20 — P2（加载恢复）— 动态资产失败节点残留，同页面重试会等待一个已结束的事件
+
+#### 复现与根因
+
+独立终审对 `loadScript()` / `loadStylesheet()` 做失败重入探针时确认：旧实现的 `error` 分支只 reject Promise，不标记 terminal failure，也不移除失败节点。第二次调用会从 DOM 找到同 URL 的旧节点，再为它追加 `load/error` listener；但旧节点的 terminal `error` 已经发生，不会再次派发，重试因此永久 pending。若浏览器既不派发 `load` 也不派发 `error`，首次调用自身也没有有界终态。该缺口不是 F-19 的顺序化改动引入，但会直接破坏经营问答等按需组件对 `style.min.css` 的同页面恢复能力。
+
+#### 修复
+
+- 统一 script/style 的 settle-once 状态机，并按 `type + resolved URL` 共享同一 in-flight Promise，避免并发调用重复创建节点；
+- `error` 或 timeout 会携带资产名 reject、标记 terminal failure、移除节点并同步释放 in-flight key；下一次调用必须创建新节点；启动资产沿用 `30 s`，延迟资产使用 F-19 的 `5 s × 最多两次` 有界恢复；
+- 成功时清理 listener/timer、标记 loaded 并释放 in-flight key；已加载节点仍可快速复用；
+- stylesheet 复用从 basename 比较升级为完整 versioned URL，避免旧版本节点误命中；
+- 保留现有 `suxi:full-render-error` 与显式交互错误路径，不把失败吞成空成功。
+
+#### 验证
+
+- 新增从当前 bootstrap 源精确抽取 loader 的行为测试：`error → reject → 节点移除 → 新节点 retry → load resolve`；
+- 覆盖无事件时 timeout reject 与节点可重试，以及两个同 URL 并发调用严格共享同一 Promise/节点；
+- bootstrap 与 Ctrip 组件桥定向套件 `28/28` 通过，连续三轮真实浏览器 transition 每轮 `3/3` 通过，测试数据每轮清理为 `0`；
+- 受控重建后的 minified artifact、入口内容 hash 和公开入口门禁通过；启动 gzip 仍在目标内。
+
+### F-21 — P1（冷启动功能性能）— 登录首绘前预取大入口，常驻经营助手未操作也下载完整资源
+
+#### 复现与证据边界
+
+exact head `30aad177` 的 GitHub performance job `96953580272` 五轮均为 verified、无测量重试、每轮 API `4`、重复路由 `0`，但首轮出现 FCP `2,104 ms`、authenticated → interactive `1,038 ms`、longest task `871 ms`，使三个硬门槛失败；后四轮 FCP 只有 `320–340 ms`、authenticated → interactive `366–423 ms`、longest task `274–301 ms`。首轮异常在 deferred loader 之前已经出现，API 延迟也正常，因此不能把唯一根因归给 F-19，也不能把该真实首轮简单删除或靠 rerun 掩盖。
+
+代码和资源时序确认了两个可直接修复的放大项：
+
+- 浏览器自动填充/极速输入会在公开登录页首绘前通过 `focusin/input` 立即 high-priority preload 约 `403 KB transfer` 的 `app-main.min.js`；
+- 全局模板常驻 `<operating-question-consultant>`，旧实现用 `defineAsyncComponent`，组件一挂载就自动下载 `style.min.css` 和 `operating-intelligence-components.js`，即使用户从未点击经营助手。
+
+#### 修复
+
+- `focusin/input/submit` 只安排认证入口预取；预取必须先越过两帧/有界 fallback 的公开 shell 首绘屏障，真实登录提交仍可与认证请求并行复用预取；
+- 浮动经营助手改为轻量 action gate：未点击时只渲染入口按钮，不下载完整样式或组件；首次点击才加载，并通过 `openOnMount=true` 让第一次点击直接看到已打开助手，不要求第二次点击；加载失败保留同按钮重试；
+- 性能 artifact 新增最多 `100` 条 raw long-task 起点/时长、全部同源 JS/CSS timing、browser launch、context/page 创建和 DOMContentLoaded 节点，且不保存 Cookie、token、认证头或响应正文；
+- CI 在预算超限时先保留已完成的聚合证据，再由后续独立 verifier 回读当前产物 identity、freshness 和预算后负责阻断；测量、导航或验证自身失败仍 fail closed，不保证生成完整聚合报告；
+- 没有提高 FCP、交互、long-task、API、请求数或重复 API 的任何预算，也没有丢弃首轮。
+
+#### 验证
+
+- 本地证据为五轮各自 fresh server/seed/browser 的隔离测量，全部 verified、零重试，首轮与后续轮均计分；每轮都保留自己的 fragment，缺失指标不会靠测量重试或替换样本补齐；
+- 总请求数从旧证据每轮 `21` 降为 `19`，资源列表不再出现未操作的 `style.min.css` 与 `operating-intelligence-components.js`；
+- 按最终显式 `linear_interpolation_r7` 口径，FCP/LCP p95 `387 ms`、login click → interactive p95 `551 ms`、authenticated → interactive p95 `282 ms`、API p95 `373 ms`，均通过硬门槛；
+- longest task p95/max 均为 `245 ms`，低于 `550 ms` hard limit，但高于 `200 ms` 改进目标，继续作为非阻断 P2；
+- artifact identity `28112378afe08f47cb651b34d505d3aa71b9a42c1cd93dce6cbeec8f04ff7967` 在测量前后稳定，聚合报告 SHA-256 为 `fde2ee2b490fec84606d56982423bee2cca9855edccdc2410e68f3d17a5559c4`，测试数据清理后为 `0`；
+- 与代码候选关联的 GitHub performance job 已完成 `5/5` fresh server/seed/browser 隔离测量并通过；该结论仍只证明 CI 环境合同，不等于生产负载。
+
+### F-22 — P1（CI 运行时与进程生命周期）— 静态资源与 API 共用 PHP origin，失败后 worker/子进程无法可靠退出
+
+#### 失败时间线与根因
+
+本轮远端 CI 连续提供了三层不同证据，不能把它们归成一个“偶发超时”：
+
+1. run `32541972227` 在认证 transition 的连续新文档中出现静态资源请求没有 terminal event，证明旧单 origin 无法稳定满足完整渲染合同；
+2. run `32545938742` 在引入 `PHP_CLI_SERVER_WORKERS=4` 后，真实 transition 已失败，但数据库与本地状态已经清到 `0`；随后 Node runner 因四个 PHP workers 仍持有 pipe/端口而继续存活，最终命中 workflow `4 min`/`8 min` safety timeout。性能 job 只完成 `1/5` fragment，因此性能判断是 `INDETERMINATE`，不能把唯一 cold fragment删掉，也不能声称五轮失败；
+3. run `32548295158` 已解决旧 cleanup hang，但 direct PHP worker pool 在取消/关闭多个大静态文档后被占满：transition 第一项通过，后面三个新文档均无法得到完整入口。这个证据进一步证明“多开 PHP worker”不是稳定的静态 origin 修复。
+
+最终根因分成两个可独立验证的缺口：测试 origin 的职责不纯，PHP worker 被大静态文件占用会拖累 API/下一文档；runner 生命周期只盯 master/直接 child，没有跨平台、跨进程组的 request → cleanup → release 协议。单纯增加 workflow timeout、提高产品 15 s deadline、调用无条件 `process.exit()` 或删除 cold 样本都会掩盖问题。
+
+性能测量还发现一条独立证据完整性问题：若脚本在浏览器首次 LCP 记录前自动点击登录，Chromium 会停止后续 LCP candidate，造成一轮 `LCP=null`。本轮保留了该 `4/5` 失败测量集，没有用重跑覆盖；修复是先 drain `PerformanceObserver.takeRecords()` 并在最多 `5 s` 有界窗口内等待首个 LCP，再产生登录输入。缺失仍保持未验证。
+
+#### 修复
+
+- E2E app port 改为 Node 异步静态/gzip origin；PHP 单 backend 只处理同源 API 代理，静态 JS 使用 JavaScript MIME，并保留 immutable 内容 hash 缓存；
+- app/backend 两个端口启动前都做 TCP preflight。任何一个已占用时在创建 server 前 fail fast，不杀、不接管现有 owner，并清掉本轮 seed/local state；
+- 外层性能 runner 由同步 child 改为异步 child，单轮 wall clock `120 s`、cleanup grace `45 s`；超时不是自动重试，而是触发有界 cleanup 并保留已写 fragment；
+- parent 与 isolated runner 使用 IPC request → `cleanup_complete` → release 握手。只有数据库清理、Node origin、PHP backend、active Playwright child 和 local state 都完成，runner 才发送 ack；unexpected IPC disconnect 同样进入 fail-safe cleanup；
+- Windows 对自己创建的 active child tree 使用精确 PID 的 `taskkill.exe /PID ... /T /F`；POSIX runner、PHP 与 active Node child 使用受控 process group，TERM grace 后对负 PGID KILL，且 leader 先退出也不取消 group kill；
+- 外层接收 SIGINT/SIGTERM 时立即设置 `130/143`，同时允许 cleanup 完成；正常 IPC child 主动 `disconnect()`，避免通道本身阻止退出；
+- PHP helper 查询增加 `10 s` timeout 和 phase checkpoint；端口释放由真实 TCP probe确认，不把 child `exit` 事件当成端口已经释放；
+- LCP observer 在输入前完成有界 drain；每轮测量只尝试一次，失败样本不会删除、替换或重测。
+
+#### 验证
+
+- Windows 显式 IPC shutdown 探针：DB `12→0`，app/backend 端口可重绑，记录的 `9` 个后代 PID 全消失，runner 退出 `143`；
+- unexpected IPC disconnect 探针得到同样的 `12→0`、双端口释放、`9` 个后代清零和退出 `143`；正常 IPC child 为 DB `12→0`、双端口释放、runner `0`；
+- app port 与 backend port 分别被外部 fixture 占用时，runner 均在启动前拒绝，fixture 保持存活，另一个端口可重绑，DB 为 `0`，本地 state 被移除；
+- transition 最终 `4/4`、认证性能 `5/5`、完整 Node `1,716/1,716`、相关生命周期/启动合同 `56/56` 通过；
+- CI run `32551104465` 的认证性能与 backend/database job 已通过，证明旧两个主要失败面被关闭；该 run 随后由 F-23 的陈旧 floating 测试合同阻断，因此不能把整次 workflow 写成 green。
+
+#### 保留的 P2
+
+- 若 isolated runner 在 IPC handler 执行前硬崩溃，outer 仍不知道 inner POSIX active-child PGID；现有受控 timeout/disconnect 探针没有覆盖“runner 进程瞬时消失且后代继续存活”；
+- `taskkill.exe` 返回状态没有直接写入结构化诊断，失败会由 watchdog/端口检查间接暴露；
+- 仓库内 lifecycle 单测仍以源码结构合同为主，三条真实 PID/DB/端口故障注入探针目前保存在审查证据目录，尚未变成跨平台 CI job。
+
+### F-23 — P1（按需助手可用性）— E2E 仍按旧首屏组件契约运行，移动轻量入口又被底部导航遮挡
+
+#### 复现与根因
+
+代码候选 `9d9c5ee` 已把完整经营助手从全局 manifest 移出：登录后首屏只渲染 `operating-question-consultant-load`，用户首次点击才下载 `operating-intelligence-components.js` 并以 `openOnMount=true` 打开面板。run `32551104465` 的三个 action-card 用例进入 Agent 页面并通过，反证 full JS 路径、MIME、hash 或 factory 注册普遍损坏；四个 floating 用例却直接等待旧 `system-guide-floating-launcher`，从未点击 gate，因此必然为 `0`。
+
+在把测试改成真实首次点击后，本地 393 px 移动视口又暴露了产品缺陷：轻量 gate 使用 `z-40` 且位于底部 `20 px`，移动导航层为 `z=60`，真实 pointer event 被导航拦截。使用 Playwright `force` 点击只会掩盖用户无法点击，不能作为修复。
+
+#### 修复
+
+- floating E2E 统一使用真实 demand-load helper：点击前断言 gate 可见且 full entry 为 `0`，点击后等待 entry、launcher、panel；每次 reload 都重新走 gate，不借用上一文档的全局或 locator 状态；
+- 首个移动用例记录完整组件请求：点击前 `0`，点击后严格 `1`，响应 `200` 且 Content-Type 为 JavaScript；随后继续验证自然语言、报告/行动模式、跨页任务路线和人工审批边界；
+- 轻量 gate 复用正式 `.sx-ai-consultant` / launcher 样式，并用启动期内联 `z-index:75` 保证 deferred style 尚未加载时也高于移动导航；删除会以更高优先级覆盖它的 `z-40` utility；
+- async panel 的自动 loading placeholder 改为非交互状态，不再保留一个只会重复等待同一 in-flight Promise 的伪按钮；
+- 完整助手仍只在明确需求后加载，没有放回全局 manifest，没有延长 timeout，也没有使用强制点击。
+
+#### 验证
+
+- 本地真实隔离旅程最终 `7/7`：action-card `3/3`、floating `4/4`；移动点击、单次 full JS、JavaScript MIME、首次直接打开、reload、对话上下文、拖拽/收起/恢复全部通过；
+- 每轮 seed 前为 `0`、业务交互后隔离对象总数 `12`、cleanup 后精确回到 `0`；app/backend 使用独立 `18180/18181`，避免接管本机已有 `18080/18081` owner；
+- 受影响启动/组件合同 `44/44`、staged pre-commit 全套、public entry 与 Tailwind deterministic build 均通过；最终启动 gzip `619,972 B`，未提高 `620,000 B` 目标；
+- `a83c4e55...` 关联 run `32552104934` 的 Node 业务旅程已经通过，证明按需入口修复有效；但该 run 的认证性能因单轮 `603 ms` longest task 被旧 nearest-rank P95 口径阻断，所以整次 workflow 保留为失败，并继续进入 F-24 的证据合同修复，不能把它写成最终 green。
+
+### F-24 — P1（性能证据合同）/ P2（产品热点）— 五样本 P95 实际等于 max，既误标统计口径又无法区分孤立冷抖动与重复卡顿
+
+#### 复现与根因
+
+run `32552104934` 的认证性能五轮全部 verified、零重试、产物 identity 稳定，每轮请求 `19`、API `4`、重复路由 `0`。longest-task 原始样本排序后为 `[214, 217, 219, 226, 603] ms`；旧 `ceil(n × p) - 1` nearest-rank 算法在仅五个样本时把 P95 永远等同 max，因此报出 `p95=603 ms` 并超过 `550 ms` hard limit。该 `603 ms` 不能删除：trace 显示它主要覆盖约 `1.34 MB` 的 `app-main.min.js` 同步解析、求值、setup 与 mount，说明单体启动热点仍是真实 P2；但后四轮稳定在 `214–226 ms`，不能据此声称发生了可复现的整体产品回归。
+
+问题不只是一次 runner 抖动，而是证据字段语义不完整：报告把 nearest-rank max 命名为 P95，却没有单独强制保留 max，既无法表达孤立冷样本，也无法让预算区分“一个温和孤立峰值”“一个严重峰值”和“重复峰值”。
+
+#### 修复
+
+- 百分位统一改为确定性的 R-7 线性插值，并在顶层、聚合结果和 API 摘要显式写入 `percentile_method=linear_interpolation_r7`；三个标记任一缺失或方法不匹配都会 fail closed；
+- duration 摘要继续独立保留 `max_ms`，运行预算从五个原始 run 直接重算 `longest_task_max_ms`，不能用插值值替代真实最大值；
+- `550 ms` P95 hard limit、`200 ms` 改进目标、五轮 verified、零缺失和零重复 API 等预算全部保持不变；当 P95 合格但 max 超过同一 ceiling 时，输出 `isolated_run_outlier_above_p95_ceiling` 明确告警，不把 max 隐藏成成功；
+- 新增回归反例：`[214,217,219,226,603]` 得到 P95 `528`、max `603` 和告警；把孤立峰值扩大到 `1,000` 时 P95 `845` 并硬失败；出现两个 `603` 峰值时 P95 `603` 并硬失败；
+- 历史 run `32552104934` 及其原始 artifact 保持失败，不修改、不删除、不重跑覆盖；只用新代码离线重算得到 P95 `528`、max `603`，用于证明合同差异，不倒写 GitHub 历史结论。
+
+#### 验证与最终远端结果
+
+- 性能指标、运行预算与隔离入口定向 Node 套件 `33/33` 通过；完整 Node 从零重跑 `1,716/1,716` 通过；
+- 最终本地五轮：verified `5/5`、attempt `1/1/1/1/1`、FCP/LCP P95/max `387/388 ms`、login P95/max `551/555 ms`、auth P95/max `282/282 ms`、longest P95/max `245/245 ms`、API P95/max `373/374 ms`、runtime failures `[]`；
+- 最终代码 head `5ae475c4...` 的 GitHub run `32554434165` 使用五组 fresh server/seed/browser，verified `5/5`、零重试、每轮请求 `19`、API `4`、重复路由 `0`；FCP/LCP P95/max `708/796 ms`、login P95/max `941/943 ms`、auth P95/max `561/596 ms`、longest P95/max `363/377 ms`、API P95/max `213/225 ms`，runtime failures `[]`；auth 与 longest-task 只命中改进目标 warning，未触发硬门槛；
+- 同一 run 的 `Node and business-chain runtime`、`Dependency security and release contracts`、`Backend and database`、`Branch freshness`、`Authenticated frontend performance` 与最终 `verify` 六个 job 全部成功；前端 identity `28112378afe08f47cb651b34d505d3aa71b9a42c1cd93dce6cbeec8f04ff7967` 稳定，聚合证据 SHA-256 `433c0c4fe5d313e07b6c721590519d5fc1de1ee2bce735f98212e9d66e3df711`，GitHub artifact digest `sha256:f13780df008cb2eb636edf280828b0c6e1208f042abb8ba2e887f64ae1a0abbe`；
+- 结论是“统计合同修复且当前集成预算通过”，不是“603 ms 从未发生”或“启动架构已完成”。`app-main.min.js` 的体积和同步执行热点继续保留为 P2。
+
+## 5. 审批和真实经营动作边界
+
+本轮明确拒绝“AI 自动审批”路径。最终保留的闭环是：
+
+```text
+证据与建议
+  -> 创建 pending_approval 意图
+  -> 用户主动打开并核对卡片
+  -> 服务端核对酒店/来源/日期/摘要仍为当前版本
+  -> 用户主动批准或拒绝
+  -> 任务与效果证据追加记录
+```
+
+关键规则：
+
+- `operation.execute` 是写入与审批权限，`operation.view` 不能替代；
+- `pending_approval` 不能由 AI、计时器、预览页或测试自动升级；
+- approval card 必须验证当前 intent、当前 evidence 和 no-drift；
+- 本轮没有自动执行 OTA 改价、房态、促销或外部发送；
+- HTTP 200、登录成功、页面可见和本地 E2E 都不是生产动作完成证据。
+
+## 6. 规则体系审查
+
+### 6.1 当前规则中有效且应保留的部分
+
+- 功能优先，但不能用伪造值、旧值或跨范围 fallback 让页面“看起来完成”；
+- 酒店、tenant、平台、业务日期、来源和事实质量必须跟随数据进入分析与动作；
+- OTA 事实只支持渠道分析，不扩大为全酒店经营事实；
+- 缺失、失败、历史、缓存、预测和人工输入必须有不同状态；
+- 用户审批是不可替代的外部授权边界；
+- 前端修改从 source/template 产生，压缩产物通过受控构建生成；
+- 脏工作区不是阻塞，但必须隔离并保护用户改动；
+- 本地、集成、真实账号、现场和生产证据必须分层。
+
+### 6.2 本轮规则工程改进
+
+- 新增 business-page contract 和 registry，把酒店范围、来源、日期、权限、保存与失败状态变成可执行规则；
+- 新增 verifier，当前覆盖 89 条页面合同；
+- context assets gate 验证规则、文档和实现引用没有漂移；
+- CI 增加经营问题 E2E 合同；
+- 规则保持业务页面级，不强制所有简单页面套入重流程；
+- 不把文档声明当作运行证明，关键边界由测试或脚本执行。
+
+### 6.3 仍需长期控制的规则风险
+
+- registry 越来越大时，要避免出现“为了通过规则而复制文案”的形式主义；
+- 新增接口必须同时登记读/写权限，不应只依赖 Controller 内零散判断；
+- schema/迁移和规则 registry 需要同 PR 更新，否则酒店 ID、来源字段和能力分类容易漂移；
+- 规则应 fail closed，但不应把所有业务缺数都升级成系统故障；要继续区分 `blocked`、`partial`、`unverified` 和 technical error。
+
+## 7. 架构审查
+
+### 7.1 当前可接受的主链
+
+```text
+携程 / 美团来源事实
+  -> tenant + system_hotel_id + platform + business_date + source + quality
+  -> 渠道与收益分析
+  -> 带证据的 AI 建议
+  -> pending_approval
+  -> 用户主动经营动作
+  -> append-only 证据与效果复核
+  -> 投资判断（仅在上游事实足够时）
+```
+
+正向评价：
+
+- 事实层、建议层、审批层和动作层已经有清晰边界；
+- 关键写路径正在从“返回成功”转向“保存 + 精确回读 + 摘要匹配”；
+- append-only adjustment/review/lifecycle 比覆盖式更新更适合审计经营动作；
+- ProtectedCapability 提供统一读写能力语义；
+- 对人工输入提供可用的 provisional 输出，同时不升级成正式事实；
+- 关键失败状态能进入 UI，而不是用 0 或空数组遮蔽。
+
+### 7.2 主要架构债务
+
+#### A. 前端启动热点
+
+`public/app-main.js` 仍有 55,806 行，已经贴住 55,806 行 ratchet，余量为 0，相对 49,934 行长期目标的债务为 5,872 行。它同时承担路由、状态、权限、数据请求、页面 glue 和大量业务 helper；任何小功能都可能进入启动链并推高 gzip。
+
+建议后续按行为保持的小边界拆分：
+
+- 把 `operatingQuestionActionIsCurrent()` 等纯合同校验移到现有静态模块；
+- 页面只在进入对应标签后加载业务模块；
+- 不提高 620,000 B 目标，优先 split/defer。
+
+#### B. Revenue AI overview 过大
+
+`RevenueAiOverviewService.php` 约 6,386 行，长期目标 4,800，ratchet 余量为 0。价格建议 review queue、格式化与证据 helper 已形成独立业务域，适合后续抽成 `RevenueAiPricingReviewService`。
+
+#### C. OTA diagnosis concern 边界不纯
+
+- `AgentOtaDiagnosisBuildConcern.php` 约 2,453 行，长期目标 1,500；
+- `AgentOtaDiagnosisPersistenceConcern.php` 约 2,399 行，长期目标 1,750。
+
+前者混入服务质量 eligibility 和动作规则，后者混入 no-action 展示投影与 coverage 分类。后续应抽出纯 policy/service，让 concern 只负责编排与持久化。
+
+#### D. 特殊迁移脚本复杂度高
+
+酒店 ID 迁移必须同时处理关系字段、活跃 JSON、历史摘要、运行时 env、writer 停止和主键序列，天然复杂。当前以一次性脚本、registry、inspector 和行为测试把风险显式化是合理的；不建议把它包装成日常后台按钮。生产执行应继续要求人工窗口、备份、writer 停止、预检和 post-commit 审计。
+
+### 7.3 不建议本轮进行的重构
+
+- 不进行全仓 repository/service 重写；
+- 不把所有 Controller 迁移到新框架；
+- 不为了“架构漂亮”改动稳定的 OTA 捕获协议；
+- 不提高热点或 gzip 预算掩盖增长；
+- 不把生产治理、分布式锁、全链路观测作为本轮功能交付前置条件。
+
+## 8. 前端构建与性能
+
+最终受控构建使用 template snapshot 与 frontend build 生成 `public/app-main.js`、minified assets 和入口引用；没有直接手改 minified 产物。
+
+代码冻结前的最新预算结果：
+
+| 指标 | 结果 |
+|---|---:|
+| `startup_gzip_bytes` | 619,972 B |
+| 目标 | 620,000 B |
+| 目标余量 | 28 B |
+| hard limit | 650,000 B |
+| hard-limit 余量 | 30,028 B |
+| 状态 | `within_target` |
+
+结论：当前通过，但余量很薄。任何进入启动链的新逻辑都可能再次越过目标。后续应 defer/split，不应把预算提高到适配代码增长。
+
+远端认证性能 CI 对本轮起到了真实回归门作用：先发现 F-18 的重复 API，再发现首个 cold run、Linux worker 生命周期和 F-24 的百分位语义问题，而不是被本地静态全绿掩盖。最终冻结产物的本地 Windows 与 GitHub Linux 五轮都按每轮 fresh server/seed/browser 独立执行；两者环境和 runner 不同，均通过后才能判定当前集成合同关闭，但仍不能外推为生产负载。所有最终报告都显式声明 R-7，P95 与 max 同时保存：
+
+| 认证首页运行指标 | 本地最终五轮 | GitHub CI 最终五轮 | 合同判断 |
+|---|---:|---:|---|
+| verified runs / retries | `5/5` / `0` | `5/5` / `0` | 通过 |
+| API samples per run | `4` | `4` | 达到上限但未超限 |
+| repeated API routes per run | `0` | `0` | 通过 |
+| total requests max | `19` | `19` | 通过；未操作的完整经营助手资源已退出 Compass 冷路径 |
+| FCP/LCP P95 / max | `387 / 388 ms` | `708 / 796 ms` | 通过；LCP `5/5` 完整 |
+| login click → interactive P95 / max | `551 / 555 ms` | `941 / 943 ms` | 通过 |
+| authenticated → interactive P95 / max | `282 / 282 ms` | `561 / 596 ms` | 通过 hard limit；CI 高于 `350 ms` 改进目标 |
+| longest task P95 / max | `245 / 245 ms` | `363 / 377 ms` | 均高于 `200 ms` 目标提示、低于 `550 ms` hard limit |
+| API latency P95 / max | `373 / 374 ms` | `213 / 225 ms` | 通过 |
+| runtime budget failures | `[]` | `[]` | 通过 |
+
+## 9. 数据库与迁移审查
+
+### 9.1 业务功能迁移
+
+经理能力评分、follow-up、adjustment/review 和经营机会运行表具备：
+
+- 明确的唯一幂等键；
+- append-only 纠错/复核记录；
+- `DATETIME(6)` 事件顺序；
+- 保存后精确回读；
+- 旧数据兼容和 partial 状态。
+
+### 9.2 云酒店 ID 一次性迁移
+
+正式执行前必须满足：
+
+- 数据库身份、源 ID=5、目标 ID=80 与预期完全一致；
+- 目标 ID 在所有可变关系和活跃配置中不存在；
+- schema 中所有疑似酒店 ID 列都已被正向、负向、派生或未知分类；
+- 所有未知非历史引用都为 0；
+- Dingdandao collector/runtime env 指向 80；
+- timer/service 确认停止；
+- 操作者明确声明所有 writer 已暂停；
+- dedicated connection 获得命名锁；
+- 事务和 post-commit 独立连接审计通过；
+- `hotels.AUTO_INCREMENT > 80`；
+- 回执只含计数和摘要，不含原始敏感 JSON。
+
+### 9.3 生产迁移仍未验证
+
+本轮不会证明：
+
+- 生产 MariaDB/MySQL 精确版本兼容；
+- 大表 UPDATE 的锁时长和复制延迟；
+- 所有外部 writer 确实停止；
+- systemd 实际部署文件已更新；
+- 生产备份可恢复；
+- 正式迁移后的真实采集和 UI 回读。
+
+因此，脚本通过只能标记为“迁移实现与本地行为合同通过”，不能标记为“酒店 80 已在生产迁移完成”。
+
+## 10. 安全审查（功能之后的最低必要检查）
+
+本轮没有把泛化安全加固放在功能之前，也没有开展完整渗透测试。只检查会直接中断交付的高风险边界：
+
+- 未发现新增明文密码、token、Cookie 或浏览器 Profile 进入版本控制；
+- 未发现新增跨酒店/跨 tenant 无鉴权读写；
+- 未发现未鉴权公网写入口；
+- 未执行不可逆真实数据删除；
+- Cloud browser CDP 目标限制为 loopback；
+- 外部动作保持人工审批；
+- 迁移回执不输出活跃配置原文。
+
+这些结论不是“系统安全完成”。未覆盖完整依赖漏洞、主机加固、WAF、SAST/DAST、供应链、权限矩阵全量证明、云账号配置和生产渗透测试。
+
+## 11. 验证矩阵
+
+### 11.1 已完成的定向验证
+
+| 范围 | 结果 |
+|---|---|
+| 携程公开资料前端合同 | `8/8` 通过 |
+| 运营动作前端闭环 | `16/16` 通过 |
+| 公开页面隔离 E2E | `1/1` 通过；保存/回读/待审批/调整/拒绝/重试完整，清理后计数 0 |
+| 经营问题隔离 E2E | `7/7` 通过；Compass scope GET `0`，首次进入 Agent 后稳定为 `1`；floating click 前 full request/entry `0`，点击后 full JS 请求严格 `1`、HTTP `200`、JavaScript MIME；清理后计数 0 |
+| 快速业务隔离 E2E | `5/5` 通过，清理后计数 0 |
+| 完整渲染切换 E2E | 最终 `4/4` 通过；标题 `≤300 ms`、依赖脚本顺序、同文档不重复请求、两次故障后可见按钮恢复，以及 delayed classic script 单 transport/单执行合同保持，清理后计数 0 |
+| E2E 生命周期故障注入 | explicit IPC request、unexpected disconnect、normal IPC 三路径：DB 分别 `12→0`，双端口可重绑，受控路径记录的 9 个后代 PID 清零；退出码 `143/143/0` |
+| E2E 端口冲突故障注入 | app/backend 分别被 fixture 占用时均启动前拒绝；fixture 不被终止，另一端口可重绑，DB `0`，本地 state 清理完成 |
+| business-page contract | `89/89` 通过 |
+| context assets | 通过 |
+| source hotspot budget | 通过 |
+| public entry | 通过 |
+| taste page coverage | `45/45` 页面键通过 |
+| taste visual smoke | 隔离入口 mock：`45` 个页面键、`76` 个视觉状态通过 |
+| 云酒店 ID 静态/兼容合同 | `35/35` 通过，其中迁移核心合同 `22/22` |
+| 云酒店 ID MariaDB 行为 | `17/17` 通过；`cleanup_remaining=0`、临时数据库残留 0、命名锁已释放 |
+
+### 11.2 各相关代码域冻结后的最终验证
+
+| 验证 | 最终结果 |
+|---|---|
+| PHPUnit 全量 | PHP/SQL 域冻结后 `4,672/4,672` 通过；`42,966 assertions`；`skipped 1`；其后最终修复只涉及前端 JavaScript、受控生成产物、Node 合同、静态集成验证器和本报告，未改 PHP/SQL |
+| Node automation 全量 | 最终前端调度、失败恢复、生命周期、性能证据和静态集成规则修复后，从零重跑 `1,716/1,716` 通过；0 fail / 0 skipped |
+| `verify:p0-guards` | 通过；含 business page `89/89`、Revenue AI `51/51`、closure `1,767 checks`、E2E static contract `2,286 checks` |
+| `verify:public-entry` | 通过；`startup_gzip_bytes=619,972`，目标余量 `28 B`，hard-limit 余量 `30,028 B` |
+| 认证首页运行预算 | 显式 R-7；本地 Windows 每轮 fresh server/seed/browser：`5/5` verified、0 retries、API `4`、重复 `0`、请求 `19`、`failures=[]`，P95/max 为 FCP/LCP `387/388`、login `551/555`、auth `282/282`、longest `245/245`、API `373/374 ms`；GitHub Linux 同拓扑结果见 F-24 |
+| `verify:taste-coverage` / `verify:taste-visual` | `45/45` 页面键；隔离入口 mock `45` 个页面键、`76` 个视觉状态通过 |
+| `verify:source-hotspot-budget` | 通过；`failures=[]`，已知债务继续受 ratchet 约束 |
+| `verify:business-page-contract` | `89/89` 通过 |
+| `verify:context-assets` | 通过 |
+| `verify:ota-competition-report` | Python `9/9` + PHP bundle + report contract 全部通过；synthetic 动作 0、live review 动作 2、blocked withheld |
+| PHP lint（迁移脚本） | `4/4` 通过 |
+| `git diff --check` / 冲突标记 | 通过；无未解决状态、无冲突标记 |
+| GitHub PR CI | code head `5ae475c4...` 关联 run `32554434165`，6 个 job 全部成功；branch-freshness 检出 raw head，普通 jobs 检出该 PR head 对应 merge ref；性能 artifact digest 已在 F-24 固定 |
+| 独立 reviewer | `VERDICT: PASS` / `PROCESS_STATUS: READY` / `MATURITY: integration_pass` |
+
+## 12. 剩余风险与明确阻塞
+
+### 12.1 非阻断工程 P2
+
+1. `startup_gzip_bytes=619,972`，距离强制目标只有 `28 B`；任何新启动逻辑都应继续 split/defer，不能提高目标来吸收增长。
+2. 认证首页 longest task 本地 P95/max `245/245 ms`、GitHub CI `363/377 ms`，均高于 `200 ms` 改进目标但低于 `550 ms` hard limit；历史 run `32552104934` 的孤立 cold max `603 ms` 仍保留。需要继续拆解同步启动热点，不能把 warning 当作失败，也不能删除 cold run。
+3. `app-main.min.js` 仍约 `1.34 MB`，`app-main.js`、Revenue AI overview 等热点源文件仍贴近零增长 ratchet；ratchet 能阻止继续变大，不能替代模块化。
+4. outer 在 isolated runner 硬崩溃且未处理 IPC 前仍不知道 inner POSIX active-child PGID；这是极端监管缺口，不影响已验证的正常、timeout、signal 和 disconnect 路径。
+5. `taskkill.exe` 的返回码未进入结构化 receipt；当前由后代 PID、端口和 watchdog 间接验证，长期应直接记录 status/error。
+6. lifecycle 仓库测试以源码合同为主；三条真实 DB/端口/PID 故障注入探针保存在审查证据目录，尚未纳入跨平台 CI。
+7. GitHub Actions 提示 `actions/checkout@v4`、`actions/setup-node@v4`、`actions/upload-artifact@v4` 的 Node 20 runtime 将被强制切到 Node 24；当前不影响 job 结果，但应在官方 action 版本可用时升级。
+8. CI 的 Node static origin + PHP backend 是测试隔离拓扑，不等于生产 Web server、多实例、代理、缓存和高并发行为。
+
+### 12.2 现场与外部阻塞
+
+以下项目没有被本地或 GitHub CI 替代，仍需后续现场验收：
+
+1. 真实酒店、tenant、平台、Profile、业务日期的携程/美团采集。
+2. 同店同日的 PMS → 携程 → 美团正式保存与精确回读。
+3. 真实 DeepSeek V4 Pro provider 返回和模型身份检查。
+4. 真实用户在原设备主动批准经营动作。
+5. 真实 OTA 改价、房态、促销、消息发送及效果回看。
+6. 生产数据库迁移窗口、备份恢复、writer 停止、锁时长和 post-commit 验收。
+7. 部署环境健康、真实登录后页面、跨浏览器、长时间运行、负载、故障恢复和多实例一致性。
+8. GitHub Draft PR 尚未合并到 `main`，也没有部署；PR green 只代表当前合并快照的集成门禁。
+
+## 13. 最终判断
+
+最终冻结快照没有开放本地可复现的 P0/P1 功能、稳定性、兼容性、权限、跨酒店或数据库迁移阻断。审查发现的并发旧投影、促销公式、经营机会死端/回读、OTA 证据引用、公开资料酒店选择、运营按钮竞态、云酒店 ID 迁移、视觉 smoke 隔离、陈旧测试合同、Compass 误预取 Agent 数据、延迟脚本终态不确定性、完整 manifest 无法恢复、manifest 串行超时累加、错误页没有用户恢复动作、登录首绘竞争、经营助手无意自动加载、Linux 静态 origin 队头阻塞、worker/子进程泄漏、LCP 证据缺失、移动端助手入口遮挡和五样本 P95 语义缺口均已修复并获得对应回归。
+
+当前保留的 P2 已在 12.1 单独列出，其中最接近门槛的是启动 gzip 目标余量 `28 B`，以及认证首页 longest-task 在本地/CI 的 P95 `245/363 ms` 与 CI max `377 ms`。后续应通过按业务域抽取、继续 split/defer、把生命周期故障注入纳入 CI 来缓解，不应提高预算或降低失败可见性。
+
+本轮可准确标记为 `integration_pass`，具备保存到 GitHub Draft PR 并进入现场验收的条件；不具备 `field_validated` 或生产完成证据。
+
+准确的完成边界应是：代码与主要本地业务链达到 `integration_pass` 后，保存到 GitHub Draft PR，等待真实账号、生产迁移和部署验收。不能把本报告、全量测试、HTTP 200 或本地 E2E 写成 `field_validated` 或生产完成。

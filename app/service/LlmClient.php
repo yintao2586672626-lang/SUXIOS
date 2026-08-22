@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\exception\LlmDirectRequestException;
 use app\model\AiModelCallLog;
 use app\model\AiModelConfig;
 use RuntimeException;
@@ -315,7 +316,9 @@ class LlmClient
             'terminal_failure' => (bool)($transport['terminal_failure'] ?? false),
             'failure_state' => (string)($transport['failure_state'] ?? ''),
         ];
-        $debugMeta = array_merge($meta, $retryMeta);
+        $debugMeta = array_merge($meta, $retryMeta, [
+            'request_dispatched' => true,
+        ]);
 
         if ($response === false) {
             $message = $this->sanitize((string)($transport['error'] ?? 'Network request failed'));
@@ -393,6 +396,13 @@ class LlmClient
         $providerResponseId = $this->normalizeProviderResponseId($data['id'] ?? null);
         $providerCreatedAt = max(0, (int)($data['created'] ?? 0));
         $endpointProof = $this->providerEndpointProof($config);
+        $finishReason = strtolower(trim((string)($data['choices'][0]['finish_reason'] ?? '')));
+        $providerReceiptMeta = [
+            'response_model' => $responseModel,
+            'provider_response_id' => $providerResponseId,
+            'provider_created_at' => $providerCreatedAt,
+            'finish_reason' => $finishReason,
+        ];
 
         $content = $this->extractChatContent($data);
         if ($content === '') {
@@ -410,12 +420,15 @@ class LlmClient
                     'ok' => false,
                     'message' => $message,
                     'code' => 502,
-                    'data' => $this->debug('empty_content', $config, $statusCode, '', $prompt, (string)$response, $message, $debugMeta, strlen($payloadJson)),
+                    'finish_reason' => $finishReason,
+                    'data' => $this->debug('empty_content', $config, $statusCode, '', $prompt, (string)$response, $message, array_merge(
+                        $debugMeta,
+                        $providerReceiptMeta
+                    ), strlen($payloadJson)),
                 ],
             ];
         }
 
-        $finishReason = strtolower(trim((string)($data['choices'][0]['finish_reason'] ?? '')));
         if (is_array($options['json_schema'] ?? null) && $finishReason !== 'stop') {
             $message = 'LLM structured response did not finish normally';
             return [
@@ -432,9 +445,10 @@ class LlmClient
                     'message' => $message,
                     'code' => 502,
                     'finish_reason' => $finishReason,
-                    'data' => $this->debug('incomplete_structured_response', $config, $statusCode, '', $prompt, $content, $message, array_merge($debugMeta, [
-                        'finish_reason' => $finishReason,
-                    ]), strlen($payloadJson)),
+                    'data' => $this->debug('incomplete_structured_response', $config, $statusCode, '', $prompt, $content, $message, array_merge(
+                        $debugMeta,
+                        $providerReceiptMeta
+                    ), strlen($payloadJson)),
                 ],
             ];
         }
@@ -456,7 +470,10 @@ class LlmClient
                         'ok' => false,
                         'message' => $message,
                         'code' => 502,
-                        'data' => $this->debug('invalid_structured_response', $config, $statusCode, '', $prompt, $content, $message, $debugMeta, strlen($payloadJson)),
+                        'data' => $this->debug('invalid_structured_response', $config, $statusCode, '', $prompt, $content, $message, array_merge(
+                            $debugMeta,
+                            $providerReceiptMeta
+                        ), strlen($payloadJson)),
                     ],
                 ];
             }
@@ -478,9 +495,10 @@ class LlmClient
                         'message' => $message,
                         'code' => 502,
                         'finish_reason' => $finishReason,
-                        'data' => $this->debug('structured_schema_mismatch', $config, $statusCode, '', $prompt, $content, $message, array_merge($debugMeta, [
-                            'finish_reason' => $finishReason,
-                        ]), strlen($payloadJson)),
+                        'data' => $this->debug('structured_schema_mismatch', $config, $statusCode, '', $prompt, $content, $message, array_merge(
+                            $debugMeta,
+                            $providerReceiptMeta
+                        ), strlen($payloadJson)),
                     ],
                 ];
             }
@@ -796,6 +814,7 @@ class LlmClient
         array $schema,
         string $modelKey = 'deepseek_v4_pro'
     ): array {
+        $useDeepSeekProThinking = $this->isDeepSeekV4ProKey($modelKey);
         $governanceMeta = $this->schemaGovernanceMeta($schema);
         $schemaForPrompt = $this->schemaWithoutGovernance($schema);
         $prompt = $this->messagesToPrompt($messages, $schemaForPrompt);
@@ -825,9 +844,15 @@ class LlmClient
             'request_id' => $directCallNonce,
         ]), [
             'temperature' => 0.1,
-            'timeout' => 45,
-            'max_tokens' => 2048,
-            'max_retries' => 0,
+            'timeout' => $useDeepSeekProThinking ? 60 : 45,
+            // DeepSeek reasoning tokens share this budget with the final JSON.
+            // A 2K cap can finish the reasoning phase with an HTTP 200 yet leave
+            // choices[0].message.content empty, so reserve enough room for the
+            // bounded operating-question schema as well.
+            'max_tokens' => $useDeepSeekProThinking ? 8192 : 2048,
+            // A structured operating answer becomes approval evidence. Do not
+            // issue an ambiguous second provider call after a transport timeout.
+            'max_retries' => $useDeepSeekProThinking ? 0 : 1,
             'retry_base_delay_ms' => 500,
             'retry_max_delay_ms' => 1000,
             'retry_jitter_ms' => 0,
@@ -847,18 +872,53 @@ class LlmClient
             || ($result['degraded'] ?? false) === true
             || ($result['fallback_used'] ?? false) === true
         ) {
-            throw new RuntimeException(
+            throw new LlmDirectRequestException(
                 (string)($result['message'] ?? 'LLM direct structured request failed'),
-                (int)($result['code'] ?? 200)
+                (int)($result['code'] ?? 200),
+                $this->directFailureReceipt(
+                    $result,
+                    $directCallNonce,
+                    $modelKey,
+                    $deepSeekProRequest,
+                    $thinkingMode,
+                    $reasoningEffort
+                )
             );
         }
 
         $jsonText = $this->extractJsonText((string)($result['content'] ?? ''));
         $data = json_decode($jsonText, true);
         if (!is_array($data)) {
-            throw new RuntimeException('LLM did not return valid JSON.');
+            throw new LlmDirectRequestException(
+                'LLM did not return valid JSON.',
+                502,
+                array_merge($this->directFailureReceipt(
+                    $result,
+                    $directCallNonce,
+                    $modelKey,
+                    $deepSeekProRequest,
+                    $thinkingMode,
+                    $reasoningEffort
+                ), ['failure_reason' => 'invalid_structured_response'])
+            );
         }
-        $this->assertStructuredJsonMatchesSchema($data, $schemaForPrompt);
+        try {
+            $this->assertStructuredJsonMatchesSchema($data, $schemaForPrompt);
+        } catch (RuntimeException $exception) {
+            throw new LlmDirectRequestException(
+                'LLM structured response does not match the required schema.',
+                502,
+                array_merge($this->directFailureReceipt(
+                    $result,
+                    $directCallNonce,
+                    $modelKey,
+                    $deepSeekProRequest,
+                    $thinkingMode,
+                    $reasoningEffort
+                ), ['failure_reason' => 'structured_schema_mismatch']),
+                $exception
+            );
+        }
         $this->updateGovernanceFromJson($result, $data);
         $debug = is_array($result['data']['debug'] ?? null) ? $result['data']['debug'] : [];
         $stability = is_array($result['data']['stability'] ?? null) ? $result['data']['stability'] : [];
@@ -941,6 +1001,121 @@ class LlmClient
                 'degraded' => false,
             ],
         ];
+    }
+
+    /**
+     * Preserve only safe provider/config/transport identity when a direct
+     * structured call fails. No prompt, raw response, header, or credential is
+     * allowed into the operating-question record.
+     *
+     * @return array<string,mixed>
+     */
+    private function directFailureReceipt(
+        array $result,
+        string $directCallNonce,
+        string $modelKey,
+        bool $deepSeekProRequest,
+        string $thinkingMode,
+        string $reasoningEffort
+    ): array {
+        $resultData = is_array($result['data'] ?? null) ? $result['data'] : [];
+        $debug = is_array($resultData['debug'] ?? null) ? $resultData['debug'] : [];
+        $stability = is_array($resultData['stability'] ?? null) ? $resultData['stability'] : [];
+        $idempotency = is_array($resultData['idempotency'] ?? null) ? $resultData['idempotency'] : [];
+        $degradation = is_array($resultData['degradation'] ?? null) ? $resultData['degradation'] : [];
+        $attempts = is_array($stability['provider_attempts'] ?? null)
+            ? array_values(array_filter($stability['provider_attempts'], 'is_array'))
+            : [];
+        $configuredModel = mb_substr(trim((string)(
+            $result['configured_model'] ?? $debug['configured_model'] ?? $debug['model_name'] ?? ''
+        )), 0, 150);
+        $responseModel = mb_substr(trim((string)($result['response_model'] ?? $debug['response_model'] ?? '')), 0, 150);
+        $reportedModel = mb_substr(trim((string)($result['model'] ?? $debug['model'] ?? $responseModel)), 0, 150);
+        $providerResponseId = $this->normalizeProviderResponseId(
+            $result['provider_response_id'] ?? $debug['provider_response_id'] ?? null
+        );
+        $providerCreatedAt = max(0, (int)(
+            $result['provider_created_at'] ?? $debug['provider_created_at'] ?? 0
+        ));
+        $providerEndpointOrigin = mb_substr(trim((string)(
+            $result['provider_endpoint_origin'] ?? $debug['provider_endpoint_origin'] ?? ''
+        )), 0, 255);
+        $providerEndpointHost = strtolower(mb_substr(trim((string)(
+            $result['provider_endpoint_host'] ?? $debug['provider_endpoint_host'] ?? ''
+        )), 0, 191));
+        $providerConfigDigest = strtolower(trim((string)(
+            $result['provider_config_digest'] ?? $debug['provider_config_digest'] ?? ''
+        )));
+        $httpStatus = max(0, (int)($debug['http_status'] ?? 0));
+        $transportRequestId = mb_substr(trim((string)(
+            $result['request_id'] ?? $debug['request_id'] ?? ''
+        )), 0, 64);
+        $transportRetryAttempts = array_key_exists('retry_attempts', $debug)
+            ? max(0, (int)$debug['retry_attempts'])
+            : -1;
+        $finishReason = strtolower(mb_substr(trim((string)(
+            $result['finish_reason'] ?? $debug['finish_reason'] ?? ''
+        )), 0, 50));
+        $failureReason = mb_substr(trim((string)(
+            $resultData['error_type'] ?? $debug['error_type'] ?? $result['failure_state'] ?? 'direct_structured_request_failed'
+        )), 0, 120);
+        $idempotentReplay = ($result['idempotent_replay'] ?? $idempotency['replay'] ?? false) === true;
+        $cacheHit = ($degradation['cache_hit'] ?? false) === true;
+        $requestDispatched = ($debug['request_dispatched'] ?? false) === true
+            || $httpStatus > 0
+            || $providerResponseId !== '';
+        $externalCallStatus = !$requestDispatched
+            ? 'rejected_before_direct_call'
+            : ($providerResponseId !== ''
+                ? 'response_rejected_after_direct_call'
+                : 'direct_call_failed_after_dispatch');
+
+        return [
+            'failure_reason' => $failureReason !== '' ? $failureReason : 'direct_structured_request_failed',
+            'model_key' => mb_substr(trim((string)($result['model_key'] ?? $debug['model_key'] ?? $modelKey)), 0, 100),
+            'provider' => mb_substr(trim((string)($result['provider'] ?? $debug['provider'] ?? '')), 0, 50),
+            'model' => $reportedModel,
+            'configured_model' => $configuredModel,
+            'response_model' => $responseModel,
+            'provider_response_id' => $providerResponseId,
+            'provider_created_at' => $providerCreatedAt,
+            'provider_response_fresh' => $providerCreatedAt > 0 && abs(time() - $providerCreatedAt) <= 900,
+            'provider_endpoint_origin' => $providerEndpointOrigin,
+            'provider_endpoint_host' => $providerEndpointHost,
+            'provider_endpoint_official' => ($result['provider_endpoint_official'] ?? $debug['provider_endpoint_official'] ?? false) === true,
+            'provider_config_digest' => preg_match('/^[a-f0-9]{64}$/D', $providerConfigDigest) === 1
+                ? $providerConfigDigest
+                : '',
+            'direct_call_nonce' => $directCallNonce,
+            'transport_request_id' => $transportRequestId,
+            'transport_retry_attempts' => $transportRetryAttempts,
+            'upstream_idempotency_key_sent' => false,
+            'http_status' => $httpStatus,
+            'provider_attempt_count' => count($attempts),
+            'idempotent_replay' => $idempotentReplay,
+            'direct_request_proof' => false,
+            'thinking_mode' => $thinkingMode,
+            'reasoning_effort' => $reasoningEffort,
+            'finish_reason' => $finishReason,
+            'fallback_used' => ($result['fallback_used'] ?? false) === true,
+            'cache_hit' => $cacheHit,
+            'degraded' => ($result['degraded'] ?? false) === true,
+            'model_attempted' => true,
+            'llm_client_invoked' => true,
+            'external_llm_called' => $requestDispatched,
+            'external_llm_call_status' => $externalCallStatus,
+            'required_direct_deepseek_v4_pro' => $deepSeekProRequest,
+        ];
+    }
+
+    private function isDeepSeekV4ProKey(string $modelKey): bool
+    {
+        return in_array(strtolower(trim($modelKey)), [
+            'deepseek_v4_pro',
+            'deepseek_reasoner',
+            'deepseek-v4-pro',
+            'deepseek-reasoner',
+        ], true);
     }
 
     public function isConfiguredModelKey(string $modelKey): bool
@@ -1611,6 +1786,11 @@ class LlmClient
         $provider = strtolower(trim((string)($config['provider'] ?? '')));
         if ($provider === 'deepseek') {
             $thinkingEnabled = strtolower(trim((string)($options['deepseek_thinking'] ?? 'disabled'))) === 'enabled';
+            if ($thinkingEnabled) {
+                // DeepSeek thinking mode ignores sampling controls. Omitting the
+                // field keeps the formal payload aligned with the provider API.
+                unset($payload['temperature']);
+            }
             $payload['thinking'] = [
                 'type' => $thinkingEnabled ? 'enabled' : 'disabled',
             ];
@@ -1692,9 +1872,13 @@ class LlmClient
     private function directDeepSeekV4ProConfigReady(array $config): bool
     {
         $proof = $this->providerEndpointProof($config);
+        $configuredModelKey = strtolower(trim((string)($config['configured_model_key'] ?? '')));
         return strtolower(trim((string)($config['provider'] ?? ''))) === 'deepseek'
             && strtolower(trim((string)($config['model_key'] ?? ''))) === 'deepseek_v4_pro'
-            && strtolower(trim((string)($config['configured_model_key'] ?? ''))) === 'deepseek_v4_pro'
+            // Existing installations used deepseek_reasoner as the local key.
+            // It is only accepted under the exact V4 Pro model/official endpoint
+            // proof below; the requested identity remains deepseek_v4_pro.
+            && in_array($configuredModelKey, ['deepseek_v4_pro', 'deepseek_reasoner'], true)
             && strtolower(trim((string)($config['configured_model'] ?? ''))) === 'deepseek-v4-pro'
             && strtolower(trim((string)($config['model'] ?? ''))) === 'deepseek-v4-pro'
             && ($proof['official'] ?? false) === true
@@ -2510,13 +2694,24 @@ class LlmClient
 
     private function debug(string $type, array $config, int $httpStatus, string $curlError, string $prompt, string $response, string $message, array $meta = [], int $payloadSize = 0): array
     {
+        $endpointProof = $this->providerEndpointProof($config);
         return [
             'error_type' => $type,
             'debug' => [
+                'error_type' => $type,
                 'provider' => (string)($config['provider'] ?? ''),
                 'model_key' => (string)($config['model_key'] ?? ''),
+                'configured_model_key' => (string)($config['configured_model_key'] ?? ''),
                 'model' => (string)($config['model'] ?? ''),
                 'model_name' => (string)($config['model'] ?? ''),
+                'configured_model' => (string)($config['configured_model'] ?? $config['model'] ?? ''),
+                'response_model' => mb_substr(trim((string)($meta['response_model'] ?? '')), 0, 150),
+                'provider_response_id' => $this->normalizeProviderResponseId($meta['provider_response_id'] ?? null),
+                'provider_created_at' => max(0, (int)($meta['provider_created_at'] ?? 0)),
+                'provider_endpoint_origin' => (string)($endpointProof['origin'] ?? ''),
+                'provider_endpoint_host' => (string)($endpointProof['host'] ?? ''),
+                'provider_endpoint_official' => ($endpointProof['official'] ?? false) === true,
+                'provider_config_digest' => (string)($endpointProof['config_digest'] ?? ''),
                 'config_source' => (string)($config['source'] ?? 'database'),
                 'http_status' => $httpStatus,
                 'curl_errno' => 0,
@@ -2535,6 +2730,8 @@ class LlmClient
                 'terminal_failure' => (bool)($meta['terminal_failure'] ?? false),
                 'failure_state' => (string)($meta['failure_state'] ?? ''),
                 'request_id' => mb_substr(trim((string)($meta['request_id'] ?? '')), 0, 64),
+                'request_dispatched' => ($meta['request_dispatched'] ?? false) === true,
+                'finish_reason' => strtolower(mb_substr(trim((string)($meta['finish_reason'] ?? '')), 0, 50)),
                 'circuit_state' => (string)($meta['circuit_state'] ?? ''),
             ],
         ];

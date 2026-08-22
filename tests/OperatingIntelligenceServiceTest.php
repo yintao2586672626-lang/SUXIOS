@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\exception\LlmDirectRequestException;
 use app\service\LlmClient;
 use app\service\OperatingQuestionAiAnswerService;
 use app\service\OperatingQuestionService;
@@ -358,6 +359,52 @@ final class OperatingIntelligenceServiceTest extends TestCase
         );
     }
 
+    public function testScopeOptionsRecommendLatestStrictReadbackWithoutPromotingPartialRows(): void
+    {
+        $today = new \DateTimeImmutable('today', new \DateTimeZone('Asia/Shanghai'));
+        $latestMeituan = $today->modify('-1 day')->format('Y-m-d');
+        $sharedDate = $today->modify('-2 days')->format('Y-m-d');
+        $partialDate = $today->format('Y-m-d');
+        $rows = [];
+        foreach ([
+            ['platform' => 'ctrip', 'date' => $sharedDate, 'history' => 'success', 'validation' => 'verified'],
+            ['platform' => 'meituan', 'date' => $sharedDate, 'history' => 'success', 'validation' => 'verified'],
+            ['platform' => 'meituan', 'date' => $latestMeituan, 'history' => 'success', 'validation' => 'verified'],
+            ['platform' => 'ctrip', 'date' => $partialDate, 'history' => 'partial', 'validation' => 'normal'],
+        ] as $index => $scope) {
+            $rows[] = [
+                'tenant_id' => 10,
+                'system_hotel_id' => 20,
+                'data_date' => $scope['date'],
+                'platform' => $scope['platform'],
+                'source' => $scope['platform'],
+                'data_type' => 'traffic',
+                'dimension' => '',
+                'readback_verified' => 1,
+                'readback_verified_at' => $scope['date'] . ' 10:00:00',
+                'validation_status' => $scope['validation'],
+                'history_status' => $scope['history'],
+                'ingestion_method' => 'browser_profile',
+                'source_trace_id' => 'scope-option-' . $index,
+                'list_exposure' => 100 + $index,
+            ];
+        }
+        Db::name('online_daily_data')->insertAll($rows);
+
+        $result = (new OperatingQuestionService())->scopeOptions(10, 20);
+
+        self::assertSame('operating_question_scope_options.v1', $result['contract_version']);
+        self::assertSame('ready', $result['data_status']);
+        self::assertSame('meituan', $result['recommended']['platform']);
+        self::assertSame($latestMeituan, $result['recommended']['date_start']);
+        self::assertFalse($result['boundary']['silent_date_fallback']);
+        self::assertSame(
+            $sharedDate,
+            $result['platforms'][array_search('all_ota', array_column($result['platforms'], 'platform'), true)]['latest_verified_date']
+        );
+        self::assertNotContains($partialDate, $result['platforms'][array_search('ctrip', array_column($result['platforms'], 'platform'), true)]['available_dates']);
+    }
+
     public function testOperatingQuestionSavesExactEvidenceReadbackAndVisibleMissingState(): void
     {
         $ready = new OperatingQuestionService(static fn(): array => [
@@ -550,6 +597,8 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertSame('ota_list_exposure_users.v1', $saved['question']['answer']['fact_claims'][0]['metric_definition_id']);
         self::assertCount(1, $saved['question']['answer']['action_drafts']);
         self::assertSame('ready_for_human_review', $saved['question']['answer']['action_drafts'][0]['status']);
+        self::assertTrue($saved['question']['answer']['action_drafts'][0]['boundaries']['human_confirmation_required']);
+        self::assertFalse($saved['question']['answer']['action_drafts'][0]['boundaries']['automatic_execution']);
         self::assertTrue($saved['question']['answer']['action_drafts'][0]['can_create_execution_intent']);
         self::assertSame(
             'ai_recommendation_quality.v2',
@@ -1066,6 +1115,92 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertSame(2, $fakeClient->calls);
         self::assertTrue($retry['created']);
         self::assertNotSame($saved['question']['id'], $retry['question']['id']);
+    }
+
+    public function testOperatingQuestionPersistsClassifiedDirectFailureReceiptInsteadOfUnknown(): void
+    {
+        $nonce = 'oq_' . str_repeat('a', 32);
+        $fakeClient = new class($nonce) extends LlmClient {
+            public function __construct(private readonly string $nonce)
+            {
+            }
+
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_pro'
+            ): array {
+                throw new LlmDirectRequestException('provider detail must not persist', 502, [
+                    'failure_reason' => 'empty_content',
+                    'model_key' => 'deepseek_v4_pro',
+                    'provider' => 'deepseek',
+                    'model' => 'deepseek-v4-pro',
+                    'configured_model' => 'deepseek-v4-pro',
+                    'response_model' => 'deepseek-v4-pro',
+                    'provider_response_id' => 'resp-rejected-direct-v4-pro-0001',
+                    'provider_created_at' => time(),
+                    'provider_response_fresh' => true,
+                    'provider_endpoint_origin' => 'https://api.deepseek.com',
+                    'provider_endpoint_host' => 'api.deepseek.com',
+                    'provider_endpoint_official' => true,
+                    'provider_config_digest' => str_repeat('b', 64),
+                    'direct_call_nonce' => $this->nonce,
+                    'transport_request_id' => $this->nonce,
+                    'transport_retry_attempts' => 0,
+                    'upstream_idempotency_key_sent' => false,
+                    'http_status' => 200,
+                    'provider_attempt_count' => 1,
+                    'idempotent_replay' => false,
+                    'direct_request_proof' => false,
+                    'thinking_mode' => 'enabled',
+                    'reasoning_effort' => 'high',
+                    'finish_reason' => 'length',
+                    'fallback_used' => false,
+                    'cache_hit' => false,
+                    'degraded' => true,
+                    'model_attempted' => true,
+                    'llm_client_invoked' => true,
+                    'external_llm_called' => true,
+                    'external_llm_call_status' => 'response_rejected_after_direct_call',
+                ]);
+            }
+        };
+        $ai = new OperatingQuestionAiAnswerService($fakeClient);
+        $service = new OperatingQuestionService(
+            static fn(): array => [
+                'facts' => [self::substantiveFact(
+                    812,
+                    '2026-08-03',
+                    'ctrip',
+                    ['list_exposure' => 900, 'detail_exposure' => 180]
+                )],
+                'fact_count' => 1,
+            ],
+            static fn(array $payload): array => $ai->generate($payload)
+        );
+
+        $saved = $service->create(
+            10,
+            20,
+            '模型响应被拒时能否保留直接回执？',
+            'ctrip',
+            '2026-08-03',
+            '2026-08-03',
+            7
+        );
+
+        $runtime = $saved['question']['answer']['ai_runtime'];
+        self::assertSame('evidence_ready', $saved['question']['answer_status']);
+        self::assertSame('model_unavailable', $runtime['status']);
+        self::assertSame('empty_content', $runtime['reason']);
+        self::assertTrue($runtime['external_llm_called']);
+        self::assertSame('response_rejected_after_direct_call', $runtime['external_llm_call_status']);
+        self::assertSame('resp-rejected-direct-v4-pro-0001', $runtime['provider_response_id']);
+        self::assertSame('deepseek-v4-pro', $runtime['response_model']);
+        self::assertSame(200, $runtime['http_status']);
+        self::assertSame('length', $runtime['finish_reason']);
+        self::assertStringNotContainsString('provider detail', $runtime['message']);
+        self::assertSame('readback_verified', $saved['persistence_status']);
     }
 
     public function testSinglePlatformQuestionRequiresVerifiedFactsForEveryRequestedDate(): void

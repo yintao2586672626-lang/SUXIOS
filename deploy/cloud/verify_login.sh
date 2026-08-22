@@ -48,7 +48,7 @@ info_summary="$(printf '%s' "$info_response" | php -r '
   $hotels = is_array($data["permitted_hotels"] ?? null) ? $data["permitted_hotels"] : [];
   $pilotFound = false;
   foreach ($hotels as $hotel) {
-      if ((int)($hotel["id"] ?? 0) === 5) {
+      if ((int)($hotel["id"] ?? 0) === 80) {
           $pilotFound = true;
           break;
       }
@@ -57,7 +57,7 @@ info_summary="$(printf '%s' "$info_response" | php -r '
       fwrite(STDERR, "authenticated_info_invalid\n");
       exit(1);
   }
-  fwrite(STDOUT, "user=admin pilot_hotel_id=5 permitted_hotel_count=" . count($hotels));
+  fwrite(STDOUT, "user=admin pilot_hotel_id=80 permitted_hotel_count=" . count($hotels));
 ')"
 
 logout_response="$(curl -kfsS \

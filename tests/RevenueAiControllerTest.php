@@ -35,6 +35,9 @@ final class RevenueAiControllerTest extends TestCase
         self::assertSame(['ctrip', 'meituan'], $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[
             'enabled_channels' => ['ctrip', 'meituan'],
         ]]));
+        self::assertSame(['ctrip', 'meituan'], $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[
+            'platform' => 'all_ota',
+        ]]));
         self::assertSame([], $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[]]));
     }
 
@@ -46,6 +49,35 @@ final class RevenueAiControllerTest extends TestCase
         $this->invokeNonPublic($this->controller(), 'requestedEnabledChannels', [[
             'platform' => 'unknown',
         ]]);
+    }
+
+    public function testCockpitUsesSelectedHotelFactTenantForCrossTenantSuperAdmin(): void
+    {
+        self::assertSame(80, $this->invokeNonPublic($this->controller(), 'cockpitFactTenantId', [[
+            'hotel_id' => 80,
+            'three_source_fact_layer' => [
+                'hotel' => [
+                    'tenant_id' => 80,
+                    'system_hotel_id' => 80,
+                ],
+            ],
+        ], 80, 7, true]));
+    }
+
+    public function testCockpitRejectsCrossTenantFactForOrdinaryHotelUser(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionCode(403);
+        $this->expectExceptionMessage('revenue_cockpit_tenant_scope_mismatch');
+        $this->invokeNonPublic($this->controller(), 'cockpitFactTenantId', [[
+            'hotel_id' => 80,
+            'three_source_fact_layer' => [
+                'hotel' => [
+                    'tenant_id' => 80,
+                    'system_hotel_id' => 80,
+                ],
+            ],
+        ], 80, 7, false]);
     }
 
     public function testOverviewFiltersDiscardClientSuppliedP0GateOverride(): void
@@ -326,6 +358,26 @@ final class RevenueAiControllerTest extends TestCase
             [[7], 7],
             $this->invokeNonPublic($executionController, 'priceSuggestionHotelScope', [$suggestion, 'operation.execute'])
         );
+        $this->invokeNonPublic($executionController, 'assertRevenueAiHotelCapability', [7, 'operation.execute']);
+    }
+
+    public function testCockpitPendingApprovalChecksExecutionPermissionBeforeReadingOverview(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
+        self::assertIsString($source);
+        self::assertMatchesRegularExpression(
+            '/function createCockpitPendingApproval\(\): Response[\s\S]*?assertRevenueAiHotelCapability\(\$hotelId, self::EXECUTION_PERMISSION\);[\s\S]*?RevenueAiOverviewService/',
+            $source
+        );
+
+        $controller = $this->controllerWithPermissions(['can_use_ai_decision']);
+        try {
+            $this->invokeNonPublic($controller, 'assertRevenueAiHotelCapability', [7, 'operation.execute']);
+            self::fail('AI-only reviewer unexpectedly received cockpit pending-approval permission');
+        } catch (RuntimeException $e) {
+            self::assertSame(403, $e->getCode());
+            self::assertSame('revenue_ai_permission_denied:operation.execute', $e->getMessage());
+        }
     }
 
     /** @param array<int, string> $permissions */

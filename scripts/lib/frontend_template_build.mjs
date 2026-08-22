@@ -39,8 +39,9 @@ export const FRONTEND_TEMPLATE_MINIFY_OPTIONS = Object.freeze({
     defaults: true,
     passes: 2,
     booleans_as_integers: true,
-    // These transforms save a few raw bytes but make this template less gzip-friendly.
-    conditionals: false,
+    // Keep conditional folding enabled: the current generated render saves about
+    // 23 KB raw and 3 KB gzip without changing the Vue compiler contract.
+    conditionals: true,
     unused: false,
   }),
   mangle: Object.freeze({ safari10: true, toplevel: false }),
@@ -362,8 +363,13 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   if (phaseFor('app-startup-render.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
     || phaseFor('app-main.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
     || phaseFor('components/system/business-closure-loader.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('app-deferred-helpers.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
+    || phaseFor('components/system/app-main-components.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
     || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
-    failures.push('The home startup render and app entry must load at startup while the full render waits until after first paint.');
+    failures.push('The home startup render and bridge must load at startup while full-page helpers, components, and render code wait until after first paint.');
+  }
+  if (phaseFor('components/system/operating-intelligence-components.js') !== undefined) {
+    failures.push('The optional operating-intelligence full component must load on user demand instead of blocking the global full-render manifest.');
   }
   const renderBytes = Buffer.byteLength(artifact);
   const renderGzipBytes = artifact ? gzipSync(artifact, { level: 6 }).length : 0;

@@ -1,7 +1,8 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h85ac5e9b03';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260822-human-review-hefb4f4c426';
+    const fullStyle = 'style.min.css';
     let fullScriptPromise = null;
 
     const loadFullScript = async () => {
@@ -9,7 +10,7 @@
             return window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL;
         }
         if (fullScriptPromise) return fullScriptPromise;
-        fullScriptPromise = new Promise((resolve, reject) => {
+        const startScriptLoad = () => new Promise((resolve, reject) => {
             const resolvedSrc = new URL(fullScript, document.baseURI).href;
             const existing = [...document.scripts].find(script => script.src === resolvedSrc);
             const script = existing || document.createElement('script');
@@ -39,12 +40,15 @@
             }, { once: true });
             if (!existing) document.head.appendChild(script);
         });
+        const styleLoader = window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET;
+        fullScriptPromise = typeof styleLoader === 'function'
+            ? Promise.resolve(styleLoader(fullStyle)).then(startScriptLoad)
+            : startScriptLoad();
+        fullScriptPromise.catch(() => {
+            fullScriptPromise = null;
+        });
         return fullScriptPromise;
     };
-    const requestFullComponents = () => {
-        void loadFullScript().catch(() => {});
-    };
-
     const create = (createOptions) => {
         const { h, Vue } = createOptions;
         if (!Vue?.defineAsyncComponent) throw new Error('经营问答启动桥缺少 Vue 运行时');
@@ -69,25 +73,48 @@
         });
         const panelLoading = {
             inheritAttrs: false,
-            render: () => h('button', {
-                type: 'button',
+            render: () => h('div', {
                 class: 'w-full rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700',
                 'data-testid': 'operating-question-panel-load',
-                onClick: requestFullComponents,
             }, '加载经营问答'),
         };
-        const consultantLoading = {
-            inheritAttrs: false,
-            render: () => h('button', {
-                type: 'button',
-                class: 'fixed bottom-5 right-5 z-40 rounded-full bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg',
-                'data-testid': 'operating-question-consultant-load',
-                onClick: requestFullComponents,
-            }, '经营助手'),
+        const consultantGate = {
+            name: 'OperatingQuestionConsultantGate',
+            props: {
+                ctx: { type: Object, required: true },
+            },
+            setup(props) {
+                const fullComponent = Vue.shallowRef(null);
+                const loading = Vue.ref(false);
+                const loadError = Vue.ref('');
+                const openConsultant = async () => {
+                    if (loading.value || fullComponent.value) return;
+                    loading.value = true;
+                    loadError.value = '';
+                    try {
+                        fullComponent.value = await loadComponent('operatingQuestionConsultant');
+                    } catch (error) {
+                        loadError.value = '经营助手加载失败，点击重试';
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+                return () => fullComponent.value
+                    ? h(fullComponent.value, { ctx: props.ctx, openOnMount: true })
+                    : h('button', {
+                        type: 'button',
+                        class: 'sx-ai-consultant sx-ai-consultant-launcher fixed bottom-5 right-5',
+                        style: 'z-index:75',
+                        'data-testid': 'operating-question-consultant-load',
+                        disabled: loading.value,
+                        'aria-busy': loading.value ? 'true' : 'false',
+                        onClick: openConsultant,
+                    }, loading.value ? '正在加载经营助手...' : (loadError.value || '经营助手'));
+            },
         };
         return Object.freeze({
             operatingQuestionPanel: buildLazyComponent('operatingQuestionPanel', panelLoading),
-            operatingQuestionConsultant: buildLazyComponent('operatingQuestionConsultant', consultantLoading),
+            operatingQuestionConsultant: consultantGate,
         });
     };
 

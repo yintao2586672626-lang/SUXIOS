@@ -78,7 +78,7 @@ const MODULE_GROUPS = {
 };
 
 const MODULE_PATHS = {
-  [MODULE.AI_WORKBENCH]: 'ai-workbench',
+  [MODULE.AI_WORKBENCH]: 'compass',
   [MODULE.REVENUE_DIAGNOSIS]: 'revenue-research-center',
   [MODULE.DATA_TRUST]: 'online-data',
   [MODULE.AI_DAILY_REPORT]: 'ai-daily-report',
@@ -351,6 +351,8 @@ function apiRequestLifecycle(page) {
   let lifecycle = apiRequestLifecycleByPage.get(page);
   if (!lifecycle) {
     lifecycle = { activeReads: new Set(), expectedNavigationCancellations: new WeakSet() };
+    lifecycle.navigationCancellationActive = false;
+    lifecycle.navigationCancellationExpiresAt = 0;
     apiRequestLifecycleByPage.set(page, lifecycle);
   }
   return lifecycle;
@@ -369,9 +371,15 @@ function isSameOriginApiRead(page, request) {
 
 function expectActiveApiReadCancellationsForNavigation(page) {
   const lifecycle = apiRequestLifecycle(page);
+  lifecycle.navigationCancellationActive = true;
+  lifecycle.navigationCancellationExpiresAt = Date.now() + 1000;
   for (const request of lifecycle.activeReads) {
     lifecycle.expectedNavigationCancellations.add(request);
   }
+}
+
+function finishExpectedApiReadCancellationsForNavigation(page) {
+  apiRequestLifecycle(page).navigationCancellationActive = false;
 }
 
 function installDiagnostics(page, sinks = {}) {
@@ -380,7 +388,11 @@ function installDiagnostics(page, sinks = {}) {
   const lifecycle = apiRequestLifecycle(page);
 
   page.on('request', (request) => {
-    if (isSameOriginApiRead(page, request)) lifecycle.activeReads.add(request);
+    if (!isSameOriginApiRead(page, request)) return;
+    lifecycle.activeReads.add(request);
+    if (lifecycle.navigationCancellationActive || Date.now() <= lifecycle.navigationCancellationExpiresAt) {
+      lifecycle.expectedNavigationCancellations.add(request);
+    }
   });
 
   page.on('requestfinished', (request) => {
@@ -391,7 +403,8 @@ function installDiagnostics(page, sinks = {}) {
     const url = request.url();
     if (!url.includes('/api/')) return;
     const error = request.failure() ? request.failure().errorText : null;
-    const expectedCancellation = lifecycle.expectedNavigationCancellations.has(request);
+    const expectedCancellation = lifecycle.expectedNavigationCancellations.has(request)
+      || Date.now() <= lifecycle.navigationCancellationExpiresAt;
     lifecycle.activeReads.delete(request);
     apiEvents.push({
       phase: 'requestfailed',
@@ -572,14 +585,19 @@ async function goModule(page, mod) {
         await navItem.click({ timeout: 3000 });
         clicked = true;
       } catch (error) {
+        finishExpectedApiReadCancellationsForNavigation(page);
         if (attempt === 2) throw error;
       }
     }
     if (!clicked) await page.waitForTimeout(50);
   }
-  expect(clicked, `nav item not found: ${mod}`).toBe(true);
-  await expect(page.getByTestId(pageTestIdForModule(mod))).toBeVisible({ timeout: 5000 });
-  await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', modulePath(mod), { timeout: 5000 });
+  try {
+    expect(clicked, `nav item not found: ${mod}`).toBe(true);
+    await expect(page.getByTestId(pageTestIdForModule(mod))).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', modulePath(mod), { timeout: 5000 });
+  } finally {
+    finishExpectedApiReadCancellationsForNavigation(page);
+  }
 }
 
 async function waitForApiOrState(page, action, options = {}) {

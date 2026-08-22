@@ -7,7 +7,7 @@ INSERT INTO `platform_data_sources` (
   `create_time`, `update_time`
 )
 SELECT
-  1, 5, 1, '敦煌漠蓝新-携程-本地Profile云桥', 'ctrip', 'traffic',
+  1, 80, 1, '敦煌漠蓝新-携程-本地Profile云桥', 'ctrip', 'traffic',
   'cloud_bundle', 'ready', 1,
   JSON_OBJECT(
     'pilot', 'hotel80',
@@ -21,7 +21,7 @@ WHERE NOT EXISTS (
   SELECT 1
   FROM `platform_data_sources`
   WHERE `tenant_id` = 1
-    AND `system_hotel_id` = 5
+    AND `system_hotel_id` = 80
     AND `platform` = 'ctrip'
     AND `ingestion_method` = 'cloud_bundle'
     AND JSON_UNQUOTE(JSON_EXTRACT(`config_json`, '$.source_system_hotel_id')) = '80'
@@ -35,7 +35,7 @@ INSERT INTO `platform_data_sources` (
   `create_time`, `update_time`
 )
 SELECT
-  1, 5, 1, '敦煌漠蓝新-美团-本地Profile云桥', 'meituan', 'business',
+  1, 80, 1, '敦煌漠蓝新-美团-本地Profile云桥', 'meituan', 'business',
   'cloud_bundle', 'ready', 1,
   JSON_OBJECT(
     'pilot', 'hotel80',
@@ -49,7 +49,7 @@ WHERE NOT EXISTS (
   SELECT 1
   FROM `platform_data_sources`
   WHERE `tenant_id` = 1
-    AND `system_hotel_id` = 5
+    AND `system_hotel_id` = 80
     AND `platform` = 'meituan'
     AND `ingestion_method` = 'cloud_bundle'
     AND JSON_UNQUOTE(JSON_EXTRACT(`config_json`, '$.source_system_hotel_id')) = '80'
@@ -63,7 +63,7 @@ UPDATE `platform_data_sources` legacy_source
 INNER JOIN `platform_data_sources` replacement
   ON replacement.`id` = 3
   AND replacement.`tenant_id` = 1
-  AND replacement.`system_hotel_id` = 5
+  AND replacement.`system_hotel_id` = 80
   AND replacement.`platform` = 'ctrip'
   AND replacement.`enabled` = 1
 SET
@@ -78,14 +78,14 @@ SET
   legacy_source.`update_time` = NOW()
 WHERE legacy_source.`id` = 1
   AND legacy_source.`tenant_id` = 1
-  AND legacy_source.`system_hotel_id` = 5
+  AND legacy_source.`system_hotel_id` = 80
   AND legacy_source.`platform` = 'ctrip';
 
 UPDATE `platform_data_sources` legacy_source
 INNER JOIN `platform_data_sources` replacement
   ON replacement.`id` = 4
   AND replacement.`tenant_id` = 1
-  AND replacement.`system_hotel_id` = 5
+  AND replacement.`system_hotel_id` = 80
   AND replacement.`platform` = 'meituan'
   AND replacement.`enabled` = 1
 SET
@@ -100,7 +100,7 @@ SET
   legacy_source.`update_time` = NOW()
 WHERE legacy_source.`id` = 2
   AND legacy_source.`tenant_id` = 1
-  AND legacy_source.`system_hotel_id` = 5
+  AND legacy_source.`system_hotel_id` = 80
   AND legacy_source.`platform` = 'meituan';
 
 COMMIT;
@@ -112,6 +112,6 @@ SELECT
   CASE WHEN `secret_json` IS NULL THEN 'absent' ELSE 'present' END AS `secret_state`
 FROM `platform_data_sources`
 WHERE `tenant_id` = 1
-  AND `system_hotel_id` = 5
+  AND `system_hotel_id` = 80
   AND `ingestion_method` = 'cloud_bundle'
 ORDER BY `id`;

@@ -48,9 +48,11 @@ function safeResourceName(value) {
   }
 }
 
-async function measureRun(browser, runIndex) {
+async function measureRun(browser, runIndex, browserLaunchMs = null) {
+  const contextStartedAt = Date.now();
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await context.newPage();
+  const contextPageCreateMs = Date.now() - contextStartedAt;
   const startupDiagnostics = [];
   const recordStartupDiagnostic = (type, value) => {
     if (startupDiagnostics.length >= 8) return;
@@ -106,11 +108,16 @@ async function measureRun(browser, runIndex) {
         };
       }
       try {
-        new PerformanceObserver((list) => {
-          const entries = list.getEntries();
+        const recordLcpEntries = (entries) => {
           const latest = entries[entries.length - 1];
           if (latest) window.__SUXI_PERFORMANCE.lcp = latest.startTime;
-        }).observe({ type: 'largest-contentful-paint', buffered: true });
+        };
+        const lcpObserver = new PerformanceObserver((list) => recordLcpEntries(list.getEntries()));
+        lcpObserver.observe({ type: 'largest-contentful-paint', buffered: true });
+        window.__SUXI_PERFORMANCE.capturePendingLcp = () => {
+          recordLcpEntries(lcpObserver.takeRecords());
+          return window.__SUXI_PERFORMANCE.lcp;
+        };
       } catch (_error) {}
       try {
         new PerformanceObserver((list) => {
@@ -122,7 +129,19 @@ async function measureRun(browser, runIndex) {
       } catch (_error) {}
     }, { debugDomPatches });
 
+    const gotoStartedAt = Date.now();
     await page.goto(baseURL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    const gotoDomContentLoadedMs = Date.now() - gotoStartedAt;
+    // Chromium stops updating LCP after the first user input. Capture the cold
+    // public-shell paint before an automated login click can race ahead of it.
+    const lcpObservedBeforeInput = await page.waitForFunction(
+      () => Number.isFinite(window.__SUXI_PERFORMANCE?.capturePendingLcp?.()),
+      null,
+      { timeout: 5_000 },
+    ).then(() => true).catch(() => false);
+    if (!lcpObservedBeforeInput) {
+      recordStartupDiagnostic('measurement', 'lcp_missing_before_input');
+    }
     let authTransitionMs = null;
     let loginClickToInteractiveMs = null;
     let authStartPerformanceMs = 0;
@@ -176,21 +195,27 @@ async function measureRun(browser, runIndex) {
     }
     if (settleMs > 0) await page.waitForTimeout(settleMs);
 
-    const snapshot = await page.evaluate(() => ({
-      navigation: performance.getEntriesByType('navigation')[0]?.toJSON() || {},
-      paints: performance.getEntriesByType('paint').map((entry) => entry.toJSON()),
-      resources: performance.getEntriesByType('resource').map((entry) => ({
-        name: entry.name,
-        initiatorType: entry.initiatorType,
-        startTime: entry.startTime,
-        transferSize: entry.transferSize,
-        duration: entry.duration,
-        responseStatus: entry.responseStatus,
-      })),
-      lcp: window.__SUXI_PERFORMANCE?.lcp ?? null,
-      longTasks: window.__SUXI_PERFORMANCE?.longTasks || [],
-      loginHandoff: window.SUXI_LOGIN_HANDOFF_METRICS || null,
-    }));
+    const snapshot = await page.evaluate(() => {
+      window.__SUXI_PERFORMANCE?.capturePendingLcp?.();
+      return {
+        navigation: performance.getEntriesByType('navigation')[0]?.toJSON() || {},
+        paints: performance.getEntriesByType('paint').map((entry) => entry.toJSON()),
+        resources: performance.getEntriesByType('resource').map((entry) => ({
+          name: entry.name,
+          initiatorType: entry.initiatorType,
+          startTime: entry.startTime,
+          transferSize: entry.transferSize,
+          encodedBodySize: entry.encodedBodySize,
+          decodedBodySize: entry.decodedBodySize,
+          duration: entry.duration,
+          responseEnd: entry.responseEnd,
+          responseStatus: entry.responseStatus,
+        })),
+        lcp: window.__SUXI_PERFORMANCE?.lcp ?? null,
+        longTasks: window.__SUXI_PERFORMANCE?.longTasks || [],
+        loginHandoff: window.SUXI_LOGIN_HANDOFF_METRICS || null,
+      };
+    });
     const api = summarizeApiPerformance(snapshot.resources, {
       min_start_time_ms: authenticated ? authStartPerformanceMs : 0,
     });
@@ -213,6 +238,24 @@ async function measureRun(browser, runIndex) {
       login_handoff: snapshot.loginHandoff,
       metrics,
       api,
+      timing_diagnostics: {
+        browser_launch_ms: browserLaunchMs,
+        context_page_create_ms: contextPageCreateMs,
+        goto_domcontentloaded_ms: gotoDomContentLoadedMs,
+        auth_start_performance_ms: authStartPerformanceMs,
+      },
+      long_tasks: snapshot.longTasks.slice(0, 100).map((entry) => ({
+        start_time_ms: Number(Number(entry?.startTime || 0).toFixed(2)),
+        duration_ms: Number(Number(entry?.duration || 0).toFixed(2)),
+      })),
+      same_origin_asset_timings: snapshot.resources.filter((entry) => {
+        try {
+          const resource = new URL(String(entry?.name || ''), baseURL);
+          return resource.origin === baseOrigin && /\.(?:css|js)$/i.test(resource.pathname);
+        } catch (_error) {
+          return false;
+        }
+      }).slice(0, 100).map((entry) => ({ ...entry, name: safeResourceName(entry.name) })),
       largest_resources: [...snapshot.resources]
         .sort((left, right) => Number(right.transferSize || 0) - Number(left.transferSize || 0))
         .slice(0, 15)
@@ -228,8 +271,10 @@ async function measureRunWithRetry(runIndex) {
   for (let attempt = 1; attempt <= maxMeasurementAttempts; attempt += 1) {
     let browser = null;
     try {
+      const browserLaunchStartedAt = Date.now();
       browser = await chromium.launch({ channel: 'chrome', headless: true });
-      const run = await measureRun(browser, runIndex);
+      const browserLaunchMs = Date.now() - browserLaunchStartedAt;
+      const run = await measureRun(browser, runIndex, browserLaunchMs);
       return {
         ...run,
         attempt_count: attempt,
@@ -267,6 +312,7 @@ const completedAt = new Date().toISOString();
 const artifactIdentityCompleted = captureFrontendPerformanceIdentity();
 const result = {
   schema_version: 2,
+  percentile_method: aggregate.percentile_method,
   label,
   url: baseURL,
   iterations,

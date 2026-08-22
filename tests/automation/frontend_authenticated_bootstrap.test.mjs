@@ -12,8 +12,260 @@ const index = fs.readFileSync('public/index.html', 'utf8');
 const bootstrap = fs.readFileSync('public/app-bootstrap.js', 'utf8');
 const bootstrapRuntime = fs.readFileSync('public/app-bootstrap.min.js', 'utf8');
 const appMain = fs.readFileSync('public/app-main.js', 'utf8');
+const appMainComponents = fs.readFileSync('public/components/system/app-main-components.js', 'utf8');
+const appMainComponentsLoader = fs.readFileSync('public/components/system/app-main-components-loader.js', 'utf8');
+const operatingIntelligenceComponents = fs.readFileSync('public/components/system/operating-intelligence-components.js', 'utf8');
+const operatingIntelligenceLoader = fs.readFileSync('public/components/system/operating-intelligence-loader.js', 'utf8');
 const systemStatic = fs.readFileSync('public/system-static.js', 'utf8');
 const style = fs.readFileSync('public/style.css', 'utf8');
+
+function createAuthenticatedAssetLoaderHarness(timeoutMs = 20, manifestTimeoutMs = 80) {
+  const loaderStart = bootstrap.indexOf('const resolveAssetUrl = (src) => {');
+  const loaderEnd = bootstrap.indexOf('\n\n    const waitForFirstAuthenticatedPaint', loaderStart);
+  const manifestStart = bootstrap.indexOf('const loadDeferredAuthenticatedAssets = (assets = []) => {');
+  const manifestEnd = bootstrap.indexOf('\n\n    const loadDeferredAuthenticatedAssetManifest', manifestStart);
+  assert(loaderStart >= 0 && loaderEnd > loaderStart, 'authenticated asset loader source must be extractable');
+  assert(manifestStart >= 0 && manifestEnd > manifestStart, 'deferred manifest source must be extractable');
+
+  const scripts = [];
+  const styles = [];
+  const events = [];
+  const removeNode = (collection, node) => {
+    const index = collection.indexOf(node);
+    if (index >= 0) collection.splice(index, 1);
+  };
+  const createNode = (tagName) => {
+    const listeners = new Map();
+    const collection = tagName === 'script' ? scripts : styles;
+    return {
+      tagName,
+      dataset: {},
+      sheet: null,
+      src: '',
+      href: '',
+      rel: '',
+      async: true,
+      addEventListener(type, listener) {
+        const bucket = listeners.get(type) || new Set();
+        bucket.add(listener);
+        listeners.set(type, bucket);
+      },
+      removeEventListener(type, listener) {
+        listeners.get(type)?.delete(listener);
+      },
+      getAttribute(name) {
+        return Object.hasOwn(this, name) ? this[name] : null;
+      },
+      emit(type) {
+        for (const listener of [...(listeners.get(type) || [])]) listener({ type, target: this });
+      },
+      remove() {
+        removeNode(collection, this);
+      },
+    };
+  };
+  const appendNode = (collection, node) => {
+    if (!collection.includes(node)) collection.push(node);
+    return node;
+  };
+  const documentMock = {
+    baseURI: 'http://127.0.0.1:8080/',
+    documentElement: { dataset: {} },
+    scripts,
+    body: { appendChild: node => appendNode(scripts, node) },
+    head: { appendChild: node => appendNode(styles, node) },
+    createElement: createNode,
+    querySelectorAll: selector => (selector === 'link[rel="stylesheet"]' ? styles : []),
+  };
+  const windowMock = {
+    setTimeout: (callback, delay) => setTimeout(callback, delay),
+    clearTimeout: timerId => clearTimeout(timerId),
+    dispatchEvent: event => {
+      events.push(event);
+      return true;
+    },
+  };
+  class CustomEventMock {
+    constructor(type, options = {}) {
+      this.type = type;
+      this.detail = options.detail;
+    }
+  }
+  const loaderFactory = Function(
+    'document',
+    'window',
+    'CustomEvent',
+    'assetBaseName',
+    'ASSET_TYPE_STYLE',
+    'ASSET_TYPE_SCRIPT',
+    'AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS',
+    'DEFERRED_AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS',
+    'DEFERRED_AUTHENTICATED_ASSET_RETRY_LIMIT',
+    'DEFERRED_AUTHENTICATED_MANIFEST_TIMEOUT_MS',
+    `"use strict";
+      const authenticatedAssetLoadPromises = new Map();
+      let deferredAuthenticatedAssetsPromise = null;
+      const waitForFirstAuthenticatedPaint = () => Promise.resolve();
+      const preloadAuthenticatedAsset = () => false;
+      ${bootstrap.slice(loaderStart, loaderEnd)}
+      ${bootstrap.slice(manifestStart, manifestEnd)}
+      return {
+        loadScript,
+        loadStylesheet,
+        loadDeferredAuthenticatedAssetWithRetry,
+        loadDeferredAuthenticatedAssets,
+      };`,
+  );
+  return {
+    ...loaderFactory(
+      documentMock,
+      windowMock,
+      CustomEventMock,
+      src => String(src || '').split(/[?#]/, 1)[0],
+      'style',
+      'script',
+      timeoutMs,
+      timeoutMs,
+      1,
+      manifestTimeoutMs,
+    ),
+    scripts,
+    styles,
+    events,
+    document: documentMock,
+  };
+}
+
+test('authenticated asset loads share in-flight work and recover after error or timeout', async () => {
+  const loader = createAuthenticatedAssetLoaderHarness(10);
+
+  const firstStyleLoad = loader.loadStylesheet('style.min.css?v=retry');
+  const failedStyle = loader.styles[0];
+  failedStyle.emit('error');
+  await assert.rejects(firstStyleLoad, /style\.min\.css 加载失败/);
+  assert.equal(failedStyle.dataset.suxiAssetFailed, '1');
+  assert.equal(loader.styles.length, 0, 'a failed stylesheet must leave no terminal DOM node');
+
+  const retryStyleLoad = loader.loadStylesheet('style.min.css?v=retry');
+  const retriedStyle = loader.styles[0];
+  assert.notEqual(retriedStyle, failedStyle, 'a retry must create a fresh stylesheet node');
+  retriedStyle.emit('load');
+  await retryStyleLoad;
+  assert.equal(retriedStyle.dataset.suxiAssetLoaded, '1');
+
+  const firstSharedLoad = loader.loadScript('shared.js?v=1');
+  const secondSharedLoad = loader.loadScript('shared.js?v=1');
+  assert.equal(firstSharedLoad, secondSharedLoad, 'concurrent callers must share one in-flight asset promise');
+  assert.equal(loader.scripts.length, 1);
+  loader.scripts[0].emit('load');
+  await Promise.all([firstSharedLoad, secondSharedLoad]);
+
+  const deferredRetry = loader.loadDeferredAuthenticatedAssetWithRetry({
+    type: 'script',
+    src: 'deferred-retry.js?v=1',
+  });
+  const firstDeferredScript = loader.scripts.find(node => node.src.includes('deferred-retry.js'));
+  assert.equal(firstDeferredScript.async, true, 'JS-sequential deferred scripts must not join the native ordered queue');
+  firstDeferredScript.emit('error');
+  await new Promise(resolve => setImmediate(resolve));
+  const retriedDeferredScript = loader.scripts.find(node => node.src.includes('deferred-retry.js'));
+  assert.notEqual(retriedDeferredScript, firstDeferredScript, 'a deferred asset gets one fresh bounded retry');
+  assert.equal(retriedDeferredScript.async, true);
+  assert.equal(new URL(retriedDeferredScript.src).searchParams.get('suxi_retry'), '1');
+  assert.equal(
+    retriedDeferredScript.dataset.suxiCanonicalSrc,
+    'http://127.0.0.1:8080/deferred-retry.js?v=1',
+    'the retry transport must retain the original versioned resource identity',
+  );
+  retriedDeferredScript.emit('load');
+  await deferredRetry;
+
+  const stalledLoad = loader.loadScript('stalled.js?v=1');
+  const stalledScript = loader.scripts.find(node => node.src.startsWith('stalled.js'));
+  await assert.rejects(stalledLoad, /stalled\.js 加载超时/);
+  assert.equal(stalledScript.dataset.suxiAssetFailed, undefined);
+  assert(loader.scripts.includes(stalledScript), 'a timed-out script must remain canonical while its transport is pending');
+
+  const retryStalledLoad = loader.loadScript('stalled.js?v=1');
+  const retriedScript = loader.scripts.find(node => node.src.startsWith('stalled.js'));
+  assert.equal(retriedScript, stalledScript, 'a retry after timeout must observe the original transport');
+  assert.equal(loader.scripts.filter(node => node.src.includes('stalled.js')).length, 1);
+  stalledScript.emit('load');
+  await retryStalledLoad;
+  assert.equal(stalledScript.dataset.suxiAssetLoaded, '1');
+});
+
+test('a deferred timeout never creates a second script transport or duplicate execution path', async () => {
+  const loader = createAuthenticatedAssetLoaderHarness(10, 80);
+  const asset = { type: 'script', src: 'slow-canonical.js?v=1' };
+
+  await assert.rejects(
+    loader.loadDeferredAuthenticatedAssetWithRetry(asset),
+    /slow-canonical\.js 加载超时/,
+  );
+  assert.equal(loader.scripts.length, 1, 'timeout must not consume the network-error retry allowance');
+  assert.equal(new URL(loader.scripts[0].src, loader.document.baseURI).searchParams.has('suxi_retry'), false);
+
+  const recovery = loader.loadDeferredAuthenticatedAssetWithRetry(asset);
+  assert.equal(loader.scripts.length, 1, 'recovery must attach to the same canonical script node');
+  loader.scripts[0].emit('load');
+  await recovery;
+  assert.equal(loader.scripts[0].dataset.suxiAssetLoaded, '1');
+});
+
+test('deferred manifest resets a rejected attempt and enforces one shared terminal deadline', async () => {
+  const retryLoader = createAuthenticatedAssetLoaderHarness(20, 100);
+  const assets = [{ type: 'script', src: 'manifest-retry.js?v=1' }];
+
+  const firstManifestLoad = retryLoader.loadDeferredAuthenticatedAssets(assets);
+  await new Promise(resolve => setImmediate(resolve));
+  const firstAttempt = retryLoader.scripts.find(node => node.src.includes('manifest-retry.js'));
+  firstAttempt.emit('error');
+  await new Promise(resolve => setImmediate(resolve));
+  const automaticRetry = retryLoader.scripts.find(node => node.src.includes('manifest-retry.js'));
+  assert.notEqual(automaticRetry, firstAttempt);
+  assert.equal(new URL(automaticRetry.src).searchParams.get('suxi_retry'), '1');
+  automaticRetry.emit('error');
+  await assert.rejects(firstManifestLoad, /manifest-retry\.js 加载失败/);
+  assert.equal(
+    retryLoader.events.filter(event => event.type === 'suxi:full-render-error').length,
+    1,
+    'one exhausted manifest attempt must publish one explicit terminal error',
+  );
+
+  const secondManifestLoad = retryLoader.loadDeferredAuthenticatedAssets(assets);
+  assert.notEqual(secondManifestLoad, firstManifestLoad, 'a rejected manifest must create a fresh top-level Promise');
+  await new Promise(resolve => setImmediate(resolve));
+  const explicitRetry = retryLoader.scripts.find(node => node.src.includes('manifest-retry.js'));
+  assert.notEqual(explicitRetry, automaticRetry, 'an explicit manifest retry must create a fresh failed asset node');
+  explicitRetry.emit('load');
+  await secondManifestLoad;
+  assert.equal(retryLoader.document.documentElement.dataset.suxiFullRenderReady, '1');
+  assert.equal(
+    retryLoader.events.filter(event => event.type === 'suxi:full-render-ready').length,
+    1,
+    'only the fully recovered manifest may publish ready',
+  );
+
+  const deadlineLoader = createAuthenticatedAssetLoaderHarness(50, 35);
+  const deadlineStartedAt = Date.now();
+  const deadlineLoad = deadlineLoader.loadDeferredAuthenticatedAssets([
+    { type: 'script', src: 'slow-before-deadline.js?v=1' },
+    { type: 'script', src: 'late-stall.js?v=1' },
+  ]);
+  await new Promise(resolve => setTimeout(resolve, 12));
+  deadlineLoader.scripts.find(node => node.src.startsWith('slow-before-deadline.js'))?.emit('load');
+  await assert.rejects(deadlineLoad, /完整页面资源清单加载超时/);
+  const elapsedMs = Date.now() - deadlineStartedAt;
+  assert(
+    elapsedMs < 80,
+    `a late manifest stall must share the ${35}ms test deadline instead of receiving another full retry window (actual ${elapsedMs}ms)`,
+  );
+  assert.equal(
+    deadlineLoader.events.filter(event => event.type === 'suxi:full-render-error').length,
+    1,
+  );
+});
 
 test('public login shell defers the authenticated application asset chain', () => {
   const references = extractAuthenticatedAssetReferences(index);
@@ -25,7 +277,7 @@ test('public login shell defers the authenticated application asset chain', () =
   const styleAssets = entries
     .filter((entry) => entry.type === 'style')
     .map((entry) => stripFrontendAssetQuery(entry.src));
-  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style.min.css', 'ai-custom.css']);
+  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style-startup.min.css', 'style.min.css', 'ai-custom.css']);
   assert.match(index, /<link rel="stylesheet" href="login-critical\.css\?v=[^"]+"/);
   assert.doesNotMatch(index, /<link[^>]+href="(?:tailwind\.min|style|ai-custom)\.css/);
   assert.equal(scriptAssets[0], 'vue.runtime.global.prod.js');
@@ -33,16 +285,38 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.equal(scriptAssets.at(-2), 'app-render.min.js');
   assert.equal(scriptAssets.at(-1), 'app-main.min.js');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-render.min.js')?.phase, 'after-first-paint');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style-startup.min.css')?.phase, 'startup');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style.min.css')?.phase, 'after-first-paint');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'ai-custom.css')?.phase, 'after-first-paint');
   assert.equal(
     entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-deferred-helpers.min.js')?.phase,
     'after-first-paint',
-    'non-startup domain helpers must stay off the authenticated first paint',
+    'full-page domain helpers must stay off the authenticated first paint',
   );
   assert(
     scriptAssets.indexOf('app-deferred-helpers.min.js') < scriptAssets.indexOf('app-render.min.js'),
-    'deferred domain helpers must load before the full render artifact',
+    'deferred domain helpers must precede the full render',
+  );
+  const deferredScriptOrder = [
+    'components/online-data/ctrip-order-analysis-loader.js',
+    'ctrip-search-opportunity-static.js',
+    'user-admin-static.js',
+    'app-deferred-helpers.min.js',
+    'components/system/app-main-components.js',
+    'app-render.min.js',
+  ];
+  const deferredScriptIndexes = deferredScriptOrder.map((asset) => scriptAssets.indexOf(asset));
+  assert(
+    deferredScriptIndexes.every((index) => index >= 0),
+    `deferred script chain is incomplete: ${JSON.stringify(deferredScriptIndexes)}`,
+  );
+  assert.deepEqual(
+    deferredScriptIndexes,
+    [...deferredScriptIndexes].sort((left, right) => left - right),
+    'deferred helper, component factory, and full-render scripts must preserve manifest dependency order',
   );
   for (const deferredAsset of [
+    'components/system/app-main-components.js',
     'ctrip-search-opportunity-static.js',
     'user-admin-static.js',
   ]) {
@@ -53,6 +327,10 @@ test('public login shell defers the authenticated application asset chain', () =
     );
   }
   assert(!assets.includes('ota-browser-assist-static.js'), 'OTA browser assist must load only after its copy action');
+  assert(
+    !assets.includes('components/system/operating-intelligence-components.js'),
+    'the optional operating-intelligence full component must load only after explicit user demand',
+  );
   assert(assets.includes('app-startup-helpers.min.js'));
   assert(assets.includes('app-deferred-helpers.min.js'));
   for (const sourceAsset of [
@@ -60,11 +338,12 @@ test('public login shell defers the authenticated application asset chain', () =
     'ctrip-static.js',
     'meituan-static.js',
     'data-health-static.js',
-    'ai-daily-report-static.js',
     'system-static.js',
     'compass-static.js',
     'home-static.js',
     'dual-ota-home-static.js',
+    'components/system/app-main-components-loader.js',
+    'components/system/operating-intelligence-loader.js',
   ]) {
     assert(!assets.includes(sourceAsset), `${sourceAsset} must stay out of the runtime manifest`);
   }
@@ -164,7 +443,7 @@ test('authenticated interactive readiness is reset and republished for every log
   );
 });
 
-test('authenticated startup keeps the full render off the network until a non-startup page needs it', () => {
+test('authenticated startup paints the compact page before progressively hydrating the current full page', () => {
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'vue\.runtime\.global\.prod\.js'/);
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'app-main\.min\.js'/);
   assert.match(bootstrap, /asset\.phase === ASSET_PHASE_STARTUP/);
@@ -173,7 +452,6 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.match(bootstrap, /await Promise\.all\(prerequisites\.map\(\(src\) => loadScript\(src\)\)\);/);
   assert.match(bootstrap, /await loadScript\(entry\);/);
   assert.match(bootstrap, /await waitForFirstAuthenticatedPaint\(\);/);
-  assert.match(bootstrap, /await Promise\.all\(assets\.map\(\(asset\) => loadAuthenticatedAsset\(asset\)\)\);/);
   assert.match(bootstrap, /suxi:full-render-ready/);
   assert.match(bootstrap, /const resolvedSrc = resolveAssetUrl\(src\);/);
   assert.match(
@@ -185,14 +463,49 @@ test('authenticated startup keeps the full render off the network until a non-st
     bootstrap,
     /find\(\(script\) => assetBaseName\(script\.getAttribute\('src'\)\) === assetName\)/,
   );
+  assert.match(bootstrap, /url\.searchParams\.set\('suxi_retry', attempt\)/);
+  assert.match(bootstrap, /canonicalSrc: asset\.src/);
+  assert.match(bootstrap, /suxiCanonicalSrc = canonicalResolvedSrc/);
+  assert.match(bootstrap, /error\?\.cause === 2/);
+  assert.match(bootstrap, /error\?\.cause !== 1/);
   const deferredReadyMarker = bootstrap.indexOf("document.documentElement.dataset.suxiFullRenderReady = '1';");
   const deferredReadyEvent = bootstrap.indexOf("window.dispatchEvent(new CustomEvent('suxi:full-render-ready'", deferredReadyMarker);
   assert(deferredReadyMarker >= 0 && deferredReadyEvent > deferredReadyMarker, 'ready marker must follow all loads and precede the ready event');
   assert.match(bootstrap, /const loadDeferredAuthenticatedAssetManifest = \(\) => \{/);
   assert.match(bootstrap, /window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS = loadDeferredAuthenticatedAssetManifest;/);
+  assert.match(bootstrap, /const loadDeferredAuthenticatedManifestAsset = \(assetName\) => \{/);
+  assert.match(bootstrap, /waitForFirstAuthenticatedPaint\(\)\.then\(\(\) => loadDeferredAuthenticatedAssetWithRetry\(asset\)\)/);
+  assert.match(bootstrap, /window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET = loadDeferredAuthenticatedManifestAsset;/);
   assert.match(
     bootstrap,
-    /const fullRenderAsset = assets\.find\([\s\S]*?assetBaseName\(asset\.src\) === 'app-render\.min\.js'[\s\S]*?preloadAuthenticatedAsset\(fullRenderAsset, 'high'\)/,
+    /const fullRenderAsset = assets\.find\([\s\S]*?assetBaseName\(asset\.src\) === 'app-render\.min\.js'[\s\S]*?preloadAuthenticatedAsset\(fullRenderAsset, 'low'\)/,
+  );
+  const deferredLoadStart = bootstrap.indexOf('const loadDeferredAuthenticatedAssets = (assets = []) => {');
+  const deferredLoadEnd = bootstrap.indexOf('\n\n    const loadDeferredAuthenticatedAssetManifest', deferredLoadStart);
+  const deferredLoad = bootstrap.slice(deferredLoadStart, deferredLoadEnd);
+  assert.match(deferredLoad, /const styles = assets\.filter\(\(asset\) => asset\.type === ASSET_TYPE_STYLE\);/);
+  assert.match(deferredLoad, /const scripts = assets\.filter\(\(asset\) => asset\.type === ASSET_TYPE_SCRIPT\);/);
+  assert.match(
+    deferredLoad,
+    /Promise\.all\(styles\.map\(\(asset\) => \(\s*loadDeferredAuthenticatedAssetWithRetry\(asset, manifestDeadlineEpochMs\)\s*\)\)\)/,
+  );
+  assert.match(
+    deferredLoad,
+    /for \(const asset of scripts\) \{\s*await loadDeferredAuthenticatedAssetWithRetry\(asset, manifestDeadlineEpochMs\);\s*\}/,
+    'dependent deferred scripts must settle in manifest order while styles may download in parallel',
+  );
+  assert.match(deferredLoad, /Date\.now\(\) \+ DEFERRED_AUTHENTICATED_MANIFEST_TIMEOUT_MS/);
+  assert.match(deferredLoad, /Promise\.race\(\[manifestDeadline, manifestLoad\]\)/);
+  assert.doesNotMatch(
+    deferredLoad,
+    /Promise\.all\(assets\.map\(/,
+    'the deferred manifest must not saturate the origin with every dependent script at once',
+  );
+  assert.match(deferredLoad, /deferredAuthenticatedAssetsPromise = currentLoad/);
+  assert.match(
+    deferredLoad,
+    /if \(deferredAuthenticatedAssetsPromise === currentLoad\) \{\s*deferredAuthenticatedAssetsPromise = null;/,
+    'a failed manifest must not permanently cache its rejected Promise',
   );
   const authenticatedLoadStart = bootstrap.indexOf('const loadAuthenticatedApp = () => {');
   const authenticatedLoadEnd = bootstrap.indexOf('\n\n    const loginMarkup', authenticatedLoadStart);
@@ -200,24 +513,20 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.doesNotMatch(authenticatedLoad, /void loadDeferredAuthenticatedAssets\(/);
   assert.match(authenticatedLoad, /await loadScript\(entry\);/);
   assert.match(appMain, /requestSuxiFullRenderForPage = \(page\) => \{[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS\(\)/);
+  assert.doesNotMatch(appMain, /startupRenderPages\.has\(normalizedPage\)/);
+  assert.match(
+    appMain,
+    /if \(!normalizedPage\s*\|\| normalizedPage === 'compass'\s*\|\| document\.documentElement\.dataset\.suxiRenderPhase === 'full'\)/,
+    'the startup compass must not pull the full-page asset manifest before a real page transition',
+  );
   assert.match(
     appMain,
     /const promoteSuxiFullRender = \(\) => \{[\s\S]*!fullRenderRuntimeReady\(\)\) return false;/,
     'full render must not mount while deferred helper namespaces are still loading',
   );
-  assert.match(appMain, /\['createMeituanRankingForm',[\s\S]*'getMeituanOrderFlowPeriods'\]\.every\(key => typeof meituanStatic\?\.\[key\] === 'function'\)/);
-  const fullRenderPromotionStart = appMain.indexOf('const promoteSuxiFullRender = () => {');
-  const fullRenderPromotionEnd = appMain.indexOf('\n    requestSuxiFullRenderForPage =', fullRenderPromotionStart);
-  const fullRenderPromotion = appMain.slice(fullRenderPromotionStart, fullRenderPromotionEnd);
-  const unmountOffset = fullRenderPromotion.indexOf('suxiApp?.unmount();');
-  const remountOffset = fullRenderPromotion.indexOf('mountSuxiApp();');
-  assert(
-    unmountOffset >= 0 && remountOffset > unmountOffset,
-    'full-render promotion must remount setup after every deferred helper is ready',
-  );
   assert.match(
     appMain,
-    /const handleSuxiFullRenderReady = \(\) => \{\s*if \(!fullRenderRuntimeReady\(\)\)[\s\S]*requestSuxiFullRenderForPage\(pendingFullRenderPage\)/,
+    /const handleSuxiFullRenderReady = \(\) => \{\s*clearSuxiFullRenderAttempt\(\);\s*if \(!fullRenderRuntimeReady\(\)\)[\s\S]*requestSuxiFullRenderForPage\(pendingFullRenderPage\)/,
     'the completed deferred-asset event must release the full-render barrier',
   );
   assert.match(
@@ -231,10 +540,27 @@ test('authenticated startup keeps the full render off the network until a non-st
     'a stale full-render global must not suppress the deferred helper loader',
   );
   assert.doesNotMatch(appMain, /if \(window\.SUXI_APP_RENDER\) handleSuxiFullRenderReady\(\)/);
+  assert.match(appMain, />重试完整资源<\/button>/);
+  assert.match(appMain, /const retrySuxiFullRender = async \(\) => \{/);
+  assert.match(appMain, /bindSuxiFullRenderAttempt\(\);\s*try \{\s*await window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS/);
+  assert.doesNotMatch(appMain, /suxi:full-render-(?:ready|error)', handleSuxiFullRender(?:Ready|Error), \{ once: true \}/);
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
 });
 
-test('data-health helper calls stay lazy while their namespace loads before the authenticated shell mounts', () => {
+test('deferred component bridges keep startup components small and preserve full factories', () => {
+  assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS = Object\.freeze\(\{ create \}\)/);
+  assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS_FULL/);
+  assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{ create \}\)/);
+  assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL/);
+  assert.match(operatingIntelligenceLoader, /SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET/);
+  assert.match(operatingIntelligenceLoader, /style\.min\.css/);
+  assert.match(appMainComponents, /window\.SUXI_APP_MAIN_COMPONENTS_FULL = exportedFactory/);
+  assert.match(operatingIntelligenceComponents, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL = exportedFactory/);
+  assert.match(operatingIntelligenceComponents, /const create = \(\{ ref, computed, inject, h, nextTick, onMounted, onUnmounted \}\) => \{/);
+  assert.match(appMain, /\{\s*Vue, ref, computed, inject, h, nextTick, onMounted, onUnmounted,\s*\}/);
+});
+
+test('data-health helper calls stay lazy until the progressive full-page bundle is ready', () => {
   assert.match(systemStatic, /const requireDeferredStaticFunction = \(namespace, key, missingMessage, onAccess = null\)/);
   assert.match(systemStatic, /const createLazyFactoryMethods = \(factory, methods = \[\]\)/);
   assert.match(
@@ -273,7 +599,7 @@ test('data-health helper calls stay lazy while their namespace loads before the 
   assert.match(appMain, /const handleSuxiFullRenderReady = \(\) => \{[\s\S]*publishDataHealthStaticReady\(\);/);
 });
 
-test('login intent preloads only the authenticated entry before the sequential startup barrier', () => {
+test('login intent preloads only the authenticated entry after the public shell paints', () => {
   assert.match(bootstrap, /const authenticatedStartupAssets = \(\) => \([\s\S]*asset\.phase === ASSET_PHASE_STARTUP/);
   assert.match(bootstrap, /const preloadAuthenticatedEntry = \(\) => \{/);
   assert.doesNotMatch(bootstrap, /preloadAuthenticatedStartupDependencies/);
@@ -282,11 +608,12 @@ test('login intent preloads only the authenticated entry before the sequential s
   assert.match(bootstrap, /link\.dataset\.suxiAuthenticatedStartupPreload = assetName/);
   assert.match(bootstrap, /preloadAuthenticatedAsset\(entry, 'high'\)/);
   assert.match(bootstrap, /authenticatedStartupPreloadLinks\.delete\(assetName\)/);
-  assert.match(bootstrap, /form\.addEventListener\('focusin', preloadAuthenticatedEntry\)/);
-  assert.match(bootstrap, /const handleInput = \(\) => \{[\s\S]*?preloadAuthenticatedEntry\(\)/);
+  assert.match(bootstrap, /const scheduled = waitForFirstAuthenticatedPaint\(\)\.then\(preloadAuthenticatedEntry\)/);
+  assert.match(bootstrap, /form\.addEventListener\('focusin', scheduleAuthenticatedEntryPreload\)/);
+  assert.match(bootstrap, /const handleInput = \(\) => \{[\s\S]*?scheduleAuthenticatedEntryPreload\(\)/);
 
   const submitStart = bootstrap.indexOf("form.addEventListener('submit'");
-  const entryPreloadOffset = bootstrap.indexOf('preloadAuthenticatedEntry();', submitStart);
+  const entryPreloadOffset = bootstrap.indexOf('scheduleAuthenticatedEntryPreload();', submitStart);
   const loginRequestOffset = bootstrap.indexOf("fetchJson('/api/auth/login'", submitStart);
   assert(submitStart >= 0 && entryPreloadOffset > submitStart && loginRequestOffset > entryPreloadOffset);
 });
@@ -316,7 +643,7 @@ test('authenticated login lands on the today operating dashboard through one ent
   const mountedStart = appMain.indexOf('onMounted(() => {');
   const mountedEnd = appMain.indexOf('\n            onUnmounted', mountedStart);
   const mountedFlow = appMain.slice(mountedStart, mountedEnd);
-  assert.match(mountedFlow, /if \(token\.value\) \{\s*requestSuxiFullRenderForPage\(currentPage\.value\);/, 'remembered sessions must promote a deferred default page even when currentPage does not change');
+  assert.match(mountedFlow, /if \(token\.value\) \{\s*requestSuxiFullRenderForPage\(currentPage\.value\);/, 'remembered sessions must route the initial page through the startup/full-render gate');
   assert.match(
     mountedFlow,
     /const primaryPageLoad = isCompassDataPage\(\)\s*\? activateCoreOperationsAfterLogin\(\)\s*: nextTick\(\);\s*scheduleHotelManagementPrewarmAfter\(primaryPageLoad\);/,

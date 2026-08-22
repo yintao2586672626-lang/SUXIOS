@@ -60,16 +60,17 @@ test('authenticated runtime loads the hashed lazy order-analysis component betwe
   assert.equal(bodyReference[1], contentHash(panel), 'lazy body hash must match panel contents');
   assert.ok(panel.length > 1_000, 'lazy panel body must not be an empty placeholder');
 
-  for (const [asset, source] of [
-    ['components/system/app-main-components.js', appMainComponents],
-    ['components/system/operating-intelligence-components.js', operatingIntelligenceComponents],
-  ]) {
-    const reference = indexHtml.match(new RegExp(`${asset.replaceAll('.', '\\.') }\\?v=[^"']*-h([a-f0-9]{10})`));
-    assert.ok(reference, `${asset} must be present in the authenticated runtime manifest`);
-    assert.equal(reference[1], contentHash(source), `${asset} content hash must match its manifest URL`);
-  }
+  const appMainComponentsReference = indexHtml.match(
+    /components\/system\/app-main-components\.js\?v=[^"']*-h([a-f0-9]{10})/,
+  );
+  assert.ok(appMainComponentsReference, 'app-main-components.js must be present in the authenticated runtime manifest');
+  assert.equal(appMainComponentsReference[1], contentHash(appMainComponents));
   assert.match(indexHtml, /"src": "components\/system\/app-main-components\.js\?v=[^"]+"[\s\S]*?"phase": "after-first-paint"/);
-  assert.match(indexHtml, /"src": "components\/system\/operating-intelligence-components\.js\?v=[^"]+"[\s\S]*?"phase": "after-first-paint"/);
+  assert.doesNotMatch(indexHtml, /components\/system\/operating-intelligence-components\.js/);
+  assert.match(
+    operatingIntelligenceLoader,
+    new RegExp(`components/system/operating-intelligence-components\\.js\\?v=[^"']*-h${contentHash(operatingIntelligenceComponents)}`),
+  );
   assert.match(startupHelperBuild, /'components\/system\/app-main-components-loader\.js'/);
   assert.match(startupHelperBuild, /'components\/system\/operating-intelligence-loader\.js'/);
   assert.match(startupHelperBundle, /SUXI_APP_MAIN_COMPONENTS/);
@@ -78,6 +79,8 @@ test('authenticated runtime loads the hashed lazy order-analysis component betwe
   assert.match(appMainComponents, /window\.SUXI_APP_MAIN_COMPONENTS_FULL\s*=\s*exportedFactory/);
   assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS\s*=\s*Object\.freeze/);
   assert.match(operatingIntelligenceComponents, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL\s*=\s*exportedFactory/);
+  assert.match(operatingIntelligenceComponents, /openOnMount:\s*\{ type: Boolean, default: false \}/);
+  assert.match(operatingIntelligenceComponents, /if \(props\.openOnMount\) widgetOpen\.value = true/);
   assert.match(appMainComponentsLoader, /script\.dataset\.suxiAssetLoaded = '1'/);
   assert.match(operatingIntelligenceLoader, /script\.dataset\.suxiAssetLoaded = '1'/);
   assert.match(
@@ -134,7 +137,11 @@ test('a dynamically loaded component script remains reusable by the deferred man
   scripts[0].dispatch('load');
   assert.equal((await componentPromise).name, 'AiDecisionQualityDetails');
   assert.equal(scripts[0].dataset.suxiAssetLoaded, '1');
-  assert.match(appBootstrap, /if \(existing\.dataset\.suxiAssetLoaded === '1'\) \{\s*resolve\(\);/);
+  assert.match(
+    appBootstrap,
+    /if \(element && isLoaded\(element\)\) \{\s*element\.dataset\.suxiAssetLoaded = '1';\s*return Promise\.resolve\(\);/,
+    'the shared asset state machine must reuse a script already completed by an async component loader',
+  );
 
   const deferredManifestReuse = new Promise((resolve, reject) => {
     if (scripts[0].dataset.suxiAssetLoaded === '1') {
@@ -147,7 +154,7 @@ test('a dynamically loaded component script remains reusable by the deferred man
   await deferredManifestReuse;
 });
 
-test('floating operating consultant requests its full component before any full-render transition', async () => {
+test('floating operating consultant loads only after the user opens it and opens on the first click', async () => {
   const scripts = [];
   const createScript = () => {
     const handlers = new Map();
@@ -184,17 +191,30 @@ test('floating operating consultant requests its full component before any full-
     defineAsyncComponent: definition => (
       typeof definition === 'function' ? { loader: definition } : definition
     ),
+    shallowRef: value => ({ value }),
+    ref: value => ({ value }),
   };
-  const components = window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS.create({ Vue, h: () => null });
+  const h = (type, props, children) => ({ type, props: props || {}, children });
+  const components = window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS.create({ Vue, h });
 
-  const componentPromise = components.operatingQuestionConsultant.loader();
+  assert.equal(scripts.length, 0, 'mounting the global entry must not fetch the full assistant');
+  const render = components.operatingQuestionConsultant.setup({ ctx: { currentPage: 'compass' } });
+  const gate = render();
+  assert.equal(gate.type, 'button');
+  assert.match(gate.props.class, /sx-ai-consultant/, 'the demand-load entry must reuse the mobile-safe assistant layer');
+  assert.doesNotMatch(gate.props.class, /\bz-40\b/, 'the Tailwind z-40 utility must not override the mobile-safe assistant layer');
+  assert.equal(gate.props.style, 'z-index:75', 'the lightweight entry must remain above the mobile navigation before deferred styles load');
+  const componentPromise = gate.props.onClick();
   await Promise.resolve();
-  assert.equal(scripts.length, 1, 'the mounted floating consultant must start its full script immediately');
+  assert.equal(scripts.length, 1, 'the first explicit click starts the full assistant load');
   window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL = {
     create: () => ({ operatingQuestionConsultant: { name: 'OperatingQuestionConsultant' } }),
   };
   scripts[0].dispatch('load');
-  assert.equal((await componentPromise).name, 'OperatingQuestionConsultant');
+  await componentPromise;
+  const opened = render();
+  assert.equal(opened.type.name, 'OperatingQuestionConsultant');
+  assert.equal(opened.props.openOnMount, true, 'the first click must open the loaded assistant without a second click');
 });
 
 test('deferred component bridges replace a completed script that did not register its factory', async () => {
@@ -281,7 +301,7 @@ test('deferred component bridges discard a failed manifest script before retryin
     {
       filename: 'app-main-components-loader.js',
       source: appMainComponentsLoader,
-      fullScript: 'components/system/app-main-components.js?v=20260816-runtime-closure-h69f30ff2c7',
+      fullScript: appMainComponentsLoader.match(/const fullScript = '([^']+)'/)?.[1],
       bridgeKey: 'SUXI_APP_MAIN_COMPONENTS',
       fullKey: 'SUXI_APP_MAIN_COMPONENTS_FULL',
       componentKey: 'AiDecisionQualityDetails',
@@ -290,7 +310,7 @@ test('deferred component bridges discard a failed manifest script before retryin
     {
       filename: 'operating-intelligence-loader.js',
       source: operatingIntelligenceLoader,
-      fullScript: 'components/system/operating-intelligence-components.js?v=20260816-runtime-closure-h85ac5e9b03',
+      fullScript: operatingIntelligenceLoader.match(/const fullScript = '([^']+)'/)?.[1],
       bridgeKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS',
       fullKey: 'SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL',
       componentKey: 'operatingQuestionPanel',

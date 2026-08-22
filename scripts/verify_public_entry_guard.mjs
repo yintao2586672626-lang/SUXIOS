@@ -273,8 +273,13 @@ if (!fs.existsSync(indexPath)) {
   )?.phase;
   if (phaseFor('app-startup-render.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
     || phaseFor('app-main.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('app-deferred-helpers.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
+    || phaseFor('components/system/app-main-components.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
     || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
-    failures.push('public/index.html must load the home startup render and app-main before deferring the full render until after first paint.');
+    failures.push('public/index.html must keep the compact home bridge at startup and defer full-page helpers, components, and render code.');
+  }
+  if (phaseFor('components/system/operating-intelligence-components.js') !== undefined) {
+    failures.push('public/index.html must keep the optional operating-intelligence full component outside the global full-render manifest.');
   }
   failures.push(...inspectPublicEntryRuntimeContracts({
     appBootstrapSource: appBootstrapContent,
@@ -1866,7 +1871,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('@mousedown.prevent="selectPlatformHotelOption(hotel)"')
     || !content.includes('const platformHotelOptions = computed(() => {')
     || !content.includes("if (platformHotelContext.value === 'meituan') return meituanTargetHotelOptions.value;")
-    || !content.includes("if (platformHotelContext.value === 'ctrip') return ctripTargetHotelOptions.value;")
+    || !content.includes("if (platformHotelContext.value === 'ctrip') return ['ctrip-public-profiles', 'ctrip-market-competition'].includes(onlineDataTab.value) ? ctripPublicProfileHotelOptions.value : ctripTargetHotelOptions.value;")
     || !content.includes('const filteredPlatformHotelOptions = computed(() => {')
     || !content.includes('const platformHotelContext = computed(() => currentPage.value')
     || ctripPlatformPageTemplate.includes('v-model="selectedCtripHotelId"')

@@ -86,6 +86,8 @@ if (!exists('AGENTS.md')) {
   requireIncludes('project AGENTS.md', projectAgents, '工作树不要求全局干净');
   requireIncludes('project AGENTS.md', projectAgents, '连续三轮定向检查');
   requireIncludes('project AGENTS.md', projectAgents, 'Passkey');
+  requireIncludes('project AGENTS.md', projectAgents, '经营页面合同（适当严格执行）');
+  requireIncludes('project AGENTS.md', projectAgents, 'rules/business-page-contract.md');
 }
 
 const collaborationCharterPath = 'docs/product_collaboration_charter.md';
@@ -347,6 +349,89 @@ if (!exists(rulesPath)) {
   requireIncludes(rulesPath, rules, 'Do not label OTA-only data as whole-hotel');
 }
 
+const businessPageContractPath = 'rules/business-page-contract.md';
+if (!exists(businessPageContractPath)) {
+  failures.push(`${businessPageContractPath} is missing`);
+} else {
+  const businessPageContract = read(businessPageContractPath);
+  for (const needle of [
+    '宿析OS经营页面合同 v1',
+    '硬门禁：被改链路必须通过',
+    '条件门禁：触发时必须执行',
+    '非默认阻塞项',
+    'tenant_id',
+    'system_hotel_id',
+    'platform_store_id',
+    'business_date',
+    'source_method',
+    'collected_at',
+    'schema_version',
+    '`partial`',
+    '`stale`',
+    '`unverified`',
+    '同一 ViewModel',
+    'synthetic',
+    '六视口',
+  ]) {
+    requireIncludes(businessPageContractPath, businessPageContract, needle);
+  }
+}
+
+const businessPageRegistryPath = 'rules/business-page-contract-registry.json';
+if (!exists(businessPageRegistryPath)) {
+  failures.push(`${businessPageRegistryPath} is missing`);
+} else {
+  let registry;
+  try {
+    registry = JSON.parse(read(businessPageRegistryPath));
+  } catch (error) {
+    failures.push(`${businessPageRegistryPath} is not valid JSON: ${error.message}`);
+  }
+  if (registry) {
+    if (registry.schema_version !== 'business-page-coverage.v1') {
+      failures.push(`${businessPageRegistryPath} has an unexpected schema_version`);
+    }
+    if (registry.source_manifest !== 'resources/frontend/templates/manifest.json') {
+      failures.push(`${businessPageRegistryPath} must bind the frontend template manifest`);
+    }
+    if (registry.policy?.new_fragment !== 'fail_closed_until_registered' || registry.policy?.field_validation_claimed !== false) {
+      failures.push(`${businessPageRegistryPath} must fail closed without claiming field validation`);
+    }
+    if (!Array.isArray(registry.included_manifest_domains) || registry.included_manifest_domains.length === 0) {
+      failures.push(`${businessPageRegistryPath} must declare included manifest domains`);
+    }
+    if (!Array.isArray(registry.excluded_manifest_domains) || registry.excluded_manifest_domains.length === 0) {
+      failures.push(`${businessPageRegistryPath} must declare reasoned manifest-domain exclusions`);
+    }
+    if (!Array.isArray(registry.surfaces) || registry.surfaces.length === 0) {
+      failures.push(`${businessPageRegistryPath} must register product-chain surfaces`);
+    }
+  }
+}
+
+const businessPageVerifierPath = 'scripts/verify_business_page_contract.mjs';
+if (!exists(businessPageVerifierPath)) {
+  failures.push(`${businessPageVerifierPath} is missing`);
+} else {
+  const businessPageVerifier = read(businessPageVerifierPath);
+  requireIncludes(businessPageVerifierPath, businessPageVerifier, 'surface.regression_checks');
+  requireIncludes(businessPageVerifierPath, businessPageVerifier, "spawnSync(process.execPath, ['--test', ...testPaths]");
+  requireIncludes(businessPageVerifierPath, businessPageVerifier, 'tests/automation/business_page_contract.test.mjs');
+}
+
+const businessPageAbsorptionPath = 'docs/capability-absorption/2026-08-22-business-page-contract.md';
+if (!exists(businessPageAbsorptionPath)) {
+  failures.push(`${businessPageAbsorptionPath} is missing`);
+} else {
+  const businessPageAbsorption = read(businessPageAbsorptionPath);
+  requireIncludes(businessPageAbsorptionPath, businessPageAbsorption, '7A53E8840461523E2BEE2E6F7F0DE221B04D0F862EA934AD1184FD4CC22404CC');
+  requireIncludes(businessPageAbsorptionPath, businessPageAbsorption, '截图仅证明可见规范文字');
+  requireIncludes(businessPageAbsorptionPath, businessPageAbsorption, '不提升为真实账号、生产或现场证据');
+  requireIncludes(businessPageAbsorptionPath, businessPageAbsorption, '42 个现有产品链片段');
+  requireIncludes(businessPageAbsorptionPath, businessPageAbsorption, '5 个明确排除域');
+  requireIncludes(businessPageAbsorptionPath, businessPageAbsorption, 'rules/business-page-contract-registry.json');
+}
+
 const evalPath = 'evals/ctrip-field-table-closure-failures.jsonl';
 if (!exists(evalPath)) {
   failures.push(`${evalPath} is missing`);
@@ -383,6 +468,12 @@ if (!exists('hooks/pre-commit.ps1')) {
 const packageJson = JSON.parse(read('package.json'));
 if (packageJson.scripts?.['verify:context-assets'] !== 'node hooks/verify-context-assets.mjs') {
   failures.push('package.json missing verify:context-assets script');
+}
+if (packageJson.scripts?.['verify:business-page-contract'] !== 'node scripts/verify_business_page_contract.mjs') {
+  failures.push('package.json missing verify:business-page-contract script');
+}
+if (!String(packageJson.scripts?.['verify:p0-guards'] || '').includes('npm run verify:business-page-contract')) {
+  failures.push('package.json verify:p0-guards must include verify:business-page-contract');
 }
 if (packageJson.scripts?.['hook:pre-commit'] !== 'powershell -NoProfile -ExecutionPolicy Bypass -File hooks/pre-commit.ps1') {
   failures.push('package.json missing hook:pre-commit script');

@@ -46,8 +46,7 @@ test('platform pages expose one sticky header hotel context switcher', () => {
   assert.match(appShell, /data-testid="platform-hotel-context-config"/);
   assert.match(appShell, /class="platform-hotel-context-config"/);
   assert.match(appShell, /v-if="platformHotelContext"/);
-  assert.match(appShell, /meituanTargetHotelOptions/);
-  assert.match(appShell, /ctripTargetHotelOptions/);
+  assert.match(appShell, /platformHotelOptions/);
   assert.match(appShell, /@click="openPlatformHotelContextConfig"/);
   assert.match(appShell, /fetchingData \|\| ctripTrafficBundleLoading/);
   assert.match(appShell, /ctripCommentBrowserCaptureRunning/);
@@ -67,10 +66,18 @@ test('platform hotel picker searches by hotel id and keeps the current hotel fir
     ref: value => ({ value }),
     computed,
     platformHotelContext: { value: 'ctrip' },
+    onlineDataTab: { value: 'ctrip-traffic' },
     ctripTargetHotelOptions: {
       value: [
         { id: '64', name: '北京示例酒店', city: '北京' },
         { id: '80', name: '敦煌漠蓝新', city: '敦煌' },
+      ],
+    },
+    ctripPublicProfileHotelOptions: {
+      value: [
+        { id: '64', name: '北京示例酒店', city: '北京' },
+        { id: '80', name: '敦煌漠蓝新', city: '敦煌' },
+        { id: '91', name: '公开资料待配置门店', city: '西安' },
       ],
     },
     meituanTargetHotelOptions: { value: [] },
@@ -91,6 +98,12 @@ test('platform hotel picker searches by hotel id and keeps the current hotel fir
   assert.deepEqual(
     Array.from(picker.filteredPlatformHotelOptions.value, hotel => hotel.name),
     ['北京示例酒店'],
+  );
+  sandbox.onlineDataTab.value = 'ctrip-public-profiles';
+  picker.platformHotelSearchKeyword.value = '91';
+  assert.deepEqual(
+    Array.from(picker.filteredPlatformHotelOptions.value, hotel => hotel.name),
+    ['公开资料待配置门店'],
   );
 });
 
@@ -199,7 +212,14 @@ test('platform context reconciliation invalidates removed configs without retain
   ]);
   const persistenceSandbox = {
     user: { value: { id: 42, hotel_id: '64' } },
+    onlineDataTab: { value: 'ctrip-traffic' },
     ctripTargetHotelOptions: { value: [{ id: '64', name: 'Ctrip configured' }] },
+    ctripPublicProfileHotelOptions: {
+      value: [
+        { id: '64', name: 'Ctrip configured' },
+        { id: '91', name: 'Ctrip public profile only' },
+      ],
+    },
     meituanTargetHotelOptions: { value: [{ id: '7', name: 'Meituan configured' }] },
     localStorage: {
       getItem: key => storage.get(key) || null,
@@ -213,6 +233,12 @@ test('platform context reconciliation invalidates removed configs without retain
   })()`, persistenceSandbox, { filename: 'platform-hotel-context-persistence-slice.js' });
   persistenceApi.persistPlatformHotelContext('meituan', 'not-configured');
   assert.equal(storage.has('phc_42_meituan'), false);
+  persistenceApi.persistPlatformHotelContext('ctrip', '91');
+  assert.equal(storage.has('phc_42_ctrip'), false);
+  persistenceSandbox.onlineDataTab.value = 'ctrip-public-profiles';
+  persistenceApi.persistPlatformHotelContext('ctrip', '91');
+  assert.equal(storage.get('phc_42_ctrip'), '91');
+  persistenceSandbox.onlineDataTab.value = 'ctrip-traffic';
 
   const alignSource = sliceFrom(
     appMain,
@@ -778,8 +804,8 @@ test('platform actions do not repopulate a project hotel from the global context
   );
   assert.match(publicProfileSelection, /if \(!ctripConfigListLoaded\.value\)/);
   assert.match(publicProfileSelection, /await loadCtripConfigList\(/);
-  assert.match(publicProfileSelection, /const options = ctripTargetHotelOptions\.value/);
-  assert.doesNotMatch(publicProfileSelection, /const options = ctripPublicProfileHotelOptions\.value/);
+  assert.match(publicProfileSelection, /const options = ctripPublicProfileHotelOptions\.value/);
+  assert.doesNotMatch(publicProfileSelection, /const options = ctripTargetHotelOptions\.value/);
 
   const meituanStartup = sliceFrom(
     appMain,

@@ -13,6 +13,25 @@ UNITS=(
 )
 FORMAL_TIMER="suxios-manual-notification-formal-dispatch.timer"
 LEGACY_TIMER="suxios-hourly-three-source-wecom.timer"
+DINGDANDAO_ENV="/etc/suxios/dingdandao-collector.env"
+DINGDANDAO_ENV_EXAMPLE="deploy/systemd/dingdandao-collector.env.example"
+
+read_exact_dingdandao_hotel_id() {
+  local env_path="$1"
+  local values=()
+  local value=""
+  mapfile -t values < <(sed -n 's/^SUXIOS_DINGDANDAO_HOTEL_ID=//p' "$env_path")
+  if [[ ${#values[@]} -ne 1 ]]; then
+    echo "external_runtime_config_blocked: expected exactly one SUXIOS_DINGDANDAO_HOTEL_ID in $env_path" >&2
+    return 1
+  fi
+  value="${values[0]}"
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "external_runtime_config_blocked: invalid SUXIOS_DINGDANDAO_HOTEL_ID in $env_path" >&2
+    return 1
+  fi
+  printf '%s\n' "$value"
+}
 
 while (($#)); do
   case "$1" in
@@ -44,6 +63,7 @@ required=(
   deploy/systemd/install_manual_notification_formal_dispatch.sh
   deploy/systemd/suxios-manual-notification-formal-dispatch.service
   deploy/systemd/suxios-manual-notification-formal-dispatch.timer
+  "$DINGDANDAO_ENV_EXAMPLE"
 )
 for unit in "${UNITS[@]}"; do required+=("deploy/systemd/$unit"); done
 for relative in "${required[@]}"; do
@@ -52,7 +72,7 @@ for relative in "${required[@]}"; do
     exit 78
   }
 done
-[[ -f /etc/suxios/dingdandao-collector.env ]] || {
+[[ -f "$DINGDANDAO_ENV" ]] || {
   echo "Dingdandao collector scope config is missing." >&2
   exit 78
 }
@@ -65,10 +85,17 @@ done
   exit 78
 }
 
+EXPECTED_SYSTEM_HOTEL_ID="$(read_exact_dingdandao_hotel_id "$RELEASE_ROOT/$DINGDANDAO_ENV_EXAMPLE")" || exit 78
+ACTUAL_SYSTEM_HOTEL_ID="$(read_exact_dingdandao_hotel_id "$DINGDANDAO_ENV")" || exit 78
+if [[ "$ACTUAL_SYSTEM_HOTEL_ID" != "$EXPECTED_SYSTEM_HOTEL_ID" ]]; then
+  echo "external_runtime_config_blocked: dingdandao env hotel id mismatch actual=$ACTUAL_SYSTEM_HOTEL_ID expected=$EXPECTED_SYSTEM_HOTEL_ID" >&2
+  exit 78
+fi
+
 if [[ $INSTALL -ne 1 ]]; then
   bash "$RELEASE_ROOT/deploy/systemd/install_manual_notification_formal_dispatch.sh" \
     --release-root "$RELEASE_ROOT"
-  echo "CHECK_OK release=$RELEASE_ROOT installed=0 enabled=0"
+  echo "CHECK_OK release=$RELEASE_ROOT installed=0 enabled=0 runtime_hotel_id=$ACTUAL_SYSTEM_HOTEL_ID runtime_readback_verified=1"
   exit 0
 fi
 if [[ $EUID -ne 0 ]]; then
@@ -94,13 +121,15 @@ if [[ $ENABLE -eq 1 ]]; then
     suxios-dingdandao-collection.timer \
     suxios-cloud-ota-profile-collection.timer
   systemctl disable --now "$LEGACY_TIMER" >/dev/null 2>&1 || true
+  systemctl is-enabled suxios-dingdandao-collection.timer >/dev/null
+  systemctl is-active suxios-dingdandao-collection.timer >/dev/null
   systemctl is-enabled "$FORMAL_TIMER" >/dev/null
   systemctl is-active "$FORMAL_TIMER" >/dev/null
-  echo "INSTALLED_AND_ENABLED release=$RELEASE_ROOT legacy_sender=disabled"
+  echo "INSTALLED_AND_ENABLED release=$RELEASE_ROOT legacy_sender=disabled runtime_hotel_id=$ACTUAL_SYSTEM_HOTEL_ID runtime_readback_verified=1"
   exit 0
 fi
 
 systemctl disable --now \
   suxios-dingdandao-collection.timer \
   suxios-cloud-ota-profile-collection.timer >/dev/null 2>&1 || true
-echo "INSTALLED_DISABLED release=$RELEASE_ROOT enabled=0"
+echo "INSTALLED_DISABLED release=$RELEASE_ROOT enabled=0 runtime_hotel_id=$ACTUAL_SYSTEM_HOTEL_ID runtime_readback_verified=1"

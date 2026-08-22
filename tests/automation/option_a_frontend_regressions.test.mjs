@@ -72,7 +72,7 @@ test('Ctrip display removes unsupported estimates and refuses to invent full-cha
 
   const downloadTable = sliceBetween(appMain, 'const ctripDownloadRows', 'const buildCtripBusinessCanvas');
   for (const field of ['quantity', 'bookOrderNum', 'commentScore', 'qunarCommentScore']) {
-    assert.match(downloadTable, new RegExp(`formatNumber\\(row\\.${field}\\)`), `${field} must preserve zero through formatNumber`);
+    assert.match(downloadTable, new RegExp(`formatOptionalNumber\\(row\\.${field}\\)`), `${field} must preserve zero while keeping missing values explicit`);
   }
   assert.match(appTemplate, /hasDisplayValue\(hotel\.amount\)[\s\S]*Number\(hotel\.amount\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
   assert.match(appTemplate, /hasDisplayValue\(hotel\.adr\)[\s\S]*Number\(hotel\.adr\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
@@ -80,8 +80,9 @@ test('Ctrip display removes unsupported estimates and refuses to invent full-cha
   assert.match(downloadTable, /value: row => oneDecimalText\(row\.amount\)/);
   assert.match(downloadTable, /value: row => oneDecimalText\(row\.adr\)/);
   assert.doesNotMatch(downloadTable, /row\.(?:quantity|bookOrderNum|commentScore|qunarCommentScore)\s*\|\|\s*'-'/);
-  assert.match(downloadTable, /value === null \|\| value === undefined \|\| value === '' \? '-' : `\$\{value\}%`/);
-  assert.match(downloadTable, /: formatNumber\(value\)/);
+  assert.match(downloadTable, /value: row => ctripEarlyMorningTrafficText\(row, 'convertionRate', true\)/);
+  assert.match(appMain, /const formatOptionalPercent = \(value, missingText = '未返回'\) => \{[\s\S]*Number\.isFinite\(numeric\) \? `\$\{toFixedSafe\(numeric, 2, '0\.00'\)\}%` : missingText/);
+  assert.match(downloadTable, /: formatOptionalNumber\(value\)/);
   assert.doesNotMatch(downloadTable, /`≈\$\{formatNumber\(value\)\}`/);
 });
 

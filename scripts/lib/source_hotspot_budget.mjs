@@ -3,7 +3,7 @@ import path from 'node:path';
 
 export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   // 2026-08-16 integration rebaseline: targets stay unchanged; exact ratchets freeze the combined reviewed baseline so future growth still fails closed.
-  { path: 'public/app-main.js', max_lines: 49_934, ratchet_max_lines: 55_369, boundary: 'formal promotion + temporal trial + XLSX verified closure plus authenticated patrol-report export; AI daily pure presentation extracted; zero-growth until another behavior-driven domain extraction' },
+  { path: 'public/app-main.js', max_lines: 49_934, ratchet_max_lines: 55_806, boundary: 'independent home revenue truth, guided three-source onboarding, and hourly notification closure; onboarding UI and AI daily presentation are deferred; zero-growth until another behavior-driven domain extraction' },
   { path: 'public/data-health-static.js', max_lines: 7_000, ratchet_max_lines: 7_447, boundary: 'data-health presentation domains; zero-growth until page-specific extraction' },
   { path: 'tests/OnlineDataTest.php', max_lines: 2_800, boundary: 'platform test-case traits' },
   { path: 'app/controller/Agent.php', max_lines: 2_700, ratchet_max_lines: 3_212, boundary: 'Agent OTA concern traits plus persisted decision-route wiring; zero-growth until route orchestration extraction' },

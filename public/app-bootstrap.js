@@ -12,6 +12,10 @@
     const LOGIN_CONNECTION_WARMUP_MIN_GAP_MS = 15000;
     const LOGIN_PASSWORD_SAVE_TIMEOUT_MS = 1500;
     const AUTHENTICATED_FIRST_PAINT_FALLBACK_MS = 240;
+    const AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS = 30000;
+    const DEFERRED_AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS = 5000;
+    const DEFERRED_AUTHENTICATED_ASSET_RETRY_LIMIT = 1;
+    const DEFERRED_AUTHENTICATED_MANIFEST_TIMEOUT_MS = 15000;
     const LOGIN_HANDOFF_EVENT = 'suxi:login-handoff-metric';
     const ASSET_PHASE_STARTUP = 'startup';
     const ASSET_PHASE_AFTER_FIRST_PAINT = 'after-first-paint';
@@ -19,7 +23,9 @@
     const ASSET_TYPE_STYLE = 'style';
     let authenticatedAppPromise = null;
     let deferredAuthenticatedAssetsPromise = null;
+    let authenticatedEntryPreloadPromise = null;
     const authenticatedStartupPreloadLinks = new Map();
+    const authenticatedAssetLoadPromises = new Map();
     let loginHandoffStartedAt = null;
     let loginHandoffMetrics = null;
     let disposeLoginShell = null;
@@ -158,63 +164,202 @@
             return String(src || '');
         }
     };
-    const loadScript = (src) => new Promise((resolve, reject) => {
-        const assetName = assetBaseName(src);
+    const retryAuthenticatedAssetSource = (src, attempt) => {
+        if (!attempt) return src;
+        const url = new URL(String(src || ''), document.baseURI);
+        url.searchParams.set('suxi_retry', attempt);
+        return url.href;
+    };
+    const loadAssetElement = (
+        cacheKey,
+        assetName,
+        element,
+        isLoaded,
+        createElement,
+        appendElement,
+        timeoutMs = AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS,
+    ) => {
+        const activeLoad = authenticatedAssetLoadPromises.get(cacheKey);
+        if (activeLoad) return activeLoad;
+        if (element?.dataset.suxiAssetFailed === '1') {
+            element.remove();
+            element = null;
+        }
+        if (element && isLoaded(element)) {
+            element.dataset.suxiAssetLoaded = '1';
+            return Promise.resolve();
+        }
+
+        const shouldAppend = !element;
+        if (shouldAppend) element = createElement();
+        let loadPromise;
+        let failLoad;
+        loadPromise = new Promise((resolve, reject) => {
+            let settled = false;
+            let timeoutId = null;
+            const finish = (error = null) => {
+                if (settled) return;
+                settled = true;
+                if (timeoutId !== null) window.clearTimeout(timeoutId);
+                const preservePendingElement = error?.cause === 2;
+                if (!preservePendingElement) {
+                    element.removeEventListener('load', onLoad);
+                    element.removeEventListener('error', onError);
+                }
+                if (authenticatedAssetLoadPromises.get(cacheKey) === loadPromise) {
+                    authenticatedAssetLoadPromises.delete(cacheKey);
+                }
+                if (error) {
+                    if (!preservePendingElement) {
+                        element.dataset.suxiAssetFailed = '1';
+                        element.remove();
+                    }
+                    reject(error);
+                    return;
+                }
+                resolve();
+            };
+            const onLoad = () => {
+                element.dataset.suxiAssetLoaded = '1';
+                element.removeEventListener('error', onError);
+                finish();
+            };
+            const onError = () => {
+                const error = new Error(`${assetName} 加载失败`);
+                error.cause = 1;
+                if (settled) {
+                    element.dataset.suxiAssetFailed = '1';
+                    element.remove();
+                    return;
+                }
+                finish(error);
+            };
+            failLoad = onError;
+            element.addEventListener('load', onLoad, { once: true });
+            element.addEventListener('error', onError, { once: true });
+            timeoutId = window.setTimeout(() => {
+                const error = new Error(`${assetName} 加载超时`);
+                error.cause = 2;
+                finish(error);
+            }, timeoutMs);
+        });
+        authenticatedAssetLoadPromises.set(cacheKey, loadPromise);
+        if (shouldAppend) {
+            try {
+                appendElement(element);
+            } catch (error) {
+                failLoad();
+            }
+        }
+        return loadPromise;
+    };
+
+    const loadScript = (src, {
+        ordered = true,
+        timeoutMs = AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS,
+        canonicalSrc = src,
+    } = {}) => {
+        const assetName = assetBaseName(canonicalSrc);
         const resolvedSrc = resolveAssetUrl(src);
+        const canonicalResolvedSrc = resolveAssetUrl(canonicalSrc);
         const existing = [...document.scripts].find(
             (script) => resolveAssetUrl(script.getAttribute('src')) === resolvedSrc
+                || script.dataset.suxiCanonicalSrc === canonicalResolvedSrc
         );
-        if (existing) {
-            if (existing.dataset.suxiAssetLoaded === '1') {
-                resolve();
-                return;
-            }
-            existing.addEventListener('load', resolve, { once: true });
-            existing.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
-            return;
-        }
+        return loadAssetElement(
+            `script:${canonicalResolvedSrc}`,
+            assetName,
+            existing,
+            (script) => script.dataset.suxiAssetLoaded === '1',
+            () => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = !ordered;
+                script.dataset.suxiAuthenticatedAsset = assetName;
+                script.dataset.suxiCanonicalSrc = canonicalResolvedSrc;
+                return script;
+            },
+            (script) => document.body.appendChild(script),
+            timeoutMs,
+        );
+    };
 
-        const script = document.createElement('script');
-        script.src = src;
-        script.async = false;
-        script.dataset.suxiAuthenticatedAsset = assetName;
-        script.addEventListener('load', () => {
-            script.dataset.suxiAssetLoaded = '1';
-            resolve();
-        }, { once: true });
-        script.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
-        document.body.appendChild(script);
-    });
-
-    const loadStylesheet = (src) => new Promise((resolve, reject) => {
-        const assetName = assetBaseName(src);
+    const loadStylesheet = (src, {
+        timeoutMs = AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS,
+        canonicalSrc = src,
+    } = {}) => {
+        const assetName = assetBaseName(canonicalSrc);
+        const resolvedSrc = resolveAssetUrl(src);
+        const canonicalResolvedSrc = resolveAssetUrl(canonicalSrc);
         const existing = [...document.querySelectorAll('link[rel="stylesheet"]')]
-            .find((link) => assetBaseName(link.getAttribute('href')) === assetName);
-        if (existing) {
-            if (existing.dataset.suxiAssetLoaded === '1' || existing.sheet) {
-                resolve();
-                return;
-            }
-            existing.addEventListener('load', resolve, { once: true });
-            existing.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
-            return;
-        }
+            .find((link) => resolveAssetUrl(link.getAttribute('href')) === resolvedSrc
+                || link.dataset.suxiCanonicalSrc === canonicalResolvedSrc);
+        return loadAssetElement(
+            `style:${canonicalResolvedSrc}`,
+            assetName,
+            existing,
+            (link) => link.dataset.suxiAssetLoaded === '1' || Boolean(link.sheet),
+            () => {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = src;
+                link.dataset.suxiAuthenticatedAsset = assetName;
+                link.dataset.suxiCanonicalSrc = canonicalResolvedSrc;
+                return link;
+            },
+            (link) => document.head.appendChild(link),
+            timeoutMs,
+        );
+    };
 
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = src;
-        link.dataset.suxiAuthenticatedAsset = assetName;
-        link.addEventListener('load', () => {
-            link.dataset.suxiAssetLoaded = '1';
-            resolve();
-        }, { once: true });
-        link.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
-        document.head.appendChild(link);
-    });
-
-    const loadAuthenticatedAsset = (asset) => (
-        asset.type === ASSET_TYPE_STYLE ? loadStylesheet(asset.src) : loadScript(asset.src)
+    const loadAuthenticatedAsset = (asset, options = {}) => (
+        asset.type === ASSET_TYPE_STYLE ? loadStylesheet(asset.src, options) : loadScript(asset.src, options)
     );
+
+    const createDeferredManifestTimeoutError = () => (
+        new Error('deferred-authenticated-manifest 完整页面资源清单加载超时（15,000 ms）')
+    );
+
+    const remainingDeferredManifestMs = (deadlineEpochMs) => Math.max(
+        0,
+        Math.ceil(deadlineEpochMs - Date.now()),
+    );
+
+    const loadDeferredAuthenticatedAssetWithRetry = async (asset, deadlineEpochMs = Number.POSITIVE_INFINITY) => {
+        let lastError = null;
+        for (let attempt = 0; attempt <= DEFERRED_AUTHENTICATED_ASSET_RETRY_LIMIT; attempt += 1) {
+            const remainingMs = remainingDeferredManifestMs(deadlineEpochMs);
+            if (remainingMs <= 0) throw createDeferredManifestTimeoutError();
+            const assetTimeoutMs = Math.min(DEFERRED_AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS, remainingMs);
+            try {
+                // The loop below is the execution-order barrier for scripts, so
+                // each inserted deferred script can use the browser's independent
+                // queue instead of becoming coupled to a stale ordered-script job.
+                return await loadAuthenticatedAsset({
+                    ...asset,
+                    src: retryAuthenticatedAssetSource(asset.src, attempt),
+                }, {
+                    ordered: false,
+                    canonicalSrc: asset.src,
+                    timeoutMs: assetTimeoutMs,
+                });
+            } catch (error) {
+                // When the manifest's remaining lifetime shortened this asset's
+                // timer, both timers represent the same terminal deadline. Keep
+                // the externally visible failure deterministic even if the event
+                // loop happens to dispatch the asset timer first.
+                if (error?.cause === 2 && assetTimeoutMs === remainingMs) {
+                    throw createDeferredManifestTimeoutError();
+                }
+                lastError = error;
+                if (error?.cause !== 1) throw error;
+            }
+        }
+        if (remainingDeferredManifestMs(deadlineEpochMs) <= 0) {
+            throw createDeferredManifestTimeoutError();
+        }
+        throw lastError;
+    };
 
     const waitForFirstAuthenticatedPaint = () => new Promise((resolve) => {
         let settled = false;
@@ -235,6 +380,17 @@
         }
         window.requestAnimationFrame(() => window.requestAnimationFrame(finish));
     });
+
+    const scheduleAuthenticatedEntryPreload = () => {
+        if (authenticatedAppPromise) return Promise.resolve(false);
+        if (authenticatedEntryPreloadPromise) return authenticatedEntryPreloadPromise;
+        const scheduled = waitForFirstAuthenticatedPaint().then(preloadAuthenticatedEntry);
+        authenticatedEntryPreloadPromise = scheduled;
+        scheduled.finally(() => {
+            if (authenticatedEntryPreloadPromise === scheduled) authenticatedEntryPreloadPromise = null;
+        });
+        return scheduled;
+    };
 
     const waitForAuthenticatedInteractiveReady = () => new Promise((resolve, reject) => {
         const root = document.documentElement;
@@ -355,36 +511,80 @@
 
     const loadDeferredAuthenticatedAssets = (assets = []) => {
         if (deferredAuthenticatedAssetsPromise) return deferredAuthenticatedAssetsPromise;
-        deferredAuthenticatedAssetsPromise = (async () => {
+        const currentLoad = (async () => {
             if (!assets.length) return [];
-            const fullRenderAsset = assets.find(
-                (asset) => assetBaseName(asset.src) === 'app-render.min.js',
-            );
-            if (fullRenderAsset) preloadAuthenticatedAsset(fullRenderAsset, 'high');
-            await waitForFirstAuthenticatedPaint();
+            const manifestDeadlineEpochMs = Date.now() + DEFERRED_AUTHENTICATED_MANIFEST_TIMEOUT_MS;
+            let manifestDeadlineTimer = null;
             try {
-                await Promise.all(assets.map((asset) => loadAuthenticatedAsset(asset)));
+                const fullRenderAsset = assets.find(
+                    (asset) => assetBaseName(asset.src) === 'app-render.min.js',
+                );
+                if (fullRenderAsset) preloadAuthenticatedAsset(fullRenderAsset, 'low');
+                await waitForFirstAuthenticatedPaint();
+                const deadlineRemainingMs = remainingDeferredManifestMs(manifestDeadlineEpochMs);
+                if (deadlineRemainingMs <= 0) throw createDeferredManifestTimeoutError();
+                const styles = assets.filter((asset) => asset.type === ASSET_TYPE_STYLE);
+                const scripts = assets.filter((asset) => asset.type === ASSET_TYPE_SCRIPT);
+                const manifestDeadline = new Promise((_, reject) => {
+                    manifestDeadlineTimer = window.setTimeout(
+                        () => reject(createDeferredManifestTimeoutError()),
+                        deadlineRemainingMs,
+                    );
+                });
+                const manifestLoad = Promise.all([
+                    Promise.all(styles.map((asset) => (
+                        loadDeferredAuthenticatedAssetWithRetry(asset, manifestDeadlineEpochMs)
+                    ))),
+                    (async () => {
+                        // Deferred bundles share globals in manifest order. Loading
+                        // them one at a time avoids connection-pool and execution-
+                        // queue stalls while styles continue downloading in parallel.
+                        for (const asset of scripts) {
+                            await loadDeferredAuthenticatedAssetWithRetry(asset, manifestDeadlineEpochMs);
+                        }
+                    })(),
+                ]);
+                await Promise.race([manifestDeadline, manifestLoad]);
                 document.documentElement.dataset.suxiFullRenderReady = '1';
                 window.dispatchEvent(new CustomEvent('suxi:full-render-ready', {
                     detail: { assets: assets.map((asset) => assetBaseName(asset.src)) },
                 }));
                 return assets;
             } catch (error) {
-                const failedAsset = String(error?.message || '').split(' ')[0] || 'deferred authenticated asset';
+                const failedAsset = String(error?.message || '').split(' ')[0] || 'deferred-authenticated-asset';
                 window.dispatchEvent(new CustomEvent('suxi:full-render-error', {
                     detail: { asset: failedAsset, message: error?.message || String(error) },
                 }));
                 throw error;
+            } finally {
+                if (manifestDeadlineTimer !== null) window.clearTimeout(manifestDeadlineTimer);
             }
         })();
-        deferredAuthenticatedAssetsPromise.catch(() => {});
-        return deferredAuthenticatedAssetsPromise;
+        deferredAuthenticatedAssetsPromise = currentLoad;
+        currentLoad.catch(() => {
+            if (deferredAuthenticatedAssetsPromise === currentLoad) {
+                deferredAuthenticatedAssetsPromise = null;
+            }
+        });
+        return currentLoad;
     };
 
     const loadDeferredAuthenticatedAssetManifest = () => {
         const deferredAssets = authenticatedAssets()
             .filter((asset) => asset.phase === ASSET_PHASE_AFTER_FIRST_PAINT);
         return loadDeferredAuthenticatedAssets(deferredAssets);
+    };
+
+    const loadDeferredAuthenticatedManifestAsset = (assetName) => {
+        const normalizedName = assetBaseName(assetName);
+        const asset = authenticatedAssets().find((entry) => (
+            entry.phase === ASSET_PHASE_AFTER_FIRST_PAINT
+                && assetBaseName(entry.src) === normalizedName
+        ));
+        if (!asset) {
+            return Promise.reject(new Error(`延迟资源不在认证清单中：${normalizedName || 'unknown'}`));
+        }
+        return waitForFirstAuthenticatedPaint().then(() => loadDeferredAuthenticatedAssetWithRetry(asset));
     };
 
     const loadAuthenticatedApp = () => {
@@ -760,7 +960,7 @@
         const handleInput = () => {
             setError('');
             updateSubmit();
-            preloadAuthenticatedEntry();
+            void scheduleAuthenticatedEntryPreload();
         };
         let autofillSyncTimers = [];
         const scheduleLoginAutofillSync = () => {
@@ -783,7 +983,7 @@
         });
         form.addEventListener('focusin', scheduleLoginAutofillSync);
         form.addEventListener('focusin', warmLoginConnection);
-        form.addEventListener('focusin', preloadAuthenticatedEntry);
+        form.addEventListener('focusin', scheduleAuthenticatedEntryPreload);
         window.addEventListener('pageshow', scheduleLoginAutofillSync);
         window.addEventListener('pageshow', warmLoginConnection);
         window.addEventListener('focus', scheduleLoginAutofillSync);
@@ -873,7 +1073,7 @@
                 password.focus();
                 return;
             }
-            preloadAuthenticatedEntry();
+            void scheduleAuthenticatedEntryPreload();
             loading = true;
             updateSubmit();
             setError('');
@@ -952,6 +1152,7 @@
 
     window.SUXI_LOAD_AUTHENTICATED_APP = loadAuthenticatedApp;
     window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS = loadDeferredAuthenticatedAssetManifest;
+    window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET = loadDeferredAuthenticatedManifestAsset;
     window.SUXI_MARK_LOGIN_AUTH_SUCCESS = markLoginAuthSuccess;
     window.SUXI_MARK_LOGIN_INTERACTIVE = markLoginInteractive;
     window.SUXI_MARK_LOGIN_INTERACTIVE_AFTER_PAINT = markLoginInteractiveAfterPaint;

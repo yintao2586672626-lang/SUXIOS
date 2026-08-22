@@ -395,7 +395,9 @@ final class OperatingGoalInterventionService
             ->toArray();
         $evidenceRows = array_map(fn(array $row): array => $this->executionEvidenceFromRow($row), $evidenceRows);
 
-        $judgmentInput = $input;
+        $judgmentInput = $systemMonitorAssessment
+            ? $input
+            : $this->downgradeHumanAssessmentEvidence($input);
         if (!array_key_exists('followup_snapshot', $judgmentInput)
             && is_array($judgmentInput['followup'] ?? null)
         ) {
@@ -1040,6 +1042,39 @@ final class OperatingGoalInterventionService
             ),
             'causality_claimed' => false,
         ];
+    }
+
+    /**
+     * A human form may cite evidence but cannot attest its own system quality
+     * or readback state. Downgrade before the deterministic judge runs so a
+     * client-supplied `verified` label can never produce a supported verdict.
+     * Scheduler assessments keep their server-built evidence envelope.
+     *
+     * @param array<string,mixed> $input
+     * @return array<string,mixed>
+     */
+    private function downgradeHumanAssessmentEvidence(array $input): array
+    {
+        $input['assessment_origin'] = 'human';
+        foreach (['followup_snapshot', 'followup'] as $field) {
+            if (!is_array($input[$field] ?? null)) {
+                continue;
+            }
+            $input[$field]['quality_status'] = 'unverified';
+            $input[$field]['readback_status'] = 'unverified';
+            $input[$field]['evidence_origin'] = 'user_provided';
+        }
+        if (is_array($input['guard_observations'] ?? null)) {
+            foreach ($input['guard_observations'] as $index => $observation) {
+                if (!is_array($observation)) {
+                    continue;
+                }
+                $input['guard_observations'][$index]['quality_status'] = 'unverified';
+                $input['guard_observations'][$index]['readback_status'] = 'unverified';
+                $input['guard_observations'][$index]['evidence_origin'] = 'user_provided';
+            }
+        }
+        return $input;
     }
 
     /** @return array<string,mixed> */

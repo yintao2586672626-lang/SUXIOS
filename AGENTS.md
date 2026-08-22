@@ -397,6 +397,17 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 | 全局弹窗边界 | `teleport`、字段配置弹窗、数据配置弹窗、toast 仍必须由 `#app` 管理；修改后运行 `npm run verify:public-entry`，禁止让全局弹窗成为 `body` 顶层静态 DOM |
 | 不要构建 | **不要在 public/ 目录下运行 vite build** |
 
+#### 7.2.1 经营页面合同（适当严格执行）
+
+新增或修改 OTA、收益、运营、投决等数据密集页面，以及其接口字段、指标口径、下载/导出或主要状态时，必须先读取并按改动范围执行 [`rules/business-page-contract.md`](rules/business-page-contract.md)。
+
+1. **硬门禁**：被改链路必须固定酒店/租户、平台/来源、业务日期、指标口径与数据质量状态；接口、页面、下载/导出必须共享或可证明映射到同一业务合同；缺失、过期、部分成功、未验证和阻塞不得伪装成 `0`、空数组或成功。
+2. **状态合同**：请求结果与数据结果分开；页面至少能区分 `loading`、`ready`、`empty`、`partial`、`stale`、`unverified`、`blocked`、`error` 中与当前功能实际相关的状态，不要求无关页面机械实现全部状态。
+3. **兼容策略**：新接口和本次被修改的接口使用项目标准 `code/message/data` 响应并携带必要证据元数据；历史 `code=0/msg` 等格式按需适配，不为统一格式一次性重写无关控制器。
+4. **条件门禁**：改动视觉或交互时复用语义 Token，并运行目标页面的实际页面检查或视觉冒烟；只有稳定且关键的页面/状态才增加截图基线。Mock 仅用于 UI 状态和合同测试，必须明确为 synthetic/test-only，不得作为 OTA、收益或生产证据。
+5. **不设全局阻塞**：纯文案、孤立静态样式、无数据合同影响的小改不强制增加 API schema、Mock 服务或六视口截图矩阵；验证深度按真实风险决定。
+6. **现有页面登记**：产品链现有页面按 [`rules/business-page-contract-registry.json`](rules/business-page-contract-registry.json) 约束；新增模板 domain 或核心片段、改变页面可用状态、移除已登记源码标记/回归证据时必须同步登记表并运行 `npm.cmd run verify:business-page-contract`。该命令必须实际执行登记的回归文件；冻结隐藏页面不得仅凭模板存在宣称可用。
+
 ### 7.3 数据库规则
 
 | 规则 | 说明 |

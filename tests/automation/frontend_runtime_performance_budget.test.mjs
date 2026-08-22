@@ -7,6 +7,10 @@ import {
   DEFAULT_FRONTEND_RUNTIME_BUDGETS,
   evaluateFrontendRuntimeBudget,
 } from '../../scripts/lib/frontend_runtime_performance_budget.mjs';
+import {
+  FRONTEND_PERCENTILE_METHOD,
+  summarizeFrontendPerformanceRuns,
+} from '../../scripts/lib/frontend_performance_metrics.mjs';
 import { evaluateFrontendPerformanceEvidence } from '../../scripts/lib/frontend_performance_evidence_identity.mjs';
 import { extractGithubActionsJob } from './helpers/github_actions_workflow.mjs';
 
@@ -24,17 +28,19 @@ function passingReport(networkProfile = 'none') {
     authenticated: true,
     verification_status: 'verified',
     attempt_count: 1,
-    metrics: { total_requests: 29 },
+    metrics: { total_requests: 29, longest_task_ms: 150 },
     api: { sample_count: 4, repeated_routes: [] },
   }));
   return {
     schema_version: 2,
+    percentile_method: FRONTEND_PERCENTILE_METHOD,
     authenticated_requested: true,
     authenticated: true,
     artifact_identity_stable: true,
     verification_status: 'verified',
     network_profile: networkProfile,
     aggregate: {
+      percentile_method: FRONTEND_PERCENTILE_METHOD,
       run_count: 5,
       verified_run_count: 5,
       unverified_run_count: 0,
@@ -45,7 +51,7 @@ function passingReport(networkProfile = 'none') {
         auth_to_interactive_ms: metric(300),
         longest_task_ms: metric(150),
       },
-      api: { p95_ms: 400 },
+      api: { percentile_method: FRONTEND_PERCENTILE_METHOD, p95_ms: 400 },
     },
     runs,
   };
@@ -60,6 +66,24 @@ test('verified five-run authenticated report passes the default local runtime bu
   assert.equal(assessment.observed.max_total_requests_per_run, 29);
   assert.equal(assessment.observed.max_api_samples_per_run, 4);
   assert.equal(assessment.observed.max_repeated_api_requests_per_run, 0);
+});
+
+test('runtime budget fails closed when any percentile method marker is missing or drifts', () => {
+  const mutations = [
+    (report) => { report.percentile_method = ''; },
+    (report) => { report.aggregate.percentile_method = 'nearest_rank'; },
+    (report) => { delete report.aggregate.api.percentile_method; },
+  ];
+
+  for (const mutate of mutations) {
+    const report = passingReport();
+    mutate(report);
+    const failure = evaluateFrontendRuntimeBudget(report).failures.find(
+      (entry) => entry.metric === 'percentile_method',
+    );
+    assert.equal(failure?.reason, 'unsupported_percentile_method');
+    assert.equal(failure?.limit, FRONTEND_PERCENTILE_METHOD);
+  }
 });
 
 test('CI isolates static contracts from runtime performance and preserves authenticated evidence', () => {
@@ -112,20 +136,51 @@ test('CI isolates static contracts from runtime performance and preserves authen
     'node scripts/measure_frontend_performance_ci.mjs',
   );
   assert.match(ciMeasurement, /const isolationRunCount = 5/);
+  assert.match(ciMeasurement, /const isolationRunTimeoutMs = 120_000/);
+  assert.match(ciMeasurement, /const isolationRunShutdownGraceMs = 45_000/);
+  assert.match(ciMeasurement, /runIsolatedPerformanceChild/);
+  assert.match(ciMeasurement, /requestIsolatedPerformanceShutdown/);
+  assert.match(ciMeasurement, /forceStopChildTree\(child\)/);
+  assert.match(ciMeasurement, /detached: process\.platform !== 'win32'/);
+  assert.match(ciMeasurement, /stdio: \['ignore', 'pipe', 'pipe', 'ipc'\]/);
+  assert.match(ciMeasurement, /suxi-isolated-shutdown-request/);
+  assert.match(ciMeasurement, /suxi-isolated-shutdown-complete/);
+  assert.match(ciMeasurement, /suxi-isolated-shutdown-release/);
+  assert.match(ciMeasurement, /message\.cleanup_complete !== true/);
+  assert.match(ciMeasurement, /cleanupAcknowledged = true/);
+  assert.match(ciMeasurement, /pendingCloseResult/);
+  assert.match(ciMeasurement, /process\.kill\(-child\.pid, signal\)/);
+  assert.match(ciMeasurement, /activeIsolationShutdown/);
+  assert.match(ciMeasurement, /process\.on\('SIGINT'/);
+  assert.match(ciMeasurement, /process\.on\('SIGTERM'/);
+  assert.match(ciMeasurement, /parentShutdownSignal === 'SIGINT' \? 130 : 143/);
+  assert.match(ciMeasurement, /code: 'ETIMEDOUT'/);
+  assert.doesNotMatch(ciMeasurement, /killSignal: 'SIGKILL'/);
+  assert.match(ciMeasurement, /isolation_run=\$\{isolationRun\} phase=start/);
   assert.match(ciMeasurement, /--performance-iterations=1/);
   assert.match(ciMeasurement, /--performance-enforce-budget=0/);
   assert.match(ciMeasurement, /fresh_server_seed_and_browser_per_run/);
   assert.match(ciMeasurement, /summarizeFrontendPerformanceRuns\(runs\)/);
   assert.match(ciMeasurement, /evaluateFrontendRuntimeBudget\(result\)/);
+  assert.doesNotMatch(
+    ciMeasurement,
+    /runtime_budget\.failures\.length[\s\S]*process\.exitCode\s*=\s*3/,
+    'measurement must preserve the report so the independent verifier is the budget gate',
+  );
   assert.match(ciMeasurement, /expectedArtifactDigest/);
   assert.match(measurement, /const maxMeasurementAttempts = 2/);
   assert.match(measurement, /browser = await chromium\.launch/);
+  assert.match(measurement, /capturePendingLcp/);
+  assert.match(measurement, /lcp_missing_before_input/);
   assert.match(measurement, /attempt_failures: attemptFailures/);
   assert.match(measurement, /retryableNavigationTimeout[\s\S]*startsWith\('page\.goto:'\)/);
   assert.match(measurement, /await measureRunWithRetry\(runIndex\)/);
   assert.match(measurement, /page\.on\('pageerror'/);
   assert.match(measurement, /text\.startsWith\('\[SUXIOS\]'\)/);
   assert.match(measurement, /startup_diagnostics: startupDiagnostics/);
+  assert.match(measurement, /long_tasks: snapshot\.longTasks\.slice\(0, 100\)/);
+  assert.match(measurement, /same_origin_asset_timings:/);
+  assert.match(measurement, /browser_launch_ms: browserLaunchMs/);
   assert.match(measurement, /\|\| startupDiagnostics\.length > 0\s*\? 'unverified'/);
   assert.match(measurement, /artifactIdentityStarted = captureFrontendPerformanceIdentity\(\)/);
   assert.match(measurement, /artifact_identity_stable: artifactIdentityStarted\.digest === artifactIdentityCompleted\.digest/);
@@ -267,6 +322,64 @@ test('longest task keeps the device target separate from the isolated CI ceiling
     evaluateFrontendRuntimeBudget(report).failures
       .some((failure) => failure.metric === 'longest_task_p95_ms'),
   );
+});
+
+function reportFromLongestTaskRuns(longestTasks) {
+  const report = passingReport();
+  report.runs = longestTasks.map((longestTask, index) => ({
+    run: index + 1,
+    authenticated: true,
+    verification_status: 'verified',
+    attempt_count: 1,
+    metrics: {
+      total_requests: 19,
+      fcp_ms: 300,
+      lcp_ms: 300,
+      login_click_to_interactive_ms: 700,
+      auth_to_interactive_ms: 320,
+      longest_task_ms: longestTask,
+    },
+    api: {
+      sample_count: 4,
+      repeated_routes: [],
+      samples: [
+        { route: '/api/auth/login', duration_ms: 200, transfer_bytes: 1, status: 200 },
+        { route: '/api/auth/info', duration_ms: 100, transfer_bytes: 1, status: 200 },
+        { route: '/api/dashboard/revenue-facts', duration_ms: 150, transfer_bytes: 1, status: 200 },
+        { route: '/api/compass', duration_ms: 180, transfer_bytes: 1, status: 200 },
+      ],
+    },
+  }));
+  report.aggregate = summarizeFrontendPerformanceRuns(report.runs);
+  report.percentile_method = report.aggregate.percentile_method;
+  return report;
+}
+
+test('linear P95 keeps an isolated cold-run max visible without hiding serious or repeated stalls', () => {
+  const isolatedColdRun = evaluateFrontendRuntimeBudget(
+    reportFromLongestTaskRuns([214, 217, 219, 226, 603]),
+  );
+  assert.deepEqual(isolatedColdRun.failures, []);
+  assert.equal(isolatedColdRun.observed.longest_task_p95_ms, 528);
+  assert.equal(isolatedColdRun.observed.longest_task_max_ms, 603);
+  assert(isolatedColdRun.warnings.some((warning) => (
+    warning.metric === 'longest_task_max_ms'
+      && warning.actual === 603
+      && warning.target === 550
+      && warning.reason === 'isolated_run_outlier_above_p95_ceiling'
+  )));
+
+  const severeColdRun = evaluateFrontendRuntimeBudget(
+    reportFromLongestTaskRuns([214, 217, 219, 226, 1_000]),
+  );
+  assert.equal(severeColdRun.observed.longest_task_p95_ms, 845);
+  assert(severeColdRun.failures.some((failure) => failure.metric === 'longest_task_p95_ms'));
+
+  const repeatedColdRuns = evaluateFrontendRuntimeBudget(
+    reportFromLongestTaskRuns([214, 217, 219, 603, 603]),
+  );
+  assert.equal(repeatedColdRuns.observed.longest_task_p95_ms, 603);
+  assert(repeatedColdRuns.failures.some((failure) => failure.metric === 'longest_task_p95_ms'));
 });
 
 test('a bounded measurement retry is retained as a warning instead of disappearing', () => {

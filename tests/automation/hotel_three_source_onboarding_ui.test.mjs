@@ -4,6 +4,8 @@ import test from 'node:test';
 
 const read = path => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 const appMain = read('public/app-main.js');
+const appMainComponents = read('public/components/system/app-main-components.js');
+const appMainComponentsLoader = read('public/components/system/app-main-components-loader.js');
 const dialog = read('resources/frontend/templates/fragments/40-dialog-hotel.html');
 const hotelController = read('app/controller/Hotel.php');
 
@@ -14,7 +16,7 @@ const sliceBetween = (source, start, end) => {
   assert.notEqual(endIndex, -1, `missing end marker: ${end}`);
   return source.slice(startIndex, endIndex);
 };
-const panel = sliceBetween(appMain, 'const hotelThreeSourceOnboardingPanel = markRaw', 'const hotelSaving = ref');
+const panel = sliceBetween(appMainComponents, 'const HotelThreeSourceOnboardingPanel = {', 'const OperatingLoopAuthority = {');
 
 test('new hotel stays in a four-step, truthful three-source onboarding flow', () => {
   for (const testId of [
@@ -28,6 +30,8 @@ test('new hotel stays in a four-step, truthful three-source onboarding flow', ()
     assert.match(panel, new RegExp(`'data-testid': '${testId}'`));
   }
   assert.match(dialog, /:is="hotelThreeSourceOnboardingPanel"/);
+  assert.match(appMain, /const hotelThreeSourceOnboardingPanel = markRaw\(HotelThreeSourceOnboardingPanel\)/);
+  assert.match(appMainComponentsLoader, /'HotelThreeSourceOnboardingPanel'/);
   assert.match(panel, /创建、授权或保存身份不会自动采集，也不会向企业微信发送消息。/);
   assert.match(panel, /这一步没有启动采集，也没有发送任何企业微信消息。/);
   assert.match(panel, /进入企业微信配置/);
@@ -35,8 +39,8 @@ test('new hotel stays in a four-step, truthful three-source onboarding flow', ()
 
 test('onboarding accepts public store identity only and never asks for credentials', () => {
   assert.match(panel, /'data-testid': 'hotel-pms-public-identity'/);
-  assert.match(panel, /hotelForm\.value\.pms_provider_hotel_id/);
-  assert.match(panel, /hotelForm\.value\.pms_provider_hotel_name/);
+  assert.match(panel, /ctx\.hotelForm\.pms_provider_hotel_id/);
+  assert.match(panel, /ctx\.hotelForm\.pms_provider_hotel_name/);
   assert.doesNotMatch(panel, /type:\s*'password'/i);
   assert.doesNotMatch(panel, /(?:password|cookie|verification_code|sms_code)\s*:/i);
   assert.match(panel, /账号、密码和验证码只在平台自己的云端浏览器页面输入/);
@@ -122,10 +126,10 @@ test('hourly collection remains an explicit dual-OTA plus PMS action with strict
 });
 
 test('collection plan can be enabled before onboarding is allowed to finish', () => {
-  const verification = sliceBetween(appMain, 'const renderVerificationStep = () =>', 'const renderCompleteStep = () =>');
+  const verification = sliceBetween(panel, 'const renderVerificationStep = () =>', 'const renderCompleteStep = () =>');
   assert.match(verification, /'data-testid': 'hotel-onboarding-enable-collection'/);
-  assert.match(verification, /onClick: enableHotelOnboardingHourlyCollection/);
-  assert.match(verification, /disabled: hotelOnboardingLoading\.value \|\| !hotelOnboardingReady\.value/);
+  assert.match(verification, /onClick: ctx\.enableHotelOnboardingHourlyCollection/);
+  assert.match(verification, /disabled: ctx\.hotelOnboardingLoading \|\| !ctx\.hotelOnboardingReady/);
   assert.match(appMain, /await loadHotelThreeSourceOnboarding\(\{ hotelId: exactHotelId, silent: true \}\)/);
 });
 

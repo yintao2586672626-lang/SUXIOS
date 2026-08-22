@@ -544,10 +544,10 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
 
       const executed = await api.post(`/api/operation/execution-tasks/${task.id}/execute`, {
         status: 'executed',
-        evidence_type: 'manual_finance',
+        evidence_type: 'manual_execution',
         evidence: {
-          before: { revenue: 120000, scope: 'ota_channel' },
-          after: { revenue: 132000, cost: 3000, scope: 'ota_channel' },
+          before: { status: 'approved_pending_manual_execution', scope: 'isolated_workflow' },
+          after: { status: 'executed_by_human', scope: 'isolated_workflow' },
           platform_response: {
             mode: 'manual',
             scope: 'ota_channel_manual_execution',

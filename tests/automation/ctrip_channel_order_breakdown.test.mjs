@@ -68,7 +68,7 @@ test('Ctrip ecosystem orders derive an inclusive-cancellation total and distribu
   assert.equal('tongchengDistributionOrderEstimate' in attached, false);
 });
 
-test('Ctrip channel order breakdown preserves missing state and requires a positive residual for positive totals', () => {
+test('Ctrip channel order breakdown preserves missing state and adjusts only a negative hotel row', () => {
   const missing = api.buildCtripChannelOrderBreakdown({
     bookOrderNum: 74,
     totalDetailNum: 797,
@@ -109,12 +109,11 @@ test('Ctrip channel order breakdown preserves missing state and requires a posit
     qunarDetailVisitors: 100,
     qunarDetailCR: 42,
   });
-  assert.equal(negativeResidual.totalOrdersIncludingCancelled, 50);
-  assert.equal(negativeResidual.totalOrderConversionRatio, 0.6);
-  assert.equal(negativeResidual.ctripUndistributedOrders, null);
-  assert.equal(negativeResidual.ctripEstimateExcessOrders, 22);
-  assert.equal(negativeResidual.status, 'ctrip_ecosystem_total_conflict');
-  assert.match(negativeResidual.displayLabel, /60%/);
+  assert.equal(negativeResidual.totalOrdersIncludingCancelled, 43);
+  assert.equal(negativeResidual.totalOrderConversionRatio, 0.7);
+  assert.equal(negativeResidual.ctripUndistributedOrders, -29);
+  assert.equal(negativeResidual.ctripEstimateExcessOrders, 29);
+  assert.equal(negativeResidual.displayLabel, '同程及分销推算 -29 单');
 
   const fallbackTo0725 = api.buildCtripChannelOrderBreakdown({
     bookOrderNum: 50,
@@ -137,90 +136,6 @@ test('Ctrip channel order breakdown preserves missing state and requires a posit
   assert.equal(fallbackTo07.totalOrdersIncludingCancelled, 71);
   assert.equal(fallbackTo07.totalOrderConversionRatio, 0.7);
   assert.equal(fallbackTo07.ctripUndistributedOrders, 1);
-
-  const fallbackTo0675 = api.buildCtripChannelOrderBreakdown({
-    bookOrderNum: 50,
-    totalDetailNum: 100,
-    convertionRate: 30,
-    qunarDetailVisitors: 100,
-    qunarDetailCR: 42,
-  });
-  assert.equal(fallbackTo0675.totalOrdersIncludingCancelled, 74);
-  assert.equal(fallbackTo0675.totalOrderConversionRatio, 0.675);
-  assert.equal(fallbackTo0675.ctripUndistributedOrders, 2);
-  assert.equal(fallbackTo0675.status, 'derived');
-
-  const fallbackTo065 = api.buildCtripChannelOrderBreakdown({
-    bookOrderNum: 50,
-    totalDetailNum: 100,
-    convertionRate: 30,
-    qunarDetailVisitors: 100,
-    qunarDetailCR: 45,
-  });
-  assert.equal(fallbackTo065.totalOrdersIncludingCancelled, 77);
-  assert.equal(fallbackTo065.totalOrderConversionRatio, 0.65);
-  assert.equal(fallbackTo065.ctripUndistributedOrders, 2);
-  assert.equal(fallbackTo065.status, 'derived');
-
-  const fallbackTo0625 = api.buildCtripChannelOrderBreakdown({
-    bookOrderNum: 50,
-    totalDetailNum: 100,
-    convertionRate: 30,
-    qunarDetailVisitors: 100,
-    qunarDetailCR: 48,
-  });
-  assert.equal(fallbackTo0625.totalOrdersIncludingCancelled, 80);
-  assert.equal(fallbackTo0625.totalOrderConversionRatio, 0.625);
-  assert.equal(fallbackTo0625.ctripUndistributedOrders, 2);
-  assert.equal(fallbackTo0625.status, 'derived');
-
-  const fallbackTo06 = api.buildCtripChannelOrderBreakdown({
-    bookOrderNum: 50,
-    totalDetailNum: 100,
-    convertionRate: 30,
-    qunarDetailVisitors: 100,
-    qunarDetailCR: 51,
-  });
-  assert.equal(fallbackTo06.totalOrdersIncludingCancelled, 83);
-  assert.equal(fallbackTo06.totalOrderConversionRatio, 0.6);
-  assert.equal(fallbackTo06.ctripUndistributedOrders, 2);
-  assert.equal(fallbackTo06.status, 'derived');
-
-  const screenshotFirstRow = api.buildCtripChannelOrderBreakdown({
-    bookOrderNum: 77,
-    totalDetailNum: 1082,
-    convertionRate: 2.4,
-    qunarDetailVisitors: 859,
-    qunarDetailCR: 8.96,
-  });
-  assert.deepEqual(
-    [
-      screenshotFirstRow.totalOrderConversionRatio,
-      screenshotFirstRow.totalOrdersIncludingCancelled,
-      screenshotFirstRow.ctripOrders,
-      screenshotFirstRow.qunarOrders,
-      screenshotFirstRow.ctripUndistributedOrders,
-    ],
-    [0.725, 106, 26, 77, 3],
-  );
-
-  const screenshotSecondRow = api.buildCtripChannelOrderBreakdown({
-    bookOrderNum: 40,
-    totalDetailNum: 986,
-    convertionRate: 1.93,
-    qunarDetailVisitors: 699,
-    qunarDetailCR: 4.72,
-  });
-  assert.deepEqual(
-    [
-      screenshotSecondRow.totalOrderConversionRatio,
-      screenshotSecondRow.totalOrdersIncludingCancelled,
-      screenshotSecondRow.ctripOrders,
-      screenshotSecondRow.qunarOrders,
-      screenshotSecondRow.ctripUndistributedOrders,
-    ],
-    [0.725, 55, 20, 33, 2],
-  );
 
   const unaffectedNextHotel = api.buildCtripChannelOrderBreakdown({
     bookOrderNum: 64,
@@ -402,9 +317,10 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.equal((ctripTemplate.match(/data-testid="ctrip-ranking-fetch-button"/g) || []).length, 1);
   assert.equal((ctripTemplate.match(/data-testid="ctrip-ranking-fetch-status"/g) || []).length, 1);
   assert.match(ctripTemplate, /data-testid="ctrip-ranking-fetch-status"[\s\S]*获取成功[\s\S]*已保存 \{\{ ctripSavedCount \}\} 条数据到数据库/);
-  assert.equal((ctripTemplate.match(/data-testid="ctrip-business-download-button"/g) || []).length, 1);
+  assert.equal((ctripTemplate.match(/:data-testid="action\.testId"/g) || []).length, 1);
+  assert.match(appMain, /testId: 'ctrip-business-download-button'/);
   assert.equal((ctripTemplate.match(/data-testid="ctrip-business-table-toolbar"/g) || []).length, 1);
-  assert.match(ctripTemplate, /data-testid="ctrip-business-table-toolbar"[\s\S]*data-testid="ctrip-business-table-tabs"[\s\S]*榜单与排名[\s\S]*data-testid="ctrip-business-download-button"/);
+  assert.match(ctripTemplate, /data-testid="ctrip-business-table-toolbar"[\s\S]*data-testid="ctrip-business-table-tabs"[\s\S]*榜单与排名[\s\S]*:data-testid="action\.testId"/);
   assert.doesNotMatch(ctripTemplate, /目标日期数据已保存/);
   assert.doesNotMatch(ctripTemplate, />当前酒店配置</);
   assert.match(salesTable, /v-for="column in ctripSalesOrderColumns"/);
@@ -456,9 +372,23 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   });
   assert.match(metricDefinitions, /field: 'totalOrderIncludingCancelledEstimate'/);
   assert.match(metricDefinitions, /tableLabel: '含取消总单'/);
-  assert.match(metricDefinitions, /总平台订单 ÷ 0\.75[\s\S]*0\.725[\s\S]*0\.7[\s\S]*0\.675[\s\S]*0\.65[\s\S]*0\.625[\s\S]*0\.6/);
+  assert.match(metricDefinitions, /总平台订单 ÷ 0\.75[\s\S]*0\.725[\s\S]*0\.7/);
+  assert.doesNotMatch(metricDefinitions, /67\.5%|有效率32\.5%/);
   assert.doesNotMatch(metricDefinitions, /field: 'fullChannelRoomNightsEstimate'/);
   assert.doesNotMatch(metricDefinitions, /平均房价指数\(ARI\)|综合竞争力指数\(SCI\)/);
+  const orderSummaryDefinitions = appMain.slice(
+    appMain.indexOf('const ctripOrderSummaryMetricDefinitions'),
+    appMain.indexOf('const ctripOrderSummaryCards'),
+  );
+  ['携程APP订单', '去哪儿订单', '同程及分销渠道', '总平台订单', '含取消总单'].forEach((label) => {
+    assert.match(orderSummaryDefinitions, new RegExp(`label: '${label}'`));
+  });
+  const summaryDisplayDefinition = appMain.slice(
+    appMain.indexOf('const ctripSummaryDisplayCards'),
+    appMain.indexOf('const ctripSummaryHasCustomOrder'),
+  );
+  assert.match(summaryDisplayDefinition, /\.\.\.ctripBusinessSummaryCards\.value/);
+  assert.match(summaryDisplayDefinition, /\.\.\.ctripOrderSummaryCards\.value/);
   const trafficColumnStart = appMain.indexOf('const ctripTrafficChannelColumns', salesColumnEnd);
   const trafficColumnEnd = appMain.indexOf('const ctripTrafficChannelText', trafficColumnStart);
   const trafficColumnDefinitions = appMain.slice(trafficColumnStart, trafficColumnEnd);
@@ -478,34 +408,50 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   const trafficDownload = appMain.slice(trafficDownloadStart, rankDownloadStart);
   const rankDownload = appMain.slice(rankDownloadStart, salesDownloadStart);
   const salesDownload = appMain.slice(salesDownloadStart, downloadEnd);
+  const canvasDownload = appMain.slice(downloadEnd, appMain.indexOf('const canvasToPngBlob', downloadEnd));
   assert.match(trafficDownload, /label: '携程点评分'/);
   assert.match(trafficDownload, /label: '去哪儿点评分'/);
+  assert.match(trafficDownload, /ctripEarlyMorningTrafficText\(row, 'totalDetailNum'\)/);
+  assert.match(trafficDownload, /ctripEarlyMorningTrafficText\(row, 'convertionRate', true\)/);
+  assert.match(trafficDownload, /ctripTrafficChannelText\(row, ctripTrafficChannelColumns\[0\]\)/);
+  assert.match(trafficDownload, /ctripTrafficChannelText\(row, ctripTrafficChannelColumns\[1\]\)/);
+  assert.match(trafficDownload, /formatOptionalNumber\(row\.commentScore\)/);
+  assert.match(trafficDownload, /formatOptionalNumber\(row\.qunarCommentScore\)/);
   assert.doesNotMatch(trafficDownload, /label: '(?:携程订单|去哪儿订单|同程)'/);
+  assert.doesNotMatch(trafficDownload, /访客\/转化来源/);
   assert.match(rankDownload, /label: '平均房价指数\(ARI\)'/);
   assert.match(rankDownload, /label: '综合竞争力指数\(SCI\)'/);
-  assert.match(salesDownload, /label: '携程APP订单\(含取消\)'/);
-  assert.match(salesDownload, /label: '去哪儿订单\(含取消\)'/);
+  assert.match(rankDownload, /'✓可上榜'/);
+  assert.match(salesDownload, /label: ctripSalesOrderColumns\[0\]\.tableLabel/);
+  assert.match(salesDownload, /label: ctripSalesOrderColumns\[1\]\.tableLabel/);
+  assert.match(salesDownload, /label: ctripSalesOrderColumns\[2\]\.tableLabel/);
   assert.match(salesDownload, /label: '酒店ID'/);
-  assert.match(salesDownload, /label: '离店销售额（元）'/);
+  assert.match(salesDownload, /label: '离店销售额'/);
   assert.match(salesDownload, /label: '离店间夜'/);
-  assert.match(salesDownload, /label: '平均卖价（元）'/);
+  assert.match(salesDownload, /label: '平均卖价'/);
   assert.match(salesDownload, /label: '总平台订单'/);
-  assert.match(salesDownload, /label: '其他渠道订单（含取消）'/);
-  assert.match(salesDownload, /label: '总订单（含取消）'/);
-  assert.match(salesDownload, /label: '访客\/转化来源'/);
+  assert.match(salesDownload, /label: '含取消总单'/);
+  assert.match(salesDownload, /channelOrderText\(row, ctripSalesOrderColumns\[0\]\)/);
+  assert.match(salesDownload, /channelOrderText\(row, ctripSalesOrderColumns\[1\]\)/);
+  assert.match(salesDownload, /channelOrderText\(row, ctripSalesOrderColumns\[2\]\)/);
+  assert.doesNotMatch(salesDownload, /访客\/转化来源/);
   previous = -1;
-  ['酒店ID', '离店销售额（元）', '离店间夜', '平均卖价（元）', '总平台订单', '总订单（含取消）', '携程APP订单(含取消)', '去哪儿订单(含取消)', '其他渠道订单（含取消）', '访客/转化来源'].forEach((label) => {
+  ['酒店ID', '离店销售额', '离店间夜', '平均卖价', '总平台订单', '含取消总单', 'ctripSalesOrderColumns[0].tableLabel', 'ctripSalesOrderColumns[1].tableLabel', 'ctripSalesOrderColumns[2].tableLabel'].forEach((label) => {
     const position = salesDownload.indexOf(label);
     assert.ok(position > previous, `${label} should follow the preceding exported sales column`);
     previous = position;
   });
   assert.equal((salesDownload.match(/value: row => oneDecimalText\(row\.(?:amount|adr)\)/g) || []).length, 2);
+  assert.match(salesDownload, /formatOptionalNumber\(row\.quantity\)/);
+  assert.match(salesDownload, /formatOptionalNumber\(row\.bookOrderNum\)/);
   assert.doesNotMatch(salesDownload, /Math\.round\(Number\(row\.(?:amount|adr)\)\)|`¥/);
   assert.doesNotMatch(salesDownload, /label: '(?:平均房价|携程间夜|携程离店间夜量|携程系预订订单数|同程订单数|总间夜|全渠道间夜推算)'/);
   assert.doesNotMatch(salesDownload, /label: '(?:携程点评分|去哪儿点评分)'/);
+  assert.match(canvasDownload, /cards: ctripSummaryDisplayCards\.value/);
+  assert.match(canvasDownload, /sourceNotice: ctripEarlyMorningSourceNotice\.value/);
+  assert.doesNotMatch(canvasDownload, /cards: ctripBusinessSummaryCards\.value/);
 
   assert.match(appMain, /channelOrderBreakdownMeta/);
-  assert.match(appMain, /Number\.isFinite\(excessOrders\) && excessOrders > 0/);
   assert.match(appMain, /formatOptionalNumber\(-Math\.abs\(excessOrders\)\)/);
   assert.match(appMain, /const ctripTrafficChannelSecondaryText[\s\S]*?\? '口径冲突'/);
   const secondaryTextDefinition = appMain.slice(

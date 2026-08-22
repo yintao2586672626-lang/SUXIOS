@@ -140,6 +140,10 @@ $captureOutput = trim((string)(
 ));
 $runtimeCaptureRoot = realpath(dirname(__DIR__) . '/runtime/platform_data_sources');
 $resolvedCaptureOutput = $captureOutput !== '' ? realpath($captureOutput) : false;
+$maxIdentityCaptureBytes = 16 * 1024 * 1024;
+$resolvedCaptureOutputSize = is_string($resolvedCaptureOutput)
+    ? (int)filesize($resolvedCaptureOutput)
+    : 0;
 if (is_string($runtimeCaptureRoot)
     && is_string($resolvedCaptureOutput)
     && str_starts_with(
@@ -147,8 +151,8 @@ if (is_string($runtimeCaptureRoot)
         strtolower(rtrim(str_replace('\\', '/', $runtimeCaptureRoot), '/')) . '/'
     )
     && strtolower((string)pathinfo($resolvedCaptureOutput, PATHINFO_EXTENSION)) === 'json'
-    && (int)filesize($resolvedCaptureOutput) > 0
-    && (int)filesize($resolvedCaptureOutput) <= 10_485_760
+    && $resolvedCaptureOutputSize > 0
+    && $resolvedCaptureOutputSize <= $maxIdentityCaptureBytes
 ) {
     $decodedCapture = json_decode((string)file_get_contents($resolvedCaptureOutput), true);
     if (is_array($decodedCapture)) {

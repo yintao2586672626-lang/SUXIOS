@@ -7,6 +7,8 @@ use app\model\AgentLog;
 use app\model\PriceSuggestion;
 use app\service\OperationManagementService;
 use app\service\RevenueAiOverviewService;
+use app\service\RevenueCockpitApprovalService;
+use app\service\RevenueCockpitStrictEvidenceService;
 use app\service\RevenuePricingRecommendationService;
 use InvalidArgumentException;
 use RuntimeException;
@@ -22,10 +24,125 @@ class RevenueAi extends Base
     public function overview(): Response
     {
         try {
-            return $this->success((new RevenueAiOverviewService())->overview($this->filters()), 'success');
+            $filters = $this->filters();
+            $cockpitMode = (string)$this->request->param('cockpit', '') === '1';
+            if ($cockpitMode) {
+                $filters['strict_readback_only'] = true;
+            }
+            $overview = (new RevenueAiOverviewService())->overview($filters);
+            if ($cockpitMode) {
+                $overview = $this->withCockpitStrictEvidence($overview, $filters);
+            }
+            return $this->success($overview, 'success');
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
         } catch (RuntimeException $e) {
             return $this->error($e->getMessage(), $this->httpCode($e));
         }
+    }
+
+    public function createCockpitPendingApproval(): Response
+    {
+        try {
+            $filters = $this->filters();
+            $hotelId = (int)($filters['hotel_id'] ?? 0);
+            $actorId = (int)($this->currentUser->id ?? 0);
+            $businessDate = trim((string)($filters['business_date'] ?? ''));
+            $platform = strtolower(trim((string)($filters['platform'] ?? '')));
+            if ($hotelId <= 0 || $actorId <= 0 || $businessDate === '') {
+                throw new InvalidArgumentException('revenue_cockpit_approval_scope_invalid');
+            }
+            if (!in_array($platform, ['ctrip', 'meituan', 'all_ota'], true)) {
+                throw new InvalidArgumentException('revenue_cockpit_approval_platform_invalid');
+            }
+            $this->assertRevenueAiHotelCapability($hotelId, self::EXECUTION_PERMISSION);
+            $filters['strict_readback_only'] = true;
+            $overview = (new RevenueAiOverviewService())->overview($filters);
+            $overview = $this->withCockpitStrictEvidence($overview, $filters);
+            $tenantId = (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0);
+            if ($tenantId <= 0) {
+                throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
+            }
+            $payload = (new RevenueCockpitApprovalService())->createFromOverview(
+                $overview,
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                $platform,
+                $actorId
+            );
+            return $this->success(
+                $payload,
+                '待审批行动已保存并严格回读；未创建执行任务，也未触发 OTA 写入或外部动作'
+            );
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->httpCode($e));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'revenue_cockpit_pending_approval_failed'),
+                $this->httpCodeFromThrowable($e)
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $overview @param array<string,mixed> $filters @return array<string,mixed> */
+    private function withCockpitStrictEvidence(array $overview, array $filters): array
+    {
+        $hotelId = (int)($filters['hotel_id'] ?? 0);
+        $tenantId = $this->cockpitFactTenantId(
+            $overview,
+            $hotelId,
+            (int)($this->currentUser->tenant_id ?? 0),
+            $this->currentUser?->isSuperAdmin() === true
+        );
+        $businessDate = trim((string)($filters['business_date'] ?? ''));
+        $platform = strtolower(trim((string)($filters['platform'] ?? '')));
+        if ($platform === '') {
+            $enabled = is_array($filters['enabled_channels'] ?? null)
+                ? array_values(array_unique(array_map('strval', $filters['enabled_channels'])))
+                : [];
+            sort($enabled, SORT_STRING);
+            $platform = $enabled === ['ctrip', 'meituan']
+                ? 'all_ota'
+                : (string)($enabled[0] ?? '');
+        }
+        $overview['cockpit_strict_evidence'] = (new RevenueCockpitStrictEvidenceService())->build(
+            $overview,
+            $tenantId,
+            $hotelId,
+            $businessDate,
+            $platform
+        );
+        return $overview;
+    }
+
+    /** @param array<string,mixed> $overview */
+    private function cockpitFactTenantId(
+        array $overview,
+        int $hotelId,
+        int $actorTenantId,
+        bool $isSuperAdmin
+    ): int
+    {
+        if ($hotelId <= 0) {
+            throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
+        }
+        $factLayer = is_array($overview['three_source_fact_layer'] ?? null)
+            ? $overview['three_source_fact_layer']
+            : [];
+        $hotel = is_array($factLayer['hotel'] ?? null) ? $factLayer['hotel'] : [];
+        $factTenantId = (int)($hotel['tenant_id'] ?? 0);
+        if ($factTenantId <= 0 || (int)($hotel['system_hotel_id'] ?? 0) !== $hotelId) {
+            throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
+        }
+
+        if (!$isSuperAdmin && $actorTenantId !== $factTenantId) {
+            throw new RuntimeException('revenue_cockpit_tenant_scope_mismatch', 403);
+        }
+
+        return $factTenantId;
     }
 
     public function reviewPriceSuggestion(int $id = 0): Response
@@ -255,6 +372,11 @@ class RevenueAi extends Base
         foreach (is_array($items) ? $items : [] as $item) {
             $channel = strtolower(trim((string)$item));
             if ($channel === '') {
+                continue;
+            }
+            if ($channel === 'all_ota') {
+                $channels[] = 'ctrip';
+                $channels[] = 'meituan';
                 continue;
             }
             if (!in_array($channel, ['ctrip', 'meituan'], true)) {

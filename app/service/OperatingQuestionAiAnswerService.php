@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\exception\LlmDirectRequestException;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
@@ -192,6 +193,7 @@ final class OperatingQuestionAiAnswerService
                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             ],
         ];
+        $messages[0]['content'] .= ' decision_frame 只是用户选择或问题关键词推断的分析组织框架，不是已验证经营事实。';
 
         $meta = [];
         try {
@@ -331,47 +333,64 @@ final class OperatingQuestionAiAnswerService
                 'external_llm_called' => true,
                 'external_llm_call_status' => self::DIRECT_CALL_STATUS,
             ];
+        } catch (LlmDirectRequestException $exception) {
+            return $this->modelUnavailableResult($modelKey, $exception->receipt());
         } catch (Throwable) {
-            $providerResponseId = $this->providerResponseId($meta);
-            return [
-                'ok' => false,
-                'status' => 'model_unavailable',
-                'message' => 'AI模型暂不可用，已保留严格回读的证据摘要。',
-                'model_key' => $modelKey,
-                'provider' => (string)($meta['provider'] ?? ''),
-                'model' => (string)($meta['model'] ?? ''),
-                'configured_model' => (string)($meta['configured_model'] ?? ''),
-                'response_model' => (string)($meta['response_model'] ?? ''),
-                'provider_response_id' => $providerResponseId,
-                'provider_created_at' => max(0, (int)($meta['provider_created_at'] ?? 0)),
-                'provider_response_fresh' => ($meta['provider_response_fresh'] ?? false) === true,
-                'provider_endpoint_origin' => (string)($meta['provider_endpoint_origin'] ?? ''),
-                'provider_endpoint_host' => (string)($meta['provider_endpoint_host'] ?? ''),
-                'provider_endpoint_official' => ($meta['provider_endpoint_official'] ?? false) === true,
-                'provider_config_digest' => (string)($meta['provider_config_digest'] ?? ''),
-                'direct_call_nonce' => (string)($meta['direct_call_nonce'] ?? ''),
-                'transport_request_id' => (string)($meta['transport_request_id'] ?? ''),
-                'transport_retry_attempts' => (int)($meta['transport_retry_attempts'] ?? -1),
-                'upstream_idempotency_key_sent' => ($meta['upstream_idempotency_key_sent'] ?? false) === true,
-                'http_status' => max(0, (int)($meta['http_status'] ?? 0)),
-                'provider_attempt_count' => max(0, (int)($meta['provider_attempt_count'] ?? 0)),
-                'idempotent_replay' => ($meta['idempotent_replay'] ?? false) === true,
-                'direct_request_proof' => ($meta['direct_request_proof'] ?? false) === true,
-                'thinking_mode' => (string)($meta['thinking_mode'] ?? ''),
-                'reasoning_effort' => (string)($meta['reasoning_effort'] ?? ''),
-                'finish_reason' => (string)($meta['finish_reason'] ?? ''),
-                'fallback_used' => ($meta['fallback_used'] ?? false) === true,
-                'cache_hit' => ($meta['cache_hit'] ?? false) === true,
-                'degraded' => ($meta['degraded'] ?? false) === true,
-                'prompt_version' => self::PROMPT_VERSION,
-                'model_attempted' => true,
-                'llm_client_invoked' => true,
-                'external_llm_called' => $providerResponseId !== '' ? true : null,
-                'external_llm_call_status' => $providerResponseId !== ''
-                    ? 'response_rejected_after_direct_call'
-                    : 'unknown_after_client_attempt',
-            ];
+            return $this->modelUnavailableResult($modelKey, $meta);
         }
+    }
+
+    /** @param array<string,mixed> $meta @return array<string,mixed> */
+    private function modelUnavailableResult(string $modelKey, array $meta): array
+    {
+        $providerResponseId = $this->providerResponseId($meta);
+        $externalLlmCalled = is_bool($meta['external_llm_called'] ?? null)
+            ? $meta['external_llm_called']
+            : ($providerResponseId !== '' ? true : null);
+        $externalCallStatus = mb_substr(trim((string)($meta['external_llm_call_status'] ?? '')), 0, 80);
+        if ($externalCallStatus === '') {
+            $externalCallStatus = $providerResponseId !== ''
+                ? 'response_rejected_after_direct_call'
+                : 'unknown_after_client_attempt';
+        }
+
+        return [
+            'ok' => false,
+            'status' => 'model_unavailable',
+            'reason' => mb_substr(trim((string)($meta['failure_reason'] ?? '')), 0, 120),
+            'message' => 'AI模型本次未生成可核验回答，已保留直接调用回执和严格回读的证据摘要。',
+            'model_key' => (string)($meta['model_key'] ?? $modelKey),
+            'provider' => (string)($meta['provider'] ?? ''),
+            'model' => (string)($meta['model'] ?? ''),
+            'configured_model' => (string)($meta['configured_model'] ?? ''),
+            'response_model' => (string)($meta['response_model'] ?? ''),
+            'provider_response_id' => $providerResponseId,
+            'provider_created_at' => max(0, (int)($meta['provider_created_at'] ?? 0)),
+            'provider_response_fresh' => ($meta['provider_response_fresh'] ?? false) === true,
+            'provider_endpoint_origin' => (string)($meta['provider_endpoint_origin'] ?? ''),
+            'provider_endpoint_host' => (string)($meta['provider_endpoint_host'] ?? ''),
+            'provider_endpoint_official' => ($meta['provider_endpoint_official'] ?? false) === true,
+            'provider_config_digest' => (string)($meta['provider_config_digest'] ?? ''),
+            'direct_call_nonce' => (string)($meta['direct_call_nonce'] ?? ''),
+            'transport_request_id' => (string)($meta['transport_request_id'] ?? ''),
+            'transport_retry_attempts' => (int)($meta['transport_retry_attempts'] ?? -1),
+            'upstream_idempotency_key_sent' => ($meta['upstream_idempotency_key_sent'] ?? false) === true,
+            'http_status' => max(0, (int)($meta['http_status'] ?? 0)),
+            'provider_attempt_count' => max(0, (int)($meta['provider_attempt_count'] ?? 0)),
+            'idempotent_replay' => ($meta['idempotent_replay'] ?? false) === true,
+            'direct_request_proof' => ($meta['direct_request_proof'] ?? false) === true,
+            'thinking_mode' => (string)($meta['thinking_mode'] ?? ''),
+            'reasoning_effort' => (string)($meta['reasoning_effort'] ?? ''),
+            'finish_reason' => (string)($meta['finish_reason'] ?? ''),
+            'fallback_used' => ($meta['fallback_used'] ?? false) === true,
+            'cache_hit' => ($meta['cache_hit'] ?? false) === true,
+            'degraded' => ($meta['degraded'] ?? false) === true,
+            'prompt_version' => self::PROMPT_VERSION,
+            'model_attempted' => ($meta['model_attempted'] ?? true) === true,
+            'llm_client_invoked' => ($meta['llm_client_invoked'] ?? true) === true,
+            'external_llm_called' => $externalLlmCalled,
+            'external_llm_call_status' => $externalCallStatus,
+        ];
     }
 
     /** @param array<string,mixed> $answer @param array<string,mixed> $evidence @return array<string,mixed> */
@@ -383,6 +402,9 @@ final class OperatingQuestionAiAnswerService
                 'summary' => mb_substr(trim((string)($answer['summary'] ?? '')), 0, 1200),
                 'question_metric_contract' => is_array($answer['question_metric_contract'] ?? null)
                     ? $answer['question_metric_contract']
+                    : [],
+                'decision_frame' => is_array($answer['decision_frame'] ?? null)
+                    ? $answer['decision_frame']
                     : [],
                 'data_gaps' => $this->rows($answer['data_gaps'] ?? [], [
                     'code', 'message', 'missing_platforms', 'reason_codes',

@@ -847,6 +847,97 @@ final class AgentTest extends TestCase
         self::assertNotContains('review', $sectionKeys);
     }
 
+    public function testOtaDiagnosisKeepsFivePointQualitySignalsOutOfHundredPointThresholds(): void
+    {
+        $controller = $this->controller();
+        $rows = [
+            [
+                'id' => 51,
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-08-22',
+                'hotel_name' => 'Hotel Alpha',
+                'amount' => 7250.35,
+                'quantity' => 12,
+                'book_order_num' => 2,
+                'raw_data' => '{}',
+            ],
+            [
+                'id' => 52,
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-08-22',
+                'hotel_name' => 'Hotel Alpha',
+                'amount' => null,
+                'quantity' => null,
+                'book_order_num' => 0,
+                'raw_data' => json_encode([
+                    'row' => ['book_order_num' => 0],
+                    'field_facts' => [[
+                        'metric_key' => 'order_count',
+                        'normalized_field' => 'book_order_num',
+                        'status' => 'captured',
+                        'stored_value_present' => true,
+                    ]],
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 53,
+                'source' => 'ctrip',
+                'data_type' => 'quality',
+                'data_date' => '2026-08-22',
+                'hotel_name' => 'Hotel Alpha',
+                'data_value' => 4.61,
+                'raw_data' => json_encode(['psiScore' => 4.61], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 54,
+                'source' => 'ctrip',
+                'data_type' => 'quality',
+                'data_date' => '2026-08-22',
+                'hotel_name' => 'Hotel Alpha',
+                'data_value' => 3.37,
+                'raw_data' => json_encode(['psiScore' => 3.37], JSON_UNESCAPED_UNICODE),
+            ],
+        ];
+        $summary = $this->invokeNonPublic($controller, 'buildOtaDiagnosisSummary', [
+            $rows,
+            7,
+            'Hotel Alpha',
+            'ctrip',
+            '2026-08-22',
+            '2026-08-22',
+            'all',
+        ]);
+        self::assertStringNotContainsString('全指标为 0', implode(' ', $summary['data_anomalies']));
+        self::assertStringNotContainsString('核心指标未返回', implode(' ', $summary['data_anomalies']));
+
+        $result = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [[
+            'hotel' => ['id' => 7, 'name' => 'Hotel Alpha'],
+            'online_rows' => $rows,
+            'daily_reports' => [],
+            'competitor_prices' => [],
+            'competitor_analyses' => [],
+            'price_suggestions' => [],
+            'sync_logs' => [['id' => 55, 'action' => 'sync', 'create_time' => '2026-08-22 10:00:00']],
+        ], 7, '7', 'Hotel Alpha', 'ctrip', '2026-08-22', '2026-08-22', 'all']);
+
+        self::assertSame(3.99, $result['metrics']['avg_psi_score']);
+        self::assertNotContains('OTA服务质量分低于85', $result['diagnosis']['abnormal_metrics']);
+        self::assertSame([], $result['diagnosis']['actions']);
+        self::assertStringContainsString('不满足安全使用100分阈值', $result['diagnosis']['service_quality_analysis']);
+        self::assertContains(
+            'metric_missing:service_quality_score_scale',
+            array_map(static fn(mixed $gap): string => is_array($gap) ? (string)($gap['code'] ?? '') : (string)$gap, $result['data_gaps'])
+        );
+
+        $final = $this->invokeNonPublic($controller, 'finalizeOtaDiagnosisDecision', [$result]);
+        self::assertSame('no_action', $final['decision_status'], json_encode($final['decision_closure'] ?? [], JSON_UNESCAPED_UNICODE));
+        self::assertStringContainsString('最重要建议：暂不依据单日收入', $final['diagnosis']['priority_recommendation']);
+        self::assertContains('priority_recommendation', array_column($final['diagnosis_sections'], 'key'));
+        self::assertStringContainsString('携程渠道', $final['core_conclusion']);
+    }
+
     public function testOtaDiagnosisKeepsMissingMetricsNullAndRealZeroObservable(): void
     {
         $controller = $this->controller();

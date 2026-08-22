@@ -9,9 +9,11 @@ const {
   MODULE,
   classifyRequestFailureText,
   moduleNavLabel,
+  modulePath,
 } = require('./e2e-helpers.js');
 
 const packageJson = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+const workflow = readFileSync(new URL('../../.github/workflows/php.yml', import.meta.url), 'utf8');
 const isolatedRunner = readFileSync(new URL('./run-quick-e2e-isolated.mjs', import.meta.url), 'utf8');
 const helpers = readFileSync(new URL('./e2e-helpers.js', import.meta.url), 'utf8');
 const businessChains = readFileSync(new URL('./business-chains.spec.js', import.meta.url), 'utf8');
@@ -31,6 +33,7 @@ test('all package E2E write-capable entrypoints route through the dedicated isol
     'test:e2e:business',
     'test:e2e:temporal',
     'test:e2e:public-page',
+    'test:e2e:operating-question',
     'test:e2e:transition',
     'test:e2e:stability',
     'test:e2e:quick',
@@ -57,6 +60,8 @@ test('every Playwright spec is classified by the isolated runner', () => {
     'frontend_full_render_transition.spec.js',
     'full-click-coverage.spec.js',
     'module-smoke.spec.js',
+    'operating_question_action_card.spec.js',
+    'operating_question_floating.spec.js',
     'ota-auth-strong-reminder.spec.js',
     'public-page-task-bridge.spec.js',
     'security_monitoring_page.spec.js',
@@ -67,6 +72,7 @@ test('every Playwright spec is classified by the isolated runner', () => {
 });
 
 test('E2E navigation follows the current visible boss menu labels', () => {
+  assert.equal(modulePath(MODULE.AI_WORKBENCH), 'compass');
   assert.equal(moduleNavLabel(MODULE.DATA_TRUST), '昨日经营闭环');
   assert.equal(moduleNavLabel(MODULE.AI_DAILY_REPORT), 'AI经营日报');
   assert.equal(moduleNavLabel(MODULE.EXECUTION_TRACKING), '任务执行与复盘');
@@ -83,6 +89,10 @@ test('diagnostics separate intentional browser cancellation from API failure', (
   assert.equal(classifyRequestFailureText('net::ERR_CONNECTION_RESET'), 'api-error');
   assert.equal(classifyRequestFailureText(null), 'api-error');
   assert.match(helpers, /activeReads: new Set\(\), expectedNavigationCancellations: new WeakSet\(\)/);
+  assert.match(helpers, /navigationCancellationActive = true/);
+  assert.match(helpers, /navigationCancellationExpiresAt = Date\.now\(\) \+ 1000/);
+  assert.match(helpers, /if \(lifecycle\.navigationCancellationActive \|\| Date\.now\(\) <= lifecycle\.navigationCancellationExpiresAt\) \{\s*lifecycle\.expectedNavigationCancellations\.add\(request\)/);
+  assert.match(helpers, /finishExpectedApiReadCancellationsForNavigation\(page\)/);
   assert.match(helpers, /expectedNavigationCancellations\.add\(request\)/);
   assert.match(helpers, /expectedNavigationCancellations\.has\(request\)/);
   assert.match(helpers, /expectActiveApiReadCancellationsForNavigation\(page\);\s*await navItem\.click/);
@@ -119,6 +129,18 @@ test('public-page task bridge has a dedicated authenticated browser entrypoint',
   assert.match(publicPageTaskBridge, /intent_id/);
 });
 
+test('operating-question browser journeys share the dedicated isolated entrypoint', () => {
+  assert.match(isolatedRunner, /--operating-question-only/);
+  assert.match(isolatedRunner, /operating_question_action_card\.spec\.js/);
+  assert.match(isolatedRunner, /operating_question_floating\.spec\.js/);
+  assert.equal(
+    packageJson.scripts['test:e2e:operating-question'],
+    'node tests/automation/run-quick-e2e-isolated.mjs --operating-question-only',
+  );
+  assert.match(workflow, /Verify operating-question approval and floating-assistant journeys/);
+  assert.match(workflow, /run:\s+npm run test:e2e:operating-question/);
+});
+
 test('isolated runner always selects a dedicated database and self-hosted loopback server', () => {
   assert.match(isolatedRunner, /const dedicatedDatabaseName = configuredDedicatedDatabase !== ''/);
   assert.match(isolatedRunner, /performanceOnly \? 'hotelx_performance_e2e' : 'hotelx_e2e';/);
@@ -126,6 +148,39 @@ test('isolated runner always selects a dedicated database and self-hosted loopba
   assert.match(isolatedRunner, /const selfHosted = true;/);
   assert.match(isolatedRunner, /SUXI_E2E_DB_OVERRIDE: '1'/);
   assert.match(isolatedRunner, /SUXI_E2E_ISOLATED_RUNNER: '1'/);
+  assert.match(isolatedRunner, /startLocalOriginServer/);
+  assert.match(isolatedRunner, /function runNodeChild\(args, env\)/);
+  assert.match(isolatedRunner, /const result = await runPlaywright\(seed\)/);
+  assert.match(isolatedRunner, /SUXI_E2E_BACKEND_PORT/);
+  assert.match(isolatedRunner, /127\.0\.0\.1:\$\{backendPort\}/);
+  assert.match(isolatedRunner, /requires free origin\/backend ports/);
+  assert.doesNotMatch(isolatedRunner, /PHP_CLI_SERVER_WORKERS/);
+  assert.doesNotMatch(isolatedRunner, /detached: useProcessGroup/);
+  assert.match(isolatedRunner, /process\.on\('SIGTERM'/);
+  assert.match(isolatedRunner, /requestActiveNodeChildShutdown/);
+  assert.match(isolatedRunner, /detached: process\.platform !== 'win32'/);
+  assert.match(isolatedRunner, /process\.kill\(-child\.pid, 'SIGTERM'\)/);
+  assert.match(isolatedRunner, /taskkill\.exe/);
+  assert.match(isolatedRunner, /process\.on\('message'/);
+  assert.match(isolatedRunner, /process\.on\('disconnect'/);
+  assert.match(isolatedRunner, /normalControllerDisconnectInitiated/);
+  assert.match(isolatedRunner, /cleanupSequenceFinished/);
+  assert.match(isolatedRunner, /suxi-isolated-shutdown-request/);
+  assert.match(isolatedRunner, /suxi-isolated-shutdown-complete/);
+  assert.match(isolatedRunner, /suxi-isolated-shutdown-release/);
+  assert.match(isolatedRunner, /process\.platform === 'win32'[\s\S]*forceStopNodeChildTree\(child\)/);
+  assert.match(isolatedRunner, /acknowledgeControllerShutdown/);
+  assert.match(isolatedRunner, /databaseCleanupVerified[\s\S]*serverCleanupVerified[\s\S]*localStateCleanupVerified/);
+  assert.match(isolatedRunner, /const e2eHelperTimeoutMs = 10_000/);
+  assert.match(isolatedRunner, /timeout: e2eHelperTimeoutMs/);
+  assert.match(isolatedRunner, /assertRunContinues/);
+  assert.match(isolatedRunner, /signalIsolatedServer\(server, 'SIGKILL'\)/);
+  assert.match(isolatedRunner, /server\.stdout\?\.destroy\(\)/);
+  assert.match(isolatedRunner, /server\.stderr\?\.destroy\(\)/);
+  assert.match(isolatedRunner, /async function isolatedServerPortReachable\(port\)/);
+  assert.match(isolatedRunner, /net\.createConnection\(\{ host: '127\.0\.0\.1', port \}\)/);
+  assert.match(isolatedRunner, /waitForIsolatedPortsReleased\(\[appPort, backendPort\], 'origin\/backend'\)/);
+  assert.match(isolatedRunner, /await stopIsolatedBackend\(server\)/);
   assert.doesNotMatch(isolatedRunner, /SUXI_E2E_ALLOW_SHARED_DB/);
 });
 

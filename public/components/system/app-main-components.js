@@ -370,6 +370,27 @@
         }
         return component;
     };
+    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260822-selling-points-v3';
+    const OperatingOpportunityLab = systemComponents.OperatingOpportunityLabBody || Vue.defineAsyncComponent({
+        loader: () => loadOnlineDataComponentScript(operatingOpportunityLabScript)
+            .then(() => requireSystemComponent('OperatingOpportunityLabBody')),
+        delay: 0,
+        timeout: 15000,
+        loadingComponent: {
+            inheritAttrs: false,
+            render: () => h('section', {
+                'data-testid': 'operating-opportunity-lab-loading',
+                class: 'rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500',
+            }, '正在加载经营机会功能…'),
+        },
+        errorComponent: {
+            inheritAttrs: false,
+            render: () => h('section', {
+                'data-testid': 'operating-opportunity-lab-load-error',
+                class: 'rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700',
+            }, '经营机会功能加载失败，请刷新页面重试。'),
+        },
+    });
     const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3';
     const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';
     const competitorDeviceManagementScript = 'components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3';
@@ -799,6 +820,341 @@
         },
     };
 
+    const HotelThreeSourceOnboardingPanel = {
+        name: 'HotelThreeSourceOnboardingPanel',
+        render() {
+            const ctx = this.$root || {};
+                    const primaryButton = 'rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50';
+                    const secondaryButton = 'rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50';
+                    const smallPrimaryButton = 'rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50';
+                    const smallSecondaryButton = 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50';
+                    const inputClass = 'mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100';
+                    const renderInput = ({ label, value, onInput, placeholder = '', required = false, readonly = false, testid = '' }) => h('label', {
+                        class: 'block text-xs font-medium text-slate-700',
+                    }, [
+                        required ? h('span', { class: 'text-red-500' }, '* ') : null,
+                        label,
+                        h('input', {
+                            value,
+                            type: 'text',
+                            autocomplete: 'off',
+                            placeholder,
+                            readonly,
+                            'data-testid': testid || undefined,
+                            class: [inputClass, readonly ? 'bg-slate-50 text-slate-500' : ''],
+                            onInput,
+                        }),
+                    ]);
+                    const renderSteps = () => h('div', {
+                        class: 'border-b border-slate-100 bg-white px-4 py-3 sm:px-6',
+                        'data-testid': 'hotel-onboarding-steps',
+                    }, [
+                        h('div', { class: 'grid grid-cols-4 gap-2 text-center text-xs' }, [
+                            ['hotel', '1 门店资料'],
+                            ['authorization', '2 云端登录'],
+                            ['verification', '3 身份回读'],
+                            ['complete', '4 完成'],
+                        ].map(([key, label]) => h('div', {
+                            key,
+                            class: [
+                                'rounded-lg border px-2 py-2 font-semibold',
+                                ctx.hotelOnboardingStep === key
+                                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                    : 'border-slate-200 bg-slate-50 text-slate-500',
+                            ],
+                        }, label))),
+                        ctx.hotelOnboardingHotelId
+                            ? h('p', {
+                                class: 'mt-2 text-xs text-slate-500',
+                                'data-testid': 'hotel-onboarding-exact-id',
+                            }, `当前精确门店 ID：${ctx.hotelOnboardingHotelId}`)
+                            : null,
+                    ]);
+                    const renderHotelStep = () => {
+                        const pmsSelected = ['dingdandao_pms', 'meituan_cloud_pms'].includes(ctx.hotelForm.pms_provider);
+                        return h('section', {
+                            class: 'space-y-4',
+                            'data-testid': 'hotel-onboarding-hotel-step',
+                        }, [
+                            renderInput({
+                                label: '门店名称',
+                                value: ctx.hotelForm.name,
+                                required: true,
+                                placeholder: '请输入门店名称',
+                                onInput: event => { ctx.hotelForm.name = event.target.value; },
+                            }),
+                            h('div', [
+                                h('div', { class: 'mb-1.5 text-sm font-medium text-slate-700' }, '适用平台（可多选）'),
+                                h('div', { class: 'grid grid-cols-2 gap-2 text-sm' }, ['ctrip', 'meituan'].map(platform => h('label', {
+                                    key: platform,
+                                    class: [
+                                        'flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 font-medium',
+                                        ctx.hotelFormChannelSelected(platform)
+                                            ? (platform === 'ctrip' ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-orange-200 bg-orange-50 text-orange-700')
+                                            : 'border-slate-200 bg-slate-50 text-slate-600',
+                                    ],
+                                }, [
+                                    h('input', {
+                                        type: 'checkbox',
+                                        checked: ctx.hotelFormChannelSelected(platform),
+                                        class: 'h-4 w-4 rounded border-slate-300',
+                                        onChange: () => ctx.toggleHotelFormChannel(platform),
+                                    }),
+                                    platform === 'ctrip' ? '携程' : '美团',
+                                ]))),
+                                h('p', { class: 'mt-1.5 text-xs text-slate-500' }, '这里只确定接入范围。创建、授权或保存身份不会自动采集，也不会向企业微信发送消息。'),
+                            ]),
+                            h(ctx.hotelBusinessProfileEditor),
+                            h('div', {
+                                class: 'rounded-xl border border-[#eadfc9] bg-[#fffdf8] p-3',
+                                'data-testid': 'hotel-pms-configuration',
+                            }, [
+                                h('label', { class: 'block text-xs font-medium text-slate-700' }, [
+                                    '经营系统（PMS）',
+                                    h('select', {
+                                        value: ctx.hotelForm.pms_provider,
+                                        'data-testid': 'hotel-pms-provider',
+                                        'aria-label': '当前使用的 PMS',
+                                        disabled: ctx.hotelPmsBindingLoading || !!ctx.hotelPmsBindingError,
+                                        class: inputClass,
+                                        onChange: event => {
+                                            ctx.hotelForm.pms_provider = event.target.value;
+                                            ctx.handleHotelPmsProviderChange();
+                                        },
+                                    }, [
+                                        h('option', { value: 'none' }, '暂不配置 PMS'),
+                                        h('option', { value: 'dingdandao_pms' }, '订单来了 PMS'),
+                                        h('option', { value: 'meituan_cloud_pms' }, '美团云 PMS'),
+                                    ]),
+                                ]),
+                                pmsSelected ? h('div', {
+                                    class: 'mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2',
+                                    'data-testid': 'hotel-pms-public-identity',
+                                }, [
+                                    renderInput({
+                                        label: '平台公开门店 ID',
+                                        value: ctx.hotelForm.pms_provider_hotel_id,
+                                        required: true,
+                                        placeholder: '页面显示的公开 ID',
+                                        onInput: event => { ctx.hotelForm.pms_provider_hotel_id = event.target.value; },
+                                    }),
+                                    renderInput({
+                                        label: '平台公开门店名称',
+                                        value: ctx.hotelForm.pms_provider_hotel_name,
+                                        required: true,
+                                        placeholder: '与 PMS 页面完全一致',
+                                        onInput: event => { ctx.hotelForm.pms_provider_hotel_name = event.target.value; },
+                                    }),
+                                ]) : null,
+                                pmsSelected ? h('p', { class: 'mt-2 text-xs text-slate-500' }, '这里只填写平台页面公开的门店身份；没有账号、密码、Cookie 或验证码输入。') : null,
+                                ctx.hotelPmsBindingError ? h('p', { class: 'mt-2 text-xs text-red-700' }, ctx.hotelPmsBindingError) : null,
+                            ]),
+                            h('div', { class: 'flex justify-end gap-3 border-t border-slate-100 pt-5' }, [
+                                h('button', {
+                                    type: 'button',
+                                    class: secondaryButton,
+                                    onClick: () => { ctx.showHotelModal = false; },
+                                }, '稍后完成'),
+                                h('button', {
+                                    type: 'button',
+                                    class: primaryButton,
+                                    disabled: ctx.hotelSaving || ctx.hotelPmsBindingLoading,
+                                    'data-testid': 'hotel-onboarding-create',
+                                    onClick: ctx.saveHotel,
+                                }, ctx.hotelSaving ? '保存并回读中' : (ctx.hotelOnboardingHotelId ? '保存并继续' : '创建门店并继续')),
+                            ]),
+                        ]);
+                    };
+                    const renderSourceHeader = row => h('div', {
+                        class: 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between',
+                    }, [
+                        h('div', { class: 'flex items-center gap-3' }, [
+                            h('span', { class: 'flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-700' }, [h('i', { class: row.icon })]),
+                            h('div', [
+                                h('div', { class: 'font-semibold text-slate-900' }, row.label),
+                                h('div', { class: 'mt-0.5 text-xs text-slate-600' }, row.detail || '等待正式状态回读'),
+                            ]),
+                        ]),
+                        h('span', {
+                            class: ['self-start rounded-full border px-2.5 py-1 text-xs font-semibold sm:self-auto', ctx.hotelOnboardingStatusClass(row)],
+                        }, ctx.hotelOnboardingStatusText(row)),
+                    ]);
+                    const renderAuthorizationStep = () => {
+                        const rows = ctx.hotelOnboardingSourceRows;
+                        const profilesReady = rows.length > 0 && rows.every(row => row.profileReady === true);
+                        return h('section', {
+                            class: 'space-y-4',
+                            'data-testid': 'hotel-onboarding-authorization-step',
+                        }, [
+                            h('div', { class: 'rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900' }, [
+                                h('div', { class: 'font-semibold' }, '逐一打开云端可视浏览器登录'),
+                                h('p', { class: 'mt-1 text-xs leading-5 text-blue-800' }, '一次只处理一个来源。账号、密码和验证码只在平台自己的云端浏览器页面输入，宿析OS没有这些输入框。'),
+                            ]),
+                            rows.length === 0 ? h('div', { class: 'rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800' }, '尚未选择携程、美团或 PMS 来源，请返回补充。') : null,
+                            ...rows.map(row => h('article', {
+                                key: row.platform,
+                                class: ['rounded-xl border p-4', row.accent],
+                                'data-testid': `hotel-onboarding-source-${row.platform}`,
+                            }, [
+                                renderSourceHeader(row),
+                                h('div', { class: 'mt-3 flex flex-wrap gap-2' }, [
+                                    !ctx.hotelOnboardingLoginSessions[row.platform]
+                                        ? h('button', {
+                                            type: 'button',
+                                            class: smallPrimaryButton,
+                                            disabled: ctx.hotelOnboardingLoading || !!ctx.hotelOnboardingBusyPlatform,
+                                            onClick: () => ctx.openHotelOnboardingCloudLogin(row),
+                                        }, '打开云端登录')
+                                        : h('button', {
+                                            type: 'button',
+                                            class: smallPrimaryButton,
+                                            disabled: ctx.hotelOnboardingLoading,
+                                            onClick: () => ctx.completeHotelOnboardingCloudLogin(row),
+                                        }, '我已在云端页面完成登录'),
+                                    h('button', {
+                                        type: 'button',
+                                        class: smallSecondaryButton,
+                                        disabled: ctx.hotelOnboardingLoading || !!ctx.hotelOnboardingBusyPlatform,
+                                        onClick: () => ctx.loadHotelThreeSourceOnboarding({ silent: false }),
+                                    }, '刷新状态'),
+                                ]),
+                            ])),
+                            h('p', { class: 'text-xs text-slate-500' }, '完成登录只更新授权状态；本向导不会自动开始采集，也不会发送企业微信消息。'),
+                            h('div', { class: 'flex justify-between gap-3 border-t border-slate-100 pt-5' }, [
+                                h('button', {
+                                    type: 'button',
+                                    class: secondaryButton,
+                                    disabled: !!ctx.hotelOnboardingBusyPlatform,
+                                    onClick: () => { ctx.hotelOnboardingStep = 'hotel'; },
+                                }, '返回门店资料'),
+                                h('button', {
+                                    type: 'button',
+                                    class: primaryButton,
+                                    disabled: ctx.hotelOnboardingLoading || !!ctx.hotelOnboardingBusyPlatform || !profilesReady,
+                                    onClick: ctx.goToHotelOnboardingVerification,
+                                }, profilesReady ? '继续核对身份' : '全部登录就绪后继续'),
+                            ]),
+                        ]);
+                    };
+                    const renderVerificationStep = () => h('section', {
+                        class: 'space-y-4',
+                        'data-testid': 'hotel-onboarding-verification-step',
+                    }, [
+                        h('div', { class: 'rounded-xl border border-slate-200 bg-slate-50 px-4 py-3' }, [
+                            h('div', { class: 'text-sm font-semibold text-slate-900' }, '核对平台公开门店身份'),
+                            h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, '公开门店 ID 和名称都必须填写，保存后立即按当前精确门店 ID 回读；缺失或不一致不会标记完成。'),
+                        ]),
+                        ...ctx.hotelOnboardingSourceRows.map(row => h('article', {
+                            key: row.platform,
+                            class: ['rounded-xl border p-4', row.accent],
+                        }, [
+                            renderSourceHeader(row),
+                            h('div', { class: 'mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2' }, [
+                                renderInput({
+                                    label: '平台公开门店 ID',
+                                    value: row.form.platform_hotel_id,
+                                    required: true,
+                                    placeholder: '页面显示的公开 ID',
+                                    onInput: event => ctx.setHotelOnboardingBindingField(row.platform, 'platform_hotel_id', event.target.value),
+                                }),
+                                renderInput({
+                                    label: '平台公开门店名称',
+                                    value: row.form.platform_hotel_name,
+                                    required: true,
+                                    placeholder: '与平台页面完全一致',
+                                    onInput: event => ctx.setHotelOnboardingBindingField(row.platform, 'platform_hotel_name', event.target.value),
+                                }),
+                            ]),
+                            h('button', {
+                                type: 'button',
+                                class: ['mt-3', smallSecondaryButton],
+                                disabled: ctx.hotelOnboardingLoading || !!ctx.hotelOnboardingBusyPlatform,
+                                onClick: () => ctx.saveHotelOnboardingBinding(row),
+                            }, '保存并回读此来源'),
+                        ])),
+                        ctx.hotelOnboardingError ? h('div', {
+                            class: 'rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700',
+                            'data-testid': 'hotel-onboarding-error',
+                        }, ctx.hotelOnboardingError) : null,
+                        h('p', { class: 'text-xs text-slate-500' }, '本页没有账号、密码、Cookie 或验证码字段；身份回读通过也不会自动采集或发送。'),
+                        ctx.hotelOnboardingCollectionPlanStatus === 'active'
+                            ? h('div', {
+                                class: 'rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700',
+                                'data-testid': 'hotel-onboarding-collection-active',
+                            }, '三源采集计划已启用，并通过执行授权与计划状态回读；云端定时器运行状态需单独确认。')
+                            : h('div', { class: 'rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left' }, [
+                                h('div', { class: 'text-sm font-semibold text-slate-900' }, '启用三源采集计划'),
+                                h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, ctx.hotelOnboardingCollectionPlanEligible
+                                    ? '三源授权和门店身份已就绪。启用后会保存并精确回读计划；此操作本身不采集，也不发送企业微信。'
+                                    : '请先让携程、美团和 PMS 的 Profile、公开门店 ID 与名称全部就绪。'),
+                                h('button', {
+                                    type: 'button',
+                                    class: ['mt-3', primaryButton],
+                                    disabled: !ctx.hotelOnboardingCollectionPlanEligible || ctx.hotelOnboardingCollectionPlanStatus === 'saving',
+                                    'data-testid': 'hotel-onboarding-enable-collection',
+                                    onClick: ctx.enableHotelOnboardingHourlyCollection,
+                                }, ctx.hotelOnboardingCollectionPlanStatus === 'saving' ? '启用并回读中' : '启用三源采集计划'),
+                                ctx.hotelOnboardingCollectionPlanError ? h('p', { class: 'mt-2 text-xs text-red-700' }, ctx.hotelOnboardingCollectionPlanError) : null,
+                            ]),
+                        h('div', { class: 'flex flex-wrap justify-between gap-3 border-t border-slate-100 pt-5' }, [
+                            h('button', {
+                                type: 'button',
+                                class: secondaryButton,
+                                onClick: () => { ctx.hotelOnboardingStep = 'authorization'; },
+                            }, '返回云端登录'),
+                            h('div', { class: 'flex gap-2' }, [
+                                h('button', {
+                                    type: 'button',
+                                    class: secondaryButton,
+                                    disabled: ctx.hotelOnboardingLoading,
+                                    onClick: () => ctx.loadHotelThreeSourceOnboarding({ silent: false }),
+                                }, '刷新回读'),
+                                h('button', {
+                                    type: 'button',
+                                    class: primaryButton,
+                                    disabled: ctx.hotelOnboardingLoading || !ctx.hotelOnboardingReady,
+                                    onClick: ctx.finishHotelOnboarding,
+                                }, '完成设置'),
+                            ]),
+                        ]),
+                    ]);
+                    const renderCompleteStep = () => h('section', {
+                        class: 'space-y-4 text-center',
+                        'data-testid': 'hotel-onboarding-complete-step',
+                    }, [
+                        h('div', { class: 'mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700' }, [h('i', { class: 'fas fa-check text-xl' })]),
+                        h('div', [
+                            h('h4', { class: 'text-lg font-semibold text-slate-900' }, '已选来源接入状态已通过回读'),
+                            h('p', { class: 'mt-2 text-sm text-slate-600' }, `门店 ID ${ctx.hotelOnboardingHotelId} 的已选来源均返回可用状态。`),
+                        ]),
+                        h('div', { class: 'rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-xs leading-5 text-amber-800' }, '这一步没有启动采集，也没有发送任何企业微信消息。下一步可进入企业微信配置，选择发送范围与启用时间。'),
+                        h('div', {
+                            class: 'rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700',
+                            'data-testid': 'hotel-onboarding-collection-active',
+                        }, '三源采集计划已启用，并通过执行授权与计划状态回读；云端定时器运行状态需单独确认。'),
+                        h('div', { class: 'flex justify-between gap-3 border-t border-slate-100 pt-5' }, [
+                            h('button', { type: 'button', class: secondaryButton, onClick: () => { ctx.showHotelModal = false; } }, '关闭'),
+                            h('button', {
+                                type: 'button',
+                                class: primaryButton,
+                                'data-testid': 'hotel-onboarding-open-wechat',
+                                onClick: ctx.openHotelOnboardingWechatConfig,
+                            }, '进入企业微信配置'),
+                        ]),
+                    ]);
+                    return h('div', { class: 'flex min-h-0 flex-1 flex-col overflow-hidden' }, [
+                        renderSteps(),
+                        h('div', { class: 'overflow-y-auto p-4 sm:p-6' }, [
+                            ctx.hotelOnboardingStep === 'hotel' ? renderHotelStep() : null,
+                            ctx.hotelOnboardingStep === 'authorization' ? renderAuthorizationStep() : null,
+                            ctx.hotelOnboardingStep === 'verification' ? renderVerificationStep() : null,
+                            ctx.hotelOnboardingStep === 'complete' ? renderCompleteStep() : null,
+                            ctx.hotelOnboardingLoading ? h('p', { class: 'mt-4 text-xs text-slate-500' }, '正在按精确门店 ID 保存或回读...') : null,
+                        ]),
+                    ]);
+        },
+    };
+
     const OperatingLoopAuthority = {
         name: 'OperatingLoopAuthority',
         render() {
@@ -891,9 +1247,980 @@
         },
     };
 
-        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, OperatingLoopAuthority });
+    const managerCapabilityToday = () => {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(new Date());
+        const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+        return `${values.year}-${values.month}-${values.day}`;
+    };
+    const managerCapabilityKey = () => {
+        const randomPart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        return `manager-case-${randomPart}`;
+    };
+    const managerCapabilityForm = () => ({
+        business_date: managerCapabilityToday(),
+        problem_facts: '',
+        action_taken: '',
+        verification_status: 'observed_result',
+        verification_text: '',
+        followup_due_date: managerCapabilityToday(),
+        evidence_type: 'onsite_observation',
+        evidence_reference: '',
+        evidence_date: managerCapabilityToday(),
+        idempotency_key: managerCapabilityKey(),
+    });
+    const managerCapabilityFollowupKey = () => managerCapabilityKey().replace('manager-case-', 'manager-followup-');
+    const managerCapabilityFollowupForm = () => ({
+        followup_date: managerCapabilityToday(),
+        followup_outcome: 'resolved',
+        verification_text: '',
+        sample_count: 1,
+        evidence_type: 'onsite_observation',
+        evidence_reference: '',
+        evidence_date: managerCapabilityToday(),
+        next_followup_date: managerCapabilityToday(),
+        recurrence_problem_facts: '',
+        recurrence_action_taken: '',
+        recurrence_verification_plan: '',
+        idempotency_key: managerCapabilityFollowupKey(),
+    });
+    const managerCapabilityAdjustmentKey = () => managerCapabilityKey().replace('manager-case-', 'manager-adjustment-');
+    const managerCapabilityReviewKey = () => managerCapabilityKey().replace('manager-case-', 'manager-review-');
+    const managerCapabilityAdjustmentForm = () => ({
+        adjustment_type: 'voided', reason: '', business_date: managerCapabilityToday(),
+        problem_facts: '', action_taken: '', verification_status: 'observed_result',
+        verification_text: '', followup_due_date: managerCapabilityToday(),
+        evidence_type: 'onsite_observation', evidence_reference: '', evidence_date: managerCapabilityToday(),
+        idempotency_key: managerCapabilityAdjustmentKey(),
+    });
+    const managerCapabilityReviewForm = () => ({
+        review_outcome: 'confirmed', reason: '', source_score_digest: '',
+        dimension_overrides: {}, idempotency_key: managerCapabilityReviewKey(),
+    });
+    const managerCapabilityEvidenceTypes = [
+        ['onsite_observation', '现场观察'], ['signed_checklist', '签字清单/台账'],
+        ['system_record', '系统记录/报表'], ['guest_feedback', '客诉或宾客反馈'],
+        ['photo_record', '照片/附件记录'], ['other', '其他人工证据'],
+    ];
+    const managerCapabilityDefaultDimensions = [
+        ['problem_discovery', '问题发现'],
+        ['cause_analysis', '原因分析'],
+        ['solution_management', '管理解决'],
+        ['coaching', '带教能力'],
+        ['execution_prevention', '执行与预防'],
+        ['closure', '闭环能力'],
+    ];
+    const ManagerCapabilityPanel = {
+        name: 'ManagerCapabilityPanel',
+        props: {
+            hotelId: { type: [String, Number], default: '' },
+            request: { type: Function, required: true },
+        },
+        data: () => ({
+            managers: [],
+            selectedManagerId: '',
+            profile: null,
+            loading: false,
+            saving: false,
+            followupSaving: false,
+            adjustmentSaving: false,
+            reviewSaving: false,
+            queueLoading: false,
+            error: '',
+            queueError: '',
+            form: managerCapabilityForm(),
+            selectedFollowupCaseId: '',
+            selectedCaseRecord: null,
+            followupForm: managerCapabilityFollowupForm(),
+            followupQueue: null,
+            followupQueueFilter: 'all',
+            selectedAdjustmentCaseId: '',
+            adjustmentForm: managerCapabilityAdjustmentForm(),
+            selectedReviewCaseId: '',
+            reviewForm: managerCapabilityReviewForm(),
+            managerRequestSeq: 0,
+            profileRequestSeq: 0,
+            queueRequestSeq: 0,
+        }),
+        computed: {
+            normalizedHotelId() {
+                return Number(this.hotelId || 0);
+            },
+            dimensions() {
+                if (Array.isArray(this.profile?.dimensions) && this.profile.dimensions.length === 6) {
+                    return this.profile.dimensions;
+                }
+                return managerCapabilityDefaultDimensions.map(([key, label]) => ({
+                    key, label, score: null, status: 'data_insufficient', level_label: '数据不足',
+                    sample_count: 0, required_sample_count: 3,
+                }));
+            },
+            recentCases() {
+                return Array.isArray(this.profile?.recent_cases) ? this.profile.recent_cases : [];
+            },
+            canViewEvidenceDetail() {
+                return this.profile?.permissions?.can_view_evidence_detail === true;
+            },
+            canManageEvidence() {
+                return this.profile?.permissions?.can_manage_evidence === true;
+            },
+            dueQueueRows() {
+                const rows = Array.isArray(this.followupQueue?.rows) ? this.followupQueue.rows : [];
+                return this.followupQueueFilter === 'all'
+                    ? rows
+                    : rows.filter(item => item.due_bucket === this.followupQueueFilter);
+            },
+            selectedFollowupCase() {
+                if (Number(this.selectedCaseRecord?.id || 0) === Number(this.selectedFollowupCaseId || 0)) {
+                    return this.selectedCaseRecord;
+                }
+                return [...this.recentCases, ...(Array.isArray(this.followupQueue?.rows) ? this.followupQueue.rows : [])]
+                    .find(item => Number(item.id) === Number(this.selectedFollowupCaseId || 0)) || null;
+            },
+            selectedAdjustmentCase() {
+                return this.recentCases.find(item => Number(item.id) === Number(this.selectedAdjustmentCaseId || 0)) || null;
+            },
+            selectedReviewCase() {
+                return this.recentCases.find(item => Number(item.id) === Number(this.selectedReviewCaseId || 0)) || null;
+            },
+        },
+        watch: {
+            hotelId: { immediate: true, handler() { void this.load(); } },
+        },
+        methods: {
+            notify(message, type = 'success') {
+                this.$root?.showToast?.(message, type);
+            },
+            profileIsScoped(profile, hotelId, managerUserId) {
+                return Number(profile?.hotel_id || 0) === Number(hotelId || 0)
+                    && Number(profile?.manager_user_id || 0) === Number(managerUserId || 0)
+                    && Array.isArray(profile?.dimensions)
+                    && profile.dimensions.length === 6
+                    && String(profile?.scoring_contract?.version || '') === 'manager_capability_evidence_v1'
+                    && /^[a-f0-9]{64}$/i.test(String(profile?.source?.fingerprint || ''));
+            },
+            async loadProfile() {
+                const hotelId = this.normalizedHotelId;
+                const managerUserId = Number(this.selectedManagerId || 0);
+                const requestSeq = ++this.profileRequestSeq;
+                this.selectedFollowupCaseId = '';
+                this.selectedCaseRecord = null;
+                this.followupForm = managerCapabilityFollowupForm();
+                this.selectedAdjustmentCaseId = '';
+                this.adjustmentForm = managerCapabilityAdjustmentForm();
+                this.selectedReviewCaseId = '';
+                this.reviewForm = managerCapabilityReviewForm();
+                this.followupQueue = null;
+                this.queueError = '';
+                if (hotelId <= 0 || managerUserId <= 0) {
+                    this.profile = null;
+                    this.error = hotelId > 0 ? '请选择店长或负责人' : '';
+                    return null;
+                }
+                this.loading = true;
+                this.error = '';
+                try {
+                    const params = new URLSearchParams({
+                        hotel_id: String(hotelId), manager_user_id: String(managerUserId),
+                    });
+                    const res = await this.request(`/operation/manager-capability/profile?${params}`, {
+                        businessContext: { hotelId },
+                    });
+                    if (requestSeq !== this.profileRequestSeq
+                        || hotelId !== this.normalizedHotelId
+                        || managerUserId !== Number(this.selectedManagerId || 0)) return null;
+                    if (res.code !== 200) throw new Error(res.message || '店长能力档案加载失败');
+                    if (!this.profileIsScoped(res.data, hotelId, managerUserId)) {
+                        throw new Error('店长能力档案未按酒店、人员和评分版本精确回读');
+                    }
+                    this.profile = res.data;
+                    if (this.canManageEvidence) await this.loadFollowupQueue();
+                    return res.data;
+                } catch (error) {
+                    if (requestSeq !== this.profileRequestSeq) return null;
+                    this.profile = null;
+                    this.error = error?.message || '店长能力档案加载失败';
+                    return null;
+                } finally {
+                    if (requestSeq === this.profileRequestSeq) this.loading = false;
+                }
+            },
+            async loadFollowupQueue() {
+                const hotelId = this.normalizedHotelId;
+                const managerUserId = Number(this.selectedManagerId || 0);
+                const requestSeq = ++this.queueRequestSeq;
+                if (!this.canManageEvidence || hotelId <= 0 || managerUserId <= 0) {
+                    this.followupQueue = null;
+                    this.queueError = '';
+                    return null;
+                }
+                this.queueLoading = true;
+                this.queueError = '';
+                try {
+                    const params = new URLSearchParams({
+                        hotel_id: String(hotelId), manager_user_id: String(managerUserId),
+                    });
+                    const res = await this.request(`/operation/manager-capability/followup-queue?${params}`, {
+                        businessContext: { hotelId },
+                    });
+                    if (requestSeq !== this.queueRequestSeq
+                        || hotelId !== this.normalizedHotelId
+                        || managerUserId !== Number(this.selectedManagerId || 0)) return null;
+                    if (res.code !== 200) throw new Error(res.message || '待复查工作台加载失败');
+                    if (Number(res.data?.hotel_id || 0) !== hotelId
+                        || Number(res.data?.manager_user_id || 0) !== managerUserId
+                        || !Array.isArray(res.data?.rows)) {
+                        throw new Error('待复查工作台未按当前门店和负责人精确回读');
+                    }
+                    this.followupQueue = res.data;
+                    return res.data;
+                } catch (error) {
+                    if (requestSeq !== this.queueRequestSeq) return null;
+                    this.followupQueue = null;
+                    this.queueError = error?.message || '待复查工作台加载失败';
+                    return null;
+                } finally {
+                    if (requestSeq === this.queueRequestSeq) this.queueLoading = false;
+                }
+            },
+            async load() {
+                const hotelId = this.normalizedHotelId;
+                const requestSeq = ++this.managerRequestSeq;
+                this.profileRequestSeq++;
+                if (hotelId <= 0) {
+                    this.managers = [];
+                    this.selectedManagerId = '';
+                    this.profile = null;
+                    this.followupQueue = null;
+                    this.error = '';
+                    this.loading = false;
+                    return null;
+                }
+                this.loading = true;
+                this.error = '';
+                try {
+                    const res = await this.request(`/operation/manager-capability/managers?hotel_id=${hotelId}`, {
+                        businessContext: { hotelId },
+                    });
+                    if (requestSeq !== this.managerRequestSeq || hotelId !== this.normalizedHotelId) return null;
+                    if (res.code !== 200) throw new Error(res.message || '店长列表加载失败');
+                    if (Number(res.data?.hotel_id || 0) !== hotelId || !Array.isArray(res.data?.list)) {
+                        throw new Error('店长列表未按当前酒店精确回读');
+                    }
+                    this.managers = res.data.list;
+                    if (!this.managers.some(item => Number(item.id) === Number(this.selectedManagerId))) {
+                        const preferred = this.managers.find(item => item.is_current_user === true) || this.managers[0];
+                        this.selectedManagerId = preferred?.id ? String(preferred.id) : '';
+                    }
+                    return this.selectedManagerId ? await this.loadProfile() : null;
+                } catch (error) {
+                    if (requestSeq !== this.managerRequestSeq) return null;
+                    this.managers = [];
+                    this.selectedManagerId = '';
+                    this.profile = null;
+                    this.followupQueue = null;
+                    this.error = error?.message || '店长列表加载失败';
+                    return null;
+                } finally {
+                    if (requestSeq === this.managerRequestSeq) this.loading = false;
+                }
+            },
+            caseStatusText(item = {}) {
+                if (item.is_voided === true || item.case_status === 'voided') return '已作废，不计入档案';
+                const latest = item.latest_followup || null;
+                if (latest?.followup_outcome === 'resolved') return `${latest.followup_date} 已复查关闭`;
+                if (latest?.followup_outcome === 'still_open') {
+                    return latest.next_followup_date ? `${latest.next_followup_date} 继续复查` : '复查后仍待处理';
+                }
+                if (latest?.followup_outcome === 'recurred') {
+                    return latest.linked_recurrence_case_id
+                        ? `再次发生 · 已关联新案例 #${latest.linked_recurrence_case_id}`
+                        : '再次发生';
+                }
+                if (item.verification_status === 'planned_verification') {
+                    return item.followup_due_date ? `${item.followup_due_date} 待复查` : '待复查';
+                }
+                return item.score_snapshot?.score_status === 'scored' ? '已闭环评分' : '已记录，证据待补';
+            },
+            caseScoreText(item = {}) {
+                const score = item.score_snapshot?.case_score;
+                const count = Number(item.score_snapshot?.scored_dimension_count || 0);
+                return score === null || score === undefined ? `${count}/6 维有证据` : `案例分 ${score}`;
+            },
+            dimensionSummary(item = {}) {
+                return (Array.isArray(item.score_snapshot?.dimensions) ? item.score_snapshot.dimensions : [])
+                    .map(dimension => `${dimension.label} ${dimension.score === null || dimension.score === undefined ? '未观察' : dimension.score}`)
+                    .join(' · ');
+            },
+            evidenceConfidenceText(item = {}) {
+                const evidence = item.evidence || {};
+                return `证据置信度：${evidence.confidence_label || '未核验'}${evidence.type_label ? ` · ${evidence.type_label}` : ''}`;
+            },
+            dueQueueText(item = {}) {
+                const offset = Number(item.days_offset || 0);
+                if (item.due_bucket === 'overdue') return `逾期 ${Math.abs(offset)} 天`;
+                if (item.due_bucket === 'today') return '今天到期';
+                return `${offset} 天后到期`;
+            },
+            openFollowup(item = {}) {
+                const caseId = Number(item.id || 0);
+                if (caseId <= 0) return;
+                this.selectedFollowupCaseId = String(caseId);
+                this.selectedCaseRecord = item;
+                this.followupForm = managerCapabilityFollowupForm();
+                this.error = '';
+            },
+            closeFollowup() {
+                this.selectedFollowupCaseId = '';
+                this.selectedCaseRecord = null;
+                this.followupForm = managerCapabilityFollowupForm();
+            },
+            openAdjustment(item = {}, type = 'voided') {
+                const caseId = Number(item.id || 0);
+                if (caseId <= 0 || !this.canManageEvidence) return;
+                this.selectedAdjustmentCaseId = String(caseId);
+                this.adjustmentForm = {
+                    ...managerCapabilityAdjustmentForm(), adjustment_type: type,
+                    business_date: String(item.business_date || managerCapabilityToday()),
+                    problem_facts: String(item.problem_facts || ''),
+                    action_taken: String(item.action_taken || ''),
+                    verification_status: String(item.verification_status || 'observed_result'),
+                    verification_text: String(item.verification_text || ''),
+                    followup_due_date: String(item.current_followup_due_date || item.followup_due_date || managerCapabilityToday()),
+                    evidence_type: String(item.evidence?.type || 'onsite_observation'),
+                    evidence_reference: String(item.evidence?.reference || ''),
+                    evidence_date: String(item.evidence?.date || item.business_date || managerCapabilityToday()),
+                };
+                this.selectedReviewCaseId = '';
+                this.error = '';
+            },
+            closeAdjustment() {
+                this.selectedAdjustmentCaseId = '';
+                this.adjustmentForm = managerCapabilityAdjustmentForm();
+            },
+            openScoreReview(item = {}) {
+                const caseId = Number(item.id || 0);
+                if (caseId <= 0 || !this.canManageEvidence || item.is_voided === true) return;
+                this.selectedReviewCaseId = String(caseId);
+                this.reviewForm = managerCapabilityReviewForm();
+                this.reviewForm.source_score_digest = String(item.score_snapshot?.evidence_digest || '');
+                this.reviewForm.dimension_overrides = Object.fromEntries(
+                    managerCapabilityDefaultDimensions.map(([key]) => [key, 'keep'])
+                );
+                this.selectedAdjustmentCaseId = '';
+                this.error = '';
+            },
+            closeScoreReview() {
+                this.selectedReviewCaseId = '';
+                this.reviewForm = managerCapabilityReviewForm();
+            },
+            async submitFollowup() {
+                const hotelId = this.normalizedHotelId;
+                const managerUserId = Number(this.selectedManagerId || 0);
+                const caseId = Number(this.selectedFollowupCaseId || 0);
+                const selectedCase = this.selectedFollowupCase;
+                if (hotelId <= 0 || managerUserId <= 0 || caseId <= 0 || !selectedCase) {
+                    this.notify('请先选择当前门店、负责人和待复查案例', 'warning');
+                    return;
+                }
+                if (!String(this.followupForm.verification_text || '').trim()) {
+                    this.notify('请填写本次复查结果或继续计划', 'warning');
+                    return;
+                }
+                if (!String(this.followupForm.evidence_type || '').trim()
+                    || !String(this.followupForm.evidence_reference || '').trim()
+                    || !String(this.followupForm.evidence_date || '').trim()) {
+                    this.notify('请完整填写证据类型、日期和引用', 'warning');
+                    return;
+                }
+                const outcome = String(this.followupForm.followup_outcome || '');
+                if (outcome !== 'resolved' && !String(this.followupForm.next_followup_date || '').trim()) {
+                    this.notify('待继续或再发生时必须填写下次复查日期', 'warning');
+                    return;
+                }
+                if (outcome === 'recurred' && [
+                    this.followupForm.recurrence_problem_facts,
+                    this.followupForm.recurrence_action_taken,
+                    this.followupForm.recurrence_verification_plan,
+                ].some(value => !String(value || '').trim())) {
+                    this.notify('再次发生时请完整填写新的问题、动作和验证计划', 'warning');
+                    return;
+                }
+
+                const payload = {
+                    hotel_id: hotelId,
+                    followup_date: String(this.followupForm.followup_date || ''),
+                    followup_outcome: outcome,
+                    verification_text: String(this.followupForm.verification_text || '').trim(),
+                    sample_count: Number(this.followupForm.sample_count || 0),
+                    evidence_type: String(this.followupForm.evidence_type || ''),
+                    evidence_reference: String(this.followupForm.evidence_reference || '').trim(),
+                    evidence_date: String(this.followupForm.evidence_date || ''),
+                    next_followup_date: outcome === 'resolved'
+                        ? null : String(this.followupForm.next_followup_date || ''),
+                    recurrence_problem_facts: outcome === 'recurred'
+                        ? String(this.followupForm.recurrence_problem_facts || '').trim() : null,
+                    recurrence_action_taken: outcome === 'recurred'
+                        ? String(this.followupForm.recurrence_action_taken || '').trim() : null,
+                    recurrence_verification_plan: outcome === 'recurred'
+                        ? String(this.followupForm.recurrence_verification_plan || '').trim() : null,
+                    idempotency_key: String(this.followupForm.idempotency_key || managerCapabilityFollowupKey()),
+                };
+                this.followupSaving = true;
+                this.error = '';
+                try {
+                    const res = await this.request(`/operation/manager-capability/cases/${caseId}/followups`, {
+                        method: 'POST', businessContext: { hotelId }, body: JSON.stringify(payload),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '店长能力复查保存失败');
+                    const savedCase = res.data?.case || {};
+                    const followup = res.data?.followup || {};
+                    const linkedCase = res.data?.linked_recurrence_case || null;
+                    if (res.data?.readback_verified !== true
+                        || Number(savedCase.id || 0) !== caseId
+                        || Number(savedCase.hotel_id || 0) !== hotelId
+                        || Number(savedCase.manager_user_id || 0) !== managerUserId
+                        || Number(followup.case_id || 0) !== caseId
+                        || String(followup.followup_outcome || '') !== outcome
+                        || !/^[a-f0-9]{64}$/i.test(String(followup.input_digest || ''))
+                        || !/^[a-f0-9]{64}$/i.test(String(followup.score_snapshot?.evidence_digest || ''))
+                        || String(followup.score_snapshot?.scoring_version || '') !== 'manager_capability_evidence_v1'
+                        || !this.profileIsScoped(res.data?.profile, hotelId, managerUserId)
+                        || (outcome === 'recurred' && (
+                            Number(linkedCase?.parent_case_id || 0) !== caseId
+                            || Number(linkedCase?.origin_followup_id || 0) !== Number(followup.id || 0)
+                            || Number(followup.linked_recurrence_case_id || 0) !== Number(linkedCase?.id || 0)
+                        ))) {
+                        throw new Error('店长能力复查保存后未完成精确回读');
+                    }
+                    this.profile = res.data.profile;
+                    this.closeFollowup();
+                    await this.loadFollowupQueue();
+                    this.notify(res.data.replayed ? '已读取同一次复查' : (outcome === 'recurred' ? '复查已保存，并生成关联新案例' : '复查已保存并回读'));
+                } catch (error) {
+                    this.error = error?.message || '店长能力复查保存失败';
+                    this.notify(this.error, 'error');
+                } finally {
+                    this.followupSaving = false;
+                }
+            },
+            async submitAdjustment() {
+                const hotelId = this.normalizedHotelId;
+                const managerUserId = Number(this.selectedManagerId || 0);
+                const caseId = Number(this.selectedAdjustmentCaseId || 0);
+                const selectedCase = this.selectedAdjustmentCase;
+                if (!this.canManageEvidence || hotelId <= 0 || managerUserId <= 0 || caseId <= 0 || !selectedCase) {
+                    this.notify('当前账号不能修正该案例', 'warning');
+                    return;
+                }
+                const type = String(this.adjustmentForm.adjustment_type || '');
+                if (!String(this.adjustmentForm.reason || '').trim()) {
+                    this.notify('请填写纠错、作废或恢复原因', 'warning');
+                    return;
+                }
+                if (type === 'corrected' && [
+                    this.adjustmentForm.problem_facts, this.adjustmentForm.action_taken,
+                    this.adjustmentForm.verification_text, this.adjustmentForm.evidence_reference,
+                ].some(value => !String(value || '').trim())) {
+                    this.notify('纠错时请完整填写三问和结构化证据', 'warning');
+                    return;
+                }
+                const payload = {
+                    hotel_id: hotelId,
+                    adjustment_type: type,
+                    reason: String(this.adjustmentForm.reason || '').trim(),
+                    idempotency_key: String(this.adjustmentForm.idempotency_key || managerCapabilityAdjustmentKey()),
+                };
+                if (type === 'corrected') Object.assign(payload, {
+                    business_date: String(this.adjustmentForm.business_date || ''),
+                    problem_facts: String(this.adjustmentForm.problem_facts || '').trim(),
+                    action_taken: String(this.adjustmentForm.action_taken || '').trim(),
+                    verification_status: String(this.adjustmentForm.verification_status || ''),
+                    verification_text: String(this.adjustmentForm.verification_text || '').trim(),
+                    followup_due_date: this.adjustmentForm.verification_status === 'planned_verification'
+                        ? String(this.adjustmentForm.followup_due_date || '') : null,
+                    evidence_type: String(this.adjustmentForm.evidence_type || ''),
+                    evidence_reference: String(this.adjustmentForm.evidence_reference || '').trim(),
+                    evidence_date: String(this.adjustmentForm.evidence_date || ''),
+                });
+                this.adjustmentSaving = true;
+                this.error = '';
+                try {
+                    const res = await this.request(`/operation/manager-capability/cases/${caseId}/adjustments`, {
+                        method: 'POST', businessContext: { hotelId }, body: JSON.stringify(payload),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '店长能力案例修正失败');
+                    const saved = res.data?.case || {};
+                    const adjustment = res.data?.adjustment || {};
+                    if (res.data?.readback_verified !== true
+                        || Number(saved.id || 0) !== caseId
+                        || Number(saved.hotel_id || 0) !== hotelId
+                        || Number(saved.manager_user_id || 0) !== managerUserId
+                        || String(adjustment.adjustment_type || '') !== type
+                        || !/^[a-f0-9]{64}$/i.test(String(adjustment.input_digest || ''))
+                        || !/^[a-f0-9]{64}$/i.test(String(adjustment.score_snapshot?.evidence_digest || ''))
+                        || !this.profileIsScoped(res.data?.profile, hotelId, managerUserId)) {
+                        throw new Error('案例修正保存后未完成精确回读');
+                    }
+                    this.profile = res.data.profile;
+                    this.closeAdjustment();
+                    await this.loadFollowupQueue();
+                    this.notify(res.data.replayed ? '已读取同一次案例修正' : '案例修正已追加并回读');
+                } catch (error) {
+                    this.error = error?.message || '店长能力案例修正失败';
+                    this.notify(this.error, 'error');
+                } finally {
+                    this.adjustmentSaving = false;
+                }
+            },
+            async submitScoreReview() {
+                const hotelId = this.normalizedHotelId;
+                const managerUserId = Number(this.selectedManagerId || 0);
+                const caseId = Number(this.selectedReviewCaseId || 0);
+                const selectedCase = this.selectedReviewCase;
+                if (!this.canManageEvidence || hotelId <= 0 || managerUserId <= 0 || caseId <= 0 || !selectedCase) {
+                    this.notify('当前账号不能复核该案例', 'warning');
+                    return;
+                }
+                const outcome = String(this.reviewForm.review_outcome || '');
+                if (!String(this.reviewForm.reason || '').trim()) {
+                    this.notify('请填写人工复核依据', 'warning');
+                    return;
+                }
+                const overrides = {};
+                if (outcome === 'adjusted') {
+                    Object.entries(this.reviewForm.dimension_overrides || {}).forEach(([key, value]) => {
+                        if (value === 'keep') return;
+                        overrides[key] = value === 'unknown' ? null : Number(value);
+                    });
+                    if (!Object.keys(overrides).length) {
+                        this.notify('人工调整至少需要修改一个维度', 'warning');
+                        return;
+                    }
+                }
+                const payload = {
+                    hotel_id: hotelId,
+                    review_outcome: outcome,
+                    reason: String(this.reviewForm.reason || '').trim(),
+                    dimension_overrides: overrides,
+                    source_score_digest: String(this.reviewForm.source_score_digest || ''),
+                    idempotency_key: String(this.reviewForm.idempotency_key || managerCapabilityReviewKey()),
+                };
+                this.reviewSaving = true;
+                this.error = '';
+                try {
+                    const res = await this.request(`/operation/manager-capability/cases/${caseId}/score-reviews`, {
+                        method: 'POST', businessContext: { hotelId }, body: JSON.stringify(payload),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '店长评分人工复核失败');
+                    const saved = res.data?.case || {};
+                    const review = res.data?.score_review || {};
+                    if (res.data?.readback_verified !== true
+                        || Number(saved.id || 0) !== caseId
+                        || Number(saved.hotel_id || 0) !== hotelId
+                        || Number(saved.manager_user_id || 0) !== managerUserId
+                        || String(review.review_outcome || '') !== outcome
+                        || !/^[a-f0-9]{64}$/i.test(String(review.input_digest || ''))
+                        || !/^[a-f0-9]{64}$/i.test(String(review.score_snapshot?.evidence_digest || ''))
+                        || !this.profileIsScoped(res.data?.profile, hotelId, managerUserId)) {
+                        throw new Error('人工复核保存后未完成精确回读');
+                    }
+                    this.profile = res.data.profile;
+                    this.closeScoreReview();
+                    await this.loadFollowupQueue();
+                    this.notify(res.data.replayed ? '已读取同一次人工复核' : '人工复核已追加并回读');
+                } catch (error) {
+                    this.error = error?.message || '店长评分人工复核失败';
+                    this.notify(this.error, 'error');
+                } finally {
+                    this.reviewSaving = false;
+                }
+            },
+            async submit() {
+                const hotelId = this.normalizedHotelId;
+                const managerUserId = Number(this.selectedManagerId || 0);
+                if (hotelId <= 0 || managerUserId <= 0) {
+                    this.notify(hotelId <= 0 ? '请先选择单个酒店' : '请选择店长或负责人', 'warning');
+                    return;
+                }
+                if (!String(this.form.problem_facts || '').trim()
+                    || !String(this.form.action_taken || '').trim()
+                    || !String(this.form.verification_text || '').trim()) {
+                    this.notify('请完整填写管理层三问', 'warning');
+                    return;
+                }
+                if (!String(this.form.evidence_type || '').trim()
+                    || !String(this.form.evidence_reference || '').trim()
+                    || !String(this.form.evidence_date || '').trim()) {
+                    this.notify('请完整填写证据类型、日期和引用', 'warning');
+                    return;
+                }
+                const payload = {
+                    hotel_id: hotelId,
+                    manager_user_id: managerUserId,
+                    business_date: String(this.form.business_date || ''),
+                    problem_facts: String(this.form.problem_facts || '').trim(),
+                    action_taken: String(this.form.action_taken || '').trim(),
+                    verification_status: String(this.form.verification_status || ''),
+                    verification_text: String(this.form.verification_text || '').trim(),
+                    followup_due_date: this.form.verification_status === 'planned_verification'
+                        ? String(this.form.followup_due_date || '') : null,
+                    evidence_type: String(this.form.evidence_type || ''),
+                    evidence_reference: String(this.form.evidence_reference || '').trim(),
+                    evidence_date: String(this.form.evidence_date || ''),
+                    idempotency_key: String(this.form.idempotency_key || managerCapabilityKey()),
+                };
+                this.saving = true;
+                this.error = '';
+                try {
+                    const res = await this.request('/operation/manager-capability/cases', {
+                        method: 'POST', businessContext: { hotelId }, body: JSON.stringify(payload),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '店长评分案例保存失败');
+                    const saved = res.data?.case || {};
+                    if (res.data?.readback_verified !== true
+                        || Number(saved.hotel_id || 0) !== hotelId
+                        || Number(saved.manager_user_id || 0) !== managerUserId
+                        || !/^[a-f0-9]{64}$/i.test(String(saved.input_digest || ''))
+                        || !/^[a-f0-9]{64}$/i.test(String(saved.score_snapshot?.evidence_digest || ''))
+                        || String(saved.score_snapshot?.scoring_version || '') !== 'manager_capability_evidence_v1'
+                        || !this.profileIsScoped(res.data?.profile, hotelId, managerUserId)) {
+                        throw new Error('店长评分案例保存后未完成精确回读');
+                    }
+                    this.profile = res.data.profile;
+                    this.form = managerCapabilityForm();
+                    await this.loadFollowupQueue();
+                    this.notify(res.data.replayed ? '已读取同一评分案例' : '店长评分案例已保存并回读');
+                } catch (error) {
+                    this.error = error?.message || '店长评分案例保存失败';
+                    this.notify(this.error, 'error');
+                } finally {
+                    this.saving = false;
+                }
+            },
+        },
+        render() {
+            const field = (label, node) => h('label', { class: 'block' }, [
+                h('span', { class: 'mb-1 block text-xs font-medium text-slate-600' }, label), node,
+            ]);
+            const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm';
+            const textArea = (key, placeholder, minLength) => h('textarea', {
+                value: this.form[key], rows: 3, minlength: minLength, maxlength: 2000, required: true,
+                placeholder, class: `${inputClass} leading-6`,
+                onInput: event => { this.form[key] = event.target.value; },
+            });
+            const followupTextArea = (key, placeholder, minLength) => h('textarea', {
+                value: this.followupForm[key], rows: 3, minlength: minLength, maxlength: 2000, required: true,
+                placeholder, class: `${inputClass} leading-6`,
+                onInput: event => { this.followupForm[key] = event.target.value; },
+            });
+            const modelTextArea = (model, key, placeholder, minLength) => h('textarea', {
+                value: model[key], rows: 3, minlength: minLength, maxlength: 2000, required: true,
+                placeholder, class: `${inputClass} leading-6`,
+                onInput: event => { model[key] = event.target.value; },
+            });
+            const evidenceFields = (model, testPrefix) => h('div', {
+                class: 'grid gap-3 sm:grid-cols-2', 'data-testid': `${testPrefix}-evidence`,
+            }, [
+                field('证据类型', h('select', {
+                    value: model.evidence_type, required: true, class: inputClass,
+                    onChange: event => { model.evidence_type = event.target.value; },
+                }, managerCapabilityEvidenceTypes.map(([value, label]) => h('option', { value }, label)))),
+                field('证据日期', h('input', {
+                    value: model.evidence_date, type: 'date', required: true, class: inputClass,
+                    onInput: event => { model.evidence_date = event.target.value; },
+                })),
+                h('div', { class: 'sm:col-span-2' }, [field('证据引用', h('input', {
+                    value: model.evidence_reference, type: 'text', maxlength: 500, required: true,
+                    placeholder: '例如：交接台账 2026-08-22 / 系统报表编号 / 附件名称', class: inputClass,
+                    onInput: event => { model.evidence_reference = event.target.value; },
+                }))]),
+            ]);
+            const profileStatusClass = this.profile?.profile_status === 'scored'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-amber-200 bg-amber-50 text-amber-700';
+            const queueCounts = this.followupQueue?.counts || { overdue: 0, today: 0, upcoming: 0, all: 0 };
+            const queueFilters = [
+                ['all', '全部', queueCounts.all], ['overdue', '逾期', queueCounts.overdue],
+                ['today', '今天', queueCounts.today], ['upcoming', '未来7天', queueCounts.upcoming],
+            ];
+            const trendPoints = Array.isArray(this.profile?.trend?.points) ? this.profile.trend.points : [];
+            const coaching = Array.isArray(this.profile?.coaching_suggestions) ? this.profile.coaching_suggestions : [];
+            const pilot = this.profile?.pilot_readiness || {};
+            const confidence = this.profile?.evidence_confidence_summary?.counts || {};
+
+            return h('section', {
+                class: 'overflow-hidden rounded-2xl border border-[#d8e4df] bg-white shadow-sm',
+                'data-testid': 'manager-capability-panel',
+            }, [
+                h('div', { class: 'flex flex-col gap-3 border-b border-slate-100 bg-[#f6faf8] px-5 py-4 lg:flex-row lg:items-start lg:justify-between' }, [
+                    h('div', [
+                        h('div', { class: 'flex flex-wrap items-center gap-2' }, [
+                            h('h3', { class: 'font-bold text-slate-900' }, '店长能力评分'),
+                            h('span', { class: 'rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700' }, '管理层三问 · 六维证据分'),
+                            h('span', { class: `rounded-full border px-2 py-0.5 text-xs font-medium ${profileStatusClass}` }, this.profile?.profile_label || '数据不足'),
+                        ]),
+                        h('p', { class: 'mt-1 max-w-3xl text-sm leading-6 text-slate-600' }, '记录问题事实、采取动作和验证结果，形成问题发现、原因分析、管理解决、带教、执行预防、闭环六项可解释分数。'),
+                        h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, '仅用于当前门店管理复盘；人工录入事实未被系统独立核验，不用于跨店排名、处罚或自动触发运营动作。'),
+                    ]),
+                    h('button', {
+                        type: 'button', disabled: this.loading || this.normalizedHotelId <= 0,
+                        class: 'rounded-lg border border-[#315d50] bg-white px-3 py-2 text-sm font-medium text-[#315d50] hover:bg-emerald-50 disabled:opacity-50',
+                        onClick: () => this.load(),
+                    }, this.loading ? '刷新中' : '刷新评分档案'),
+                ]),
+                this.normalizedHotelId <= 0
+                    ? h('div', { style: 'margin:1.25rem', class: 'rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800' }, '请先在页面顶部选择一个门店；评分不会汇总多个酒店。')
+                    : h('div', { class: 'grid gap-5 p-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.9fr)]' }, [
+                        h('div', { class: 'space-y-4' }, [
+                            h('div', { class: 'flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between' }, [
+                                field('店长 / 负责人', h('select', {
+                                    value: this.selectedManagerId,
+                                    class: 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800',
+                                    'data-testid': 'manager-capability-manager',
+                                    onChange: event => { this.selectedManagerId = event.target.value; void this.loadProfile(); },
+                                }, [h('option', { value: '' }, '请选择'), ...this.managers.map(manager => h('option', {
+                                    key: manager.id, value: String(manager.id),
+                                }, `${manager.display_name}${manager.role_display_name ? ` · ${manager.role_display_name}` : ''}${manager.is_current_user ? '（当前账号）' : ''}`))])),
+                                h('div', { class: 'rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-right' }, [
+                                    h('div', { class: 'text-xs text-slate-500' }, '近90天档案总分'),
+                                    h('div', { class: `mt-0.5 text-xl font-semibold ${this.profile?.overall_score == null ? 'text-slate-400' : 'text-[#315d50]'}` }, this.profile?.overall_score == null ? '数据不足' : String(this.profile.overall_score)),
+                                ]),
+                            ]),
+                            this.error ? h('div', { class: 'rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700' }, this.error) : null,
+                            this.managers.length === 0 && !this.loading ? h('div', { class: 'rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800' }, '当前酒店暂无可选用户，请先完成用户与酒店授权。') : null,
+                            this.profile && !this.canViewEvidenceDetail ? h('div', {
+                                class: 'rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-800',
+                                'data-testid': 'manager-capability-privacy-summary',
+                            }, '当前账号只显示该店长的汇总分、趋势和带教建议；案例原文、证据引用和操作入口已隐藏。') : null,
+                            h('div', { class: 'grid grid-cols-2 gap-3 md:grid-cols-3', 'data-testid': 'manager-capability-dimensions' }, this.dimensions.map(dimension => h('div', {
+                                key: dimension.key, class: 'rounded-xl border border-slate-200 bg-white p-3',
+                            }, [
+                                h('div', { class: 'flex items-start justify-between gap-2' }, [
+                                    h('span', { class: 'text-xs font-semibold text-slate-600' }, dimension.label),
+                                    h('span', { class: `text-lg font-semibold ${dimension.status === 'scored' ? 'text-[#315d50]' : 'text-slate-400'}` }, dimension.score == null ? '--' : String(dimension.score)),
+                                ]),
+                                h('div', { class: 'mt-2 text-[11px] text-slate-500' }, `${dimension.level_label || '数据不足'} · 案例 ${dimension.sample_count || 0}/${dimension.required_sample_count || 3}`),
+                            ]))),
+                            this.canManageEvidence ? h('section', {
+                                class: 'rounded-xl border border-[#cbded6] bg-[#f6faf8] p-4',
+                                'data-testid': 'manager-capability-followup-queue',
+                            }, [
+                                h('div', { class: 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between' }, [
+                                    h('div', [
+                                        h('h4', { class: 'text-sm font-semibold text-slate-900' }, '待复查工作台'),
+                                        h('p', { class: 'mt-1 text-xs text-slate-500' }, '覆盖全部有效案例，不受最近 10 条限制；只提供人工复查入口。'),
+                                    ]),
+                                    h('button', {
+                                        type: 'button', disabled: this.queueLoading,
+                                        class: 'text-xs font-medium text-[#315d50] disabled:opacity-50',
+                                        onClick: () => this.loadFollowupQueue(),
+                                    }, this.queueLoading ? '加载中' : '刷新队列'),
+                                ]),
+                                h('div', { class: 'mt-3 flex flex-wrap gap-2' }, queueFilters.map(([key, label, count]) => h('button', {
+                                    key, type: 'button',
+                                    class: ['rounded-full border px-3 py-1 text-xs font-medium transition', this.followupQueueFilter === key
+                                        ? 'border-[#315d50] bg-[#315d50] text-white'
+                                        : 'border-slate-200 bg-white text-slate-600 hover:border-[#315d50]'],
+                                    onClick: () => { this.followupQueueFilter = key; },
+                                }, `${label} ${Number(count || 0)}`))),
+                                this.queueError ? h('div', { class: 'mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700' }, this.queueError) : null,
+                                this.queueLoading && !this.followupQueue ? h('div', { class: 'mt-3 text-sm text-slate-500' }, '正在读取当前门店复查日期…') : null,
+                                !this.queueLoading && this.followupQueue?.data_status === 'empty'
+                                    ? h('div', { class: 'mt-3 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm text-emerald-700' }, `截至 ${this.followupQueue.business_date}，已确认当前范围没有逾期、今天或未来7天待复查案例。`)
+                                    : null,
+                                this.dueQueueRows.length ? h('div', { class: 'mt-3 space-y-2' }, this.dueQueueRows.map(item => h('div', {
+                                    key: item.id, class: 'flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between',
+                                    'data-testid': `manager-capability-due-row-${item.id}`,
+                                }, [
+                                    h('div', { class: 'min-w-0 text-xs text-slate-600' }, [
+                                        h('div', { class: 'flex flex-wrap items-center gap-2' }, [
+                                            h('b', { class: 'text-slate-900' }, `#${item.id} · ${item.current_followup_due_date}`),
+                                            h('span', { class: ['rounded-full px-2 py-0.5 font-medium', item.due_bucket === 'overdue'
+                                                ? 'bg-rose-50 text-rose-700' : (item.due_bucket === 'today' ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700')] }, this.dueQueueText(item)),
+                                        ]),
+                                        h('p', { class: 'mt-1 line-clamp-2' }, item.problem_facts),
+                                    ]),
+                                    h('button', {
+                                        type: 'button', class: 'shrink-0 rounded-lg bg-[#315d50] px-3 py-1.5 text-xs font-semibold text-white',
+                                        'data-testid': `manager-capability-due-followup-${item.id}`,
+                                        onClick: () => this.openFollowup(item),
+                                    }, '立即复查'),
+                                ]))) : null,
+                            ]) : null,
+                            this.profile ? h('div', { class: 'grid gap-3 lg:grid-cols-2', 'data-testid': 'manager-capability-development' }, [
+                                h('section', { class: 'rounded-xl border border-slate-200 bg-white p-4' }, [
+                                    h('div', { class: 'flex items-center justify-between gap-2' }, [
+                                        h('h4', { class: 'text-sm font-semibold text-slate-900' }, '个人趋势'),
+                                        h('span', { class: 'text-[11px] text-slate-500' }, this.profile.trend?.direction === 'improving' ? '改善中' : (this.profile.trend?.direction === 'needs_attention' ? '需关注' : '观察中')),
+                                    ]),
+                                    trendPoints.length ? h('div', { class: 'mt-3 space-y-2' }, trendPoints.map(point => h('div', { key: point.period }, [
+                                        h('div', { class: 'flex justify-between text-[11px] text-slate-500' }, [h('span', point.period), h('span', point.average_score == null ? '证据不足' : `${point.average_score} · ${point.case_count}例`)]),
+                                        h('div', { class: 'mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100' }, [h('div', {
+                                            class: 'h-full rounded-full bg-[#315d50]', style: `width:${Math.max(0, Math.min(100, Number(point.average_score || 0)))}%`,
+                                        })]),
+                                    ]))) : h('p', { class: 'mt-3 text-xs text-slate-500' }, '暂无可形成个人趋势的案例。'),
+                                    h('p', { class: 'mt-3 text-[11px] leading-5 text-slate-500' }, '月度观察均值仅看当前店长，不用于跨店或跨人员排名。'),
+                                ]),
+                                h('section', { class: 'rounded-xl border border-slate-200 bg-white p-4' }, [
+                                    h('h4', { class: 'text-sm font-semibold text-slate-900' }, '带教建议与试点状态'),
+                                    coaching.length ? h('div', { class: 'mt-3 space-y-2' }, coaching.map(item => h('div', { key: item.dimension_key, class: 'rounded-lg bg-slate-50 px-3 py-2' }, [
+                                        h('b', { class: 'text-xs text-slate-800' }, item.dimension_label),
+                                        h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, item.suggestion),
+                                    ]))) : null,
+                                    h('div', { class: 'mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800', 'data-testid': 'manager-capability-pilot-readiness' }, [
+                                        h('b', pilot.status === 'ready_for_review' ? '可开始人工阶段复盘' : (pilot.status === 'collecting' ? '试点采集中' : '试点尚未开始')),
+                                        h('p', `有效案例 ${Number(pilot.case_count || 0)} · 覆盖 ${Number(pilot.active_days || 0)} 天 · 建议观察 14–28 天。`),
+                                        h('p', '达到条件不代表现场效果已验证。'),
+                                    ]),
+                                ]),
+                            ]) : null,
+                            h('div', { class: 'rounded-xl border border-slate-200 bg-slate-50 p-4' }, [
+                                h('div', { class: 'flex items-center justify-between gap-3' }, [h('h4', { class: 'text-sm font-semibold text-slate-800' }, '最近评分案例'), h('span', { class: 'text-xs text-slate-500' }, '按案例 ID 精确回读')]),
+                                !this.canViewEvidenceDetail && this.profile ? h('p', { class: 'mt-3 text-sm text-slate-500' }, '当前为汇总视图，案例与证据明细不展示。') : null,
+                                this.canViewEvidenceDetail && this.recentCases.length ? h('div', { class: 'mt-3 space-y-2' }, this.recentCases.map(item => h('div', {
+                                    key: item.id, class: ['rounded-lg border bg-white px-3 py-2 text-xs text-slate-600', item.is_voided ? 'border-rose-200 opacity-75' : 'border-slate-200'],
+                                    'data-testid': `manager-capability-case-${item.id}`,
+                                }, [
+                                    h('div', { class: 'flex flex-wrap items-start justify-between gap-2' }, [
+                                        h('div', [h('b', { class: 'text-slate-800' }, `#${item.id} · ${item.business_date}`), ` · ${this.caseStatusText(item)} · ${this.caseScoreText(item)}`]),
+                                        this.canManageEvidence ? h('div', { class: 'flex flex-wrap gap-1.5' }, item.is_voided ? [
+                                            h('button', { type: 'button', class: 'rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px]', onClick: () => this.openAdjustment(item, 'restored') }, '恢复计分'),
+                                        ] : [
+                                            h('button', { type: 'button', class: 'rounded-md border border-[#315d50] bg-white px-2 py-1 text-[11px] font-medium text-[#315d50]', 'data-testid': `manager-capability-followup-open-${item.id}`, onClick: () => this.openFollowup(item) }, '追加复查'),
+                                            h('button', { type: 'button', class: 'rounded-md border border-sky-200 bg-white px-2 py-1 text-[11px] text-sky-700', onClick: () => this.openScoreReview(item) }, '人工复核'),
+                                            h('button', { type: 'button', class: 'rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] text-amber-700', onClick: () => this.openAdjustment(item, 'corrected') }, '纠错'),
+                                            h('button', { type: 'button', class: 'rounded-md border border-rose-200 bg-white px-2 py-1 text-[11px] text-rose-700', onClick: () => this.openAdjustment(item, 'voided') }, '作废'),
+                                        ]) : null,
+                                    ]),
+                                    h('div', { class: 'mt-1 line-clamp-2' }, item.problem_facts),
+                                    h('div', { class: 'mt-1 flex flex-wrap gap-2 text-[11px]' }, [
+                                        h('span', { class: ['rounded-full px-2 py-0.5', item.evidence?.confidence === 'high' ? 'bg-emerald-50 text-emerald-700' : (item.evidence?.confidence === 'medium' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600')] }, this.evidenceConfidenceText(item)),
+                                        item.score_source === 'human_review' ? h('span', { class: 'rounded-full bg-sky-50 px-2 py-0.5 text-sky-700' }, '人工复核分') : null,
+                                        item.latest_adjustment ? h('span', { class: 'rounded-full bg-amber-50 px-2 py-0.5 text-amber-700' }, `追加修正：${item.latest_adjustment.adjustment_type}`) : null,
+                                    ]),
+                                    h('div', { class: 'mt-1 text-[11px] text-slate-500' }, this.dimensionSummary(item)),
+                                    h('div', { class: 'mt-1 text-[11px] leading-5 text-slate-500' }, (Array.isArray(item.score_snapshot?.dimensions) ? item.score_snapshot.dimensions : [])
+                                        .slice(0, 2).flatMap(dimension => Array.isArray(dimension.reasons) ? dimension.reasons.slice(0, 1) : []).join('；')),
+                                    item.latest_followup ? h('div', { class: 'mt-1 rounded-md bg-slate-50 px-2 py-1 text-[11px] text-slate-600' }, `最近复查：${item.latest_followup.followup_date} · 样本 ${item.latest_followup.sample_count} · ${item.latest_followup.verification_text}`) : null,
+                                ]))) : (this.canViewEvidenceDetail ? h('div', { class: 'mt-3 text-sm text-slate-500' }, '暂无当前门店、当前负责人的评分案例。') : null),
+                                this.selectedFollowupCase ? h('form', {
+                                    class: 'mt-4 space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4',
+                                    'data-testid': 'manager-capability-followup-form',
+                                    onSubmit: event => { event.preventDefault(); void this.submitFollowup(); },
+                                }, [
+                                    h('div', { class: 'flex items-start justify-between gap-3' }, [
+                                        h('div', [
+                                            h('h5', { class: 'text-sm font-semibold text-slate-900' }, `追加复查 · 案例 #${this.selectedFollowupCase.id}`),
+                                            h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, '原始三问不会被覆盖；本次结果将作为新的有效评分快照。'),
+                                        ]),
+                                        h('button', { type: 'button', class: 'text-xs text-slate-500 hover:text-slate-800', onClick: () => this.closeFollowup() }, '取消'),
+                                    ]),
+                                    h('div', { class: 'grid gap-3 sm:grid-cols-3' }, [
+                                        field('复查日期', h('input', { value: this.followupForm.followup_date, type: 'date', required: true, class: inputClass, onInput: event => { this.followupForm.followup_date = event.target.value; } })),
+                                        field('复查结论', h('select', { value: this.followupForm.followup_outcome, required: true, class: inputClass, 'data-testid': 'manager-capability-followup-outcome', onChange: event => { this.followupForm.followup_outcome = event.target.value; } }, [
+                                            h('option', { value: 'resolved' }, '已解决'),
+                                            h('option', { value: 'still_open' }, '待继续'),
+                                            h('option', { value: 'recurred' }, '再发生'),
+                                        ])),
+                                        field('核对样本数', h('input', { value: this.followupForm.sample_count, type: 'number', min: this.followupForm.followup_outcome === 'still_open' ? 0 : 1, max: 100000, required: true, class: inputClass, onInput: event => { this.followupForm.sample_count = event.target.value; } })),
+                                    ]),
+                                    field(this.followupForm.followup_outcome === 'still_open' ? '本次观察与继续计划' : '本次复查结果', followupTextArea('verification_text', '写清观察结果、核对方法和样本。', 8)),
+                                    evidenceFields(this.followupForm, 'manager-capability-followup'),
+                                    this.followupForm.followup_outcome !== 'resolved' ? field('下次复查日期', h('input', { value: this.followupForm.next_followup_date, type: 'date', required: true, class: inputClass, onInput: event => { this.followupForm.next_followup_date = event.target.value; } })) : null,
+                                    this.followupForm.followup_outcome === 'recurred' ? h('div', { class: 'space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3' }, [
+                                        h('div', { class: 'text-xs font-semibold text-amber-900' }, '复发后生成关联新案例'),
+                                        field('新的问题事实', followupTextArea('recurrence_problem_facts', '写清这次再次发生的时间、岗位、对象和事实。', 10)),
+                                        field('新的处理动作', followupTextArea('recurrence_action_taken', '写清责任人、动作、标准和时间。', 8)),
+                                        field('新的验证计划', followupTextArea('recurrence_verification_plan', '写清下次如何核对是否再次解决。', 8)),
+                                    ]) : null,
+                                    h('button', {
+                                        type: 'submit', disabled: this.followupSaving,
+                                        class: 'w-full rounded-xl bg-[#315d50] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#264a40] disabled:opacity-50',
+                                    }, this.followupSaving ? '保存并回读中' : '保存本次复查'),
+                                ]) : null,
+                                this.selectedAdjustmentCase ? h('form', {
+                                    class: 'mt-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4',
+                                    'data-testid': 'manager-capability-adjustment-form',
+                                    onSubmit: event => { event.preventDefault(); void this.submitAdjustment(); },
+                                }, [
+                                    h('div', { class: 'flex items-start justify-between gap-3' }, [
+                                        h('div', [h('h5', { class: 'text-sm font-semibold text-slate-900' }, `追加纠错/作废 · 案例 #${this.selectedAdjustmentCase.id}`), h('p', { class: 'mt-1 text-xs text-slate-500' }, '原始记录保持不变；作废案例从档案分和复查队列排除。')]),
+                                        h('button', { type: 'button', class: 'text-xs text-slate-500', onClick: () => this.closeAdjustment() }, '取消'),
+                                    ]),
+                                    field('处理类型', h('select', { value: this.adjustmentForm.adjustment_type, class: inputClass, onChange: event => { this.adjustmentForm.adjustment_type = event.target.value; } }, [
+                                        h('option', { value: 'corrected' }, '纠错并形成新有效投影'), h('option', { value: 'voided' }, '作废并排除计分'), h('option', { value: 'restored' }, '恢复计分'),
+                                    ])),
+                                    field('原因', h('input', { value: this.adjustmentForm.reason, type: 'text', minlength: 4, maxlength: 500, required: true, class: inputClass, placeholder: '写清为什么纠错、作废或恢复。', onInput: event => { this.adjustmentForm.reason = event.target.value; } })),
+                                    this.adjustmentForm.adjustment_type === 'corrected' ? h('div', { class: 'space-y-3 rounded-xl border border-amber-200 bg-white p-3' }, [
+                                        field('纠错后的案例日期', h('input', { value: this.adjustmentForm.business_date, type: 'date', required: true, class: inputClass, onInput: event => { this.adjustmentForm.business_date = event.target.value; } })),
+                                        field('纠错后的问题事实', modelTextArea(this.adjustmentForm, 'problem_facts', '完整填写纠错后的问题事实。', 10)),
+                                        field('纠错后的处理动作', modelTextArea(this.adjustmentForm, 'action_taken', '完整填写纠错后的处理动作。', 8)),
+                                        field('第三问类型', h('select', { value: this.adjustmentForm.verification_status, class: inputClass, onChange: event => { this.adjustmentForm.verification_status = event.target.value; } }, [h('option', { value: 'observed_result' }, '已有观察结果'), h('option', { value: 'planned_verification' }, '尚待复查')])) ,
+                                        field('纠错后的验证内容', modelTextArea(this.adjustmentForm, 'verification_text', '填写纠错后的结果或计划。', 8)),
+                                        this.adjustmentForm.verification_status === 'planned_verification' ? field('计划复查日期', h('input', { value: this.adjustmentForm.followup_due_date, type: 'date', required: true, class: inputClass, onInput: event => { this.adjustmentForm.followup_due_date = event.target.value; } })) : null,
+                                        evidenceFields(this.adjustmentForm, 'manager-capability-adjustment'),
+                                    ]) : null,
+                                    h('button', { type: 'submit', disabled: this.adjustmentSaving, class: 'w-full rounded-xl bg-amber-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50' }, this.adjustmentSaving ? '保存并回读中' : '追加修正记录'),
+                                ]) : null,
+                                this.selectedReviewCase ? h('form', {
+                                    class: 'mt-4 space-y-3 rounded-xl border border-sky-200 bg-sky-50/50 p-4',
+                                    'data-testid': 'manager-capability-score-review-form',
+                                    onSubmit: event => { event.preventDefault(); void this.submitScoreReview(); },
+                                }, [
+                                    h('div', { class: 'flex items-start justify-between gap-3' }, [
+                                        h('div', [h('h5', { class: 'text-sm font-semibold text-slate-900' }, `人工评分复核 · 案例 #${this.selectedReviewCase.id}`), h('p', { class: 'mt-1 text-xs text-slate-500' }, '必须绑定当前评分摘要并填写依据；不会修改原始评分。')]),
+                                        h('button', { type: 'button', class: 'text-xs text-slate-500', onClick: () => this.closeScoreReview() }, '取消'),
+                                    ]),
+                                    field('复核结论', h('select', { value: this.reviewForm.review_outcome, class: inputClass, onChange: event => { this.reviewForm.review_outcome = event.target.value; } }, [h('option', { value: 'confirmed' }, '确认原评分'), h('option', { value: 'adjusted' }, '人工调整')])) ,
+                                    field('复核依据', h('input', { value: this.reviewForm.reason, type: 'text', minlength: 4, maxlength: 500, required: true, class: inputClass, placeholder: '写清复核证据和调整原因。', onInput: event => { this.reviewForm.reason = event.target.value; } })),
+                                    this.reviewForm.review_outcome === 'adjusted' ? h('div', { class: 'grid grid-cols-2 gap-3 md:grid-cols-3' }, managerCapabilityDefaultDimensions.map(([key, label]) => field(label, h('select', { value: this.reviewForm.dimension_overrides[key] || 'keep', class: inputClass, onChange: event => { this.reviewForm.dimension_overrides[key] = event.target.value; } }, [h('option', { value: 'keep' }, '保持原分'), h('option', { value: '90' }, '90 证据充分'), h('option', { value: '75' }, '75 基本成立'), h('option', { value: '50' }, '50 需补强'), h('option', { value: 'unknown' }, '未观察')])))) : null,
+                                    h('button', { type: 'submit', disabled: this.reviewSaving, class: 'w-full rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50' }, this.reviewSaving ? '保存并回读中' : '保存人工复核'),
+                                ]) : null,
+                            ]),
+                        ]),
+                        this.canManageEvidence ? h('div', { class: 'space-y-4' }, [h('form', {
+                            class: 'space-y-3 rounded-2xl border border-[#d8e4df] bg-[#fbfdfc] p-4',
+                            'data-testid': 'manager-capability-form',
+                            onSubmit: event => { event.preventDefault(); void this.submit(); },
+                        }, [
+                            h('div', [h('h4', { class: 'font-semibold text-slate-900' }, '新增三问案例'), h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, '90 证据充分、75 基本成立、50 需补强；无证据留空。')]),
+                            field('案例日期', h('input', { value: this.form.business_date, type: 'date', required: true, class: 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm', onInput: event => { this.form.business_date = event.target.value; } })),
+                            field('第一问：发现了什么问题事实？', textArea('problem_facts', '写清何时、何地、何人、何事。', 10)),
+                            field('第二问：实际采取了什么动作？', textArea('action_taken', '写清责任人、动作、标准和时间。', 8)),
+                            h('div', { class: 'grid gap-3 sm:grid-cols-2' }, [
+                                field('第三问类型', h('select', { value: this.form.verification_status, required: true, class: 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm', onChange: event => { this.form.verification_status = event.target.value; } }, [h('option', { value: 'observed_result' }, '已有观察结果'), h('option', { value: 'planned_verification' }, '尚待复查')])),
+                                this.form.verification_status === 'planned_verification' ? field('计划复查日期', h('input', { value: this.form.followup_due_date, type: 'date', required: true, class: 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm', onInput: event => { this.form.followup_due_date = event.target.value; } })) : null,
+                            ]),
+                            field(this.form.verification_status === 'observed_result' ? '第三问：结果如何证明？' : '第三问：准备怎么验证？', textArea('verification_text', this.form.verification_status === 'observed_result' ? '写可核对的结果。' : '写复查对象、日期和方法。', 8)),
+                            evidenceFields(this.form, 'manager-capability-case'),
+                            h('div', { class: 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-500' }, `证据置信度与能力分分开：较高 ${Number(confidence.high || 0)} · 一般 ${Number(confidence.medium || 0)} · 未核验 ${Number(confidence.unverified || 0)}。`),
+                            h('button', {
+                                type: 'submit', disabled: this.saving || this.loading || !this.selectedManagerId,
+                                class: 'w-full rounded-xl bg-[#315d50] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#264a40] disabled:opacity-50',
+                            }, this.saving ? '保存并回读中' : '保存案例并评分'),
+                        ]), h('section', { class: 'rounded-2xl border border-slate-200 bg-white p-4' }, [
+                            h('h4', { class: 'text-sm font-semibold text-slate-900' }, '评分解释'),
+                            h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, '规则只做确定性证据分；人工复核必须留原因。无案例证据继续留空，不按 0 分。'),
+                            h('div', { class: 'mt-3 space-y-2' }, managerCapabilityDefaultDimensions.map(([key, label]) => h('details', { key, class: 'rounded-lg border border-slate-100 px-3 py-2' }, [
+                                h('summary', { class: 'cursor-pointer text-xs font-semibold text-slate-700' }, label),
+                                h('ul', { class: 'mt-2 list-disc space-y-1 pl-4 text-[11px] leading-5 text-slate-500' }, (this.profile?.scoring_contract?.dimension_rubrics?.[key] || []).map(item => h('li', item))),
+                            ]))),
+                        ])]) : h('aside', { class: 'rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-800' }, [
+                            h('h4', { class: 'font-semibold' }, '汇总查看权限'),
+                            h('p', { class: 'mt-2' }, this.profile?.permissions?.policy || '当前账号可看汇总，但不能查看或修改案例证据。'),
+                            h('p', { class: 'mt-2 text-xs' }, '如需新增、复查、纠错、作废或人工复核，请由具备当前门店运营执行权限的管理者操作。'),
+                        ]),
+                    ]),
+            ]);
+        },
     };
 
+        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel });
+    };
     const exportedFactory = Object.freeze({ create });
     window.SUXI_APP_MAIN_COMPONENTS_FULL = exportedFactory;
     if (!window.SUXI_APP_MAIN_COMPONENTS) {

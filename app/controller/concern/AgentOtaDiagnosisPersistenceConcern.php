@@ -154,14 +154,16 @@ trait AgentOtaDiagnosisPersistenceConcern
         }
 
         if ($result['decision_status'] === 'no_action') {
-            $platformLabel = (string)($result['platform'] ?? '') === 'meituan' ? '美团' : 'OTA';
+            $platformLabel = $this->otaDiagnosisPlatformLabel($result['platform'] ?? null);
             $summary = sprintf(
                 '本次%s渠道已覆盖的入库核心字段通过校验，未发现达到当前诊断阈值的异常；该结论仅限本次渠道数据，“无需新增行动”，继续观察下一数据日。',
                 $platformLabel
             );
+            $priorityRecommendation = $this->otaDiagnosisNoActionPriorityRecommendation($result);
             $result['diagnosis']['summary'] = $summary;
             $result['diagnosis']['abnormal_metrics'] = [];
             $result['diagnosis']['actions'] = [];
+            $result['diagnosis']['priority_recommendation'] = $priorityRecommendation;
             $result['core_conclusion'] = $summary;
             $result['main_problems'] = [];
             $result['recommended_actions'] = [];
@@ -170,6 +172,7 @@ trait AgentOtaDiagnosisPersistenceConcern
                 'codes' => ['core_metrics_available', 'no_threshold_breach'],
                 'scope' => 'ota_channel',
                 'statement' => '无需行动只表示本次已覆盖的 OTA 渠道指标未触发行动阈值，不代表全酒店经营无问题。',
+                'priority_recommendation' => $priorityRecommendation,
             ];
             $result['diagnosis_sections'] = $this->buildOtaDiagnosisSections(
                 $result['diagnosis'],
@@ -1775,13 +1778,10 @@ trait AgentOtaDiagnosisPersistenceConcern
                 $this->addNullableOtaDiagnosisMetric($summary['daily'][$date], $key, $value);
             }
 
-            $knownCoreValues = array_values(array_filter(
-                array_merge([$amount, $quantity, $bookOrderNum], array_values($traffic)),
-                static fn(?float $value): bool => $value !== null
-            ));
-            if ($knownCoreValues === []) {
+            $coreValueState = $this->otaDiagnosisCoreValueState($dataType, [$amount, $quantity, $bookOrderNum], array_values($traffic));
+            if ($coreValueState === 'missing') {
                 $missingCoreValueCount++;
-            } elseif (count(array_filter($knownCoreValues, static fn(float $value): bool => $value > 0)) === 0) {
+            } elseif ($coreValueState === 'zero') {
                 $zeroValueCount++;
             }
         }

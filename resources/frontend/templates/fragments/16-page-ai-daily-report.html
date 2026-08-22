@@ -4,7 +4,7 @@
                                 <div>
                                     <div class="text-xs font-semibold text-blue-200 uppercase tracking-wide">AI Daily Operations</div>
                                     <h2 class="text-2xl font-bold mt-2">AI经营日报</h2>
-                                    <p class="text-sm text-slate-300 mt-2 max-w-3xl">集中展示昨日结果、今日变化、竞对诊断和数据缺口；仅呈现已有证据。</p>
+                                    <p class="text-sm text-slate-300 mt-2 max-w-3xl">自动读取已保存的携程、美团竞争圈，分别分析后生成同一份可追溯报告。</p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2">
                                     <button @click="loadAiDailyReport" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" class="px-3 py-2 rounded-lg border border-white/15 bg-white/10 text-sm text-white hover:bg-white/15 disabled:opacity-60">
@@ -38,10 +38,10 @@
                             <div class="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
                                 <div class="min-w-0">
                                     <div class="flex flex-wrap items-center gap-2">
-                                        <h3 class="text-base font-semibold text-slate-900">昨日 OTA 事实早报</h3>
-                                        <span class="rounded-md border px-2 py-0.5 text-xs" :class="aiDailyFactGate.statusClass">{{ aiDailyFactGate.statusText }}</span>
+                                        <h3 class="text-base font-semibold text-slate-900">携程 / 美团竞争圈数据</h3>
+                                        <span class="rounded-md border px-2 py-0.5 text-xs" :class="aiDailyFactGateLoading ? 'border-blue-200 bg-blue-50 text-blue-700' : aiDailyFactGate.statusClass">{{ aiDailyFactGateLoading ? '正在读取已选酒店' : aiDailyFactGate.statusText }}</span>
                                     </div>
-                                    <p class="mt-1 text-xs leading-5 text-slate-500">只读取现有状态，不触发OTA采集、不写业务数据。{{ aiDailyFactGate.scopeText }}</p>
+                                    <p class="mt-1 text-xs leading-5 text-slate-500">选择酒店和业务日期后自动读取；这里只读取现有状态，不触发OTA采集、不写业务数据。正式生成继续校验保存与回读。</p>
                                 </div>
                                 <button type="button" @click="loadAiDailyFactGate()" :disabled="aiDailyFactGateLoading" title="刷新 OTA 事实" class="inline-flex min-h-9 shrink-0 self-start items-center justify-center whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 sm:self-auto">
                                     <i :class="aiDailyFactGateLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" aria-hidden="true"></i>
@@ -50,34 +50,28 @@
                             </div>
                             <div v-if="aiDailyFactGateLoading" class="flex items-center gap-2 px-4 py-4 text-sm text-blue-700 sm:px-5">
                                 <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
-                                <span>正在读取 Profile、目标日入库和字段事实状态</span>
+                                <span>正在读取门店绑定、目标日入库和分析字段状态</span>
                             </div>
                             <template v-else="">
                                 <div v-if="aiDailyFactGate.errorText" class="border-b border-red-100 bg-red-50 px-4 py-3 text-xs leading-5 text-red-700 sm:px-5">
                                     未核验原因：{{ aiDailyFactGate.errorText }}。不会以空数据或旧状态标记为就绪。
                                 </div>
-                                <div class="grid grid-cols-2 border-b border-slate-200 bg-slate-50 lg:grid-cols-5">
-                                    <div v-for="stage in aiDailyFactGate.chain" :key="stage.key" class="min-w-0 border-b border-r border-slate-200 px-3 py-3 last:border-r-0 lg:border-b-0">
-                                        <div class="text-xs font-semibold text-slate-800">{{ stage.label }}</div>
-                                        <span :class="stage.className" class="mt-1 inline-flex max-w-full rounded-md border px-2 py-0.5 text-[11px]">{{ stage.text }}</span>
-                                    </div>
-                                </div>
                                 <div class="divide-y divide-slate-100">
-                                    <div v-for="row in aiDailyFactGate.platformRows" :key="row.platform" class="grid grid-cols-1 gap-3 px-4 py-3 text-xs sm:px-5 md:grid-cols-12 md:items-center">
+                                    <div v-for="row in aiDailyCompetitionInputRows" :key="row.platform" class="grid grid-cols-1 gap-3 px-4 py-3 text-xs sm:px-5 md:grid-cols-12 md:items-center">
                                         <div class="md:col-span-2">
-                                            <div class="font-semibold text-slate-900">{{ row.label }}</div>
-                                            <div class="mt-1 text-[11px] text-slate-400">{{ row.applicable ? '适用渠道' : '未配置渠道' }}</div>
+                                            <div class="font-semibold text-slate-900">{{ row.label }}竞争圈</div>
+                                            <div class="mt-1 text-[11px] text-slate-400">分析数据来源</div>
                                         </div>
                                         <div class="min-w-0 md:col-span-2" :title="row.loginStatus">
-                                            <div class="text-[11px] text-slate-400">Profile</div>
+                                            <div class="text-[11px] text-slate-400">门店与登录</div>
                                             <div class="mt-1 truncate text-slate-700">{{ row.loginText }}</div>
                                         </div>
                                         <div class="min-w-0 md:col-span-3">
-                                            <div class="text-[11px] text-slate-400">目标日入库 · {{ aiDailyFactGate.targetDate || '-' }}</div>
+                                            <div class="text-[11px] text-slate-400">目标日竞争圈 · {{ aiDailyFactGate.targetDate || '-' }}</div>
                                             <div class="mt-1 truncate text-slate-700">{{ row.collectionText }} · {{ row.targetDateRows }} 行</div>
                                         </div>
                                         <div class="min-w-0 md:col-span-2">
-                                            <div class="text-[11px] text-slate-400">字段事实</div>
+                                            <div class="text-[11px] text-slate-400">分析字段</div>
                                             <div class="mt-1 truncate text-slate-700">{{ row.fieldText }}</div>
                                         </div>
                                         <div class="min-w-0 md:col-span-3">
@@ -87,7 +81,7 @@
                                     </div>
                                 </div>
                                 <div class="flex flex-col gap-1 border-t border-slate-200 bg-slate-50 px-4 py-3 text-[11px] text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-                                    <span>适用渠道 {{ aiDailyFactGate.configuredCount }} / 就绪 {{ aiDailyFactGate.readyCount }} / 字段缺口 {{ aiDailyFactGate.fieldGapCount }}</span>
+                                    <span>报告要求 2 个平台 / 已就绪 {{ aiDailyCompetitionReadyCount }} / 字段缺口 {{ aiDailyFactGate.fieldGapCount }}</span>
                                     <span class="truncate" :title="aiDailyFactGate.sourceRefs.join(' / ')">来源：{{ aiDailyFactGate.sourceRefs.join(' / ') }}<template v-if="aiDailyFactGate.generatedAt"> · {{ aiDailyFactGate.generatedAt }}</template></span>
                                 </div>
                             </template>
@@ -95,33 +89,27 @@
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-4">
                                 <div>
-                                    <h3 class="font-bold text-gray-900">今日概览</h3>
-                                    <p class="text-sm text-gray-500 mt-1">日报只使用已授权OTA与运营数据，缺失项会显式展示，不触碰订单手机号、房态或房源映射。</p>
+                                    <h3 class="font-bold text-gray-900">生成竞争圈分析报告</h3>
+                                    <p class="text-sm text-gray-500 mt-1">只选择酒店和业务日期；系统自动使用对应携程、美团竞争圈，不需要手工填写分析资料。</p>
                                 </div>
-                                <div class="grid grid-cols-1 sm:grid-cols-5 gap-2 xl:w-[820px]">
+                                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 xl:w-[720px]">
                                     <select v-model="aiDailyReportForm.hotel_id" @change="loadAiDailyFactGate()" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" class="px-3 py-2 border border-gray-200 rounded-lg text-sm disabled:bg-gray-50 disabled:text-gray-400">
                                         <option value="">自动选择可见酒店</option>
                                         <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
                                     </select>
                                     <input v-model="aiDailyReportForm.report_date" @change="loadAiDailyFactGate()" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm disabled:bg-gray-50 disabled:text-gray-400">
-                                    <select v-model="aiDailyReportForm.edition">
-                                        <option value="lite">简版</option>
-                                        <optgroup v-if="user?.is_super_admin">
-                                            <option value="flagship">旗舰版</option>
-                                            <option value="both">双版</option>
-                                        </optgroup>
-                                    </select>
                                     <label class="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">
                                         <input v-model="aiDailyReportForm.use_llm" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" type="checkbox" class="rounded border-gray-300 disabled:opacity-50">
                                         <span>调用AI</span>
                                     </label>
-                                    <button @click="generateAiDailyReport" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling || !revenueAiStaticReady" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
+                                    <button @click="generateAiDailyReport" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling || !aiDailyCompetitionInputsReady" :title="aiDailyCompetitionInputStatusText" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
                                         <i class="fas fa-robot mr-2" :class="{ 'fa-spin': operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling }"></i>
                                         <span v-if="aiDailyReportGenerationRunning">{{ aiDailyReportGenerationStageText }}<template v-if="aiDailyReportGenerationProgress !== null"> {{ aiDailyReportGenerationProgress }}%</template></span>
-                                        <span v-else>生成日报</span>
+                                        <span v-else>生成分析报告</span>
                                     </button>
                                 </div>
                             </div>
+                            <div data-testid="ai-daily-competition-input-status" :class="aiDailyCompetitionInputStatusClass" class="mb-4 rounded-lg border px-3 py-2 text-xs">{{ aiDailyCompetitionInputStatusText }}</div>
                             <div v-if="aiDailyReportGenerationTask" data-testid="ai-daily-report-generation-task" :class="aiDailyReportGenerationStatusClass" class="mb-4 rounded-lg border px-4 py-3">
                                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                     <div class="flex min-w-0 items-center gap-2">

@@ -548,6 +548,7 @@ class Auth extends Base
             'can_view_field_assets' => $this->roleAllows($user, 'can_view_field_assets'),
             'can_view_diagnostics' => $this->roleAllows($user, 'can_view_diagnostics'),
             'can_manage_ai_governance' => $this->roleAllows($user, 'can_manage_ai_governance'),
+            'can_execute_operation' => $allows('operation.execute'),
         ];
     }
 

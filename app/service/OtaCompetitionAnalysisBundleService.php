@@ -15,9 +15,17 @@ final class OtaCompetitionAnalysisBundleService
     public const DEFAULT_EDITION = 'lite';
     private const EDITIONS = ['lite', 'flagship', 'both'];
 
-    public function __construct(private ?CtripCompetitiveOperationsService $ctripService = null)
-    {
-        $this->ctripService ??= new CtripCompetitiveOperationsService();
+    private CtripCompetitiveOperationsService $ctripService;
+
+    /** @var null|\Closure(int,string,string):array<string,mixed> */
+    private ?\Closure $ctripReader;
+
+    public function __construct(
+        ?CtripCompetitiveOperationsService $ctripService = null,
+        ?callable $ctripReader = null
+    ) {
+        $this->ctripService = $ctripService ?? new CtripCompetitiveOperationsService();
+        $this->ctripReader = $ctripReader === null ? null : \Closure::fromCallable($ctripReader);
     }
 
     public static function normalizeEdition(mixed $edition): string
@@ -61,16 +69,11 @@ final class OtaCompetitionAnalysisBundleService
         if (is_array($options['ctrip_result'] ?? null)) {
             $ctrip = $options['ctrip_result'];
         } else {
-            try {
-                $ctrip = $this->ctripService->build($hotelId, $reportDate, $reportDate);
-            } catch (\Throwable) {
-                $ctrip = [
-                    'status' => 'collection_failed',
-                    'context' => ['binding_status' => 'binding_unverified'],
-                    'business_comparison' => [],
-                    'data_coverage' => [],
-                ];
-            }
+            // The Ctrip read model returns explicit data_missing/unverified
+            // statuses for ordinary source absence. Technical exceptions are
+            // not source facts and must propagate instead of being disguised
+            // as a collection gap.
+            $ctrip = $this->readCtrip($hotelId, $reportDate);
         }
         $meituan = is_array($options['meituan_summary'] ?? null)
             ? $options['meituan_summary']
@@ -87,6 +90,18 @@ final class OtaCompetitionAnalysisBundleService
                 'readback_verified' => ($snapshot['input_trust']['readback_verified'] ?? false) === true,
             ])
         );
+    }
+
+    /** @return array<string,mixed> */
+    private function readCtrip(int $hotelId, string $reportDate): array
+    {
+        $result = $this->ctripReader !== null
+            ? ($this->ctripReader)($hotelId, $reportDate, $reportDate)
+            : $this->ctripService->build($hotelId, $reportDate, $reportDate);
+        if (!is_array($result)) {
+            throw new \RuntimeException('ctrip_competition_reader_invalid_result');
+        }
+        return $result;
     }
 
     /**
@@ -287,11 +302,14 @@ final class OtaCompetitionAnalysisBundleService
                     : null,
                 'candidate_group_counts' => $candidateGroups,
                 'source_refs' => [
-                    'facts' => 'competition_circle_bundle.facts.' . $platform,
-                    'derived_metrics' => 'competition_circle_bundle.derived_metrics.' . $platform,
-                    'analysis' => 'competition_circle_bundle.analysis.' . $platform,
-                    'candidates' => 'competition_circle_bundle.candidate_competitors.' . $platform,
-                    'quality' => 'competition_circle_bundle.quality',
+                    // JSON Pointers are relative to the canonical bundle root.
+                    // Every reference must resolve against the exact object
+                    // returned by buildFromInputs; no wrapper name is assumed.
+                    'facts' => '/facts/' . $platform,
+                    'derived_metrics' => '/derived_metrics/' . $platform,
+                    'analysis' => '/analysis/' . $platform,
+                    'candidates' => '/candidate_competitors/' . $platform,
+                    'quality' => '/quality',
                 ],
             ];
         }
@@ -764,7 +782,7 @@ final class OtaCompetitionAnalysisBundleService
                 'title' => '人工确认携程竞争商圈实验',
                 'action' => '核对本店与直接竞品的ADR、订单和转化差异，确认房型、价型、日期边界后再创建运营执行意图。',
                 'reason' => (string)($analysis['first_conflict'] ?? ''),
-                'source_refs' => ['competition_circle_bundle.platforms.ctrip'],
+                'source_refs' => ['/analysis/ctrip', '/facts/ctrip', '/quality'],
                 'platform' => 'ctrip',
                 'object_type' => 'campaign',
                 'action_type' => 'manual_review',
@@ -788,7 +806,7 @@ final class OtaCompetitionAnalysisBundleService
                 'title' => '人工复核美团榜单差距',
                 'action' => '复核本店、TOP1和前一名位置；平台未返回指标差额时不得直接归因为价格问题。',
                 'reason' => (string)($analysis['first_conflict'] ?? ''),
-                'source_refs' => ['competition_circle_bundle.platforms.meituan'],
+                'source_refs' => ['/analysis/meituan', '/facts/meituan', '/quality'],
                 'platform' => 'meituan',
                 'object_type' => 'campaign',
                 'action_type' => 'manual_review',

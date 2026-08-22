@@ -1,3 +1,5 @@
+import { FRONTEND_PERCENTILE_METHOD } from './frontend_performance_metrics.mjs';
+
 export const DEFAULT_FRONTEND_RUNTIME_BUDGETS = Object.freeze({
   none: Object.freeze({
     min_verified_runs: 5,
@@ -76,6 +78,9 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
   const metricSampleCount = (name) => finiteOrNull(aggregate?.metrics?.[name]?.sample_count);
   const observed = {
     schema_version: finiteOrNull(report?.schema_version),
+    percentile_method: String(report?.percentile_method || ''),
+    aggregate_percentile_method: String(aggregate?.percentile_method || ''),
+    api_percentile_method: String(aggregate?.api?.percentile_method || ''),
     authenticated_requested: report?.authenticated_requested === true,
     authenticated: report?.authenticated === true,
     artifact_identity_stable: report?.artifact_identity_stable === true,
@@ -89,6 +94,7 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
     login_click_to_interactive_p95_ms: metricP95('login_click_to_interactive_ms'),
     auth_to_interactive_p95_ms: metricP95('auth_to_interactive_ms'),
     longest_task_p95_ms: metricP95('longest_task_ms'),
+    longest_task_max_ms: maxFinite(runs.map((run) => run?.metrics?.longest_task_ms)),
     api_p95_ms: finiteOrNull(aggregate?.api?.p95_ms),
     max_total_requests_per_run: maxFinite(runs.map((run) => run?.metrics?.total_requests)),
     max_api_samples_per_run: maxFinite(runs.map((run) => run?.api?.sample_count)),
@@ -119,6 +125,20 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
   };
 
   if (observed.schema_version !== 2) fail('schema_version', observed.schema_version, 2, 'unsupported_schema');
+  if (observed.percentile_method !== FRONTEND_PERCENTILE_METHOD
+    || observed.aggregate_percentile_method !== FRONTEND_PERCENTILE_METHOD
+    || observed.api_percentile_method !== FRONTEND_PERCENTILE_METHOD) {
+    fail(
+      'percentile_method',
+      {
+        report: observed.percentile_method || null,
+        aggregate: observed.aggregate_percentile_method || null,
+        api: observed.api_percentile_method || null,
+      },
+      FRONTEND_PERCENTILE_METHOD,
+      'unsupported_percentile_method',
+    );
+  }
   if (!observed.authenticated_requested) {
     fail('authenticated_requested', false, true, 'authenticated_measurement_required');
   }
@@ -152,6 +172,9 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
       observed.verified_run_count,
       'incomplete_measurement_samples'
     );
+  }
+  if (observed.longest_task_max_ms === null) {
+    fail('longest_task_max_ms', null, 'finite', 'missing_measurement');
   }
 
   for (const [metric, limitKey] of [
@@ -189,6 +212,19 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
       actual: observed.measurement_retry_count,
       target: 0,
       reason: 'transient_measurement_retry',
+    });
+  }
+  const longestTaskP95Limit = finiteOrNull(budget.max_longest_task_p95_ms);
+  if (observed.longest_task_max_ms !== null
+    && longestTaskP95Limit !== null
+    && observed.longest_task_max_ms > longestTaskP95Limit
+    && observed.longest_task_p95_ms !== null
+    && observed.longest_task_p95_ms <= longestTaskP95Limit) {
+    warnings.push({
+      metric: 'longest_task_max_ms',
+      actual: observed.longest_task_max_ms,
+      target: longestTaskP95Limit,
+      reason: 'isolated_run_outlier_above_p95_ceiling',
     });
   }
 

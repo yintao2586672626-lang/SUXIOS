@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260816-runtime-closure-h69f30ff2c7';
+    const fullScript = 'components/system/app-main-components.js?v=20260822-manager-capability-h3cb8b0264c';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {
@@ -253,7 +253,8 @@
             'AiDecisionQualityDetails', 'DualOtaAcceptanceReceipt', 'DualOtaPageVerificationPanel',
             'PlatformAutoSettingsPanels', 'PlatformAutoSecondaryPanels', 'CtripProfileFieldConfigPanel',
             'CompetitorDeviceManagement', 'DataConfigDialogs', 'SessionProofNotice',
-            'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult',
+            'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult', 'HotelThreeSourceOnboardingPanel',
+            'ManagerCapabilityPanel', 'OperatingOpportunityLab',
         ];
         const lazyComponents = Object.fromEntries(lazyKeys.map(key => [key, lazyFullComponent(key)]));
         const helperKeys = [
