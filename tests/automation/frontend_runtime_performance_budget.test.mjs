@@ -51,7 +51,7 @@ function passingReport(networkProfile = 'none') {
         auth_to_interactive_ms: metric(300),
         longest_task_ms: metric(150),
       },
-      api: { p95_ms: 400 },
+      api: { percentile_method: FRONTEND_PERCENTILE_METHOD, p95_ms: 400 },
     },
     runs,
   };
@@ -66,6 +66,24 @@ test('verified five-run authenticated report passes the default local runtime bu
   assert.equal(assessment.observed.max_total_requests_per_run, 29);
   assert.equal(assessment.observed.max_api_samples_per_run, 4);
   assert.equal(assessment.observed.max_repeated_api_requests_per_run, 0);
+});
+
+test('runtime budget fails closed when any percentile method marker is missing or drifts', () => {
+  const mutations = [
+    (report) => { report.percentile_method = ''; },
+    (report) => { report.aggregate.percentile_method = 'nearest_rank'; },
+    (report) => { delete report.aggregate.api.percentile_method; },
+  ];
+
+  for (const mutate of mutations) {
+    const report = passingReport();
+    mutate(report);
+    const failure = evaluateFrontendRuntimeBudget(report).failures.find(
+      (entry) => entry.metric === 'percentile_method',
+    );
+    assert.equal(failure?.reason, 'unsupported_percentile_method');
+    assert.equal(failure?.limit, FRONTEND_PERCENTILE_METHOD);
+  }
 });
 
 test('CI isolates static contracts from runtime performance and preserves authenticated evidence', () => {

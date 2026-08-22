@@ -79,6 +79,8 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
   const observed = {
     schema_version: finiteOrNull(report?.schema_version),
     percentile_method: String(report?.percentile_method || ''),
+    aggregate_percentile_method: String(aggregate?.percentile_method || ''),
+    api_percentile_method: String(aggregate?.api?.percentile_method || ''),
     authenticated_requested: report?.authenticated_requested === true,
     authenticated: report?.authenticated === true,
     artifact_identity_stable: report?.artifact_identity_stable === true,
@@ -124,10 +126,15 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
 
   if (observed.schema_version !== 2) fail('schema_version', observed.schema_version, 2, 'unsupported_schema');
   if (observed.percentile_method !== FRONTEND_PERCENTILE_METHOD
-    || aggregate?.percentile_method !== FRONTEND_PERCENTILE_METHOD) {
+    || observed.aggregate_percentile_method !== FRONTEND_PERCENTILE_METHOD
+    || observed.api_percentile_method !== FRONTEND_PERCENTILE_METHOD) {
     fail(
       'percentile_method',
-      observed.percentile_method || aggregate?.percentile_method || null,
+      {
+        report: observed.percentile_method || null,
+        aggregate: observed.aggregate_percentile_method || null,
+        api: observed.api_percentile_method || null,
+      },
       FRONTEND_PERCENTILE_METHOD,
       'unsupported_percentile_method',
     );
