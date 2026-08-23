@@ -7,9 +7,9 @@ window.SUXI_OTA = (() => {
     };
 
     const resolvePlatformProfileLoginCaptureSections = ({
-        options = {}, binding = {}, item = {}, fallbackSections = '', defaultSections = [],
+        binding = {}, item = {}, fallbackSections = '', defaultSections = [],
     } = {}) => {
-        const configured = options?.captureSections || binding?.capture_sections || item?.capture_sections || '';
+        const configured = binding?.capture_sections || item?.capture_sections || '';
         const source = Array.isArray(configured || fallbackSections)
             ? (configured || fallbackSections)
             : String(configured || fallbackSections || '').split(/[,\s]+/);
@@ -26,12 +26,17 @@ window.SUXI_OTA = (() => {
         const dataSourceId = Number(safeItem.data_source_id || safeItem.dataSourceId || 0);
         const dataDate = String(safeItem.data_date || safeItem.dataDate || safeItem.target_date || safeItem.targetDate || businessDate).trim();
         const rawSections = resolvePlatformProfileLoginCaptureSections({
-            options,
             binding: safeItem.binding || {},
             item: safeItem,
             fallbackSections: platformData.sections,
             defaultSections: platform === 'ctrip' ? ['default'] : [],
         });
+        const requestedSyncSections = options?.captureSections;
+        const rawSyncSections = requestedSyncSections === undefined || requestedSyncSections === null || requestedSyncSections === ''
+            ? []
+            : resolvePlatformProfileLoginCaptureSections({
+                item: { capture_sections: requestedSyncSections },
+            });
         const syncContract = {
             system_hotel_id: systemHotelId,
             data_source_id: dataSourceId || undefined,
@@ -39,6 +44,7 @@ window.SUXI_OTA = (() => {
             sync_after_login: !!(safeItem.sync_after_login || safeItem.syncAfterLogin || dataSourceId > 0) || undefined,
             data_date: dataDate || undefined,
             data_period: resolvePlatformProfileLoginDataPeriod(dataDate, businessDate) || undefined,
+            sync_capture_sections: rawSyncSections.length ? rawSyncSections : undefined,
         };
         if (platform === 'ctrip') {
             return {
@@ -52,6 +58,11 @@ window.SUXI_OTA = (() => {
         const sections = typeof normalizeMeituanSections === 'function'
             ? normalizeMeituanSections(rawSections)
             : rawSections;
+        if (syncContract.sync_capture_sections) {
+            syncContract.sync_capture_sections = typeof normalizeMeituanSections === 'function'
+                ? normalizeMeituanSections(syncContract.sync_capture_sections)
+                : syncContract.sync_capture_sections;
+        }
         const storeId = String(platformData.storeId || '').trim();
         return {
             ...syncContract,

@@ -46,7 +46,8 @@ trait ProfileTestCases
             'auth_status' => ['ok' => false, 'status' => 'login_required'],
         ], 'ctrip', 'system_60', [
             'data_source_id' => 14,
-            'capture_sections' => 'traffic',
+            'capture_sections' => 'traffic,comment_review,sales_report,ads_pyramid',
+            'sync_capture_sections' => 'business_overview,traffic_report',
         ], [
             'auth_status' => [
                 'ok' => true,
@@ -73,7 +74,7 @@ trait ProfileTestCases
         self::assertSame('logged_in', $config['profile_status']);
         self::assertSame('logged_in', $config['login_status']);
         self::assertSame('2026-06-27 09:00:00', $config['last_login_verified_at']);
-        self::assertSame('traffic', $config['capture_sections']);
+        self::assertSame('traffic,comment_review,sales_report,ads_pyramid', $config['capture_sections']);
         self::assertSame('p0_ota_field_loop', $config['registered_by']);
         self::assertSame('ctrip-60', $config['hotel_id']);
         self::assertSame('system_60', $config['stable_profile_id']);
@@ -193,6 +194,7 @@ trait ProfileTestCases
                 'hotel_id' => 'ctrip-hotel-58',
                 'hotel_name' => '测试门店',
                 'captureSections' => ['traffic', 'business_overview'],
+                'syncCaptureSections' => ['business_overview', 'traffic_report'],
                 'syncAfterLogin' => true,
                 'targetDate' => '2026-07-09',
                 'debug_note' => 'must-not-enter-task-file',
@@ -205,6 +207,7 @@ trait ProfileTestCases
         self::assertSame(58, $prepared['system_hotel_id']);
         self::assertSame(91, $prepared['data_source_id']);
         self::assertSame('traffic,business_overview', $prepared['capture_sections']);
+        self::assertSame('business_overview,traffic_report', $prepared['sync_capture_sections']);
         self::assertSame('2026-07-09', $prepared['data_date']);
         self::assertTrue($prepared['sync_after_login']);
         self::assertArrayNotHasKey('debug_note', $prepared);
@@ -635,7 +638,8 @@ trait ProfileTestCases
         $options = $this->invokeNonPublic($command, 'buildProfileLoginSyncOptions', ['ctrip', [
             'sync_after_login' => true,
             'target_date' => '2026-06-27',
-            'capture_sections' => ['traffic', 'orders'],
+            'capture_sections' => ['traffic', 'orders', 'comment_review', 'ads_pyramid'],
+            'sync_capture_sections' => ['traffic', 'orders'],
             'data_period' => 'historical_daily',
             'snapshot_time' => '2026-06-27 10:00:00',
         ]]);
@@ -669,7 +673,8 @@ trait ProfileTestCases
 
         $meituanOptions = $this->invokeNonPublic($command, 'buildProfileLoginSyncOptions', ['meituan', [
             'target_date' => '2026-07-19',
-            'capture_sections' => ['traffic', 'orders', 'reviews', 'ads'],
+            'capture_sections' => ['reviews', 'ads'],
+            'sync_capture_sections' => ['traffic', 'orders', 'reviews', 'ads'],
         ]]);
         $withoutAdsEntry = $this->invokeNonPublic($command, 'constrainProfileLoginSyncOptionsBySource', [
             $meituanOptions,
@@ -777,6 +782,8 @@ trait ProfileTestCases
                 'data_source_id' => 18,
                 'system_hotel_id' => 58,
                 'bind_data_source' => true,
+                'capture_sections' => ['traffic', 'orders'],
+                'sync_capture_sections' => ['traffic', 'orders'],
             ],
             [
                 'id' => 18,
@@ -791,7 +798,7 @@ trait ProfileTestCases
                     'store_id' => 'mt-store-58',
                     'poi_id' => 'mt-poi-58',
                     'partner_id' => 'partner-58',
-                    'capture_sections' => ['traffic', 'orders'],
+                    'capture_sections' => ['traffic', 'orders', 'reviews', 'ads'],
                 ],
                 'secret_json' => json_encode(['cookies' => 'must-not-merge'], JSON_UNESCAPED_UNICODE),
             ],
@@ -802,7 +809,8 @@ trait ProfileTestCases
         self::assertSame('mt-store-58', $request['store_id']);
         self::assertSame('mt-poi-58', $request['poi_id']);
         self::assertSame('partner-58', $request['partner_id']);
-        self::assertSame('traffic,orders', $request['capture_sections']);
+        self::assertSame('traffic,orders,reviews,ads', $request['capture_sections']);
+        self::assertSame(['traffic', 'orders'], $request['sync_capture_sections']);
         self::assertArrayNotHasKey('secret_json', $request);
         self::assertArrayNotHasKey('cookies', $request);
     }

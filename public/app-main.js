@@ -1842,11 +1842,10 @@
                 ];
             });
             const ctripCompetitiveLocalDate = (offsetDays = 0) => {
-                const date = new Date();
-                date.setHours(12, 0, 0, 0);
-                date.setDate(date.getDate() + Number(offsetDays || 0));
-                const pad = value => String(value).padStart(2, '0');
-                return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+                const date = new Date(Date.now() + Number(offsetDays || 0) * 86400000);
+                const parts = new Intl.DateTimeFormat('en-US', { timeZone: appTimeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+                const value = type => parts.find(part => part.type === type)?.value || '';
+                return `${value('year')}-${value('month')}-${value('day')}`;
             };
             const otaPublicPageTaskDateTime = (offsetDays, hour) => {
                 const value = new Date();
@@ -13218,7 +13217,7 @@
                     hotelName: getHotelNameById(hotelId),
                     item,
                     options,
-                    businessDate: formatDate(new Date()),
+                    businessDate: ctripCompetitiveLocalDate(0),
                     platformData,
                     normalizeMeituanSections: normalizeMeituanCaptureSections,
                 });

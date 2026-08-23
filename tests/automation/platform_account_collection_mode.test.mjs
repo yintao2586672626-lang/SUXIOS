@@ -240,7 +240,7 @@ test('hotel card next actions route collection work separately from explicit aut
   );
 });
 
-test('Profile login follow-up sync uses the target date temporal contract for both OTA platforms', () => {
+test('Profile login keeps configured modules while bounding login proof and follow-up sync', () => {
   const common = {
     systemHotelId: 80,
     hotelName: '西安天诚',
@@ -253,12 +253,14 @@ test('Profile login follow-up sync uses the target date temporal contract for bo
     item: {
       data_source_id: 163,
       data_date: '2026-08-23',
-      capture_sections: 'business_overview,traffic_report',
+      capture_sections: 'business_overview,traffic_report,comment_review,sales_report,ads_pyramid',
     },
+    options: { captureSections: 'business_overview,traffic_report' },
     platformData: { profileId: 'ctrip-80', hotelId: 'ctrip-hotel-80', sections: 'default' },
   });
   assert.equal(ctrip.data_period, 'realtime_snapshot');
-  assert.deepEqual(Array.from(ctrip.sections), ['business_overview', 'traffic_report']);
+  assert.deepEqual(Array.from(ctrip.sections), ['business_overview', 'traffic_report', 'comment_review', 'sales_report', 'ads_pyramid']);
+  assert.deepEqual(Array.from(ctrip.sync_capture_sections), ['business_overview', 'traffic_report']);
   assert.equal(ctrip.sync_after_login, true);
 
   const meituan = buildPlatformProfileLoginPayload({
@@ -273,6 +275,20 @@ test('Profile login follow-up sync uses the target date temporal contract for bo
     platformData: { storeId: 'mt-80', poiId: 'poi-80', adsUrl: 'https://ads.example.test/', sections: 'default' },
   });
   assert.equal(meituan.data_period, 'historical_daily');
-  assert.deepEqual(Array.from(meituan.sections), ['traffic', 'orders']);
-  assert.equal(meituan.ads_url, '', 'an unselected optional ads section must not leak into the login payload');
+  assert.deepEqual(Array.from(meituan.sections), ['reviews', 'ads']);
+  assert.deepEqual(Array.from(meituan.sync_capture_sections), ['traffic', 'orders']);
+  assert.equal(meituan.ads_url, 'https://ads.example.test/');
+});
+
+test('Profile login classifies the target date with the application Shanghai calendar', () => {
+  const builderStart = html.indexOf('const buildPlatformProfileLoginPayload =');
+  const builderEnd = html.indexOf('const platformProfileLoginTaskEndpoint =', builderStart);
+  const builderSource = html.slice(builderStart, builderEnd);
+  assert.match(builderSource, /businessDate:\s*ctripCompetitiveLocalDate\(0\)/);
+  assert.doesNotMatch(builderSource, /businessDate:\s*formatDate\(new Date\(\)\)/);
+
+  const dateHelperStart = html.indexOf('const ctripCompetitiveLocalDate =');
+  const dateHelperEnd = html.indexOf('const otaPublicPageTaskDateTime =', dateHelperStart);
+  const dateHelperSource = html.slice(dateHelperStart, dateHelperEnd);
+  assert.match(dateHelperSource, /timeZone:\s*appTimeZone/);
 });

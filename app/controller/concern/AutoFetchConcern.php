@@ -1469,7 +1469,7 @@ trait AutoFetchConcern
         $merged['source_id'] = (int)($source['id'] ?? 0);
         $merged['system_hotel_id'] = $sourceHotelId;
         $merged['bind_data_source'] = $requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? true;
-        $merged['capture_sections'] = $this->platformProfileLoginSourceCaptureSections($platform, $requestData, $config, (string)($source['data_type'] ?? ''));
+        $merged['capture_sections'] = $this->platformProfileLoginSourceCaptureSections($platform, [], $config, (string)($source['data_type'] ?? ''));
 
         if ($platform === 'ctrip') {
             $profileId = $this->platformProfileLoginFirstString($config, ['profile_id', 'profileId', 'browser_profile_id', 'browserProfileId']);
@@ -1593,7 +1593,6 @@ trait AutoFetchConcern
         if ($requestSecrets !== []) {
             throw new \RuntimeException('平台 Profile 登录任务只接受元数据，不接受 Cookie、token 或 Authorization 等凭据内容');
         }
-
         $prepared = [
             'platform' => $platform,
             'system_hotel_id' => $hotelId,
@@ -1610,6 +1609,7 @@ trait AutoFetchConcern
             'login_timeout_ms' => max(30000, min(600000, (int)($requestData['login_timeout_ms'] ?? 300000))),
             'post_login_wait_ms' => max(0, min(600000, (int)($requestData['post_login_wait_ms'] ?? $requestData['postLoginWaitMs'] ?? 5000))),
             'capture_sections' => $this->platformProfileLoginSourceCaptureSections($platform, $requestData, [], ''),
+            'sync_capture_sections' => $this->platformProfileLoginSourceCaptureSections($platform, ['capture_sections' => $requestData['sync_capture_sections'] ?? $requestData['syncCaptureSections'] ?? $requestData['capture_sections'] ?? $requestData['captureSections'] ?? $requestData['sections'] ?? null], [], ''),
         ];
         if ($this->platformProfileLoginRequestFlag($requestData['allow_existing_local_profile_rebind'] ?? false)) {
             $prepared['allow_existing_local_profile_rebind'] = true;

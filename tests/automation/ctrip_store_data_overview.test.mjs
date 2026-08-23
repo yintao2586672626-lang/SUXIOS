@@ -527,7 +527,7 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   assert.doesNotMatch(configApplier, /const ctripHotelId = String\([\s\S]*node_id|const ctripHotelId = String\([\s\S]*nodeId/);
   assert.match(html, /const defaultCtripBrowserProfileId = \(hotelId = getAutoFetchHotelId\(\)\) =>/);
   assert.match(profileLoginPayload, /window\.SUXI_OTA\.buildPlatformProfileLoginPayload\(\{/);
-  assert.match(profileLoginPayload, /businessDate: formatDate\(new Date\(\)\)/);
+  assert.match(profileLoginPayload, /businessDate: ctripCompetitiveLocalDate\(0\)/);
   assert.match(profileLoginPayloadContract, /const dataSourceId = Number\(safeItem\.data_source_id \|\| safeItem\.dataSourceId \|\| 0\)/);
   assert.match(profileLoginPayloadContract, /sync_after_login: !!\(safeItem\.sync_after_login \|\| safeItem\.syncAfterLogin \|\| dataSourceId > 0\) \|\| undefined/);
   assert.match(profileLoginPayloadContract, /const dataDate = String\(safeItem\.data_date \|\| safeItem\.dataDate \|\| safeItem\.target_date \|\| safeItem\.targetDate \|\| businessDate\)\.trim\(\)/);
