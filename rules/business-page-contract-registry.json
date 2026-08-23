@@ -282,9 +282,9 @@
       "fragment_ids": ["page-operating-opportunities"],
       "inherited_fragment_ids": [],
       "inheritance_reason": "无继承片段。",
-      "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
-      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "error"],
-      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "failure_visibility", "focused_regression"],
+      "scope_dimensions": ["hotel", "business_date", "source", "fact_status", "approval_intent"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "pending_approval", "unknown_after_write_attempt", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "pending_approval_readback", "no_automatic_execution", "failure_visibility", "focused_regression"],
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/19b-page-operating-opportunities.html",
@@ -292,7 +292,7 @@
         },
         {
           "path": "public/components/system/operating-opportunity-lab.js",
-          "includes": ["timeZone: 'Asia/Shanghai'", "MANUAL_UNVERIFIED_SOURCE_QUALITY", "opportunity-source-status-", "readback_verified !== true"]
+          "includes": ["timeZone: 'Asia/Shanghai'", "MANUAL_UNVERIFIED_SOURCE_QUALITY", "opportunity-source-status-", "readback_verified !== true", "opportunity-pending-approval-", "unknown_after_write_attempt"]
         }
       ],
       "regression_checks": [
@@ -302,7 +302,7 @@
         }
       ],
       "evidence_maturity": "unit_contract_pass",
-      "evidence_limit": "代码级门店、业务日、人工未核验来源与保存回读合同；不证明计算输入是线上真实事实或已产生经营效果。"
+      "evidence_limit": "代码级门店、业务日、人工未核验来源、保存回读与人工待审批合同；批准前不创建任务，不证明计算输入是线上真实事实、已写OTA或已产生经营效果。"
     },
     {
       "id": "revenue-analysis",

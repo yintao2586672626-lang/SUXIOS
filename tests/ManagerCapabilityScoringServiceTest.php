@@ -12,6 +12,7 @@ final class ManagerCapabilityScoringServiceTest extends TestCase
     private const FOLLOWUP_MIGRATION = __DIR__ . '/../database/migrations/20260822_zz_create_manager_capability_followups.sql';
     private const OPTIMIZATION_MIGRATION = __DIR__ . '/../database/migrations/20260822_zzz_optimize_manager_capability.sql';
     private const EVENT_TIMESTAMP_MIGRATION = __DIR__ . '/../database/migrations/20260822_zzzz_refine_manager_capability_event_timestamps.sql';
+    private const FOLLOWUP_EVENT_TIMESTAMP_MIGRATION = __DIR__ . '/../database/migrations/20260822_zzzzz_refine_manager_capability_followup_event_timestamp.sql';
 
     public function testGoldenClosedCaseProducesExplainableSixDimensionScore(): void
     {
@@ -200,8 +201,14 @@ final class ManagerCapabilityScoringServiceTest extends TestCase
         $timestampSql = (string)file_get_contents(self::EVENT_TIMESTAMP_MIGRATION);
         self::assertStringContainsString('manager_capability_case_adjustments', $timestampSql);
         self::assertStringContainsString('manager_capability_score_reviews', $timestampSql);
-        self::assertStringContainsString('manager_capability_case_followups', $timestampSql);
+        self::assertStringNotContainsString('manager_capability_case_followups', $timestampSql);
         self::assertStringContainsString('DATETIME(6)', $timestampSql);
+
+        $followupTimestampSql = (string)file_get_contents(self::FOLLOWUP_EVENT_TIMESTAMP_MIGRATION);
+        self::assertStringContainsString('manager_capability_case_followups', $followupTimestampSql);
+        self::assertStringContainsString('DATETIME(6)', $followupTimestampSql);
+        self::assertStringNotContainsString('manager_capability_case_adjustments', $followupTimestampSql);
+        self::assertStringNotContainsString('manager_capability_score_reviews', $followupTimestampSql);
     }
 
     public function testIdempotentWriteRetriesOnlyBoundedDatabaseConflicts(): void

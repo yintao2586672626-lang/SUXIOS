@@ -112,6 +112,28 @@ final class OperatingOpportunityLabServiceTest extends TestCase
         self::assertFalse($retryable->invoke($service, new \RuntimeException('ordinary failure', 500)));
     }
 
+    public function testStoredRunDigestIntegrityRejectsContentTampering(): void
+    {
+        $service = new OperatingOpportunityLabService();
+        $digest = new \ReflectionMethod(OperatingOpportunityLabService::class, 'digest');
+        $assert = new \ReflectionMethod(OperatingOpportunityLabService::class, 'assertStoredRunDigestIntegrity');
+        $input = ['business_date' => '2026-08-23', 'promised_quantity' => 8];
+        $result = ['status' => 'risk_detected', 'shortage_quantity' => 2];
+        $run = [
+            'input' => $input,
+            'result' => $result,
+            'input_digest' => $digest->invoke($service, $input),
+            'result_digest' => $digest->invoke($service, $result),
+        ];
+        $assert->invoke($service, $run);
+
+        $run['result']['shortage_quantity'] = 3;
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(409);
+        $this->expectExceptionMessage('经营机会记录摘要与保存内容不一致');
+        $assert->invoke($service, $run);
+    }
+
     public function testManualInputsKeepFormalGateClosedButExposeFourProvisionalCalculations(): void
     {
         $service = new OperatingOpportunityLabService();

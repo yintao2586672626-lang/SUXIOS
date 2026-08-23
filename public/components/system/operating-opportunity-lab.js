@@ -80,7 +80,8 @@
         },
         data: () => ({
             hotelId: '', businessDate: today(), activeFeature: 'service_promise_risk',
-            loading: false, savingFeature: '', prioritySaving: false, error: '', overview: null,
+            loading: false, savingFeature: '', prioritySaving: false, approvalSavingRunId: 0,
+            approvalUnknownRunId: 0, error: '', overview: null,
             forms: makeForms(), requestSeq: 0,
         }),
         computed: {
@@ -152,6 +153,137 @@
                 return amount === null ? '未计算' : `${amount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}%`;
             },
             latest(featureKey) { return this.latestByFeature[featureKey] || null; },
+            approvalForRun(run) {
+                const runId = Number(run?.id || 0);
+                if (runId <= 0) return null;
+                return this.overview?.approval_links?.[String(runId)] || null;
+            },
+            approvalStatusText(status) {
+                return ({
+                    pending_approval: '待人工审批', approved: '已人工审批', rejected: '已驳回',
+                })[String(status || '')] || String(status || '状态未知');
+            },
+            canCreatePendingApproval(run, dailyPriority = false) {
+                if (!run || Number(run.id || 0) <= 0 || this.overview?.approval_readback_status !== 'ready') return false;
+                if (run.record_readback_status !== 'readback_verified'
+                    || !/^[a-f0-9]{64}$/i.test(String(run.input_digest || ''))
+                    || !/^[a-f0-9]{64}$/i.test(String(run.result_digest || ''))
+                    || this.approvalForRun(run)) return false;
+                if (!dailyPriority) return run.feature_key !== 'daily_one_thing';
+                return this.overview?.today_state === 'saved_current'
+                    && run.feature_key === 'daily_one_thing'
+                    && run.result?.status === 'action_required'
+                    && Number(run.result?.selected?.run_id || 0) > 0;
+            },
+            assertPendingApprovalReadback(intent, run) {
+                const runId = Number(run?.id || 0);
+                const hotelId = Number(this.hotelId || 0);
+                const tenantId = Number(this.overview?.tenant_id || 0);
+                const refs = Array.isArray(intent?.evidence?.evidence_refs) ? intent.evidence.evidence_refs : [];
+                const hasRunRef = refs.some(ref => ref?.table === 'operating_opportunity_runs'
+                    && Array.isArray(ref?.row_ids)
+                    && ref.row_ids.map(Number).includes(runId)
+                    && ref.readback_verified === true);
+                if (Number(intent?.id || 0) <= 0
+                    || Number(intent?.tenant_id || 0) !== tenantId
+                    || Number(intent?.hotel_id || 0) !== hotelId
+                    || intent?.source_module !== 'operating_loop_approval'
+                    || Number(intent?.source_record_id || 0) !== runId
+                    || intent?.date_start !== this.businessDate
+                    || intent?.date_end !== this.businessDate
+                    || intent?.status !== 'pending_approval'
+                    || Number(intent?.approved_by || 0) !== 0
+                    || intent?.approved_at !== null
+                    || !Array.isArray(intent?.tasks)
+                    || intent.tasks.length !== 0
+                    || intent?.target_value?.auto_write_ota !== false
+                    || intent?.evidence?.boundaries?.automatic_approval !== false
+                    || intent?.evidence?.boundaries?.automatic_execution !== false
+                    || !hasRunRef) {
+                    throw new Error('待审批单没有按经营机会来源、酒店、业务日和零任务边界精确回读');
+                }
+                return true;
+            },
+            async createPendingApproval(run, dailyPriority = false) {
+                const runId = Number(run?.id || 0);
+                const hotelId = Number(this.hotelId || 0);
+                if (!this.canCreatePendingApproval(run, dailyPriority)) {
+                    return this.notify('当前结果尚不满足送人工审批条件，请先刷新确认', 'warning');
+                }
+                let postAccepted = false;
+                let intentId = 0;
+                this.approvalSavingRunId = runId;
+                this.approvalUnknownRunId = 0;
+                this.error = '';
+                try {
+                    const res = await this.request(`/operating-opportunities/runs/${runId}/pending-approval`, {
+                        method: 'POST', businessContext: { hotelId }, body: JSON.stringify({
+                            hotel_id: hotelId,
+                            business_date: this.businessDate,
+                            expected_input_digest: run.input_digest,
+                            expected_result_digest: run.result_digest,
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '创建人工待审批失败');
+                    const data = res.data || {};
+                    const intent = data.execution_intent || {};
+                    if (data.contract_version !== 'operating_opportunity_pending_approval.v1'
+                        || data.status !== 'pending_approval'
+                        || data.persistence_status !== 'readback_verified'
+                        || data.execution_task_created !== false
+                        || data.external_action_triggered !== false
+                        || data.boundaries?.automatic_approval !== false
+                        || data.boundaries?.operation_task_created !== false
+                        || data.boundaries?.ota_write !== false) {
+                        throw new Error('待审批单写入回执缺少人工审批或零外部动作边界');
+                    }
+                    this.assertPendingApprovalReadback(intent, run);
+                    postAccepted = true;
+                    intentId = Number(intent.id || 0);
+
+                    const params = new URLSearchParams({ hotel_id: String(hotelId) });
+                    const readback = await this.request(`/operation/execution-intents/${intentId}?${params}`, {
+                        businessContext: { hotelId },
+                    });
+                    if (readback.code !== 200) throw new Error(readback.message || '待审批单独立回读失败');
+                    this.assertPendingApprovalReadback(readback.data || {}, run);
+                    await this.loadOverview();
+                    const link = this.approvalForRun(run);
+                    if (Number(link?.intent_id || 0) !== intentId
+                        || link?.persistence_status !== 'readback_verified') {
+                        throw new Error('经营机会刷新后没有回显同一待审批单');
+                    }
+                    this.notify(data.reused_existing_intent ? '已回读同一人工待审批单' : '已送人工审批；尚未审批、未创建任务、未写OTA');
+                } catch (error) {
+                    if (postAccepted) {
+                        await this.loadOverview();
+                        const recovered = this.approvalForRun(run);
+                        if (Number(recovered?.intent_id || 0) === intentId
+                            && recovered?.persistence_status === 'readback_verified') {
+                            this.notify('待审批单已保存，并已通过刷新确认', 'success');
+                            return;
+                        }
+                        this.approvalUnknownRunId = runId;
+                        this.error = '待审批单可能已保存，但独立回读未确认；请用同一按钮重试确认，不要重复审批。';
+                    } else {
+                        this.error = error?.message || '创建人工待审批失败';
+                    }
+                    this.notify(this.error, 'error');
+                } finally {
+                    this.approvalSavingRunId = 0;
+                }
+            },
+            async openPendingApproval(link) {
+                const intentId = Number(link?.intent_id || 0);
+                const hotelId = Number(link?.hotel_id || this.hotelId || 0);
+                if (intentId <= 0 || hotelId <= 0) return this.notify('待审批单身份尚未回读', 'warning');
+                if (this.$root?.operationFilters) this.$root.operationFilters.hotel_id = String(hotelId);
+                if (this.$root) this.$root.currentPage = 'ops-track';
+                if (typeof this.$nextTick === 'function') await this.$nextTick();
+                if (typeof this.$root?.loadOperationActions === 'function') {
+                    await this.$root.loadOperationActions({ focusIntentId: intentId });
+                }
+            },
             async loadOverview() {
                 const hotelId = Number(this.hotelId || 0);
                 if (hotelId <= 0 || !this.businessDate) return null;
@@ -364,6 +496,46 @@
                     field(featureKey === 'ai_guest_acquisition' ? '本次证据包引用（可选）' : '来源引用', input(form, 'source_reference', 'text', { maxlength: 1000, placeholder: '文件、回执或页面观察编号' })),
                 ]);
             };
+            const approvalPanel = (run, dailyPriority = false) => {
+                if (!run) return null;
+                const runId = Number(run.id || 0);
+                const link = this.approvalForRun(run);
+                const unknown = this.approvalUnknownRunId === runId;
+                const canCreate = this.canCreatePendingApproval(run, dailyPriority);
+                if (!link && !canCreate && !unknown && this.overview?.approval_readback_status === 'ready') return null;
+                return h('div', {
+                    class: 'mt-3 rounded-xl border border-[#d9c79f] bg-[#fffaf0] p-3',
+                    'data-testid': `opportunity-pending-approval-${runId}`,
+                }, [
+                    h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                        h('div', [
+                            h('div', { class: 'text-xs font-semibold text-[#6f572f]' }, dailyPriority ? '行动审批边界' : '证据人工复核'),
+                            h('p', { class: 'mt-1 text-[11px] leading-5 text-slate-500' }, '记录回读不代表底层事实已核验；用户主动批准前，不创建任务、不写 OTA/PMS、不发外部消息。'),
+                        ]),
+                        link ? h('span', { class: 'rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800' }, `${this.approvalStatusText(link.status)} #${link.intent_id}`) : null,
+                    ]),
+                    this.overview?.approval_readback_status === 'unavailable'
+                        ? h('p', { class: 'mt-2 text-xs text-rose-700', 'data-state': 'unknown_after_write_attempt' }, this.overview.approval_readback_gap || '待审批状态暂不可回读，请勿重复送审。')
+                        : null,
+                    unknown ? h('p', { class: 'mt-2 text-xs text-rose-700', 'data-state': 'unknown_after_write_attempt' }, '保存结果待确认；使用同一按钮重试只会回读同一记录。') : null,
+                    h('div', { class: 'mt-2 flex flex-wrap gap-2' }, [
+                        canCreate ? h('button', {
+                            type: 'button',
+                            disabled: this.approvalSavingRunId === runId,
+                            class: 'rounded-lg bg-[#6f572f] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50',
+                            'data-testid': `opportunity-pending-approval-submit-${runId}`,
+                            onClick: () => this.createPendingApproval(run, dailyPriority),
+                        }, this.approvalSavingRunId === runId ? '保存并回读中…' : (dailyPriority ? '送人工审批' : '送人工复核')) : null,
+                        link ? h('button', {
+                            type: 'button',
+                            class: 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700',
+                            'data-testid': `opportunity-pending-approval-open-${runId}`,
+                            onClick: () => this.openPendingApproval(link),
+                        }, '打开运营管理') : null,
+                    ]),
+                    link ? h('p', { class: 'mt-2 text-[11px] text-slate-500' }, `状态：${this.approvalStatusText(link.status)} · 本地任务 ${Number(link.task_count || 0)} 条 · 事实状态 ${this.sourceQualityText(link.fact_status)}`) : null,
+                ]);
+            };
             const latest = this.latest(this.activeFeature);
             const result = latest?.result || null;
             const activeMeta = tabs.find(item => item[0] === this.activeFeature) || tabs[0];
@@ -479,6 +651,7 @@
                         h('div', { class: 'mt-3 text-xl font-semibold text-slate-900' }, this.todayResult.headline || '尚未形成优先事项'),
                         this.todayResult.selected ? h('div', { class: 'mt-2 text-sm leading-6 text-slate-600' }, `${this.todayResult.selected.reason || ''}。下一步：${this.todayResult.selected.next_step || '核对详情后决定'}。`) : null,
                         h('p', { class: 'mt-3 text-xs text-slate-400' }, this.todayResult.selection_boundary || '仅排序，不自动执行。'),
+                        approvalPanel(this.overview?.today_saved_run || null, true),
                     ] : [h('p', { class: 'text-sm text-slate-500' }, '先完成下面任意一项计算，再生成今日一件事。')]),
                 ]),
                 h('section', { class: 'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm' }, [
@@ -502,6 +675,7 @@
                                 ? h('div', { class: 'mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800' }, '以上数值为人工输入估算，仅供核对；不形成正式结论，也不能执行经营动作。')
                                 : null,
                             h('div', { class: 'mt-3 text-xs leading-5 text-slate-500' }, `来源：${this.sourceQualityText(latest.source_quality_status)} · ${latest.source_reference || '未填写引用'}`),
+                            approvalPanel(latest, false),
                             h('details', { class: 'mt-3' }, [h('summary', { class: 'cursor-pointer text-xs font-medium text-[#315d50]' }, '查看完整计算结果'), h('pre', { class: 'mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-900 p-3 text-[11px] leading-5 text-slate-100' }, JSON.stringify(result, null, 2))]),
                         ] : [h('div', { class: 'py-10 text-center text-sm text-slate-500' }, '当前门店和日期暂无该项结果。完成左侧计算后，这里会显示保存回读结果。')]),
                     ]),

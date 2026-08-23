@@ -220,7 +220,7 @@ final class OtaCompetitionAnalysisBundleService
             $edition
         );
 
-        return [
+        $bundle = [
             'schema_version' => self::SCHEMA_VERSION,
             'bundle_id' => $bundleId,
             'source_fingerprint' => $sourceFingerprint,
@@ -262,6 +262,46 @@ final class OtaCompetitionAnalysisBundleService
                 'flagship_reads_same_bundle' => true,
             ],
         ];
+
+        $contentDigest = self::contentDigest($bundle);
+        $bundle['content_digest'] = $contentDigest;
+        $bundle['report_document']['render_contract']['content_digest'] = $contentDigest;
+        return $bundle;
+    }
+
+    /**
+     * Canonical digest of the complete persisted bundle. The two digest mirror
+     * fields are excluded from their own checksum, while every other field and
+     * every list position remains part of the exact JSON-value contract.
+     *
+     * @param array<string,mixed> $bundle
+     */
+    public static function contentDigest(array $bundle): string
+    {
+        unset($bundle['content_digest']);
+        if (is_array($bundle['report_document']['render_contract'] ?? null)) {
+            unset($bundle['report_document']['render_contract']['content_digest']);
+        }
+        $canonical = self::canonicalContentValue($bundle);
+        $json = json_encode($canonical, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($json)) {
+            throw new \RuntimeException('competition bundle content digest encode failed');
+        }
+        return hash('sha256', $json);
+    }
+
+    private static function canonicalContentValue(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (!array_is_list($value)) {
+            ksort($value, SORT_STRING);
+        }
+        foreach ($value as $key => $item) {
+            $value[$key] = self::canonicalContentValue($item);
+        }
+        return $value;
     }
 
     /** @return array<string,mixed> */

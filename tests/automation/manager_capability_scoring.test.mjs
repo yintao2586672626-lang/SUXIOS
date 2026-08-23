@@ -20,6 +20,7 @@ const protectedCapabilities = read('app/service/ProtectedCapabilityService.php')
 const followupMigration = read('database/migrations/20260822_zz_create_manager_capability_followups.sql');
 const optimizationMigration = read('database/migrations/20260822_zzz_optimize_manager_capability.sql');
 const eventTimestampMigration = read('database/migrations/20260822_zzzz_refine_manager_capability_event_timestamps.sql');
+const followupTimestampMigration = read('database/migrations/20260822_zzzzz_refine_manager_capability_followup_event_timestamp.sql');
 
 test('operations page exposes a scoped three-question manager score loop', () => {
   for (const marker of [
@@ -194,4 +195,13 @@ test('backend keeps the score within operation permissions and tenant hotel scop
   for (const marker of ['manager_capability_case_adjustments', 'manager_capability_score_reviews', 'DATETIME(6)']) {
     assert.ok(eventTimestampMigration.includes(marker), marker);
   }
+  assert.equal(
+    crypto.createHash('sha256').update(eventTimestampMigration).digest('hex'),
+    'f03b5e1e722f220803516b70f478dd2bbce3f1d43b058ca984709ccd5ed352ea',
+  );
+  assert.ok(!eventTimestampMigration.includes('manager_capability_case_followups'));
+  assert.ok(followupTimestampMigration.includes('manager_capability_case_followups'));
+  assert.ok(followupTimestampMigration.includes('DATETIME(6)'));
+  assert.ok(!followupTimestampMigration.includes('manager_capability_case_adjustments'));
+  assert.ok(!followupTimestampMigration.includes('manager_capability_score_reviews'));
 });

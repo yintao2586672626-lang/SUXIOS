@@ -30,7 +30,7 @@ class OtaStandard extends Base
     public function revenueMetrics(): Response
     {
         try {
-            $dataset = (new OtaStandardEtlService())->buildDataset($this->filters());
+            $dataset = (new OtaStandardEtlService())->buildDataset($this->decisionFilters());
             if ($dataset['status'] === 'empty') {
                 if ($this->truthy($this->request->param('include_missing_state', false))) {
                     return $this->success([
@@ -56,7 +56,7 @@ class OtaStandard extends Base
     public function analysis(): Response
     {
         try {
-            $dataset = (new OtaStandardEtlService())->buildDataset($this->filters());
+            $dataset = (new OtaStandardEtlService())->buildDataset($this->decisionFilters());
             if ($dataset['status'] === 'empty') {
                 return $this->error('No OTA rows matched the requested scope.', 422, $dataset['data_quality'] ?? []);
             }
@@ -74,7 +74,7 @@ class OtaStandard extends Base
     public function operationOptimizer(): Response
     {
         try {
-            $filters = $this->filters();
+            $filters = $this->decisionFilters();
             $dataset = (new OtaStandardEtlService())->buildDataset($filters);
             $workbench = (new OperationOptimizationWorkbenchService())->build($dataset, [
                 'hotel_id' => (int)($filters['system_hotel_id'] ?? 0),
@@ -94,7 +94,7 @@ class OtaStandard extends Base
     {
         try {
             $input = $this->requestData();
-            $filters = $this->filters();
+            $filters = $this->decisionFilters();
             $hotelId = (int)($filters['system_hotel_id'] ?? 0);
             if ($hotelId <= 0) {
                 throw new RuntimeException('system_hotel_id is required', 422);
@@ -143,6 +143,20 @@ class OtaStandard extends Base
             }
         }
         return $this->authorizeHotelFilters($data);
+    }
+
+    /**
+     * Formal metrics, analysis and downstream operating decisions must only
+     * consume rows that passed the complete cockpit fact gate. This server-side
+     * override prevents clients from weakening the evidence boundary.
+     *
+     * @return array<string, mixed>
+     */
+    private function decisionFilters(): array
+    {
+        $filters = $this->filters();
+        $filters['strict_readback_only'] = true;
+        return $filters;
     }
 
     /**

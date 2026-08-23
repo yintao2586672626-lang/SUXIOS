@@ -370,7 +370,7 @@
         }
         return component;
     };
-    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260822-selling-points-v3';
+    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260823-pending-approval-h9251129dd2';
     const OperatingOpportunityLab = systemComponents.OperatingOpportunityLabBody || Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript(operatingOpportunityLabScript)
             .then(() => requireSystemComponent('OperatingOpportunityLabBody')),

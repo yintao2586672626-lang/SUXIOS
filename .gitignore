@@ -17,6 +17,7 @@ __pycache__/
 # ThinkPHP runtime
 /runtime/
 /app/runtime/
+/storage/
 /storage/meituan_profile_*/
 /storage/ctrip_profile_*/
 # Local OTA collector state stays on the account holder's computer.
@@ -76,6 +77,13 @@ hotelx_dump.sql
 *_backup*.sql
 
 # Local assistant/workspace files
+/.automation-worktrees/
+/browser_profiles/
+/profiles/
+/Profile/
+/user-data/
+/cookies/
+/localStorage/
 .codex-tmp/
 .codebuddy/
 .workbuddy/

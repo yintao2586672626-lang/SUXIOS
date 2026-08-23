@@ -33,6 +33,9 @@ final class WechatCompetitionReportDeliveryService
         if ($hotelId <= 0 || $reportId <= 0 || $reportDate === '') {
             throw new \InvalidArgumentException('saved_competition_report_identity_invalid');
         }
+        if (($report['competition_bundle_readback']['exact_readback_verified'] ?? false) !== true) {
+            throw new \RuntimeException('competition_bundle_exact_readback_required');
+        }
 
         $renderer = $this->renderer ?? new WechatCompetitionReportRendererService();
         $visualCard = $this->visualCard ?? new WechatCompetitionVisualCardService();
