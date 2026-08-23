@@ -430,12 +430,12 @@ class AiConfig extends Base
         if ($provider === 'ollama') {
             return [
                 $this->quickModelDefinition(
-                    '本机 Ollama Qwen3 8B',
-                    'ollama_qwen3_8b',
+                    '本机第二大脑 Qwen3 4B',
+                    'local_second_brain',
                     'ollama',
                     'http://127.0.0.1:11434/v1',
-                    'qwen3:8b',
-                    'local_gpu,ota_diagnosis,report'
+                    'qwen3:4b',
+                    'local_gpu,second_brain,ota_diagnosis,report'
                 ),
             ];
         }

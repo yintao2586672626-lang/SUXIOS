@@ -515,6 +515,8 @@ Route::group('api/ai-governance', function () {
     Route::get('/prompt-versions', 'AiGovernance/promptVersions');
     Route::post('/prompt-versions', 'AiGovernance/savePromptVersion');
     Route::post('/evaluation-cases/replay', 'AiGovernance/replayEvaluationCases');
+    Route::get('/evaluation-runs/:id', 'AiGovernance/evaluationRunDetail');
+    Route::get('/evaluation-runs', 'AiGovernance/evaluationRuns');
     Route::delete('/evaluation-cases/:id', 'AiGovernance/archiveEvaluationCase');
     Route::get('/evaluation-cases', 'AiGovernance/evaluationCases');
     Route::post('/evaluation-cases', 'AiGovernance/saveEvaluationCase');
@@ -844,10 +846,16 @@ Route::group('api/agent', function () {
     Route::post('/ota-diagnoses/:id/actions/:actionIndex/execution-intent', 'Agent/createOtaDiagnosisExecutionIntent');
     Route::post('/system-guidance', 'SystemGuidance/guide');
     Route::get('/operating-question-scopes', 'OperatingIntelligence/questionScopeOptions');
+    Route::get('/operating-questions/:id/council-runs/latest', 'OperatingIntelligence/latestQuestionCouncil');
+    Route::post('/operating-questions/:id/council-runs', 'OperatingIntelligence/runQuestionCouncil');
+    Route::post('/operating-questions/:id/action-drafts/:actionIndex/execution-intent', 'OperatingIntelligence/createQuestionExecutionIntent');
     Route::get('/operating-questions/:id', 'OperatingIntelligence/readQuestion');
     Route::get('/operating-questions', 'OperatingIntelligence/questions');
     Route::post('/operating-questions', 'OperatingIntelligence/createQuestion');
-    Route::post('/operating-questions/:id/action-drafts/:actionIndex/execution-intent', 'OperatingIntelligence/createQuestionExecutionIntent');
+    Route::get('/local-ai/capabilities', 'OperatingIntelligence/localAiCapabilities');
+    Route::get('/local-media-extractions/:id', 'OperatingIntelligence/readLocalMediaExtraction');
+    Route::get('/local-media-extractions', 'OperatingIntelligence/localMediaExtractions');
+    Route::post('/local-media-extractions', 'OperatingIntelligence/extractLocalMedia');
     Route::post('/analyze-captured-ota-data', 'Agent/analyzeCapturedOtaData');
     Route::post('/summarize-captured-ota-analysis', 'Agent/summarizeCapturedOtaAnalysis');
 

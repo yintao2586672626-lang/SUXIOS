@@ -20,6 +20,7 @@ final class OperatingQuestionAiAnswerService
     public const DIRECT_MODEL_KEY = 'deepseek_v4_pro';
     public const DIRECT_MODEL_NAME = 'deepseek-v4-pro';
     public const DIRECT_CALL_STATUS = 'confirmed_direct_deepseek_v4_pro';
+    public const LOCAL_CALL_STATUS = 'confirmed_local_ollama';
     /** @var list<string> */
     private const SUPPORTED_CURRENCY_CODES = [
         'CNY', 'USD', 'HKD', 'MOP', 'TWD', 'JPY', 'KRW', 'EUR', 'GBP', 'SGD', 'THB', 'MYR', 'AUD', 'CAD',
@@ -201,13 +202,21 @@ final class OperatingQuestionAiAnswerService
             $result = is_array($envelope['data'] ?? null) ? $envelope['data'] : [];
             $meta = is_array($envelope['meta'] ?? null) ? $envelope['meta'] : [];
             $providerResponseId = $this->providerResponseId($meta);
-            if (!self::directCallProofReady($meta) || !self::directCallReceiptFreshNow($meta)) {
+            $localRequested = $modelKey === LocalAiRuntimeService::TEXT_MODEL_KEY;
+            $callProofReady = $localRequested
+                ? self::localCallProofReady($meta)
+                : self::directCallProofReady($meta) && self::directCallReceiptFreshNow($meta);
+            if (!$callProofReady) {
                 $cacheHit = ($meta['cache_hit'] ?? false) === true;
                 return [
                     'ok' => false,
                     'status' => 'model_unavailable',
-                    'reason' => $this->directFailureReason($meta),
-                    'message' => '本次回答未被证明为新鲜的 DeepSeek V4 Pro 直接响应，已拒绝展示并保留严格回读的证据摘要。',
+                    'reason' => $localRequested
+                        ? $this->localFailureReason($meta)
+                        : $this->directFailureReason($meta),
+                    'message' => $localRequested
+                        ? '本次回答未被证明为固定本机模型的直接响应，已拒绝展示并保留严格回读的证据摘要。'
+                        : '本次回答未被证明为新鲜的 DeepSeek V4 Pro 直接响应，已拒绝展示并保留严格回读的证据摘要。',
                     'model_key' => (string)($meta['model_key'] ?? $modelKey),
                     'provider' => (string)($meta['provider'] ?? ''),
                     'model' => (string)($meta['model'] ?? ''),
@@ -237,10 +246,14 @@ final class OperatingQuestionAiAnswerService
                     'prompt_version' => self::PROMPT_VERSION,
                     'model_attempted' => true,
                     'llm_client_invoked' => true,
-                    'external_llm_called' => $cacheHit ? false : true,
+                    'local_llm_called' => $localRequested,
+                    'local_transport_status' => $localRequested ? 'response_received_proof_rejected' : '',
+                    'external_llm_called' => $localRequested ? false : !$cacheHit,
                     'external_llm_call_status' => $cacheHit
                         ? 'cache_replay_rejected'
-                        : 'direct_deepseek_v4_pro_proof_rejected',
+                        : ($localRequested
+                            ? 'local_ollama_proof_rejected'
+                            : 'direct_deepseek_v4_pro_proof_rejected'),
                 ];
             }
             if (!$this->completeAnswerShape($result)) {
@@ -308,10 +321,10 @@ final class OperatingQuestionAiAnswerService
                 'response_model' => (string)($meta['response_model'] ?? ''),
                 'provider_response_id' => $providerResponseId,
                 'provider_created_at' => max(0, (int)($meta['provider_created_at'] ?? 0)),
-                'provider_response_fresh' => true,
+                'provider_response_fresh' => ($meta['provider_response_fresh'] ?? false) === true,
                 'provider_endpoint_origin' => (string)($meta['provider_endpoint_origin'] ?? ''),
                 'provider_endpoint_host' => (string)($meta['provider_endpoint_host'] ?? ''),
-                'provider_endpoint_official' => true,
+                'provider_endpoint_official' => ($meta['provider_endpoint_official'] ?? false) === true,
                 'provider_config_digest' => (string)($meta['provider_config_digest'] ?? ''),
                 'direct_call_nonce' => (string)($meta['direct_call_nonce'] ?? ''),
                 'transport_request_id' => (string)($meta['transport_request_id'] ?? ''),
@@ -320,7 +333,7 @@ final class OperatingQuestionAiAnswerService
                 'http_status' => 200,
                 'provider_attempt_count' => 1,
                 'idempotent_replay' => false,
-                'direct_request_proof' => true,
+                'direct_request_proof' => ($meta['direct_request_proof'] ?? false) === true,
                 'thinking_mode' => (string)($meta['thinking_mode'] ?? ''),
                 'reasoning_effort' => (string)($meta['reasoning_effort'] ?? ''),
                 'finish_reason' => (string)($meta['finish_reason'] ?? ''),
@@ -330,8 +343,12 @@ final class OperatingQuestionAiAnswerService
                 'prompt_version' => self::PROMPT_VERSION,
                 'model_attempted' => true,
                 'llm_client_invoked' => true,
-                'external_llm_called' => true,
-                'external_llm_call_status' => self::DIRECT_CALL_STATUS,
+                'local_llm_called' => $localRequested,
+                'local_transport_status' => $localRequested ? 'confirmed_local_response' : '',
+                'external_llm_called' => !$localRequested,
+                'external_llm_call_status' => $localRequested
+                    ? self::LOCAL_CALL_STATUS
+                    : self::DIRECT_CALL_STATUS,
             ];
         } catch (LlmDirectRequestException $exception) {
             return $this->modelUnavailableResult($modelKey, $exception->receipt());
@@ -344,11 +361,26 @@ final class OperatingQuestionAiAnswerService
     private function modelUnavailableResult(string $modelKey, array $meta): array
     {
         $providerResponseId = $this->providerResponseId($meta);
+        $localAttempt = $modelKey === LocalAiRuntimeService::TEXT_MODEL_KEY
+            || strtolower(trim((string)($meta['provider'] ?? ''))) === 'ollama';
+        $localLlmCalled = $localAttempt && is_bool($meta['external_llm_called'] ?? null)
+            ? $meta['external_llm_called']
+            : null;
+        $localTransportStatus = $localAttempt
+            ? mb_substr(trim((string)($meta['external_llm_call_status'] ?? '')), 0, 80)
+            : '';
         $externalLlmCalled = is_bool($meta['external_llm_called'] ?? null)
             ? $meta['external_llm_called']
             : ($providerResponseId !== '' ? true : null);
+        if ($localAttempt) {
+            $externalLlmCalled = false;
+        }
         $externalCallStatus = mb_substr(trim((string)($meta['external_llm_call_status'] ?? '')), 0, 80);
-        if ($externalCallStatus === '') {
+        if ($localAttempt) {
+            $externalCallStatus = $providerResponseId !== ''
+                ? 'local_response_rejected'
+                : 'local_call_failed_or_rejected';
+        } elseif ($externalCallStatus === '') {
             $externalCallStatus = $providerResponseId !== ''
                 ? 'response_rejected_after_direct_call'
                 : 'unknown_after_client_attempt';
@@ -388,6 +420,8 @@ final class OperatingQuestionAiAnswerService
             'prompt_version' => self::PROMPT_VERSION,
             'model_attempted' => ($meta['model_attempted'] ?? true) === true,
             'llm_client_invoked' => ($meta['llm_client_invoked'] ?? true) === true,
+            'local_llm_called' => $localLlmCalled,
+            'local_transport_status' => $localTransportStatus,
             'external_llm_called' => $externalLlmCalled,
             'external_llm_call_status' => $externalCallStatus,
         ];
@@ -755,6 +789,8 @@ final class OperatingQuestionAiAnswerService
     private function claimValidationRejected(string $modelKey, array $meta, string $reason): array
     {
         $providerResponseId = $this->providerResponseId($meta);
+        $localResponse = $modelKey === LocalAiRuntimeService::TEXT_MODEL_KEY
+            || strtolower(trim((string)($meta['provider'] ?? ''))) === 'ollama';
         return [
             'ok' => false,
             'status' => 'claim_validation_failed',
@@ -794,8 +830,12 @@ final class OperatingQuestionAiAnswerService
             'prompt_version' => self::PROMPT_VERSION,
             'model_attempted' => true,
             'llm_client_invoked' => true,
-            'external_llm_called' => true,
-            'external_llm_call_status' => 'response_claims_rejected',
+            'local_llm_called' => $localResponse,
+            'local_transport_status' => $localResponse ? 'response_received_claims_rejected' : '',
+            'external_llm_called' => !$localResponse,
+            'external_llm_call_status' => $localResponse
+                ? 'local_response_claims_rejected'
+                : 'response_claims_rejected',
         ];
     }
 
@@ -1385,6 +1425,8 @@ final class OperatingQuestionAiAnswerService
             'prompt_version' => self::PROMPT_VERSION,
             'model_attempted' => false,
             'llm_client_invoked' => false,
+            'local_llm_called' => false,
+            'local_transport_status' => '',
             'external_llm_called' => false,
             'external_llm_call_status' => 'not_attempted',
         ];
@@ -1404,7 +1446,38 @@ final class OperatingQuestionAiAnswerService
         ], true)) {
             return self::DIRECT_MODEL_KEY;
         }
-        throw new InvalidArgumentException('经营问答只允许 DeepSeek V4 Pro 直接模型，已拒绝其他模型或客户端降级选择');
+        if (in_array($value, [
+            LocalAiRuntimeService::TEXT_MODEL_KEY,
+            'ollama_qwen3_4b',
+        ], true)) {
+            return LocalAiRuntimeService::TEXT_MODEL_KEY;
+        }
+        throw new InvalidArgumentException('经营问答只允许 DeepSeek V4 Pro 或已固定的本机第二大脑模型，已拒绝其他模型或客户端降级选择');
+    }
+
+    /** @param array<string,mixed> $meta */
+    public static function localCallProofReady(array $meta): bool
+    {
+        $nonce = trim((string)($meta['direct_call_nonce'] ?? ''));
+        return strtolower(trim((string)($meta['provider'] ?? ''))) === 'ollama'
+            && strtolower(trim((string)($meta['model_key'] ?? ''))) === LocalAiRuntimeService::TEXT_MODEL_KEY
+            && strtolower(trim((string)($meta['configured_model'] ?? ''))) === LocalAiRuntimeService::TEXT_MODEL
+            && strtolower(trim((string)($meta['response_model'] ?? ''))) === LocalAiRuntimeService::TEXT_MODEL
+            && strtolower(trim((string)($meta['provider_endpoint_origin'] ?? ''))) === LocalAiRuntimeService::BASE_URL
+            && strtolower(trim((string)($meta['provider_endpoint_host'] ?? ''))) === '127.0.0.1'
+            && ($meta['provider_endpoint_official'] ?? true) === false
+            && preg_match('/^[a-f0-9]{64}$/D', strtolower(trim((string)($meta['provider_config_digest'] ?? '')))) === 1
+            && $nonce !== ''
+            && hash_equals($nonce, trim((string)($meta['transport_request_id'] ?? '')))
+            && (int)($meta['transport_retry_attempts'] ?? -1) === 0
+            && ($meta['upstream_idempotency_key_sent'] ?? true) === false
+            && (int)($meta['http_status'] ?? 0) === 200
+            && (int)($meta['provider_attempt_count'] ?? 0) === 1
+            && ($meta['idempotent_replay'] ?? true) === false
+            && strtolower(trim((string)($meta['finish_reason'] ?? ''))) === 'stop'
+            && ($meta['fallback_used'] ?? null) === false
+            && ($meta['cache_hit'] ?? null) === false
+            && ($meta['degraded'] ?? null) === false;
     }
 
     /** @param array<string,mixed> $meta */
@@ -1491,6 +1564,33 @@ final class OperatingQuestionAiAnswerService
             return 'upstream_replay_protection_not_confirmed';
         }
         return 'deepseek_direct_response_not_confirmed';
+    }
+
+    /** @param array<string,mixed> $meta */
+    private function localFailureReason(array $meta): string
+    {
+        if (strtolower(trim((string)($meta['provider'] ?? ''))) !== 'ollama') {
+            return 'local_ollama_provider_not_confirmed';
+        }
+        if (strtolower(trim((string)($meta['model_key'] ?? ''))) !== LocalAiRuntimeService::TEXT_MODEL_KEY
+            || strtolower(trim((string)($meta['configured_model'] ?? ''))) !== LocalAiRuntimeService::TEXT_MODEL
+            || strtolower(trim((string)($meta['response_model'] ?? ''))) !== LocalAiRuntimeService::TEXT_MODEL
+        ) {
+            return 'local_second_brain_model_not_confirmed';
+        }
+        if (strtolower(trim((string)($meta['provider_endpoint_origin'] ?? ''))) !== LocalAiRuntimeService::BASE_URL
+            || strtolower(trim((string)($meta['provider_endpoint_host'] ?? ''))) !== '127.0.0.1'
+        ) {
+            return 'local_loopback_endpoint_not_confirmed';
+        }
+        if (($meta['cache_hit'] ?? false) === true
+            || ($meta['idempotent_replay'] ?? false) === true
+            || ($meta['fallback_used'] ?? false) === true
+            || ($meta['degraded'] ?? false) === true
+        ) {
+            return 'local_cached_fallback_or_degraded_response_rejected';
+        }
+        return 'local_direct_response_not_confirmed';
     }
 
     /** @param array<string,mixed> $result */

@@ -17680,7 +17680,7 @@
             const showAiModelAdvanced = ref(false);
             const aiQuickSetupSaving = ref(false);
             const aiQuickSetupForm = ref({
-                provider: 'deepseek',
+                provider: 'ollama',
                 api_key: '',
                 base_url: '',
             });
@@ -17707,6 +17707,7 @@
             const aiGovernanceLogs = ref([]);
             const aiGovernancePromptVersions = ref([]);
             const aiGovernanceEvaluationCases = ref([]);
+            const aiGovernanceEvaluationRuns = ref([]), aiGovernanceEvaluationAction = ref(''), aiGovernanceEvaluationRun = ref(null), aiGovernanceEvaluationMessage = ref(''), aiGovernanceEvaluationForm = ref(requireSystemStatic('createAiGovernanceEvaluationForm')());
             const aiGovernanceSelectedLog = ref(null);
             const aiGovernanceFilter = ref({
                 module: '',
@@ -19618,9 +19619,9 @@
             // API 请求
             const request = async (url, options = {}) => {
                 const requestSession = captureAuthSession();
-                const headers = { 'Content-Type': 'application/json' };
-                if (requestSession.token) headers['Authorization'] = requestSession.token;
                 const rawOptions = options && typeof options === 'object' ? { ...options } : {};
+                const headers = typeof FormData !== 'undefined' && rawOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
+                if (requestSession.token) headers['Authorization'] = requestSession.token;
                 const requestPolicy = rawOptions.requestPolicy && typeof rawOptions.requestPolicy === 'object'
                     ? rawOptions.requestPolicy
                     : currentPageReadPolicy(currentPage.value, 'current');
@@ -33675,7 +33676,7 @@
                     showToast(aiModelConfigText('aiModelQuickSetup.providerRequired'), 'warning');
                     return;
                 }
-                if (!apiKey) {
+                if (provider !== 'ollama' && !apiKey) {
                     showToast(aiModelConfigText('aiModelQuickSetup.apiKeyRequired'), 'warning');
                     return;
                 }
@@ -33903,14 +33904,7 @@
                     throw new Error(res.message || 'Prompt版本加载失败');
                 }
             };
-            const loadAiGovernanceEvaluationCases = async () => {
-                const res = await request('/ai-governance/evaluation-cases?page=1&page_size=30');
-                if (res.code === 200) {
-                    aiGovernanceEvaluationCases.value = Array.isArray(res.data?.list) ? res.data.list : [];
-                } else {
-                    throw new Error(res.message || '评估集加载失败');
-                }
-            };
+            const { loadCases: loadAiGovernanceEvaluationCases, loadRuns: loadAiGovernanceEvaluationRuns, saveCase: saveAiGovernanceEvaluationCase, runEvaluation: runAiGovernanceEvaluation } = requireSystemStatic('createAiGovernanceEvaluationRuntime')({ request, evaluationForm: aiGovernanceEvaluationForm, evaluationCases: aiGovernanceEvaluationCases, evaluationRuns: aiGovernanceEvaluationRuns, evaluationAction: aiGovernanceEvaluationAction, evaluationRun: aiGovernanceEvaluationRun, evaluationMessage: aiGovernanceEvaluationMessage });
             const loadAiGovernance = async () => {
                 if (!user.value?.is_super_admin) {
                     aiGovernanceError.value = '仅超级管理员可访问AI治理';
@@ -33924,6 +33918,7 @@
                         loadAiGovernanceLogs(),
                         loadAiGovernancePromptVersions(),
                         loadAiGovernanceEvaluationCases(),
+                        loadAiGovernanceEvaluationRuns(),
                     ]);
                 } catch (error) {
                     aiGovernanceError.value = error.message || 'AI治理数据加载失败';
@@ -40948,7 +40943,7 @@
                 platform: 'ctrip',
                 date_start: toLocalIsoDate(),
                 date_end: toLocalIsoDate(),
-                model_key: 'deepseek_v4_pro',
+                model_key: 'local_second_brain',
                 decision_object: '',
             });
             const createOperatingQuestionState = () => ({
@@ -40975,9 +40970,11 @@
                 action_loading: '',
                 action_error: '',
                 action_intents: {},
+                ...requireSystemStatic('createLocalSecondBrainOperatingQuestionState')(),
             });
             const operatingQuestionForm = ref(createOperatingQuestionForm());
             const operatingQuestionState = ref(createOperatingQuestionState());
+            const resetLocalSecondBrainOperatingQuestionState = requireSystemStatic('resetLocalSecondBrainOperatingQuestionState');
             let operatingQuestionScopeRequestId = 0;
             let operatingQuestionHistoryRequestId = 0;
             const operatingQuestionActionIsCurrent = (result = {}, action = {}, form = {}) => {
@@ -45073,6 +45070,7 @@
                 state.action_intents = intents;
                 return intents;
             };
+            const { loadLatest: loadLatestOperatingQuestionCouncil, run: runOperatingQuestionCouncil } = requireSystemStatic('createOperatingQuestionCouncilRuntime')({ request, stateRef: operatingQuestionState });
             const loadOperatingQuestionHistory = async (options = {}) => {
                 const state = operatingQuestionState.value;
                 const hotelId = Number(ensureOperatingQuestionScope() || 0);
@@ -45135,7 +45133,7 @@
                     state.scope_manual = true;
                     state.scope_auto_applied = false;
                     state.scope_notice = `已打开保存问答 #${questionId}：${operatingQuestionPlatformText(exact.platform)} · ${exact.date_start}${exact.date_end !== exact.date_start ? ` 至 ${exact.date_end}` : ''}。`;
-                    applyOperatingQuestionIntentReadback(exact);
+                    applyOperatingQuestionIntentReadback(exact); await loadLatestOperatingQuestionCouncil(questionId);
                     return exact;
                 } catch (error) {
                     state.error = error?.message || '保存问答回读失败';
@@ -45155,6 +45153,7 @@
                 state.result = null;
                 state.action_error = '';
                 state.action_intents = {};
+                resetLocalSecondBrainOperatingQuestionState(state, field === 'hotel_id');
                 if (field === 'hotel_id') {
                     state.scope_manual = false;
                     state.scope_auto_applied = false;
@@ -45189,6 +45188,7 @@
                         state.scope_auto_applied = false;
                         state.result = null;
                         state.action_intents = {};
+                        resetLocalSecondBrainOperatingQuestionState(state, true);
                         state.scope_loaded_hotel_id = '';
                         state.history_loaded_hotel_id = '';
                     }
@@ -45215,6 +45215,7 @@
                 state.result = null;
                 state.action_error = '';
                 state.action_intents = {};
+                resetLocalSecondBrainOperatingQuestionState(state);
                 if (!hotelId || !platform || !dateStart || !dateEnd || !question) {
                     state.error = '请先选择酒店、平台、日期范围并填写经营问题。';
                     return null;
@@ -45263,7 +45264,7 @@
                         throw new Error('问答范围已变化，旧范围回答不会显示；请按当前范围重新提交。');
                     }
                     state.result = exact;
-                    applyOperatingQuestionIntentReadback(exact);
+                    applyOperatingQuestionIntentReadback(exact); await loadLatestOperatingQuestionCouncil(questionId);
                     state.history = [exact, ...state.history.filter(item => Number(item?.id || 0) !== questionId)].slice(0, 50);
                     state.history_loaded_hotel_id = String(hotelId);
                     showToast(exact.answer_status === 'blocked_by_missing_facts'
@@ -45365,7 +45366,7 @@
             };
             provide('operatingQuestionUi', {
                 form: operatingQuestionForm,
-                state: operatingQuestionState,
+                state: operatingQuestionState, request,
                 ask: askOperatingQuestion,
                 isActionReady: operatingQuestionActionIsCurrent,
                 createActionIntent: createOperatingQuestionActionIntent,
@@ -45378,7 +45379,7 @@
                 loadScopeOptions: loadOperatingQuestionScopeOptions,
                 applyRecommendedScope: applyRecommendedOperatingQuestionScope,
                 loadHistory: loadOperatingQuestionHistory,
-                openHistory: openOperatingQuestionHistory,
+                openHistory: openOperatingQuestionHistory, loadLatestCouncil: loadLatestOperatingQuestionCouncil, runCouncil: runOperatingQuestionCouncil,
             });
 
             // 加载Agent概览
@@ -55389,8 +55390,8 @@
                 aiModelConfigs, availableAiModelOptions, aiModelConfigLoading, showAiModelConfigModal, aiModelConfigForm, testingAiModelId,
                 showAiModelAdvanced, aiQuickSetupForm, aiQuickSetupSaving, aiQuickSetupProviderModels,
                 aiModelConfigText, loadAiModelConfigs, openAiModelConfigModal, saveAiModelConfig, toggleAiModelConfigEnabled, testAiModelConfig, saveAiProviderQuickSetup,
-                aiGovernanceLoading, aiGovernanceError, aiGovernanceTab, aiGovernanceTabs, aiGovernanceSummaryCards, aiGovernanceLogs, aiGovernancePromptVersions, aiGovernanceEvaluationCases, aiGovernanceSelectedLog, aiGovernanceFilter,
-                aiGovernanceStatusText, aiGovernanceStatusClass, aiGovernanceConfirmText, aiGovernanceConfirmClass, aiGovernanceConfidenceText, aiGovernanceJsonBrief, loadAiGovernance, loadAiGovernanceLogs, openAiGovernanceLogDetail, confirmAiGovernanceLog,
+                aiGovernanceLoading, aiGovernanceError, aiGovernanceTab, aiGovernanceTabs, aiGovernanceSummaryCards, aiGovernanceLogs, aiGovernancePromptVersions, aiGovernanceEvaluationCases, aiGovernanceEvaluationRuns, aiGovernanceEvaluationAction, aiGovernanceEvaluationRun, aiGovernanceEvaluationMessage, aiGovernanceEvaluationForm, aiGovernanceSelectedLog, aiGovernanceFilter,
+                aiGovernanceStatusText, aiGovernanceStatusClass, aiGovernanceConfirmText, aiGovernanceConfirmClass, aiGovernanceConfidenceText, aiGovernanceJsonBrief, loadAiGovernance, loadAiGovernanceLogs, loadAiGovernanceEvaluationCases, loadAiGovernanceEvaluationRuns, saveAiGovernanceEvaluationCase, runAiGovernanceEvaluation, openAiGovernanceLogDetail, confirmAiGovernanceLog,
                 // 数据配置
                 showDataConfigModal, currentDataConfigType, dataConfigTitle, dataConfigMeta, testingConfig, savingConfig, dataConfigForm,
                 dataConfigDialogsReady, dataConfigDialogsBody, dataConfigDialogsError, retryDataConfigDialogs,

@@ -14743,6 +14743,7 @@
                                                 <div>
                                                     <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelQuickSetup.providerLabel') }}</label>
                                                     <select v-model="aiQuickSetupForm.provider" class="input-field w-full">
+                                                        <option value="ollama">本机 Ollama（第二大脑）</option>
                                                         <option value="deepseek">DeepSeek</option>
                                                         <option value="openai">OpenAI</option>
                                                         <option value="anthropic">Anthropic Claude</option>
@@ -14758,13 +14759,13 @@
                                                         <option value="nvidia">NVIDIA Nemotron</option>
                                                     </select>
                                                 </div>
-                                                <div>
+                                                <div v-if="aiQuickSetupForm.provider !== 'ollama'">
                                                     <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelQuickSetup.apiKeyLabel') }}</label>
                                                     <input v-model="aiQuickSetupForm.api_key" type="password" autocomplete="new-password" class="input-field w-full" :placeholder="aiModelConfigText('aiModelQuickSetup.apiKeyPlaceholder')">
                                                 </div>
                                                 <div>
                                                     <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelQuickSetup.baseUrlLabel') }}</label>
-                                                    <input v-model="aiQuickSetupForm.base_url" class="input-field w-full" :placeholder="aiModelConfigText('aiModelQuickSetup.baseUrlPlaceholder')">
+                                                    <input v-model="aiQuickSetupForm.base_url" :disabled="aiQuickSetupForm.provider === 'ollama'" class="input-field w-full disabled:bg-gray-100" :placeholder="aiQuickSetupForm.provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : aiModelConfigText('aiModelQuickSetup.baseUrlPlaceholder')">
                                                     <p class="text-xs text-gray-500 mt-1">{{ aiModelConfigText('aiModelQuickSetup.baseUrlHelp') }}</p>
                                                 </div>
                                                 <div class="flex items-end">
@@ -14960,21 +14961,50 @@
                                 <div v-if="!aiGovernancePromptVersions.length &amp;&amp; !aiGovernanceLoading" class="lg:col-span-2 p-8 text-center text-gray-400">暂无 Prompt 版本</div>
                             </div>
 
-                            <div v-if="aiGovernanceTab === 'evals'" class="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                <div v-for="item in aiGovernanceEvaluationCases" :key="item.id || item.case_key" class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <div class="font-semibold text-gray-900 truncate">{{ item.case_key || '-' }}</div>
-                                            <div class="text-xs text-gray-500 mt-1">{{ item.scenario || '-' }} · {{ item.prompt_version || '-' }}</div>
+                            <div v-if="aiGovernanceTab === 'evals'" class="p-4 space-y-4">
+                                <section class="rounded-xl border border-violet-100 bg-violet-50/40 p-4" data-testid="ai-evaluation-workbench">
+                                    <div class="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                                        <div>
+                                            <h4 class="font-semibold text-gray-900">本机第二大脑评测闭环</h4>
+                                            <p class="text-xs text-gray-500">先 dry-run；正式执行仅调用本机 Ollama，不创建经营动作。</p>
                                         </div>
-                                        <span :class="['rounded-md border px-2 py-0.5 text-xs whitespace-nowrap', item.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200']">{{ item.status || '-' }}</span>
+                                        <div class="flex flex-wrap gap-2">
+                                            <button @click="saveAiGovernanceEvaluationCase" :disabled="!!aiGovernanceEvaluationAction" class="btn-secondary text-xs disabled:opacity-50">{{ aiGovernanceEvaluationAction === 'save' ? '保存回读中…' : '保存用例' }}</button>
+                                            <button @click="runAiGovernanceEvaluation(false)" :disabled="!!aiGovernanceEvaluationAction" class="rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-medium text-violet-700 disabled:opacity-50">{{ aiGovernanceEvaluationAction === 'dry_run' ? '计划回读中…' : 'Dry-run 并回读' }}</button>
+                                            <button @click="runAiGovernanceEvaluation(true)" :disabled="!!aiGovernanceEvaluationAction" class="rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50">{{ aiGovernanceEvaluationAction === 'execute' ? '本机执行中…' : '确认后本机执行' }}</button>
+                                        </div>
                                     </div>
-                                    <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600">
-                                        <div class="rounded border border-gray-200 bg-white p-2 truncate">input: {{ aiGovernanceJsonBrief(item.input_json) }}</div>
-                                        <div class="rounded border border-gray-200 bg-white p-2 truncate">expected: {{ aiGovernanceJsonBrief(item.expected_json) }}</div>
+                                    <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                        <label class="text-xs">用例键<input v-model="aiGovernanceEvaluationForm.case_key" class="input-field" maxlength="120"></label>
+                                        <label class="text-xs">评测集<input v-model="aiGovernanceEvaluationForm.evaluation_set" @change="loadAiGovernanceEvaluationCases(); loadAiGovernanceEvaluationRuns()" class="input-field" maxlength="120"></label>
+                                        <label class="text-xs">场景<input v-model="aiGovernanceEvaluationForm.scenario" class="input-field" maxlength="120"></label>
+                                        <label class="text-xs">Prompt 版本<input v-model="aiGovernanceEvaluationForm.prompt_version" class="input-field" maxlength="120"></label>
                                     </div>
+                                    <div class="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
+                                        <label class="text-xs">输入 JSON<textarea v-model="aiGovernanceEvaluationForm.input_text" rows="9" class="input-field font-mono text-xs"></textarea></label>
+                                        <label class="text-xs">期望 JSON<textarea v-model="aiGovernanceEvaluationForm.expected_text" rows="9" class="input-field font-mono text-xs"></textarea></label>
+                                        <label class="text-xs">指标策略 JSON<textarea v-model="aiGovernanceEvaluationForm.metrics_text" rows="9" class="input-field font-mono text-xs"></textarea></label>
+                                    </div>
+                                    <p v-if="aiGovernanceEvaluationMessage" class="mt-3 rounded-lg border border-violet-100 bg-white px-3 py-2 text-xs text-violet-800">{{ aiGovernanceEvaluationMessage }}</p>
+                                    <div v-if="aiGovernanceEvaluationRun" class="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-xs text-emerald-800" data-testid="ai-evaluation-run-readback">
+                                        <div class="font-semibold">批次 #{{ aiGovernanceEvaluationRun.id }} · {{ aiGovernanceEvaluationRun.status }} · {{ aiGovernanceEvaluationRun.dry_run ? 'dry-run' : '已调用本机模型' }}</div>
+                                        <div class="break-all text-[11px]">digest: {{ aiGovernanceEvaluationRun.result_digest }}</div>
+                                    </div>
+                                    <p v-if="aiGovernanceEvaluationRuns.length" class="mt-2 text-xs text-gray-500">最近已回读 {{ aiGovernanceEvaluationRuns.length }} 个批次；最新 #{{ aiGovernanceEvaluationRuns[0].id }}。</p>
+                                </section>
+
+                                <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                                    <div v-for="item in aiGovernanceEvaluationCases" :key="item.id || item.case_key" class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <div class="truncate font-semibold text-gray-900">{{ item.case_key || '-' }}</div>
+                                                <div class="mt-1 text-xs text-gray-500">{{ item.evaluation_set || '-' }} · {{ item.scenario || '-' }} · {{ item.prompt_version || '-' }}</div>
+                                            </div>
+                                            <span :class="['rounded-md border px-2 py-0.5 text-xs whitespace-nowrap', item.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200']">{{ item.status || '-' }}</span>
+                                        </div>
+                                    </div>
+                                    <div v-if="!aiGovernanceEvaluationCases.length &amp;&amp; !aiGovernanceLoading" class="p-8 text-center text-gray-400 lg:col-span-2">暂无评估集用例</div>
                                 </div>
-                                <div v-if="!aiGovernanceEvaluationCases.length &amp;&amp; !aiGovernanceLoading" class="lg:col-span-2 p-8 text-center text-gray-400">暂无评估集用例</div>
                             </div>
                         </div>
 

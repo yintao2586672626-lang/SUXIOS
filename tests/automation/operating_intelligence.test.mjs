@@ -165,7 +165,7 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(systemUsageGuideComponent, /SYSTEM_ASSISTANT_MODE_OPTIONS/);
   assert.match(systemUsageGuideComponent, /system-guide-mode-switcher/);
   assert.match(systemUsageGuideComponent, /runOperatingWorkflow/);
-  assert.match(systemUsageGuideComponent, /form\.model_key = 'deepseek_v4_pro'/);
+  assert.match(systemUsageGuideComponent, /form\.model_key = 'local_second_brain'/);
   assert.match(systemUsageGuideComponent, /operating_result/);
   assert.match(systemUsageGuideComponent, /system-guide-operating-result/);
   assert.match(systemUsageGuideComponent, /在页面中指给我看/);

@@ -53,6 +53,40 @@ final class OperatingIntelligenceServiceTest extends TestCase
         ], $overrides);
     }
 
+    /** @param array<string,mixed> $overrides @return array<string,mixed> */
+    public static function localMeta(array $overrides = []): array
+    {
+        $nonce = 'oq_local_' . substr(hash('sha256', 'local-second-brain'), 0, 24);
+        return array_replace([
+            'provider' => 'ollama',
+            'model_key' => 'local_second_brain',
+            'model' => 'qwen3:4b',
+            'configured_model' => 'qwen3:4b',
+            'response_model' => 'qwen3:4b',
+            'provider_response_id' => '',
+            'provider_created_at' => 0,
+            'provider_response_fresh' => false,
+            'provider_endpoint_origin' => 'http://127.0.0.1:11434',
+            'provider_endpoint_host' => '127.0.0.1',
+            'provider_endpoint_official' => false,
+            'provider_config_digest' => str_repeat('b', 64),
+            'direct_call_nonce' => $nonce,
+            'transport_request_id' => $nonce,
+            'transport_retry_attempts' => 0,
+            'upstream_idempotency_key_sent' => false,
+            'http_status' => 200,
+            'provider_attempt_count' => 1,
+            'idempotent_replay' => false,
+            'direct_request_proof' => false,
+            'thinking_mode' => 'disabled',
+            'reasoning_effort' => '',
+            'finish_reason' => 'stop',
+            'fallback_used' => false,
+            'cache_hit' => false,
+            'degraded' => false,
+        ], $overrides);
+    }
+
     public static function setUpBeforeClass(): void
     {
         $app = new App(dirname(__DIR__));
@@ -780,6 +814,81 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertSame('blocked_by_missing_facts', $allOta['question']['answer_status']);
         self::assertSame('not_called_missing_facts', $allOta['question']['answer']['ai_runtime']['status']);
         self::assertContains('substantive_fact_coverage_missing', array_column($allOta['question']['data_gaps'], 'code'));
+    }
+
+    public function testOperatingQuestionAcceptsPinnedLocalSecondBrainAndPersistsExternalBoundary(): void
+    {
+        $fakeClient = new class extends LlmClient {
+            public int $calls = 0;
+
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_pro'
+            ): array {
+                $this->calls++;
+                return [
+                    'data' => [
+                        'fact_claims' => [[
+                            'evidence_ref' => 'online_daily_data#9201',
+                            'metric_key' => 'list_exposure',
+                            'metric_definition_id' => 'ota_list_exposure_users.v1',
+                            'value' => 100,
+                            'unit' => 'visitor_count',
+                        ]],
+                        'follow_up_questions' => [],
+                        'confidence' => 'medium',
+                        'action_drafts' => [],
+                    ],
+                    'meta' => OperatingIntelligenceServiceTest::localMeta(),
+                ];
+            }
+        };
+        $ai = new OperatingQuestionAiAnswerService($fakeClient);
+        $groundedFact = self::substantiveFact(9201, '2026-08-10');
+        $groundedFact['metric_units']['list_exposure'] = 'visitor_count';
+        $groundedFact['metric_definitions']['list_exposure']['definition_id'] = 'ota_list_exposure_users.v1';
+        $groundedFact['metric_definitions']['list_exposure']['source_metric_key'] = 'exposure_users';
+        $groundedFact['metric_definitions']['list_exposure']['unit'] = 'visitor_count';
+        $groundedFact['metric_definitions']['list_exposure']['label'] = '曝光用户数';
+        $service = new OperatingQuestionService(
+            static fn(): array => [
+                'facts' => [$groundedFact],
+                'fact_count' => 1,
+            ],
+            static fn(array $payload): array => $ai->generate($payload)
+        );
+
+        $saved = $service->create(
+            10,
+            20,
+            '2026-08-10 携程列表曝光用户数是多少？',
+            'ctrip',
+            '2026-08-10',
+            '2026-08-10',
+            7,
+            'local_second_brain'
+        );
+
+        self::assertSame(1, $fakeClient->calls);
+        self::assertSame('answered_by_grounded_ai', $saved['question']['answer_status']);
+        self::assertSame('ollama', $saved['question']['answer']['ai_runtime']['provider']);
+        self::assertSame('qwen3:4b', $saved['question']['answer']['ai_runtime']['model']);
+        self::assertTrue(OperatingQuestionAiAnswerService::localCallProofReady(
+            $saved['question']['answer']['ai_runtime']
+        ));
+        self::assertTrue($saved['question']['answer']['ai_runtime']['local_llm_called']);
+        self::assertSame('confirmed_local_response', $saved['question']['answer']['ai_runtime']['local_transport_status']);
+        self::assertFalse($saved['question']['answer']['ai_runtime']['external_llm_called']);
+        self::assertSame(
+            OperatingQuestionAiAnswerService::LOCAL_CALL_STATUS,
+            $saved['question']['answer']['ai_runtime']['external_llm_call_status']
+        );
+        self::assertTrue($saved['write_boundaries']['local_llm_called']);
+        self::assertSame('confirmed_local_response', $saved['write_boundaries']['local_transport_status']);
+        self::assertFalse($saved['write_boundaries']['external_llm_called']);
+        self::assertFalse($saved['write_boundaries']['ota_write']);
+        self::assertFalse($saved['write_boundaries']['automatic_execution']);
     }
 
     public function testOperatingQuestionAiPacketContainsEverySubstantiveDateBeyondLegacyTwelveRowSample(): void

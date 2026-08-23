@@ -439,6 +439,16 @@ final class OperatingQuestionService
                 'excluded_count' => 0,
                 'reason' => '',
             ];
+        $memoryRetrieval = is_array($evidence['memory_retrieval'] ?? null)
+            ? $evidence['memory_retrieval']
+            : [
+                'status' => $evidence['memories'] === [] ? 'no_match' : 'matched',
+                'method' => 'provided_evidence',
+                'matched_count' => count($evidence['memories']),
+                'returned_count' => count($evidence['memories']),
+                'excluded_count' => 0,
+                'reason' => null,
+            ];
         $executionRefs = $this->refs($evidence['executions']);
         $diagnosisRefs = $this->refs($diagnoses);
         $recoveryPlan = $this->buildRecoveryPlan(
@@ -481,6 +491,7 @@ final class OperatingQuestionService
             'fact_samples' => array_slice($facts, 0, 40),
             'diagnosis_refs' => $diagnosisRefs,
             'knowledge_retrieval' => $knowledgeRetrieval,
+            'memory_retrieval' => $memoryRetrieval,
             'knowledge_resources' => $knowledgeResources,
             'question_metric_contract' => $questionMetricContract,
             'requested_metric_keys' => $requestedMetricKeys,
@@ -507,6 +518,7 @@ final class OperatingQuestionService
         $evidence['diagnoses'] = $diagnoses;
         $evidence['knowledge'] = $knowledgeResources;
         $evidence['knowledge_retrieval'] = $knowledgeRetrieval;
+        $evidence['memory_retrieval'] = $memoryRetrieval;
         $answer = $this->applyAiAnswer(
             $answer,
             $evidence,
@@ -890,12 +902,21 @@ final class OperatingQuestionService
             $platform,
             $question
         );
+        $memoryRetrieval = (new OperatingMemoryRetrievalService())->retrieve(
+            $tenantId,
+            $hotelId,
+            $platform,
+            $question,
+            $dateStart,
+            $dateEnd
+        );
         return [
             'facts' => $this->loadFacts($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_count' => $this->factCount($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_platform_counts' => $this->factPlatformCounts($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_platform_dates' => $this->factPlatformDates($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
-            'memories' => $this->loadMemories($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
+            'memories' => is_array($memoryRetrieval['items'] ?? null) ? $memoryRetrieval['items'] : [],
+            'memory_retrieval' => array_diff_key($memoryRetrieval, ['items' => true]),
             'diagnoses' => $this->loadDiagnoses($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'knowledge' => is_array($knowledge['items'] ?? null) ? $knowledge['items'] : [],
             'knowledge_retrieval' => array_diff_key($knowledge, ['items' => true]),
@@ -1767,6 +1788,9 @@ final class OperatingQuestionService
         $evidence['knowledge_retrieval'] = is_array($evidence['knowledge_retrieval'] ?? null)
             ? $evidence['knowledge_retrieval']
             : [];
+        $evidence['memory_retrieval'] = is_array($evidence['memory_retrieval'] ?? null)
+            ? $evidence['memory_retrieval']
+            : [];
         $evidence['fact_count'] = max(0, (int)($evidence['fact_count'] ?? count($evidence['facts'])));
         $evidence['fact_platform_counts'] = $this->factPlatformCountsFromEvidence($evidence);
         $evidence['fact_platform_dates'] = $this->factPlatformDatesFromEvidence($evidence);
@@ -2389,6 +2413,10 @@ final class OperatingQuestionService
         $answer = is_array($questionRow['answer'] ?? null) ? $questionRow['answer'] : [];
         $boundaries = is_array($answer['boundaries'] ?? null) ? $answer['boundaries'] : [];
         return [
+            'local_llm_called' => is_bool($boundaries['local_llm_called'] ?? null)
+                ? $boundaries['local_llm_called']
+                : null,
+            'local_transport_status' => mb_substr(trim((string)($boundaries['local_transport_status'] ?? '')), 0, 80),
             'external_llm_called' => is_bool($boundaries['external_llm_called'] ?? null)
                 ? $boundaries['external_llm_called']
                 : null,
@@ -2424,6 +2452,8 @@ final class OperatingQuestionService
             'prompt_version' => '',
             'model_attempted' => false,
             'llm_client_invoked' => false,
+            'local_llm_called' => false,
+            'local_transport_status' => '',
             'external_llm_called' => false,
             'external_llm_call_status' => 'not_attempted',
             'provider' => '',
@@ -2493,6 +2523,8 @@ final class OperatingQuestionService
                 'model_key' => $modelKey,
                 'model_attempted' => true,
                 'llm_client_invoked' => true,
+                'local_llm_called' => null,
+                'local_transport_status' => 'unknown_after_client_attempt',
                 'external_llm_called' => null,
                 'external_llm_call_status' => 'unknown_after_client_attempt',
                 'provider' => '',
@@ -2532,6 +2564,10 @@ final class OperatingQuestionService
             'prompt_version' => (string)($result['prompt_version'] ?? ''),
             'model_attempted' => ($result['model_attempted'] ?? false) === true,
             'llm_client_invoked' => ($result['llm_client_invoked'] ?? false) === true,
+            'local_llm_called' => is_bool($result['local_llm_called'] ?? null)
+                ? $result['local_llm_called']
+                : null,
+            'local_transport_status' => mb_substr(trim((string)($result['local_transport_status'] ?? '')), 0, 80),
             'external_llm_called' => $externalLlmCalled,
             'external_llm_call_status' => mb_substr(trim((string)($result['external_llm_call_status'] ?? (
                 $externalLlmCalled === true ? 'unverified_external_response' : 'unknown_after_client_attempt'
@@ -2566,6 +2602,8 @@ final class OperatingQuestionService
         ];
         $answer['boundaries']['llm_attempted'] = $answer['ai_runtime']['model_attempted'];
         $answer['boundaries']['llm_client_invoked'] = $answer['ai_runtime']['llm_client_invoked'];
+        $answer['boundaries']['local_llm_called'] = $answer['ai_runtime']['local_llm_called'];
+        $answer['boundaries']['local_transport_status'] = $answer['ai_runtime']['local_transport_status'];
         $answer['boundaries']['external_llm_called'] = $answer['ai_runtime']['external_llm_called'];
         $answer['boundaries']['external_llm_call_status'] = $answer['ai_runtime']['external_llm_call_status'];
 
@@ -2575,15 +2613,20 @@ final class OperatingQuestionService
             && preg_match('/^[a-f0-9]{64}$/D', $claimsDigest) === 1
             && hash_equals($claimsDigest, OperatingQuestionAiAnswerService::claimsDigest($factClaims));
         $runtime = $answer['ai_runtime'];
-        $groundedRuntimeReady = (string)($runtime['status'] ?? '') === 'ready'
-            && (string)($answer['question_metric_contract']['contract_version'] ?? '')
-                === self::METRIC_INTENT_CONTRACT_VERSION
-            && OperatingQuestionAiAnswerService::directCallProofReady($runtime)
+        $directDeepSeekReady = OperatingQuestionAiAnswerService::directCallProofReady($runtime)
             && OperatingQuestionAiAnswerService::directCallReceiptFreshNow($runtime)
-            && (string)($runtime['prompt_version'] ?? '') === OperatingQuestionAiAnswerService::PROMPT_VERSION
             && ($runtime['external_llm_called'] ?? false) === true
             && (string)($runtime['external_llm_call_status'] ?? '')
                 === OperatingQuestionAiAnswerService::DIRECT_CALL_STATUS;
+        $localSecondBrainReady = OperatingQuestionAiAnswerService::localCallProofReady($runtime)
+            && ($runtime['external_llm_called'] ?? true) === false
+            && (string)($runtime['external_llm_call_status'] ?? '')
+                === OperatingQuestionAiAnswerService::LOCAL_CALL_STATUS;
+        $groundedRuntimeReady = (string)($runtime['status'] ?? '') === 'ready'
+            && (string)($answer['question_metric_contract']['contract_version'] ?? '')
+                === self::METRIC_INTENT_CONTRACT_VERSION
+            && (string)($runtime['prompt_version'] ?? '') === OperatingQuestionAiAnswerService::PROMPT_VERSION
+            && ($directDeepSeekReady || $localSecondBrainReady);
         if (($result['ok'] ?? false) !== true || !$groundedRuntimeReady || !$claimsDigestReady) {
             if (is_array($result['data_gaps'] ?? null)) {
                 $answer['data_gaps'] = array_values(array_merge(
@@ -2903,7 +2946,13 @@ final class OperatingQuestionService
         ], true)) {
             return OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY;
         }
-        throw new InvalidArgumentException('经营问答只允许 DeepSeek V4 Pro 直接模型，已拒绝其他模型或客户端降级选择');
+        if (in_array($value, [
+            LocalAiRuntimeService::TEXT_MODEL_KEY,
+            'ollama_qwen3_4b',
+        ], true)) {
+            return LocalAiRuntimeService::TEXT_MODEL_KEY;
+        }
+        throw new InvalidArgumentException('经营问答只允许 DeepSeek V4 Pro 或已固定的本机第二大脑模型，已拒绝其他模型或客户端降级选择');
     }
 
     private function providerResponseId(mixed $value): string

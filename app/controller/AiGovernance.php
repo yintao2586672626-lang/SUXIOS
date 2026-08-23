@@ -8,8 +8,13 @@ use app\model\AiModelCallLog;
 use app\model\AiPromptVersion;
 use app\model\OperationLog;
 use app\service\AiEvaluationBatchReplayService;
+use app\service\AiEvaluationRunService;
+use app\service\LocalAiRuntimeService;
+use InvalidArgumentException;
+use RuntimeException;
 use think\exception\HttpException;
 use think\Response;
+use Throwable;
 
 class AiGovernance extends Base
 {
@@ -212,7 +217,7 @@ class AiGovernance extends Base
         $this->checkSuperAdmin();
         $pagination = $this->getPagination();
         $query = AiEvaluationCase::where([]);
-        foreach (['case_key', 'scenario', 'prompt_version', 'status'] as $field) {
+        foreach (['case_key', 'evaluation_set', 'scenario', 'prompt_version', 'status'] as $field) {
             $value = trim((string)$this->request->param($field, ''));
             if ($value !== '') {
                 $query->where($field, $value);
@@ -238,8 +243,9 @@ class AiGovernance extends Base
         $this->checkSuperAdmin();
         $data = $this->requestData();
         $caseKey = mb_substr(trim((string)($data['case_key'] ?? '')), 0, 120);
-        if ($caseKey === '') {
-            return $this->error('case_key 必填', 422);
+        $evaluationSet = mb_substr(trim((string)($data['evaluation_set'] ?? '')), 0, 120);
+        if ($caseKey === '' || $evaluationSet === '') {
+            return $this->error('case_key 和 evaluation_set 必填', 422);
         }
 
         $status = $this->normalizeActiveArchiveStatus($data['status'] ?? 'active');
@@ -248,6 +254,7 @@ class AiGovernance extends Base
         }
 
         $payload = [
+            'evaluation_set' => $evaluationSet,
             'scenario' => mb_substr(trim((string)($data['scenario'] ?? '')), 0, 120),
             'prompt_version' => mb_substr(trim((string)($data['prompt_version'] ?? '')), 0, 120),
             'input_json' => is_array($data['input'] ?? null) ? $data['input'] : ($data['input_json'] ?? []),
@@ -257,14 +264,14 @@ class AiGovernance extends Base
             'created_by' => (int)($this->currentUser->id ?? 0),
         ];
 
-        $row = AiEvaluationCase::where('case_key', $caseKey)->find();
+        $row = AiEvaluationCase::where('evaluation_set', $evaluationSet)->where('case_key', $caseKey)->find();
         if ($row) {
             $row->save($payload);
         } else {
             $row = AiEvaluationCase::create(array_merge(['case_key' => $caseKey], $payload));
         }
 
-        $row = AiEvaluationCase::where('case_key', $caseKey)->find();
+        $row = AiEvaluationCase::where('evaluation_set', $evaluationSet)->where('case_key', $caseKey)->find();
         return $this->success($row->toArray(), '评估集用例已保存');
     }
 
@@ -278,21 +285,13 @@ class AiGovernance extends Base
             return $this->error('evaluation_set 必填，用于区分本次批量评估归属', 422);
         }
 
-        $query = AiEvaluationCase::where('status', 'active');
+        $clientRunKey = mb_substr(trim((string)($data['client_run_key'] ?? '')), 0, 80);
+        if (preg_match('/^[A-Za-z0-9_.:-]{8,80}$/D', $clientRunKey) !== 1) {
+            return $this->error('client_run_key 必填，且仅支持8-80位字母、数字、点、冒号、下划线或短横线', 422);
+        }
         $scenario = mb_substr(trim((string)($data['scenario'] ?? $this->request->param('scenario', ''))), 0, 120);
-        if ($scenario !== '') {
-            $query->where('scenario', $scenario);
-        }
         $promptVersion = mb_substr(trim((string)($data['prompt_version'] ?? $this->request->param('prompt_version', ''))), 0, 120);
-        if ($promptVersion !== '') {
-            $query->where('prompt_version', $promptVersion);
-        }
         $caseKeys = $this->normalizeStringList($data['case_keys'] ?? $data['case_key'] ?? $this->request->param('case_keys', []));
-        if (!empty($caseKeys)) {
-            $query->whereIn('case_key', $caseKeys);
-        }
-
-        $limit = max(1, min(100, (int)($data['limit'] ?? $this->request->param('limit', 50))));
         $dryRun = $this->normalizeReplayBool($data['dry_run'] ?? $this->request->param('dry_run', null), true);
         if (array_key_exists('execute', $data) || $this->request->param('execute', null) !== null) {
             $dryRun = !$this->normalizeReplayBool($data['execute'] ?? $this->request->param('execute', null), false);
@@ -301,25 +300,107 @@ class AiGovernance extends Base
             $data['allow_external_model_call'] ?? $this->request->param('allow_external_model_call', null),
             false
         );
-        $modelKey = mb_substr(trim((string)($data['model_key'] ?? $this->request->param('model_key', 'deepseek_v4_default'))), 0, 100);
+        $modelKey = mb_substr(trim((string)($data['model_key'] ?? $this->request->param('model_key', 'local_second_brain'))), 0, 100);
+        $limitCap = $dryRun ? 100 : 10;
+        $limit = max(1, min($limitCap, (int)($data['limit'] ?? $this->request->param('limit', $dryRun ? 50 : 10))));
+        $runFilters = [
+            'scenario' => $scenario,
+            'prompt_version' => $promptVersion,
+            'case_keys' => $caseKeys,
+            'limit' => $limit,
+        ];
+        $runService = new AiEvaluationRunService();
+        try {
+            $existingRun = $runService->findByClientRunKey($clientRunKey);
+            if (is_array($existingRun)) {
+                if ((string)$existingRun['evaluation_set'] !== $evaluationSet
+                    || (string)$existingRun['model_key'] !== $modelKey
+                    || (array)$existingRun['filters'] !== $runFilters
+                    || (($existingRun['result']['dry_run'] ?? null) !== $dryRun)
+                    || (($existingRun['result']['allow_external_model_call'] ?? null) !== $allowExternalModelCall)
+                ) {
+                    return $this->error('client_run_key 已被不同参数的评测批次占用', 409);
+                }
+                return $this->success([
+                    'run' => $existingRun,
+                    'result' => $existingRun['result'],
+                    'persistence_status' => 'readback_verified',
+                    'replayed' => true,
+                ], '已回读同一评测批次，未重复调用模型');
+            }
+        } catch (Throwable $e) {
+            return $this->error($this->evaluationErrorMessage($e), $this->evaluationStatus($e));
+        }
+
+        $query = AiEvaluationCase::where('status', 'active')->where('evaluation_set', $evaluationSet);
+        if ($scenario !== '') {
+            $query->where('scenario', $scenario);
+        }
+        if ($promptVersion !== '') {
+            $query->where('prompt_version', $promptVersion);
+        }
+        if (!empty($caseKeys)) {
+            $query->whereIn('case_key', $caseKeys);
+        }
 
         $rows = $query->order('id', 'asc')
             ->limit($limit)
             ->select()
             ->toArray();
 
-        $result = (new AiEvaluationBatchReplayService())->run($rows, [
-            'evaluation_set' => $evaluationSet,
-            'model_key' => $modelKey,
-            'dry_run' => $dryRun,
-            'allow_external_model_call' => $allowExternalModelCall,
-        ]);
-
-        if (!$dryRun && !$allowExternalModelCall) {
-            return $this->success($result, '评估集回放已阻断：未授权外部模型调用');
+        try {
+            $result = (new AiEvaluationBatchReplayService())->run($rows, [
+                'evaluation_set' => $evaluationSet,
+                'model_key' => $modelKey,
+                'dry_run' => $dryRun,
+                'allow_external_model_call' => $allowExternalModelCall,
+            ]);
+            $run = $runService->save(
+                $clientRunKey,
+                $evaluationSet,
+                $modelKey,
+                $runFilters,
+                $result,
+                (int)($this->currentUser->id ?? 0)
+            );
+            $payload = [
+                'run' => $run,
+                'result' => $result,
+                'persistence_status' => 'readback_verified',
+                'replayed' => false,
+            ];
+        } catch (Throwable $e) {
+            return $this->error($this->evaluationErrorMessage($e), $this->evaluationStatus($e));
         }
 
-        return $this->success($result, $dryRun ? '评估集回放计划已生成' : '评估集回放已执行');
+        if (!$dryRun && !$allowExternalModelCall && $modelKey !== LocalAiRuntimeService::TEXT_MODEL_KEY) {
+            return $this->success($payload, '评估集回放已阻断并保存回读：未授权模型调用');
+        }
+
+        return $this->success($payload, $dryRun ? '评估集回放计划已保存并回读' : '评估集回放已执行、保存并回读');
+    }
+
+    public function evaluationRuns(): Response
+    {
+        $this->checkSuperAdmin();
+        try {
+            return $this->success((new AiEvaluationRunService())->list(
+                mb_substr(trim((string)$this->request->param('evaluation_set', '')), 0, 120),
+                (int)$this->request->param('limit', 50)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->evaluationErrorMessage($e), $this->evaluationStatus($e));
+        }
+    }
+
+    public function evaluationRunDetail(int $id): Response
+    {
+        $this->checkSuperAdmin();
+        try {
+            return $this->success((new AiEvaluationRunService())->read($id));
+        } catch (Throwable $e) {
+            return $this->error($this->evaluationErrorMessage($e), $this->evaluationStatus($e));
+        }
     }
 
     public function archiveEvaluationCase(int $id): Response
@@ -448,5 +529,23 @@ class AiGovernance extends Base
             }
         }
         return array_values(array_unique($items));
+    }
+
+    private function evaluationStatus(Throwable $e): int
+    {
+        if ($e instanceof InvalidArgumentException) {
+            return 422;
+        }
+        $code = (int)$e->getCode();
+        return $code >= 400 && $code <= 599 ? $code : 500;
+    }
+
+    private function evaluationErrorMessage(Throwable $e): string
+    {
+        $message = trim($e->getMessage());
+        if ($message === '' || preg_match('/token|secret|password|cookie|authorization/i', $message) === 1) {
+            return 'AI评测批次处理失败';
+        }
+        return mb_substr($message, 0, 300);
     }
 }

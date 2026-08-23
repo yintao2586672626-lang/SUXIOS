@@ -62,10 +62,121 @@
                     ? (value.value ?? fallback)
                     : (value ?? fallback)
             );
+            const currentState = () => valueOf(ui?.state);
+            const currentHotelId = () => Number(ui?.ensureScope?.() || 0);
+            const request = (...args) => {
+                if (typeof ui?.request !== 'function') {
+                    return Promise.reject(new Error('经营问答请求能力未就绪'));
+                }
+                return ui.request(...args);
+            };
+            const loadLocalAiCapabilities = async () => {
+                const state = currentState();
+                if (state.local_ai_loading) return state.local_ai_capabilities;
+                state.local_ai_loading = true;
+                state.local_ai_error = '';
+                try {
+                    const response = await request('/agent/local-ai/capabilities');
+                    if (response.code !== 200 || !response.data) {
+                        throw new Error(response.message || '本地第二大脑状态读取失败');
+                    }
+                    const capability = response.data;
+                    if (capability?.boundaries?.local_only !== true
+                        || capability?.boundaries?.external_message !== false
+                        || capability?.boundaries?.automatic_execution !== false
+                        || capability?.boundaries?.ota_write !== false
+                    ) throw new Error('本地第二大脑能力边界回读不一致');
+                    state.local_ai_capabilities = capability;
+                    return capability;
+                } catch (error) {
+                    state.local_ai_capabilities = null;
+                    state.local_ai_error = error?.message || '本地第二大脑状态读取失败';
+                    return null;
+                } finally {
+                    state.local_ai_loading = false;
+                }
+            };
+            const setMediaFile = (file) => {
+                const state = currentState();
+                state.media_file = file instanceof File ? file : null;
+                state.media_error = '';
+                state.media_result = null;
+            };
+            const loadMediaHistory = async () => {
+                const state = currentState();
+                const hotelId = currentHotelId();
+                if (!hotelId) {
+                    state.media_history = [];
+                    return [];
+                }
+                try {
+                    const response = await request(`/agent/local-media-extractions?hotel_id=${hotelId}&limit=10`);
+                    if (response.code !== 200) throw new Error(response.message || '本地媒体记录读取失败');
+                    if (currentHotelId() !== hotelId) return state.media_history;
+                    const list = Array.isArray(response.data?.list) ? response.data.list : [];
+                    if (list.some((item) => Number(item?.hotel_id || 0) !== hotelId)) {
+                        throw new Error('本地媒体记录返回了其他门店数据');
+                    }
+                    state.media_history = list;
+                    return list;
+                } catch (error) {
+                    state.media_history = [];
+                    state.media_error = error?.message || '本地媒体记录读取失败';
+                    return [];
+                }
+            };
+            const extractLocalMedia = async () => {
+                const state = currentState();
+                const hotelId = currentHotelId();
+                const file = state.media_file;
+                if (state.media_loading) return null;
+                if (!hotelId || !(file instanceof File)) {
+                    state.media_error = '请先选择酒店和图片、音频或视频文件。';
+                    return null;
+                }
+                state.media_loading = true;
+                state.media_error = '';
+                state.media_result = null;
+                try {
+                    const body = new FormData();
+                    body.append('hotel_id', String(hotelId));
+                    body.append('file', file, file.name);
+                    const saved = await request('/agent/local-media-extractions', { method: 'POST', body });
+                    if (saved.code !== 200 || !saved.data) throw new Error(saved.message || '本地媒体提取失败');
+                    const savedResult = saved.data;
+                    const resultId = Number(savedResult.id || 0);
+                    if (!resultId || savedResult.persistence_status !== 'readback_verified') {
+                        throw new Error('本地媒体提取没有返回保存回读凭证');
+                    }
+                    const readback = await request(`/agent/local-media-extractions/${resultId}`);
+                    if (readback.code !== 200 || !readback.data) throw new Error(readback.message || '本地媒体提取回读失败');
+                    const exact = readback.data;
+                    if (Number(exact.id || 0) !== resultId
+                        || Number(exact.hotel_id || 0) !== hotelId
+                        || String(exact.source_sha256 || '') !== String(savedResult.source_sha256 || '')
+                        || String(exact.content_digest || '') !== String(savedResult.content_digest || '')
+                        || String(exact.extraction_status || '') !== String(savedResult.extraction_status || '')
+                        || String(exact.source_retention || '') !== 'discarded_after_extraction'
+                        || exact?.boundaries?.source_file_retained !== false
+                        || exact?.boundaries?.hotel_fact_created !== false
+                    ) throw new Error('本地媒体提取保存与精确回读不一致');
+                    if (currentHotelId() !== hotelId) throw new Error('门店范围已变化，旧门店提取结果不会显示');
+                    state.media_result = exact;
+                    await loadMediaHistory();
+                    return exact;
+                } catch (error) {
+                    state.media_error = error?.message || '本地媒体提取失败';
+                    return null;
+                } finally {
+                    state.media_loading = false;
+                }
+            };
             onMounted(() => {
                 ui?.ensureScope?.();
                 void ui?.loadScopeOptions?.({ applyRecommendation: true });
                 void ui?.loadHistory?.();
+                void loadLocalAiCapabilities();
+                void loadMediaHistory();
             });
             return () => {
                 const state = valueOf(ui?.state);
@@ -74,7 +185,12 @@
                 const hotels = valueOf(ui?.hotels, []);
                 const result = state.result || null;
                 const evidence = result?.answer?.evidence_counts || {};
-                const updateScope = (field, value) => ui?.updateScope?.(field, value);
+                const localAi = state.local_ai_capabilities || null;
+                const updateScope = (field, value) => {
+                    const changed = ui?.updateScope?.(field, value);
+                    if (changed && field === 'hotel_id') void loadMediaHistory();
+                    return changed;
+                };
                 const children = [
                     h('div', { class: 'flex flex-col gap-3 lg:flex-row lg:items-end' }, [
                         h('div', { class: 'min-w-0 flex-1' }, [
@@ -190,6 +306,70 @@
                             : null,
                     ].filter(Boolean)));
                 }
+                children.push(h('section', {
+                    class: 'mt-3 rounded-xl border border-emerald-100 bg-white p-3',
+                    'data-testid': 'local-ai-capability-status',
+                }, [
+                    h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                        h('div', [
+                            h('div', { class: 'text-xs font-semibold text-emerald-800' }, '本机第二大脑'),
+                            h('p', { class: 'mt-1 text-[11px] text-slate-500' }, 'Ollama 文本、视觉、向量和本机语音；只作建议与提取，不自动写 OTA。'),
+                        ]),
+                        h('button', {
+                            type: 'button',
+                            disabled: Boolean(state.local_ai_loading),
+                            class: 'rounded border border-emerald-200 px-2 py-1 text-xs text-emerald-700 disabled:opacity-50',
+                            onClick: () => loadLocalAiCapabilities(),
+                        }, state.local_ai_loading ? '探测中…' : '刷新能力'),
+                    ]),
+                    state.local_ai_error
+                        ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.local_ai_error))
+                        : h('div', { class: 'mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4' }, [
+                            ['文本', localAi?.text],
+                            ['视觉', localAi?.vision],
+                            ['向量', localAi?.embedding],
+                            ['语音', localAi?.audio],
+                        ].map(([label, capability]) => h('div', {
+                            key: label,
+                            class: ['rounded-lg border px-2 py-2', capability?.ready === true ? 'border-emerald-100 bg-emerald-50 text-emerald-800' : 'border-amber-100 bg-amber-50 text-amber-800'],
+                        }, [
+                            h('strong', label),
+                            h('div', { class: 'mt-1 break-words text-[11px]' }, capability?.ready === true ? 'ready' : String(capability?.error_code || capability?.status || '未探测')),
+                            capability?.model ? h('div', { class: 'mt-0.5 break-all text-[10px] opacity-75' }, String(capability.model)) : null,
+                        ].filter(Boolean)))),
+                    h('div', { class: 'mt-3 border-t border-emerald-100 pt-3' }, [
+                        h('div', { class: 'text-xs font-semibold text-slate-700' }, '本机图片 / 音视频理解'),
+                        h('div', { class: 'mt-2 flex flex-col gap-2 sm:flex-row sm:items-center' }, [
+                            h('input', {
+                                type: 'file',
+                                accept: 'image/*,audio/*,video/*',
+                                disabled: Boolean(state.media_loading),
+                                class: 'min-w-0 flex-1 text-xs',
+                                'data-testid': 'local-media-file',
+                                onChange: (event) => setMediaFile(event?.target?.files?.[0] || null),
+                            }),
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.media_loading || !state.media_file || !form.hotel_id),
+                                class: 'rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50',
+                                'data-testid': 'local-media-extract',
+                                onClick: () => extractLocalMedia(),
+                            }, state.media_loading ? '本机提取中…' : '提取并回读'),
+                        ]),
+                        state.media_error ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.media_error)) : null,
+                        state.media_result ? h('div', {
+                            class: 'mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700',
+                            'data-testid': 'local-media-readback',
+                        }, [
+                            h('div', { class: 'font-medium' }, `#${Number(state.media_result.id || 0)} · ${String(state.media_result.media_kind || '')} · ${String(state.media_result.extraction_status || '')}`),
+                            h('p', { class: 'mt-1 whitespace-pre-wrap break-words leading-5' }, String(state.media_result.extracted_text || state.media_result.error_code || '未提取到文本')),
+                            h('p', { class: 'mt-1 text-[10px] text-slate-500' }, `来源文件：${String(state.media_result.source_retention || '未说明')} · 摘要 ${String(state.media_result.content_digest || '').slice(0, 12)}…`),
+                        ]) : null,
+                        Array.isArray(state.media_history) && state.media_history.length
+                            ? h('p', { class: 'mt-2 text-[11px] text-slate-500' }, `该门店已保存并校验 ${state.media_history.length} 条本机提取记录。`)
+                            : null,
+                    ].filter(Boolean)),
+                ]));
                 const history = Array.isArray(state.history) ? state.history.slice(0, 5) : [];
                 children.push(h('details', {
                     class: 'mt-3 rounded-lg border border-indigo-100 bg-white px-3 py-2',
@@ -240,6 +420,66 @@
                             h('li', { key: String(gap?.code || index) }, String(gap?.message || gap?.code || '未说明的数据缺口'))
                         ))));
                     }
+                    const council = state.council_run || null;
+                    const councilMembers = Array.isArray(council?.members) ? council.members : [];
+                    const synthesis = council?.synthesis && typeof council.synthesis === 'object' ? council.synthesis : {};
+                    answerChildren.push(h('section', {
+                        class: 'mt-3 rounded-xl border border-violet-200 bg-violet-50/70 p-3',
+                        'data-testid': 'operating-question-council-readback',
+                    }, [
+                        h('div', { class: 'flex flex-wrap items-start justify-between gap-2' }, [
+                            h('div', [
+                                h('div', { class: 'text-[11px] font-semibold uppercase tracking-wide text-violet-700' }, '本机多角色影子复核'),
+                                h('p', { class: 'mt-1 text-xs text-slate-600' }, '证据审计、收益分析、运营执行三种角色视角；不代表三名独立专家，不覆盖主回答、不创建行动。'),
+                            ]),
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.council_loading),
+                                class: 'rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50',
+                                'data-testid': 'operating-question-council-run',
+                                onClick: () => ui?.runCouncil?.(),
+                            }, state.council_loading ? '本机复核中…' : (council ? '重新发起影子复核' : '发起影子复核')),
+                        ]),
+                        state.council_error ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.council_error)) : null,
+                        council ? h('div', { class: 'mt-3' }, [
+                            h('div', { class: 'flex flex-wrap items-center gap-2 text-xs' }, [
+                                h('strong', { class: 'text-violet-800' }, String(council.status || '未知状态')),
+                                h('span', { class: 'text-slate-500' }, `记录 #${Number(council.id || 0)} · 摘要 ${String(council.content_digest || '').slice(0, 12)}…`),
+                            ]),
+                            councilMembers.length ? h('div', { class: 'mt-2 grid gap-2 md:grid-cols-3' }, councilMembers.map((member) => h('div', {
+                                key: String(member?.key || member?.label || ''),
+                                class: 'rounded-lg border border-violet-100 bg-white p-2 text-xs',
+                            }, [
+                                h('strong', { class: 'text-slate-800' }, `${String(member?.label || member?.key || '角色')} · ${String(member?.status || '')}`),
+                                h('p', { class: 'mt-1 leading-5 text-slate-600' }, String(member?.assessment || member?.error_code || '未形成评估')),
+                                Array.isArray(member?.supported_points) && member.supported_points.length
+                                    ? h('p', { class: 'mt-1 leading-5 text-emerald-700' }, `支持点：${member.supported_points.join('；')}`)
+                                    : null,
+                                Array.isArray(member?.risks) && member.risks.length
+                                    ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `风险：${member.risks.join('；')}`)
+                                    : null,
+                                Array.isArray(member?.missing_information) && member.missing_information.length
+                                    ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `缺口：${member.missing_information.join('；')}`)
+                                    : null,
+                            ].filter(Boolean)))) : null,
+                            h('div', { class: 'mt-2 rounded-lg border border-violet-100 bg-white p-2 text-xs text-slate-700' }, [
+                                h('strong', '会商汇总'),
+                                h('p', { class: 'mt-1 leading-5' }, String(synthesis.summary || synthesis.error_code || '未形成汇总')),
+                                Array.isArray(synthesis.agreements) && synthesis.agreements.length
+                                    ? h('p', { class: 'mt-1 leading-5' }, `一致点：${synthesis.agreements.join('；')}`)
+                                    : null,
+                                Array.isArray(synthesis.conflicts) && synthesis.conflicts.length
+                                    ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `冲突点：${synthesis.conflicts.join('；')}`)
+                                    : null,
+                                Array.isArray(synthesis.missing_information) && synthesis.missing_information.length
+                                    ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `缺口：${synthesis.missing_information.join('；')}`)
+                                    : null,
+                                synthesis.recommended_next_step
+                                    ? h('p', { class: 'mt-1 font-medium leading-5 text-violet-800' }, `建议下一步：${String(synthesis.recommended_next_step)}`)
+                                    : null,
+                            ].filter(Boolean)),
+                        ].filter(Boolean)) : h('p', { class: 'mt-2 text-xs text-slate-500' }, '尚未运行；只有你主动点击后才调用本机模型并保存回读。'),
+                    ].filter(Boolean)));
                     const actionDrafts = Array.isArray(result.answer?.action_drafts)
                         ? result.answer.action_drafts.slice(0, 1)
                         : [];
@@ -486,10 +726,14 @@
                     })),
                 ];
                 const modelOptions = [
-                    { value: '', label: 'DeepSeek V4 默认' },
-                    ...textList(ctx.availableAiModelOptions).filter((model) => (
-                        String(model?.value || '').toLowerCase().includes('deepseek')
-                    )).map((model) => ({
+                    { value: 'local_second_brain', label: '本机第二大脑（Ollama）' },
+                    ...textList(ctx.availableAiModelOptions).filter((model) => {
+                        const value = String(model?.value || '').toLowerCase();
+                        const label = String(model?.label || '').toLowerCase();
+                        return value.includes('deepseek')
+                            || value.includes('local_second_brain')
+                            || label.includes('ollama');
+                    }).filter((model) => String(model?.value || '') !== 'local_second_brain').map((model) => ({
                         value: model?.value || '',
                         label: model?.label || model?.value || '模型',
                     })),
@@ -2183,7 +2427,7 @@
                 ctx.ensureOperatingQuestionScope?.();
                 const inferredPlatform = operatingPlatformFromQuery(query);
                 if (inferredPlatform) form.platform = inferredPlatform;
-                form.model_key = 'deepseek_v4_pro';
+                form.model_key = 'local_second_brain';
                 form.decision_object = '';
                 questionState.question = query;
                 const exact = await ctx.askOperatingQuestion();

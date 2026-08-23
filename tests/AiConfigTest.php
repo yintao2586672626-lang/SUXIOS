@@ -100,10 +100,10 @@ final class AiConfigTest extends TestCase
             ['ollama']
         );
 
-        self::assertSame('ollama_qwen3_8b', $definitions[0]['model_key']);
+        self::assertSame('local_second_brain', $definitions[0]['model_key']);
         self::assertSame('ollama', $definitions[0]['provider']);
         self::assertSame('http://127.0.0.1:11434/v1', $definitions[0]['base_url']);
-        self::assertSame('qwen3:8b', $definitions[0]['model_name']);
+        self::assertSame('qwen3:4b', $definitions[0]['model_name']);
         self::assertFalse($this->invokeNonPublic($this->controller(), 'providerRequiresApiKey', ['ollama']));
     }
 
@@ -112,10 +112,10 @@ final class AiConfigTest extends TestCase
         $controller = $this->controller();
         $payload = [
             'name' => 'Local Qwen',
-            'model_key' => 'ollama_qwen3_8b',
+            'model_key' => 'local_second_brain',
             'provider' => 'ollama',
             'base_url' => 'http://127.0.0.1:11434/v1',
-            'model_name' => 'qwen3:8b',
+            'model_name' => 'qwen3:4b',
         ];
 
         self::assertNull($this->invokeNonPublic($controller, 'validateModelPayload', [$payload, true]));

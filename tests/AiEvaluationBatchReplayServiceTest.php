@@ -59,13 +59,19 @@ final class AiEvaluationBatchReplayServiceTest extends TestCase
         $client = new class {
             public array $calls = [];
 
-            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            public function createJsonResponseEnvelope(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
             {
                 $this->calls[] = compact('messages', 'schema', 'modelKey');
                 if (count($this->calls) === 1) {
-                    return ['summary' => 'ok', 'confidence' => 0.91, 'extra' => 'allowed'];
+                    return [
+                        'data' => ['summary' => 'ok', 'confidence' => 0.91, 'extra' => 'allowed'],
+                        'meta' => [],
+                    ];
                 }
-                return ['summary' => 'wrong', 'confidence' => 0.88];
+                return [
+                    'data' => ['summary' => 'wrong', 'confidence' => 0.88],
+                    'meta' => [],
+                ];
             }
         };
 

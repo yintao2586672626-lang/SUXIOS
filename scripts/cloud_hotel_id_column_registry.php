@@ -104,11 +104,13 @@ function cloudHotelIdColumnRegistry(): array
         ['hotel_operating_goal_contracts', 'hotel_id', 'hotel_id'],
         ['hotel_operating_memories', 'hotel_id', 'hotel_id'],
         ['hotel_operating_profiles', 'hotel_id', 'hotel_id'],
+        ['hotel_operating_question_council_runs', 'hotel_id', 'hotel_id'],
         ['hotel_operating_question_model_responses', 'hotel_id', 'hotel_id'],
         ['hotel_operating_questions', 'hotel_id', 'hotel_id'],
         ['hotel_operating_sop_versions', 'hotel_id', 'hotel_id'],
         ['knowledge_candidates', 'hotel_id', 'hotel_id'],
         ['knowledge_promotion_events', 'hotel_id', 'hotel_id'],
+        ['local_media_extractions', 'hotel_id', 'hotel_id'],
         ['manual_notification_rule_states', 'hotel_id', 'hotel_id'],
         ['manual_online_fetch_task_statuses', 'hotel_id', 'hotel_id'],
         ['meituan_cloud_pms_captures', 'hotel_id', 'hotel_id'],
@@ -143,6 +145,9 @@ function cloudHotelIdColumnRegistry(): array
         ['manager_capability_case_adjustments', 'hotel_id', 'hotel_id'],
         ['manager_capability_score_reviews', 'hotel_id', 'hotel_id'],
         ['manager_capability_case_followups', 'hotel_id', 'hotel_id'],
+        ['wecom_aibot_binding_codes', 'hotel_id', 'hotel_id'],
+        ['wecom_inbound_bindings', 'hotel_id', 'hotel_id'],
+        ['wecom_inbound_events', 'hotel_id', 'hotel_id'],
 
         // Both sides of a controlled SOP replication are system-hotel aliases.
         ['hotel_operating_sop_replications', 'source_hotel_id', 'source_hotel_id'],
