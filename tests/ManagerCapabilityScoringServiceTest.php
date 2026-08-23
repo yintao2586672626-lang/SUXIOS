@@ -201,14 +201,22 @@ final class ManagerCapabilityScoringServiceTest extends TestCase
         $timestampSql = (string)file_get_contents(self::EVENT_TIMESTAMP_MIGRATION);
         self::assertStringContainsString('manager_capability_case_adjustments', $timestampSql);
         self::assertStringContainsString('manager_capability_score_reviews', $timestampSql);
-        self::assertStringNotContainsString('manager_capability_case_followups', $timestampSql);
         self::assertStringContainsString('DATETIME(6)', $timestampSql);
+        self::assertStringNotContainsString('manager_capability_case_followups', $timestampSql);
+        self::assertSame(
+            'f03b5e1e722f220803516b70f478dd2bbce3f1d43b058ca984709ccd5ed352ea',
+            hash_file('sha256', self::EVENT_TIMESTAMP_MIGRATION)
+        );
 
         $followupTimestampSql = (string)file_get_contents(self::FOLLOWUP_EVENT_TIMESTAMP_MIGRATION);
         self::assertStringContainsString('manager_capability_case_followups', $followupTimestampSql);
         self::assertStringContainsString('DATETIME(6)', $followupTimestampSql);
         self::assertStringNotContainsString('manager_capability_case_adjustments', $followupTimestampSql);
         self::assertStringNotContainsString('manager_capability_score_reviews', $followupTimestampSql);
+        self::assertSame(
+            'd53dbb0f2192b13ae27d0cdc56389e552075664875ff419eac1aef18df4397b4',
+            hash_file('sha256', self::FOLLOWUP_EVENT_TIMESTAMP_MIGRATION)
+        );
     }
 
     public function testIdempotentWriteRetriesOnlyBoundedDatabaseConflicts(): void

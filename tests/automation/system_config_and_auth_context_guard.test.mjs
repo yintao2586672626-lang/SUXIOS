@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
 
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
@@ -13,6 +14,24 @@ const methodSlice = (start, end) => {
   const to = appMain.indexOf(end, from);
   assert.ok(from >= 0 && to > from, `missing source slice: ${start}`);
   return appMain.slice(from, to);
+};
+
+const resolveBusinessRequestContext = ({ authContext, selectedHotelId, hotelPool, user }, overrides = {}) => {
+  const source = methodSlice(
+    'const currentBusinessRequestContext = (overrides = {}) => {',
+    'const appendContextToRequestUrl =',
+  );
+  const context = vm.createContext({
+    Array,
+    Object,
+    String,
+    authContext: { value: authContext },
+    filterReportHotel: { value: selectedHotelId },
+    permittedHotels: { value: hotelPool },
+    user: { value: user },
+  });
+  vm.runInContext(`${source}\nglobalThis.resolveContext = currentBusinessRequestContext;`, context);
+  return JSON.parse(JSON.stringify(context.resolveContext(overrides)));
 };
 
 test('system config modal requires a full readback and only saves changed fields', () => {
@@ -53,11 +72,39 @@ test('session lifetime is displayed as the fixed 72-hour authentication policy',
 
 test('denied or explicitly cleared auth context cannot leak an old hotel into requests', () => {
   const apply = methodSlice('const applyAuthContext = (context = {}) => {', 'const BUSINESS_CONTEXT_ENDPOINT_PREFIXES = [');
-  const requestContext = methodSlice('const currentBusinessRequestContext = (overrides = {}) => {', 'const appendContextToRequestUrl =');
 
   assert.match(apply, /const denied = nextPermissionStatus === 'denied'/);
   assert.match(apply, /hotelId: denied \? null/);
   assert.match(apply, /hasHotelContext \? \(normalizedHotelId \|\| null\)/);
   assert.match(apply, /tenantId: denied \? null/);
-  assert.match(requestContext, /if \(permissionStatus !== 'allowed'\) return \{\}/);
+  assert.deepEqual(
+    resolveBusinessRequestContext({
+      authContext: { hotelId: 7, tenantId: 7, permissionStatus: 'denied' },
+      user: { hotel_id: 7 },
+      selectedHotelId: 7,
+      hotelPool: [{ id: 7, tenant_id: 7 }],
+    }),
+    {},
+  );
+});
+
+test('business request context follows the permitted hotel selected in the workbench', () => {
+  const input = {
+    authContext: { hotelId: 7, tenantId: 7, permissionStatus: 'allowed', platform: 'unknown' },
+    selectedHotelId: '80',
+    hotelPool: [
+      { id: 7, tenant_id: 7 },
+      { id: 80, tenant_id: 80 },
+    ],
+    user: { hotel_id: 7 },
+  };
+
+  assert.deepEqual(
+    resolveBusinessRequestContext(input),
+    { system_hotel_id: '80', tenant_id: '80' },
+  );
+  assert.deepEqual(
+    resolveBusinessRequestContext(input, { hotelId: 7, tenantId: 7 }),
+    { system_hotel_id: '7', tenant_id: '7' },
+  );
 });

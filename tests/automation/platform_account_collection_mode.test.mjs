@@ -5,11 +5,17 @@ import vm from 'node:vm';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const systemStaticSource = readFileSync('public/system-static.js', 'utf8');
+const dataHealthStaticSource = readFileSync('public/data-health-static.js', 'utf8');
+const otaProfileStaticSource = readFileSync('public/ota-profile-static.js', 'utf8');
 const html = readFrontendContractSource();
 const sandbox = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(systemStaticSource, sandbox, { filename: 'public/system-static.js' });
+vm.runInNewContext(dataHealthStaticSource, sandbox, { filename: 'public/data-health-static.js' });
+vm.runInNewContext(otaProfileStaticSource, sandbox, { filename: 'public/ota-profile-static.js' });
 const classify = sandbox.window.SUXI_SYSTEM_STATIC.classifyPlatformCollectionReadiness;
 const buildHotelPlatformBindingRows = sandbox.window.SUXI_SYSTEM_STATIC.buildHotelPlatformBindingRows;
+const buildPlatformProfileLoginPayload = sandbox.window.SUXI_OTA.buildPlatformProfileLoginPayload;
+const preferredBrowserProfileDataSource = sandbox.window.SUXI_OTA.preferredBrowserProfileDataSource;
 
 const accountRowHelpers = {
   hasPlatformHotelMismatch: () => false,
@@ -82,7 +88,7 @@ test('Profile login preserves real Profile source ids for both OTA platforms', (
     system_hotel_id: 121,
     platform: 'meituan',
     ingestion_method: 'browser_profile',
-    config: { store_id: 'mt-121', poi_id: 'mt-121' },
+    config: { store_id: 'mt-121', poi_id: 'mt-121', capture_sections: 'traffic,orders' },
   };
   const rows = buildHotelPlatformBindingRows({
     hotel: { id: 121, name: '西安天诚', status: 1 },
@@ -97,6 +103,29 @@ test('Profile login preserves real Profile source ids for both OTA platforms', (
   assert.equal(ctrip.loginItem.profile_key, 'ctrip-121');
   assert.equal(meituan.loginItem.data_source_id, 164);
   assert.equal(meituan.loginItem.profile_key, 'mt-121');
+});
+
+test('hotel account source selection matches the temporal scheduler preference contract', () => {
+  const owner = {
+    id: 68,
+    status: 'failed',
+    current_session_verified: false,
+    profile_reusable: false,
+    config: { store_id: 'mt-80', source_projection_ids: [] },
+  };
+  const projection = {
+    id: 101,
+    status: 'failed',
+    current_session_verified: false,
+    profile_reusable: false,
+    config: { store_id: 'mt-80', source_projection_ids: [68] },
+  };
+  assert.equal(preferredBrowserProfileDataSource([projection, owner]).id, 68);
+  assert.equal(preferredBrowserProfileDataSource([
+    { ...projection, current_session_verified: true },
+    owner,
+  ]).id, 101);
+  assert.equal(preferredBrowserProfileDataSource([]), null);
 });
 
 test('blocking capture reason overrides non-blocking Profile guidance', () => {
@@ -199,4 +228,51 @@ test('hotel card next actions route collection work separately from explicit aut
     /openHotelModal\(hotel, \{ expandOta: true \}\);\s*showToast\('请先在已展开的美团配置/,
     'an unbound Meituan authorization entry must open the OTA configuration instead of ending at a warning',
   );
+  assert.match(
+    actionSource,
+    /triggerPlatformProfileLogin\('ctrip', loginItem, \{\s*captureSections: 'business_overview,traffic_report'/,
+    'hotel-card Ctrip authorization must prove the core overview and traffic sections only',
+  );
+  assert.match(
+    actionSource,
+    /triggerPlatformProfileLogin\('meituan', loginItem, \{\s*captureSections: 'traffic,orders'/,
+    'hotel-card Meituan authorization must not let optional reviews or ads block session proof',
+  );
+});
+
+test('Profile login follow-up sync uses the target date temporal contract for both OTA platforms', () => {
+  const common = {
+    systemHotelId: 80,
+    hotelName: '西安天诚',
+    businessDate: '2026-08-23',
+    normalizeMeituanSections: sections => Array.from(new Set(sections)),
+  };
+  const ctrip = buildPlatformProfileLoginPayload({
+    ...common,
+    platform: 'ctrip',
+    item: {
+      data_source_id: 163,
+      data_date: '2026-08-23',
+      capture_sections: 'business_overview,traffic_report',
+    },
+    platformData: { profileId: 'ctrip-80', hotelId: 'ctrip-hotel-80', sections: 'default' },
+  });
+  assert.equal(ctrip.data_period, 'realtime_snapshot');
+  assert.deepEqual(Array.from(ctrip.sections), ['business_overview', 'traffic_report']);
+  assert.equal(ctrip.sync_after_login, true);
+
+  const meituan = buildPlatformProfileLoginPayload({
+    ...common,
+    platform: 'meituan',
+    item: {
+      data_date: '2026-08-22',
+      binding: { capture_sections: 'reviews,ads' },
+      capture_sections: 'orders',
+    },
+    options: { captureSections: 'traffic,orders' },
+    platformData: { storeId: 'mt-80', poiId: 'poi-80', adsUrl: 'https://ads.example.test/', sections: 'default' },
+  });
+  assert.equal(meituan.data_period, 'historical_daily');
+  assert.deepEqual(Array.from(meituan.sections), ['traffic', 'orders']);
+  assert.equal(meituan.ads_url, '', 'an unselected optional ads section must not leak into the login payload');
 });

@@ -445,7 +445,7 @@ final class SchemaVersionServiceTest extends TestCase
             ],
             '20260810_z_version_hotel_collection_plans.sql' => [
                 '3186f495a14675ed26b13d2981a72e1f8e4cf70e696b281ce38226008061fffb',
-                '335f81785ebb2e15cce6b03c06691fe4c6394d3392158fb5e82b28a6955f30ac',
+                '3186f495a14675ed26b13d2981a72e1f8e4cf70e696b281ce38226008061fffb',
             ],
             '20260812_za_harden_hotel_operating_cycle_kernel.sql' => [
                 '9bd56641ec22e020765cbef99a1ee3cfb3f4bdc6285af6d76827487903d5e853',

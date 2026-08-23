@@ -26,6 +26,7 @@ export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
 export const FRONTEND_DEFERRED_HELPER_SOURCES = Object.freeze([
   'ctrip-static.js',
   'meituan-static.js',
+  'ota-profile-static.js',
   'data-health-static.js',
   'ai-daily-report-static.js',
   'components/meituan-future-flow.js',

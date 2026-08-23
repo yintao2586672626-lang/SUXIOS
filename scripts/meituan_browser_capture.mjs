@@ -254,6 +254,7 @@ try {
         matched_identifier_count: 0,
         mismatched_identifier_count: 0,
         validated_identifier: '',
+        sensitive_values_exposed: false,
       }
     : evaluateMeituanPlatformIdentity(
         [storeId, String(args.poiId || '')],

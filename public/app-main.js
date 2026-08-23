@@ -450,16 +450,17 @@
             };
             const currentBusinessRequestContext = (overrides = {}) => {
                 const context = { ...(authContext.value || {}), ...(overrides || {}) };
-                const permissionStatus = String(context.permissionStatus || context.permission_status || '').toLowerCase();
-                if (permissionStatus !== 'allowed') return {};
-                const hotelId = context.hotelId || context.hotel_id || context.system_hotel_id || user.value?.hotel_id || '';
-                const tenantId = context.tenantId || context.tenant_id || '';
+                if (String(context.permissionStatus || context.permission_status || '').toLowerCase() !== 'allowed') return {};
+                const targetHotelId = overrides.hotelId || overrides.hotel_id || overrides.system_hotel_id || filterReportHotel.value || '';
+                const selectedHotel = (permittedHotels.value || []).find(hotel => String(hotel?.id || '') === String(targetHotelId));
+                const hotelId = targetHotelId || context.hotelId || user.value?.hotel_id || '';
+                const tenantId = overrides.tenantId || overrides.tenant_id || selectedHotel?.tenant_id || context.tenantId || '';
                 const platform = String(context.platform || '').toLowerCase();
-                const payload = {};
-                if (hotelId) payload.system_hotel_id = String(hotelId);
-                if (tenantId) payload.tenant_id = String(tenantId);
-                if (['ctrip', 'meituan', 'all'].includes(platform)) payload.platform = platform;
-                return payload;
+                return {
+                    ...(hotelId ? { system_hotel_id: String(hotelId) } : {}),
+                    ...(tenantId ? { tenant_id: String(tenantId) } : {}),
+                    ...(['ctrip', 'meituan', 'all'].includes(platform) ? { platform } : {}),
+                };
             };
             const appendContextToRequestUrl = (url, context) => {
                 let targetUrl = String(url || '');
@@ -13180,16 +13181,14 @@
                 );
             };
 
-            const buildPlatformProfileLoginPayload = (platform, item = null) => {
+            const buildPlatformProfileLoginPayload = (platform, item = null, options = {}) => {
                 const hotelId = getAutoFetchHotelId();
                 if (!hotelId) return null;
                 const dataSourceId = Number(item?.data_source_id || item?.dataSourceId || 0);
-                const syncAfterLogin = !!(item?.sync_after_login || item?.syncAfterLogin || dataSourceId > 0);
-                const loginTargetDate = String(item?.data_date || item?.dataDate || item?.target_date || item?.targetDate || formatDate(new Date())).trim();
+                const binding = item?.binding || {};
+                let platformData;
                 if (platform === 'ctrip') {
                     const form = ctripBrowserCaptureForm.value;
-                    const binding = item?.binding || {};
-                    const hotelIdValue = firstNonEmptyText(form.hotelId, binding.ctrip_hotel_id, binding.hotel_id, ctripOverviewForm.value.hotelId);
                     const profileId = resolveCtripBrowserProfileId({ item, hotelId, allowDefault: true });
                     if (profileId && !String(form.profileId || '').trim()) {
                         form.profileId = profileId;
@@ -13197,38 +13196,32 @@
                     if (profileId && !String(ctripCookieApiForm.value.profileId || '').trim()) {
                         ctripCookieApiForm.value.profileId = profileId;
                     }
-                    const sectionSource = Array.isArray(form.sections) ? form.sections : String(form.sections || 'default').split(/[,\s]+/);
-                    const sections = sectionSource.map(item => String(item || '').trim()).filter(Boolean);
-                    return {
-                        system_hotel_id: hotelId,
-                        data_source_id: dataSourceId || undefined,
-                        profile_id: profileId,
-                        hotel_id: hotelIdValue,
-                        hotel_name: getHotelNameById(hotelId),
-                        sections: sections.length ? sections : ['default'],
-                        bind_data_source: true,
-                        sync_after_login: syncAfterLogin || undefined,
-                        data_date: loginTargetDate || undefined,
-                        data_period: 'historical_daily',
+                    platformData = {
+                        profileId,
+                        hotelId: firstNonEmptyText(form.hotelId, binding.ctrip_hotel_id, binding.hotel_id, ctripOverviewForm.value.hotelId),
+                        sections: form.sections,
+                    };
+                } else {
+                    const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanBrowserCaptureForm.value.poiId || (dataSourceId ? '' : meituanForm.value.poiId) || '').trim();
+                    platformData = {
+                        storeId,
+                        poiId: meituanBrowserCaptureForm.value.poiId,
+                        poiName: meituanBrowserCaptureForm.value.poiName,
+                        partnerId: meituanForm.value.partnerId,
+                        adsUrl: meituanBrowserCaptureForm.value.adsUrl,
+                        sections: meituanBrowserCaptureForm.value.captureSections,
                     };
                 }
-
-                const sections = normalizeMeituanCaptureSections(meituanBrowserCaptureForm.value.captureSections);
-                const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanBrowserCaptureForm.value.poiId || (dataSourceId ? '' : meituanForm.value.poiId) || '').trim();
-                return {
-                    system_hotel_id: hotelId,
-                    data_source_id: dataSourceId || undefined,
-                    store_id: storeId,
-                    poi_id: meituanBrowserCaptureForm.value.poiId || storeId,
-                    poi_name: meituanBrowserCaptureForm.value.poiName || getHotelNameById(hotelId),
-                    partner_id: meituanForm.value.partnerId || '',
-                    ads_url: sections.includes('ads') ? (meituanBrowserCaptureForm.value.adsUrl || '') : '',
-                    sections,
-                    bind_data_source: true,
-                    sync_after_login: syncAfterLogin || undefined,
-                    data_date: loginTargetDate || undefined,
-                    data_period: 'historical_daily',
-                };
+                return window.SUXI_OTA.buildPlatformProfileLoginPayload({
+                    platform,
+                    systemHotelId: hotelId,
+                    hotelName: getHotelNameById(hotelId),
+                    item,
+                    options,
+                    businessDate: formatDate(new Date()),
+                    platformData,
+                    normalizeMeituanSections: normalizeMeituanCaptureSections,
+                });
             };
 
             const pollPlatformProfileLoginStatus = async (platform, taskId) => {
@@ -13323,7 +13316,7 @@
                 if (item) {
                     fillPlatformProfileForms(item);
                 }
-                const payload = buildPlatformProfileLoginPayload(platform, item);
+                const payload = buildPlatformProfileLoginPayload(platform, item, options);
                 if (!payload) {
                     showToast('请先选择酒店', 'error');
                     return;
@@ -34928,7 +34921,8 @@
             };
 
             const getBrowserProfileDataSourceByHotelAndPlatform = (hotelId, platform) => {
-                return browserProfileDataSourcesByHotelAndPlatform(hotelId, platform)[0] || null;
+                const sources = browserProfileDataSourcesByHotelAndPlatform(hotelId, platform);
+                return window.SUXI_OTA.preferredBrowserProfileDataSource(sources);
             };
 
             const isMeituanAdsNotApplicableForHotel = (hotelId) => {
@@ -36302,7 +36296,9 @@
                 if (platform === 'ctrip') {
                     ctripBrowserCaptureForm.value.profileId = binding.profile_id || defaultCtripBrowserProfileId(hotelId);
                     ctripBrowserCaptureForm.value.hotelId = binding.ctrip_hotel_id || binding.hotel_id || '';
-                    await triggerPlatformProfileLogin('ctrip', loginItem);
+                    await triggerPlatformProfileLogin('ctrip', loginItem, {
+                        captureSections: 'business_overview,traffic_report',
+                    });
                     return;
                 }
                 if (platform === 'meituan') {
@@ -36317,7 +36313,9 @@
                         meituanBrowserCaptureForm.value.storeId = storeId;
                         meituanBrowserCaptureForm.value.poiId = poiId || (dataSourceId ? '' : meituanBrowserCaptureForm.value.poiId || '');
                         meituanBrowserCaptureForm.value.poiName = binding.poi_name || hotel?.name || '';
-                        await triggerPlatformProfileLogin('meituan', loginItem);
+                        await triggerPlatformProfileLogin('meituan', loginItem, {
+                            captureSections: 'traffic,orders',
+                        });
                         return;
                     }
                     openHotelModal(hotel, { expandOta: true });
@@ -50330,6 +50328,7 @@
                 run = (async () => {
                     try {
                         const res = await request('/online-data/get-ctrip-config-list', {
+                            withBusinessContext: false,
                             requestPolicy,
                         });
                         if (!isCurrentRequest()) return [];
@@ -50886,6 +50885,7 @@
                 run = (async () => {
                     try {
                         const res = await request('/online-data/get-meituan-config-list', {
+                            withBusinessContext: false,
                             requestPolicy,
                         });
                         if (!isCurrentRequest()) return [];

@@ -165,6 +165,7 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
     'SUXI_SHARED_COMPONENTS',
     'SUXI_CTRIP_STATIC',
     'SUXI_MEITUAN_STATIC',
+    'SUXI_OTA',
     'SUXI_SYSTEM_STATIC',
     'SUXI_COMPASS_STATIC',
     'SUXI_HOME_STATIC',

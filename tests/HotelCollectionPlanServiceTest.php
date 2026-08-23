@@ -74,9 +74,14 @@ final class HotelCollectionPlanServiceTest extends TestCase
         $versionMigration = (string)file_get_contents(
             dirname(__DIR__) . '/database/migrations/20260810_z_version_hotel_collection_plans.sql'
         );
-        self::assertStringContainsString('DROP INDEX IF EXISTS `uq_hotel_collection_plan_scope`', $versionMigration);
-        self::assertStringContainsString('ADD COLUMN IF NOT EXISTS `active_slot`', $versionMigration);
-        self::assertStringContainsString('ADD UNIQUE INDEX IF NOT EXISTS', $versionMigration);
+        self::assertSame(
+            '3186f495a14675ed26b13d2981a72e1f8e4cf70e696b281ce38226008061fffb',
+            hash_file('sha256', dirname(__DIR__) . '/database/migrations/20260810_z_version_hotel_collection_plans.sql')
+        );
+        self::assertStringContainsString('DROP INDEX `uq_hotel_collection_plan_scope`', $versionMigration);
+        self::assertStringContainsString('ADD COLUMN `active_slot`', $versionMigration);
+        self::assertStringContainsString('ADD UNIQUE KEY', $versionMigration);
+        self::assertStringNotContainsString('IF EXISTS', $versionMigration);
         self::assertStringContainsString('`uq_hotel_collection_plan_version`', $versionMigration);
         self::assertStringContainsString('`uq_hotel_collection_plan_active`', $versionMigration);
     }

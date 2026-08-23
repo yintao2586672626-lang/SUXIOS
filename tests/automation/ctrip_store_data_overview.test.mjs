@@ -18,6 +18,7 @@ const readBackendSource = () => {
 const html = readFrontendContractSource();
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
+const otaProfileStatic = readFileSync('public/ota-profile-static.js', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
 const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
 const ctripFragment = readFileSync('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html', 'utf8');
@@ -498,6 +499,11 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
     'const buildPlatformProfileLoginPayload',
     'const pollPlatformProfileLoginStatus'
   );
+  const profileLoginPayloadContract = sliceBetween(
+    otaProfileStatic,
+    'const buildPlatformProfileLoginPayload =',
+    'const preferredBrowserProfileDataSource'
+  );
   const profileLoginTrigger = sliceBetween(
     html,
     'const triggerPlatformProfileLogin',
@@ -520,16 +526,18 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   assert.match(configApplier, /const ctripHotelId = String\(config\.ota_hotel_id \|\| config\.ctrip_hotel_id \|\| config\.ctripHotelId \|\| ''\)/);
   assert.doesNotMatch(configApplier, /const ctripHotelId = String\([\s\S]*node_id|const ctripHotelId = String\([\s\S]*nodeId/);
   assert.match(html, /const defaultCtripBrowserProfileId = \(hotelId = getAutoFetchHotelId\(\)\) =>/);
-  assert.match(profileLoginPayload, /const dataSourceId = Number\(item\?\.data_source_id \|\| item\?\.dataSourceId \|\| 0\)/);
-  assert.match(profileLoginPayload, /const syncAfterLogin = !!\(item\?\.sync_after_login \|\| item\?\.syncAfterLogin \|\| dataSourceId > 0\)/);
-  assert.match(profileLoginPayload, /const loginTargetDate = String\(item\?\.data_date \|\| item\?\.dataDate \|\| item\?\.target_date \|\| item\?\.targetDate \|\| formatDate\(new Date\(\)\)\)\.trim\(\)/);
+  assert.match(profileLoginPayload, /window\.SUXI_OTA\.buildPlatformProfileLoginPayload\(\{/);
+  assert.match(profileLoginPayload, /businessDate: formatDate\(new Date\(\)\)/);
+  assert.match(profileLoginPayloadContract, /const dataSourceId = Number\(safeItem\.data_source_id \|\| safeItem\.dataSourceId \|\| 0\)/);
+  assert.match(profileLoginPayloadContract, /sync_after_login: !!\(safeItem\.sync_after_login \|\| safeItem\.syncAfterLogin \|\| dataSourceId > 0\) \|\| undefined/);
+  assert.match(profileLoginPayloadContract, /const dataDate = String\(safeItem\.data_date \|\| safeItem\.dataDate \|\| safeItem\.target_date \|\| safeItem\.targetDate \|\| businessDate\)\.trim\(\)/);
+  assert.match(profileLoginPayloadContract, /data_period: resolvePlatformProfileLoginDataPeriod\(dataDate, businessDate\) \|\| undefined/);
   assert.match(profileLoginPayload, /const profileId = resolveCtripBrowserProfileId\(\{ item, hotelId, allowDefault: true \}\)/);
   assert.match(profileLoginPayload, /form\.profileId = profileId/);
-  assert.match(profileLoginPayload, /data_source_id: dataSourceId \|\| undefined/);
-  assert.match(profileLoginPayload, /sync_after_login: syncAfterLogin \|\| undefined/);
-  assert.match(profileLoginPayload, /data_date: loginTargetDate \|\| undefined/);
+  assert.match(profileLoginPayloadContract, /data_source_id: dataSourceId \|\| undefined/);
+  assert.match(profileLoginPayloadContract, /data_date: dataDate \|\| undefined/);
   assert.match(profileLoginPayload, /\(dataSourceId \? '' : meituanForm\.value\.poiId\)/);
-  assert.match(profileLoginTrigger, /buildPlatformProfileLoginPayload\(platform, item\)/);
+  assert.match(profileLoginTrigger, /buildPlatformProfileLoginPayload\(platform, item, options\)/);
   assert.match(profileLoginTrigger, /const hasDataSourceId = Number\(payload\.data_source_id \|\| payload\.source_id \|\| 0\) > 0/);
   assert.match(profileLoginTrigger, /platform === 'ctrip' && !payload\.profile_id && !hasDataSourceId/);
   assert.match(profileLoginTrigger, /platform === 'meituan' && !payload\.store_id && !hasDataSourceId/);

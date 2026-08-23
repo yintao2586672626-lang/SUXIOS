@@ -16112,6 +16112,25 @@
           "missingStatus": "",
           "sampleValue": "",
           "confidenceStatus": ""
+        },
+        {
+          "id": "order_submit_user",
+          "label": "今日实时订单提交量",
+          "sourceKeys": [
+            "orderQuantity"
+          ],
+          "description": "今日实时页订单概览返回的当前订单量；只在实时采集计划中作为订单提交事实",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
         }
       ],
       "status": "observed",
