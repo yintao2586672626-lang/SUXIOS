@@ -214,7 +214,10 @@ test('root template render and runtime-only Vue are deterministic pinned artifac
   const dataConfigDialogsArtifact = fs.readFileSync(dataConfigDialogsArtifactPath, 'utf8');
   const pinnedRuntimeVue = fs.readFileSync(pinnedRuntimeVuePath, 'utf8');
   const rebuilt = await buildFrontendTemplateRender(template);
-  const { loadFrontendStartupTemplateSource } = await import('../../scripts/lib/frontend_template_source.mjs');
+  const {
+    FRONTEND_STARTUP_RENDER_FRAGMENT_IDS,
+    loadFrontendStartupTemplateSource,
+  } = await import('../../scripts/lib/frontend_template_source.mjs');
   const startupSource = loadFrontendStartupTemplateSource(repoRoot);
   const startupRebuilt = await buildFrontendStartupRender(startupSource.template);
   const dataConfigDialogsRebuilt = await buildDataConfigDialogsComponent(dataConfigDialogsTemplate);
@@ -225,6 +228,9 @@ test('root template render and runtime-only Vue are deterministic pinned artifac
   assert.ok(Buffer.byteLength(startupArtifact) < Buffer.byteLength(artifact) * 0.2);
   assert.match(startupSource.template, /data-testid="home-executive-answer"/);
   assert.match(startupSource.template, /data-testid="deferred-page-loading"/);
+  assert.equal(FRONTEND_STARTUP_RENDER_FRAGMENT_IDS.includes('page-ai-workbench'), false);
+  assert.doesNotMatch(startupSource.template, /data-testid="home-ai-workbench"/);
+  assert.match(startupSource.template, /v-if="currentPage !== 'compass'"/);
   assert.doesNotMatch(startupSource.template, /currentPage === 'ctrip-ebooking'/);
   assert.equal(runtimeVue, pinnedRuntimeVue);
   assert.ok(Buffer.byteLength(template) > 1_000_000);

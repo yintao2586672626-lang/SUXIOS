@@ -163,7 +163,6 @@ export const FRONTEND_STARTUP_RENDER_FRAGMENT_IDS = Object.freeze([
   'app-shell',
   'home-shell-open',
   'page-compass-summary',
-  'page-ai-workbench',
   'page-compass-detail',
   'home-shell-card-close',
   'home-shared-secondary',
@@ -172,7 +171,7 @@ export const FRONTEND_STARTUP_RENDER_FRAGMENT_IDS = Object.freeze([
 ]);
 
 const FRONTEND_STARTUP_DEFERRED_PAGE_FALLBACK = `
-<div v-if="!['compass', 'ai-workbench'].includes(currentPage)" class="min-h-[50vh] flex items-center justify-center px-4" data-testid="deferred-page-loading">
+<div v-if="currentPage !== 'compass'" class="min-h-[50vh] flex items-center justify-center px-4" data-testid="deferred-page-loading">
   <div class="max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
     <div class="mb-3 text-lg font-semibold text-slate-900">正在加载完整功能页面</div>
     <p class="text-sm leading-6 text-slate-500">首页已可使用，目标页面资源正在后台加载，请稍候。</p>

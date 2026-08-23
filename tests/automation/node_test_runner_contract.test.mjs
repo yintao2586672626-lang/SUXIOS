@@ -114,6 +114,28 @@ test('package and the isolated CI lane run the complete strict Node automation s
   assert.match(aggregateJob, /needs:[\s\S]*-\s+node_business_chain/);
 });
 
+test('GitHub Actions pin Node 24 runtime majors without deprecated Node 20 actions', () => {
+  const workflow = readFileSync('.github/workflows/php.yml', 'utf8');
+  const expectedActionCounts = new Map([
+    ['actions/checkout@v5', 5],
+    ['actions/setup-node@v5', 5],
+    ['actions/setup-python@v6', 1],
+    ['actions/upload-artifact@v6', 1],
+  ]);
+
+  for (const [action, expectedCount] of expectedActionCounts) {
+    assert.equal(
+      workflow.split(`uses: ${action}`).length - 1,
+      expectedCount,
+      `${action} must cover every intended workflow step`,
+    );
+  }
+  assert.doesNotMatch(
+    workflow,
+    /uses:\s+actions\/(?:checkout|setup-node)@v4|uses:\s+actions\/setup-python@v5|uses:\s+actions\/upload-artifact@v4/,
+  );
+});
+
 test('slow login handoff always closes its HTTP server when Chromium launch fails', () => {
   const source = readFileSync('tests/automation/login_handoff_slow_network.test.mjs', 'utf8');
   const browserDeclaration = source.indexOf('let browser = null;');
