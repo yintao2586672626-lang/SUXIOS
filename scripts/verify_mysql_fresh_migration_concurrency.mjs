@@ -25,6 +25,17 @@ const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 const freshInitBaselineAdoptedMigrationFiles = new Set([
   '20260723_validate_owner_tenant_bootstrap_targets.sql',
 ]);
+// Registered migration files stay byte-for-byte immutable. This historical
+// migration contains intentionally one-shot DDL, so the fresh initializer and
+// official SchemaVersionService still execute/register it normally, while only
+// this verifier's synthetic raw SQL replays are excluded. Pinning the checksum
+// prevents the exclusion from hiding a later file mutation.
+const immutableHistoricalNonRepeatableMigrationChecksums = new Map([
+  [
+    '20260810_z_version_hotel_collection_plans.sql',
+    '3186f495a14675ed26b13d2981a72e1f8e4cf70e696b281ce38226008061fffb',
+  ],
+]);
 if (process.env.SUXI_CI_MYSQL_VERIFY !== '1') {
   throw new Error('SUXI_CI_MYSQL_VERIFY=1 is required for this destructive dedicated-database verifier');
 }
@@ -79,6 +90,19 @@ if (missingDeclaredMigrations.length > 0) {
 if (trackedMigrationsMissingFromDisk.length > 0) {
   throw new Error(`Tracked migration files are missing from the working tree: ${trackedMigrationsMissingFromDisk.join(', ')}`);
 }
+for (const [migration, expectedChecksum] of immutableHistoricalNonRepeatableMigrationChecksums) {
+  if (!diskSet.has(migration)) {
+    throw new Error(`Immutable historical migration replay exclusion is missing from disk: ${migration}`);
+  }
+  const actualChecksum = createHash('sha256')
+    .update(readFileSync(join(migrationDirectory, migration)))
+    .digest('hex');
+  if (actualChecksum !== expectedChecksum) {
+    throw new Error(
+      `Immutable historical migration replay exclusion checksum mismatch: ${migration}`,
+    );
+  }
+}
 // init_full.sql is a frozen baseline. Later catalog entries are intentionally
 // pending after the baseline and are applied by SchemaVersionService.
 const catalogPendingMigrationFiles = diskMigrationFiles.filter(name => !declaredSet.has(name));
@@ -87,7 +111,8 @@ const workingTreeUntrackedMigrationFiles = diskMigrationFiles.filter(
 );
 const migrationPaths = diskMigrationFiles.map(name => join(migrationDirectory, name));
 const repeatableMigrationPaths = migrationPaths.filter(
-  migrationPath => !freshInitBaselineAdoptedMigrationFiles.has(basename(migrationPath)),
+  migrationPath => !freshInitBaselineAdoptedMigrationFiles.has(basename(migrationPath))
+    && !immutableHistoricalNonRepeatableMigrationChecksums.has(basename(migrationPath)),
 );
 
 const mysqlBinary = process.env.MYSQL_BINARY || process.env.SUXI_MYSQL || 'mysql';
