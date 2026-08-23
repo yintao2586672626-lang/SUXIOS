@@ -207,9 +207,14 @@ export async function inspectFrontendAuthenticatedStyle(repoRoot) {
   if (startupArtifactGzipBytes > FRONTEND_AUTHENTICATED_STARTUP_STYLE_MAX_GZIP_BYTES) {
     failures.push(`public/${FRONTEND_AUTHENTICATED_STARTUP_STYLE_ARTIFACT} exceeded the ${FRONTEND_AUTHENTICATED_STARTUP_STYLE_MAX_GZIP_BYTES} byte gzip ceiling.`);
   }
-  for (const selector of ['.sidebar', '.compass-dashboard', '.dual-ota-home', '.suxi-dashboard-scope']) {
+  for (const selector of ['.sidebar', '.compass-dashboard', '.suxi-dashboard-scope']) {
     if (!startupArtifact.includes(selector)) {
       failures.push(`public/${FRONTEND_AUTHENTICATED_STARTUP_STYLE_ARTIFACT} is missing startup selector ${selector}.`);
+    }
+  }
+  for (const selector of ['.dual-ota-home']) {
+    if (startupArtifact.includes(selector)) {
+      failures.push(`public/${FRONTEND_AUTHENTICATED_STARTUP_STYLE_ARTIFACT} retained deferred selector ${selector}.`);
     }
   }
 
