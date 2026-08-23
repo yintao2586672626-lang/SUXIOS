@@ -142,6 +142,7 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
   const aiDailyReportStatic = artifactSandbox.window.SUXI_AI_DAILY_REPORT_STATIC;
   const competitionExportInput = {
     reportId: 23,
+    readbackReceipt: { status: 'exact_readback_verified', exact_readback_verified: true },
     requestedEdition: 'flagship',
     fallbackReportDate: '2026-08-16',
     qualityText: '可信',

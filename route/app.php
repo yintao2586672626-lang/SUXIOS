@@ -579,11 +579,12 @@ Route::group('api/operating-loop', function () {
     Route::get('/:id', 'OperatingLoop/read');
 })->middleware(\app\middleware\Auth::class);
 
-// Five user-visible operating opportunity features. All writes are scoped
-// calculation records; none of these endpoints execute OTA/PMS actions.
+// Five user-visible operating opportunity features. Writes are scoped
+// calculation records or human pending approvals; none execute OTA/PMS actions.
 Route::group('api/operating-opportunities', function () {
     Route::get('/overview', 'OperatingOpportunity/overview');
     Route::get('/runs/:id', 'OperatingOpportunity/read');
+    Route::post('/runs/:id/pending-approval', 'OperatingOpportunity/pendingApproval');
     Route::post('/evaluate', 'OperatingOpportunity/evaluate');
     Route::post('/priority', 'OperatingOpportunity/priority');
 })->middleware(\app\middleware\Auth::class);

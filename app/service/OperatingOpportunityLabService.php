@@ -658,7 +658,7 @@ final class OperatingOpportunityLabService
     /** @return array<string,mixed> */
     private function publicRun(array $row): array
     {
-        return [
+        $run = [
             'id' => (int)$row['id'],
             'tenant_id' => (int)$row['tenant_id'],
             'system_hotel_id' => (int)$row['system_hotel_id'],
@@ -676,6 +676,27 @@ final class OperatingOpportunityLabService
             'created_by' => (int)$row['created_by'],
             'created_at' => (string)$row['created_at'],
         ];
+        $this->assertStoredRunDigestIntegrity($run);
+        $run['record_readback_status'] = 'readback_verified';
+        return $run;
+    }
+
+    /** @param array<string,mixed> $run */
+    private function assertStoredRunDigestIntegrity(array $run): void
+    {
+        $input = $run['input'] ?? null;
+        $result = $run['result'] ?? null;
+        $inputDigest = strtolower(trim((string)($run['input_digest'] ?? '')));
+        $resultDigest = strtolower(trim((string)($run['result_digest'] ?? '')));
+        if (!is_array($input)
+            || !is_array($result)
+            || preg_match('/^[a-f0-9]{64}$/D', $inputDigest) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $resultDigest) !== 1
+            || !hash_equals($inputDigest, $this->digest($input))
+            || !hash_equals($resultDigest, $this->digest($result))
+        ) {
+            throw new RuntimeException('经营机会记录摘要与保存内容不一致', 409);
+        }
     }
 
     /** @param array<string,mixed> $readback */

@@ -15,6 +15,8 @@ const systemStatic = read('public/system-static.js');
 const routes = read('route/app.php');
 const controller = read('app/controller/OperatingOpportunity.php');
 const labService = read('app/service/OperatingOpportunityLabService.php');
+const approvalService = read('app/service/OperatingOpportunityApprovalService.php');
+const protectedCapability = read('app/service/ProtectedCapabilityService.php');
 const migration = read('database/migrations/20260822_zzz_create_operating_opportunity_runs.sql');
 
 const loadComponent = () => {
@@ -200,6 +202,7 @@ test('backend keeps every run in tenant hotel date scope with append-only readba
     "Route::get('/overview', 'OperatingOpportunity/overview')",
     "Route::post('/evaluate', 'OperatingOpportunity/evaluate')",
     "Route::post('/priority', 'OperatingOpportunity/priority')",
+    "Route::post('/runs/:id/pending-approval', 'OperatingOpportunity/pendingApproval')",
   ]) assert.ok(routes.includes(marker), marker);
 
   for (const marker of [
@@ -224,6 +227,7 @@ test('backend keeps every run in tenant hotel date scope with append-only readba
     'isDuplicateKeyConflict',
     'isRetryableWriteConflict',
     'for ($attempt = 1; $attempt <= 3; $attempt++)',
+    "record_readback_status'] = 'readback_verified'",
   ]) assert.ok(labService.includes(marker), marker);
 
   for (const marker of [
@@ -233,4 +237,115 @@ test('backend keeps every run in tenant hotel date scope with append-only readba
     '`result_digest` CHAR(64)',
   ]) assert.ok(migration.includes(marker), marker);
   assert.doesNotMatch(migration.toUpperCase(), /\b(?:UPDATE|DELETE)\b/);
+});
+
+test('pending approval bridge is user-triggered, source-bound and stops before task or OTA execution', () => {
+  for (const marker of [
+    'operating_opportunity_pending_approval.v1',
+    '$expectedInputDigest',
+    '$expectedResultDigest',
+    'assertCurrentRun',
+    'record_readback_status',
+    "'approval_purpose' => 'evidence_review_only'",
+    "'operation_task_created' => false",
+    "'automatic_approval' => false",
+    "'automatic_execution' => false",
+    "'ota_write' => false",
+    "'pms_write' => false",
+    "'external_message' => false",
+  ]) assert.ok(approvalService.includes(marker), marker);
+
+  assert.ok(protectedCapability.includes("api/operating-opportunities/runs/*/pending-approval"));
+  assert.match(componentSource, /unknown_after_write_attempt/);
+  assert.match(componentSource, /opportunity-pending-approval-/);
+  assert.match(componentSource, /\/operation\/execution-intents\/\$\{intentId\}/);
+  assert.match(componentSource, /intent\.tasks\.length !== 0/);
+  assert.match(componentSource, /currentPage = 'ops-track'/);
+  assert.doesNotMatch(componentSource, /execution-intents\/\$\{[^}]+\}\/approve/);
+});
+
+test('frontend independently reads back the same pending intent and keeps manual facts unverified', async () => {
+  const context = loadComponent();
+  const run = {
+    id: 91,
+    tenant_id: 10,
+    system_hotel_id: 80,
+    feature_key: 'service_promise_risk',
+    business_date: '2026-08-22',
+    source_quality_status: 'manual_unverified',
+    input_digest: 'a'.repeat(64),
+    result_digest: 'b'.repeat(64),
+    record_readback_status: 'readback_verified',
+    result: { calculation_status: 'provisional_manual_estimate' },
+  };
+  const intent = {
+    id: 501,
+    tenant_id: 10,
+    hotel_id: 80,
+    source_module: 'operating_loop_approval',
+    source_record_id: 91,
+    date_start: '2026-08-22',
+    date_end: '2026-08-22',
+    status: 'pending_approval',
+    approved_by: 0,
+    approved_at: null,
+    tasks: [],
+    target_value: { auto_write_ota: false },
+    evidence: {
+      boundaries: { automatic_approval: false, automatic_execution: false },
+      evidence_refs: [{ table: 'operating_opportunity_runs', row_ids: [91], readback_verified: true }],
+    },
+  };
+  context.overview = {
+    tenant_id: 10,
+    approval_readback_status: 'ready',
+    approval_links: {},
+  };
+  context.notify = () => {};
+  const calls = [];
+  context.request = async (path, options = {}) => {
+    calls.push([path, options]);
+    if (path === '/operating-opportunities/runs/91/pending-approval') {
+      return {
+        code: 200,
+        data: {
+          contract_version: 'operating_opportunity_pending_approval.v1',
+          status: 'pending_approval',
+          persistence_status: 'readback_verified',
+          execution_task_created: false,
+          external_action_triggered: false,
+          boundaries: { automatic_approval: false, operation_task_created: false, ota_write: false },
+          execution_intent: intent,
+        },
+      };
+    }
+    if (path.startsWith('/operation/execution-intents/501?')) return { code: 200, data: intent };
+    throw new Error(`unexpected request ${path}`);
+  };
+  context.loadOverview = async () => {
+    context.overview.approval_links['91'] = {
+      intent_id: 501,
+      hotel_id: 80,
+      persistence_status: 'readback_verified',
+      status: 'pending_approval',
+      fact_status: 'manual_unverified',
+      task_count: 0,
+    };
+    return context.overview;
+  };
+
+  assert.equal(context.canCreatePendingApproval(run), true);
+  await context.createPendingApproval(run, false);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][0], '/operating-opportunities/runs/91/pending-approval');
+  assert.match(calls[1][0], /^\/operation\/execution-intents\/501\?hotel_id=80$/);
+  const body = JSON.parse(calls[0][1].body);
+  assert.deepEqual(body, {
+    hotel_id: 80,
+    business_date: '2026-08-22',
+    expected_input_digest: 'a'.repeat(64),
+    expected_result_digest: 'b'.repeat(64),
+  });
+  assert.equal(context.overview.approval_links['91'].fact_status, 'manual_unverified');
+  assert.equal(context.overview.approval_links['91'].task_count, 0);
 });

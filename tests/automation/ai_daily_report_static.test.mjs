@@ -258,6 +258,7 @@ test('AI daily competition export stays identity-bound and escapes rendered fact
 
   const input = {
     reportId: 17,
+    readbackReceipt: { status: 'exact_readback_verified', exact_readback_verified: true },
     requestedEdition: 'flagship',
     fallbackReportDate: '2026-08-16',
     qualityText: '可信 <待复核>',
@@ -310,6 +311,13 @@ test('AI daily competition export stays identity-bound and escapes rendered fact
   assert.match(lite.html, /关键数据缺口/);
   assert.doesNotMatch(lite.html, /<h3>竞品分组<\/h3>/);
   assert.doesNotMatch(lite.html, /渠道角色/);
+
+  const legacy = build({
+    ...input,
+    readbackReceipt: { status: 'legacy_unverified', exact_readback_verified: false },
+  });
+  assert.equal(legacy.ok, false);
+  assert.equal(legacy.code, 'competition_bundle_exact_readback_required');
 
   const mismatch = build({
     ...input,

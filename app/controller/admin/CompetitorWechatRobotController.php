@@ -381,6 +381,12 @@ class CompetitorWechatRobotController extends Base
             return $this->error('该历史日报没有竞争商圈结果，不能生成旗舰版企业微信汇报', 422);
         }
         if ($competitionBundle !== []) {
+            if (($report['competition_bundle_readback']['exact_readback_verified'] ?? false) !== true) {
+                return $this->error('竞争商圈结果未通过保存后精确回读，请重新生成日报后再发送', 409, [
+                    'readback_status' => (string)($report['competition_bundle_readback']['status'] ?? 'legacy_unverified'),
+                    'exact_readback_verified' => false,
+                ]);
+            }
             $delivery = (new WechatCompetitionReportDeliveryService())->deliver(
                 $report,
                 $hotelId,

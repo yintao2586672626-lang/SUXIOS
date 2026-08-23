@@ -490,6 +490,18 @@ window.SUXI_AI_DAILY_REPORT_STATIC = (() => {
                 level: 'warning',
             };
         }
+        const readbackReceipt = input.readbackReceipt && typeof input.readbackReceipt === 'object'
+            ? input.readbackReceipt
+            : (input.report?.competition_bundle_readback || {});
+        if (readbackReceipt.exact_readback_verified !== true
+            || String(readbackReceipt.status || '') !== 'exact_readback_verified') {
+            return {
+                ok: false,
+                code: 'competition_bundle_exact_readback_required',
+                message: '竞争商圈结果未通过保存后精确回读，请重新生成日报后再导出',
+                level: 'error',
+            };
+        }
         const bundle = input.bundle && typeof input.bundle === 'object' ? input.bundle : {};
         const reportId = Number(input.reportId || 0);
         const bundleId = String(bundle.bundle_id || '').trim();

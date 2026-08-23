@@ -210,6 +210,10 @@ assertContract(
     'lite and flagship must read the same calculation fingerprint'
 );
 assertContract(
+    ($syntheticLite['content_digest'] ?? '') !== ($syntheticFlagship['content_digest'] ?? ''),
+    'lite and flagship must have different complete-content digests'
+);
+assertContract(
     ($syntheticLite['candidate_competitors']['ctrip']['direct'][0]['ota_hotel_id'] ?? '') === '00456',
     'leading-zero OTA hotel IDs must remain strings'
 );
@@ -249,6 +253,25 @@ assertContract(
     ($live['report_document']['render_contract']['bundle_id'] ?? '')
         === ($live['bundle_id'] ?? 'different'),
     'report rendering must keep the shared bundle ID'
+);
+assertContract(
+    preg_match('/^[a-f0-9]{64}$/D', (string)($live['content_digest'] ?? '')) === 1,
+    'competition bundle must carry a canonical complete-content digest'
+);
+assertContract(
+    ($live['report_document']['render_contract']['content_digest'] ?? '')
+        === ($live['content_digest'] ?? 'different'),
+    'report rendering must mirror the complete-content digest'
+);
+assertContract(
+    OtaCompetitionAnalysisBundleService::contentDigest($live) === ($live['content_digest'] ?? ''),
+    'competition bundle content digest must verify after construction'
+);
+$tamperedLive = $live;
+$tamperedLive['report_document']['title'] = 'tampered title';
+assertContract(
+    OtaCompetitionAnalysisBundleService::contentDigest($tamperedLive) !== ($live['content_digest'] ?? ''),
+    'competition bundle content digest must detect report-content tampering'
 );
 assertContract(
     ($live['report_document']['render_contract']['commercial_release_ready'] ?? true) === false,

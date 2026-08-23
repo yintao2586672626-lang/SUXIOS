@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\OperatingOpportunityLabService;
+use app\service\OperatingOpportunityApprovalService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\Response;
@@ -12,11 +13,13 @@ use Throwable;
 final class OperatingOpportunity extends Base
 {
     private OperatingOpportunityLabService $service;
+    private OperatingOpportunityApprovalService $approvalService;
 
     public function __construct(\think\App $app)
     {
         parent::__construct($app);
         $this->service = new OperatingOpportunityLabService();
+        $this->approvalService = new OperatingOpportunityApprovalService($this->service);
     }
 
     public function overview(): Response
@@ -24,7 +27,21 @@ final class OperatingOpportunity extends Base
         try {
             [$tenantId, $hotelId] = $this->resolveSingleHotelScope('operation.view');
             $businessDate = trim((string)$this->request->param('business_date', date('Y-m-d')));
-            return $this->success($this->service->overview($tenantId, $hotelId, $businessDate));
+            $overview = $this->service->overview($tenantId, $hotelId, $businessDate);
+            $runs = array_values((array)($overview['latest_runs'] ?? []));
+            if (is_array($overview['today_saved_run'] ?? null)) {
+                $runs[] = $overview['today_saved_run'];
+            }
+            try {
+                $overview['approval_links'] = $this->approvalService->linkedApprovals($tenantId, $hotelId, $runs);
+                $overview['approval_readback_status'] = 'ready';
+                $overview['approval_readback_gap'] = null;
+            } catch (Throwable $approvalError) {
+                $overview['approval_links'] = [];
+                $overview['approval_readback_status'] = 'unavailable';
+                $overview['approval_readback_gap'] = '待审批状态暂不可回读；计算记录仍可查看，但不要重复送审。';
+            }
+            return $this->success($overview);
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '读取经营机会失败'), $this->statusCode($e));
         }
@@ -79,6 +96,28 @@ final class OperatingOpportunity extends Base
         }
     }
 
+    public function pendingApproval(int $id): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$tenantId, $hotelId] = $this->resolveSingleHotelScope(
+                'operation.execute',
+                (int)($input['hotel_id'] ?? $input['system_hotel_id'] ?? 0)
+            );
+            return $this->success($this->approvalService->createPendingApproval(
+                $tenantId,
+                $hotelId,
+                $id,
+                (int)($this->currentUser->id ?? 0),
+                trim((string)($input['business_date'] ?? '')),
+                trim((string)($input['expected_input_digest'] ?? '')),
+                trim((string)($input['expected_result_digest'] ?? ''))
+            ), '人工待审批已保存并精确回读；尚未审批、未创建任务、未写OTA');
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '创建经营机会待审批失败'), $this->statusCode($e));
+        }
+    }
+
     /** @return array{0:int,1:int} */
     private function resolveSingleHotelScope(string $capability, int $inputHotelId = 0): array
     {
@@ -97,6 +136,8 @@ final class OperatingOpportunity extends Base
     private function statusCode(Throwable $e): int
     {
         if ($e instanceof InvalidArgumentException) return 422;
+        if ((int)$e->getCode() === 409) return 409;
+        if ((int)$e->getCode() === 503) return 503;
         $message = trim($e->getMessage());
         if ($message === '未登录') return 401;
         if (str_contains($message, '无权限') || str_contains($message, '无权')) return 403;

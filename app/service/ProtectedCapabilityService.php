@@ -201,6 +201,7 @@ class ProtectedCapabilityService
                         ['path' => 'api/operation/manager-capability/cases/*/score-reviews', 'methods' => ['POST']],
                         ['path' => 'api/operating-opportunities/evaluate', 'methods' => ['POST']],
                         ['path' => 'api/operating-opportunities/priority', 'methods' => ['POST']],
+                        ['path' => 'api/operating-opportunities/runs/*/pending-approval', 'methods' => ['POST']],
                         ['path' => 'api/operation/execution-intents', 'methods' => ['POST']],
                         ['path' => 'api/operation/execution-tasks/*', 'methods' => ['POST']],
                         ['path' => 'api/online-data/public-page-diagnosis/execution-intent', 'methods' => ['POST']],

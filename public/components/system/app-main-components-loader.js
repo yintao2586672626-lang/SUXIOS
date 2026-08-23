@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260822-manager-capability-h3cb8b0264c';
+    const fullScript = 'components/system/app-main-components.js?v=20260822-manager-capability-h08c77becc3';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {

@@ -562,6 +562,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
         foreach ([
             '/api/operating-opportunities/evaluate',
             '/api/operating-opportunities/priority',
+            '/api/operating-opportunities/runs/81/pending-approval',
         ] as $path) {
             $capability = $service->classifyPath('POST', $path);
             self::assertIsArray($capability, $path);
@@ -574,7 +575,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
         }
 
         self::assertNull(
-            $service->classifyPath('POST', '/api/operating-opportunities/runs/81'),
+            $service->classifyPath('POST', '/api/operating-opportunities/runs/81/unknown-write'),
             'an undeclared write must not inherit operation.view from the read prefix'
         );
     }

@@ -258,6 +258,7 @@ class AiDailyReportService
                 'dataset_kind' => 'live',
             ]
         );
+        $snapshot['competition_circle_bundle_persistence'] = AiDailyCompetitionBundlePersistenceService::buildContract($snapshot['competition_circle_bundle']);
         $ruleReport = $this->buildRuleReport($snapshot, $reportDate, $selectedHotelId);
         if ($inputTrust['gaps'] !== []) {
             $ruleReport['data_gaps'] = $this->uniqueByCodeAndMessage(array_merge(
@@ -425,13 +426,8 @@ class AiDailyReportService
                 ? (is_array($existing) ? (int)($existing['cache_hit_count'] ?? 0) + 1 : 1)
                 : 0;
         }
-        if (is_array($existing)) {
-            Db::name(self::TABLE)->where('id', (int)$existing['id'])->update($payload);
-            $id = (int)$existing['id'];
-        } else {
-            $payload['created_at'] = $now;
-            $id = (int)Db::name(self::TABLE)->insertGetId($payload);
-        }
+        $persistedReport = AiDailyCompetitionBundlePersistenceService::persistReport($existing, $payload, $now, $selectedHotelId, $reportDate);
+        $id = (int)$persistedReport['id'];
 
         if (!$cacheHit && $inputTrust['verified']
             && self::isCacheableModelResult(
@@ -451,6 +447,9 @@ class AiDailyReportService
             );
         }
         $result = $this->read($id, [$selectedHotelId]) ?? [];
+        if (($result['competition_bundle_readback']['exact_readback_verified'] ?? false) !== true) {
+            throw new \RuntimeException('competition_bundle_readback_failed');
+        }
         $result['cache_hit'] = $cacheHit;
         $result['input_fingerprint'] = $inputFingerprint;
         $result['prompt_version'] = self::PROMPT_VERSION;
@@ -4770,6 +4769,9 @@ class AiDailyReportService
         $row['competition_circle_bundle'] = is_array($row['snapshot']['competition_circle_bundle'] ?? null)
             ? $row['snapshot']['competition_circle_bundle']
             : [];
+        $row['competition_bundle_readback'] = AiDailyCompetitionBundlePersistenceService::receiptForReport(
+            is_array($row['snapshot'] ?? null) ? $row['snapshot'] : [], $row
+        );
         $row['report_edition'] = (string)(
             $row['competition_circle_bundle']['render_contract']['requested_edition']
             ?? OtaCompetitionAnalysisBundleService::DEFAULT_EDITION

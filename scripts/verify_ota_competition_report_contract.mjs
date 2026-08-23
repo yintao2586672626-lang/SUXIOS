@@ -17,6 +17,7 @@ const assertNotContains = (content, needle, label) => {
 
 const controller = read('app/controller/AiDailyReport.php');
 const reportService = read('app/service/AiDailyReportService.php');
+const persistenceService = read('app/service/AiDailyCompetitionBundlePersistenceService.php');
 const bundleService = read('app/service/OtaCompetitionAnalysisBundleService.php');
 const wecomController = read('app/controller/admin/CompetitorWechatRobotController.php');
 const wecomRenderer = read('app/service/WechatCompetitionReportRendererService.php');
@@ -40,10 +41,29 @@ const scripts = packageJson.scripts ?? {};
 
 [
   ["$snapshot['competition_circle_bundle']", 'bundle persistence in snapshot'],
+  ["$snapshot['competition_circle_bundle_persistence']", 'bundle persistence identity contract'],
   ["'competition_circle_bundle' => $competitionBundle", 'bundle rule-report contract'],
   ["$row['competition_circle_bundle']", 'bundle readback exposure'],
+  ["$row['competition_bundle_readback']", 'exact bundle readback receipt exposure'],
+  ['AiDailyCompetitionBundlePersistenceService::persistReport(', 'transactional report upsert bridge'],
   ['assertGenerationAllowed($edition, $actorIsAdmin)', 'service-layer edition authorization'],
 ].forEach(([needle, label]) => assertContains(reportService, needle, label));
+
+const transactionIndex = reportService.indexOf('AiDailyCompetitionBundlePersistenceService::persistReport(');
+const cacheWriteIndex = reportService.indexOf('if (!$cacheHit && $inputTrust[\'verified\']', transactionIndex);
+if (transactionIndex < 0 || cacheWriteIndex <= transactionIndex) {
+  throw new Error('input cache write must remain after transactional exact bundle readback');
+}
+
+[
+  ["public const CONTRACT_VERSION = 'ai_daily_report.competition_bundle_persistence.v1'", 'bundle persistence contract version'],
+  ['public static function buildContract(array $bundle)', 'pre-persistence bundle validation'],
+  ['public static function receipt(array $snapshot)', 'exact readback receipt'],
+  ["'status' => 'exact_readback_verified'", 'exact readback success state'],
+  ['Db::transaction(static function () use (', 'transactional report upsert and readback'],
+  ["->where('hotel_id', $hotelId)", 'hotel-scoped exact readback'],
+  ["->where('report_date', $reportDate)", 'date-scoped exact readback'],
+].forEach(([needle, label]) => assertContains(persistenceService, needle, label));
 
 [
   ["public const DEFAULT_EDITION = 'lite'", 'lite default'],
@@ -57,9 +77,16 @@ const scripts = packageJson.scripts ?? {};
   ["'schema_version' => 'suxios.ota_competition_report.v1'", 'interactive report document contract'],
   ["'schema_version' => 'suxios.xiaohongshu.content_draft.v1'", 'Xiaohongshu draft contract'],
   ["'bundle_id' => $bundleId", 'interactive report bundle identity'],
+  ["$bundle['content_digest'] = $contentDigest", 'complete bundle content digest'],
+  ["$bundle['report_document']['render_contract']['content_digest']", 'report digest mirror'],
+  ['public static function contentDigest(array $bundle)', 'canonical complete-content verifier'],
   ["'commercial_release_ready' => false", 'interactive report commercial boundary'],
   ["'auto_publish' => false", 'Xiaohongshu manual publication boundary'],
 ].forEach(([needle, label]) => assertContains(bundleService, needle, label));
+
+assertContains(wecomDelivery, 'competition_bundle_exact_readback_required', 'WeCom exact-readback delivery gate');
+assertContains(aiDailyStatic, 'input.report?.competition_bundle_readback', 'HTML export exact-readback receipt fallback');
+assertContains(aiDailyStatic, 'competition_bundle_exact_readback_required', 'offline export exact-readback gate');
 
 [
   ['new WechatCompetitionReportRendererService()', 'WeCom competition renderer entry'],
