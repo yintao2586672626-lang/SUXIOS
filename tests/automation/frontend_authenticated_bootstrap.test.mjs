@@ -335,6 +335,7 @@ test('public login shell defers the authenticated application asset chain', () =
   assert(assets.includes('app-deferred-helpers.min.js'));
   for (const sourceAsset of [
     'shared-components.js',
+    'ctrip-static-loader.js',
     'ctrip-static.js',
     'meituan-static.js',
     'data-health-static.js',
