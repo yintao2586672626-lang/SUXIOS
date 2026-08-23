@@ -1,6 +1,6 @@
 interface:
   display_name: "宿析能力吸收与复刻"
-  short_description: "把各类外部材料转成宿析OS可验证、可复用功能"
-  default_prompt: "使用 $suxi-capability-absorption 从这份材料学习或复刻能力，重放真实样例并融入宿析OS形成可验证闭环。"
+  short_description: "先区分储存与吸纳，再把过门能力做成可验证功能"
+  default_prompt: "使用 $suxi-capability-absorption 按资料单元判断应储存、候选吸纳、正式吸纳还是事实入库，并只把通过三道门的能力融入宿析OS。"
 policy:
   allow_implicit_invocation: true

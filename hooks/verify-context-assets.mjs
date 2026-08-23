@@ -129,18 +129,27 @@ if (!exists(capabilitySkillPath)) {
   for (const needle of [
     'name: suxi-capability-absorption',
     'Skill / 源码 / 网站 / SOP',
-    '默认使用交付模式',
+    '先分类再晋级',
+    '`store_only`',
+    '`absorption_candidate`',
+    '`absorb`',
+    '`fact_ingestion`',
+    '`reject_or_quarantine`',
+    '机制门',
+    '价值门',
+    '复现门',
+    '`execution_authorization_gate`',
     '学不会时的复刻策略',
     '学习强度协议',
     '闭环凭证',
-    '用户主动提供的材料默认有学习价值',
+    '用户主动提供的材料默认值得判定，不默认值得吸纳',
     '`observed`',
     '`integrated`',
     '`guarded`',
     '平台、系统酒店、平台门店或绑定、目标日期',
     'online-skill-practices.md',
     'inspect-skill-package.mjs',
-    '新版与旧版或无Skill基线',
+    '旧版或无Skill基线',
     '只创建能力卡、方案、待办或 Skill',
   ]) {
     requireIncludes(capabilitySkillPath, skill, needle);
@@ -197,7 +206,7 @@ if (!exists(capabilityOpenAiPath)) {
   failures.push(`${capabilityOpenAiPath} is missing`);
 } else {
   const metadata = read(capabilityOpenAiPath);
-  requireIncludes(capabilityOpenAiPath, metadata, '各类外部材料');
+  requireIncludes(capabilityOpenAiPath, metadata, '先区分储存与吸纳');
   requireIncludes(capabilityOpenAiPath, metadata, '$suxi-capability-absorption');
 }
 
