@@ -15,7 +15,7 @@ export const FRONTEND_STARTUP_HELPER_ARTIFACT = 'app-startup-helpers.min.js';
 export const FRONTEND_DEFERRED_HELPER_ARTIFACT = 'app-deferred-helpers.min.js';
 export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
   'shared-components.js',
-  'ctrip-static.js',
+  'ctrip-static-loader.js',
   'system-static.js',
   'compass-static.js',
   'home-static.js',
@@ -24,6 +24,7 @@ export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
   'components/system/operating-intelligence-loader.js',
 ]);
 export const FRONTEND_DEFERRED_HELPER_SOURCES = Object.freeze([
+  'ctrip-static.js',
   'meituan-static.js',
   'data-health-static.js',
   'ai-daily-report-static.js',

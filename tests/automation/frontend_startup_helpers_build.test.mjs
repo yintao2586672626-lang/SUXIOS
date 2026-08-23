@@ -17,6 +17,47 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const publicRoot = path.join(repoRoot, 'public');
 
+test('Ctrip keeps only its startup facade on the authenticated first paint', () => {
+  assert.ok(FRONTEND_STARTUP_HELPER_SOURCES.includes('ctrip-static-loader.js'));
+  assert.ok(!FRONTEND_STARTUP_HELPER_SOURCES.includes('ctrip-static.js'));
+  assert.equal(FRONTEND_DEFERRED_HELPER_SOURCES[0], 'ctrip-static.js');
+
+  const createCtripSandbox = () => ({
+    window: {},
+    console,
+    URL,
+    URLSearchParams,
+    Intl,
+    Date,
+    setTimeout,
+    clearTimeout,
+  });
+  const loaderSandbox = createCtripSandbox();
+  const fullSandbox = createCtripSandbox();
+  const loaderSource = fs.readFileSync(path.join(publicRoot, 'ctrip-static-loader.js'), 'utf8');
+  const fullSource = fs.readFileSync(path.join(publicRoot, 'ctrip-static.js'), 'utf8');
+  vm.runInNewContext(loaderSource, loaderSandbox, { filename: 'public/ctrip-static-loader.js' });
+  vm.runInNewContext(fullSource, fullSandbox, { filename: 'public/ctrip-static.js' });
+
+  const facade = loaderSandbox.window.SUXI_CTRIP_STATIC;
+  const full = fullSandbox.window.SUXI_CTRIP_STATIC;
+  assert.deepEqual(Object.keys(facade).sort(), Object.keys(full).sort());
+  assert.equal(facade.createCtripFetchForm().nodeId, '24588');
+  assert.equal(facade.buildLatestCtripSnapshotModel({ rank: { rows: [{}] } }).hasRank, true);
+  assert.throws(
+    () => facade.runCtripFetchDataFlow(),
+    /携程完整静态能力尚未加载：runCtripFetchDataFlow/,
+  );
+
+  vm.runInNewContext(fullSource, loaderSandbox, { filename: 'public/ctrip-static.js' });
+  assert.equal(
+    loaderSandbox.window.SUXI_CTRIP_STATIC,
+    loaderSandbox.window.SUXI_CTRIP_STATIC_FULL,
+    'the deferred full module must replace the startup facade before full-page remount',
+  );
+  assert.notEqual(loaderSandbox.window.SUXI_CTRIP_STATIC, facade);
+});
+
 test('startup artifact promotion replaces canonical runtime references and pins hashes', async () => {
   const bootstrapArtifact = await buildFrontendBootstrap(
     'window.SUXI_BOOTSTRAP_EXAMPLE = function example() { return true; };\n',

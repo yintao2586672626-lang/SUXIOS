@@ -229,6 +229,16 @@ test('five focus pages paint their heading within 300ms on first switch and revi
     await expect(page.getByRole('heading', { name: '今日经营看板', exact: true }).first()).toBeVisible({ timeout: 15000 });
     await openTarget(target);
     await waitForFullRender();
+    const ctripRuntime = await page.evaluate(() => ({
+      fullRegistered: Boolean(window.SUXI_CTRIP_STATIC_FULL),
+      fullIsActive: window.SUXI_CTRIP_STATIC === window.SUXI_CTRIP_STATIC_FULL,
+      fetchFlowType: typeof window.SUXI_CTRIP_STATIC?.runCtripFetchDataFlow,
+    }));
+    expect(ctripRuntime).toEqual({
+      fullRegistered: true,
+      fullIsActive: true,
+      fetchFlowType: 'function',
+    });
     for (const assetName of deferredAssetNames) {
       expect(deferredRequestCounts.get(assetName), `${assetName} must load for the first full-render page`).toBeGreaterThan(0);
     }

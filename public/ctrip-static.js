@@ -1,4 +1,4 @@
-window.SUXI_CTRIP_STATIC = (() => {
+window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
     const ctripProfilePrimaryCategoryOptions = ['流量转化数据', '经营收益数据', '服务质量数据', '竞争力数据'];
     const ctripProfileDefaultModuleOptions = [
         { value: 'business_overview', label: '经营报告-概要-日报', primary_category: '经营收益数据' },
