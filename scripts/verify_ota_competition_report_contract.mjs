@@ -216,7 +216,7 @@ assertContains(
   'verify:ota-competition-python',
   'combined competition report regression command',
 );
-assertContains(workflow, 'uses: actions/setup-python@v5', 'GitHub Python runtime');
+assertContains(workflow, 'uses: actions/setup-python@v6', 'GitHub Python runtime');
 assertContains(workflow, 'npm run verify:ota-competition-report', 'GitHub competition report regression');
 
 process.stdout.write(JSON.stringify({

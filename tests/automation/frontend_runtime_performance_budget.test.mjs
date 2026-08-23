@@ -187,7 +187,7 @@ test('CI isolates static contracts from runtime performance and preserves authen
 
   const evidenceStep = performanceJob.slice(preserveEvidenceStep);
   assert.match(evidenceStep, /if:\s+always\(\)/);
-  assert.match(evidenceStep, /uses:\s+actions\/upload-artifact@v4/);
+  assert.match(evidenceStep, /uses:\s+actions\/upload-artifact@v6/);
   assert.match(evidenceStep, /output\/performance\/isolated-authenticated-baseline\.json/);
   assert.match(evidenceStep, /output\/performance\/ci-isolated-authenticated-\*\.json/);
   assert.match(evidenceStep, /if-no-files-found:\s+warn/);
