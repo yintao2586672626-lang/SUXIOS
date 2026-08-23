@@ -20,6 +20,7 @@ export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
   'compass-static.js',
   'home-static.js',
   'dual-ota-home-static.js',
+  'ota-profile-static.js',
   'components/system/app-main-components-loader.js',
   'components/system/operating-intelligence-loader.js',
 ]);

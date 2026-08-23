@@ -241,6 +241,22 @@ test('business request layer carries hotel tenant and platform context only for 
   assert.match(requestContextLayer, /appendContextToJsonBody/);
 });
 
+test('multi-hotel Ctrip and Meituan config lists do not inherit one selected hotel context', () => {
+  const ctripListLoader = sliceBetween(
+    html,
+    'const loadCtripConfigList = async',
+    'const clearCtripConfigDetailCache =',
+  );
+  const meituanListLoader = sliceBetween(
+    html,
+    'const loadMeituanConfigList = async',
+    'const clearMeituanConfigDetailCache =',
+  );
+
+  assert.match(ctripListLoader, /get-ctrip-config-list'[\s\S]*withBusinessContext:\s*false/);
+  assert.match(meituanListLoader, /get-meituan-config-list'[\s\S]*withBusinessContext:\s*false/);
+});
+
 test('strict manual OTA execution endpoints never receive generic business context fields', () => {
   for (const path of [
     '/online-data/fetch-ctrip',

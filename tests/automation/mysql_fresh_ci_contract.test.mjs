@@ -80,6 +80,11 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /stored\.executionKind !== evidence\.executionKind/);
   assert.match(verifier, /const repeatableMigrationPaths = migrationPaths\.filter/);
   assert.match(verifier, /freshInitBaselineAdoptedMigrationFiles\.has\(basename\(migrationPath\)\)/);
+  assert.match(verifier, /immutableHistoricalNonRepeatableMigrationChecksums/);
+  assert.match(verifier, /20260810_z_version_hotel_collection_plans\.sql/);
+  assert.match(verifier, /3186f495a14675ed26b13d2981a72e1f8e4cf70e696b281ce38226008061fffb/);
+  assert.match(verifier, /immutableHistoricalNonRepeatableMigrationChecksums\.has\(basename\(migrationPath\)\)/);
+  assert.match(verifier, /Immutable historical migration replay exclusion checksum mismatch/);
   assert.match(verifier, /schema_baseline_sources/);
   assert.match(verifier, /unresolved migration failures/);
   assert.match(verifier, /assertGovernedCompatibilityColumns\('Fresh initialization'\)/);

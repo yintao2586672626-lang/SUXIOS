@@ -474,7 +474,9 @@ class PlatformProfileLogin extends Command
 
     private function buildProfileLoginSyncOptions(string $platform, array $request): array
     {
-        $sectionsValue = $request['capture_sections']
+        $sectionsValue = $request['sync_capture_sections']
+            ?? $request['syncCaptureSections']
+            ?? $request['capture_sections']
             ?? $request['captureSections']
             ?? $request['sections']
             ?? ($platform === 'meituan' ? BrowserProfileCaptureRequestService::MEITUAN_DEFAULT_SECTIONS : 'traffic');
@@ -579,7 +581,14 @@ class PlatformProfileLogin extends Command
             $hotelId = trim((string)($request['hotel_id'] ?? $request['hotelId'] ?? ''));
             $args[] = '--profile-id=' . $profileId;
             $args[] = '--system-hotel-id=' . (string)($request['system_hotel_id'] ?? '');
-            $args[] = '--sections=' . $this->safeSections($request['sections'] ?? $request['capture_sections'] ?? 'business_overview', 'business_overview');
+            $args[] = '--sections=' . $this->safeSections(
+                $request['sync_capture_sections']
+                ?? $request['syncCaptureSections']
+                ?? $request['sections']
+                ?? $request['capture_sections']
+                ?? 'business_overview',
+                'business_overview'
+            );
             $args[] = '--login-url=https://ebooking.ctrip.com/home/mainland';
             if ($hotelId !== '') {
                 $args[] = '--hotel-id=' . $hotelId;
@@ -604,7 +613,13 @@ class PlatformProfileLogin extends Command
             if ($poiName !== '') {
                 $args[] = '--poi-name=' . $poiName;
             }
-            $args[] = '--sections=' . BrowserProfileCaptureRequestService::normalizeMeituanProfileSections($request['sections'] ?? $request['capture_sections'] ?? BrowserProfileCaptureRequestService::MEITUAN_DEFAULT_SECTIONS);
+            $args[] = '--sections=' . BrowserProfileCaptureRequestService::normalizeMeituanProfileSections(
+                $request['sync_capture_sections']
+                ?? $request['syncCaptureSections']
+                ?? $request['sections']
+                ?? $request['capture_sections']
+                ?? BrowserProfileCaptureRequestService::MEITUAN_DEFAULT_SECTIONS
+            );
             $adsUrl = trim((string)($request['ads_url'] ?? $request['adsUrl'] ?? ''));
             if ($adsUrl !== '') {
                 $args[] = '--ads-url=' . $adsUrl;

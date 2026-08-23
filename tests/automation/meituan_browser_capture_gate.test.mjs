@@ -31,20 +31,24 @@ test('Meituan source identity requires one OTA-observed identifier matching the 
   assert.equal(matched.status, 'matched');
   assert.equal(matched.source_validation, true);
   assert.equal(matched.validated_identifier, 'poi-1');
+  assert.equal(matched.sensitive_values_exposed, false);
 
   const mismatch = evaluateMeituanPlatformIdentity(['poi-1'], ['poi-2']);
   assert.equal(mismatch.status, 'mismatch');
   assert.equal(mismatch.source_validation, false);
+  assert.equal(mismatch.sensitive_values_exposed, false);
 
   const ambiguous = evaluateMeituanPlatformIdentity(['poi-1'], ['poi-1', 'poi-2']);
   assert.equal(ambiguous.status, 'ambiguous');
   assert.equal(ambiguous.source_validation, false);
+  assert.equal(ambiguous.sensitive_values_exposed, false);
 });
 
 test('collector never promotes the configured Profile key into OTA source identity', () => {
   const source = readFileSync('scripts/meituan_browser_capture.mjs', 'utf8');
   assert.match(source, /platform_identity_validation/);
   assert.match(source, /evaluateMeituanPlatformIdentity/);
+  assert.match(source, /status: 'not_checked_login_only',[\s\S]*sensitive_values_exposed: false/);
   assert.doesNotMatch(source, /next\.storeId\s*=\s*storeId/);
   assert.doesNotMatch(source, /next\.store_id\s*=\s*storeId/);
 });

@@ -104,6 +104,14 @@ ${helperReferences}
 test('startup artifacts are deterministic, current, smaller, and preserve exported helper APIs', async () => {
   const inspection = await inspectFrontendStartupHelpers(repoRoot);
   assert.deepEqual(inspection.failures, []);
+  assert.ok(
+    FRONTEND_STARTUP_HELPER_SOURCES.includes('ota-profile-static.js'),
+    'OTA Profile login helpers must load before app-main initializes authenticated state',
+  );
+  assert.ok(
+    !FRONTEND_DEFERRED_HELPER_SOURCES.includes('ota-profile-static.js'),
+    'OTA Profile login helpers cannot race app-main in the deferred phase',
+  );
   assert.ok(inspection.metrics.gzip_savings_bytes >= 50_000);
   assert.equal(
     inspection.metrics.request_savings,
@@ -148,6 +156,7 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
     clearTimeout,
   });
   const sourceSandbox = createSandbox();
+  const startupOnlySandbox = createSandbox();
   const artifactSandbox = createSandbox();
   vm.runInNewContext(
     [...sourceEntries, ...deferredSourceEntries].map((item) => item.source).join('\n;\n'),
@@ -157,6 +166,14 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
   vm.runInNewContext(artifact, artifactSandbox, {
     filename: 'public/app-startup-helpers.min.js',
   });
+  vm.runInNewContext(artifact, startupOnlySandbox, {
+    filename: 'public/app-startup-helpers.min.js',
+  });
+  assert.equal(
+    typeof startupOnlySandbox.window.SUXI_OTA?.preferredBrowserProfileDataSource,
+    'function',
+    'the startup artifact must expose OTA Profile selection before deferred assets load',
+  );
   vm.runInNewContext(deferredArtifact, artifactSandbox, {
     filename: 'public/app-deferred-helpers.min.js',
   });
@@ -165,6 +182,7 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
     'SUXI_SHARED_COMPONENTS',
     'SUXI_CTRIP_STATIC',
     'SUXI_MEITUAN_STATIC',
+    'SUXI_OTA',
     'SUXI_SYSTEM_STATIC',
     'SUXI_COMPASS_STATIC',
     'SUXI_HOME_STATIC',

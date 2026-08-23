@@ -1272,6 +1272,7 @@
 | qunar_competitor_avg_visitor | 去哪儿竞争圈平均访客 | qunarCompetitorAvgNumber | - |
 | source_name | 流量来源 | sourceName, sourceNameTag | - |
 | keyword | 搜索关键词 | keyword, searchKeyword, filterWords | - |
+| order_submit_user | 今日实时订单提交量 | orderQuantity | 今日实时页订单概览返回的当前订单量；只在实时采集计划中作为订单提交事实 |
 
 ### traffic_order_trend
 
