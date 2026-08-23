@@ -326,3 +326,15 @@ test('AI daily competition export stays identity-bound and escapes rendered fact
   assert.equal(mismatch.ok, false);
   assert.equal(mismatch.code, 'competition_report_identity_mismatch');
 });
+
+test('AI daily competition export caller forwards the persisted exact-readback receipt', async () => {
+  const source = await readFile(new URL('../../public/app-main.js', import.meta.url), 'utf8');
+  const start = source.indexOf('const downloadAiDailyCompetitionReportHtml =');
+  const end = source.indexOf('const copyAiDailyCompetitionXiaohongshuDraft =', start);
+  assert.ok(start >= 0 && end > start, 'competition export caller must stay discoverable');
+  const caller = source.slice(start, end);
+  assert.match(
+    caller,
+    /readbackReceipt:\s*aiDailyReport\.value\?\.competition_bundle_readback\s*\|\|\s*\{\}/,
+  );
+});

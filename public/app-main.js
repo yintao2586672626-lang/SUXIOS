@@ -25085,7 +25085,7 @@
                 const exportResult = buildAiDailyCompetitionReportExport({
                     report,
                     bundle,
-                    reportId,
+                    reportId, readbackReceipt: aiDailyReport.value?.competition_bundle_readback || {},
                     fallbackReportDate: aiDailyReport.value?.report_date || '',
                     qualityText: aiDailyReportCompetitionQualityText.value,
                     editionText: aiDailyReportCompetitionEditionText.value, requestedEdition: edition,
